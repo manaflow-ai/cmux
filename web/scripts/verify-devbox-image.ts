@@ -2,10 +2,9 @@
 /**
  * Post-bake verification for the cmux Cloud devbox images, run directly
  * against the provider SDKs. Boots ONE sandbox for the named provider,
- * asserts everything the devbox promises (pinned agents, the toolchain,
+ * asserts everything the devbox promises (pinned agents, mise toolchain,
  * devtools, Chrome + cua-driver, ble.sh ghost text under a real PTY, the
- * agent-config generator byte-identical to this checkout, the desktop
- * contract on a desktop image), then asserts the
+ * agent-config generator byte-identical to this checkout), then asserts the
  * daemon contract with NO bootstrap of its own: the baked cmux-tui daemon must
  * come up by itself after resume, bound to this machine's instance id, with
  * the binary at the current files.cmux.com pin. A second machine from the same
@@ -22,29 +21,23 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
-import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
   CMUX_TUI_SESSION,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_DESKTOP_INSTALLS, DEVBOX_INSTANCE_ID_COMMAND, devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
 import {
-  DEVBOX_DESKTOP_DISPLAY,
-  DEVBOX_DESKTOP_ENV_FILE,
-  DEVBOX_DESKTOP_HOME,
-  DEVBOX_DESKTOP_NOVNC_PORT,
-  DEVBOX_DESKTOP_RFB_PORT,
-  DEVBOX_DESKTOP_START_SCRIPT,
-  DEVBOX_DESKTOP_SUPERVISOR,
-  DEVBOX_DESKTOP_UNIT,
-  DEVBOX_DESKTOP_USER,
-} from "../services/vms/images/desktop";
+  DEVBOX_INSTANCE_ID_COMMAND,
+  devboxAgentPins,
+  devboxDesktopDir,
+  devboxDir,
+  devboxTerminfoCheckCommand,
+  sha256File,
+} from "./devbox-image-common";
 
 const pins = devboxAgentPins();
 const shaOf = (name: string): string => sha256File(path.join(devboxDir, name));
-/** A TCP port as the 4-hex-digit form /proc/net/tcp prints. */
-const hexPort = (port: number): string => port.toString(16).toUpperCase().padStart(4, "0");
+const desktopShaOf = (name: string): string => sha256File(path.join(devboxDesktopDir, name));
 
 // Every file the image bakes from this checkout must ship byte-identical.
 const FILE_PIN_CHECKS = [
@@ -90,7 +83,7 @@ const CHECKS: readonly string[] = [
   // header: the edge injects it) and persists every var 0600; the
   // unreachable config endpoint writes no opencode config; the image ships
   // no pre-generated config for root.
-  `rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && grep -q 'base_url = "https://' /root/.codex/config.toml && grep -qF "${DEFAULT_VM_EDGE_ALIAS_DOMAIN}/v1" /root/.codex/config.toml && ! grep -q crt_ /root/.codex/config.toml && ! grep -q crt_ /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok`,
+  "rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = \"cmux\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = \"responses\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q \"export OPENAI_API_KEY='cmux-vm-edge-placeholder'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q \"export CMUX_VM_ID='vm-check'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ \"$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)\" = \"600\" ] && grep -qF '\"apiKey\": \"e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok",
   "grep -q cleanupPeriodDays /etc/claude-code/managed-settings.json && echo claude-retention-ok",
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
@@ -113,64 +106,41 @@ const DAEMON_CHECKS: readonly string[] = [
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
   `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
-  // The static model-plane env is baked; a shell with no boot env sources it.
-  `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
+  "test -d /root/.config/cmux && echo model-plane-env-dir-baked",
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
 ];
 
-// The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"),
-// the contract in web/services/vms/images/desktop.ts: the cmux-desktop
-// systemd unit runs start-vnc.sh as the work user, RFB 5901 (hex 170D) is
-// loopback-only, noVNC answers on 6901 (hex 1AF5), the window manager, dock,
-// clipboard helper and accessibility bus are up, the wallpaper is on the
-// root window, root reaches the display too, exactly one desktop supervisor
-// runs (systemd's), every login shell inherits DISPLAY from the published
-// session env (the work user's also its buses), cua-driver's doctor sees the
-// display and the accessibility bus, Ghostty and Chrome are installed with
-// first run pre-accepted, and every desktop file ships byte-identical at the
-// path DEVBOX_DESKTOP_INSTALLS names. Hashed lazily: a base-only
-// verification must not read the desktop assets.
-const desktopFilePinChecks = (): string[] =>
-  DEVBOX_DESKTOP_INSTALLS.map((install) => `echo '${sha256File(path.join(devboxDir, install.source))}  ${install.target}' | sha256sum -c -`);
-
-/** One login shell as `user` (its own HOME, a clean PATH) running `command`. */
-const loginAs = (user: string, home: string, command: string): string =>
-  `sudo -n -u ${user} env -i HOME=${home} USER=${user} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
-/** One root login shell with a clean environment running `command`. */
-const rootLogin = (command: string): string =>
-  `env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
+// The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"):
+// the cmux-desktop systemd unit runs start-vnc.sh as cua, RFB 5901 (hex 170D)
+// is loopback-only, noVNC answers on 6901 (hex 1AF5), the dock and window
+// manager are up, Ghostty and Chrome are installed with first run
+// pre-accepted, and every desktop file ships byte-identical.
+// Hashed lazily: a base-only verification must not read the desktop assets.
+const desktopFilePinChecks = (): string[] => [
+  ["start-vnc.sh", "/usr/local/bin/start-vnc.sh"],
+  ["cmux-desktop-boot", "/usr/local/bin/cmux-desktop-boot"],
+  ["cmux-desktop.service", "/etc/systemd/system/cmux-desktop.service"],
+  ["tint2rc", "/etc/cmux/tint2rc"],
+  ["wallpaper.jpg", "/usr/share/backgrounds/cmux/wallpaper.jpg"],
+  ["google-chrome-cmux.desktop", "/etc/cmux/apps/google-chrome-cmux.desktop"],
+  ["thunar-cmux.desktop", "/etc/cmux/apps/thunar-cmux.desktop"],
+  ["ghostty-cmux.desktop", "/etc/cmux/apps/ghostty-cmux.desktop"],
+].map(([source, target]) => `echo '${desktopShaOf(source)}  ${target}' | sha256sum -c -`);
 
 const desktopChecks = (): readonly string[] => [
-  `systemctl is-active ${DEVBOX_DESKTOP_UNIT} >/dev/null && echo desktop-unit-active`,
-  // Readiness is the unit's own signal: Type=notify, READY sent by start-vnc.sh.
-  `[ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p Type --value)" = notify ] && [ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p NotifyAccess --value)" = all ] && echo desktop-unit-notify-ready`,
-  `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-listening`,
+  "systemctl is-active cmux-desktop >/dev/null && echo desktop-unit-active",
+  "awk '$2 ~ /:170D$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-listening",
   // 5901 must be loopback-only: every listener on it is bound to 127.0.0.1 (0100007F) or ::1.
-  `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" && $2 !~ /^0100007F:/ && $2 !~ /^00000000000000000000000001000000:/ { bad=1 } END { exit bad }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-loopback-only`,
-  `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_NOVNC_PORT)}$/ && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo novnc-6901-listening`,
-  `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-client`,
+  "awk '$2 ~ /:170D$/ && $4 == \"0A\" && $2 !~ /^0100007F:/ && $2 !~ /^00000000000000000000000001000000:/ { bad=1 } END { exit bad }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-loopback-only",
+  "awk '$2 ~ /:1AF5$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo novnc-6901-listening",
+  "curl -fsS http://127.0.0.1:6901/ | grep -qi novnc && echo novnc-6901-serves-client",
   // start-vnc.sh runs whichever of Xvnc/Xtigervnc is on PATH; the process
   // name follows the invoked path (Ubuntu's Xvnc is a symlink to Xtigervnc).
-  `pgrep -u ${DEVBOX_DESKTOP_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x openbox >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x tint2 >/dev/null && echo desktop-session-ok`,
-  `pgrep -u ${DEVBOX_DESKTOP_USER} -x vncconfig >/dev/null && echo clipboard-helper-ok`,
-  `pgrep -u ${DEVBOX_DESKTOP_USER} -f at-spi-bus-launcher >/dev/null && echo accessibility-bus-ok`,
-  `pgrep -u ${DEVBOX_DESKTOP_USER} -x websockify >/dev/null || pgrep -u ${DEVBOX_DESKTOP_USER} -f websockify >/dev/null && echo websockify-ok`,
-  // One supervisor: systemd's. cmux-devbox-boot must not start a second one
-  // on a machine with systemd.
-  `[ "$(pgrep -u ${DEVBOX_DESKTOP_USER} -f ${DEVBOX_DESKTOP_SUPERVISOR} | wc -l)" = 1 ] && echo single-desktop-supervisor`,
-  `runuser -u ${DEVBOX_DESKTOP_USER} -- env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xdpyinfo | grep dimensions`,
-  `env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xdpyinfo >/dev/null && echo root-reaches-display`,
-  `env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xprop -root _XROOTPMAP_ID | grep -q 0x && echo wallpaper-on-root-window`,
-  `grep -q "^export DISPLAY='${DEVBOX_DESKTOP_DISPLAY}'$" ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS_ADDRESS=' ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS=' ${DEVBOX_DESKTOP_ENV_FILE} && echo session-env-published`,
-  `[ "$(${rootLogin('echo "$DISPLAY"')})" = "${DEVBOX_DESKTOP_DISPLAY}" ] && [ -z "$(${rootLogin('echo "$DBUS_SESSION_BUS_ADDRESS"')})" ] && echo root-login-display-ok`,
-  `[ "$(${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'echo "$DISPLAY"')})" = "${DEVBOX_DESKTOP_DISPLAY}" ] && ${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'test -n "$DBUS_SESSION_BUS_ADDRESS" && test -n "$AT_SPI_BUS_ADDRESS"')} && echo ubuntu-login-display-ok`,
-  // The accessibility bus itself answers a client (the registry activates on demand).
-  `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, 'gdbus introspect --session --dest org.a11y.Bus --object-path /org/a11y/bus >/dev/null && gdbus call --address "$AT_SPI_BUS_ADDRESS" --dest org.a11y.atspi.Registry --object-path /org/a11y/atspi/accessible/root --method org.a11y.atspi.Accessible.GetChildren >/dev/null')} && echo accessibility-bus-answers`,
-  `${loginAs(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "cua-driver doctor")} 2>&1 | tee /tmp/cua-doctor.txt | grep -q 'X11 connection: connected' && grep -q 'AT-SPI: bus address present' /tmp/cua-doctor.txt && ! grep -q 'accessibility bus not reachable' /tmp/cua-doctor.txt && rm -f /tmp/cua-doctor.txt && echo cua-driver-sees-desktop`,
+  "pgrep -u ubuntu -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ubuntu -x openbox >/dev/null && pgrep -u ubuntu -x tint2 >/dev/null && echo desktop-session-ok",
+  "runuser -u ubuntu -- env DISPLAY=:1 xdpyinfo | grep dimensions",
   "ghostty +version | head -1",
-  `test -f '${DEVBOX_DESKTOP_HOME}/.config/google-chrome/First Run' && echo chrome-first-run-ok`,
+  "test -f '/home/ubuntu/.config/google-chrome/First Run' && echo chrome-first-run-ok",
   "test -s /etc/cmux/icons/google-chrome.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && echo dock-icons-ok",
-  `test -x ${DEVBOX_DESKTOP_START_SCRIPT} && grep -q '/etc/cmux/desktop-env.sh' /etc/profile.d/cmux-desktop.sh && grep -q '/etc/cmux/desktop-env.sh' ${DEVBOX_DESKTOP_HOME}/.bashrc && grep -q '/etc/cmux/desktop-env.sh' /root/.bashrc && echo desktop-env-chained`,
   ...desktopFilePinChecks(),
 ];
 
@@ -190,6 +160,10 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // would itself leave root-owned state dirs behind.
   ...pins.map((pin) => `sudo -n -u ubuntu env -i HOME=/home/ubuntu USER=ubuntu TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ${pin.binary} --version | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-nonlogin-pin-ok`),
   "systemctl show cmux-tui-daemon -p Environment | grep -q 'PATH=/usr/local/sbin:/usr/local/bin:' && echo daemon-env-path-ok",
+  // The cmux terminfo overlay is what every daemon-spawned shell resolves
+  // TERM against; also proved as the work user so no ~/.terminfo shadows it.
+  devboxTerminfoCheckCommand,
+  "sudo -n -u ubuntu env -i HOME=/home/ubuntu TERM=xterm-256color PATH=/usr/bin:/bin sh -c 'tput setaf 8 | od -An -tx1 | tr -d \" \\n\"' | grep -qx 1b5b33383b353b386d && echo ubuntu-terminfo-ok",
   "docker --version && sudo -n -u ubuntu docker ps >/dev/null && echo docker-ok",
   // Home hygiene: nothing root-owned in the work user's home, ble.sh's
   // fallback state dir writable, the legal-notice marker present, and two
@@ -350,7 +324,7 @@ if (provider === "freestyle") {
       ...FREESTYLE_BASE_CHECKS,
       ...(desktop
         ? desktopChecks()
-        : [`test ! -e ${DEVBOX_DESKTOP_START_SCRIPT} && echo base-image-has-no-desktop`]),
+        : ["test ! -e /usr/local/bin/start-vnc.sh && echo base-image-has-no-desktop"]),
     ], exec);
   } finally {
     await vm.delete();

@@ -236,6 +236,20 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY seed-history /etc/cmux/seed-history
+# The cmux app's terminfo overlay (Resources/terminfo-overlay as infocmp
+# source): Ghostty's entry under xterm-ghostty and under xterm-256color, the
+# TERM cmux exports, with bright colors 8-15 as indexed 38;5;n. Guest
+# programs resolve TERM here, and stock ncurses xterm-256color lacks Tc/Su
+# and turns `setaf 8` into SGR 90. /etc/terminfo outranks /lib and /usr/share
+# in ncurses' search path. Must precede the ble.sh cache seed below, which
+# caches per-TERM tput output.
+COPY cmux-terminfo.src /etc/cmux/terminfo.src
+RUN tic -x -o /etc/terminfo /etc/cmux/terminfo.src \
+  && chmod -R a+rX /etc/terminfo \
+  && for t in xterm-ghostty xterm-256color; do \
+       [ "$(tput -T$t colors)" = 256 ] && infocmp -x $t | grep -qw Tc \
+       && [ "$(tput -T$t setaf 8 | od -An -tx1 | tr -d ' \n')" = 1b5b33383b353b386d ] || exit 1; \
+     done
 RUN bash -n /etc/cmux/bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/bash.bashrc \
   && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> /etc/skel/.bashrc \

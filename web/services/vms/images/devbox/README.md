@@ -100,6 +100,21 @@ a public URL. `desktopWrapper.ts` stays the seam for a future public TLS
 edge. The daemon still runs as root, so root shells get `DISPLAY` but not
 the session bus.
 
+## Terminal capabilities (`cmux-terminfo.src`)
+
+Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or
+`xterm-ghostty` when passed through) plus `COLORTERM=truecolor`, but
+programs resolve TERM against the guest's terminfo. Stock ncurses
+`xterm-256color` advertises no truecolor (`Tc`) or styled underlines (`Su`)
+and emits SGR 90 for `setaf 8`, which the cmux renderer shows as invisible
+ghost text. `cmux-terminfo.src` is the app's `Resources/terminfo-overlay`
+(Ghostty's entry under both names, bright colors 8-15 as `38;5;n`) as
+`infocmp -x` source; the bake compiles it into `/etc/terminfo`, ahead of
+`/lib` and `/usr/share` in ncurses' search order, before seeding ble.sh's
+per-TERM tput caches. Regenerate it from a cmux checkout with the command in
+its header when the overlay changes; `vm-devbox-image.test.ts` compiles and
+queries it, and `verify-devbox-image.ts` proves the same on a fresh machine.
+
 ## Session daemon: cmux-tui
 
 Machines attach through the cmux-tui remote daemon on port 1337

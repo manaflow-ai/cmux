@@ -60,17 +60,11 @@
  * daemon still runs as root until the driver adopts the ubuntu user for
  * sessions.
  *
- * Desktop contract (web/services/vms/images/desktop.ts, desktop/start-vnc.sh):
- * RFB 5901 loopback, noVNC 6901, run as `ubuntu` by the cmux-desktop systemd
- * unit, which publishes DISPLAY and the accessibility bus at
- * /run/cmux-desktop/env for every other shell (/etc/cmux/desktop-env.sh). The
- * desktop packages, files and the Ghostty .deb come from the Dockerfile
- * (devbox-image-common.ts reads them), so the container recipe and this bake
- * cannot drift.
+ * Desktop contract (desktop/start-vnc.sh): RFB 5901 loopback, noVNC 6901,
+ * run as `ubuntu` by the cmux-desktop systemd unit.
  */
 import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
-import { VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile, vmGuestModelPlaneEnv } from "../services/coderouter/vmGuestEnv";
 import {
   CMUX_TUI_SESSION,
   cmuxTuiInstallCommand,
@@ -78,33 +72,19 @@ import {
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
-  DEVBOX_DESKTOP_INSTALLS,
+  DEVBOX_GHOSTTY_DEB_URL,
+  devboxTerminfoInstallCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
   devboxCuaDriverVersion,
-  devboxDesktopPackages,
   devboxFileBytes,
-  devboxGhosttyDebSha256,
-  devboxGhosttyDebUrl,
   devboxParkDaemonCommand,
   emitBakeResult,
   hasFlag,
   manifestEntrySkeleton,
 } from "./devbox-image-common";
-import {
-  DEVBOX_DESKTOP_DISPLAY,
-  DEVBOX_DESKTOP_ENV_FILE,
-  DEVBOX_DESKTOP_HOME,
-  DEVBOX_DESKTOP_NOVNC_PORT,
-  DEVBOX_DESKTOP_RFB_PORT,
-  DEVBOX_DESKTOP_RUNTIME_DIR,
-  DEVBOX_DESKTOP_START_SCRIPT,
-  DEVBOX_DESKTOP_SUPERVISOR,
-  DEVBOX_DESKTOP_UNIT,
-  DEVBOX_DESKTOP_USER,
-} from "../services/vms/images/desktop";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -143,11 +123,11 @@ const BUILD_ENV = {
   LANG: "C.UTF-8",
 };
 
-/** The work user: the base's uid-1000 account, the API and SSH default, and the desktop session's user. */
-const WORK_USER = DEVBOX_DESKTOP_USER;
+/** The work user: the base's uid-1000 account, the API and SSH default. */
+const WORK_USER = "ubuntu";
 
 const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
-const WORK_HOME = DEVBOX_DESKTOP_HOME;
+const WORK_HOME = `/home/${WORK_USER}`;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
 const { vm, vmId } = await fs.vms.create({
@@ -283,6 +263,17 @@ try {
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("seed-history", "/etc/cmux/seed-history");
+  // Terminal capabilities: the cmux app exports TERM=xterm-256color and ships
+  // its own patched entry (Resources/terminfo-overlay: Ghostty's terminfo
+  // under both names, bright colors 8-15 as indexed 38;5;n). Guest programs
+  // resolve TERM against the guest's terminfo, so without this they get the
+  // stock ncurses xterm-256color: no Tc/Su/fullkbd, and `setaf 8` as SGR 90,
+  // the zsh-autosuggestions-style invisible-ghost-text bug the overlay fixes
+  // locally. /etc/terminfo precedes /lib and /usr/share in ncurses' search
+  // path, so this survives ncurses-base upgrades. Must run BEFORE the ble.sh
+  // cache seed below: ble.sh caches per-TERM tput output.
+  await put("cmux-terminfo.src", "/etc/cmux/terminfo.src");
+  await step("terminfo", devboxTerminfoInstallCommand);
   await step(
     "devshell",
     `curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/ble-nightly.tar.xz -o /tmp/ble.tar.xz && tar xJf /tmp/ble.tar.xz -C /tmp && rm -rf /usr/local/share/blesh && mv /tmp/ble-nightly /usr/local/share/blesh && rm -f /tmp/ble.tar.xz && test -f /usr/local/share/blesh/ble.sh && bash -n /etc/cmux/bashrc && ${rcFiles.map((rc) => `echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' >> ${rc}`).join(" && ")} && echo 'set -g default-shell /bin/bash' >> /etc/tmux.conf && bash -ic 'head -2 $HOME/.bash_history' && mkdir -p /etc/cmux/blesh-cache-seed /tmp/blesh-seed-home && echo '[ -f /etc/cmux/bashrc ] && . /etc/cmux/bashrc' > /tmp/blesh-seed-home/.bashrc && for term in xterm-256color screen-256color tmux-256color linux xterm-ghostty; do echo exit | TERM="$term" HOME=/tmp/blesh-seed-home XDG_CACHE_HOME=/etc/cmux/blesh-cache-seed script -qec 'bash -i' /dev/null >/dev/null 2>&1 || true; done && rm -rf /tmp/blesh-seed-home && chmod -R a+rX /etc/cmux/blesh-cache-seed && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-ghostty && mkdir -p /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chmod a+rwxt /usr/local/share/blesh/cache.d && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/0/ && cp /etc/cmux/blesh-cache-seed/blesh/*/term.* /usr/local/share/blesh/cache.d/1000/ && chmod 700 /usr/local/share/blesh/cache.d/0 /usr/local/share/blesh/cache.d/1000 && chown -R 1000:1000 /usr/local/share/blesh/cache.d/1000`,
@@ -305,85 +296,43 @@ try {
   );
 
   if (withDesktop) {
-    // Desktop + media stack (the Dockerfile's CMUX_IMAGE_DESKTOP_PACKAGES):
-    // TigerVNC, openbox, tint2, Thunar, feh, noVNC + websockify, the
-    // accessibility bus (at-spi2-core) and D-Bus, and the GL/Vulkan/xkb
-    // libraries Ghostty and Chrome render with under Xvnc.
+    // Desktop + media stack (Blaxel cmux-devbox apt list): TigerVNC, openbox,
+    // tint2, Thunar, feh, noVNC + websockify, and the GL/Vulkan/xkb libraries
+    // Ghostty and Chrome render with under Xvnc.
     await step(
       "desktop-apt",
-      `apt-get update -q && apt-get install -y --no-install-recommends ${devboxDesktopPackages().join(" ")} && rm -rf /var/lib/apt/lists/* && { [ -e /usr/share/novnc/index.html ] || ln -s vnc.html /usr/share/novnc/index.html; } && command -v Xtigervnc && command -v vncconfig && command -v websockify && command -v openbox && command -v tint2 && command -v dbus-launch && command -v dbus-send && command -v gdbus && command -v feh && command -v thunar && { test -x /usr/libexec/at-spi-bus-launcher || test -x /usr/lib/at-spi2-core/at-spi-bus-launcher; }`,
+      "apt-get update -q && apt-get install -y --no-install-recommends tigervnc-standalone-server tigervnc-tools openbox tint2 thunar feh novnc websockify at-spi2-core dbus-x11 x11-xserver-utils xdg-utils adwaita-icon-theme libgl1-mesa-dri mesa-vulkan-drivers libvulkan1 libxkbcommon0 libxkbcommon-x11-0 netcat-openbsd && rm -rf /var/lib/apt/lists/* && { [ -e /usr/share/novnc/index.html ] || ln -s vnc.html /usr/share/novnc/index.html; } && command -v Xtigervnc && command -v websockify && command -v openbox && command -v tint2",
     );
 
-    // Ghostty: the Dockerfile's pinned community .deb for Ubuntu 24.04 (no
-    // upstream .deb exists), verified against the Dockerfile's SHA-256 before
-    // dpkg runs as root. libgl1-mesa-dri above is the software GL its
-    // renderer uses.
+    // Ghostty: pinned community .deb for Ubuntu 24.04 (no upstream .deb
+    // exists). libgl1-mesa-dri above is the software GL its renderer uses.
     await step(
       "ghostty",
-      `curl -fsSL -o /tmp/ghostty.deb ${devboxGhosttyDebUrl()} && echo '${devboxGhosttyDebSha256()}  /tmp/ghostty.deb' | sha256sum -c - && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb && ghostty +version | head -1`,
+      `curl -fsSL -o /tmp/ghostty.deb ${DEVBOX_GHOSTTY_DEB_URL} && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb && ghostty +version | head -1`,
     );
 
-    // Every desktop file, at the path the Dockerfile COPYs it to
-    // (DEVBOX_DESKTOP_INSTALLS is the one map). Dock launchers and icons
-    // live under /etc/cmux so the dock never depends on a distro's
-    // /usr/share/applications or icon-theme layout.
+    // Dock launchers and icons live under /etc/cmux so the dock never depends
+    // on a distro's /usr/share/applications or icon-theme layout.
     await step("desktop-dirs", "mkdir -p /etc/cmux/apps /etc/cmux/icons /usr/share/backgrounds/cmux");
-    for (const install of DEVBOX_DESKTOP_INSTALLS) {
-      await put(install.source, install.target, install.mode);
-    }
+    await put("desktop/google-chrome-cmux.desktop", "/etc/cmux/apps/google-chrome-cmux.desktop");
+    await put("desktop/thunar-cmux.desktop", "/etc/cmux/apps/thunar-cmux.desktop");
+    await put("desktop/ghostty-cmux.desktop", "/etc/cmux/apps/ghostty-cmux.desktop");
+    await put("desktop/tint2rc", "/etc/cmux/tint2rc");
+    await put("desktop/wallpaper.jpg", "/usr/share/backgrounds/cmux/wallpaper.jpg");
+    await put("desktop/start-vnc.sh", "/usr/local/bin/start-vnc.sh", 0o755);
+    await put("desktop/cmux-desktop-boot", "/usr/local/bin/cmux-desktop-boot", 0o755);
+    await put("desktop/cmux-desktop.service", "/etc/systemd/system/cmux-desktop.service");
     await step(
       "desktop-icons",
       "cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png && cp \"$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)\" /etc/cmux/icons/thunar.png && cp \"$(find /usr/share/icons -name 'com.mitchellh.ghostty.png' -path '*128*' | head -1)\" /etc/cmux/icons/ghostty.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && test -s /etc/cmux/icons/google-chrome.png",
     );
 
     // Bring the desktop up under systemd as the work user and prove the
-    // contract. `systemctl enable --now` returns only once the Type=notify
-    // unit has reported READY (start-vnc.sh: display accepting connections,
-    // noVNC bound, session env published), so nothing here polls. Then: both
-    // ports answer (RFB loopback-only), noVNC serves its client, the window
-    // manager, dock, clipboard helper and accessibility bus run, the
-    // wallpaper is on the root window, root can reach the display too (cmux
-    // sessions run as root), exactly one desktop supervisor exists (systemd's;
-    // cmux-devbox-boot must not start a second one under systemd), login
-    // shells of both accounts inherit DISPLAY from the published env, the
-    // work user's also the accessibility and session buses, and cua-driver's
-    // doctor sees the display and the accessibility bus. The "First Run"
-    // marker pre-accepts Chrome's first-run/ToS dialog (cmux-desktop-boot
-    // re-asserts it on every boot).
-    const desktopEnvLine = `'[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh'`;
-    /** One login shell as `user` (its own HOME, a clean PATH) running `command`. */
-    const loginAs = (user: string, home: string, command: string): string =>
-      `sudo -n -u ${user} env -i HOME=${home} USER=${user} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
+    // contract ports answer. The "First Run" marker pre-accepts Chrome's
+    // first-run/ToS dialog (cmux-desktop-boot re-asserts it on every boot).
     await step(
       "desktop-unit",
-      [
-        `bash -n ${DEVBOX_DESKTOP_START_SCRIPT} && sh -n ${DEVBOX_DESKTOP_SUPERVISOR} && sh -n /etc/cmux/desktop-env.sh`,
-        `grep -q '^User=${WORK_USER}$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
-        `grep -q '^RuntimeDirectory=${DEVBOX_DESKTOP_RUNTIME_DIR.replace("/run/", "")}$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
-        `grep -q '^Type=notify$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service && grep -q '^NotifyAccess=all$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
-        `echo ${desktopEnvLine} > /etc/profile.d/cmux-desktop.sh`,
-        ...rcFiles.map((rc) => `echo ${desktopEnvLine} >> ${rc}`),
-        `mkdir -p ${WORK_HOME}/.config/google-chrome && touch '${WORK_HOME}/.config/google-chrome/First Run' && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}/.config`,
-        `systemctl daemon-reload && systemctl enable --now ${DEVBOX_DESKTOP_UNIT} && systemctl is-active ${DEVBOX_DESKTOP_UNIT}`,
-        `[ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p Type --value)" = notify ] && [ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p NotifyAccess --value)" = all ]`,
-        `test -s ${DEVBOX_DESKTOP_ENV_FILE}`,
-        `ss -tln | grep -q ':${DEVBOX_DESKTOP_RFB_PORT} ' && ss -tln | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`,
-        `ss -tln | grep ':${DEVBOX_DESKTOP_RFB_PORT} ' | grep -q '127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}'`,
-        `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc`,
-        `pgrep -u ${WORK_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${WORK_USER} -x openbox >/dev/null && pgrep -u ${WORK_USER} -x tint2 >/dev/null && pgrep -u ${WORK_USER} -x vncconfig >/dev/null && pgrep -u ${WORK_USER} -f at-spi-bus-launcher >/dev/null`,
-        `[ "$(pgrep -u ${WORK_USER} -f ${DEVBOX_DESKTOP_SUPERVISOR} | wc -l)" = 1 ]`,
-        `systemctl is-active ${DEVBOX_DESKTOP_UNIT}`,
-        `runuser -u ${WORK_USER} -- env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xdpyinfo | grep dimensions`,
-        `env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xdpyinfo >/dev/null`,
-        `env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xprop -root _XROOTPMAP_ID | grep -q 0x`,
-        `grep -q "^export DISPLAY='${DEVBOX_DESKTOP_DISPLAY}'$" ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS_ADDRESS=' ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS=' ${DEVBOX_DESKTOP_ENV_FILE}`,
-        `[ "$(env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'echo "$DISPLAY"')" = "${DEVBOX_DESKTOP_DISPLAY}" ]`,
-        `[ -z "$(env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'echo "$DBUS_SESSION_BUS_ADDRESS"')" ]`,
-        `[ "$(${loginAs(WORK_USER, WORK_HOME, 'echo "$DISPLAY"')})" = "${DEVBOX_DESKTOP_DISPLAY}" ]`,
-        loginAs(WORK_USER, WORK_HOME, 'test -n "$DBUS_SESSION_BUS_ADDRESS" && test -n "$AT_SPI_BUS_ADDRESS"'),
-        `${loginAs(WORK_USER, WORK_HOME, "cua-driver doctor")} > /tmp/cua-doctor.txt 2>&1; cat /tmp/cua-doctor.txt; grep -q 'X11 connection: connected' /tmp/cua-doctor.txt && grep -q 'AT-SPI: bus address present' /tmp/cua-doctor.txt && ! grep -q 'accessibility bus not reachable' /tmp/cua-doctor.txt && rm -f /tmp/cua-doctor.txt`,
-        "echo desktop-ok",
-      ].join(" && "),
+      `bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && grep -q '^User=${WORK_USER}$' /etc/systemd/system/cmux-desktop.service && mkdir -p ${WORK_HOME}/.config/google-chrome && touch '${WORK_HOME}/.config/google-chrome/First Run' && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}/.config && systemctl daemon-reload && systemctl enable --now cmux-desktop && for i in $(seq 1 60); do ss -tln | grep -q ':6901 ' && ss -tln | grep -q ':5901 ' && break; sleep 1; done && ss -tln | grep -q ':5901 ' && ss -tln | grep -q ':6901 ' && curl -fsS http://127.0.0.1:6901/ | grep -qi novnc && pgrep -u ${WORK_USER} -x openbox >/dev/null && pgrep -u ${WORK_USER} -x tint2 >/dev/null && systemctl is-active cmux-desktop && runuser -u ${WORK_USER} -- env DISPLAY=:1 xdpyinfo | grep dimensions`,
     );
   }
 
@@ -454,12 +403,6 @@ try {
     `mkdir -p /usr/local/share/blesh/state.d && chmod a+rwxt /usr/local/share/blesh/state.d && for h in ${WORK_HOME} /root /etc/skel; do mkdir -p "$h/.cache" "$h/.local/state" && touch "$h/.cache/motd.legal-displayed"; done && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME} && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && ${interactiveShellProbe(1)} && ${interactiveShellProbe(2)} && sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm-256color bash -c 'tmux -L bake new-session -d -s ghost -x 100 -y 24 && sleep 2 && tmux -L bake send-keys -t ghost cl && sleep 2 && tmux -L bake capture-pane -pt ghost | grep -o "claude --dangerously-skip-permissions" | head -1; rc=$?; tmux -L bake kill-server 2>/dev/null; exit $rc' && [ "$(find ${WORK_HOME} -not -user ${WORK_USER} | wc -l)" = 0 ] && echo home-hygiene-ok`,
   );
 
-  // The model-plane env is the same bytes for every machine (an alias host the
-  // edge routes per deployment), so it is baked and create writes nothing. It
-  // goes in after every layer that opens a login shell: once it exists, any
-  // shell materializes the harness configs, and the image must carry none.
-  await vm.fs.writeFile(VM_GUEST_MODEL_PLANE_ENV_PATH, renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv()), { mode: 0o644 });
-  await step("model-plane-env", `sh -n ${VM_GUEST_MODEL_PLANE_ENV_PATH} && grep -q "^export OPENAI_BASE_URL='https://" ${VM_GUEST_MODEL_PLANE_ENV_PATH} && ! grep -q crt_ ${VM_GUEST_MODEL_PLANE_ENV_PATH} && env -i HOME=/tmp/mp-check bash -c '. /etc/cmux/agent-config.sh; echo $OPENAI_BASE_URL' | grep -q '^https://' && rm -rf /tmp/mp-check && echo model-plane-env-baked`);
   // Stamp last: its presence tells the driver and the verifier every layer
   // above baked successfully, and which layers the image carries.
   await step(
