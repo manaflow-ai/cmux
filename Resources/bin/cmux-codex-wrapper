@@ -322,6 +322,70 @@ cmux_codex_legacy_skill_target_path() {
     fi
 }
 
+cmux_codex_lexically_normalize_path() {
+    # Codex canonicalizes an existing skill document, but keeps a lexical path
+    # when a stale document has already disappeared. Keep both cases stable
+    # without requiring a non-system `realpath` implementation.
+    local path="$1"
+    [[ "$path" = /* ]] || return 1
+    local normalized="/"
+    local remaining="${path#/}"
+    local component
+    while [[ -n "$remaining" ]]; do
+        if [[ "$remaining" == */* ]]; then
+            component="${remaining%%/*}"
+            remaining="${remaining#*/}"
+        else
+            component="$remaining"
+            remaining=""
+        fi
+        case "$component" in
+            ""|.) continue ;;
+            ..)
+                if [[ "$normalized" != "/" ]]; then
+                    normalized="${normalized%/*}"
+                    [[ -n "$normalized" ]] || normalized="/"
+                fi
+                ;;
+            *)
+                if [[ "$normalized" == "/" ]]; then
+                    normalized="/$component"
+                else
+                    normalized="$normalized/$component"
+                fi
+                ;;
+        esac
+    done
+    printf '%s' "$normalized"
+}
+
+cmux_codex_canonical_skill_path() {
+    # Match Codex's `canonicalize(path).unwrap_or(path)` rule: resolve the
+    # parent through any symlinks while the document exists, and otherwise
+    # provide a deterministic lexical path for a removed old bundle.
+    local path="$1"
+    [[ "$path" = /* ]] || return 1
+    if [[ -e "$path" ]]; then
+        local parent="${path%/*}"
+        local basename="${path##*/}"
+        local canonical_parent
+        canonical_parent="$(cd "$parent" 2>/dev/null && pwd -P)" || canonical_parent=""
+        if [[ -n "$canonical_parent" ]]; then
+            printf '%s/%s' "$canonical_parent" "$basename"
+            return 0
+        fi
+    fi
+    cmux_codex_lexically_normalize_path "$path"
+}
+
+cmux_codex_append_legacy_skill_document() {
+    local path="$1"
+    local canonical_path
+    canonical_path="$(cmux_codex_canonical_skill_path "$path" 2>/dev/null)" || canonical_path="$path"
+    [[ -n "$canonical_path" ]] || canonical_path="$path"
+    cmux_codex_append_legacy_skill_path "$canonical_path"
+}
+
 cmux_codex_collect_legacy_skill_aliases() {
     cmux_codex_legacy_skill_aliases=()
     cmux_codex_legacy_skill_paths=()
@@ -370,16 +434,16 @@ cmux_codex_collect_legacy_skill_aliases() {
             case "$resolved_target" in
                 */Contents/Resources/codex-cua|*/Contents/Resources/cmux-computer-use)
                     if [[ "$alias_name" != "cmux-cua" ]]; then
-                        cmux_codex_append_legacy_skill_path "$alias_path/SKILL.md"
+                        cmux_codex_append_legacy_skill_document "$alias_path/SKILL.md"
                     fi
-                    cmux_codex_append_legacy_skill_path "$resolved_target/SKILL.md"
+                    cmux_codex_append_legacy_skill_document "$resolved_target/SKILL.md"
                     ;;
                 */Contents/Resources/cmux-cua)
                     if [[ -n "$current_skill_dir" ]] \
                        && [[ "$resolved_target" != "$current_skill_dir" ]] \
                        && ! { [[ -d "$resolved_target" && -d "$current_skill_dir" ]] \
                              && [[ "$resolved_target" -ef "$current_skill_dir" ]]; }; then
-                        cmux_codex_append_legacy_skill_path "$resolved_target/SKILL.md"
+                        cmux_codex_append_legacy_skill_document "$resolved_target/SKILL.md"
                     fi
                     ;;
             esac

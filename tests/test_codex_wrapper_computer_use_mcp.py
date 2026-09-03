@@ -351,7 +351,10 @@ exit 1
             if preexisting_legacy_codex_link:
                 for root in (skills_root, codex_home / "skills"):
                     root.mkdir(parents=True, exist_ok=True)
-                    (root / "codex-cua").symlink_to(legacy_bundle_skill)
+                    legacy_target = legacy_bundle_skill
+                    if root == codex_home / "skills":
+                        legacy_target = Path(os.path.relpath(legacy_bundle_skill, root))
+                    (root / "codex-cua").symlink_to(legacy_target)
             if preexisting_user_codex_directory:
                 for root in (skills_root, codex_home / "skills"):
                     owned = root / "codex-cua"
@@ -698,6 +701,16 @@ def test_codex_resolves_explicit_cmux_cua_after_legacy_codex_migration(
         )
         rules = skill_rule_map(args)
         if isinstance(stale_path, str):
+            raw_stale_paths = [
+                str(entry["path"])
+                for entry in configured_skill_entries(args)
+                if not entry["enabled"]
+            ]
+            expect(
+                raw_stale_paths == [str(Path(stale_path).resolve())],
+                f"{context} stale rules must use one canonical document path: {args}",
+                failures,
+            )
             expect(
                 rules.get(str(Path(stale_path).resolve())) is False,
                 f"{context} must disable the stale codex-cua path without a name-wide rule: {args}",
