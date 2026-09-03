@@ -308,7 +308,8 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     // teardown can close exactly what this run created.
     let mut control = Conn::open(&socket)?;
     control.identify()?;
-    let initial_terminals = list_terminal_ids(&mut control)?.into_iter().map(|(id, _)| id).collect();
+    let initial_terminals =
+        list_terminal_ids(&mut control)?.into_iter().map(|(id, _)| id).collect();
     let baseline = control.request(json!({"cmd":"new-workspace"}))?;
     let baseline_surface = baseline["surface"].as_u64().ok_or("baseline surface missing")?;
     let active_pane = fetch_active_pane(&mut control)?;
@@ -527,7 +528,8 @@ fn count_child_terminal_hosts(owner_pid: u64) -> Option<u64> {
     if !cfg!(unix) {
         return None;
     }
-    let output = std::process::Command::new("ps").args(["-axo", "pid=,ppid=,command="]).output().ok()?;
+    let output =
+        std::process::Command::new("ps").args(["-axo", "pid=,ppid=,command="]).output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -723,7 +725,11 @@ fn record_create_result(
             Err(error) => {
                 // Teardown closes by catalog difference, so a failure here is
                 // reported, not fatal.
-                report.lock().unwrap().warnings.push(format!("close-terminal {terminal_id}: {error}"))
+                report
+                    .lock()
+                    .unwrap()
+                    .warnings
+                    .push(format!("close-terminal {terminal_id}: {error}"))
             }
         }
     }
@@ -948,9 +954,7 @@ fn render_text(report: &Report) -> String {
     ));
     // Failures first: a table over a partial sample must not read as a result.
     match report.errors.first() {
-        Some(first) => {
-            out.push_str(&format!("errors: {} (first: {first})\n", report.errors.len()))
-        }
+        Some(first) => out.push_str(&format!("errors: {} (first: {first})\n", report.errors.len())),
         None => out.push_str("errors: 0\n"),
     }
     out.push_str(&format!("lifecycle on create response: {:?}\n", report.lifecycle_counts));
@@ -1068,10 +1072,8 @@ mod tests {
     #[test]
     fn interleaved_probe_follows_each_create_and_needs_probes_enabled() {
         let submissions = same_connection_submission_plan(4, 1);
-        let creates = submissions
-            .iter()
-            .filter(|s| matches!(s, SubmissionKind::Create { .. }))
-            .count();
+        let creates =
+            submissions.iter().filter(|s| matches!(s, SubmissionKind::Create { .. })).count();
         let interleaved = submissions
             .iter()
             .filter(|s| matches!(s, SubmissionKind::TypingInterleaved { .. }))
@@ -1083,14 +1085,17 @@ mod tests {
             }
         }
         // With typing probes disabled the plan is creates only.
-        assert!(same_connection_submission_plan(2, 0)
-            .iter()
-            .all(|s| matches!(s, SubmissionKind::Create { .. })));
+        assert!(
+            same_connection_submission_plan(2, 0)
+                .iter()
+                .all(|s| matches!(s, SubmissionKind::Create { .. }))
+        );
     }
 
     #[test]
     fn teardown_closes_every_terminal_created_during_the_run() {
-        let initial: HashSet<String> = ["pre-a".to_string(), "pre-b".to_string()].into_iter().collect();
+        let initial: HashSet<String> =
+            ["pre-a".to_string(), "pre-b".to_string()].into_iter().collect();
         let current = [
             ("pre-a", "running"),
             ("pre-b", "exited"),
