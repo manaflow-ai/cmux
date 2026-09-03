@@ -179,14 +179,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan-build.outputs.matrix) }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -379,14 +372,7 @@ jobs:
       run:
         working-directory: cmux-tui/relays/cloudflare-do
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -435,14 +421,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -576,14 +555,7 @@ jobs:
       NPM_VERSION: ${{ inputs.version }}
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -800,14 +772,7 @@ jobs:
     env:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
@@ -876,14 +841,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - name: Checkout caller ref
-        if: inputs.checkout_ref == ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Checkout requested ref
-        if: inputs.checkout_ref != ''
+      - name: Checkout caller or requested ref
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
