@@ -29,3 +29,13 @@ import Testing
         #expect(TerminalOutputEvent(kind: 9, bytes: Data(), cols: 0, rows: 0) == nil)
     }
 }
+
+
+@Suite struct LiveDaemonCreateResultTests {
+    @Test func decodesProtocol5MutationValue() throws {
+        let data = Data("""
+        {"generation":"9ded6c40","replayed":false,"revision":"3","value":{"kind":"terminal","pane_id":"pane_1","screen_id":"screen_1","tab_id":"tab_1","terminal_id":"term_f8719e501df7aa2dbaa70b78d20d0822","workspace_id":"ws_1"}}
+        """.utf8)
+        #expect(try TerminalCatalogDecoding.createdTerminalID(fromCreateResult: data) == "term_f8719e501df7aa2dbaa70b78d20d0822")
+    }
+}

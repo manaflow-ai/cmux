@@ -20,14 +20,22 @@ public enum TerminalCatalogDecoding {
     }
 
     /// `workspace.create` with `initial_content: terminal` returns a mutation
-    /// result whose `created.terminal` is the new terminal's public id.
+    /// result. Live daemons (remote protocol 5) put the new terminal at
+    /// `value.terminal_id`; the older canned shape used `created.terminal`.
+    /// Both are accepted.
     public static func createdTerminalID(fromCreateResult data: Data) throws -> String {
         struct MutationResult: Decodable {
             struct Created: Decodable { var terminal: String? }
+            struct Value: Decodable {
+                var terminal_id: String?
+                var terminalId: String?
+            }
             var created: Created?
+            var value: Value?
         }
         let result = try JSONDecoder().decode(MutationResult.self, from: data)
-        guard let id = result.created?.terminal, !id.isEmpty else {
+        let id = result.value?.terminal_id ?? result.value?.terminalId ?? result.created?.terminal
+        guard let id, !id.isEmpty else {
             throw TerminalCatalogError.missingCreatedTerminal
         }
         return id
