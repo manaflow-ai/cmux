@@ -1268,7 +1268,7 @@ mod tests {
         let proxy = open_proxy(&registry, target).await;
         let mut held = Vec::with_capacity(PREVIEW_PROXY_UPGRADE_CAP);
         for index in 0..PREVIEW_PROXY_UPGRADE_CAP {
-            held.push(open_upgrade(proxy, &format!("dGhlIHNhbXBsZSA{index:02}" )).await);
+            held.push(open_upgrade(proxy, &format!("dGhlIHNhbXBsZSA{index:02}")).await);
         }
 
         let mut over_cap = tokio::net::TcpStream::connect(("127.0.0.1", proxy))
@@ -1285,9 +1285,11 @@ mod tests {
             .await
             .expect("over-cap response timeout")
             .expect("read over-cap response");
-        assert!(std::str::from_utf8(&response[..bytes])
-            .expect("response utf8")
-            .starts_with("HTTP/1.1 503"));
+        assert!(
+            std::str::from_utf8(&response[..bytes])
+                .expect("response utf8")
+                .starts_with("HTTP/1.1 503")
+        );
 
         drop(held);
         registry.shutdown().await;
