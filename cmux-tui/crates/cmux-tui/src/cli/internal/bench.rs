@@ -381,7 +381,7 @@ fn same_connection_submission_plan(creates: usize, typing_probes: usize) -> Vec<
 /// the pre-bench snapshot and is not already gone. The bench owns the session
 /// it runs against, so anything that appeared during the run is its own.
 fn teardown_close_plan<'a>(
-    _initial: &HashSet<String>,
+    initial: &HashSet<String>,
     current: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> Vec<String> {
     current
@@ -651,7 +651,7 @@ fn list_terminal_ids(conn: &mut Conn) -> Result<Vec<(String, String)>, String> {
 /// the terminal, and `server stop` keeps its host alive by design).
 fn close_created_terminals(
     conn: &mut Conn,
-    initial: &HashSet<String>,
+    _initial: &HashSet<String>,
     report: &Arc<Mutex<Report>>,
     deadline: Instant,
 ) {
