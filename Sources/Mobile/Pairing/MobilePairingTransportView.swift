@@ -999,24 +999,3 @@ private struct MobilePairingAccountFooter: View {
         }
     }
 }
-
-#if DEBUG
-    /// The fixture shown by the Pair Mobile Design Lab.
-    enum MobilePairingDesignPreviewFixture {
-        static let targets = [
-            MobileIOSAppTarget(bundleIdentifier: "com.cmux.app", displayName: "cmux"),
-        ]
-
-        static let ready = MobilePairingModel.Ready(
-            attachURL: "cmux-ios://attach?v=2&ub=preview&pc=1&r=100.82.214.112:58465",
-            tailscaleLines: ["100.82.214.112:58465", "fd7a:115c:a1e0::4b36:d670:58465"],
-            manualEntry: CmxManualPairingEntry(host: "100.82.214.112", port: 58465),
-            reachableViaIroh: true
-        )
-
-        static let irohOnly = MobilePairingTransportView.Content
-            .needsReachableTransport(reachableViaIroh: true)
-        static let offline = MobilePairingTransportView.Content
-            .needsReachableTransport(reachableViaIroh: false)
-    }
-#endif
