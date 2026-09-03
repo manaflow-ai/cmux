@@ -232,6 +232,26 @@ final class CmuxPluginProcessSupervisor {
             return
         }
 
+        // Darwin has no atomic descriptor-based exec primitive. A shebang
+        // interpreter is therefore resolved by pathname at the final launch
+        // boundary; only a root-owned, non-writable path can make that lookup
+        // stable against another same-user process replacing the interpreter.
+        if let interpreterURL = executionSnapshot.interpreterURL,
+           !Self.isTrustedInterpreter(at: interpreterURL) {
+            pluginProcessLogger.error(
+                "Plugin \(pluginID, privacy: .public) uses an untrusted interpreter path"
+            )
+            await snapshotter.remove(executionSnapshot)
+            reportError(
+                pluginID,
+                String(
+                    localized: "settings.plugins.error.launch",
+                    defaultValue: "The plugin could not be launched."
+                )
+            )
+            return
+        }
+
         let process = Process()
         let processGeneration = UUID()
         let launchGate = Pipe()
@@ -301,11 +321,10 @@ final class CmuxPluginProcessSupervisor {
         }
         process.executableURL = launcherURL
         process.currentDirectoryURL = executionSnapshot.directoryURL
-        // The shell blocks on stdin until the parent has registered its PID.
-        // The already-open entrypoint descriptor is exposed as `/dev/fd/3` to
-        // script interpreters; Darwin has no portable fexecve API for native
-        // binaries, so the verified immutable snapshot path is used as the
-        // executable launch path.
+        // The launcher blocks on stdin until the parent has registered its PID,
+        // then performs one final descriptor/path identity check immediately
+        // before exec. The entrypoint descriptor is also retained as fd 1 so
+        // script interpreters can consume the pinned bytes through fd 3.
         process.arguments = ["--cmux-plugin-launcher"]
             + launchArguments
         var environment = Self.inheritedPluginEnvironment(
@@ -324,7 +343,14 @@ final class CmuxPluginProcessSupervisor {
         process.environment = environment
         process.standardInput = launchGate
         process.standardOutput = pinnedEntrypoint
-        process.standardError = FileHandle.nullDevice
+        if let interpreterDescriptor = executionSnapshot.interpreterFileDescriptor {
+            process.standardError = FileHandle(
+                fileDescriptor: interpreterDescriptor,
+                closeOnDealloc: false
+            )
+        } else {
+            process.standardError = FileHandle.nullDevice
+        }
 
         // Install the callback before `run()`: a short-lived plugin can exit
         // between process creation and the first supervisor bookkeeping step.
@@ -737,29 +763,51 @@ final class CmuxPluginProcessSupervisor {
         return environment
     }
 
+    /// Returns whether a pathname is stable against same-user replacement.
+    ///
+    /// The plugin process runs as the signed-in user, so user-owned or
+    /// group/other-writable interpreter files cannot be trusted across the
+    /// final path lookup. Every ancestor is checked as well; otherwise a
+    /// writable parent directory could swap a root-owned leaf between the
+    /// verifier and `execv`.
+    private static func isTrustedInterpreter(at url: URL) -> Bool {
+        var candidate = url.resolvingSymlinksInPath().standardizedFileURL
+        while true {
+            var metadata = Darwin.stat()
+            let result: Int32 = candidate.path.withCString { pointer in
+                stat(pointer, &metadata)
+            }
+            guard result == 0,
+                  metadata.st_uid == 0,
+                  (metadata.st_mode & mode_t(0o022)) == 0 else {
+                return false
+            }
+            guard candidate.path != "/" else { return true }
+            let parent = candidate.deletingLastPathComponent()
+            guard parent.path != candidate.path else { return false }
+            candidate = parent
+        }
+    }
+
     private static func launchArguments(
         for execution: CmuxPluginEntrypointExecution,
         entrypointPath: String,
         interpreterPath: String?,
         containmentMarkerPath: String
     ) -> [String]? {
-        let gate = "exec 9>>\"$1\" || exit 126; shift; read -r cmuxLaunchGate || true; [ \"$cmuxLaunchGate\" = cmux-ready ] || exit 126; exec 3>&1;"
         switch execution {
         case .executable:
             return [
-                "-c",
-                "\(gate) exec 1>/dev/null 2>/dev/null; exec \"$1\"",
-                "cmux-plugin-launch-gate",
+                "executable",
                 containmentMarkerPath,
                 entrypointPath,
             ]
         case .interpreter(let interpreterArguments):
             guard let interpreterPath else { return nil }
             return [
-                "-c",
-                "\(gate) interpreter=\"$1\"; shift; exec 1>/dev/null 2>/dev/null; exec \"$interpreter\" \"$@\" /dev/fd/3",
-                "cmux-plugin-launch-gate",
+                "interpreter",
                 containmentMarkerPath,
+                entrypointPath,
                 interpreterPath,
             ] + interpreterArguments
         }

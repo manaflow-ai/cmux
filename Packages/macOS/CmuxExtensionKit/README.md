@@ -52,11 +52,16 @@ and open descriptors are retained for identity and content checks, so
 source-directory, sibling-file, or snapshot-path replacement fails closed
 before capabilities are released. Darwin does not provide a portable
 `fexecve` API, so the final process launch uses the verified snapshot path (or
-the resolved shebang interpreter path); scripts receive the pinned entrypoint
-as a `/dev/fd/...` argument. Shebang interpreter bytes are copied into the
-private snapshot for approval and revalidation; CMUX never changes the
-original interpreter file and watches it for changes until launch completes.
-Use an absolute executable interpreter path when writing scripts.
+the resolved shebang interpreter path); the self-exec launcher performs one
+last descriptor/path identity check immediately before `execv`, and scripts
+receive the pinned entrypoint as a `/dev/fd/...` argument. Shebang interpreter
+bytes are copied into the private snapshot for approval and revalidation; the
+resolved interpreter and every ancestor directory must be root-owned and
+non-writable so a same-user process cannot swap that final path lookup. CMUX
+never changes the original interpreter file and watches it for changes until
+launch completes. Use an absolute, system- or administrator-installed
+interpreter path when writing scripts; user-local interpreters are rejected at
+launch.
 Use `TMPDIR` or another application-data location for plugin-generated files.
 Disabling a plugin preserves the reviewed grant but stops its process and event
 stream.
