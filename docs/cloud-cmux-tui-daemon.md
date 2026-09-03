@@ -93,10 +93,15 @@ never on a connection-scoped lease.
 
 One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
 `cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
-sha256, from the artifacts manifest. Freestyle's delivery mechanism stays what
-it is: a systemd unit in the VM snapshot, with the binary swapped in the unit
-file. (Other providers had their own rows here — a template-baked binary and a
-snapshot entrypoint — until they were removed.)
+sha256, from the artifacts manifest. Freestyle's delivery mechanism is a
+systemd unit in the VM snapshot running the `cmux-devbox-boot` supervisor, with
+the pinned binary baked at `/root/.cmux/bin/cmux-tui`. A Freestyle snapshot is
+a memory image, so the supervisor binds the daemon identity to the platform
+instance id (Firecracker MMDS `instance-id`) and mints a fresh identity on a
+clone; the bake parks the daemon before snapshotting so no live identity is
+ever shared. Create therefore runs no guest bootstrap. (Other providers had
+their own rows here — a template-baked binary and a snapshot entrypoint —
+until they were removed.)
 
 The daemon's remote state dir must live on the persistent volume (the machine's
 home; Freestyle runs the daemon as root with `HOME=/root`, so the

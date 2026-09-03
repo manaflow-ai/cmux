@@ -12,7 +12,7 @@
 //! retrying children. The child waits for the receipt and retries.
 
 use std::env;
-use std::io::{self, BufRead, BufReader, Read};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -196,8 +196,8 @@ fn handoff_wait(source: &str, native_event: &str) -> Duration {
 /// one byte on stdout once the request is written.
 fn confirm_handoff_on_stdout() {
     let mut stdout = io::stdout().lock();
-    let _ = std::io::Write::write_all(&mut stdout, b"1");
-    let _ = std::io::Write::flush(&mut stdout);
+    let _ = stdout.write_all(b"1");
+    let _ = stdout.flush();
 }
 
 /// Entry point of the detached child spawned by `DETACHED_MODE_ARG`.
@@ -647,13 +647,17 @@ mod detach {
             .stderr(Stdio::null());
         // `pre_exec` runs in the child after fork and is therefore unsafe to
         // call unless the closure is limited to async-signal-safe operations.
+        // `setsid` is async-signal-safe.
+        let detach_session = || {
+            // SAFETY: `setsid` takes no arguments and only changes the
+            // calling process's session membership.
+            if unsafe { libc::setsid() } < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        };
         unsafe {
-            command.pre_exec(|| {
-                if unsafe { libc::setsid() } < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
+            command.pre_exec(detach_session);
         }
         let mut child =
             super::DetachedChildGuard::new(command.spawn().context("spawn detached hook child")?);
