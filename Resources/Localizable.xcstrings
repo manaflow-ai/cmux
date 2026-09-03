@@ -40272,13 +40272,30 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref>   Target workspace (default: $CMUX_WORKSPACE_ID)\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "Usage: cmux set-status <key> <value> [flags]\n\nSet a sidebar status entry for a workspace. Status entries appear as\npills in the sidebar tab row. Use a unique key so different tools\n(e.g. \"claude_code\", \"build\") can manage their own entries.\n\nFlags:\n  --icon <name>          Icon name (e.g. \"sparkle\", \"hammer\")\n  --color <#hex>         Pill color (e.g. \"#ff9500\")\n  --url <url>            Click target. Any URL scheme that macOS can open is accepted:\n                         https://, http://, obsidian://, vscode://, slack://, linear://,\n                         file://, mailto:, tel:, plus custom dev-tool schemes.\n  --priority <n>         Sort priority; higher appears first (default: 0)\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --window <id|ref|index>      Window context for workspace refs and indexes\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2\n  cmux set-status notes \"open\" --url \"obsidian://open?vault=Work&file=meeting.md\""
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリは\nサイドバーのタブ行にピルとして表示されます。異なるツール\n（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2"
+            "value": "Usage: cmux set-status <key> <value> [flags]\n\nワークスペースのサイドバーステータスエントリを設定します。ステータスエントリはサイドバーのタブ行にピルとして表示されます。異なるツール（例: \"claude_code\", \"build\"）がそれぞれのエントリを管理できるよう、一意のキーを使用してください。\n\nFlags:\n  --icon <name>          アイコン名（例: \"sparkle\", \"hammer\"）\n  --color <#hex>         ピルの色（例: \"#ff9500\"）\n  --url <url>            クリック先。macOS が開ける任意の URL スキームを使用できます:\n                         https://、http://、obsidian://、vscode://、slack://、linear://、file://、mailto:、tel:、および独自のカスタム開発ツール用スキーム。\n  --priority <n>         並び順の優先度。大きい値ほど先に表示（デフォルト: 0）\n  --workspace <id|ref|index>   対象ワークスペース（デフォルト: $CMUX_WORKSPACE_ID）\n  --window <id|ref|index>      ワークスペース参照とインデックスのウィンドウコンテキスト\n\nExample:\n  cmux set-status build \"compiling\" --icon hammer --color \"#ff9500\" --priority 80\n  cmux set-status deploy \"v1.2.3\" --workspace workspace:2\n  cmux set-status notes \"open\" --url \"obsidian://open?vault=Work&file=meeting.md\""
+          }
+        }
+      }
+    },
+    "socket.sidebarMetadata.invalidURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: Invalid metadata URL '%@' — must include a scheme (e.g. https://, obsidian://, file://)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ERROR: メタデータ URL '%@' が無効です — スキームを含める必要があります（例: https://、obsidian://、file://）"
           }
         }
       }
