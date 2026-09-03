@@ -4366,10 +4366,10 @@ impl Surface {
     }
 
     #[cfg(test)]
-    pub(crate) fn install_terminal_reaper_that_finishes_for_test(
+    fn install_terminal_reaper_that_finishes_for_test(
         self: &Arc<Self>,
-        started: std::sync::mpsc::SyncSender<()>,
-        proceed: std::sync::mpsc::Receiver<()>,
+        started: SyncSender<()>,
+        proceed: Receiver<()>,
     ) -> Arc<ReaderCompletion> {
         let pty = self.as_pty().expect("test reaper requires a PTY surface");
         pty.reaper_completion.reset();
@@ -6295,7 +6295,7 @@ struct StartupChild {
 }
 
 #[cfg(test)]
-impl cmux_pty::ChildKiller for StartupChild {
+impl ChildKiller for StartupChild {
     fn kill(&mut self) -> std::io::Result<()> {
         self.state.kill_count.fetch_add(1, Ordering::Relaxed);
         Ok(())
