@@ -1535,21 +1535,32 @@ mod cancellation_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
-    async fn timed_out_cleanup_continues_and_completes_late() {
-        let completed = Arc::new(AtomicBool::new(false));
-        let task_completed = Arc::clone(&completed);
+    async fn timed_out_cleanup_is_cancelled_and_reaped() {
+        struct DropSignal(Arc<AtomicBool>);
+
+        impl Drop for DropSignal {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let started = Arc::new(AtomicBool::new(false));
+        let dropped = Arc::new(AtomicBool::new(false));
+        let task_started = Arc::clone(&started);
+        let task_dropped = Arc::clone(&dropped);
         assert!(
             !run_owned_cleanup(
                 async move {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                    task_completed.store(true, Ordering::Release);
+                    let _drop_signal = DropSignal(task_dropped);
+                    task_started.store(true, Ordering::Release);
+                    std::future::pending::<()>().await;
                 },
-                Duration::from_millis(1),
+                Duration::from_millis(20),
             )
             .await
         );
-        tokio::time::sleep(Duration::from_millis(40)).await;
-        assert!(completed.load(Ordering::Acquire));
+        assert!(started.load(Ordering::Acquire));
+        assert!(dropped.load(Ordering::Acquire));
     }
 }
 
