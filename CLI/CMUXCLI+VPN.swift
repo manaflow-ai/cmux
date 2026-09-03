@@ -134,7 +134,7 @@ extension CMUXCLI {
         // Best-effort: the tunnel is already up and useful without this. sudo
         // caches the credential this process just used, so this rarely
         // reprompts.
-        try? runVPNHostsSync(client: client, jsonOutput: jsonOutput, quiet: !jsonOutput)
+        try? runVPNHostsSync(client: client, jsonOutput: jsonOutput, quiet: !jsonOutput, scope: response["interface_name"] as? String)
     }
 
     private func runVPNDown(client: SocketClient, jsonOutput: Bool) throws {
@@ -179,8 +179,12 @@ extension CMUXCLI {
         client: SocketClient,
         jsonOutput: Bool,
         quiet: Bool = false,
-        clear: Bool = false
+        clear: Bool = false,
+        scope: String? = nil
     ) throws {
+        // Each environment's tunnel publishes its own block: a dev build's
+        // machines must never overwrite (or clear) the production block.
+        let scope = try scope ?? (client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)["interface_name"] as? String)
         var entries: [CmuxInternalHostnames.Entry] = []
         if !clear {
             let response = try client.sendV2(method: "vm.list", responseTimeout: 30)
@@ -202,7 +206,7 @@ extension CMUXCLI {
         let hostsPath = "/etc/hosts"
         let current = (try? String(contentsOfFile: hostsPath, encoding: .utf8)) ?? ""
         let body = CmuxInternalHostnames.renderBlockBody(entries)
-        let updated = CmuxInternalHostnames.mergedHostsFile(current: current, body: body)
+        let updated = CmuxInternalHostnames.mergedHostsFile(current: current, body: body, scope: scope)
         guard updated != current else {
             if jsonOutput {
                 print(jsonString(["hosts_changed": false, "machine_count": entries.count]))
@@ -261,6 +265,11 @@ extension CMUXCLI {
         } else {
             print(String(localized: "cli.vpn.status.notSetUp", defaultValue: "Tunnel: not set up (run `cmux vpn up`)"))
         }
+        if let name = response["interface_name"] as? String, !name.isEmpty {
+            // One tunnel per deployment: says which one this build owns.
+            let format = String(localized: "cli.vpn.status.interface", defaultValue: "Interface: %@")
+            print(String(format: format, name))
+        }
         if let path = response["config_path"] as? String, configPresent {
             let format = String(localized: "cli.vpn.status.config", defaultValue: "Config: %@")
             print(String(format: format, path))
@@ -293,7 +302,7 @@ extension CMUXCLI {
         // whether the machines behind them still exist — so clear the whole
         // block rather than leave dead entries. Best-effort — a failure here
         // must not turn a successful revoke into an error.
-        try? runVPNHostsSync(client: client, jsonOutput: false, quiet: true, clear: true)
+        try? runVPNHostsSync(client: client, jsonOutput: false, quiet: true, clear: true, scope: status?["interface_name"] as? String)
         if jsonOutput {
             print(jsonString(response))
         } else {

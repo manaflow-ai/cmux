@@ -259,7 +259,7 @@ extension TerminalController {
                 return [
                     "config_path": manager.configURL.path,
                     "config_present": hasConfig,
-                    "interface_name": VMTunnelManager.interfaceName,
+                    "interface_name": manager.interfaceName,
                     "interface_up": manager.wgQuickInterfaceUp(),
                     "stale": manager.isStale(),
                     "device_fingerprint": fingerprint,

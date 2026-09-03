@@ -59802,6 +59802,23 @@
         }
       }
     },
+    "cli.vpn.status.interface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェース: %@"
+          }
+        }
+      }
+    },
     "cli.vpn.status.notSetUp": {
       "extractionState": "manual",
       "localizations": {
