@@ -693,11 +693,18 @@ USAGE
 `bench interact` drives a session as a client and records interaction
 latencies: create request to response, request to the tree delta that makes it
 visible on a separate subscriber, attach to first frame, close to response, and
-one-byte typing latency on both a separate connection and the create connection.
-The same-connection probe is submitted after the create batch and before its
-responses are drained, so head-of-line blocking remains visible.
-With no --socket and no --session it starts and stops a throwaway session. It
-sends only existing commands; it adds no protocol command.
+one-byte typing latency three ways: on a separate connection while creates are
+in flight (typing.separate_conn), on the create connection with one probe
+after each create request (typing.same_conn_interleaved: what a keystroke
+waits behind 1..K in-flight creates), and on the create connection after the
+whole batch (typing.same_conn_after_batch: the wait behind the entire batch).
+With no --socket and no --session it starts and stops a throwaway session.
+The bench owns the session it runs against: at teardown it closes every
+terminal that appeared during the run, because a stopped session keeps its
+terminal hosts alive. Run it only against a throwaway or idle session.
+Exit status is 1 when any create, close, or probe failed, so a degraded
+environment (for example exhausted PTYs) does not pass as a measurement.
+It sends only existing commands; it adds no protocol command.
 ";
 
 const DIAG_HELP: &str = "\
