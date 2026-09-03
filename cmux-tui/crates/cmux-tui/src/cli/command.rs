@@ -1663,6 +1663,21 @@ fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usage
             let creates = parse_count(flags, "creates", 20)?;
             let clients = parse_count(flags, "clients", 1)?.max(1);
             let typing_probes = parse_count(flags, "typing-probes", 0)?;
+            const MAX_BENCH_CLIENTS: usize = 256;
+            const MAX_BENCH_REQUESTS: usize = 100_000;
+            if clients > MAX_BENCH_CLIENTS {
+                return Err(UsageError::new(format!(
+                    "--clients must be at most {MAX_BENCH_CLIENTS}"
+                )));
+            }
+            let creates_total = creates.checked_mul(clients).ok_or_else(|| {
+                UsageError::new("benchmark request count exceeds safety limit")
+            })?;
+            if creates_total.saturating_add(typing_probes) > MAX_BENCH_REQUESTS {
+                return Err(UsageError::new(format!(
+                    "total benchmark requests must be at most {MAX_BENCH_REQUESTS}"
+                )));
+            }
             Ok(CommandPlan::Bench(super::bench::BenchPlan {
                 creates_per_client: creates,
                 clients,
@@ -2996,6 +3011,21 @@ mod tests {
         let tokens = tokenize(&strings(&["workspace", "create", "--name", "value"]))
             .expect("value flag must tokenize");
         assert_eq!(tokens.flags.values.get("name"), Some(&Some("value".to_string())));
+    }
+
+    #[test]
+    fn bench_rejects_unbounded_client_workload() {
+        let mut flags = Flags::default();
+        flags.values.insert("creates".into(), Some("100000".into()));
+        flags.values.insert("clients".into(), Some("100000".into()));
+        let error = parse_bench(&strings(&["interact"]), &mut flags).unwrap_err();
+        assert!(error.to_string().contains("--clients must be at most"));
+
+        let mut flags = Flags::default();
+        flags.values.insert("creates".into(), Some("100000".into()));
+        flags.values.insert("clients".into(), Some("2".into()));
+        let error = parse_bench(&strings(&["interact"]), &mut flags).unwrap_err();
+        assert!(error.to_string().contains("total benchmark requests"));
     }
 
     #[test]

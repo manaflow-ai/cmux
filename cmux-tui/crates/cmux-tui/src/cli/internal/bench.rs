@@ -415,8 +415,17 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let initial_terminals =
         list_terminal_ids(&mut control)?.into_iter().map(|(id, _)| id).collect();
     let baseline = control.request(json!({"cmd":"new-workspace"}))?;
-    let baseline_surface = baseline["surface"].as_u64().ok_or("baseline surface missing")?;
-    let active_pane = fetch_active_pane(&mut control)?;
+    let Some(baseline_surface) = baseline["surface"].as_u64() else {
+        cleanup_baseline_terminal(&mut control, &baseline);
+        return Err("baseline surface missing".into());
+    };
+    let active_pane = match fetch_active_pane(&mut control) {
+        Ok(pane) => pane,
+        Err(error) => {
+            cleanup_baseline_terminal(&mut control, &baseline);
+            return Err(error);
+        }
+    };
 
     let report = Arc::new(Mutex::new(Report::new(&socket)));
     let bench_deadline = Instant::now() + BENCH_DEADLINE;
@@ -922,7 +931,7 @@ fn measure_first_frame(socket: &std::path::Path, surface_id: u64, deadline: Inst
         if Instant::now() >= deadline {
             return None;
         }
-        let value = conn.read_value().ok()?;
+        let value = conn.read_value_until(deadline).ok()?;
         if is_first_frame_for_surface(&value, surface_id) {
             return Some(start.elapsed());
         }
@@ -950,6 +959,12 @@ fn fetch_active_pane(conn: &mut Conn) -> Result<u64, String> {
         .or_else(|| screens.first())
         .ok_or("no screen")?;
     screen["active_pane"].as_u64().ok_or_else(|| "no active pane".into())
+}
+
+fn cleanup_baseline_terminal(conn: &mut Conn, baseline: &Value) {
+    if let Some(terminal_id) = baseline.get("terminal_id").and_then(Value::as_str) {
+        let _ = conn.request(json!({"cmd":"close-terminal","terminal_id":terminal_id}));
+    }
 }
 
 fn spawn_subscriber(
