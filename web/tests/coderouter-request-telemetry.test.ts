@@ -261,11 +261,11 @@ describe("withCoderouterRoute", () => {
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ type: "error" });
     expect(response.headers.get(CODEROUTER_REQUEST_ID_HEADER)).toBeTruthy();
-    // reportCoderouterFailure("route_crash") files one $exception, the
-    // finalizer files the trace batch with a second one for the request.
+    // The catch reports the crash to Sentry; the finalizer owns the single
+    // PostHog exception so it can carry the request trace linkage.
     const exceptions = captured().filter((entry) => entry.event === "$exception");
-    expect(exceptions.length).toBe(2);
-    expect(exceptions.some((entry) => entry.properties.coderouter_failure === "route_crash")).toBe(true);
+    expect(exceptions.length).toBe(1);
+    expect(exceptions[0]!.properties.coderouter_outcome).toBe("route_crash");
     const trace = captured().find((entry) => entry.event === "$ai_trace")!;
     expect(trace.properties.coderouter_outcome).toBe("route_crash");
     expect(trace.properties.$ai_is_error).toBe(true);
