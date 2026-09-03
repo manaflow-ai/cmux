@@ -151,7 +151,8 @@ final class CloudTreeNode: NSObject {
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
-        case .port(let resource, let url): return url ?? resource.port.map(String.init) ?? resource.title
+        case .port(let resource, let url):
+            return url ?? (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
         }
     }
@@ -513,21 +514,36 @@ enum CloudTreeNodeBuilder {
         // address; the bare `:<port>` otherwise. Click opens it as a browser
         // pane; the row's menu copies the link.
         // A regular workspace-tab browser can happen to point at a localhost
-        // port too (`browser.port` derives from the URL). Only orphan port
-        // rows belong here — one with a real workspace tab already shows
-        // under that workspace and would otherwise be listed twice. A daemon
+        // port too (`browser.port` derives from the URL), but only the
+        // canonical `port:<n>` identity belongs here. That identity remains in
+        // this machine index even when the daemon also reports a workspace
+        // pointer; the pointer is the same resource, not a duplicate. A daemon
         // browser with neither a tab nor a port has no group of its own: the
         // four groups are the machine's whole layout (it stays in the catalog
         // for `cmux surface ls`).
         let portBrowsers = resources
-            .filter { $0.kind == .browser && $0.port != nil && $0.remoteWorkspaces.isEmpty }
-            .sorted { ($0.port ?? 0) < ($1.port ?? 0) }
+            .filter { $0.id.isForwardedPort }
+            .sorted {
+                let left = ($0.id.forwardedPort ?? $0.port ?? 0, $0.id.key)
+                let right = ($1.id.forwardedPort ?? $1.port ?? 0, $1.id.key)
+                return left.0 != right.0 ? left.0 < right.0 : left.1 < right.1
+            }
         if !portBrowsers.isEmpty {
             children.append(CloudTreeNode(
                 id: nodeID(portsGroup: machine),
                 kind: .portsGroup(machine: machine),
                 children: portBrowsers.map {
-                    CloudTreeNode(id: nodeID(resource: $0.id), kind: .port($0, url: portURL(machine: machine, info: info, port: $0.port)))
+                    CloudTreeNode(
+                        id: nodeID(resource: $0.id),
+                        kind: .port(
+                            $0,
+                            url: $0.url ?? portURL(
+                                machine: machine,
+                                info: info,
+                                port: $0.id.forwardedPort ?? $0.port
+                            )
+                        )
+                    )
                 }
             ))
         }

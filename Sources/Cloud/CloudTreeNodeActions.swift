@@ -82,8 +82,46 @@ struct CloudTreeNodeActions {
         }
         return CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
+                // Capture the caller's workspace before the async operation starts.
+                // Row selection and refresh notifications can otherwise change the
+                // globally selected tab while a port endpoint is materializing.
+                let capturedWorkspaceID = selectedWorkspaceID()
                 run(openingLabel(resource.machine)) { catalog in
-                    let (projection, _) = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
+                    let workspaceID: UUID
+                    if resource.forwardedPort != nil {
+                        guard let preferred = catalog.preferredLocalWorkspaceID(
+                            for: resource,
+                            fallback: capturedWorkspaceID
+                        ) else {
+                            throw SurfaceCatalogError.destinationNotFound(
+                                SurfaceCatalog.portDestinationUnavailableMessage(machine: resource.machine)
+                            )
+                        }
+                        workspaceID = preferred
+                    } else {
+                        guard let capturedWorkspaceID else {
+                            throw SurfaceCatalogError.destinationNotFound("no selected workspace")
+                        }
+                        workspaceID = capturedWorkspaceID
+                    }
+                    let opened: (projection: SurfaceProjection, reused: Bool)
+                    if let port = resource.forwardedPort {
+                        opened = try await catalog.openCloudPort(
+                            machine: resource.machine,
+                            port: port,
+                            into: .workspace(id: workspaceID, placement: placement),
+                            focus: true,
+                            reuseExisting: reuseExisting
+                        )
+                    } else {
+                        opened = try await catalog.project(
+                            resource,
+                            into: .workspace(id: workspaceID, placement: placement),
+                            focus: true,
+                            reuseExisting: reuseExisting
+                        )
+                    }
+                    let projection = opened.projection
                     // `focus: true` above puts input focus on the created pane, but a
                     // pane opened as an additional tab does not by itself become the
                     // SELECTED tab in its column — explicitly select it too, so

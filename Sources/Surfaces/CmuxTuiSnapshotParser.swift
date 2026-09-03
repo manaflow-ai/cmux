@@ -392,7 +392,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// back to the legacy provider-minted-endpoint path.
     static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
         SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(port)"),
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port)),
             title: ":\(port)",
             detail: nil,
             lifecycle: .running,

@@ -7,12 +7,14 @@
         "snapshot": "Cloud VM นี้ไม่รองรับสถานะ VM ที่บันทึกไว้",
         "restore": "ประเภท Cloud VM นี้ไม่รองรับการคืนค่าสถานะ VM ที่บันทึกไว้",
         "fork": "Cloud VM นี้ไม่รองรับการคัดลอกไปยัง VM ใหม่",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "Cloud VM นี้ไม่รองรับการดำเนินการที่ขอ"
       },
       "action": {
         "snapshot": "อย่าลองใหม่ งานบนประเภทเครื่องนี้จะเก็บไว้ในโฮมวอลุ่มถาวร",
         "restore": "อย่าลองใหม่ งานบนประเภทเครื่องนี้จะเก็บไว้ในโฮมวอลุ่มถาวร",
         "fork": "อย่าลองใหม่ สร้าง VM ใหม่ด้วย `cmux vm new`",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "อย่าลองใหม่ เรียกใช้ `cmux vm ls` หรือติดต่อฝ่ายสนับสนุนหากคิดว่านี่เป็นข้อผิดพลาด"
       }
     },

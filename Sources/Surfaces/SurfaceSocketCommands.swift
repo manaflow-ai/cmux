@@ -186,36 +186,56 @@ extension TerminalController {
         }
         let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .browser, key: SurfaceResourceID.portKey(port))
         let focus = Self.surfaceBool(params["focus"]) ?? false
-        guard let workspaceID = surfaceTargetWorkspaceID(params) else {
-            return v2Error(id: id, code: "invalid_params", message: "vm.port_open: no target workspace (pass `workspace_id`, or select one).")
+        // Capture explicit destinations before the async catalog operation. If no
+        // destination was supplied, the catalog chooses the local workspace already
+        // showing this machine's resources instead of whichever workspace happens to
+        // be selected when the provider returns.
+        let explicitTargetKey = ["workspace_id", "pane_id", "surface_id"].first {
+            v2HasNonNullParam(params, $0)
         }
-        let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
+        let hasExplicitTarget = explicitTargetKey != nil
+        let explicitWorkspaceID = hasExplicitTarget
+            ? surfaceTargetWorkspaceID(params, strictExplicit: true)
+            : nil
+        if hasExplicitTarget, explicitWorkspaceID == nil {
+            return v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    format: String(
+                        localized: "socket.vm.portOpen.invalidTarget",
+                        defaultValue: "vm.port_open: invalid explicit target `%@`."
+                    ),
+                    explicitTargetKey ?? "target"
+                )
+            )
+        }
+        let fallbackWorkspaceID = hasExplicitTarget ? nil : surfaceTargetWorkspaceID(params)
+        let resolvedParams = surfaceResolvedParams(params)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = await SurfaceCatalog.shared
-            if await catalog.resources[resource] == nil {
-                // Ports are discovered by probing the machine; a port the person names may
-                // not have been seen yet. Register it now and open it — a port pane is an
-                // HTTPS preview and never needs the cmux-tui link, so waiting on a refresh
-                // here (which does) held `vm open <id> <port>` for the link timeout on a
-                // machine whose link was still connecting. The re-sync runs behind it and
-                // reconciles the row.
-                await catalog.upsert(SurfaceResource(
-                    id: resource,
-                    title: ":\(port)",
-                    detail: nil,
-                    lifecycle: .running,
-                    agent: nil,
-                    remoteWorkspace: nil,
-                    port: port,
-                    url: nil
-                ))
-                Task { @MainActor in
-                    if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
-                        await provider.refresh(force: true)
-                    }
+            let workspaceID: UUID
+            if let explicitWorkspaceID {
+                workspaceID = explicitWorkspaceID
+            } else {
+                guard let preferred = catalog.preferredLocalWorkspaceID(
+                    for: resource,
+                    fallback: fallbackWorkspaceID
+                ) else {
+                    throw SurfaceCatalogError.destinationNotFound(
+                        SurfaceCatalog.portDestinationUnavailableMessage(machine: resource.machine)
+                    )
                 }
+                workspaceID = preferred
             }
-            let opened = try await catalog.project(resource, into: destination, focus: focus, reuseExisting: false)
+            let destination = Self.surfaceDestination(resolvedParams, workspaceID: workspaceID)
+            let opened = try await catalog.openCloudPort(
+                machine: resource.machine,
+                port: port,
+                into: destination,
+                focus: focus,
+                reuseExisting: false
+            )
             var payload = Self.surfaceProjectPayload(opened.projection, reused: opened.reused)
             let url = await catalog.resources[resource]?.url ?? ""
             payload["url"] = url
@@ -560,8 +580,31 @@ extension TerminalController {
     }
 
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
-    /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace.
-    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any]) -> UUID? {
+    /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace. When
+    /// `strictExplicit` is true, an explicit but stale/malformed pane or surface is rejected
+    /// instead of silently falling through to the selected workspace (used by `vm.port_open`).
+    nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any], strictExplicit: Bool = false) -> UUID? {
+        if strictExplicit {
+            if v2HasNonNullParam(params, "workspace_id") {
+                guard let explicit = v2UUID(params, "workspace_id") else { return nil }
+                return explicit
+            }
+            if v2HasNonNullParam(params, "pane_id") {
+                guard let paneID = v2UUID(params, "pane_id"),
+                      let located = v2MainSync({ self.v2LocatePane(paneID) }) else {
+                    return nil
+                }
+                return located.workspace.id
+            }
+            if v2HasNonNullParam(params, "surface_id") {
+                guard let surfaceID = v2UUID(params, "surface_id") else { return nil }
+                let owner = v2MainSync { () -> UUID? in
+                    guard let tabManager = self.tabManager else { return nil }
+                    return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
+                }
+                return owner
+            }
+        }
         if let explicit = v2UUID(params, "workspace_id") {
             return explicit
         }

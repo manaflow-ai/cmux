@@ -7,12 +7,14 @@
         "snapshot": "Bu Cloud VM, kaydedilmiş VM durumunu desteklemiyor.",
         "restore": "Bu Cloud VM türü, kaydedilmiş VM durumunu geri yüklemeyi desteklemiyor.",
         "fork": "Bu Cloud VM, yeni bir VM'ye kopyalamayı desteklemiyor.",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "Bu Cloud VM, istenen işlemi desteklemiyor."
       },
       "action": {
         "snapshot": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
         "restore": "Tekrar denemeyin. Bu makine türündeki çalışmalar kalıcı ana dizin biriminde tutulur.",
         "fork": "Tekrar denemeyin. `cmux vm new` ile yeni bir VM oluşturun.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Tekrar denemeyin. `cmux vm ls` komutunu çalıştırın veya bunun yanlış olduğunu düşünüyorsanız destek ekibine başvurun."
       }
     },

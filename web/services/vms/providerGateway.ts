@@ -209,7 +209,9 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "openPort", () => {
       const impl = getProvider(provider);
       if (!impl.openPort) {
-        throw new Error(`provider ${provider} does not support opening ports`);
+        // Keep unsupported capabilities typed so clients do not retry a
+        // permanently unavailable preview operation as a transient 502.
+        throw new VmOperationUnsupportedError({ provider, operation: "openPort" });
       }
       return impl.openPort(vmId, port);
     }),

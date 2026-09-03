@@ -7,12 +7,14 @@
         "snapshot": "Ta Cloud VM nie obsługuje zapisanego stanu VM.",
         "restore": "Ten typ Cloud VM nie obsługuje przywracania zapisanego stanu VM.",
         "fork": "Ta Cloud VM nie obsługuje kopiowania do nowej VM.",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "Ta Cloud VM nie obsługuje żądanej operacji."
       },
       "action": {
         "snapshot": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
         "restore": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
         "fork": "Nie ponawiaj próby. Utwórz nową VM za pomocą `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Nie ponawiaj próby. Uruchom `cmux vm ls` lub skontaktuj się z pomocą, jeśli uważasz, że to błąd."
       }
     },

@@ -7,12 +7,14 @@
         "snapshot": "Esta Cloud VM não é compatível com o estado salvo da VM.",
         "restore": "Este tipo de Cloud VM não é compatível com a restauração do estado salvo da VM.",
         "fork": "Esta Cloud VM não é compatível com a cópia para uma nova VM.",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "Esta Cloud VM não é compatível com a operação solicitada."
       },
       "action": {
         "snapshot": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "restore": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "fork": "Não tente novamente. Crie uma nova VM com `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Não tente novamente. Execute `cmux vm ls` ou entre em contato com o suporte se achar que isso está errado."
       }
     },

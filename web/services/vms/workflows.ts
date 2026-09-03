@@ -1922,10 +1922,9 @@ export function openVmPort(input: {
     const vm = yield* requireAccessibleUserVm(input);
     if (!providers.openPort) {
       return yield* Effect.fail(
-        new VmProviderOperationError({
+        new VmOperationUnsupportedError({
           provider: vm.provider,
           operation: "openPort",
-          cause: new Error("open-port is not supported by this deployment"),
         }),
       );
     }

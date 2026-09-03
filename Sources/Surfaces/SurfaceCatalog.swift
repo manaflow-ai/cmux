@@ -8,6 +8,10 @@ import Observation
 protocol SurfaceProvider: AnyObject {
     var machine: SurfaceMachineID { get }
     var info: SurfaceMachineInfo { get }
+    /// Whether this provider can materialize a machine port as a browser preview.
+    /// Providers with a direct private-network URL may report true even when no
+    /// control-plane `openPort` call is needed.
+    var supportsPortPreviews: Bool { get }
     /// Re-sync from the source of truth (machine list, link snapshot, local panels).
     func refresh() async
     /// Create the pane that shows `resource` at `destination` and return the panel it created
@@ -41,6 +45,10 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    /// Legacy providers predate the capability bit and are assumed to support
+    /// previews until their concrete implementation says otherwise.
+    var supportsPortPreviews: Bool { true }
+
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
     }

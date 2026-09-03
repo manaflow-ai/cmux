@@ -172,6 +172,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     unowned let catalog: SurfaceCatalog
     private var changeWatcher: Task<Void, Never>?
     private var refreshDebounce: Task<Void, Never>?
+    /// Invalidates an older asynchronous refresh before it can replace a newer snapshot.
+    /// Registry-forced refreshes and daemon change notifications can overlap while their
+    /// network/link calls are suspended; only the newest generation may publish.
+    private var refreshGeneration: UInt64 = 0
     private var portsCache: (ports: [Int], at: Date)?
     private let portsTTL: TimeInterval = 30
     /// Preview endpoints already minted for this machine's ports (``SurfacePortEndpointCache``):
@@ -207,13 +211,28 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     var isAwake: Bool { summary.status == "running" }
 
+    /// The catalog's shared port-open path can use either a private address or
+    /// the provider's preview endpoint. Legacy providers are treated as
+    /// capable until their summary advertises otherwise.
+    var capabilities: VMCapabilities { summary.capabilities }
+    var supportsPortPreviews: Bool {
+        capabilities.ports || summary.preferredPrivateAddress != nil
+    }
+
     func update(summary: VMSummary) {
+        refreshGeneration &+= 1
         self.summary = summary
+        if !supportsPortPreviews {
+            portsCache = nil
+            endpointPrefetch?.cancel()
+            endpointPrefetch = nil
+        }
         info = Self.info(from: summary, linkState: info.linkState, linkError: info.linkError, stats: nil, remoteWorkspaces: info.remoteWorkspaces)
         catalog.updateMachine(info)
     }
 
     func stop() {
+        refreshGeneration &+= 1
         changeWatcher?.cancel()
         changeWatcher = nil
         refreshDebounce?.cancel()
@@ -236,13 +255,53 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Re-syncs from the machine. A sleeping machine is never woken to be listed: it keeps
     /// its screen (opening it wakes the machine) and nothing else.
     func refresh(force: Bool) async {
+        refreshGeneration &+= 1
+        let generation = refreshGeneration
         let machine = self.machine
+        let previousResources = catalog.snapshot.resources(on: machine)
+        let preservedNonPortResources = previousResources.filter { !$0.id.isForwardedPort }
         var resources: [SurfaceResource] = []
         if summary.resolvedKind.hasDesktop {
             resources.append(CmuxTuiSnapshotParser.display(machine: machine))
         }
+        // Port discovery is independent of the cmux-tui session link. Run it
+        // before the link attempt so a transient daemon failure cannot erase a
+        // listening-port row, and keep the last known entries when the machine
+        // is asleep or the control-plane client is not ready yet.
+        let scannedPorts: [Int]?
+        if !supportsPortPreviews {
+            // Capability removal is authoritative: stale port rows must not
+            // survive a provider update that can no longer open them.
+            scannedPorts = []
+        } else if isAwake, let client = VMClient.shared {
+            scannedPorts = await ports(client: client, force: force, generation: generation)
+        } else {
+            // A cached scan is still useful while a sleeping machine wakes;
+            // nil means there has never been a trustworthy scan.
+            scannedPorts = portsCache?.ports
+        }
+        guard generation == refreshGeneration else { return }
+        // A failed/incomplete port probe preserves the prior port rows; a
+        // successful empty scan is authoritative and must not be repopulated
+        // by the later link-failure fallback.
+        let resourcesToPreserveAfterPortScan = scannedPorts == nil ? previousResources : preservedNonPortResources
+        resources.append(contentsOf: Self.portResources(
+            machine: machine,
+            scannedPorts: scannedPorts,
+            previousResources: previousResources,
+            privateAddress: summary.preferredPrivateAddress
+        ))
         guard isAwake, let client = VMClient.shared else {
-            info = Self.info(from: summary, linkState: .asleep, linkError: nil, stats: nil)
+            resources.append(contentsOf: resourcesToPreserveAfterPortScan.filter { previous in
+                !resources.contains(where: { $0.id == previous.id })
+            })
+            info = Self.info(
+                from: summary,
+                linkState: .asleep,
+                linkError: nil,
+                stats: nil,
+                remoteWorkspaces: info.remoteWorkspaces
+            )
             catalog.replaceResources(resources, on: machine, info: info)
             return
         }
@@ -252,25 +311,38 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !resources.isEmpty, catalog.snapshot.resources(on: machine).isEmpty {
             catalog.replaceResources(resources, on: machine, info: info)
         }
-        if summary.resolvedKind.hasDesktop {
+        if summary.resolvedKind.hasDesktop, supportsPortPreviews {
             prefetchDesktopEndpoint()
         }
         async let stats = try? client.stats(id: machineID)
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
-        var remoteWorkspaces: [SurfaceRemoteWorkspace]?
+        var remoteWorkspaces: [SurfaceRemoteWorkspace]? = info.remoteWorkspaces
         do {
             let connected = try await links.connected(machineID: machineID)
+            guard generation == refreshGeneration else { return }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
+            guard generation == refreshGeneration else { return }
             watchChanges(link: link)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
-            if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            guard generation == refreshGeneration else { return }
+            if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+               object["workspaces"] is [[String: Any]],
+               object["terminals"] is [[String: Any]] {
                 resources = CmuxTuiSnapshotParser.mergingDisplays(
                     pool: resources,
                     parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
                 )
                 tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
                 remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
+            } else {
+                // A transport-level success with no session snapshot is not an
+                // authoritative empty session. Keep the last resource values;
+                // an explicit `{workspaces: [], terminals: []}` still clears
+                // them on the next branch above.
+                resources.append(contentsOf: resourcesToPreserveAfterPortScan.filter { previous in
+                    !resources.contains(where: { $0.id == previous.id })
+                })
             }
             let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
                 && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
@@ -285,6 +357,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     socketPath: connected.socketPath,
                     link: link
                 )
+                guard generation == refreshGeneration else { return }
                 var allSurfaceIDsResolved = true
                 for session in sessions {
                     switch resolutions[session.terminalID] {
@@ -305,12 +378,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             where reconnectableSessionIDs.contains(ObjectIdentifier(session)) {
                 session.reconnect(socketPath: connected.socketPath)
             }
-            let privateAddress = summary.preferredPrivateAddress
-            for port in await ports(client: client, force: force) {
-                let directURL = privateAddress.map { CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port) }
-                resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL))
-            }
         } catch {
+            // Keep cached terminal/browser rows addressable while the link is
+            // reconnecting. Ports were already scanned above; this merge is
+            // only for resources the failed session read could not refresh.
+            resources.append(contentsOf: resourcesToPreserveAfterPortScan.filter { previous in
+                !resources.contains(where: { $0.id == previous.id })
+            })
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
             var text = status?.error ?? CloudMachineLink.errorText(error)
@@ -325,7 +399,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
         }
+        guard generation == refreshGeneration else { return }
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
+        guard generation == refreshGeneration else { return }
         catalog.replaceResources(resources, on: machine, info: info)
         reprojectRestoredPanes()
     }
@@ -459,8 +535,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             created = (manual.workspaceID, manual.panelID)
         case .display, .browser:
             let desktop = resource.kind == .display
-            guard let port = resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
+            guard let port = resource.id.forwardedPort ?? resource.port ?? (desktop ? CmuxTuiSnapshotParser.desktopPort : nil) else {
                 throw SurfaceCatalogError.unsupported("browser \(resource.id) has no port")
+            }
+            guard supportsPortPreviews else {
+                throw SurfaceCatalogError.unsupported(
+                    SurfaceCatalog.portPreviewUnavailableMessage(machineID: machineID)
+                )
             }
             // A forwarded-port row (`portBrowser`, id key "port:<n>") already
             // carries the URL to open — its own private address over the
@@ -472,8 +553,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // remote tab's own address, not a locally-openable link) and must
             // still go through the proxy/CDP path, so this only ever fires
             // for the id shape `portBrowser` mints.
-            if !desktop, resource.id.key.hasPrefix("port:"),
-               let directURLString = resource.url, let directURL = URL(string: directURLString) {
+            let directURLString = resource.url ?? info.privateAddress.map {
+                CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
+            }
+            if !desktop, resource.id.isForwardedPort,
+               let directURLString, let directURL = URL(string: directURLString) {
                 created = try SurfacePaneFactory.makeBrowserPane(url: directURL, at: destination, focus: focus)
             } else if let url = endpointURL(port: port, desktop: desktop) {
                 created = try SurfacePaneFactory.makeBrowserPane(url: url, at: destination, focus: focus)
@@ -493,7 +577,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                         SurfacePaneFactory.navigate(panelID: pane.panelID, in: pane.workspaceID, to: url)
                     } catch {
                         let text = CloudMachineLink.errorText(error)
-                        SurfacePaneFactory.showPlaceholder(SurfaceBrowserPlaceholder.failed(label, error: text), panelID: pane.panelID, in: pane.workspaceID)
+                        SurfacePaneFactory.showPlaceholder(
+                            SurfaceBrowserPlaceholder.failed(
+                                label,
+                                error: text,
+                                retryable: !Self.isUnsupportedPortError(error)
+                            ),
+                            panelID: pane.panelID,
+                            in: pane.workspaceID
+                        )
                         #if DEBUG
                         cmuxDebugLog("cloud.provider.endpointFailed machine=\(self.machineID) port=\(port) error=\(String(reflecting: error))")
                         #endif
@@ -644,11 +736,34 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return url
     }
 
+    /// A 501 `vm_operation_unsupported` response is a provider capability gap,
+    /// not a transient endpoint failure. The pane must not tell the person to
+    /// retry it; capability metadata normally prevents reaching this fallback,
+    /// but the check also covers an older client or a provider that changes
+    /// capabilities between catalog refreshes.
+    private nonisolated static func isUnsupportedPortError(_ error: Error) -> Bool {
+        if case let VMClientError.httpStatus(status, body) = error, status == 501,
+           let data = body.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           (object["error"] as? String) == "vm_operation_unsupported" {
+            if let details = object["details"] as? [String: Any],
+               let operation = details["operation"] as? String {
+                return operation.lowercased() == "openport" || operation.lowercased() == "open_port"
+            }
+            return true
+        }
+        let text = CloudMachineLink.errorText(error).lowercased()
+        return text.contains("vm_operation_unsupported") && (text.contains("openport") || text.contains("open_port"))
+    }
+
     /// Mints the desktop's endpoint ahead of the first drop, one flight at a time. A
     /// failure is silent here — the drop itself reports it — and retried next refresh.
     private func prefetchDesktopEndpoint() {
         let port = CmuxTuiSnapshotParser.desktopPort
-        guard endpointPrefetch == nil, endpoints.openURL(port: port) == nil, VMClient.shared != nil else { return }
+        guard supportsPortPreviews,
+              endpointPrefetch == nil,
+              endpoints.openURL(port: port) == nil,
+              VMClient.shared != nil else { return }
         endpointPrefetch = Task { [weak self] in
             guard let self else { return }
             _ = try? await self.endpoint(port: port, desktop: true)
@@ -656,17 +771,20 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
     }
 
-    private func ports(client: VMClient, force: Bool) async -> [Int] {
-        if !force, let cached = portsCache, Date().timeIntervalSince(cached.at) < portsTTL {
+    /// Probes the machine's listening ports. A failed probe returns nil so the
+    /// caller can preserve the last complete catalog rather than treating a
+    /// transient transport failure as an authoritative empty result.
+    private func ports(client: VMClient, force: Bool, generation: UInt64) async -> [Int]? {
+        if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
             return cached.ports
         }
-        let command = "if command -v ss >/dev/null 2>&1; then ss -ltn; elif command -v netstat >/dev/null 2>&1; then netstat -ltn; fi"
+        let command = "if command -v ss >/dev/null 2>&1; then ss -ltn; elif command -v netstat >/dev/null 2>&1; then netstat -ltn; else exit 127; fi"
         guard let result = try? await client.exec(id: machineID, command: command, timeoutMs: 10_000), result.exitCode == 0 else {
-            return portsCache?.ports ?? []
+            return nil
         }
-        let ports = CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: result.stdout)
-            .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0) }
-        portsCache = (ports, Date())
+        guard let ports = Self.ports(from: result) else { return nil }
+        guard generation == refreshGeneration else { return nil }
+        portsCache = (ports, Date.now)
         return ports
     }
 

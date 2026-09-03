@@ -124,7 +124,9 @@ struct CloudTreeRowContentView: View {
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
-                title: url.map(CloudTreePortLinkText.displayText) ?? resource.port.map(String.init) ?? resource.title,
+                title: url.map(CloudTreePortLinkText.displayText)
+                    ?? (resource.id.forwardedPort ?? resource.port).map(String.init)
+                    ?? resource.title,
                 titleIsLink: url != nil,
                 detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
             )

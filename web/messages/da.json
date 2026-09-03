@@ -7,12 +7,14 @@
         "snapshot": "Denne Cloud VM understøtter ikke gemt VM-tilstand.",
         "restore": "Denne Cloud VM-type understøtter ikke gendannelse af gemt VM-tilstand.",
         "fork": "Denne Cloud VM understøtter ikke kopiering til en ny VM.",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "Denne Cloud VM understøtter ikke den ønskede handling."
       },
       "action": {
         "snapshot": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "restore": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "fork": "Prøv ikke igen. Opret en ny VM med `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Prøv ikke igen. Kør `cmux vm ls`, eller kontakt support, hvis du mener, at dette er forkert."
       }
     },

@@ -62264,6 +62264,74 @@
         }
       }
     },
+    "cloudTree.pane.unsupportedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This provider cannot open port previews. Do not retry; use `cmux vm exec` inside the machine or choose another machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロバイダーはポートのプレビューを開けません。再試行せず、マシン内で `cmux vm exec` を使うか、別のマシンを選択してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@’s provider cannot open machine ports as previews; reach the service from inside the machine with `cmux vm exec %@ -- …`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のプロバイダーはマシンポートをプレビューとして開けません。`cmux vm exec %@ -- …` でマシン内からアクセスしてください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.noLocalWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No local workspace is showing %@; select a workspace and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を表示しているローカルワークスペースがありません。ワークスペースを選択して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.invalidMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ports can only be opened on a cloud machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートを開けるのは Cloud マシンのみです。"
+          }
+        }
+      }
+    },
     "cloudTree.operation.close": {
       "extractionState": "manual",
       "localizations": {
@@ -244341,6 +244409,23 @@
     "socket.cloudVM.publication.invalidAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `accessMode` to be personal, team, or public."}},"ja":{"stringUnit":{"state":"translated","value":"%@ の `accessMode` は personal、team、または public で指定してください。"}}}},
     "socket.cloudVM.publication.teamOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ accepts `teamId` only when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `teamId` を指定できるのは、`accessMode` が team の場合のみです。"}}}},
     "socket.cloudVM.publication.teamRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `teamId` when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `accessMode` が team の場合は `teamId` が必要です。"}}}},
+    "socket.vm.portOpen.invalidTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.port_open: invalid explicit target `%@`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.port_open: 明示的なターゲット `%@` が無効です。"
+          }
+        }
+      }
+    },
     "socket.cloudVM.sessionRejected": {
       "extractionState": "manual",
       "localizations": {

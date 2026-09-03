@@ -7,12 +7,14 @@
         "snapshot": "Ovaj Cloud VM ne podržava sačuvano stanje VM-a.",
         "restore": "Ova vrsta Cloud VM-a ne podržava vraćanje sačuvanog stanja VM-a.",
         "fork": "Ovaj Cloud VM ne podržava kopiranje u novi VM.",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "Ovaj Cloud VM ne podržava traženu operaciju."
       },
       "action": {
         "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
         "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
       }
     },
