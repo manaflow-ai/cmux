@@ -317,7 +317,9 @@ extension TerminalController {
             }
             return [
                 "machine": machine.rawValue,
-                "remote_workspace_id": remoteWorkspaceID,
+                // The resolved `ws_…` id, not the selector as given (which may be a name).
+                "remote_workspace_id": workspace.id,
+                "remote_workspace_name": workspace.name,
                 "workspace_id": workspaceID.uuidString,
                 "surface_ids": projections.map { $0.panelID.uuidString },
                 "opened": projections.count,
