@@ -525,10 +525,10 @@ final class MachinesPanelViewModel: ObservableObject {
             // Delivered on the main queue (`queue: .main`), which is the main actor.
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let machineIDs = notification.userInfo?["machineIDs"] as? [String]
-                if let machineIDs, !machineIDs.isEmpty {
-                    for machineID in machineIDs {
-                        self.applyCatalogMachineUpdate(.cloud(machineID))
+                let machines = notification.userInfo?["machines"] as? [SurfaceMachineID]
+                if let machines, !machines.isEmpty {
+                    for machine in machines {
+                        self.applyCatalogMachineUpdate(machine)
                     }
                 } else {
                     self.scheduleCatalogRead()

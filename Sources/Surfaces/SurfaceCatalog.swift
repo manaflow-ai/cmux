@@ -782,7 +782,7 @@ final class SurfaceCatalog {
             let broadChange = self.pendingBroadChange
             self.pendingBroadChange = false
             let userInfo: [AnyHashable: Any]? = !broadChange && !machineChanges.isEmpty
-                ? ["machineIDs": machineChanges.map(\.rawValue)]
+                ? ["machines": Array(machineChanges)]
                 : nil
             NotificationCenter.default.post(name: Self.didChangeNotification, object: self, userInfo: userInfo)
         }

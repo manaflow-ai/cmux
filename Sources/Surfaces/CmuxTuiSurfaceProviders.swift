@@ -228,6 +228,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcher = nil
         statsWatcher?.cancel()
         statsWatcher = nil
+        applyStats(nil)
         statsWatcherSocketPath = nil
         statsWatcherLink = nil
         statsWatcherGeneration += 1
