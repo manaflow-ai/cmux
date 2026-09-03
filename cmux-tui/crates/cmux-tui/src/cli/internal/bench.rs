@@ -380,6 +380,7 @@ fn same_connection_submission_plan(creates: usize, typing_probes: usize) -> Vec<
 /// Terminal ids to `close-terminal` at teardown: every terminal that is not in
 /// the pre-bench snapshot and is not already gone. The bench owns the session
 /// it runs against, so anything that appeared during the run is its own.
+#[cfg(test)]
 fn teardown_close_plan<'a>(
     initial: &HashSet<String>,
     current: impl IntoIterator<Item = (&'a str, &'a str)>,
