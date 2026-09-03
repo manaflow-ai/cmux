@@ -1414,6 +1414,8 @@ struct ReaperState {
     sender: Option<Sender<()>>,
     worker: Option<std::thread::JoinHandle<()>>,
     pending: Vec<ReapRequest>,
+    #[cfg(test)]
+    fail_next_spawn: bool,
 }
 
 struct WorkerRuntime {
@@ -1425,7 +1427,13 @@ static PROCESS_WORKER_ADMISSION: OnceLock<Arc<WorkerAdmission>> = OnceLock::new(
 static PROCESS_REAPER: OnceLock<Arc<Mutex<ReaperState>>> = OnceLock::new();
 
 fn new_reaper_state() -> Arc<Mutex<ReaperState>> {
-    Arc::new(Mutex::new(ReaperState { sender: None, worker: None, pending: Vec::new() }))
+    Arc::new(Mutex::new(ReaperState {
+        sender: None,
+        worker: None,
+        pending: Vec::new(),
+        #[cfg(test)]
+        fail_next_spawn: false,
+    }))
 }
 
 fn process_reaper_state() -> Arc<Mutex<ReaperState>> {
@@ -1463,9 +1471,6 @@ impl WorkerRuntime {
 }
 
 #[cfg(test)]
-static FAIL_NEXT_REAPER_SPAWN: AtomicBool = AtomicBool::new(false);
-
-#[cfg(test)]
 fn test_worker_runtime() -> Arc<WorkerRuntime> {
     static RUNTIME: OnceLock<Arc<WorkerRuntime>> = OnceLock::new();
     RUNTIME
@@ -1494,7 +1499,8 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     let (sender, receiver) = channel::<()>();
     let worker_state = state.clone();
     #[cfg(test)]
-    if FAIL_NEXT_REAPER_SPAWN.swap(false, Ordering::AcqRel) {
+    if current.fail_next_spawn {
+        current.fail_next_spawn = false;
         drop(current);
         reap_completed_workers(state);
         return;
@@ -7191,7 +7197,7 @@ mod tests {
             worker_completion.mark_done();
         });
 
-        FAIL_NEXT_REAPER_SPAWN.store(true, Ordering::Release);
+        state.lock().unwrap().fail_next_spawn = true;
         enqueue_worker_reap(handle, completion.clone());
         assert!(!completion.was_joined(), "failed reaper spawn must retain the handle");
 
