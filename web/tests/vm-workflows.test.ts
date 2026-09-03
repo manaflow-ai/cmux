@@ -138,7 +138,7 @@ describe("VM Effect workflows", () => {
       userId: "user-workflow-exec-resume",
       billingTeamId: "team-workflow-exec-resume",
       providerVmId: "provider-vm-exec-resume",
-      status: "running",
+      status: "paused",
     });
     const usageEvents: RecordedUsageEvent[] = [];
     const observedStatuses: ObservedStatusUpdate[] = [];
@@ -187,8 +187,8 @@ describe("VM Effect workflows", () => {
     expect(observedStatuses).toEqual([
       { id: vm.id, providerVmId: "provider-vm-exec-resume", status: "running" },
     ]);
-    expect(usageEvents).toHaveLength(1);
-    expect(usageEvents[0]).toMatchObject({
+    expect(usageEvents).toHaveLength(2); // the paused row's resume is accounted, then the exec
+    expect(usageEvents.find((event) => event.eventType === "vm.exec")).toMatchObject({
       eventType: "vm.exec",
       vmId: vm.id,
       metadata: { commandLength: "echo preflight".length, exitCode: 7 },
@@ -311,7 +311,7 @@ describe("VM Effect workflows", () => {
 
     expect(error).toBe(originalError);
     expect(execCalls).toBe(1);
-    expect(statusCalls).toBe(1);
+    expect(statusCalls).toBe(0);
     expect(resumeCalls).toBe(0);
     expect(usageEvents).toHaveLength(0);
   });
@@ -321,7 +321,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000103",
       userId: "user-workflow-exec-resume-fails",
       providerVmId: "provider-vm-exec-resume-fails",
-      status: "running",
+      status: "paused",
     });
     const repo = testWorkflowRepo({ vm });
     const resumeError = providerOperationError("resume", "provider resume unavailable");
@@ -367,7 +367,7 @@ describe("VM Effect workflows", () => {
       id: "00000000-0000-4000-8000-000000000112",
       userId: "user-workflow-exec-mark-false",
       providerVmId: "provider-vm-exec-mark-false",
-      status: "running",
+      status: "paused",
     });
     const repo = testWorkflowRepo({
       vm,
@@ -1138,12 +1138,12 @@ describe("VM Effect workflows", () => {
 
     expect(error).toBe(originalError);
     expect(execCalls).toBe(1);
-    expect(statusCalls).toBe(1);
+    expect(statusCalls).toBe(0);
     expect(resumeCalls).toBe(0);
     expect(usageEvents).toHaveLength(0);
   });
 
-  test("exec preflight getStatus failure still attempts exec once", async () => {
+  test("exec on a row that says running makes no status call and runs once", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000109",
       userId: "user-workflow-exec-status-fails",
@@ -1185,7 +1185,7 @@ describe("VM Effect workflows", () => {
 
     expect(result).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
     expect(execCalls).toBe(1);
-    expect(statusCalls).toBe(1);
+    expect(statusCalls).toBe(0);
     expect(resumeCalls).toBe(0);
     expect(usageEvents).toHaveLength(1);
   });
@@ -1259,7 +1259,7 @@ describe("VM Effect workflows", () => {
       userId: "user-workflow-attach-resume",
       billingTeamId: "team-workflow-attach-resume",
       providerVmId: "provider-vm-attach-resume",
-      status: "running",
+      status: "paused",
     });
     const usageEvents: RecordedUsageEvent[] = [];
     const leases: RecordedLease[] = [];
@@ -1305,8 +1305,8 @@ describe("VM Effect workflows", () => {
       { id: vm.id, providerVmId: "provider-vm-attach-resume", status: "running" },
     ]);
     expect(leases).toHaveLength(1);
-    expect(usageEvents).toHaveLength(1);
-    expect(usageEvents[0]).toMatchObject({
+    expect(usageEvents).toHaveLength(2); // the paused row's resume is accounted, then the attach
+    expect(usageEvents.find((event) => event.eventType === "vm.attach")).toMatchObject({
       eventType: "vm.attach",
       vmId: vm.id,
       metadata: { transport: "websocket", requireDaemon: true, daemonAvailable: false },
@@ -1319,7 +1319,7 @@ describe("VM Effect workflows", () => {
       userId: "user-workflow-attach-mark-fails",
       billingTeamId: "team-workflow-attach-mark-fails",
       providerVmId: "provider-vm-attach-mark-fails",
-      status: "running",
+      status: "paused",
     });
     const usageEvents: RecordedUsageEvent[] = [];
     const leases: RecordedLease[] = [];
@@ -1385,7 +1385,7 @@ describe("VM Effect workflows", () => {
       userId: "user-workflow-attach-mark-false",
       billingTeamId: "team-workflow-attach-mark-false",
       providerVmId: "provider-vm-attach-mark-false",
-      status: "running",
+      status: "paused",
     });
     const usageEvents: RecordedUsageEvent[] = [];
     const leases: RecordedLease[] = [];
@@ -1469,8 +1469,8 @@ describe("VM Effect workflows", () => {
       getStatus: () =>
         Effect.sync(() => {
           statusCalls += 1;
-          // Running at preflight, paused when the mint failure is investigated.
-          return statusCalls === 1 ? ("running" as const) : ("paused" as const);
+          // No preflight read for a running row; the failure path finds it paused.
+          return "paused" as const;
         }),
       resume: () =>
         Effect.sync(() => {
@@ -1489,7 +1489,7 @@ describe("VM Effect workflows", () => {
 
     expect(result).toEqual(endpoint);
     expect(attachCalls).toBe(2);
-    expect(statusCalls).toBe(2);
+    expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(observedStatuses).toEqual([
       { id: vm.id, providerVmId: "provider-vm-attach-race", status: "running" },
@@ -1664,8 +1664,6 @@ describe("VM Effect workflows", () => {
     let providerCreateCalls = 0;
     let providerMemoryMb: number | undefined;
     let providerImageSize: { name: string; cpu: number; memoryMb: number; storageMb: number } | null = null;
-    let providerAfterResponse: ((work: () => Promise<void>) => void) | null = null;
-    const afterResponse = (work: () => Promise<void>) => { void work(); };
     let usageEventAttempts = 0;
     const repo: VmRepositoryShape = {
       listUserVms: () => Effect.succeed([]),
@@ -1709,7 +1707,6 @@ describe("VM Effect workflows", () => {
           providerCreateCalls += 1;
           providerMemoryMb = options.memoryMb;
           providerImageSize = options.imageSize ?? null;
-          providerAfterResponse = options.afterResponse ?? null;
           return {
             provider: "freestyle" as const,
             providerVmId: "provider-vm-usage-events",
@@ -1742,7 +1739,6 @@ describe("VM Effect workflows", () => {
         imageVersion: "test-version",
         memoryMb: 3072,
         imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
-        afterResponse,
         idempotencyKey: "usage-events",
       }).pipe(Effect.provide(layer)),
     );
@@ -1752,8 +1748,6 @@ describe("VM Effect workflows", () => {
     expect(providerMemoryMb).toBe(3072);
     // A sized image reaches the driver as the shape to boot at, never to resize to.
     expect(providerImageSize).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 });
-    // The route's after-response scheduler reaches the driver, so the edge probe never blocks the request.
-    expect(providerAfterResponse).toBe(afterResponse);
     expect(usageEventAttempts).toBe(2);
   });
 
