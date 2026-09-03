@@ -89,6 +89,7 @@ struct Inner {
     running: Vec<RunningEffect>,
     next_token: u64,
     shutting_down: bool,
+    workers_ready: bool,
 }
 
 pub(crate) struct TerminalEffectExecutor {
@@ -125,13 +126,14 @@ impl TerminalEffectExecutor {
                 }
             }
         }
+        self.inner.lock().unwrap().workers_ready = !workers.is_empty();
     }
 
     /// Queue one effect. Returns `false` when the executor is stopping, in
     /// which case the caller runs the effect inline or drops it deliberately.
     pub(crate) fn enqueue(&self, job: TerminalEffectJob) -> bool {
         let mut inner = self.inner.lock().unwrap();
-        if inner.shutting_down {
+        if inner.shutting_down || !inner.workers_ready {
             return false;
         }
         inner.queue.push_back(QueuedEffect { job });

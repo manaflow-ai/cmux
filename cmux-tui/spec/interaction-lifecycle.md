@@ -88,6 +88,9 @@ launch. Detailed spawn errors stay in internal diagnostics.
 `discarded_input_bytes` reports typeahead dropped when a launch fails; that input
 is never replayed to any other terminal.
 
+`registry_terminal_id` is an internal host identity. Trusted local subscribers
+receive its value; remote delta subscribers receive `<redacted>`.
+
 ## Typeahead
 
 A `launching` terminal buffers input up to the `input.typeahead_bytes` budget

@@ -12615,7 +12615,7 @@ fn handle_command_with_cancellation(
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                     };
-                    let value = match &event {
+                    let mut value = match &event {
                         MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                             if !trusted_pairing_client =>
                         {
@@ -12646,6 +12646,19 @@ fn handle_command_with_cancellation(
                         MuxEvent::TerminalLifecycle { .. } => continue,
                         _ => subscribed_event_json(&event),
                     };
+                    // The registry terminal identifier is an internal host
+                    // identity. Keep the field shape stable for SDK clients,
+                    // but never disclose the value to remote subscribers.
+                    if !trusted_pairing_client
+                        && matches!(&event, MuxEvent::TerminalLifecycle { .. })
+                    {
+                        if let Value::Object(ref mut object) = value {
+                            object.insert(
+                                "registry_terminal_id".to_string(),
+                                Value::String("<redacted>".to_string()),
+                            );
+                        }
+                    }
                     if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                         transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                         break;

@@ -2509,9 +2509,9 @@ class TerminalLifecycleEvent(EventBase):
     discarded_input_bytes: int
     elapsed_ms: int
     event: Literal['terminal-lifecycle']
-    from_: Union[str, None] = field(metadata={'wire_name': 'from'})
+    from_: Union[TerminalLifecycle, None] = field(metadata={'wire_name': 'from'})
     registry_terminal_id: str
-    to: str
+    to: TerminalLifecycle
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 

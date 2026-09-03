@@ -15,11 +15,11 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
     private final String cause;
     private final UInt64 discardedInputBytes;
     private final UInt64 elapsedMs;
-    private final String from;
+    private final TerminalLifecycle from;
     private final String registryTerminalId;
     private final UInt64 surface;
     private final String terminalId;
-    private final String to_;
+    private final TerminalLifecycle to_;
 
     private TerminalLifecycleEvent(Builder builder) {
         if (!builder.causeSet) throw new IllegalArgumentException("cause is required");
@@ -45,11 +45,11 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
     public String cause() { return cause; }
     public UInt64 discardedInputBytes() { return discardedInputBytes; }
     public UInt64 elapsedMs() { return elapsedMs; }
-    public String from() { return from; }
+    public TerminalLifecycle from() { return from; }
     public String registryTerminalId() { return registryTerminalId; }
     public UInt64 surface() { return surface; }
     public String terminalId() { return terminalId; }
-    public String to_() { return to_; }
+    public TerminalLifecycle to_() { return to_; }
     @Override public String event() { return "terminal-lifecycle"; }
 
     public static TerminalLifecycleEvent fromWire(Object value) {
@@ -63,7 +63,7 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
         Object rawElapsedMs = Wire.required(object, "elapsed_ms");
         builder.elapsedMs(Wire.uint64(rawElapsedMs, "TerminalLifecycleEvent.elapsed_ms"));
         Object rawFrom = Wire.required(object, "from");
-        builder.from(rawFrom == null ? null : Wire.string(rawFrom, "TerminalLifecycleEvent.from"));
+        builder.from(rawFrom == null ? null : TerminalLifecycle.fromWire(rawFrom));
         Object rawRegistryTerminalId = Wire.required(object, "registry_terminal_id");
         builder.registryTerminalId(Wire.string(rawRegistryTerminalId, "TerminalLifecycleEvent.registry_terminal_id"));
         Object rawSurface = Wire.required(object, "surface");
@@ -71,7 +71,7 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
         Object rawTerminalId = Wire.required(object, "terminal_id");
         builder.terminalId(rawTerminalId == null ? null : Wire.string(rawTerminalId, "TerminalLifecycleEvent.terminal_id"));
         Object rawTo = Wire.required(object, "to");
-        builder.to_(Wire.string(rawTo, "TerminalLifecycleEvent.to"));
+        builder.to_(TerminalLifecycle.fromWire(rawTo));
         return builder.build();
     }
 
@@ -109,7 +109,7 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
         private boolean discardedInputBytesSet;
         private UInt64 elapsedMs;
         private boolean elapsedMsSet;
-        private String from;
+        private TerminalLifecycle from;
         private boolean fromSet;
         private String registryTerminalId;
         private boolean registryTerminalIdSet;
@@ -117,7 +117,7 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
         private boolean surfaceSet;
         private String terminalId;
         private boolean terminalIdSet;
-        private String to_;
+        private TerminalLifecycle to_;
         private boolean to_Set;
 
         public Builder cause(String value) {
@@ -135,7 +135,7 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
             this.elapsedMsSet = true;
             return this;
         }
-        public Builder from(String value) {
+        public Builder from(TerminalLifecycle value) {
             this.from = value;
             this.fromSet = true;
             return this;
@@ -155,7 +155,7 @@ public final class TerminalLifecycleEvent implements WireValue, DeltaStreamEvent
             this.terminalIdSet = true;
             return this;
         }
-        public Builder to_(String value) {
+        public Builder to_(TerminalLifecycle value) {
             this.to_ = value;
             this.to_Set = true;
             return this;

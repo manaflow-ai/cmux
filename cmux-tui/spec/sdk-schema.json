@@ -12403,16 +12403,16 @@
      },
      "from": {
       "type": {
-       "kind": "scalar",
-       "name": "string"
+       "kind": "ref",
+       "name": "TerminalLifecycle"
       },
       "presence": "required",
       "nullable": true
      },
      "to": {
       "type": {
-       "kind": "scalar",
-       "name": "string"
+       "kind": "ref",
+       "name": "TerminalLifecycle"
       },
       "presence": "required",
       "nullable": false

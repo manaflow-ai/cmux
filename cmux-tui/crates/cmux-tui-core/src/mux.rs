@@ -7170,6 +7170,14 @@ impl Mux {
                         );
                         surface.kill();
                         persistence?;
+                        self.emit_terminal_lifecycle(
+                            surface.terminal_public_id(),
+                            &terminal_hex,
+                            Some(surface.id),
+                            TerminalLifecycle::Exited,
+                            Some("cell-pixel-reconcile-failed".to_string()),
+                            0,
+                        );
                         return Err(error);
                     }
                 };
@@ -7287,6 +7295,14 @@ impl Mux {
                         );
                         surface.kill();
                         persistence?;
+                        self.emit_terminal_lifecycle(
+                            surface.terminal_public_id(),
+                            &terminal_hex,
+                            Some(surface.id),
+                            TerminalLifecycle::Exited,
+                            Some("cell-pixel-reconcile-failed".to_string()),
+                            0,
+                        );
                         return Err(error);
                     }
                 };
@@ -9172,6 +9188,14 @@ impl Mux {
                 );
                 surface.kill();
                 self.launching_terminals.lock().unwrap().remove(&surface.id);
+                self.emit_terminal_lifecycle(
+                    surface.terminal_public_id(),
+                    &terminal_id,
+                    Some(surface.id),
+                    TerminalLifecycle::Exited,
+                    Some("cell-pixel-reconcile-failed".to_string()),
+                    0,
+                );
                 return;
             }
         }

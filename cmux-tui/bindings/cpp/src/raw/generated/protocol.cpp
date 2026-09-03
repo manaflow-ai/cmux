@@ -16080,7 +16080,7 @@ Result<TerminalLifecycleEvent> Codec<TerminalLifecycleEvent>::decode(const Json&
         if (field_from->is_null()) {
             result.from.reset();
         } else {
-            auto decoded = decode_value<std::string>(*field_from);
+            auto decoded = decode_value<TerminalLifecycle>(*field_from);
             if (!decoded) return std::move(decoded).error();
             result.from = std::move(decoded).value();
         }
@@ -16125,7 +16125,7 @@ Result<TerminalLifecycleEvent> Codec<TerminalLifecycleEvent>::decode(const Json&
         return make_error(ErrorCode::decode, "missing required field 'to'");
     }
     if (field_to) {
-        auto decoded = decode_value<std::string>(*field_to);
+        auto decoded = decode_value<TerminalLifecycle>(*field_to);
         if (!decoded) return std::move(decoded).error();
         result.to = std::move(decoded).value();
     }

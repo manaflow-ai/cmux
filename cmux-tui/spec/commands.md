@@ -1390,6 +1390,8 @@ command) binds its placement in the tree at reservation with lifecycle
 `launching` and returns before its terminal host reaches `Ready`; the host
 launches asynchronously and the placement advances to `running` or, on a failed
 launch, to `exited` with a `launch-failed:` reason while staying in the tree. A
+`create-terminal` request that omits both `argv` and `command` follows this same
+deferred default-shell path. A
 command-bearing create (`run`, `create-terminal` with a `command`, `pane.run`,
 `workspace.run`) launches synchronously and fails the request, rolling the
 creation back, when its command cannot start. See `interaction-lifecycle.md`.
