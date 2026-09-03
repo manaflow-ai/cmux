@@ -1,8 +1,8 @@
 # Cloud VMs on the cmux-tui remote daemon
 
 Design for replacing the Go `cmuxd-remote` daemon in Cloud VMs with the
-cmux-tui remote daemon, validated by a working transport spike
-(`scripts/spike-cmux-tui-blaxel.sh`). North star: every cloud terminal is a
+cmux-tui remote daemon, validated by a working transport spike. North star:
+every cloud terminal is a
 cmux-tui terminal, the macOS app renders it through the Ghostty manual-IO
 surface, and any cmux-tui terminal (cloud, ssh, local) can be attached by
 dragging it out of the right pane.
@@ -38,8 +38,11 @@ The cmux-tui stack already solves each of these on `main`:
 
 ## What the spike proved (2026-08-26)
 
-All steps are automated in `scripts/spike-cmux-tui-blaxel.sh` and were run
-against a live Blaxel sandbox:
+Historical record. The spike ran against a live Blaxel sandbox; Blaxel has
+since been removed as a provider (its driver, images, and build scripts are
+gone) and Freestyle on the public platform is the default. The transport
+conclusions below still describe how every cmux Cloud machine works, but the
+Blaxel-specific mechanics are history, not current code:
 
 1. A static musl `cmux-tui` (55 MB stripped, built on a Blacksmith testbox in
    1m47s warm) runs unmodified in a `blaxel/base-image` microVM.
@@ -68,7 +71,7 @@ against a live Blaxel sandbox:
 An Aug-20 client binary interoperated with a daemon built from `main` tip,
 consistent with the protocol-version gate doing its job (both protocol 5).
 
-## Local repro without Blaxel credentials
+## Local repro without provider credentials
 
 `scripts/spike-cmux-tui-local.sh` runs the same protocol loop with a local
 `server start --remote-ws 127.0.0.1:<port>` process standing in for the VM:
@@ -90,22 +93,34 @@ never on a connection-scoped lease.
 
 One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
 `cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
-sha256 exactly as `CMUX_VM_BLAXEL_DAEMON_URL`/`_SHA256` pin the Go binary
-today. The per-provider delivery mechanisms stay what they are:
+sha256, from the artifacts manifest. Freestyle's delivery mechanism is a
+systemd unit in the VM snapshot running the `cmux-devbox-boot` supervisor, with
+the pinned binary baked at `/root/.cmux/bin/cmux-tui`. A Freestyle snapshot is
+a memory image, so the supervisor binds the daemon identity to the platform
+instance id (Firecracker MMDS `instance-id`) and mints a fresh identity on a
+clone; the bake parks the daemon before snapshotting so no live identity is
+ever shared. Create therefore runs no guest bootstrap. (Other providers had
+their own rows here — a template-baked binary and a snapshot entrypoint —
+until they were removed.)
 
-| provider | today | change |
-| --- | --- | --- |
-| blaxel | gzip+base64 runtime injection at create | same path, chunked upload or URL fetch (binary is ~4x larger); start `server start --remote-ws` instead of `serve --ws` |
-| e2b | baked into template by `web/scripts/build-cloud-vm-images.ts` | swap the copied binary and start command |
-| daytona | baked into snapshot, entrypoint restarts it | same swap; the driver's repair exec restarts `server start` |
-| freestyle | systemd unit in the VM snapshot | same swap in the unit file |
-
-The daemon's remote state dir must live on the persistent volume (`/root` on
-blaxel, hence the default `/root/.local/state/cmux/remote` already qualifies)
+The daemon's remote state dir must live on the persistent volume (the machine's
+home; Freestyle runs the daemon as root with `HOME=/root`, so the
+HOME-derived default `~/.local/state/cmux/remote` already qualifies. The
+non-root layout described below (`CMUX_CLOUD_LAYOUT`) is retained as a seam
+but no driver selects it today.)
 so daemon identity and enrolled devices survive sandbox resurrection. Session
 state (`--state`) lives there too, so workspace layout restores from the
 journal checkpoint after a daemon restart; running processes do not survive a
 restart, and clients see the generation change instead of a silent new shell.
+
+On a layout machine, the daemon watches the bindfs home view for mount events.
+If the view disappears, the supervisor stops the user daemon and exits with a
+restartable failure code. The provider starts the command again, which reruns
+the idempotent user setup and repairs the view before selecting the non-root
+daemon. If repair fails, it detects the still-mounted `/cmux/home` backing path
+and runs the daemon there as root. Active terminals therefore do not continue
+writing into the disposable rootfs directory. No provider selects this layout
+today; it is kept for a future non-root cloud home.
 
 ## Lease/auth integration with the attach-endpoint flow
 
@@ -184,8 +199,8 @@ grid, matching current cmuxd-remote semantics.
 
 ## Rollout
 
-Phase 1: ship the cmux-tui daemon alongside cmuxd-remote (second port,
-blaxel first since it needs no image rebake), attach-endpoint returns both
+Phase 1: ship the cmux-tui daemon alongside cmuxd-remote (second port),
+attach-endpoint returns both
 transports, macOS opts in behind a feature flag. Phase 2: default new
 attaches to `cmux-remote`, keep `websocket` as fallback for one release.
 Phase 3: delete the Go daemon path per provider, then the `daemon/remote`

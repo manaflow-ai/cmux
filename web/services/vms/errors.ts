@@ -25,6 +25,25 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+/**
+ * A private-network or tunnel operation on a deployment that does not serve
+ * one — the provider has no `privateNetworking`, or
+ * `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` has rolled the feature back.
+ *
+ * Distinct from {@link VmOperationUnsupportedError} because the caller's next
+ * move is different: this is a deployment that will not give *any* caller a
+ * tunnel, so a client should stop offering to set one up rather than retry.
+ */
+export class VmPrivateNetworkUnavailableError extends Data.TaggedError("VmPrivateNetworkUnavailableError")<{
+  readonly provider: ProviderId;
+  readonly reason: string;
+}> {}
+
+/** The caller asked about a tunnel this account has never enrolled, or revoked. */
+export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundError")<{
+  readonly deviceFingerprint: string;
+}> {}
+
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
   readonly snapshotId: string;
 }> {}
@@ -93,8 +112,8 @@ export class VmBillingError extends Data.TaggedError("VmBillingError")<{
 
 /**
  * The caller asked for a session transport the machine's provider does not serve
- * (e.g. the legacy websocket/SSH attach on a Blaxel machine, which only runs the
- * cmux-tui remote daemon). Not retryable: the client must switch transports.
+ * (e.g. the legacy websocket/SSH attach on a machine that only runs the cmux-tui
+ * remote daemon). Not retryable: the client must switch transports.
  */
 export class VmAttachTransportUnsupportedError extends Data.TaggedError("VmAttachTransportUnsupportedError")<{
   readonly provider: ProviderId;
@@ -125,7 +144,19 @@ export type VmWorkflowError =
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
+  | VmPrivateNetworkUnavailableError
+  | VmTunnelNotFoundError
   | VmAccountDeletionIdentityRevocationError;
+
+export function isVmPrivateNetworkUnavailableError(
+  err: unknown,
+): err is VmPrivateNetworkUnavailableError {
+  return (err as { _tag?: string } | null)?._tag === "VmPrivateNetworkUnavailableError";
+}
+
+export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelNotFoundError";
+}
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
@@ -216,6 +247,8 @@ const vmWorkflowErrorTagRecord = {
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,
+  VmPrivateNetworkUnavailableError: true,
+  VmTunnelNotFoundError: true,
   VmAccountDeletionIdentityRevocationError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 

@@ -24,6 +24,7 @@ import {
 } from "../../../services/vms/errors";
 import {
   defaultMemoryMbForPlan,
+  memoryOptionsMbForPlan,
   isPaidVmPlan,
   isVmBillingTeamResolutionError,
   maxMemoryMbForPlan,
@@ -31,7 +32,6 @@ import {
   vmFreeAccessWindowDays,
 } from "../../../services/vms/entitlements";
 import {
-  imageUsesBakedFreestyleSignedAdmin,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
@@ -137,6 +137,10 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // The machine's address on its owner's private network (reachable over
+        // the WireGuard tunnel); null for machines created before private
+        // networking. Clients surface it as "Copy IP Address".
+        address: { ipv4: entry.addressIpv4, ipv6: entry.addressIpv6 },
         // Server-authoritative expiry of the free access window for this machine
         // (epoch ms); null on paid plans or when the window is disabled. Clients
         // render countdowns from this instead of re-deriving the policy.
@@ -157,7 +161,9 @@ export async function GET(request: Request): Promise<Response> {
           ),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
-          imageKinds: listVmImageKinds(defaultProviderId()),
+          imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
+            memoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
+          }),
         }
         : undefined;
       return jsonResponse({ vms, limits });
@@ -360,22 +366,26 @@ export async function POST(request: Request): Promise<Response> {
         });
 
         const maxMemoryMb = maxMemoryMbForPlan(entitlements.planId, process.env);
+        const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
+        const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
+        const requestedMemoryMb = candidate.memoryMb as number | undefined;
+        // Every plan sells exactly the plan machine, so a size the plan does
+        // not offer resolves to that machine instead of failing the create.
+        // Clients ship their own size table and always trail the server: the
+        // 2026-09-02 pricing change (#11610) left every installed nightly
+        // sending its old 24 GB default and the server rejecting each create
+        // with `vm_memory_exceeds_plan` until the next nightly published. The
+        // server owns the machine spec, so a stale client must still get a
+        // machine; the mismatch is recorded on the span for Axiom.
         const memoryMb =
-          candidate.memoryMb === undefined
-            ? defaultMemoryMbForPlan(entitlements.planId, process.env)
-            : candidate.memoryMb as number;
-        if (memoryMb > maxMemoryMb) {
-          return vmErrorResponse({
-            error: "vm_memory_exceeds_plan",
-            status: 400,
-            message: "The requested Cloud VM size exceeds this plan's memory limit.",
-            action: `Choose a size at or below ${maxMemoryMb} MB, or upgrade the plan before retrying.`,
-            details: { requestedMemoryMb: memoryMb, maxMemoryMb, planId: entitlements.planId },
-          });
-        }
+          requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+            ? requestedMemoryMb ?? planMemoryMb
+            : planMemoryMb;
         setSpanAttributes(span, {
           "cmux.vm.memory_mb": memoryMb,
           "cmux.vm.max_memory_mb": maxMemoryMb,
+          "cmux.vm.memory_requested_mb": requestedMemoryMb,
+          "cmux.vm.memory_coerced": requestedMemoryMb !== undefined && requestedMemoryMb !== memoryMb,
         });
 
         // Resolve provider/image only after the paid-plan boundary. A free or
@@ -388,7 +398,9 @@ export async function POST(request: Request): Promise<Response> {
         let imageSelection;
         try {
           assertVmCreateEnabled(provider);
-          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind });
+          // The plan's memory picks the snapshot size (one snapshot per size on
+          // Freestyle), so the machine boots at its shape with nothing to resize.
+          imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
         } catch (err) {
           if (isVmCreateDisabledError(err)) {
             return vmErrorResponse({
@@ -451,7 +463,6 @@ export async function POST(request: Request): Promise<Response> {
             imageVersion: imageSelection.imageVersion,
             provider,
             idempotencyKey,
-            bakedFreestyleSignedAdmin: imageUsesBakedFreestyleSignedAdmin(provider, image),
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
@@ -514,6 +525,7 @@ export async function POST(request: Request): Promise<Response> {
           image: created.image,
           imageVersion: created.imageVersion,
           kind: imageSelection.kind,
+          ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
         });
       }

@@ -30,7 +30,7 @@ use ghostty_vt::{
 use crate::mux::ResourceWaitWake;
 use crate::platform;
 use crate::resource::{ContentPublicId, TabResourceIdentity, TerminalPublicId};
-use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status};
+use crate::terminal_host_protocol::{TerminalExit, wait_for_native_child_status_with_reap_result};
 use crate::{Mux, MuxEvent, SurfaceId};
 
 pub use crate::browser::{
@@ -1291,7 +1291,6 @@ struct ReaderCompletion {
 }
 
 impl ReaderCompletion {
-    #[cfg(test)]
     fn reset(&self) {
         *self.finished.lock().unwrap() = false;
     }
@@ -1407,6 +1406,10 @@ pub struct PtyTerminalRuntime {
     /// journal barrier.
     reader_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
     reader_completion: Arc<ReaderCompletion>,
+    /// Owned child-reaper join fence. Shutdown uses the same bounded deadline
+    /// as the reader so the child wait cannot outlive terminal teardown.
+    reaper_thread: Mutex<Option<std::thread::JoinHandle<()>>>,
+    reaper_completion: Arc<ReaderCompletion>,
     term: Mutex<Box<Terminal>>,
     stream_progress: Box<TerminalStreamProgress>,
     mouse_encoders: Mutex<Box<MouseEncoders>>,
@@ -1491,6 +1494,48 @@ enum PtyRuntime {
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
     #[cfg(unix)]
     ExitedHosted,
+}
+
+/// Owns a freshly spawned PTY child until the child reaper has taken over.
+///
+/// `portable_pty::Child` does not stop or reap a process when its handle is
+/// dropped. Startup performs several fallible operations after spawning, so a
+/// guard keeps every error path terminating and reaping the child. The guard
+/// moves into the reaper closure; if thread creation fails, dropping that
+/// closure runs this cleanup instead.
+struct PtyChildStartupGuard {
+    child: Box<dyn cmux_pty::Child + Send + Sync>,
+    reaped: bool,
+}
+
+impl PtyChildStartupGuard {
+    fn new(child: Box<dyn cmux_pty::Child + Send + Sync>) -> Self {
+        Self { child, reaped: false }
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        self.child.process_id()
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        self.child.clone_killer()
+    }
+
+    fn wait_for_exit(&mut self) -> TerminalExit {
+        let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child.as_mut());
+        self.reaped = reaped;
+        exit
+    }
+}
+
+impl Drop for PtyChildStartupGuard {
+    fn drop(&mut self) {
+        if self.reaped {
+            return;
+        }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -2294,7 +2339,8 @@ impl Surface {
             cmd.cwd(cwd);
         }
 
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(cmd)?;
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(cmd)?;
+        let mut child = PtyChildStartupGuard::new(child);
         let pid = child.process_id();
         let killer = child.clone_killer();
         #[cfg(unix)]
@@ -2368,6 +2414,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -2563,17 +2611,35 @@ impl Surface {
 
         // Child reaper: retain the native status and rendezvous with PTY EOF
         // so final output is visible before the mux observes completion.
-        std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn({
-            let surface = surface.clone();
-            move || {
-                let exit = wait_for_native_child_status(child.as_mut());
-                if let Some(pty) = surface.as_pty() {
+        let reaper_completion =
+            surface.as_pty().expect("local PTY surface owns its reaper").reaper_completion.clone();
+        reaper_completion.reset();
+        // Keep the surface alive with the join handle until the child wait
+        // completes. This prevents a deadline timeout from detaching a live
+        // reaper when teardown drops the last external surface reference.
+        let reaper_surface = surface.clone();
+        let reaper_thread =
+            match std::thread::Builder::new().name(format!("surface-{id}-wait")).spawn(move || {
+                let _reaper_completion = ReaderCompletionGuard(reaper_completion);
+                let exit = child.wait_for_exit();
+                if let Some(pty) = reaper_surface.as_pty() {
                     *pty.exit.lock().unwrap() = Some(exit);
                 }
-                close_local_terminal_master_after_exit(&surface);
-                publish_local_exit_if_ready(&surface);
-            }
-        })?;
+                close_local_terminal_master_after_exit(&reaper_surface);
+                publish_local_exit_if_ready(&reaper_surface);
+            }) {
+                Ok(reaper_thread) => reaper_thread,
+                Err(error) => {
+                    close_local_terminal_master_after_exit(&surface);
+                    return Err(error.into());
+                }
+            };
+        *surface
+            .as_pty()
+            .expect("local PTY surface owns its reaper")
+            .reaper_thread
+            .lock()
+            .unwrap() = Some(reaper_thread);
 
         Ok(surface)
     }
@@ -2840,6 +2906,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -3883,6 +3951,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4108,6 +4178,8 @@ impl Surface {
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),
                 reader_completion: Arc::new(ReaderCompletion::default()),
+                reaper_thread: Mutex::new(None),
+                reaper_completion: Arc::new(ReaderCompletion::default()),
                 term: Mutex::new(Box::new(term)),
                 stream_progress: Box::new(TerminalStreamProgress::default()),
                 mouse_encoders: Mutex::new(Box::new(mouse_encoders)),
@@ -4181,6 +4253,22 @@ impl Surface {
 
     pub(crate) fn finish_terminal_reader(&self, deadline: Instant) -> Option<TerminalJournalGap> {
         let pty = self.as_pty()?;
+        let reaper = pty.reaper_thread.lock().unwrap().take();
+        if let Some(reaper) = reaper {
+            if reaper.thread().id() == std::thread::current().id() {
+                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                eprintln!("cmux-tui: child reaper skipped self-join during shutdown");
+            } else if pty.reaper_completion.wait_until(deadline) {
+                if reaper.join().is_err() {
+                    eprintln!("cmux-tui: child reaper thread panicked during shutdown");
+                }
+            } else {
+                *pty.reaper_thread.lock().unwrap() = Some(reaper);
+                eprintln!(
+                    "cmux-tui: child reaper did not stop before the shared shutdown deadline"
+                );
+            }
+        }
         if let Some(reader) = pty.reader_thread.lock().unwrap().take() {
             if pty.reader_completion.wait_until(deadline) {
                 if reader.join().is_err() {
@@ -4219,6 +4307,42 @@ impl Surface {
         });
         let previous = pty.reader_thread.lock().unwrap().replace(reader);
         assert!(previous.is_none(), "test PTY already owns a reader thread");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_terminal_reaper_for_test(&self, reaper: std::thread::JoinHandle<()>) {
+        let pty = self.as_pty().expect("test reaper requires a PTY surface");
+        pty.reaper_completion.reset();
+        let completion = pty.reaper_completion.clone();
+        let reaper = std::thread::spawn(move || {
+            let result = reaper.join();
+            completion.complete();
+            result.expect("installed test terminal reaper panicked");
+        });
+        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        assert!(previous.is_none(), "test PTY already owns a reaper thread");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn install_terminal_reaper_that_finishes_for_test(
+        self: &Arc<Self>,
+        started: std::sync::mpsc::SyncSender<()>,
+        proceed: std::sync::mpsc::Receiver<()>,
+    ) -> Arc<ReaderCompletion> {
+        let pty = self.as_pty().expect("test reaper requires a PTY surface");
+        pty.reaper_completion.reset();
+        let completion = pty.reaper_completion.clone();
+        let reaper_completion = completion.clone();
+        let surface = self.clone();
+        let reaper = std::thread::spawn(move || {
+            started.send(()).unwrap();
+            proceed.recv().unwrap();
+            reaper_completion.complete();
+            surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        });
+        let previous = pty.reaper_thread.lock().unwrap().replace(reaper);
+        assert!(previous.is_none(), "test PTY already owns a reaper thread");
+        completion
     }
 
     #[cfg(test)]
@@ -6098,6 +6222,47 @@ impl ChildKiller for TestChildKiller {
     }
 }
 
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct StartupChildState {
+    kill_count: AtomicUsize,
+    wait_count: AtomicUsize,
+}
+
+#[cfg(test)]
+#[derive(Debug)]
+struct StartupChild {
+    state: Arc<StartupChildState>,
+}
+
+#[cfg(test)]
+impl cmux_pty::ChildKiller for StartupChild {
+    fn kill(&mut self) -> std::io::Result<()> {
+        self.state.kill_count.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+        Box::new(TestChildKiller)
+    }
+}
+
+#[cfg(test)]
+impl cmux_pty::Child for StartupChild {
+    fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+        Err(std::io::Error::other("test child has no process"))
+    }
+
+    fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+        self.state.wait_count.fetch_add(1, Ordering::Relaxed);
+        Err(std::io::Error::other("test child has no process"))
+    }
+
+    fn process_id(&self) -> Option<u32> {
+        None
+    }
+}
+
 impl PtySurface {
     fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
         let terminal_id = self.terminal_public_id.clone()?;
@@ -6847,9 +7012,117 @@ fn set_terminal_scroll_offset(term: &mut Terminal, target: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
+    use std::sync::mpsc::sync_channel;
 
     use super::*;
     use crate::MuxEvent;
+
+    #[test]
+    fn finish_terminal_reader_joins_owned_reaper_before_deadline() {
+        let mux = Mux::new_for_test("reaper-join", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let (started_tx, started_rx) = sync_channel(0);
+        let reaper = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+        });
+        surface.install_terminal_reaper_for_test(reaper);
+        started_rx.recv().unwrap();
+
+        let pty = surface.as_pty().unwrap();
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_none(),
+            "terminal teardown must consume the child-reaper join handle"
+        );
+    }
+
+    #[test]
+    fn finish_terminal_reader_retains_reaper_after_deadline() {
+        let mux = Mux::new_for_test("reaper-timeout", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let (started_tx, started_rx) = sync_channel(0);
+        let (release_tx, release_rx) = sync_channel(0);
+        let reaper = std::thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        surface.install_terminal_reaper_for_test(reaper);
+        started_rx.recv().unwrap();
+
+        let pty = surface.as_pty().unwrap();
+        surface.finish_terminal_reader(Instant::now());
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_some(),
+            "a live child-reaper handle must remain owned after timeout"
+        );
+
+        release_tx.send(()).unwrap();
+        assert!(pty.reaper_completion.wait_until(Instant::now() + Duration::from_secs(1)));
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn finish_terminal_reader_does_not_self_join_reaper() {
+        let mux = Mux::new_for_test("reaper-self-join", SurfaceOptions::default());
+        let surface = Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux))
+            .expect("test PTY should spawn");
+        let (started_tx, started_rx) = sync_channel(0);
+        let (proceed_tx, proceed_rx) = sync_channel(0);
+        let completion =
+            surface.install_terminal_reaper_that_finishes_for_test(started_tx, proceed_rx);
+        started_rx.recv().unwrap();
+        proceed_tx.send(()).unwrap();
+
+        assert!(completion.wait_until(Instant::now() + Duration::from_secs(1)));
+        let pty = surface.as_pty().unwrap();
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn local_surface_reaper_timeout_retains_production_handle() {
+        let mux = Mux::new_for_test("production-reaper-timeout", SurfaceOptions::default());
+        let surface = Surface::spawn(
+            2,
+            SurfaceOptions {
+                command: Some(vec!["/bin/sh".into(), "-c".into(), "read _".into()]),
+                ..SurfaceOptions::default()
+            },
+            Arc::downgrade(&mux),
+        )
+        .expect("local PTY should spawn");
+        let pty = surface.as_pty().expect("spawned surface should be a PTY");
+
+        surface.finish_terminal_reader(Instant::now());
+        assert!(
+            pty.reaper_thread.lock().unwrap().is_some(),
+            "a live production child-reaper handle must remain owned after timeout"
+        );
+
+        surface.kill();
+        assert!(
+            pty.reaper_completion.wait_until(Instant::now() + Duration::from_secs(1)),
+            "killing the local PTY must release the production reaper"
+        );
+        surface.finish_terminal_reader(Instant::now() + Duration::from_secs(1));
+        assert!(pty.reaper_thread.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn pty_child_startup_guard_kills_and_waits_on_drop() {
+        let state = Arc::new(StartupChildState::default());
+        {
+            let _guard = PtyChildStartupGuard::new(Box::new(StartupChild { state: state.clone() }));
+        }
+
+        assert_eq!(state.kill_count.load(Ordering::Relaxed), 1);
+        assert_eq!(state.wait_count.load(Ordering::Relaxed), 1);
+    }
 
     #[test]
     fn agent_browser_provider_uses_a_terminal_local_daemon_session() {

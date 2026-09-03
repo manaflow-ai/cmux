@@ -145,7 +145,9 @@
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "adminGroup": "管理",
+      "adminPro": "Pro アクセス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -200,17 +202,17 @@
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
         "pendingBody": "プランは{date}に終了する予定です。",
-        "monthlyPrice": "$30/月",
-        "annualPrice": "$24/月（年払い）",
-        "legacyAnnualPrice": "$20/月（年払い）"
+        "monthlyPrice": "${amount}/月",
+        "annualPrice": "${monthly}/月（年払い）",
+        "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月",
-        "annualPrice": "$28/シート/月（年払い）"
+        "price": "${amount}/シート/月",
+        "annualPrice": "${monthly}/シート/月（年払い）"
       },
       "details": {
         "renewsOn": "更新日",
@@ -282,6 +284,146 @@
         "viewPricing": "料金を見る",
         "join": "iOS TestFlightに参加",
         "leave": "TestFlightから退出"
+      }
+    },
+    "admin": {
+      "eyebrow": "管理",
+      "title": "Pro アクセス",
+      "description": "任意のアカウント、チーム、メールに Pro を付与または解除し、有料顧客をダウングレードします。このページを開けるのは確認済みの {domains} アカウントのみです。",
+      "search": {
+        "label": "ユーザー、チーム、またはメールを検索",
+        "placeholder": "メール、名前、チーム、または ID",
+        "button": "検索",
+        "searching": "検索中…",
+        "hint": "メインのメール、表示名、チーム名、または完全一致の ID で検索します。各最大 25 件。すべての変更は確認を求めます。"
+      },
+      "sections": {
+        "users": "ユーザー ({count})",
+        "teams": "チーム ({count})",
+        "pending": "保留中のメール付与 ({count})"
+      },
+      "results": {
+        "user": "ユーザー",
+        "team": "チーム",
+        "email": "メール",
+        "plan": "プラン",
+        "access": "アクセス",
+        "stripe": "Stripe",
+        "grant": "手動付与",
+        "actions": "操作",
+        "empty": "一致するユーザー、チーム、保留中の付与はありません。",
+        "noEmail": "メールなし",
+        "verified": "確認済み",
+        "unverified": "未確認",
+        "members": "{count} 人のメンバー",
+        "noSubscription": "サブスクリプションなし",
+        "cancelling": "期間終了時に解約",
+        "membersUnknown": "メンバー数を取得できません"
+      },
+      "access": {
+        "pro": "Pro",
+        "team": "Team",
+        "free": "Free"
+      },
+      "plans": {
+        "pro": "Pro",
+        "founders": "Founders",
+        "team": "Team"
+      },
+      "grant": {
+        "none": "なし",
+        "current": "{plan}",
+        "by": "{who} · {when}"
+      },
+      "pending": {
+        "waiting": "初回の確認済みサインイン時に適用"
+      },
+      "emailGrant": {
+        "title": "このメールのアカウントはまだありません",
+        "body": "{email} に今すぐ Pro を付与します。そのメールが確認済みのメールボックスで初めてサインインしたときに自動的に適用されます。"
+      },
+      "actions": {
+        "grantPro": "Pro を付与",
+        "grantFounders": "Founders を付与",
+        "grantTeam": "Team を付与",
+        "removeGrant": "付与を解除",
+        "downgrade": "ダウングレード",
+        "resumeSubscription": "サブスクリプションを再開",
+        "revokePending": "取り消し",
+        "saving": "保存中…"
+      },
+      "confirm": {
+        "cancel": "キャンセル",
+        "grant": "付与を確定",
+        "grantTitle": "{plan} を付与しますか？",
+        "grantUserBody": "このアカウントはサブスクリプションなしで全機能の {plan} アクセスを得ます。管理者が解除するまで継続します。",
+        "grantTeamBody": "{count} 人のメンバー全員がサブスクリプションなしで Team アクセスを得ます。管理者が解除するまで継続します。",
+        "grantEmailBody": "付与は今保存され、そのメールの初回の確認済みサインイン時に適用されます。必要であればそれまでにここで取り消せます。",
+        "removeGrantTitle": "手動付与を解除しますか？",
+        "removeGrantBody": "アクセスは直ちに Free になります。",
+        "removeTeamGrantBody": "すべてのメンバーが直ちに Team アクセスを失います。",
+        "removeGrantBodyStripe": "有効な Stripe サブスクリプションが引き続きアクセスを付与します。それも終了するにはダウングレードを使用してください。",
+        "downgradeTitle": "この有料顧客をダウングレードしますか？",
+        "downgradeBody": "Stripe サブスクリプションは現在の期間終了時に解約されます。それまでアクセスは継続し、返金はありません。",
+        "downgradeTeamBody": "チームの Stripe サブスクリプションは現在の期間終了時に解約されます。それまで全メンバーのアクセスは継続し、返金はありません。",
+        "resumeTitle": "サブスクリプションを再開しますか？",
+        "resumeBody": "予定されていた解約が取り消され、サブスクリプションは通常どおり更新されます。",
+        "revokePendingTitle": "この保留中の付与を取り消しますか？",
+        "revokePendingBody": "このメールがサインインしても何も適用されません。",
+        "grantTeamBodyUnknown": "メンバー一覧を読み込めなかったため、この付与の範囲が不明です。再読み込みしてからお試しください。"
+      },
+      "notices": {
+        "granted": "{target} に {plan} を付与しました。",
+        "grantRemoved": "{target} の手動付与を解除しました。",
+        "downgraded": "{target} は現在の期間終了時に解約されます。",
+        "resumed": "{target} のサブスクリプションを再開しました。",
+        "emailGranted": "{target} の初回の確認済みサインイン時に {plan} が適用されます。",
+        "pendingRevoked": "{target} の保留中の付与を取り消しました。",
+        "supersededNotCleared": "付与は記録されましたが、以前の付与が {count} 件のアカウントでまだ有効です。そのメールを検索してユーザー行の「付与を解除」を使用するか、次回サインイン時に解除されます。"
+      },
+      "errors": {
+        "network": "ネットワークエラーです。もう一度お試しください。",
+        "forbidden": "このアカウントは管理者ではありません。確認済みの cmux.com、manaflow.ai、または manaflow.com のメールでサインインしてください。",
+        "notFound": "一致するアカウントまたはサブスクリプションがありません。",
+        "conflict": "このアカウントへの別の変更が進行中か、メールが複数のアカウントに一致します。",
+        "billing": "請求機能は現在利用できません。",
+        "generic": "リクエストに失敗しました。しばらくしてからお試しください。"
+      },
+      "list": {
+        "title": "すべての Pro ユーザー",
+        "description": "Pro アクセスを持つすべてのアカウントとその理由: 請求ミラーの有効な Stripe サブスクリプション、アカウント一覧を走査して見つけた手動付与、初回サインイン待ちの付与。",
+        "reload": "再読み込み",
+        "loading": "読み込み中…",
+        "stats": {
+          "proUsers": "Pro ユーザー",
+          "subscribers": "Stripe 契約者",
+          "userGrants": "手動付与",
+          "teams": "チーム",
+          "pending": "保留中の付与"
+        },
+        "scanUsers": "アカウント",
+        "scanTeams": "チーム",
+        "scanProgress": "手動付与を探して{label}を走査中… {scanned} 件確認。",
+        "scanDone": "{scanned} 件の{label}を走査しました。",
+        "scanFailed": "{label}の走査は {scanned} 件で停止しました。",
+        "scanTruncated": "一覧の終端に達する前にページ上限に達しました。",
+        "scanning": "走査中…",
+        "empty": "なし。",
+        "sections": {
+          "subscribers": "Stripe Pro 契約者 ({count})",
+          "userGrants": "手動付与ユーザー ({count})",
+          "teams": "Team アクセスを持つチーム ({count})",
+          "pending": "保留中のメール付与 ({count})"
+        },
+        "periodEnd": "期間終了",
+        "userId": "ユーザー ID",
+        "teamId": "チーム ID",
+        "source": "ソース",
+        "detail": "詳細",
+        "sourceStripe": "Stripe サブスクリプション",
+        "sourceGrant": "手動付与",
+        "seats": "{count} シート",
+        "truncated": "この一覧はソースごとに 5,000 行までに制限されており、一部の行は表示されていません。見つからないものは検索してください。"
       }
     },
     "aiAccounts": {
@@ -573,12 +715,12 @@
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
       "cta": "Pro を入手",
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "同時に最大5台のアクティブな Cloud VM",
+        "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク",
+        "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
       "vaultFeatures": [
@@ -591,7 +733,6 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
@@ -671,9 +812,23 @@
         {
           "label": "同時 Cloud VM 数",
           "free": "false",
-          "pro": "最大5台",
-          "team": "最大5台",
+          "pro": "50",
+          "team": "ユーザーごとに 50",
           "enterprise": "カスタム"
+        },
+        {
+          "label": "Cloud VM のサイズ",
+          "free": "false",
+          "pro": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "team": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "ワークスペース",
+          "free": "無制限",
+          "pro": "無制限",
+          "team": "無制限",
+          "enterprise": "無制限"
         },
         {
           "label": "iOS アプリ",
@@ -744,7 +899,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team には最大5台のアクティブなマシンが含まれます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシン（各 5 vCPU / 20 GB RAM / 200 GB ディスク）を利用できます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -757,7 +912,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）です。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。有料プランには最大5台のアクティブな Cloud VM が含まれ、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用でき、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -765,7 +920,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
+          "a": "はい。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -1131,7 +1286,7 @@
         "title": "スーパーリポとClaude Codeが最良のワークツリー管理ツールである理由",
         "summary": "cmuxにまだワークツリーマネージャーがない理由をよく聞かれます。最適なマネージャーは、ワークツリー、別チェックアウト、サンドボックス、VM、GPUクラスタから選べます。",
         "date": "2026年7月23日",
-        "p1": "ワークロードごとに適した並列化の方法は異なります。通常のGit変更にはワークツリーが向いています。サブモジュールやビルドツールがワークツリーを扱いにくい場合は、複数のチェックアウトが役立ちます。E2B、Freestyle、Daytona、Modalはリモートサンドボックスを提供し、GitHub Actionsも同じ用途に転用できます。ローカルの分離にはDocker、UTM、Lima、OrbStackがあります。Mac miniやLinuxマシンを並べるチームもあります。ML実験にはRay、Modal、Slurmが適しています。mainですべてを一気に進めるのが最速な場合もあります。",
+        "p1": "ワークロードごとに適した並列化の方法は異なります。通常のGit変更にはワークツリーが向いています。サブモジュールやビルドツールがワークツリーを扱いにくい場合は、複数のチェックアウトが役立ちます。FreestyleとModalはリモートサンドボックスを提供し、GitHub Actionsも同じ用途に転用できます。ローカルの分離にはDocker、UTM、Lima、OrbStackがあります。Mac miniやLinuxマシンを並べるチームもあります。ML実験にはRay、Modal、Slurmが適しています。mainですべてを一気に進めるのが最速な場合もあります。",
         "p2": "役に立つマネージャーは、タスクの文脈からこれらの実行方式を選ぶべきです。これは<zen>cmuxの禅</zen>に沿っています。プリミティブを組み合わせ可能なままにして、使い方はプロジェクトのルールに決めさせます。",
         "superRepoTitle": "スーパーリポはプロジェクトの司令部",
         "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",

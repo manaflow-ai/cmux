@@ -58,4 +58,16 @@ struct ControlHandleRegistryTests {
         #expect(registry.uuid(forRef: "tab:2") == nil)
         #expect(registry.uuid(forRef: "tab:x") == nil)
     }
+
+    @Test func topologyRefreshClaimCoalescesWithinOneSnapshotGeneration() {
+        var registry = ControlHandleRegistry()
+        #expect(registry.needsTopologyRefresh)
+        registry.markTopologyRefreshCompleted()
+        #expect(!registry.needsTopologyRefresh)
+        _ = registry.ensureRef(kind: .surface, uuid: UUID())
+        #expect(!registry.needsTopologyRefresh)
+        registry.markTopologyRefreshCompleted()
+        registry.invalidateTopologyRefresh()
+        #expect(registry.needsTopologyRefresh)
+    }
 }

@@ -1,6 +1,7 @@
 import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
 import { unauthorized, verifyRequest } from "../vms/auth";
+import { authProviderErrorResponse } from "../vms/authErrors";
 import { jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "../iroh/errors";
 import {
@@ -40,8 +41,8 @@ async function handleConnectivitySyncMethod(
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
     user = await verify(request, { allowCookie: false });
-  } catch {
-    return jsonResponse({ error: "unauthorized" }, 401);
+  } catch (error) {
+    return authProviderErrorResponse(error, `connectivity.${method}.auth`);
   }
   if (!user) return unauthorized();
 
