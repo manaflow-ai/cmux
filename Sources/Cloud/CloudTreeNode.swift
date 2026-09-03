@@ -219,7 +219,7 @@ struct CloudTreeTerminalRow: Equatable {
     /// A live terminal no daemon tab shows: out of every workspace's layout, so it
     /// is a Terminals-group row only, drawn greyed with a "detached" mark. Its verbs
     /// are a terminal's — a click re-attaches it in a pane, Kill Terminal ends it.
-    var isDetached: Bool = false
+    var isDetached: Bool { resource.isDetachedTerminal }
 }
 
 /// A browser row (this Mac's browser panes, or a cloud machine's browsers).
@@ -270,9 +270,15 @@ enum CloudTreeNodeBuilder {
         localWorkspaces: [CloudTreeLocalWorkspace],
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine
     ) -> [CloudTreeNode] {
+        let openResourceIDs = Set(snapshot.projections.map(\.resource))
         var nodes: [CloudTreeNode] = []
         if includeLocalMachine, let local = snapshot.machines.first(where: { $0.id.isLocal }) {
-            nodes.append(localMachineNode(info: local, snapshot: snapshot, localWorkspaces: localWorkspaces))
+            nodes.append(localMachineNode(
+                info: local,
+                snapshot: snapshot,
+                localWorkspaces: localWorkspaces,
+                openResourceIDs: openResourceIDs
+            ))
         }
         // Creates the person just started go first: they are what the person is
         // waiting on, and a failed one must not hide below a long fleet. A
@@ -290,7 +296,12 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(
                 id: nodeID(machine: .cloud(machine.id)),
                 kind: .machine(machine, info),
-                children: cloudChildren(machine: .cloud(machine.id), info: info, snapshot: snapshot)
+                children: cloudChildren(
+                    machine: .cloud(machine.id),
+                    info: info,
+                    snapshot: snapshot,
+                    openResourceIDs: openResourceIDs
+                )
             ))
         }
         // Machines the catalog knows but the fleet list has not returned yet (or
@@ -309,7 +320,12 @@ enum CloudTreeNodeBuilder {
             nodes.append(CloudTreeNode(
                 id: nodeID(machine: info.id),
                 kind: .machine(placeholderSnapshot, info),
-                children: cloudChildren(machine: info.id, info: info, snapshot: snapshot)
+                children: cloudChildren(
+                    machine: info.id,
+                    info: info,
+                    snapshot: snapshot,
+                    openResourceIDs: openResourceIDs
+                )
             ))
         }
         return nodes
@@ -363,7 +379,8 @@ enum CloudTreeNodeBuilder {
     private static func localMachineNode(
         info: SurfaceMachineInfo,
         snapshot: SurfaceCatalogSnapshot,
-        localWorkspaces: [CloudTreeLocalWorkspace]
+        localWorkspaces: [CloudTreeLocalWorkspace],
+        openResourceIDs: Set<SurfaceResourceID>
     ) -> CloudTreeNode {
         let resources = snapshot.resources(on: .local)
         let terminals = resources.filter { $0.kind == .terminal }
@@ -401,11 +418,15 @@ enum CloudTreeNodeBuilder {
                     terminalCount: projected.count,
                     isSelected: workspace.isSelected
                 )),
-                children: projected.map { terminalNode($0, snapshot: snapshot) },
+                children: projected.map {
+                    terminalNode($0, snapshot: snapshot, openResourceIDs: openResourceIDs)
+                },
                 dragGroup: SurfaceResourceGroup(title: title, resources: (projected + projectedBrowsers).map(\.id))
             )
         }
-        children.append(contentsOf: unplaced.map { terminalNode($0, snapshot: snapshot) })
+        children.append(contentsOf: unplaced.map {
+            terminalNode($0, snapshot: snapshot, openResourceIDs: openResourceIDs)
+        })
         if children.isEmpty {
             children.append(placeholder(.local, text: String(localized: "cloudTree.placeholder.noLocalTerminals", defaultValue: "No terminals open"), style: .dimmed))
         }
@@ -418,7 +439,7 @@ enum CloudTreeNodeBuilder {
                         id: nodeID(resource: browser.id),
                         kind: .browser(CloudTreeBrowserRow(
                             resource: browser,
-                            isOpen: snapshot.isOpen(browser.id),
+                            isOpen: openResourceIDs.contains(browser.id),
                             workspaceTitle: workspaceOf(browser.id).flatMap { titles[$0] }
                         ))
                     )
@@ -446,7 +467,12 @@ enum CloudTreeNodeBuilder {
         return CmuxInternalHostnames.directPortURL(privateAddress: address, port: port)
     }
 
-    private static func cloudChildren(machine: SurfaceMachineID, info: SurfaceMachineInfo?, snapshot: SurfaceCatalogSnapshot) -> [CloudTreeNode] {
+    private static func cloudChildren(
+        machine: SurfaceMachineID,
+        info: SurfaceMachineInfo?,
+        snapshot: SurfaceCatalogSnapshot,
+        openResourceIDs: Set<SurfaceResourceID>
+    ) -> [CloudTreeNode] {
         // The catalog has not registered this machine yet: nothing to expand.
         guard let info else { return [] }
         var children: [CloudTreeNode] = []
@@ -468,7 +494,14 @@ enum CloudTreeNodeBuilder {
             // always its own row (never folded into a lone workspace), so its
             // "+" — the New Workspace verb — is one click away on a fresh
             // machine with a single workspace as much as on a busy one.
-            children.append(workspacesGroupNode(machine: machine, info: info, resources: resources, displays: displays, snapshot: snapshot))
+            children.append(workspacesGroupNode(
+                machine: machine,
+                info: info,
+                resources: resources,
+                displays: displays,
+                snapshot: snapshot,
+                openResourceIDs: openResourceIDs
+            ))
         }
         // Ports: one row per listening port, titled as the URL a person would
         // paste (`http://<private-ip>:<port>`) when the machine has a private
@@ -509,7 +542,12 @@ enum CloudTreeNodeBuilder {
         // is there on an empty machine too.
         switch info.linkState {
         case .connected, .notApplicable:
-            children.append(terminalsGroupNode(machine: machine, terminals: terminals, snapshot: snapshot))
+            children.append(terminalsGroupNode(
+                machine: machine,
+                terminals: terminals,
+                snapshot: snapshot,
+                openResourceIDs: openResourceIDs
+            ))
         case .asleep, .connecting, .error, .unavailable:
             break
         }
@@ -526,7 +564,8 @@ enum CloudTreeNodeBuilder {
         info: SurfaceMachineInfo,
         resources: [SurfaceResource],
         displays: [SurfaceResource],
-        snapshot: SurfaceCatalogSnapshot
+        snapshot: SurfaceCatalogSnapshot,
+        openResourceIDs: Set<SurfaceResourceID>
     ) -> CloudTreeNode {
         // One pass over the catalog for every workspace's members and one over the
         // projections for the open marks; each row is then dictionary reads.
@@ -551,11 +590,16 @@ enum CloudTreeNodeBuilder {
                 id: nodeID(workspace: workspace.id, machine: machine),
                 kind: .workspace(machine: machine, workspace, terminalCount: members.terminals.count, openIn: openInLocal),
                 children: members.terminals.map {
-                    terminalNode($0, snapshot: snapshot, id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id))
+                    terminalNode(
+                        $0,
+                        snapshot: snapshot,
+                        id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
+                        openResourceIDs: openResourceIDs
+                    )
                 } + members.browsers.map {
                     CloudTreeNode(
                         id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
-                        kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: snapshot.isOpen($0.id), workspaceTitle: nil))
+                        kind: .browser(CloudTreeBrowserRow(resource: $0, isOpen: openResourceIDs.contains($0.id), workspaceTitle: nil))
                     )
                 } + shownDisplays.map {
                     CloudTreeNode(id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id), kind: .display($0, openIn: openInLocal))
@@ -583,9 +627,19 @@ enum CloudTreeNodeBuilder {
     /// one row per identity whatever workspaces show it (badge = daemon tabs), a
     /// zero-view one greyed as detached. Always present under a connected machine
     /// — its "+" is New Terminal — with a placeholder child when there is none yet.
-    private static func terminalsGroupNode(machine: SurfaceMachineID, terminals: [SurfaceResource], snapshot: SurfaceCatalogSnapshot) -> CloudTreeNode {
+    private static func terminalsGroupNode(
+        machine: SurfaceMachineID,
+        terminals: [SurfaceResource],
+        snapshot: SurfaceCatalogSnapshot,
+        openResourceIDs: Set<SurfaceResourceID>
+    ) -> CloudTreeNode {
         var rows = terminals.map {
-            terminalNode($0, snapshot: snapshot, viewBadge: $0.remoteViews?.count, isDetached: $0.isDetachedTerminal)
+            terminalNode(
+                $0,
+                snapshot: snapshot,
+                viewBadge: $0.remoteViews?.count,
+                openResourceIDs: openResourceIDs
+            )
         }
         if rows.isEmpty {
             rows.append(CloudTreeNode(
@@ -608,11 +662,11 @@ enum CloudTreeNodeBuilder {
         snapshot: SurfaceCatalogSnapshot,
         id: String? = nil,
         viewBadge: Int? = nil,
-        isDetached: Bool = false
+        openResourceIDs: Set<SurfaceResourceID>
     ) -> CloudTreeNode {
         CloudTreeNode(
             id: id ?? nodeID(resource: resource.id),
-            kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: snapshot.isOpen(resource.id), viewBadge: viewBadge, isDetached: isDetached))
+            kind: .terminal(CloudTreeTerminalRow(resource: resource, isOpen: openResourceIDs.contains(resource.id), viewBadge: viewBadge))
         )
     }
 

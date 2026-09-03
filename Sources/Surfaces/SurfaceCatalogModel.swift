@@ -143,7 +143,9 @@ struct SurfaceResource: Identifiable, Hashable, Codable, Sendable {
     /// and is out of every workspace's layout, so it lists only in the machine's
     /// Terminals group, greyed as "detached"; a click re-attaches it in a pane and
     /// only its kill verb ends it.
-    var isDetachedTerminal: Bool { kind == .terminal && remoteViews?.isEmpty == true }
+    var isDetachedTerminal: Bool {
+        kind == .terminal && lifecycle == .running && remoteViews?.isEmpty == true
+    }
 
     /// The daemon workspaces holding at least one view, first-view order, deduped.
     /// Falls back to `remoteWorkspace` for providers that report a single workspace.
