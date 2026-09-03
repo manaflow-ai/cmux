@@ -2646,7 +2646,7 @@ struct PtyChild {
 #[cfg(unix)]
 struct CapturingPtyChild {
     child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
-    writer: Option<Box<dyn std::io::Write + Send>>,
+    writer: Option<Box<dyn Write + Send>>,
     receiver: mpsc::Receiver<Vec<u8>>,
     reader_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -2708,7 +2708,7 @@ impl CapturingPtyChild {
 
     fn wait_for_exit(&mut self, timeout: Duration) -> Option<cmux_pty::ExitStatus> {
         let mut child = self.child.take().expect("scoped attach child already waited");
-        let killer = child.clone_killer();
+        let mut killer = child.clone_killer();
         let (sender, receiver) = mpsc::sync_channel(1);
         std::thread::spawn(move || {
             let _ = sender.send(child.wait());

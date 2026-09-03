@@ -2697,7 +2697,7 @@ mod tests {
         let load_count = std::cell::Cell::new(0);
         let help_args = ["connect", "--help"].map(str::to_string);
         assert!(
-            super::run_inner(&help_args, "usage", || {
+            run_inner(&help_args, "usage", || {
                 load_count.set(load_count.get() + 1);
                 panic!("remote help must not load startup config");
             })
@@ -2706,7 +2706,7 @@ mod tests {
 
         let invalid_args = ["ssh", "--unknown"].map(str::to_string);
         assert!(
-            super::run_inner(&invalid_args, "usage", || {
+            run_inner(&invalid_args, "usage", || {
                 load_count.set(load_count.get() + 1);
                 panic!("remote parse errors must not load startup config");
             })

@@ -143,9 +143,23 @@ struct CloudTuiCommandLine: Sendable {
     }
 
     /// The compatibility tree used to translate a public `term_…` id to the
-    /// numeric surface id required by `attach-surface` byte streams.
+    /// numeric surface id required by `attach-surface` byte streams. Each tab
+    /// in it carries `terminal_resource_id` (the public id the app holds) next
+    /// to `surface`, which is the join the resolver needs.
+    ///
+    /// This rides the raw command bridge rather than a top-level
+    /// `list-workspaces` subcommand: the resource CLI reads that leading word
+    /// as a resource scope and rejects it with `unknown resource scope
+    /// "list-workspaces"`, so the tree was unreachable from the CLI even though
+    /// the daemon still serves the command over the wire.
     static func legacyListWorkspacesArguments(socketPath: String) -> [String] {
-        ["--socket", socketPath, "--json", "list-workspaces"]
+        // A fixed literal, so this cannot fail to encode and the request stays
+        // byte-stable across runs.
+        [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", #"{"id":1,"cmd":"list-workspaces"}"#,
+        ]
     }
 
     /// Resolves a stable terminal resource ID to the current generation's
