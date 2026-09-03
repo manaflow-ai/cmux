@@ -8894,7 +8894,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 workspace.cloudVMID?.lowercased() == target
             }
             for workspace in doomed {
-                manager.closeWorkspace(workspace)
+                if manager.tabs.count > 1 {
+                    manager.closeWorkspace(workspace, recordHistory: false)
+                } else {
+                    // TabManager intentionally keeps the final workspace as a
+                    // local anchor. Clear its cloud binding and panels instead
+                    // of leaving a deleted VM's loading/connected surface
+                    // behind when this is the only tab in the window.
+                    workspace.disconnectRemoteConnection(clearConfiguration: true)
+                    workspace.cloudVMBinding = nil
+                    workspace.withClosedPanelHistorySuppressed {
+                        workspace.teardownAllPanels()
+                    }
+                }
             }
         }
         // The sidebar's headless link to that machine has nothing left to talk to.
