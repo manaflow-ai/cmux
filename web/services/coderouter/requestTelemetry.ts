@@ -33,7 +33,11 @@ import { trace, type Span } from "@opentelemetry/api";
 import * as analytics from "./analytics";
 import type { CoderouterRawEvent } from "./analytics";
 import { errorSummary, exceptionEvent, scrubTelemetryText } from "./exceptionEvent";
-import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
+import {
+  addCoderouterBreadcrumb,
+  reportCoderouterFailure,
+  runWithCoderouterFailureScope,
+} from "./observability";
 import type { RouteTokenIdentity } from "./routeTokenAuth";
 import {
   forceFlushTraces,
@@ -453,47 +457,50 @@ export function withCoderouterRoute<Context = unknown>(
   return async (request, routeContext) => {
     const context = newCoderouterRequestContext({ request, surface: options.surface, route: options.route });
     return runWithCoderouterRequest(context, () =>
-      withApiRouteSpan(
-        request,
-        options.route,
-        { "cmux.subsystem": "coderouter", "cmux.coderouter.request_id": context.requestId },
-        async (span) => {
-          const ids = spanTraceIds(span);
-          if (ids) {
-            context.traceId = ids.traceId;
-            context.spanId = ids.spanId;
-          }
-          let response: Response;
-          let thrown: unknown;
-          try {
-            response = await handler(request, routeContext as Context);
-          } catch (error) {
-            if (isCallerCancellation(request)) {
-              context.outcome = {
-                outcome: "client_cancelled",
-                failureStage: "request",
-                status: CLIENT_CLOSED_REQUEST_STATUS,
-              };
-              response = new Response(null, {
-                status: CLIENT_CLOSED_REQUEST_STATUS,
-                headers: { "cache-control": "no-store" },
-              });
-            } else {
-              thrown = error;
-              reportCoderouterFailure("route_crash", error, {
-                surface: options.surface,
-                route: options.route,
-                request_id: context.requestId,
-              }, { emitPostHogException: false });
-              response = options.unavailable(request);
+      runWithCoderouterFailureScope(() =>
+        withApiRouteSpan(
+          request,
+          options.route,
+          { "cmux.subsystem": "coderouter", "cmux.coderouter.request_id": context.requestId },
+          async (span) => {
+            const ids = spanTraceIds(span);
+            if (ids) {
+              context.traceId = ids.traceId;
+              context.spanId = ids.spanId;
             }
-          }
-          response = withRequestIdHeader(response, context.requestId);
-          finalize(context, span, response, thrown, options.telemetry);
-          return response;
-        },
-        { priority: options.telemetry?.priority },
-      ));
+            let response: Response;
+            let thrown: unknown;
+            try {
+              response = await handler(request, routeContext as Context);
+            } catch (error) {
+              if (isCallerCancellation(request)) {
+                context.outcome = {
+                  outcome: "client_cancelled",
+                  failureStage: "request",
+                  status: CLIENT_CLOSED_REQUEST_STATUS,
+                };
+                response = new Response(null, {
+                  status: CLIENT_CLOSED_REQUEST_STATUS,
+                  headers: { "cache-control": "no-store" },
+                });
+              } else {
+                thrown = error;
+                reportCoderouterFailure("route_crash", error, {
+                  surface: options.surface,
+                  route: options.route,
+                  request_id: context.requestId,
+                }, { emitPostHogException: false });
+                response = options.unavailable(request);
+              }
+            }
+            response = withRequestIdHeader(response, context.requestId);
+            finalize(context, span, response, thrown, options.telemetry);
+            return response;
+          },
+          { priority: options.telemetry?.priority },
+        )
+      )
+    );
   };
 }
 
@@ -545,7 +552,7 @@ function finalize(
     fault,
     duration_ms: durationMs,
   }, fault === "operator" ? "error" : fault === "none" || fault === "caller" ? "info" : "warning");
-  if (shouldCaptureRouteTelemetry(context, telemetry)) {
+  if (shouldCaptureRouteTelemetry(context, telemetry, fault, thrown !== undefined)) {
     analytics.captureCoderouterRawBatch?.(traceEvents(context, { status, durationMs, error: thrown }));
   }
   if (fault !== "none" && fault !== "caller") {
@@ -558,7 +565,12 @@ function finalize(
 function shouldCaptureRouteTelemetry(
   context: CoderouterRequestContext,
   telemetry?: CoderouterRouteTelemetryOptions,
+  fault?: CoderouterFault,
+  thrown = false,
 ): boolean {
+  // Never sample operator or upstream failures. The route-linked exception is
+  // the only PostHog Error Tracking event when the failure scope is active.
+  if (thrown || (fault !== undefined && fault !== "none" && fault !== "caller")) return true;
   const interval = telemetry?.sampleEveryMs;
   if (interval === undefined || !Number.isFinite(interval) || interval <= 0) return true;
   const key = `${context.surface}:${context.route}`;

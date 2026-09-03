@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { reportError } from "../observability/report";
 // Namespace import: test suites replace `./analytics` with partial mocks, and a
 // missing named export must degrade to "no PostHog leg", not a link error.
@@ -40,6 +41,14 @@ const OPERATOR_FAULT_FAILURES: ReadonlySet<CodeRouterFailure> = new Set([
 ]);
 
 const SENSITIVE_CONTEXT_KEY = /account.?id|authorization|body|content|cookie|credential|email|header|key|prompt|response|secret|session|team.?id|token/i;
+// A route finalizer emits one trace-linked exception after the handler returns.
+// Keep step failures out of Error Tracking while that route scope is active;
+// cron and other background callers still emit their standalone exception.
+const routeFailureScope = new AsyncLocalStorage<boolean>();
+
+export function runWithCoderouterFailureScope<T>(fn: () => T): T {
+  return routeFailureScope.run(true, fn);
+}
 
 export function addCoderouterBreadcrumb(
   category: string,
@@ -99,7 +108,11 @@ export function reportCoderouterFailure(
   });
   const provider = typeof context.provider === "string" ? context.provider : "unknown";
   const requestId = typeof context.request_id === "string" ? context.request_id : undefined;
-  if (options.emitPostHogException !== false && failure !== "analytics_delivery") {
+  if (
+    options.emitPostHogException !== false &&
+    routeFailureScope.getStore() !== true &&
+    failure !== "analytics_delivery"
+  ) {
     analytics.captureCoderouterRawBatch?.([
       exceptionEvent({
         type: `coderouter.${failure}`,
