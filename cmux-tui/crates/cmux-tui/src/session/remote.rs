@@ -81,7 +81,7 @@ fn remote_write_timeout() -> Duration {
 
 #[cfg(test)]
 fn remote_write_timeout() -> Duration {
-    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    static TIMEOUT: OnceLock<Duration> = OnceLock::new();
     *TIMEOUT.get_or_init(|| {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
             .ok()
@@ -1411,8 +1411,8 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
                     state.pending.append(&mut pending);
                 }
                 match receiver.recv_timeout(Duration::from_millis(50)) {
-                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                    Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => break,
                 }
             }
         })
@@ -1433,12 +1433,11 @@ fn enqueue_worker_reap(handle: std::thread::JoinHandle<()>, completion: Arc<Work
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
-        if current.sender.is_some() {
-            if let Some(sender) = current.sender.as_ref() {
-                if sender.send(()).is_err() {
-                    current.sender = None;
-                }
-            }
+        if current.sender.is_some()
+            && let Some(sender) = current.sender.as_ref()
+            && sender.send(()).is_err()
+        {
+            current.sender = None;
         }
     }
     let needs_start = state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none();
@@ -1502,9 +1501,8 @@ impl InteractiveWriter {
         let worker = std::thread::Builder::new()
             .name("remote-input-writer".into())
             .spawn(move || interactive_writer_worker(worker_shared, writer, worker_completion))
-            .map_err(|error| {
+            .inspect_err(|_| {
                 shared.worker_completion.release_slot();
-                error
             })?;
         Ok(Self { shared, abort, worker: Mutex::new(Some(worker)) })
     }
@@ -1654,10 +1652,6 @@ impl InteractiveWriter {
         self.shared.changed.notify_all();
     }
 
-    fn join_worker(&self) {
-        self.join_worker_until(Instant::now() + remote_write_timeout());
-    }
-
     fn join_worker_until(&self, deadline: Instant) {
         let current = std::thread::current().id();
         let handle = {
@@ -1701,10 +1695,6 @@ impl InteractiveWriter {
             let _ = handle.join();
             self.shared.worker_completion.release_slot();
         }
-    }
-
-    fn close(&self) {
-        self.close_until(Instant::now() + remote_write_timeout());
     }
 
     fn close_until(&self, deadline: Instant) {
@@ -2306,9 +2296,8 @@ impl RemoteSession {
                     session.emit(MuxEvent::Empty);
                 }
             })
-            .map_err(|error| {
+            .inspect_err(|_| {
                 reader_completion.release_slot();
-                error
             })?;
         *session.reader_worker.lock().unwrap() = Some(reader_worker);
 
@@ -6747,9 +6736,11 @@ mod tests {
                 .get("id")
                 .and_then(Value::as_u64)
                 .ok_or_else(|| io::Error::other("lifecycle request omitted its id"))?;
-            let data = (request.get("cmd").and_then(Value::as_str) == Some("identify"))
-                .then(|| json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION}))
-                .unwrap_or(Value::Null);
+            let data = if request.get("cmd").and_then(Value::as_str) == Some("identify") {
+                json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+            } else {
+                Value::Null
+            };
             self.responses
                 .send(json!({"id": id, "ok": true, "data": data}).to_string())
                 .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle reader exited"))
