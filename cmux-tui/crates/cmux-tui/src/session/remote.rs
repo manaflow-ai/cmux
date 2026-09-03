@@ -1836,6 +1836,10 @@ impl InteractiveWriter {
             state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
             state.writes.clear();
             state.queued_bytes = 0;
+            // Aborting closes the logical writer immediately. The worker may
+            // still be unwinding in the background and remains owned by its
+            // completion/reaper until it joins.
+            state.writer_closed = true;
         }
         self.shared.changed.notify_all();
         let abort_result = self.abort_transport();
