@@ -2094,9 +2094,6 @@ impl Inner {
             }
             return;
         }
-        if context.transport_id.is_some() && attachment.transport_id != context.transport_id {
-            return;
-        }
         self.close_exact_authorized_async(pty_id, &attachment, context).await;
     }
 
