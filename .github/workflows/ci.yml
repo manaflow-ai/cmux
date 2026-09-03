@@ -13,6 +13,9 @@ on:
       - tests/test_ci_ghosttykit_release_check.sh
       - tests/test_ci_change_areas.py
       - .github/workflows/ci.yml
+      - .github/workflows/update-homebrew.yml
+      - .github/scripts/validate-homebrew-release.sh
+      - tests/test_homebrew_workflow_security.py
   workflow_dispatch:
 
 permissions:
@@ -186,6 +189,8 @@ jobs:
       - name: Install workflow guard Python dependencies
         run: python3 -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3 bashlex==0.18
 
+      - name: Validate Homebrew release publisher provenance
+        run: python3 tests/test_homebrew_workflow_security.py -v
       - name: Validate Blacksmith Testbox broker trust boundary
         run: python3 tests/test_ci_testbox_broker_guard.py
 
