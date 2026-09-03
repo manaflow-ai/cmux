@@ -112,18 +112,56 @@ const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
+    poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
+}
+
+fn read_crossterm_event_with_clock(
+    timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
+    mut now: impl FnMut() -> Instant,
 ) -> std::io::Result<Option<Event>> {
     // Keep the input thread interruptible even when no graphics response is
     // pending. A single normalized poll avoids separate timed and untimed
     // branches drifting apart as the reader evolves.
+    const MAX_INTERRUPTED_RETRIES: u8 = 8;
     let poll_timeout =
         timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
-    if !poll(poll_timeout)? {
-        return Ok(None);
+    let deadline = now() + poll_timeout;
+    let mut interrupted: u8 = 0;
+    loop {
+        let remaining = deadline.saturating_duration_since(now());
+        match poll(remaining) {
+            Ok(false) => return Ok(None),
+            Ok(true) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                if remaining.is_zero() {
+                    return Ok(None);
+                }
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
     }
-    read().map(Some)
+    interrupted = 0;
+    loop {
+        match read() {
+            Ok(event) => return Ok(Some(event)),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -24721,7 +24759,8 @@ mod tests {
         let mut read_calls = 0;
         let mut poll_durations = Vec::new();
 
-        let blocking = super::read_crossterm_event(
+        let fixed_now = Instant::now();
+        let blocking = super::read_crossterm_event_with_clock(
             None,
             |timeout| {
                 poll_calls += 1;
@@ -24732,12 +24771,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(blocking, Some(event.clone()));
         assert_eq!((poll_calls, read_calls), (1, 1));
 
-        let timed_out = super::read_crossterm_event(
+        let timed_out = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24748,12 +24788,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(timed_out, None);
         assert_eq!((poll_calls, read_calls), (2, 1));
 
-        let ready = super::read_crossterm_event(
+        let ready = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24764,6 +24805,7 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(ready, Some(event));
@@ -24777,19 +24819,110 @@ mod tests {
     #[test]
     fn crossterm_reader_propagates_poll_errors_without_reading() {
         let mut read_calls = 0;
-        let error = std::io::Error::new(std::io::ErrorKind::Interrupted, "poll interrupted");
+        let error = std::io::Error::new(std::io::ErrorKind::Other, "poll failed");
+        let mut poll_calls = 0;
 
         let result = super::read_crossterm_event(
             None,
-            |_| Err(std::io::Error::new(error.kind(), error.to_string())),
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Err(std::io::Error::new(error.kind(), error.to_string()))
+                }
+            },
             || {
                 read_calls += 1;
                 Ok(Event::Resize(80, 24))
             },
         );
 
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Other);
         assert_eq!(read_calls, 0);
+        assert!(poll_calls >= 1);
+    }
+
+    #[test]
+    fn crossterm_reader_retries_interrupted_poll_and_read() {
+        let mut poll_calls = 0;
+        let mut read_calls = 0;
+        let event = Event::Resize(80, 24);
+        let result = super::read_crossterm_event(
+            None,
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(true)
+                }
+            },
+            || {
+                read_calls += 1;
+                if read_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(event.clone())
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(result, Some(event));
+        assert_eq!((poll_calls, read_calls), (2, 2));
+    }
+
+    #[test]
+    fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
+        let fixed_now = Instant::now();
+        let mut poll_calls = 0;
+        let poll_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| {
+                poll_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || fixed_now,
+        );
+        assert_eq!(poll_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(poll_calls, 8);
+
+        let mut read_calls = 0;
+        let read_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| Ok(true),
+            || {
+                read_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || fixed_now,
+        );
+        assert_eq!(read_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 8);
+    }
+
+    #[test]
+    fn crossterm_reader_returns_timeout_when_interrupted_after_deadline() {
+        let start = Instant::now();
+        let mut clock_calls = 0;
+        let mut poll_calls = 0;
+        let result = super::read_crossterm_event_with_clock(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                assert!(timeout.is_zero());
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || {
+                let call = clock_calls;
+                clock_calls += 1;
+                if call == 0 { start } else { start + Duration::from_millis(11) }
+            },
+        );
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(poll_calls, 1);
     }
 
     use super::{
