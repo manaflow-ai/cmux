@@ -408,6 +408,8 @@ struct TerminalSurfaceExplicitInputTests {
     @Test func emptyPromptStillQueuesItsSubmitKeyAsACompoundItem() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }
+        var acceptedInputCount = 0
+        fixture.surface.onExplicitInput = { acceptedInputCount += 1 }
 
         #expect(
             fixture.surface.sendPromptSubmission(
@@ -423,6 +425,7 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(pending.keyEvents == 0)
         #expect(pending.bytes == "return".utf8.count)
         #expect(fixture.paneHost.explicitInputCount == 1)
+        #expect(acceptedInputCount == 1)
     }
 
     @Test func keyTextNotifiesPaneHostBeforeWritingToALiveSurface() {

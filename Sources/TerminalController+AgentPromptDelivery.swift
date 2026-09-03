@@ -60,18 +60,6 @@ extension TerminalController {
             return failure
         }
 
-        // A hook-observed agent turn owns the composer. Shell activity cannot
-        // gate this: a TUI agent keeps the shell in `commandRunning` even
-        // while its composer sits idle, so the hook-derived turn state is the
-        // busy signal. The stop hook (and the confirmation-timeout fallback)
-        // drains the queue afterwards.
-        if !target.panel.isAgentHibernated,
-           workspace.hasActiveAgentTurn(panelId: target.surfaceID) {
-            return .agentBusy(
-                workspaceID: workspaceID,
-                surfaceID: target.surfaceID
-            )
-        }
         if target.panel.isAgentHibernated {
             // Wake without focus and keep the message in the app FIFO until
             // the resumed agent process identity is rebound.
@@ -90,7 +78,22 @@ extension TerminalController {
                 surfaceID: target.surfaceID
             )
         }
-
+        // A hook-observed agent turn owns the composer. Shell activity cannot
+        // gate this: a TUI agent keeps the shell in `commandRunning` even
+        // while its composer sits idle, so the hook-derived turn state is the
+        // busy signal. The stop hook (and the expiry fallback) drains the
+        // queue afterwards.
+        if workspace.hasActiveAgentTurn(panelId: target.surfaceID) {
+            scheduleAgentPromptTurnExpiryFallback(
+                workspaceID: workspaceID,
+                workspace: workspace,
+                panelID: target.surfaceID
+            )
+            return .agentBusy(
+                workspaceID: workspaceID,
+                surfaceID: target.surfaceID
+            )
+        }
         guard let agentInputScope = target.agentInputScope else {
             return .agentScopeUnavailable(
                 workspaceID: workspaceID,
@@ -156,6 +159,24 @@ extension TerminalController {
                 surfaceID: target.surfaceID
             )
         }
+    }
+
+    /// Re-arms the workspace queue for the exact end of an active agent turn.
+    @MainActor
+    private func scheduleAgentPromptTurnExpiryFallback(
+        workspaceID: UUID,
+        workspace: Workspace,
+        panelID: UUID
+    ) {
+        guard let expiry = workspace.activeAgentTurnExpiryDate(panelId: panelID),
+              agentPromptConfirmationFallbackSchedulers[workspaceID]?
+                  .isScheduled != true else {
+            return
+        }
+        scheduleAgentPromptConfirmationFallback(
+            workspaceID: workspaceID,
+            delay: max(0, expiry.timeIntervalSinceNow)
+        )
     }
 
     /// Resolves the surface that owns a prompt-submission hook. Hooks that omit

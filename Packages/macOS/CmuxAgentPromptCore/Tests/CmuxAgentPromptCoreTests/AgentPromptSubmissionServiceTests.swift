@@ -223,6 +223,78 @@ struct AgentPromptSubmissionServiceTests {
     }
 
     @MainActor
+    @Test func terminalQueuedDeliveryIsNotRequeuedByTheService() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let service = AgentPromptSubmissionService(maximumPendingRequests: 8)
+        let terminalQueued: AgentPromptSubmissionService.Delivery = { _ in
+            .submitted(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                queued: true
+            )
+        }
+
+        let first = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: surfaceID,
+            text: "cold prompt",
+            delivery: terminalQueued
+        )
+
+        #expect(first.result == .submitted(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            queued: true
+        ))
+        #expect(service.pendingCount == 0)
+        #expect(service.drain(workspaceID: workspaceID).isEmpty)
+    }
+
+    @MainActor
+    @Test func terminalQueuedDeliveryRemovesAnAlreadyRetainedRequest() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let service = AgentPromptSubmissionService(maximumPendingRequests: 8)
+        var attempts = 0
+        let delivery: AgentPromptSubmissionService.Delivery = { _ in
+            attempts += 1
+            if attempts == 1 {
+                return .agentScopeUnavailable(
+                    workspaceID: workspaceID,
+                    surfaceID: surfaceID
+                )
+            }
+            return .submitted(
+                workspaceID: workspaceID,
+                surfaceID: surfaceID,
+                queued: true
+            )
+        }
+
+        let first = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: surfaceID,
+            text: "retained cold prompt",
+            delivery: delivery
+        )
+        #expect(first.result == .queued(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            reason: "agent_not_ready"
+        ))
+
+        let drained = service.drain(workspaceID: workspaceID)
+        #expect(drained.count == 1)
+        #expect(drained.first?.result == .submitted(
+            workspaceID: workspaceID,
+            surfaceID: surfaceID,
+            queued: true
+        ))
+        #expect(service.pendingCount == 0)
+    }
+
+    @MainActor
     @Test func reentrantSubmissionCannotOvertakeTheActiveDelivery() {
         let service = AgentPromptSubmissionService(maximumPendingRequests: 8)
         let workspaceID = UUID()

@@ -1,6 +1,6 @@
 import Darwin
 import CMUXAgentLaunch
-import CmuxTerminal
+@testable import CmuxTerminal
 import CmuxTerminalCore
 import Foundation
 import Testing
@@ -341,6 +341,427 @@ struct AgentPromptSubmissionTests {
         #expect(!isBusy)
         #expect(panel.textBoxContent == "human draft")
         #expect(panel.surface.debugPendingSocketInputForTesting().items == 0)
+    }
+
+    @MainActor
+    @Test func stopHookCompletesBeforeFollowingPromptSubmit() async throws {
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        let controller = TerminalController.shared
+        let service = controller.agentPromptSubmissionService
+        let workspaceID = workspace.id
+        let targetSurfaceID = panelID
+        let fakeRuntimeSurface = UnsafeMutableRawPointer(bitPattern: 1)!
+        // The queue-drain guard needs a non-nil runtime, but this test's
+        // delivery closure never calls Ghostty. Clear the sentinel before the
+        // panel teardown path so no native free is attempted on it.
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.installRuntimeSurfaceForTesting(
+            fakeRuntimeSurface,
+            configureNativeCallbacks: false
+        )
+        defer {
+            controller.cancelAgentPromptConfirmationFallback(
+                workspaceID: workspaceID
+            )
+            _ = service.remove(workspaceID: workspaceID)
+            panel.surface.surface = nil
+            panel.surface.releaseSurfaceForTesting()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            environment.restore()
+        }
+
+        let agentKey = "codex.session-a"
+        workspace.recordAgentPID(
+            key: agentKey,
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.recordAgentTurnStart(
+            panelId: panelID,
+            sessionID: "session-a"
+        )
+        var deliveryAttempts = 0
+        let queued = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: targetSurfaceID,
+            text: "queued between turns",
+            delivery: { _ in
+                deliveryAttempts += 1
+                return deliveryAttempts == 1
+                    ? .agentBusy(
+                        workspaceID: workspaceID,
+                        surfaceID: targetSurfaceID
+                    )
+                    : .submitted(
+                        workspaceID: workspaceID,
+                        surfaceID: targetSurfaceID,
+                        queued: true
+                    )
+            }
+        )
+        #expect(queued.result == .queued(
+            workspaceID: workspaceID,
+            surfaceID: targetSurfaceID,
+            reason: "agent_turn_active"
+        ))
+
+        // Both events are delivered on one main-actor turn. A deferred stop
+        // transition would therefore run after B starts and fail its session
+        // check, leaving the queued request behind the wrong turn.
+        controller.v2ApplyIMessageModeSideEffects(for: WorkstreamEvent(
+            sessionId: "session-a",
+            hookEventName: .stop,
+            source: "codex",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: targetSurfaceID.uuidString,
+            ppid: Int(getpid())
+        ))
+        controller.v2ApplyIMessageModeSideEffects(for: WorkstreamEvent(
+            sessionId: "session-b",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: targetSurfaceID.uuidString,
+            toolInputJSON: #"{"prompt":"next prompt"}"#,
+            ppid: Int(getpid())
+        ))
+        // Let the old unstructured stop task (on pre-fix code) run before the
+        // assertions; this is a scheduler turn, not a production delay.
+        for _ in 0..<3 { await Task.yield() }
+
+        #expect(
+            workspace.activeAgentTurnStartsByPanelId[panelID]?.sessionID
+                == "session-b"
+        )
+        #expect(deliveryAttempts == 2)
+        #expect(service.remove(surfaceID: targetSurfaceID).isEmpty)
+    }
+
+    @MainActor
+    @Test func activeTurnSchedulesADeadlineRetry() throws {
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        let controller = TerminalController.shared
+        let workspaceID = workspace.id
+        let targetSurfaceID = panelID
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.installRuntimeSurfaceForTesting(
+            UnsafeMutableRawPointer(bitPattern: 1)!,
+            configureNativeCallbacks: false
+        )
+        defer {
+            controller.cancelAgentPromptConfirmationFallback(
+                workspaceID: workspaceID
+            )
+            panel.surface.surface = nil
+            panel.surface.releaseSurfaceForTesting()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            environment.restore()
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.expiry-scheduler",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.activeAgentTurnStartsByPanelId[panelID] =
+            Workspace.AgentTurnStartRecord(
+                sessionID: "expiring-session",
+                startedAt: Date()
+            )
+
+        let result = controller.deliverAgentPromptSubmission(
+            workspaceID: workspaceID,
+            requestedSurfaceID: targetSurfaceID,
+            text: "wait for the turn deadline",
+            messageID: UUID()
+        )
+        #expect(result == .agentBusy(
+            workspaceID: workspaceID,
+            surfaceID: targetSurfaceID
+        ))
+        #expect(
+            controller.agentPromptConfirmationFallbackSchedulers[workspaceID]?
+                .isScheduled == true
+        )
+    }
+
+    @MainActor
+    @Test func expiredActiveTurnReleasesTheGuardedQueue() throws {
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        let service = TerminalController.shared.agentPromptSubmissionService
+        let workspaceID = workspace.id
+        let targetSurfaceID = panelID
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.installRuntimeSurfaceForTesting(
+            UnsafeMutableRawPointer(bitPattern: 1)!,
+            configureNativeCallbacks: false
+        )
+        defer {
+            _ = service.remove(workspaceID: workspaceID)
+            panel.surface.surface = nil
+            panel.surface.releaseSurfaceForTesting()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            environment.restore()
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.expiry-drain",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.activeAgentTurnStartsByPanelId[panelID] =
+            Workspace.AgentTurnStartRecord(
+                sessionID: "expired-session",
+                startedAt: Date().addingTimeInterval(
+                    -(Workspace.activeAgentTurnMaximumAge + 1)
+                )
+            )
+        var deliveryAttempts = 0
+        let receipt = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: targetSurfaceID,
+            text: "retry after expiry",
+            delivery: { _ in
+                deliveryAttempts += 1
+                return deliveryAttempts == 1
+                    ? .agentBusy(
+                        workspaceID: workspaceID,
+                        surfaceID: targetSurfaceID
+                    )
+                    : .submitted(
+                        workspaceID: workspaceID,
+                        surfaceID: targetSurfaceID,
+                        queued: true
+                    )
+            }
+        )
+        #expect(receipt.result == .queued(
+            workspaceID: workspaceID,
+            surfaceID: targetSurfaceID,
+            reason: "agent_turn_active"
+        ))
+
+        workspace.drainAgentPromptQueueIfReady(panelId: panelID)
+
+        #expect(workspace.activeAgentTurnStartsByPanelId[panelID] == nil)
+        #expect(deliveryAttempts == 2)
+        #expect(service.remove(surfaceID: targetSurfaceID).isEmpty)
+    }
+
+    @MainActor
+    @Test func delayedStopFromAReusedPIDCannotMatchTheCurrentGeneration() throws {
+        let workspace = Workspace()
+        let panelID = try #require(workspace.focusedPanelId)
+        let key = "codex.generation-session"
+        defer { workspace.teardownAllPanels() }
+
+        workspace.recordAgentPID(
+            key: key,
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        #expect(workspace.agentPromptHookMatchesSession(
+            panelId: panelID,
+            hookSource: "codex",
+            sessionID: "generation-session",
+            hookProcessID: Int(getpid())
+        ))
+        let current = try #require(
+            Workspace.agentPIDProcessIdentity(pid: getpid())
+        )
+        workspace.agentPIDProcessIdentitiesByKey[key] = AgentPIDProcessIdentity(
+            pid: getpid(),
+            startSeconds: current.startSeconds &- 1,
+            startMicroseconds: current.startMicroseconds
+        )
+        #expect(!workspace.agentPromptHookMatchesSession(
+            panelId: panelID,
+            hookSource: "codex",
+            sessionID: "generation-session",
+            hookProcessID: Int(getpid())
+        ))
+        #expect(!workspace.agentPromptHookMatchesSession(
+            panelId: panelID,
+            hookSource: "codex",
+            sessionID: "generation-session",
+            hookProcessID: nil
+        ))
+    }
+
+    @MainActor
+    @Test func replacingAnAgentBindingDoesNotDiscardItsQueuedPrompt() throws {
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        let service = TerminalController.shared.agentPromptSubmissionService
+        let workspaceID = workspace.id
+        let targetSurfaceID = panelID
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.installRuntimeSurfaceForTesting(
+            UnsafeMutableRawPointer(bitPattern: 1)!,
+            configureNativeCallbacks: false
+        )
+        defer {
+            _ = service.remove(workspaceID: workspaceID)
+            panel.surface.surface = nil
+            panel.surface.releaseSurfaceForTesting()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            environment.restore()
+        }
+
+        workspace.recordAgentPID(
+            key: "codex.replaced-old",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+        workspace.activeAgentTurnStartsByPanelId[panelID] =
+            Workspace.AgentTurnStartRecord(
+                sessionID: "old-turn",
+                startedAt: Date()
+            )
+        var attempts = 0
+        let receipt = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: targetSurfaceID,
+            text: "survive process replacement",
+            delivery: { _ in
+                attempts += 1
+                return .agentBusy(
+                    workspaceID: workspaceID,
+                    surfaceID: targetSurfaceID
+                )
+            }
+        )
+        #expect(receipt.result == .queued(
+            workspaceID: workspaceID,
+            surfaceID: targetSurfaceID,
+            reason: "agent_turn_active"
+        ))
+
+        // The stale structured key is removed before the replacement key is
+        // installed. Scope synchronization must be deferred across that
+        // transient empty-binding state, or it will discard this request.
+        workspace.recordAgentPID(
+            key: "codex.replaced-new",
+            pid: getpid(),
+            panelId: panelID,
+            refreshPorts: false
+        )
+
+        #expect(service.remove(surfaceID: targetSurfaceID).count == 1)
+        #expect(attempts == 1)
+    }
+
+    @MainActor
+    @Test func restoringAReusedPIDDoesNotDrainBeforeSavedIdentityIsInstalled() throws {
+        let environment = TemporaryAppEnvironment()
+        let tabManager = environment.tabManager
+        let workspace = tabManager.addWorkspace(select: true)
+        let panelID = try #require(workspace.focusedPanelId)
+        let panel = try #require(
+            workspace.terminalInputTarget(forPanelID: panelID)?.panel
+        )
+        let service = TerminalController.shared.agentPromptSubmissionService
+        let workspaceID = workspace.id
+        let targetSurfaceID = panelID
+        panel.surface.releaseSurfaceForTesting()
+        panel.surface.installRuntimeSurfaceForTesting(
+            UnsafeMutableRawPointer(bitPattern: 1)!,
+            configureNativeCallbacks: false
+        )
+        defer {
+            _ = service.remove(workspaceID: workspaceID)
+            panel.surface.surface = nil
+            panel.surface.releaseSurfaceForTesting()
+            if tabManager.tabs.contains(where: { $0.id == workspace.id }) {
+                tabManager.closeWorkspace(workspace)
+            }
+            environment.restore()
+        }
+
+        var attempts = 0
+        let receipt = service.submit(
+            workspaceID: workspaceID,
+            requestedSurfaceID: targetSurfaceID,
+            text: "wait for restored process identity",
+            delivery: { _ in
+                attempts += 1
+                return attempts == 1
+                    ? .agentScopeUnavailable(
+                        workspaceID: workspaceID,
+                        surfaceID: targetSurfaceID
+                    )
+                    : .submitted(
+                        workspaceID: workspaceID,
+                        surfaceID: targetSurfaceID,
+                        queued: true
+                    )
+            }
+        )
+        #expect(receipt.result == .queued(
+            workspaceID: workspaceID,
+            surfaceID: targetSurfaceID,
+            reason: "agent_not_ready"
+        ))
+
+        let pid = getpid()
+        let currentIdentity = try #require(
+            Workspace.agentPIDProcessIdentity(pid: pid)
+        )
+        let savedIdentity = AgentPIDProcessIdentity(
+            pid: pid,
+            startSeconds: currentIdentity.startSeconds &- 1,
+            startMicroseconds: currentIdentity.startMicroseconds
+        )
+        workspace.adoptDetachedAgentRuntimeState(
+            Workspace.DetachedAgentRuntimeState(
+                panelId: panelID,
+                statusEntries: [:],
+                agentPIDs: ["codex.restored-reused": pid],
+                agentPIDProcessIdentities: [
+                    "codex.restored-reused": savedIdentity,
+                ],
+                agentPIDKeys: ["codex.restored-reused"]
+            )
+        )
+
+        #expect(attempts == 1)
+        #expect(service.remove(surfaceID: targetSurfaceID).count == 1)
     }
 
     @MainActor

@@ -148,10 +148,16 @@ extension TerminalController {
     /// panel, or workspace event triggers a drain. `drain` clears a stale
     /// unconfirmed barrier itself, so the fallback is just a delayed drain.
     @MainActor
-    private func scheduleAgentPromptConfirmationFallback(workspaceID: UUID) {
+    func scheduleAgentPromptConfirmationFallback(
+        workspaceID: UUID,
+        delay: TimeInterval? = nil
+    ) {
         let timeout = max(
             0,
-            min(agentPromptSubmissionService.confirmationTimeout + 0.5, 86_400)
+            min(
+                delay ?? (agentPromptSubmissionService.confirmationTimeout + 0.5),
+                86_400
+            )
         )
         let scheduler = agentPromptConfirmationFallbackSchedulers[workspaceID]
             ?? MainActorDeferredActionScheduler()

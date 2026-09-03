@@ -986,6 +986,12 @@ extension Workspace {
         )
     }
 
+    /// Returns the deadline at which a hook-observed turn stops blocking delivery.
+    func activeAgentTurnExpiryDate(panelId: UUID) -> Date? {
+        activeAgentTurnStartsByPanelId[panelId]?.startedAt
+            .addingTimeInterval(Self.activeAgentTurnMaximumAge)
+    }
+
     /// Clears a turn only when the stop hook belongs to its recorded session.
     ///
     /// An unresolvable panel or session is deliberately a no-op: clearing all

@@ -624,6 +624,88 @@ struct RemoteResumeBindingTests {
     }
 
     @Test
+    func relayedAgentSubmitRejectsForeignAndUnresolvableSelectors() throws {
+        _ = NSApplication.shared
+        let previousAppDelegate = AppDelegate.shared
+        let app = AppDelegate()
+        let windowID = UUID()
+        let window = makeMainWindow(id: windowID)
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.registerMainWindow(
+            window,
+            windowId: windowID,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        TerminalController.shared.setActiveTabManager(manager)
+        defer {
+            for workspace in manager.tabs {
+                workspace.teardownAllPanels()
+            }
+            TerminalController.shared.setActiveTabManager(nil)
+            app.unregisterMainWindowContextForTesting(windowId: windowID)
+            AppDelegate.shared = previousAppDelegate
+            window.orderOut(nil)
+        }
+
+        let owner = try #require(manager.selectedWorkspace)
+        let ownerSurfaceID = try #require(owner.focusedPanelId)
+        let foreign = manager.addWorkspace(select: false)
+        let foreignSurfaceID = try #require(foreign.focusedPanelId)
+        owner.configureRemoteConnection(remoteConfiguration(), autoConnect: false)
+        let relayToken = try #require(owner.remoteConfiguration?.relayToken)
+        let rewriter = WorkspaceRemoteRelayCommandRewriter(
+            remoteWorkspaceID: owner.id,
+            remoteRelayTokenHex: relayToken
+        )
+
+        func denialCode(
+            id: String,
+            workspaceID: String,
+            surfaceID: String
+        ) throws -> String {
+            let rewritten = rewriter.rewriteRemoteRelayCommandLine(
+                try requestData([
+                    "id": id,
+                    "method": "workspace.agent_submit",
+                    "params": [
+                        "workspace_id": workspaceID,
+                        "surface_id": surfaceID,
+                        "text": "must stay inside owner topology",
+                    ],
+                ]),
+                workspaceAliases: [:],
+                surfaceAliases: [:]
+            )
+            let envelope = try v2Envelope(requestData: rewritten)
+            #expect(
+                envelope["ok"] as? Bool == false,
+                String(describing: envelope)
+            )
+            let error = try #require(envelope["error"] as? [String: Any])
+            return try #require(error["code"] as? String)
+        }
+
+        #expect(try denialCode(
+            id: "foreign-workspace",
+            workspaceID: foreign.id.uuidString,
+            surfaceID: ownerSurfaceID.uuidString
+        ) == "remote_relay_workspace_denied")
+        #expect(try denialCode(
+            id: "foreign-surface",
+            workspaceID: owner.id.uuidString,
+            surfaceID: foreignSurfaceID.uuidString
+        ) == "remote_relay_surface_denied")
+        #expect(try denialCode(
+            id: "unresolvable-workspace",
+            workspaceID: "workspace:does-not-exist",
+            surfaceID: ownerSurfaceID.uuidString
+        ) == "remote_relay_workspace_denied")
+    }
+
+    @Test
     func remoteContextRejectsWrongOwnersAndBlankPersistentSessions() {
         let workspaceID = UUID()
         let surfaceID = UUID()

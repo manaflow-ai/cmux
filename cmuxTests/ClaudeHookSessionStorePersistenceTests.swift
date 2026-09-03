@@ -1,77 +1,136 @@
 import Foundation
 import Testing
 
-#if canImport(cmux_DEV)
-@testable import cmux_DEV
-#elseif canImport(cmux)
-@testable import cmux
-#endif
+/// Exercises the CLI-owned hook store through the bundled hook command.
+///
+/// `ClaudeHookSessionStore` belongs to the `cmux-cli` executable target, while
+/// this test bundle is hosted by the app target and cannot link executable
+/// symbols. Running the real hook path keeps this coverage behavioral and
+/// verifies the same persistence boundary used by Claude in production.
+@Suite(.serialized)
+struct ClaudeHookSessionStorePersistenceTests {
+    private typealias Harness = ClaudeHookLiveDeliveryHarness
 
-@Suite struct ClaudeHookSessionStorePersistenceTests {
+    private static let workspaceId = "11111111-1111-1111-1111-111111111111"
+    private static let surfaceId = "22222222-2222-2222-2222-222222222222"
+    private static let serverTimeout: TimeInterval = 60
+
     @Test func updatesExistingSessionWithLatestHookEventAndClearsSummary() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-hook-store-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let statePath = root.appendingPathComponent("sessions.json").path
-        let store = ClaudeHookSessionStore(processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": statePath])
-        _ = try store.upsert(
-            sessionId: "session-1",
-            workspaceId: "workspace-1",
-            surfaceId: "surface-1",
-            agentLifecycle: .needsInput,
+        let context = try Harness.makeContext(name: "hook-store-update")
+        defer { context.cleanup() }
+        let sessionId = "hook-store-update-session"
+        try writeStore(
+            to: context.storeURL,
+            sessionId: sessionId,
             hookEventName: "PermissionRequest",
             lastSubtitle: "Permission",
             lastBody: "Allow this command"
         )
 
-        let waiting = try #require(store.lookup(sessionId: "session-1"))
-        #expect(waiting.hookEventName == "PermissionRequest")
-        #expect(waiting.lastSubtitle == "Permission")
-        #expect(waiting.lastBody == "Allow this command")
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.workspaceId: [Self.surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [Self.surfaceId: Self.workspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.workspaceId
+        environment["CMUX_SURFACE_ID"] = Self.surfaceId
+        environment["CMUX_CLAUDE_PID"] = "43210"
 
-        _ = try store.upsert(
-            sessionId: "session-1",
-            workspaceId: "workspace-1",
-            surfaceId: "surface-1",
-            agentLifecycle: .running,
-            hookEventName: "UserPromptSubmit",
-            updateLastSummary: true
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: "{\"session_id\":\"\(sessionId)\",\"turn_id\":\"turn-1\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"\(context.root.path)\"}"
         )
 
-        let running = try #require(store.lookup(sessionId: "session-1"))
-        #expect(running.hookEventName == "UserPromptSubmit")
-        #expect(running.lastSubtitle == nil)
-        #expect(running.lastBody == nil)
+        #expect(serverHandled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        assertSuccessfulHook(result)
+        let saved = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        #expect(saved["hookEventName"] as? String == "UserPromptSubmit")
+        #expect(saved["lastSubtitle"] == nil)
+        #expect(saved["lastBody"] == nil)
     }
 
     @Test func decodesLegacyRecordWithoutHookEventName() throws {
-        let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("cmux-hook-store-legacy-\(UUID().uuidString)", isDirectory: true)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let statePath = root.appendingPathComponent("sessions.json")
+        let context = try Harness.makeContext(name: "hook-store-legacy")
+        defer { context.cleanup() }
+        let sessionId = "legacy-session"
         let legacyJSON = """
         {
           "version": 1,
           "sessions": {
-            "legacy-session": {
-              "sessionId": "legacy-session",
-              "workspaceId": "workspace-1",
-              "surfaceId": "surface-1",
+            "\(sessionId)": {
+              "sessionId": "\(sessionId)",
+              "workspaceId": "\(Self.workspaceId)",
+              "surfaceId": "\(Self.surfaceId)",
+              "cwd": "\(context.root.path)",
+              "isRestorable": true,
               "startedAt": 1,
               "updatedAt": 2
             }
           }
         }
         """
-        try Data(legacyJSON.utf8).write(to: statePath)
+        try Data(legacyJSON.utf8).write(to: context.storeURL)
 
-        let store = ClaudeHookSessionStore(processEnv: ["CMUX_CLAUDE_HOOK_STATE_PATH": statePath.path])
-        let decoded = try #require(store.lookup(sessionId: "legacy-session"))
-        #expect(decoded.hookEventName == nil)
-        #expect(decoded.sessionId == "legacy-session")
+        let serverHandled = Harness.startDeliveryTargetServer(
+            context: context,
+            surfacesByWorkspace: [Self.workspaceId: [Self.surfaceId]],
+            pidTarget: nil,
+            surfaceTargets: [Self.surfaceId: Self.workspaceId]
+        )
+        var environment = Harness.hookEnvironment(context: context)
+        environment["CMUX_WORKSPACE_ID"] = Self.workspaceId
+        environment["CMUX_SURFACE_ID"] = Self.surfaceId
+        environment["CMUX_CLAUDE_PID"] = "43211"
+
+        let result = Harness.runHookProcess(
+            context: context,
+            arguments: ["hooks", "claude", "prompt-submit"],
+            environment: environment,
+            standardInput: "{\"session_id\":\"\(sessionId)\",\"turn_id\":\"turn-legacy\",\"hook_event_name\":\"UserPromptSubmit\",\"cwd\":\"\(context.root.path)\"}"
+        )
+
+        #expect(serverHandled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        assertSuccessfulHook(result)
+        let decoded = try #require(Harness.sessionRecord(in: context.storeURL, sessionId: sessionId))
+        #expect(decoded["hookEventName"] as? String == "UserPromptSubmit")
+        #expect(decoded["sessionId"] as? String == sessionId)
+    }
+
+    private func writeStore(
+        to url: URL,
+        sessionId: String,
+        hookEventName: String,
+        lastSubtitle: String,
+        lastBody: String
+    ) throws {
+        let now = Date().timeIntervalSince1970
+        let record: [String: Any] = [
+            "sessionId": sessionId,
+            "workspaceId": Self.workspaceId,
+            "surfaceId": Self.surfaceId,
+            "cwd": url.deletingLastPathComponent().path,
+            "isRestorable": true,
+            "hookEventName": hookEventName,
+            "lastSubtitle": lastSubtitle,
+            "lastBody": lastBody,
+            "startedAt": now,
+            "updatedAt": now,
+        ]
+        let store: [String: Any] = [
+            "version": 1,
+            "sessions": [sessionId: record],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: store, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url)
+    }
+
+    private func assertSuccessfulHook(_ result: Harness.ProcessRunResult) {
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
     }
 }

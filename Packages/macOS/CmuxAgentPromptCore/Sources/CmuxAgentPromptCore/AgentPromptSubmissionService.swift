@@ -239,21 +239,15 @@ public final class AgentPromptSubmissionService {
             )
         case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
             if queued {
-                guard enqueue(request, surfaceID: surfaceID, atFront: true) else {
-                    return Receipt(
-                        messageID: messageID,
-                        result: .submissionQueueFull(
-                            workspaceID: workspaceID,
-                            surfaceID: surfaceID
-                        )
-                    )
-                }
+                // The terminal already owns the compound transaction in its
+                // cold-surface queue. Re-enqueuing it here would replay the
+                // same message after startup and can duplicate delivery.
                 return Receipt(
                     messageID: messageID,
-                    result: .queued(
+                    result: .submitted(
                         workspaceID: resolvedWorkspaceID,
                         surfaceID: surfaceID,
-                        reason: "runtime_starting"
+                        queued: true
                     )
                 )
             }
@@ -328,9 +322,6 @@ public final class AgentPromptSubmissionService {
                 // path and prevents a prompt from being lost on a wake race.
                 return completed
             case .submitted(let resolvedWorkspaceID, let surfaceID, let queued):
-                if queued {
-                    return completed
-                }
                 guard var pending = pendingByWorkspace[workspaceID],
                       pending.first?.messageID == first.messageID else {
                     return completed
@@ -341,6 +332,22 @@ public final class AgentPromptSubmissionService {
                     pendingByWorkspace.removeValue(forKey: workspaceID)
                 } else {
                     pendingByWorkspace[workspaceID] = pending
+                }
+                if queued {
+                    // The terminal owns a queued compound transaction; once
+                    // admission has reached that queue, the app FIFO must
+                    // release its copy without installing a hook barrier.
+                    completed.append(
+                        Receipt(
+                            messageID: first.messageID,
+                            result: .submitted(
+                                workspaceID: resolvedWorkspaceID,
+                                surfaceID: surfaceID,
+                                queued: true
+                            )
+                        )
+                    )
+                    return completed
                 }
                 beginInFlight(
                     messageID: first.messageID,

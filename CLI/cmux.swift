@@ -7533,7 +7533,12 @@ struct CMUXCLI {
             var params: [String: Any] = ["text": text]
             let winId = try normalizeWindowHandle(windowRaw, client: client)
             if let winId { params["window_id"] = winId }
-            let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
+            let wsId = try normalizeWorkspaceHandle(
+                workspaceArg,
+                client: client,
+                windowHandle: winId,
+                allowCurrent: addressedAgentDelivery && workspaceArg == nil && winId != nil
+            )
             if addressedAgentDelivery, wsId == nil {
                 throw CLIError(message: String(
                     localized: "cli.agentSubmit.error.missingWorkspaceSend",

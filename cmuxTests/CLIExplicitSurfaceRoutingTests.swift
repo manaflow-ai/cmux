@@ -148,10 +148,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "ship", "the", "change",
             ],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty)
         #expect(!result.timedOut)
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -213,10 +213,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "review", "the", "current", "diff",
             ],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty)
         #expect(!result.timedOut)
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -279,10 +279,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "deliver", "to", "the", "selected", "agent",
             ],
             environment: environment,
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty)
         #expect(!result.timedOut)
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -350,10 +350,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "review", "the", "other", "workspace",
             ],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty)
         #expect(!result.timedOut)
         #expect(
@@ -397,7 +397,7 @@ struct CLIExplicitSurfaceRoutingTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: ["agent-submit", "--help"],
             environment: ProcessInfo.processInfo.environment,
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
         #expect(!result.timedOut)
@@ -410,6 +410,63 @@ struct CLIExplicitSurfaceRoutingTests {
                 "Usage: cmux agent-submit [--workspace"
             )
         )
+    }
+
+    @Test func sendAtomicWindowResolvesItsCurrentWorkspace() throws {
+        let (result, state) = try runMockCommand(
+            arguments: [
+                "send",
+                "--window", Self.targetWindowId,
+                "--atomic",
+                "review", "the", "other", "workspace",
+            ],
+            socketName: "send-atomic-window"
+        ) { line in
+            guard let request = Self.jsonObject(line),
+                  let id = Self.requestID(from: request),
+                  let method = request["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "workspace.current":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: ["workspace_id": Self.targetWorkspaceId]
+                )
+            case "workspace.agent_submit":
+                return Self.v2Response(
+                    id: id,
+                    ok: true,
+                    result: [
+                        "submitted": true,
+                        "queued": false,
+                        "workspace_id": Self.targetWorkspaceId,
+                        "surface_id": Self.targetSurfaceId,
+                    ]
+                )
+            default:
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+        }
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let requests = try state.requestObjects()
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "workspace.current",
+            "workspace.agent_submit",
+        ])
+        let currentParams = try #require(requests.first?["params"] as? [String: Any])
+        #expect(currentParams["window_id"] as? String == Self.targetWindowId)
+        let submitParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(submitParams["workspace_id"] as? String == Self.targetWorkspaceId)
+        #expect(submitParams["surface_id"] == nil)
+        #expect(submitParams["text"] as? String == "review the other workspace")
     }
 
     @Test func readSelectionPlainOutputIncludesSourceContext() throws {

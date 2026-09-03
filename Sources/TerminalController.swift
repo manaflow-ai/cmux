@@ -176,6 +176,8 @@ class TerminalController {
     /// One replaceable deadline scheduler per workspace for unconfirmed prompt
     /// barriers. The scheduler owns cancellation; this controller owns scope.
     var agentPromptConfirmationFallbackSchedulers: [UUID: MainActorDeferredActionScheduler] = [:]
+    /// Retries an addressed prompt when a cold terminal surface becomes live.
+    private var agentPromptSurfaceReadyObserver: NSObjectProtocol?
     /// Bounded mobile-chat attachment ownership waiting for agent consumption.
     static let maximumMobileChatAttachmentDeliveries = 64
     var mobileChatAttachmentDeliveries: [UUID: MobileChatAttachmentDelivery] = [:]
@@ -555,6 +557,26 @@ class TerminalController {
         }
         serverEventTarget.controller = self
         controlCommandCoordinator.context = self
+        // A cold surface can become live after admission. Re-run the guarded
+        // workspace drain at that readiness boundary; the workspace still
+        // owns the active-turn, resume, and process-scope checks.
+        agentPromptSurfaceReadyObserver = NotificationCenter.default.addObserver(
+            forName: .terminalSurfaceDidBecomeReady,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let workspaceID = notification.userInfo?["workspaceId"] as? UUID,
+                  let surfaceID = notification.userInfo?["surfaceId"] as? UUID else {
+                return
+            }
+            MainActor.assumeIsolated {
+                guard let self,
+                      let workspace = AppDelegate.shared?.workspaceFor(tabId: workspaceID) else {
+                    return
+                }
+                workspace.drainAgentPromptQueueIfReady(panelId: surfaceID)
+            }
+        }
         socketReadSnapshotObservers = [
             Notification.Name.mainWindowContextsDidChange,
             Notification.Name.workspaceOrderDidChange,
@@ -6435,16 +6457,15 @@ class TerminalController {
             }
         case .stop:
             let assistantFinalMessage = event.assistantFinalMessage
-            Task { @MainActor [weak self, rawWorkspaceId, assistantFinalMessage, iMessageModeEnabled, event] in
-                guard let self,
-                      let workspaceId = self.v2UUIDAny(rawWorkspaceId) else { return }
+            v2MainSync {
+                guard let workspaceId = v2UUIDAny(rawWorkspaceId) else { return }
                 guard let tabManager = AppDelegate.shared?.tabManagerFor(tabId: workspaceId) else { return }
                 if let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
                     // A stop hook ends only the routed agent's turn. If the
                     // session/surface token cannot be resolved, retain every
                     // active turn and fail closed; clearing the workspace
                     // would make an unrelated agent look idle.
-                    if let panel = self.agentPromptConfirmationPanel(
+                    if let panel = agentPromptConfirmationPanel(
                         in: workspace,
                         event: event
                     ) {
@@ -6452,17 +6473,16 @@ class TerminalController {
                             workspace.agentPromptHookMatchesSession(
                                 panelId: panel.id,
                                 hookSource: event.source,
+                                sessionID: event.sessionId,
+                                hookProcessID: event.ppid
+                            )
+                        // Do not let a delayed hook from an old process end
+                        // the replacement turn that now owns this session key.
+                        if matchesCurrentSession {
+                            _ = workspace.recordAgentTurnEnd(
+                                panelId: panel.id,
                                 sessionID: event.sessionId
                             )
-                        let didEndTurn = workspace.recordAgentTurnEnd(
-                            panelId: panel.id,
-                            sessionID: event.sessionId
-                        )
-                        if didEndTurn {
-                            _ = workspace.markAgentPromptResumeReady(
-                                panelId: panel.id
-                            )
-                        } else if matchesCurrentSession {
                             _ = workspace.markAgentPromptResumeReady(
                                 panelId: panel.id
                             )
@@ -16246,6 +16266,9 @@ class TerminalController {
     deinit {
         if let browserDownloadObserver {
             NotificationCenter.default.removeObserver(browserDownloadObserver)
+        }
+        if let agentPromptSurfaceReadyObserver {
+            NotificationCenter.default.removeObserver(agentPromptSurfaceReadyObserver)
         }
         // No stop() here: the controller is an app-lifetime singleton, so
         // deinit never runs; listener teardown is applicationWillTerminate's

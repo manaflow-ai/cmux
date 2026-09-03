@@ -575,6 +575,7 @@ extension TerminalSurface {
                 return .inputQueueFull
             }
             didReceiveExplicitInput()
+            didAcceptExplicitInput()
             hibernationRecorder.recordTerminalInput(workspaceId: tabId, panelId: id)
             requestInputDemandSurfaceStartIfNeeded()
             return .queued
