@@ -1501,4 +1501,53 @@ mod tests {
             Session::Remote(_) => panic!("test ready connection must be local"),
         }
     }
+
+    #[test]
+    fn cancelling_a_completed_attempt_releases_its_late_success() {
+        struct DropProbe(Arc<AtomicBool>);
+
+        impl Drop for DropProbe {
+            fn drop(&mut self) {
+                self.0.store(true, Ordering::Release);
+            }
+        }
+
+        let returned = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let released = Arc::new(AtomicBool::new(false));
+        let connector: MachineConnectFn = {
+            let returned = Arc::clone(&returned);
+            let release = Arc::clone(&release);
+            let released = Arc::clone(&released);
+            Arc::new(move |_context| {
+                while !release.load(Ordering::Acquire) {
+                    thread::yield_now();
+                }
+                returned.store(true, Ordering::Release);
+                Ok(MachineConnection {
+                    session: Session::Local(cmux_tui_core::Mux::new(
+                        "cancelled-late-success-test",
+                        cmux_tui_core::SurfaceOptions::default(),
+                    )),
+                    _lease: Some(Box::new(DropProbe(Arc::clone(&released)))),
+                })
+            })
+        };
+        let context = MachineConnectContext::new(Duration::from_secs(1));
+        let attempt = ConnectionAttempt::start(connector, context).expect("start connector");
+        release.store(true, Ordering::Release);
+        let returned_deadline = Instant::now() + Duration::from_secs(1);
+        while !returned.load(Ordering::Acquire) {
+            assert!(Instant::now() < returned_deadline, "connector did not return");
+            thread::yield_now();
+        }
+
+        attempt.cancel_and_join();
+
+        assert!(
+            released.load(Ordering::Acquire),
+            "cancelling a completed attempt must release its buffered connection"
+        );
+        assert!(attempt.drain_result().is_none(), "cancelled attempt retained a late result");
+    }
 }
