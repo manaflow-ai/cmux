@@ -354,8 +354,11 @@ if ! cmux_hosted_retention_validate_no_symlink_ancestors "$repo_root" cmux-tui t
   exit 2
 fi
 if [[ -L "$artifact_parent" || ! -d "$artifact_parent" || ! -O "$artifact_parent" ]]; then
-  echo "error: hosted artifact parent is missing, symbolic, or not owned by this user" >&2
-  exit 2
+  if [[ -e "$artifact_parent" || -L "$artifact_parent" ]]; then
+    echo "error: hosted artifact parent is symbolic or not owned by this user" >&2
+    exit 2
+  fi
+  mkdir "$artifact_parent"
 fi
 if [[ ! -e "$artifact_root" ]]; then
   mkdir "$artifact_root"
