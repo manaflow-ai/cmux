@@ -54,6 +54,16 @@ Environment:
 | `CMUX_SURFACE_ID` | Default surface context inside cmux terminals. |
 | `CMUX_TAB_ID` | Default tab context for tab commands. |
 
+### Workspace target metadata in JSON output
+
+JSON success responses for workspace-scoped commands that resolve a workspace
+include `aimed_workspace_ref` and `aimed_workspace_id` when the response has a
+resolved workspace identity. These aliases echo the workspace the command
+actually acted on and are preserved together across every `--id-format` value;
+the ordinary `workspace_ref` / `workspace_id` fields continue to follow the
+selected presentation format. Responses without a resolved workspace omit the
+aliases.
+
 ## Top-Level Commands
 
 | Command | Contract |

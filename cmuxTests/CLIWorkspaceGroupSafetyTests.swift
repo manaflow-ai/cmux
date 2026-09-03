@@ -39,7 +39,29 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect(params["group_id"] as? String == "workspace_group:1")
     }
 
+    @Test func newWorkspaceJSONEchoesAimedWorkspaceAliases() async throws {
+        let result = try await runCapturing([
+            "workspace", "group", "new-workspace", "workspace_group:1", "--json",
+        ])
+        _ = try requestParams(result.request, method: "workspace.group.new_workspace")
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.output.utf8)) as? [String: Any]
+        )
+
+        #expect(payload["aimed_workspace_ref"] as? String == "workspace:7")
+        #expect(payload["aimed_workspace_id"] as? String == "11111111-1111-4111-1111-111111111111")
+    }
+
     private func run(_ arguments: [String]) async throws -> [String: Any] {
+        try await runCapturing(arguments).request
+    }
+
+    private struct ProcessRunResult {
+        let request: [String: Any]
+        let output: String
+    }
+
+    private func runCapturing(_ arguments: [String]) async throws -> ProcessRunResult {
         let socketPath = Self.socketPath()
         let server = try CLIWorkspaceGroupSafetyMockServer(socketPath: socketPath)
         let requestTask = server.start()
@@ -81,9 +103,10 @@ struct CLIWorkspaceGroupSafetyTests {
         #expect(status == 0, Comment(rawValue: output))
 
         let requestLine = try #require(await requestTask.value)
-        return try #require(
+        let request = try #require(
             JSONSerialization.jsonObject(with: Data(requestLine.utf8)) as? [String: Any]
         )
+        return ProcessRunResult(request: request, output: output)
     }
 
     private func requestParams(
