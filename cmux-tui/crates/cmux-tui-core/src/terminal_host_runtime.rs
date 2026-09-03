@@ -3185,6 +3185,24 @@ mod unix {
         }
     }
 
+    struct ParserReaderGuard {
+        host: Arc<HostShared>,
+    }
+
+    impl ParserReaderGuard {
+        fn new(host: Arc<HostShared>) -> Self {
+            Self { host }
+        }
+    }
+
+    impl Drop for ParserReaderGuard {
+        fn drop(&mut self) {
+            if thread::panicking() {
+                self.host.parser_failed();
+            }
+        }
+    }
+
     fn enqueue_parser_output(
         parser_commands: &SyncSender<ParserCommand>,
         parser_budget: &ParserBudget,
@@ -3536,7 +3554,10 @@ mod unix {
             }
             self.request_forced_pty_drain();
             self.request_termination();
-            self.note_parser_progress();
+            // The progress mutex may be poisoned by the same failure. The
+            // dead predicate is already authoritative, so a lock-free notify
+            // is enough to wake snapshot waiters without panicking again.
+            self.parser_progress.1.notify_all();
         }
 
         fn terminal_at_snapshot_boundary(
@@ -5244,6 +5265,7 @@ mod unix {
 
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
+            let _reader_guard = ParserReaderGuard::new(reader_host.clone());
             reader_host.wait_for_launch_owner_stream_ready();
             let mut buffer = [0u8; 64 * 1024];
             let mut forced_at = None;
