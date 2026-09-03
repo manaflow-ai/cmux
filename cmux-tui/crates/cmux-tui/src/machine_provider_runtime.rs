@@ -36,6 +36,7 @@ use crate::machine_runtime::{
 use crate::session::{RemoteSession, Session};
 
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
+const PROVIDER_CLOSE_QUEUE_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_WORKER_COUNT: usize = 4;
 
 type ProviderCloseTask = Box<dyn FnOnce() + Send + 'static>;
@@ -47,12 +48,12 @@ struct ProviderCloseWorker {
 
 impl ProviderCloseWorker {
     fn new() -> anyhow::Result<Self> {
-        Self::with_capacity(PROVIDER_CLOSE_WORKER_COUNT)
+        Self::with_capacity(PROVIDER_CLOSE_QUEUE_CAPACITY)
     }
 
-    fn with_capacity(worker_count: usize) -> anyhow::Result<Self> {
-        let (sender, receiver) = crossbeam_channel::unbounded::<ProviderCloseTask>();
-        let worker_count = worker_count.max(1);
+    fn with_capacity(queue_capacity: usize) -> anyhow::Result<Self> {
+        let (sender, receiver) = crossbeam_channel::bounded::<ProviderCloseTask>(queue_capacity);
+        let worker_count = PROVIDER_CLOSE_WORKER_COUNT.min(queue_capacity.max(1));
         let mut threads = Vec::with_capacity(worker_count);
         for index in 0..worker_count {
             let receiver = receiver.clone();
@@ -74,9 +75,14 @@ impl ProviderCloseWorker {
         Ok(Self { sender: Some(sender), threads })
     }
 
-    fn schedule(&self, close: ProviderCloseTask) -> Result<(), ProviderCloseTask> {
-        let Some(sender) = self.sender.as_ref() else { return Err(close) };
-        sender.send(close).map_err(|error| error.0)
+    fn schedule(
+        &self,
+        close: ProviderCloseTask,
+    ) -> Result<(), crossbeam_channel::TrySendError<ProviderCloseTask>> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err(crossbeam_channel::TrySendError::Disconnected(close));
+        };
+        sender.try_send(close)
     }
 }
 
@@ -123,12 +129,33 @@ struct ProviderCloseCleanup {
 impl Drop for ProviderCloseCleanup {
     fn drop(&mut self) {
         if let Ok(mut registry) = self.registry.lock()
+            && let Ok(mut closing_keys) = self.closing.lock()
             && registry.get(&self.key).is_some_and(|open| open.connection_id == self.connection_id)
         {
             registry.remove(&self.key);
-        }
-        if let Ok(mut closing_keys) = self.closing.lock() {
             closing_keys.remove(&self.key);
+        }
+    }
+}
+
+struct ProviderConnectionReservation {
+    transitions: Arc<Mutex<HashSet<MachineKey>>>,
+    key: MachineKey,
+    active: bool,
+}
+
+impl ProviderConnectionReservation {
+    fn commit(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for ProviderConnectionReservation {
+    fn drop(&mut self) {
+        if self.active
+            && let Ok(mut transitions) = self.transitions.lock()
+        {
+            transitions.remove(&self.key);
         }
     }
 }
@@ -143,8 +170,11 @@ impl Drop for ProviderMachineConnectionLease {
         let key = self.key;
         let registry = Arc::clone(&self.registry);
         let closing = Arc::clone(&self.closing);
-        if let Ok(_registry_guard) = registry.lock()
+        if let Ok(registry_guard) = registry.lock()
             && let Ok(mut closing_keys) = closing.lock()
+            && registry_guard
+                .get(&key)
+                .is_some_and(|open| open.connection_id == connection_id)
         {
             closing_keys.insert(key);
         }
@@ -154,7 +184,7 @@ impl Drop for ProviderMachineConnectionLease {
             key,
             connection_id: connection_id.clone(),
         };
-        if self
+        if let Err(error) = self
             .close_worker
             .schedule(Box::new(move || {
                 let _cleanup = cleanup;
@@ -165,22 +195,15 @@ impl Drop for ProviderMachineConnectionLease {
                     );
                 }
             }))
-            .is_err()
         {
+            let reason = match error {
+                crossbeam_channel::TrySendError::Full(_) => "close queue is full",
+                crossbeam_channel::TrySendError::Disconnected(_) => "close worker disconnected",
+            };
             crate::client_log::stderr_log!(
                 "provider",
-                "cmux-tui: failed to schedule provider machine close: close worker disconnected"
+                "cmux-tui: failed to schedule provider machine close: {reason}"
             );
-            if let Ok(mut registry) = self.registry.lock()
-                && registry
-                    .get(&self.key)
-                    .is_some_and(|open| open.connection_id == self.open.connection_id)
-            {
-                registry.remove(&self.key);
-            }
-            if let Ok(mut closing_keys) = self.closing.lock() {
-                closing_keys.remove(&self.key);
-            }
         }
     }
 }
@@ -2425,22 +2448,29 @@ fn connect_provider_machine(
         anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_unsupported);
     }
 
-    // Hold the registry lock through open and registration. Lease teardown
-    // marks the key as closing while holding the same lock, so reconnects
-    // cannot race the close handoff or replace an entry still being closed.
+    // Reserve this key under the registry and transition locks, then release
+    // both before the provider RPC. Lease teardown takes the same locks when
+    // marking a key closing, so reconnects cannot race the open handoff.
     let mut connections = registry
         .lock()
         .map_err(|_| anyhow::anyhow!("provider machine connection registry is poisoned"))?;
-    if closing_connections
+    let mut transitions = closing_connections
         .lock()
-        .map_err(|_| anyhow::anyhow!("provider machine closing registry is poisoned"))?
-        .contains(&key)
-    {
+        .map_err(|_| anyhow::anyhow!("provider machine closing registry is poisoned"))?;
+    if transitions.contains(&key) {
         anyhow::bail!("provider machine connection is still closing");
     }
     if connections.contains_key(&key) {
         anyhow::bail!("provider machine connection is already open");
     }
+    transitions.insert(key);
+    drop(transitions);
+    drop(connections);
+    let mut reservation = ProviderConnectionReservation {
+        transitions: Arc::clone(&closing_connections),
+        key,
+        active: true,
+    };
 
     let opened = client.open_machine(machine.id.clone(), provider_managed)?;
     let connection_id = opened.connection_id.clone();
@@ -2474,7 +2504,19 @@ fn connect_provider_machine(
     };
     let session = Session::Remote(remote);
     let open = OpenConnection { client, connection_id, machine_id: machine.id };
+    let mut connections = registry
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider machine connection registry is poisoned"))?;
+    let mut transitions = closing_connections
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider machine closing registry is poisoned"))?;
+    if !transitions.remove(&key) {
+        session.begin_shutdown();
+        let _ = open.client.close_machine(open.connection_id);
+        anyhow::bail!("provider machine connection reservation was lost");
+    }
     connections.insert(key, open.clone());
+    reservation.commit();
     Ok(MachineConnection {
         session,
         _lease: Some(Box::new(ProviderMachineConnectionLease {
@@ -2792,18 +2834,22 @@ mod tests {
     }
 
     #[test]
-    fn provider_close_worker_accepts_many_close_tasks() {
-        let worker = Arc::new(ProviderCloseWorker::with_capacity(2).unwrap());
-        let (finished, finished_rx) = mpsc::channel();
-        for _ in 0..128 {
-            let finished = finished.clone();
-            worker
-                .schedule(Box::new(move || finished.send(()).unwrap()))
-                .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
-        }
-        for _ in 0..128 {
-            finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        }
+    fn provider_close_worker_bounds_queue_without_blocking_schedule() {
+        let worker = Arc::new(ProviderCloseWorker::with_capacity(1).unwrap());
+        let (started, started_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        worker
+            .schedule(Box::new(move || {
+                started.send(()).unwrap();
+                release_rx.recv().unwrap();
+            }))
+            .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        worker
+            .schedule(Box::new(|| {}))
+            .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
+        assert!(matches!(worker.schedule(Box::new(|| {})), Err(crossbeam_channel::TrySendError::Full(_))));
+        release.send(()).unwrap();
         drop(worker);
     }
 
