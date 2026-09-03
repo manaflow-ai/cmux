@@ -1454,11 +1454,19 @@ struct InteractiveWriterShared {
     metrics: InteractiveWriteMetrics,
     #[cfg(test)]
     wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
+    #[cfg(test)]
+    enqueue_until_gate: Mutex<Option<InteractiveEnqueueUntilGate>>,
 }
 
 #[cfg(test)]
 struct InteractiveWaitUntilWrittenGate {
     entered: Sender<u64>,
+    resume: Receiver<()>,
+}
+
+#[cfg(test)]
+struct InteractiveEnqueueUntilGate {
+    entered: Sender<()>,
     resume: Receiver<()>,
 }
 
@@ -1480,6 +1488,8 @@ impl InteractiveWriter {
             metrics: InteractiveWriteMetrics::default(),
             #[cfg(test)]
             wait_until_written_gate: Mutex::new(None),
+            #[cfg(test)]
+            enqueue_until_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
         std::thread::Builder::new()
@@ -1580,6 +1590,8 @@ impl InteractiveWriter {
             state.queued_bytes += message_bytes;
             write.sequence = sequence;
             state.writes.push_back(write);
+            #[cfg(test)]
+            self.await_enqueue_until_gate();
             drop(state);
             self.shared.changed.notify_one();
             return Ok(sequence);
@@ -1670,6 +1682,29 @@ impl InteractiveWriter {
         let gate = self.shared.wait_until_written_gate.lock().unwrap().take();
         if let Some(gate) = gate {
             gate.entered.send(sequence).unwrap();
+            gate.resume.recv().unwrap();
+        }
+    }
+
+    #[cfg(test)]
+    fn gate_next_enqueue_until(&self) -> (Receiver<()>, Sender<()>) {
+        let (entered_tx, entered_rx) = channel();
+        let (resume_tx, resume_rx) = channel();
+        let previous = self
+            .shared
+            .enqueue_until_gate
+            .lock()
+            .unwrap()
+            .replace(InteractiveEnqueueUntilGate { entered: entered_tx, resume: resume_rx });
+        assert!(previous.is_none(), "interactive enqueue gate was already installed");
+        (entered_rx, resume_tx)
+    }
+
+    #[cfg(test)]
+    fn await_enqueue_until_gate(&self) {
+        let gate = self.shared.enqueue_until_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.send(()).unwrap();
             gate.resume.recv().unwrap();
         }
     }
@@ -6654,6 +6689,8 @@ mod tests {
         entered: bool,
         aborted: bool,
         fail_on_release: bool,
+        completed_writes: usize,
+        reblock_after_send: bool,
     }
 
     #[derive(Clone)]
@@ -6675,10 +6712,40 @@ mod tests {
             }
         }
 
+        fn wait_until_completed(&self, count: usize) {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            while state.completed_writes < count {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(
+                    !remaining.is_zero(),
+                    "interactive writer did not complete the test stream write"
+                );
+                let (next, timeout) = changed.wait_timeout(state, remaining).unwrap();
+                state = next;
+                assert!(!timeout.timed_out() || state.completed_writes >= count);
+            }
+        }
+
+        fn completed_writes(&self) -> usize {
+            self.state.0.lock().unwrap().completed_writes
+        }
+
+        fn release_one(&self) {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            state.blocked = false;
+            state.reblock_after_send = true;
+            drop(state);
+            changed.notify_all();
+        }
+
         fn release(&self) {
             let (state, changed) = &*self.state;
             let mut state = state.lock().unwrap();
             state.blocked = false;
+            state.reblock_after_send = false;
             drop(state);
             changed.notify_all();
         }
@@ -6708,6 +6775,8 @@ mod tests {
                         entered: false,
                         aborted: false,
                         fail_on_release: false,
+                        completed_writes: 0,
+                        reblock_after_send: false,
                     }),
                     Condvar::new(),
                 )),
@@ -6731,10 +6800,19 @@ mod tests {
             if state.fail_on_release {
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "scripted write failure"));
             }
+            if state.reblock_after_send {
+                state.blocked = true;
+                state.reblock_after_send = false;
+            }
             drop(state);
             let mut output = self.output.lock().unwrap();
             output.extend_from_slice(message.as_bytes());
             output.push(b'\n');
+            let (state, changed) = &*self.control.state;
+            let mut state = state.lock().unwrap();
+            state.completed_writes += 1;
+            drop(state);
+            changed.notify_all();
             Ok(())
         }
 
@@ -9647,6 +9725,62 @@ mod tests {
             .expect("deadline-bounded ordered wait blocked on the state mutex")
             .expect_err("an unwritten sequence unexpectedly completed");
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn timed_out_control_request_is_not_sent_after_queue_release() {
+        let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"first").unwrap();
+        control.wait_until_entered();
+
+        // Pause immediately after enqueue so the request's write deadline
+        // expires while its sequence is still queued behind the blocked input.
+        let (enqueue_started_rx, resume_enqueue_tx) =
+            session.interactive_writer.gate_next_enqueue_until();
+        let request_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let timeout = Duration::from_millis(50);
+        let request = std::thread::spawn(move || {
+            finished_tx
+                .send(request_session.request_with_deadline(
+                    json!({"cmd": "stale-control"}),
+                    RequestDeadline::Fixed(timeout),
+                ))
+                .unwrap();
+        });
+
+        enqueue_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        std::thread::sleep(timeout + Duration::from_millis(20));
+        resume_enqueue_tx.send(()).unwrap();
+
+        let result = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            result.as_ref().err().and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+            Some(RemoteRequestError::Timeout)
+        ));
+        request.join().unwrap();
+
+        // Release only the already accepted input. The test writer re-blocks
+        // before a second send, which makes a stale queued control observable
+        // without racing the first write's completion.
+        control.release_one();
+        control.wait_until_completed(1);
+        control.release();
+        let settle_deadline = Instant::now() + Duration::from_millis(200);
+        while control.completed_writes() < 2 && Instant::now() < settle_deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            control.completed_writes(),
+            1,
+            "timed-out control request was sent after the queue was released"
+        );
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(output.contains("\"bytes\":\"Zmlyc3Q=\""));
+        assert!(!output.contains("stale-control"));
+        drop(session);
     }
 
     #[cfg(unix)]
