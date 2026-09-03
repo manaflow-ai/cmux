@@ -383,13 +383,7 @@ enum MachineSnapshotBuilder {
 /// through this store.
 @MainActor
 final class MachinesPanelViewModel: ObservableObject {
-    @Published private(set) var machines: [MachineSnapshot] = [] {
-        didSet {
-            machineRowIndexes = Dictionary(
-                uniqueKeysWithValues: machines.enumerated().map { ($0.element.id, $0.offset) }
-            )
-        }
-    }
+    @Published private(set) var machines: [MachineSnapshot] = []
     private var machineRowIndexes: [String: Int] = [:]
     @Published private(set) var plan: MachinePlanSnapshot?
     @Published private(set) var isLoading = false
@@ -433,14 +427,22 @@ final class MachinesPanelViewModel: ObservableObject {
     @Published private(set) var activeOperation: String?
     /// The surface catalog as one value: machines (this Mac first), their
     /// terminals/screens/browsers, and which local panes project them.
-    @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty {
-        didSet {
-            catalogMachineIndexes = Dictionary(
-                uniqueKeysWithValues: catalog.machines.enumerated().map { ($0.element.id, $0.offset) }
-            )
-        }
-    }
+    @Published private(set) var catalog: SurfaceCatalogSnapshot = .empty
     private var catalogMachineIndexes: [SurfaceMachineID: Int] = [:]
+
+    private func replaceMachines(_ value: [MachineSnapshot]) {
+        machines = value
+        machineRowIndexes = Dictionary(
+            uniqueKeysWithValues: value.enumerated().map { ($0.element.id, $0.offset) }
+        )
+    }
+
+    private func replaceCatalog(_ value: SurfaceCatalogSnapshot) {
+        catalog = value
+        catalogMachineIndexes = Dictionary(
+            uniqueKeysWithValues: value.machines.enumerated().map { ($0.element.id, $0.offset) }
+        )
+    }
     /// Local workspaces in sidebar order, so this Mac's terminals group under
     /// the workspace that shows them (titles resolved here, above the outline).
     @Published private(set) var localWorkspaces: [CloudTreeLocalWorkspace] = []
@@ -570,6 +572,9 @@ final class MachinesPanelViewModel: ObservableObject {
                 return candidate.name.localizedStandardCompare(info.name) == .orderedDescending
             } ?? catalog.machines.endIndex
             catalog.machines.insert(info, at: insertion)
+            catalogMachineIndexes = Dictionary(
+                uniqueKeysWithValues: catalog.machines.enumerated().map { ($0.element.id, $0.offset) }
+            )
         }
         guard let index = machineRowIndexes[machine.cloudMachineID] else { return }
         var snapshot = machines[index]
@@ -622,9 +627,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// every change notification may call it: the machine's daemon pushes a
     /// host sample over the link every 10 s and each one arrives here.
     func readCatalog() {
-        catalog = SurfaceCatalog.shared.snapshot
+        replaceCatalog(SurfaceCatalog.shared.snapshot)
         localWorkspaces = localWorkspacesProvider()
-        machines = MachineSnapshotBuilder.applyingLinkStats(to: machines, catalog: catalog)
+        replaceMachines(MachineSnapshotBuilder.applyingLinkStats(to: machines, catalog: catalog))
     }
 
     /// The explicit Refresh verb: asks every provider to re-sync (machine list,
@@ -668,7 +673,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// The one place usage lands: the lookup and the row snapshots move together.
     func applyUsage(_ usage: [String: MachineUsageSnapshot]) {
         usageByMachineID = usage
-        machines = MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage)
+        replaceMachines(MachineSnapshotBuilder.applyingUsage(to: machines, usage: usage))
     }
 
     private static let pollInterval: Duration = .seconds(45)
@@ -736,7 +741,7 @@ final class MachinesPanelViewModel: ObservableObject {
             try? await Task.sleep(for: .seconds(delay))
             guard !Task.isCancelled, let self else { return }
             let now = Date()
-            self.machines = MachineSnapshotBuilder.applyingFreeAccess(to: self.machines, windowDays: windowDays, now: now)
+            self.replaceMachines(MachineSnapshotBuilder.applyingFreeAccess(to: self.machines, windowDays: windowDays, now: now))
             self.plan = MachineSnapshotBuilder.planSnapshot(
                 activeCount: self.machines.count, limits: self.lastLimits, machines: self.machines, now: now
             )
@@ -760,9 +765,9 @@ final class MachinesPanelViewModel: ObservableObject {
         treeTask = nil
         freeAccessWindowDays = 0
         lastLimits = nil
-        machines = []
+        replaceMachines([])
         usageByMachineID = [:]
-        catalog = .empty
+        replaceCatalog(.empty)
         localWorkspaces = []
         treeErrorDescription = nil
         plan = nil
@@ -790,7 +795,7 @@ final class MachinesPanelViewModel: ObservableObject {
             // The live reading rides the catalog (each machine's daemon pushes it over
             // the link), so the fresh list is stamped from there rather than re-fetched.
             snapshots = MachineSnapshotBuilder.applyingLinkStats(to: snapshots, catalog: catalog)
-            machines = snapshots
+            replaceMachines(snapshots)
             lastLimits = page.limits
             scheduleFreeAccessTransition()
             refreshUsage()
@@ -804,7 +809,7 @@ final class MachinesPanelViewModel: ObservableObject {
                 // notification arrives. Clear the authoritative-looking
                 // snapshot immediately; signed-out users must never see the
                 // previous account's machines during that race.
-                machines = []
+                replaceMachines([])
                 plan = nil
                 activeOperation = nil
                 lastErrorDescription = nil
