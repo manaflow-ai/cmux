@@ -5,6 +5,10 @@ description: Route work to cmux Cloud machines (persistent cloud VMs) from the C
 
 # cmux Cloud Machines
 
+Provider and image-generation limits are in the [Cloud VM provider and
+transport matrix](../../docs/cloud-vm-provider-matrix.md). Check that matrix
+before selecting an attach transport or checkpoint operation.
+
 Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness — and `cmux vm prompt` bootstraps an agent that has no skill loaded: it installs the app-bundled cmux-cloud skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt pointing at it (`--open <agent>` starts a local agent terminal with that prompt directly).
 
 ## What a machine is
@@ -12,21 +16,21 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 | Term | Meaning |
 |------|---------|
 | **Machine** | A persistent cloud VM (`cmux vm ls`). Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
-| **Contents** | Ubuntu (shared devbox image): node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool. **Claude Code, Codex, OpenCode, and Pi are preinstalled**. Machines are shell-only today — no provider ships a desktop image, so there is no VNC screen to open. Provisioning runs in the background on first boot — `cat /tmp/cmux/provision.log` on a brand-new machine if a tool is missing. |
+| **Contents** | The current deployment serves the manifest's validated `base` default. It includes Node, Bun, uv, Git, GitHub CLI, ripgrep, fd, jq, tmux, xdotool, Chrome, cua-driver, and pinned Claude Code, Codex, OpenCode, and Pi. A validated `desktop` snapshot exists, but it is a contributor-account reference and is not promoted under the deployment account, so `kind: desktop` fails closed. Check `cmux vm ls --json` and its `limits.imageKinds` before requesting a kind. Tools are baked into the image; create does not install tools after boot. On current Freestyle images, the work user is `ubuntu` and the pinned agent binaries are linked in `/usr/local/bin`. |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces → terminals, visible in `cmux vm tree`. A terminal you start there keeps running when the Mac disconnects. |
 | **Surface** | A terminal, VNC screen or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
 | **Plan meter** | `cmux vm ls` prints `N of M machines`. Free plans get **1 machine and a 7-day cloud window**; `vm ls --json` carries `limits.freeAccessExpiresAt`. At the cap, creates fail with an upgrade action — never delete machines to make room without asking. |
-| **Checkpoint / fork** | `snapshot` mints a restorable checkpoint; `fork` clones a machine for a parallel experiment. |
+| **Checkpoint / fork** | `snapshot` mints a restorable checkpoint; restore that snapshot or create a new machine for isolation. `fork` is provider-dependent and is unavailable on the current Freestyle provider. |
 
 ## Decide: cloud or local?
 
 | Run in the cloud when… | Stay local when… |
 |------------------------|------------------|
 | Builds/tests take minutes, need Linux, or would hog the user's Mac | The task is a quick edit or read |
-| The task needs a desktop, browser automation, or a screen the user can watch (`vm open <m>:desktop`) | The user is editing the same files right now |
-| You want isolation (fork per experiment, throwaway machine) | The repo has uncommitted local-only state you cannot sync |
+| The task needs a desktop, browser automation, or a screen the user can watch (`vm open <m>:desktop`) when `limits.imageKinds` advertises `desktop` | The user is editing the same files right now |
+| You want isolation (restore a snapshot or use a throwaway machine) | The repo has uncommitted local-only state you cannot sync |
 | You want to fan out: several agents on several machines in parallel | |
 | The user said "cloud", "machine", "VM", or the sticky machine for this directory already has a warm checkout (`cmux vm route`) | |
 
@@ -48,7 +52,7 @@ Repeat runs from the same directory hit the same machine (sticky binding), so sy
 
 1. `cmux vm route` — the router's answer for this directory; `--json` for scripts. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first.
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
-3. Isolation → `cmux vm new --detach --json` (desktop machine) or `--base` (shell-only); add `--size 8g`/`--name <label>` as needed. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`.
+3. Isolation → `cmux vm new --detach --json` with the kind advertised by `cmux vm ls --json`, or restore a snapshot. The current deployment advertises `base` only; request `desktop` only after `limits.imageKinds` includes it. Add `--size 8g`/`--name <label>` as needed. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`.
 4. Never draft the user's own named machines without `--machine`, and respect the plan meter.
 
 ## Running work
@@ -100,7 +104,7 @@ CodeRouter routes **model credentials**, not compute. An agent started with `vm 
 - **Prefer `vm route` / `vm run` / `vm agent` over naming machines.** They only draft pool machines; `--machine <id>` is the deliberate way to use another.
 - **Reuse before create.** `vm ls`, then an idle machine or Base. Free plans: one machine, 7 days.
 - **Stay headless while working** (`--detach`, `--no-open`, `--print`); open panes (`vm open`, `vm tree`'s addresses) to *show* results.
-- **Checkpoint before risky operations** (`vm snapshot`), fork instead of experimenting on a machine the user relies on.
+- **Checkpoint before risky operations** (`vm snapshot`), then restore the snapshot or create a new machine instead of experimenting on a machine the user relies on. Current Freestyle has no `fork` operation.
 - **Only destroy what you created this session.** `vm rm` is permanent.
 
 ## Common issues and fixes
@@ -108,7 +112,7 @@ CodeRouter routes **model credentials**, not compute. An agent started with `vm 
 | Symptom | Fix |
 |---------|-----|
 | `vm exec` hangs or times out | Exec is capped (~30 s default). Background it: `nohup … > /tmp/x.log 2>&1 &`, then poll — or use `vm agent` / a terminal in the session for long work. |
-| `claude`/`codex` not found on a brand-new machine | Provisioning is still running: `cmux vm exec <id> -- tail /tmp/cmux/provision.log`; the agents land in `/root/.npm-global/bin` (on PATH in login shells). |
+| `claude`/`codex` not found | Inspect `cmux vm status <id>` and `cmux vm tools <id>`. Current Freestyle promoted images bake the pinned agents for `ubuntu` and link them into `/usr/local/bin`; create does not install them after boot. Recreate from a validated manifest image when the image is old or missing a tool. |
 | First command after idle is slow | The machine was asleep: `cmux vm wait <id> --wake`. |
 | `vm route` says it would provision | The pool is empty/busy. Check the plan meter; `--provision` (or `vm run`) creates one. |
 | Create fails with an active-limit error | Plan cap (free: 1). Report it; let the user upgrade or choose a machine to remove. |
@@ -123,6 +127,6 @@ CodeRouter routes **model credentials**, not compute. An agent started with `vm 
 |-----------|-------------|
 | [references/commands.md](references/commands.md) | Exhaustive `cmux vm` command list with examples |
 | [references/sidebar-parity.md](references/sidebar-parity.md) | Every Cloud-sidebar action and the CLI verb that does the same thing (1:1) |
-| [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel forks, desktop/browser tasks, showing the human |
+| [references/agent-workflows.md](references/agent-workflows.md) | Recipes: cloud dev box, routed agents, parallel machines, desktop/browser tasks, showing the human |
 | [../cmux/SKILL.md](../cmux/SKILL.md) | Windows/workspaces/panes when presenting machine panes |
 | [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md) | Non-disruptive automation rules (focus, caller workspace) |

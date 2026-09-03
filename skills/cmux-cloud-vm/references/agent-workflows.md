@@ -44,7 +44,7 @@ echo "$term" | jq -r '.reattach'                                  # cmux vm open
 cmux vm tree "$(echo "$term" | jq -r '.machine')"                 # [agent claude running] … (open: surface:N)
 ```
 
-The agent runs as a detached terminal in the machine's cmux-tui session: it keeps going if the pane closes, and `cmux vm open <reattach address>` brings it back (reusing the pane if one already shows it). Fan out by calling `vm agent` once per task with `--machine` pinned to different machines (or forks, §4) and watch them all in `cmux vm tree`.
+The agent runs as a detached terminal in the machine's cmux-tui session: it keeps going if the pane closes, and `cmux vm open <reattach address>` brings it back (reusing the pane if one already shows it). Fan out by calling `vm agent` once per task with `--machine` pinned to different machines (or restored snapshots and new machines, §5) and watch them all in `cmux vm tree`.
 
 Inside the machine the agent authenticates like it would locally (its own login, or CodeRouter's env/config under `/root`, set once with `vm exec`). Never copy the user's tokens onto a machine unless they ask.
 
@@ -70,21 +70,29 @@ cmux vm pull <id> work/app/dist ./dist-from-cloud
 
 Report the real outcome from the log — a finished poll is not a passed test.
 
-## 5. Parallel experiments with checkpoints and forks
+## 5. Parallel experiments with checkpoints and new machines
 
 ```bash
-cmux vm snapshot <id> --name pre-experiment
-fork_a=$(cmux vm fork <id> --name try-approach-a --detach --json | jq -r '.id')
-fork_b=$(cmux vm fork <id> --name try-approach-b --detach --json | jq -r '.id')
-cmux vm agent --agent codex --machine "$fork_a" --no-open -- exec "try approach A in work/app"
-cmux vm agent --agent codex --machine "$fork_b" --no-open -- exec "try approach B in work/app"
+snapshot_id=$(cmux vm snapshot <id> --name pre-experiment --json | jq -r '.snapshot_id // .snapshotId // .id')
+try_a=$(cmux vm restore "$snapshot_id" --detach --json | jq -r '.id')
+try_b=$(cmux vm restore "$snapshot_id" --detach --json | jq -r '.id')
+cmux vm agent --agent codex --machine "$try_a" --no-open -- exec "try approach A in work/app"
+cmux vm agent --agent codex --machine "$try_b" --no-open -- exec "try approach B in work/app"
 cmux vm tree                                           # both agents, side by side
-cmux vm rm "$fork_a"; cmux vm rm "$fork_b"             # only the forks you created
+cmux vm rm "$try_a"; cmux vm rm "$try_b"               # only the scratch machines you created
 ```
 
-## 6. Desktop and browser tasks
+Freestyle has no `fork` operation. `vm restore` creates a new tracked machine
+from the snapshot, so each restore uses a machine slot and the plan limit.
 
-Desktop machines run xfce + TigerVNC + noVNC and the CUA driver (`cua-computer-server`, the computer-use API that screenshots/clicks/types on display `:1`). Drive it from inside the machine (`vm agent` with a computer-use-capable agent, or your own script against the server), and show the human the screen:
+## 6. Desktop and browser tasks (when advertised)
+
+Use this workflow only when `cmux vm ls --json` lists `desktop` in
+`limits.imageKinds`. The current deployment advertises `base` only. The
+validated Freestyle desktop image uses openbox, TigerVNC, noVNC, and the CUA
+driver on display `:1`; it does not use xfce. Drive it from inside the machine
+(`vm agent` with a computer-use-capable agent, or your own script against the
+driver), and show the human the screen:
 
 ```bash
 cmux vm open <id>:desktop              # the screen as a browser pane beside the shell
@@ -96,8 +104,8 @@ cmux vm exec <id> -- sh -c 'DISPLAY=:1 xdotool key ctrl+l'   # quick desktop pok
 ```bash
 cmux vm tree <id>                      # the map: which terminal is which, what is already open
 cmux vm open <id>/<ws>/<term>          # one terminal as a pane (reuses an open pane)
-cmux vm open <id>                      # shell (+ screen on desktop machines)
-cmux vm open <id>:desktop              # the screen
+cmux vm open <id>                      # shell (+ screen when a desktop is present)
+cmux vm open <id>:desktop              # the screen (desktop kind only)
 cmux vm open <id>:port/3000            # the app they should look at
 cmux vm handoff <id>                   # attach block another human/agent can follow
 ```
@@ -107,5 +115,5 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
 ## 8. Cleanup etiquette
 
 - Machines sleep on their own — idle machines cost nothing while asleep, so leaving one for the user to inspect is fine (say so in your handoff).
-- Delete forks and scratch machines you created once their purpose is served.
+- Delete scratch machines and restore copies you created once their purpose is served.
 - Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.
