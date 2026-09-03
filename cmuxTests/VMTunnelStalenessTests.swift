@@ -68,7 +68,7 @@ struct VMTunnelStalenessTests {
         #expect(stale.contains("different enrollment") && stale.contains("cmux vpn up"))
     }
 
-    @Test("One tunnel per deployment: production keeps `cmux`, other deployments get their own interface")
+    @Test("Build identities get isolated interface names, with legacy URL fallback")
     func interfaceNamePerEnvironment() {
         #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "https://cmux.com")!) == "cmux")
         #expect(VMTunnelManager.interfaceName(forAPIBaseURL: URL(string: "https://www.cmux.com")!) == "cmux")
@@ -82,6 +82,50 @@ struct VMTunnelStalenessTests {
         #expect(staging.configURL.lastPathComponent == "cmux-staging.conf")
         #expect(staging.appliedDigestURL.lastPathComponent == "cmux-staging.applied")
         #expect(staging.runtimeNameFileURL.path == "/var/run/wireguard/cmux-staging.name")
+    }
+
+    @Test("A production-targeted tagged DEV build never shares nightly's interface")
+    func productionBuildVariantsAreDistinct() {
+        let production = URL(string: "https://cmux.com")!
+        let nightly = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: production
+        )
+        let taggedDev = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug.cloud-notify",
+            apiBaseURL: production
+        )
+        let otherTaggedDev = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug.cloud-tree-agent-parity",
+            apiBaseURL: production
+        )
+
+        #expect(nightly == "cmux-nightly")
+        #expect(taggedDev != "cmux")
+        #expect(taggedDev != nightly)
+        #expect(taggedDev != otherTaggedDev)
+        for name in [nightly, taggedDev, otherTaggedDev] {
+            #expect(name.count <= 15, "wg-quick interface names are at most 15 characters")
+            #expect(name.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" })
+        }
+    }
+
+    @Test("The base DEBUG bundle uses its tag when deriving a tunnel scope")
+    func baseDebugBundleUsesLaunchTag() {
+        let production = URL(string: "https://cmux.com")!
+        let first = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            environment: ["CMUX_TAG": "cloud-notify"],
+            apiBaseURL: production
+        )
+        let second = VMTunnelManager.interfaceName(
+            bundleIdentifier: "com.cmuxterm.app.debug",
+            environment: ["CMUX_TAG": "cloud-tree-agent-parity"],
+            apiBaseURL: production
+        )
+        #expect(first != second)
+        #expect(first != "cmux-dev")
+        #expect(second != "cmux-dev")
     }
 
     @Test("The completed config routes only this network's prefixes, so two tunnels can be up side by side")

@@ -24,7 +24,11 @@ struct VMTunnelManagerTests {
     func keypairIsMintedOnceAndStable() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home)
+        let manager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: URL(string: "https://cmux.com")!
+        )
 
         let first = try manager.keypair()
         let second = try manager.keypair()
@@ -46,7 +50,11 @@ struct VMTunnelManagerTests {
     func deviceFingerprintIsStablePerInstallation() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home)
+        let manager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: URL(string: "https://cmux.com")!
+        )
         let first = try manager.deviceFingerprint()
         #expect(first.hasPrefix("mac-"))
         #expect(try manager.deviceFingerprint() == first)
@@ -99,7 +107,11 @@ struct VMTunnelManagerTests {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
         // No config on disk means nothing to match interfaces against.
-        #expect(VMTunnelManager(home: home).wgQuickInterfaceUp() == false)
+        #expect(VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: URL(string: "https://cmux.com")!
+        ).wgQuickInterfaceUp() == false)
     }
 
     @Test
@@ -127,7 +139,11 @@ struct VMTunnelManagerTests {
     func interfaceUpMatchesALiveInterfaceAddress() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
-        let manager = VMTunnelManager(home: home)
+        let manager = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: URL(string: "https://cmux.com")!
+        )
         try FileManager.default.createDirectory(at: manager.stateDir, withIntermediateDirectories: true)
         // Loopback is always present, so a config claiming 127.0.0.1 as the
         // interface address reads as up — proving detection is address-based.
@@ -139,5 +155,68 @@ struct VMTunnelManagerTests {
         PublicKey = Y
         """.write(to: manager.configURL, atomically: true, encoding: .utf8)
         #expect(manager.wgQuickInterfaceUp() == true)
+    }
+
+    @Test
+    func buildScopesDoNotShareCredentialsOrConfigFiles() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let productionURL = URL(string: "https://cmux.com")!
+        let nightly = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        let dev = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.debug.cloud-notify",
+            apiBaseURL: productionURL
+        )
+
+        #expect(nightly.interfaceName != dev.interfaceName)
+        #expect(nightly.configURL != dev.configURL)
+        #expect(nightly.privateKeyURL != dev.privateKeyURL)
+        #expect(nightly.deviceIDURL != dev.deviceIDURL)
+
+        let nightlyKeys = try nightly.keypair()
+        let devKeys = try dev.keypair()
+        #expect(nightlyKeys.privateKey != devKeys.privateKey)
+        #expect(nightlyKeys.publicKey != devKeys.publicKey)
+        #expect(try nightly.deviceFingerprint() != dev.deviceFingerprint())
+
+        // Reconstructing the same build identity keeps its enrollment material.
+        let nightlyRestart = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+        #expect(try nightlyRestart.keypair().privateKey == nightlyKeys.privateKey)
+        #expect(try nightlyRestart.deviceFingerprint() == nightly.deviceFingerprint())
+    }
+
+    @Test
+    func stableProductionKeepsLegacyCredentialPathsWhileOtherBuildsAreScoped() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let productionURL = URL(string: "https://cmux.com")!
+        let stable = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app",
+            apiBaseURL: productionURL
+        )
+        let nightly = VMTunnelManager(
+            home: home,
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            apiBaseURL: productionURL
+        )
+
+        #expect(stable.interfaceName == "cmux")
+        #expect(stable.privateKeyURL.lastPathComponent == "private.key")
+        #expect(stable.deviceIDURL.lastPathComponent == "device-id")
+        #expect(stable.configURL.lastPathComponent == "cmux.conf")
+        #expect(nightly.interfaceName == "cmux-nightly")
+        #expect(nightly.privateKeyURL.lastPathComponent == "cmux-nightly.private.key")
+        #expect(nightly.deviceIDURL.lastPathComponent == "cmux-nightly.device-id")
+        #expect(nightly.configURL.lastPathComponent == "cmux-nightly.conf")
     }
 }
