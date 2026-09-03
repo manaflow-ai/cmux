@@ -89,8 +89,7 @@ impl ProviderCloseWorker {
                                     .iter()
                                     .next()
                                     .map(|(key, _)| (*key, pending.remove(key).unwrap()))
-                            })
-                            else {
+                            }) else {
                                 break;
                             };
                             match sender.try_send(close) {
