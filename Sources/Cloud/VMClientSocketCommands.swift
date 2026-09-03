@@ -328,8 +328,8 @@ extension TerminalController {
                 }
                 if let addresses = endpoint.networkAddresses {
                     payload["network_addresses"] = [
-                        "ipv4": addresses.ipv4 ?? NSNull(),
-                        "ipv6": addresses.ipv6 ?? NSNull(),
+                        "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
+                        "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
                     ]
                 }
                 return payload
