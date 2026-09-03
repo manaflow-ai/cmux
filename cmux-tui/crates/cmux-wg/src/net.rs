@@ -457,6 +457,7 @@ impl PortAllocator {
         Self { next_port, reserved: HashSet::new() }
     }
 
+    #[cfg(test)]
     fn set_next_port(&mut self, next_port: u16) {
         self.next_port = next_port;
     }
