@@ -2,6 +2,7 @@
 public import CmuxMobileCloud
 public import Foundation
 internal import CmuxTerminalClientKit
+internal import CmuxTerminalClientModel
 
 /// Bridges the prebuilt Rust client (`CmuxTerminalClientKit`) to the Cloud
 /// domain's transport seams, so `CmuxMobileCloud` stays free of the binary.

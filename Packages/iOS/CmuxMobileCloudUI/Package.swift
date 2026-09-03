@@ -36,6 +36,7 @@ let package = Package(
                 "CmuxMobileTerminal",
                 "CMUXMobileCore",
                 .product(name: "CmuxTerminalClientKit", package: "CmuxTerminalClient"),
+                .product(name: "CmuxTerminalClientModel", package: "CmuxTerminalClient"),
             ],
             swiftSettings: swiftSettings
         ),
