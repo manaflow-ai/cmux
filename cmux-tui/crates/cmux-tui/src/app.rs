@@ -44057,7 +44057,14 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(app.projection_agents_builds, 1);
 
-        app.invalidate_projection_agents();
+        app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+            surface: 0,
+            state: "working".into(),
+            source: "hook".into(),
+            session: None,
+            updated_at_ms: 1,
+        }))
+        .unwrap();
         let third = app.projection_rows(0);
         assert_eq!(third, first);
         assert_eq!(app.projection_agents_builds, 2);
