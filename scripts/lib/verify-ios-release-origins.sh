@@ -29,7 +29,35 @@ PLIST="$APP/Info.plist"
 
 read_plist() {
   local key="$1"
-  /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true
+  if [[ -x /usr/libexec/PlistBuddy ]]; then
+    /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true
+    return 0
+  fi
+
+  # Linux CI has no PlistBuddy. Use the OS-owned Python interpreter as a
+  # read-only fallback; do not honor an arbitrary PLISTBUDDY/PATH override,
+  # because the verifier is a release security gate and its parser must not be
+  # replaceable by untrusted environment input.
+  if [[ -x /usr/bin/python3 ]]; then
+    /usr/bin/python3 - "$PLIST" "$key" <<'PY' || true
+import plistlib
+import sys
+
+path, key = sys.argv[1:3]
+try:
+    with open(path, "rb") as handle:
+        value = plistlib.load(handle)[key]
+except (OSError, KeyError, TypeError, ValueError, plistlib.InvalidFileException):
+    raise SystemExit(1)
+
+if isinstance(value, bool):
+    print("true" if value else "false")
+elif isinstance(value, (int, float, str)):
+    print(value)
+else:
+    raise SystemExit(1)
+PY
+  fi
 }
 
 require_exact() {
