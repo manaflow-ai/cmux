@@ -123,10 +123,42 @@ struct TimedEvent {
     value: Value,
 }
 
+/// Incremental index of surface references observed on the subscriber.
+///
+/// The subscriber retains only timestamps per surface. JSON payloads are
+/// traversed once, when an event arrives, instead of once per visibility poll.
+/// Timestamps are appended in observation order, so lookups use a binary
+/// search for the first event at or after the request.
+#[derive(Default)]
+struct VisibilityIndex {
+    by_surface: HashMap<u64, Vec<Instant>>,
+}
+
+impl VisibilityIndex {
+    fn push(&mut self, event: TimedEvent) {
+        let mut surfaces = HashSet::new();
+        collect_surface_ids(&event.value, &mut surfaces);
+        for surface_id in surfaces {
+            self.by_surface.entry(surface_id).or_default().push(event.at);
+        }
+    }
+
+    fn visibility_delay(&self, sent: Instant, surface_id: u64) -> Option<Duration> {
+        let timestamps = self.by_surface.get(&surface_id)?;
+        let index = timestamps.partition_point(|at| *at < sent);
+        timestamps.get(index).map(|at| at.duration_since(sent))
+    }
+
+    fn discard_surface(&mut self, surface_id: u64) {
+        self.by_surface.remove(&surface_id);
+    }
+}
+
 /// Find the earliest event at or after `sent` whose payload references
 /// `surface_id`, and return how long after `sent` it arrived. Deltas may
 /// arrive before the command response, so callers time from the request write,
 /// not from the response.
+#[cfg(test)]
 fn visibility_delay(events: &[TimedEvent], sent: Instant, surface_id: u64) -> Option<Duration> {
     events
         .iter()
@@ -138,6 +170,7 @@ fn visibility_delay(events: &[TimedEvent], sent: Instant, surface_id: u64) -> Op
 
 /// True if `value` mentions `surface_id` as a `surface` field anywhere in the
 /// tree-delta payload (the delta carries the created surface in its entity).
+#[cfg(test)]
 fn event_references_surface(value: &Value, surface_id: u64) -> bool {
     match value {
         Value::Object(map) => {
@@ -150,6 +183,25 @@ fn event_references_surface(value: &Value, surface_id: u64) -> bool {
             items.iter().any(|child| event_references_surface(child, surface_id))
         }
         _ => false,
+    }
+}
+
+fn collect_surface_ids(value: &Value, surfaces: &mut HashSet<u64>) {
+    match value {
+        Value::Object(map) => {
+            if let Some(surface_id) = map.get("surface").and_then(Value::as_u64) {
+                surfaces.insert(surface_id);
+            }
+            for child in map.values() {
+                collect_surface_ids(child, surfaces);
+            }
+        }
+        Value::Array(items) => {
+            for child in items {
+                collect_surface_ids(child, surfaces);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -304,7 +356,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let mut subscriber = Conn::open(&socket)?;
     subscriber.identify()?;
     subscriber.request(json!({"cmd":"subscribe","tree_events":"deltas"}))?;
-    let events: Arc<Mutex<Vec<TimedEvent>>> = Arc::new(Mutex::new(Vec::new()));
+    let events: Arc<Mutex<VisibilityIndex>> = Arc::new(Mutex::new(VisibilityIndex::default()));
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let subscriber_thread = spawn_subscriber(subscriber, Arc::clone(&events), Arc::clone(&stop));
 
@@ -579,7 +631,7 @@ fn run_create_loop(
     pane: u64,
     same_connection: bool,
     typing_probes: usize,
-    events: &Arc<Mutex<Vec<TimedEvent>>>,
+    events: &Arc<Mutex<VisibilityIndex>>,
     report: &Arc<Mutex<Report>>,
     gates: &ProbeGates,
     baseline_surface: u64,
@@ -640,7 +692,7 @@ fn drain_pending(
     pending: Vec<PendingRequest>,
     client: usize,
     socket: &std::path::Path,
-    events: &Arc<Mutex<Vec<TimedEvent>>>,
+    events: &Arc<Mutex<VisibilityIndex>>,
     report: &Arc<Mutex<Report>>,
 ) -> Result<(), String> {
     let mut pending_by_id: HashMap<u64, PendingRequest> =
@@ -706,7 +758,7 @@ fn record_create_result(
     response: Duration,
     data: Value,
     socket: &std::path::Path,
-    events: &Arc<Mutex<Vec<TimedEvent>>>,
+    events: &Arc<Mutex<VisibilityIndex>>,
     report: &Arc<Mutex<Report>>,
 ) {
     let surface = data["surface"].as_u64();
@@ -758,17 +810,25 @@ fn record_create_result(
 }
 
 fn wait_for_visibility(
-    events: &Arc<Mutex<Vec<TimedEvent>>>,
+    events: &Arc<Mutex<VisibilityIndex>>,
     sent: Instant,
     surface_id: u64,
     grace: Duration,
 ) -> Option<Duration> {
     let deadline = Instant::now() + grace;
     loop {
-        if let Some(delay) = visibility_delay(&events.lock().unwrap(), sent, surface_id) {
-            return Some(delay);
+        {
+            let mut index = events.lock().unwrap();
+            if let Some(delay) = index.visibility_delay(sent, surface_id) {
+                // Surface ids are not reused during a probe. Discarding the
+                // completed entry keeps the index bounded by outstanding
+                // probes rather than all events observed in the session.
+                index.discard_surface(surface_id);
+                return Some(delay);
+            }
         }
         if Instant::now() >= deadline {
+            events.lock().unwrap().discard_surface(surface_id);
             return None;
         }
         thread::sleep(Duration::from_millis(1));
@@ -825,7 +885,7 @@ fn fetch_active_pane(conn: &mut Conn) -> Result<u64, String> {
 
 fn spawn_subscriber(
     mut conn: Conn,
-    events: Arc<Mutex<Vec<TimedEvent>>>,
+    events: Arc<Mutex<VisibilityIndex>>,
     stop: Arc<std::sync::atomic::AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
@@ -1111,15 +1171,14 @@ mod tests {
         }
 
         let sent = base + Duration::from_millis(4);
-        assert_eq!(
-            index.visibility_delay(sent, 42),
-            visibility_delay(&events, sent, 42)
-        );
+        assert_eq!(index.visibility_delay(sent, 42), visibility_delay(&events, sent, 42));
         assert_eq!(
             index.visibility_delay(base + Duration::from_millis(6), 7),
             visibility_delay(&events, base + Duration::from_millis(6), 7)
         );
         assert!(index.visibility_delay(sent, 999).is_none());
+        index.discard_surface(42);
+        assert!(index.visibility_delay(sent, 42).is_none());
     }
 
     #[test]
