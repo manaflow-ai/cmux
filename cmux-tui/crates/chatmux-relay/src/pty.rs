@@ -5281,6 +5281,34 @@ mod tests {
     }
 
     #[test]
+    fn go_live_ready_waits_for_backlog_replay() {
+        let stream = TerminalStream::new();
+        stream.push_output(Bytes::from_static(b"buffered"));
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let data_seen = Arc::clone(&seen);
+        let exit_seen = Arc::clone(&seen);
+        let ready_seen = Arc::clone(&seen);
+        stream.go_live_with_ready(
+            Arc::new(move |chunk| {
+                data_seen
+                    .lock()
+                    .expect("ready order data lock")
+                    .push(String::from_utf8_lossy(&chunk).into_owned());
+            }),
+            Arc::new(move |code| {
+                exit_seen.lock().expect("ready order exit lock").push(format!("exit:{code}"));
+            }),
+            move || ready_seen.lock().expect("ready order lock").push("ready".to_owned()),
+        );
+
+        assert_eq!(
+            *seen.lock().expect("ready order lock"),
+            vec!["buffered".to_owned(), "ready".to_owned()]
+        );
+    }
+
+    #[test]
     fn backlog_overflow_ends_after_accepted_bytes_and_marks_overflow() {
         let stream = TerminalStream::new();
         stream.push_output(Bytes::from(vec![b'x'; RAW_ATTACH_BACKLOG_CAP]));
