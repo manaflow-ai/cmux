@@ -1280,12 +1280,6 @@ extension CMUXCLI {
                 lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux vm open \(id)/\(workspaceId)", addressKey: "key"))
             }
         }
-        if !displays.isEmpty || (machine["has_desktop"] as? Bool) == true {
-            lines.append("  " + String(
-                format: String(localized: "cli.vm.tree.desktop", defaultValue: "desktop  (cmux vm open %@:desktop)"),
-                id
-            ))
-        }
         let ports = browsers.compactMap { browser -> (Int, [String: Any])? in
             guard let port = vmTreeNumber(browser["port"]).map({ Int($0) }) else { return nil }
             return (port, browser)
@@ -1299,6 +1293,13 @@ extension CMUXCLI {
                 if open { cell += "  " + String(localized: "cli.vm.tree.openMarker", defaultValue: "(open)") }
                 lines.append(cell)
             }
+        }
+        // The screens last, as the sidebar's VNC Displays group.
+        if !displays.isEmpty || (machine["has_desktop"] as? Bool) == true {
+            lines.append("  " + String(
+                format: String(localized: "cli.vm.tree.desktop", defaultValue: "desktop  (cmux vm open %@:desktop)"),
+                id
+            ))
         }
         return lines
     }
