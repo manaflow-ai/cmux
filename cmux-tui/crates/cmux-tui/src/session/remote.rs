@@ -1878,10 +1878,10 @@ impl PipeIoByteBudget {
         }
         let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
         state.retained = state.retained.saturating_sub(bytes);
-        if let PipeIoEvent::Replay { reservation_id: Some(id), .. } = event {
-            if state.oversized_replay == Some(*id) {
-                state.oversized_replay = None;
-            }
+        if let PipeIoEvent::Replay { reservation_id: Some(id), .. } = event
+            && state.oversized_replay == Some(*id)
+        {
+            state.oversized_replay = None;
         }
     }
 }
@@ -3610,10 +3610,10 @@ impl RemoteSession {
                 }
             }
         };
-        if let Some(token) = stalled_token {
-            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
-                self.disconnect_transport();
-            }
+        if let Some(token) = stalled_token
+            && self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost)
+        {
+            self.disconnect_transport();
         }
         true
     }
@@ -5363,8 +5363,7 @@ mod tests {
         );
         *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
 
-        let attaching = session.clone();
-        let worker = std::thread::spawn(move || attaching.try_attach_pipe_io(7, Some((100, 30))));
+        let worker = std::thread::spawn(move || session.try_attach_pipe_io(7, Some((100, 30))));
         let first = requests_rx
             .recv_timeout(Duration::from_secs(1))
             .expect("pipe-IO attach did not issue its first request");

@@ -124,11 +124,11 @@ impl PipeIoOutputCancellation {
             // socket already means a wake is pending.
             wake_reader.set_nonblocking(true)?;
             wake_writer.set_nonblocking(true)?;
-            return Ok(Self {
+            Ok(Self {
                 reason: Arc::new(Mutex::new(None)),
                 wake_reader: Arc::new(wake_reader),
                 wake_writer: Arc::new(Mutex::new(wake_writer)),
-            });
+            })
         }
 
         #[cfg(not(unix))]
@@ -532,12 +532,8 @@ pub fn run(
     let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
     let byte_budget = Arc::new(PipeIoByteBudget::new(EVENT_QUEUE_MAX_BYTES));
     // Install before attach so the initial replay cannot be missed.
-    let tap_token = remote.install_pipe_io_tap(
-        surface,
-        sender.clone(),
-        lifecycle_sender.clone(),
-        byte_budget.clone(),
-    );
+    let tap_token =
+        remote.install_pipe_io_tap(surface, sender, lifecycle_sender.clone(), byte_budget.clone());
     let tap_guard = PipeIoTapGuard { remote: remote.as_ref(), token: tap_token };
     let handle = match remote.try_attach_pipe_io(surface, Some((cols.max(1), rows.max(1)))) {
         Ok(PipeIoSurfaceAttach::Attached) => {
@@ -569,10 +565,10 @@ pub fn run(
     // `try_attach_pipe_io`. Re-apply it after claiming authority because a
     // newer terminal-authority daemon may report the pre-attach sample as
     // passive. An unchanged size does not produce a second replay.
-    if !remote.supports_pipe_io_initial_size() {
-        if let Err(error) = remote.resize_pipe_io(surface, cols.max(1), rows.max(1)) {
-            return Ok(attach_failure_exit_reason(&error));
-        }
+    if !remote.supports_pipe_io_initial_size()
+        && let Err(error) = remote.resize_pipe_io(surface, cols.max(1), rows.max(1))
+    {
+        return Ok(attach_failure_exit_reason(&error));
     }
     let stderr_gate = Arc::new(StderrGate::default());
     let cancellation = match PipeIoOutputCancellation::new() {
