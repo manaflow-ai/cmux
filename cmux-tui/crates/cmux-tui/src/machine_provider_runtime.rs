@@ -37,12 +37,14 @@ use crate::session::{RemoteSession, Session};
 
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_QUEUE_CAPACITY: usize = 64;
+const PROVIDER_CLOSE_PENDING_CAPACITY: usize = 64;
 const PROVIDER_CLOSE_WORKER_COUNT: usize = 4;
 
 type ProviderCloseTask = Box<dyn FnOnce() + Send + 'static>;
 
 struct ProviderCloseWorker {
     sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
+    shutdown_sender: Option<crossbeam_channel::Sender<()>>,
     threads: Vec<std::thread::JoinHandle<()>>,
     pending: Arc<Mutex<HashMap<MachineKey, ProviderCloseTask>>>,
 }
@@ -55,34 +57,40 @@ impl ProviderCloseWorker {
     fn with_capacity(queue_capacity: usize) -> anyhow::Result<Self> {
         let (sender, receiver) = crossbeam_channel::bounded::<ProviderCloseTask>(queue_capacity);
         let worker_count = PROVIDER_CLOSE_WORKER_COUNT.min(queue_capacity.max(1));
+        let (shutdown_sender, shutdown_receiver) =
+            crossbeam_channel::bounded::<()>(worker_count.max(1));
         let pending = Arc::new(Mutex::new(HashMap::new()));
         let mut threads = Vec::with_capacity(worker_count);
         for index in 0..worker_count {
             let receiver = receiver.clone();
             let sender = sender.clone();
             let pending = Arc::clone(&pending);
+            let shutdown_receiver = shutdown_receiver.clone();
             let thread = std::thread::Builder::new()
                 .name(format!("provider-close-machine-{index}"))
                 .spawn(move || {
                     loop {
-                        let close = match receiver.recv() {
-                            Ok(close) => close,
-                            Err(_) => {
-                                let mut pending = pending.lock().ok();
-                                let Some(pending) = pending.as_mut() else { break };
-                                if pending.is_empty() {
-                                    break;
-                                }
-                                let Some((&key, _)) = pending.iter().next() else { continue };
-                                pending.remove(&key).expect("pending close task disappeared")
-                            }
+                        let close = crossbeam_channel::select! {
+                            recv(shutdown_receiver) -> _ => break,
+                            recv(receiver) -> close => match close {
+                                Ok(close) => close,
+                                Err(_) => break,
+                            },
                         };
-                        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close)).is_err() {
-                            crate::client_log::stderr_log!(
-                                "provider",
-                                "cmux-tui: provider machine close task panicked"
-                            );
+                        {
+                            let close = close;
+                            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close)).is_err() {
+                                crate::client_log::stderr_log!(
+                                    "provider",
+                                    "cmux-tui: provider machine close task panicked"
+                                );
+                            }
                         }
+                        /*
+                         * Drain deferred tasks whenever a worker frees a queue
+                         * slot. The shutdown signal above exits promptly when
+                         * the runtime is dropped.
+                         */
                         loop {
                             let next = pending.lock().ok().and_then(|mut pending| {
                                 let key = pending.keys().next().copied()?;
@@ -108,7 +116,7 @@ impl ProviderCloseWorker {
             threads.push(thread);
         }
         drop(receiver);
-        Ok(Self { sender: Some(sender), threads, pending })
+        Ok(Self { sender: Some(sender), shutdown_sender: Some(shutdown_sender), threads, pending })
     }
 
     fn schedule(
@@ -123,8 +131,12 @@ impl ProviderCloseWorker {
             Ok(()) => Ok(()),
             Err(crossbeam_channel::TrySendError::Full(close)) => {
                 if let Ok(mut pending) = self.pending.lock() {
-                    pending.insert(key, close);
-                    Ok(())
+                    if pending.len() < PROVIDER_CLOSE_PENDING_CAPACITY {
+                        pending.insert(key, close);
+                        Ok(())
+                    } else {
+                        Err(crossbeam_channel::TrySendError::Full(close))
+                    }
                 } else {
                     Err(crossbeam_channel::TrySendError::Disconnected(close))
                 }
@@ -136,6 +148,11 @@ impl ProviderCloseWorker {
 
 impl Drop for ProviderCloseWorker {
     fn drop(&mut self) {
+        if let Some(shutdown_sender) = self.shutdown_sender.take() {
+            for _ in &self.threads {
+                let _ = shutdown_sender.send(());
+            }
+        }
         self.sender.take();
         for thread in self.threads.drain(..) {
             // A close RPC has its own request deadline, but dropping the
@@ -244,18 +261,11 @@ impl Drop for ProviderMachineConnectionLease {
         ) {
             match error {
                 crossbeam_channel::TrySendError::Full(task) => {
-                    // Preserve every close when the bounded queue is full by
-                    // handing it to a detached thread without blocking Drop.
-                    if std::thread::Builder::new()
-                        .name("provider-close-overflow".into())
-                        .spawn(task)
-                        .is_err()
-                    {
-                        crate::client_log::stderr_log!(
-                            "provider",
-                            "cmux-tui: failed to spawn provider machine close overflow task"
-                        );
-                    }
+                    drop(task);
+                    crate::client_log::stderr_log!(
+                        "provider",
+                        "cmux-tui: failed to schedule provider machine close: close backlog is full"
+                    );
                 }
                 crossbeam_channel::TrySendError::Disconnected(_) => {
                     crate::client_log::stderr_log!(
