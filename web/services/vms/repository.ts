@@ -22,6 +22,7 @@ import {
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
+import { allocateVmSlug } from "./vmNaming";
 import {
   VmCreateDisabledError,
   VmCreateInProgressError,
@@ -358,6 +359,32 @@ function dbEffect<A>(
 }
 
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+/** Statuses whose rows hold their slug (mirrors the partial unique index). */
+const SLUG_LIVE_STATUSES = ["provisioning", "running", "paused"] as const;
+
+/**
+ * Picks the new row's three-word name inside the create transaction. Callers
+ * hold an advisory lock that serializes creates in the scope, so the free
+ * candidate is still free at insert; the partial unique index backstops the
+ * base-open path, whose lock is per base rather than per team.
+ */
+async function allocateSlugInTx(tx: CloudDbTransaction, billingTeamId: string): Promise<string> {
+  return allocateVmSlug(async (candidate) => {
+    const [taken] = await tx
+      .select({ id: cloudVms.id })
+      .from(cloudVms)
+      .where(
+        and(
+          eq(cloudVms.billingTeamId, billingTeamId),
+          eq(cloudVms.slug, candidate),
+          inArray(cloudVms.status, [...SLUG_LIVE_STATUSES]),
+        ),
+      )
+      .limit(1);
+    return !!taken;
+  });
+}
 
 async function assertAccountVmCreateAllowed(
   tx: CloudDbTransaction,
@@ -789,6 +816,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
+                slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
@@ -895,6 +923,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
+                slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
@@ -1094,6 +1123,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               imageVersion: input.imageVersion ?? null,
               status: "provisioning",
               idempotencyKey,
+              slug: await allocateSlugInTx(tx, input.billingTeamId),
             })
             .returning();
           if (!vm) throw new Error("insert returned no VM row");

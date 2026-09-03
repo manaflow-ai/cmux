@@ -77,6 +77,30 @@ final class MachinesPanelModelTests: XCTestCase {
         XCTAssertEqual(snapshot.id, "noble-wren")
     }
 
+    func testSnapshotShowsGeneratedSlugWhenUnlabeled() {
+        var summary = VMSummary(
+            id: "8f1c2a64-0b3e-4d5f-9a7b-1c2d3e4f5a6b",
+            provider: "freestyle",
+            status: "running",
+            image: "cmuxd-ws:tooling-20260509f",
+            createdAt: 0,
+            base: nil
+        )
+        summary.slug = "sleepy-teal-otter"
+        let unlabeled = MachineSnapshotBuilder.snapshot(from: summary)
+        XCTAssertNil(unlabeled.label)
+        XCTAssertEqual(unlabeled.slug, "sleepy-teal-otter")
+        XCTAssertEqual(unlabeled.displayName, "sleepy-teal-otter")
+        XCTAssertEqual(summary.preferredName, "sleepy-teal-otter")
+        // The id stays reachable on the second line: CLI verbs and URLs use it.
+        XCTAssertTrue(CloudTreeMachineRowContent.subtitle(unlabeled).contains(summary.id))
+
+        summary.displayName = "dev box"
+        let labeled = MachineSnapshotBuilder.snapshot(from: summary)
+        XCTAssertEqual(labeled.displayName, "dev box", "a person's label wins over the generated name")
+        XCTAssertEqual(summary.preferredName, "dev box")
+    }
+
     func testActivityMapping() {
         XCTAssertEqual(MachineSnapshotBuilder.activity(fromStatus: "running"), .ready)
         XCTAssertEqual(MachineSnapshotBuilder.activity(fromStatus: "STANDBY"), .ready)
