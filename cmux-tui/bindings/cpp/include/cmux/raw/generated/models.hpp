@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "28ae138c2f5a92cf7ae762b9ba84e404ed9ce3aaf75010181d97708332b4e99d";
+inline constexpr std::string_view kProtocolIrSha256 = "51b5794f706dd58c7ab29e45f21c229ee374649463ab155d621eac17d0a6abec";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -2489,7 +2489,7 @@ struct TerminalLifecycleEvent {
     std::uint64_t elapsed_ms{};
     std::optional<TerminalLifecycle> from{};
     std::string registry_terminal_id{};
-    std::optional<std::uint64_t> surface{};
+    std::optional<Id> surface{};
     std::optional<std::string> terminal_id{};
     TerminalLifecycle to{};
     friend bool operator==(const TerminalLifecycleEvent&, const TerminalLifecycleEvent&) = default;

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "28ae138c2f5a92cf7ae762b9ba84e404ed9ce3aaf75010181d97708332b4e99d";
+pub const ir_sha256 = "51b5794f706dd58c7ab29e45f21c229ee374649463ab155d621eac17d0a6abec";
 
 pub const AgentRecord = struct {
     session: wire.Nullable([]const u8),
@@ -4665,7 +4665,7 @@ pub const TerminalLifecycleEvent = struct {
     event: []const u8,
     from: wire.Nullable(TerminalLifecycle),
     registry_terminal_id: []const u8,
-    surface: wire.Nullable(u64),
+    surface: wire.Nullable(Id),
     terminal_id: wire.Nullable([]const u8),
     to: TerminalLifecycle,
 };

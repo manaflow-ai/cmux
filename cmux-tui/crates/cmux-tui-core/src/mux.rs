@@ -7061,10 +7061,14 @@ impl Mux {
                 ) {
                     Ok(surface) => surface,
                     Err(error) => {
+                        eprintln!(
+                            "cmux-tui: terminal {terminal_hex} could not create a launching \
+                             surface: {error:#}"
+                        );
                         let _ = self.persist_terminal_exit(
                             &terminal_hex,
                             None,
-                            &TerminalExit::unknown(format!("launch-failed: {error}")),
+                            &TerminalExit::unknown(format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}")),
                         );
                         return Err(error);
                     }
@@ -7111,10 +7115,13 @@ impl Mux {
             ) {
                 Ok(surface) => surface,
                 Err(error) => {
+                    eprintln!(
+                        "cmux-tui: terminal {terminal_hex} could not start command: {error:#}"
+                    );
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
-                        &TerminalExit::unknown(format!("launch-failed: {error}")),
+                        &TerminalExit::unknown(format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}")),
                     );
                     return Err(error);
                 }
@@ -7246,10 +7253,13 @@ impl Mux {
             let surface = match surface_result {
                 Ok(surface) => surface,
                 Err(error) => {
+                    eprintln!(
+                        "cmux-tui: terminal {terminal_hex} could not start command: {error:#}"
+                    );
                     let _ = self.persist_terminal_exit(
                         &terminal_hex,
                         None,
-                        &TerminalExit::unknown(format!("launch-failed: {error}")),
+                        &TerminalExit::unknown(format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}")),
                     );
                     return Err(error);
                 }
@@ -9225,6 +9235,7 @@ impl Mux {
     fn fail_terminal_launch(&self, surface: &Arc<Surface>, terminal_id: &str, cause: &str) {
         let stable_cause = format!("launch-failed: {HOST_LAUNCH_FAILED_CAUSE}");
         let exit = TerminalExit::unknown(stable_cause.clone());
+        eprintln!("cmux-tui: terminal {terminal_id} launch failed: {cause}");
         #[cfg(unix)]
         let discarded = surface.fail_launch(exit.clone());
         #[cfg(not(unix))]
@@ -9232,8 +9243,7 @@ impl Mux {
         self.launching_terminals.lock().unwrap().remove(&surface.id);
         if let Err(error) = self.persist_terminal_exit_with_views(terminal_id, None, &exit, true) {
             eprintln!(
-                "cmux-tui: terminal {terminal_id} launch failed ({cause}) and the failure could \
-                 not be persisted: {error:#}"
+                "cmux-tui: terminal {terminal_id} launch failure could not be persisted: {error:#}"
             );
         }
         self.emit_terminal_lifecycle(

@@ -12397,8 +12397,8 @@
      },
      "surface": {
       "type": {
-       "kind": "scalar",
-       "name": "uint64"
+       "kind": "ref",
+       "name": "Id"
       },
       "presence": "required",
       "nullable": true

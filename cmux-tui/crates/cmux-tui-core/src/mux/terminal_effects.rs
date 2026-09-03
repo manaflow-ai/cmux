@@ -190,10 +190,24 @@ impl TerminalEffectExecutor {
                 }
             };
             if let Some(mux) = mux.upgrade() {
+                let launch_context = match &job {
+                    TerminalEffectJob::Launch(job) => {
+                        Some((job.surface.clone(), job.terminal_id.clone()))
+                    }
+                    TerminalEffectJob::Terminate(_)
+                    | TerminalEffectJob::TerminateDiscovered { .. } => None,
+                };
                 let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     mux.run_terminal_effect(job);
                 }));
                 if outcome.is_err() {
+                    if let Some((surface, terminal_id)) = launch_context {
+                        mux.fail_terminal_launch(
+                            &surface,
+                            &terminal_id,
+                            "terminal effect worker panic",
+                        );
+                    }
                     eprintln!("cmux-tui: terminal effect worker recovered from a panic");
                 }
             }

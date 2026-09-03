@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 28ae138c2f5a92cf7ae762b9ba84e404ed9ce3aaf75010181d97708332b4e99d. */
+/* cmux-tui mux protocol 12, IR 51b5794f706dd58c7ab29e45f21c229ee374649463ab155d621eac17d0a6abec. */
 
 
 import type * as T from "./types.js";
@@ -316,7 +316,7 @@ export type TerminalLifecycleEvent = { event: "terminal-lifecycle" } & {
   "elapsed_ms": bigint;
   "from": (T.TerminalLifecycle) | null;
   "registry_terminal_id": string;
-  "surface": (bigint) | null;
+  "surface": (T.Id) | null;
   "terminal_id": (string) | null;
   "to": T.TerminalLifecycle;
 };

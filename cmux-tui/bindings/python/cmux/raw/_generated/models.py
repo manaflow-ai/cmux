@@ -2503,7 +2503,7 @@ class TabRenamedEvent(EventBase):
 @dataclass(frozen=True)
 class TerminalLifecycleEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/terminal-lifecycle/payload'
-    surface: Union[int, None]
+    surface: Union[Id, None]
     terminal_id: Union[str, None]
     cause: Union[str, None]
     discarded_input_bytes: int

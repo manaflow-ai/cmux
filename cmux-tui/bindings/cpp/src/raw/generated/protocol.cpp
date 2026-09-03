@@ -16102,7 +16102,7 @@ Result<TerminalLifecycleEvent> Codec<TerminalLifecycleEvent>::decode(const Json&
         if (field_surface->is_null()) {
             result.surface.reset();
         } else {
-            auto decoded = decode_value<std::uint64_t>(*field_surface);
+            auto decoded = decode_value<Id>(*field_surface);
             if (!decoded) return std::move(decoded).error();
             result.surface = std::move(decoded).value();
         }
