@@ -44,7 +44,6 @@ export const requiredRuntimeEnvKeys = [
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
   "FREESTYLE_API_KEY",
-  "FREESTYLE_SANDBOX_SNAPSHOT",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
   "PGDATABASE",
@@ -77,12 +76,32 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Blaxel, E2B, and Daytona were removed by the provider migrations. Keep
+  // their keys visible to the audit until operators remove them from Vercel.
+  "BL_API_KEY",
+  "BL_WORKSPACE",
+  "BLAXEL_SANDBOX_IMAGE",
+  "BLAXEL_SANDBOX_DESKTOP_IMAGE",
+  "CMUX_VM_BLAXEL_ENABLED",
+  "E2B_API_KEY",
+  "E2B_CMUXD_WS_TEMPLATE",
+  "E2B_SANDBOX_TEMPLATE",
+  "CMUX_VM_E2B_ENABLED",
+  "DAYTONA_API_KEY",
+  "DAYTONA_API_URL",
+  "DAYTONA_SANDBOX_SNAPSHOT",
+  "CMUX_VM_DAYTONA_ENABLED",
   "CMUX_RIVET_INTERNAL_SECRET",
   "RIVET_ENDPOINT",
   "RIVET_NAMESPACE",
   "RIVET_PUBLIC_ENDPOINT",
   "RIVET_RUNNER_VERSION",
   "RIVET_TOKEN",
+  // Subrouter and coderouter access gates were removed: team membership is
+  // the only requirement. The runtime ignores these keys; delete them.
+  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+  "SUBROUTER_ALLOWED_TEAM_IDS",
+  "CODEROUTER_HOSTED_PRO_REQUIRED",
 ];
 
 export function normalizeTarget(value) {

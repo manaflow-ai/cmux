@@ -20,6 +20,7 @@ import {
   isFreeProvisioningAllowed,
 } from "../scripts/cloud-vm/freeProvisioningAudit.mjs";
 import {
+  legacyCloudVmEnvKeys,
   recommendedRuntimeEnvKeys,
   requiredRuntimeEnvKeys,
 } from "../scripts/cloud-vm/projects.mjs";
@@ -33,6 +34,8 @@ type Manifest = {
     imageId: string;
     envVar: string;
     validationStatus: string;
+    kind?: string;
+    defaultForKind?: boolean;
   }>;
 };
 
@@ -49,19 +52,27 @@ const realManifest = JSON.parse(
   ),
 ) as Manifest;
 
+// The manifest's validated base default (defaultForKind): what deployed
+// runtimes serve when FREESTYLE_SANDBOX_SNAPSHOT is unset.
+const freestyleBaseDefault = realManifest.images.find(
+  (entry) => entry.provider === "freestyle" && (entry.kind ?? "base") === "base" && entry.defaultForKind,
+)!;
+
 describe("cloud VM provider coherence audit", () => {
   test("an env default naming a removed provider fails on the code-default leg", () => {
     // The 2026-08-26 outage shape, and now also the stale-env shape: the
     // deployed CMUX_VM_DEFAULT_PROVIDER still names a provider that has been
     // removed, while shipped clients send the code default's image ids. The
-    // old key-presence audit passed this env.
+    // manifest default covers the missing snapshot env var; the missing API
+    // key still makes the code default unprovisionable.
     const result = auditCloudVmProviderCoherence(
       { CMUX_VM_DEFAULT_PROVIDER: "e2b" },
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("e2b");
     expect(result.codeDefault?.provider).toBe("freestyle");
-    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is not set");
+    expect(result.codeDefault).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest" });
+    expect(result.problems.join("\n")).toContain("FREESTYLE_API_KEY is not set");
   });
 
   test("no default provider set means the code default (freestyle) must be ready", () => {
@@ -71,34 +82,81 @@ describe("cloud VM provider coherence audit", () => {
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");
     expect(result.codeDefault).toBeNull();
-    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is not set");
+    expect(result.selected).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest" });
     expect(result.problems.join("\n")).toContain("FREESTYLE_API_KEY");
   });
 
-  test("the freestyle devbox snapshot is not deployable until it is re-baked on the public platform", () => {
-    // The only freestyle manifest entry was baked against the retired
-    // beta-api.freestyle.sh endpoint and carries validationStatus "unknown".
-    // The audit must keep failing until a public-platform bake replaces it, so
-    // nobody ships a default provider that cannot boot a machine.
+  test("the manifest's validated base default is the deployed image", () => {
+    // The committed manifest is the only source of truth (resolver
+    // defaultForKind). A clean env is one with the API key set.
+    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as unknown as {
+      image: string | null;
+      imageSource: string;
+      problems: string[];
+    };
+    expect(result).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest", problems: [] });
+  });
+
+  test("a manifest without a validated base default fails closed", () => {
+    const stripped = {
+      images: realManifest.images.map((entry) => ({ ...entry, defaultForKind: false })),
+    };
+    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, stripped) as {
+      problems: string[];
+    };
+    expect(result.problems.join("\n")).toContain("the manifest has no validated base default for freestyle");
+    const unvalidated = {
+      images: realManifest.images.map((entry) =>
+        entry.defaultForKind ? { ...entry, validationStatus: "unknown" } : entry,
+      ),
+    };
+    const bad = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, unvalidated) as {
+      image: string | null;
+      problems: string[];
+    };
+    expect(bad.problems.join("\n")).toMatch(/manifest default .* has validationStatus unknown, not passed/);
+    expect(bad.problems.join("\n")).toContain("the manifest has no validated base default for freestyle");
+    expect(bad.image).toBeNull();
+  });
+
+  test("the validated public-platform freestyle devbox passes as the default provider", () => {
     const result = auditCloudVmProviderCoherence(
       {
         CMUX_VM_DEFAULT_PROVIDER: "freestyle",
-        FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b",
+        CMUX_VM_FREESTYLE_ENABLED: "1",
         FREESTYLE_API_KEY: "x",
       },
       realManifest,
     ) as Coherence;
     expect(result.selected?.provider).toBe("freestyle");
-    expect(result.problems.join("\n")).toContain("validationStatus");
+    expect(result.codeDefault).toBeNull();
+    expect(result.problems).toEqual([]);
   });
 
-  test("an image value outside the manifest is a problem", () => {
-    const result = auditProviderReadiness(
-      "freestyle",
-      { FREESTYLE_SANDBOX_SNAPSHOT: "sh-not-a-real-snapshot", FREESTYLE_API_KEY: "x" },
+  test("a disabled Freestyle flag fails the selected default audit", () => {
+    const result = auditCloudVmProviderCoherence(
+      {
+        CMUX_VM_DEFAULT_PROVIDER: "freestyle",
+        CMUX_VM_FREESTYLE_ENABLED: "0",
+        FREESTYLE_API_KEY: "x",
+      },
       realManifest,
-    ) as { problems: string[] };
-    expect(result.problems.join("\n")).toContain("not listed in the image manifest");
+    ) as Coherence;
+    expect(result.problems.join("\n")).toContain("CMUX_VM_FREESTYLE_ENABLED disables provider freestyle");
+  });
+
+  test("a lingering FREESTYLE_SANDBOX_SNAPSHOT is stale configuration, whatever it names", () => {
+    // No env var selects an image any more: the manifest is the only source
+    // of truth. A leftover selector (even one naming a valid entry) would
+    // mislead whoever reads the deployment, so the audit asks for its removal.
+    for (const value of ["sh-940ec3bc46224c019e5e8d9a97053293", "sh-fb3dcf7b47894114889b10186626af5b", "sh-not-a-real-snapshot"]) {
+      const result = auditCloudVmProviderCoherence(
+        { CMUX_VM_DEFAULT_PROVIDER: "freestyle", FREESTYLE_SANDBOX_SNAPSHOT: value, FREESTYLE_API_KEY: "x" },
+        realManifest,
+      ) as Coherence;
+      expect(result.selected?.provider).toBe("freestyle");
+      expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is set but ignored");
+    }
   });
 
   test("a provider with no manifest entries at all is a problem", () => {
@@ -110,14 +168,6 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.problems.join("\n")).toContain("no entries in the image manifest");
   });
 
-  test("a manifest entry that never passed validation is a problem", () => {
-    const result = auditProviderReadiness(
-      "freestyle",
-      { FREESTYLE_SANDBOX_SNAPSHOT: "sh-fb3dcf7b47894114889b10186626af5b", FREESTYLE_API_KEY: "x" },
-      realManifest,
-    ) as { problems: string[] };
-    expect(result.problems.join("\n")).toContain("validationStatus");
-  });
 });
 
 describe("sensitive env placeholders", () => {
@@ -138,7 +188,7 @@ describe("sensitive env placeholders", () => {
       },
       realManifest,
     ) as Coherence;
-    expect(result.problems.join("\n")).toContain("cannot be audited");
+    expect(result.problems.join("\n")).toContain("FREESTYLE_SANDBOX_SNAPSHOT is set but ignored");
   });
 });
 
@@ -180,7 +230,6 @@ describe("required runtime env keys cover the production provider path", () => {
   test("freestyle credentials, cron auth, and the alert sink are required", () => {
     for (const key of [
       "FREESTYLE_API_KEY",
-      "FREESTYLE_SANDBOX_SNAPSHOT",
       "CMUX_VM_FREESTYLE_ENABLED",
       "CRON_SECRET",
       "CMUX_ALERTS_SLACK_WEBHOOK_URL",
@@ -192,10 +241,26 @@ describe("required runtime env keys cover the production provider path", () => {
   test("no removed provider's env keys are still demanded", () => {
     for (const key of [
       "BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED",
-      "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "CMUX_VM_E2B_ENABLED",
+      "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "E2B_SANDBOX_TEMPLATE", "CMUX_VM_E2B_ENABLED",
+      "DAYTONA_API_KEY", "DAYTONA_API_URL", "DAYTONA_SANDBOX_SNAPSHOT", "CMUX_VM_DAYTONA_ENABLED",
     ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
+    }
+  });
+
+  test("retired subrouter and coderouter access-gate keys are flagged as legacy, not demanded", () => {
+    // Access is team membership only; the runtime ignores these keys, so the
+    // audit must tell operators to delete them rather than ask for them.
+    for (const key of [
+      "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+      "SUBROUTER_ALLOWED_TEAM_IDS",
+      "CODEROUTER_HOSTED_PRO_REQUIRED",
+    ]) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
     }
   });
 

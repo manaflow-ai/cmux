@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression test for the universal nightly macOS track.
+# Regression test for the nightly macOS track: one universal build, thinned into per-architecture DMGs.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -116,7 +116,7 @@ if grep -Eq 'current_head_(prebuild|postbuild)|still_current' "$WORKFLOW_FILE"; 
   exit 1
 fi
 
-R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcast to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
+R2_UPLOAD_LINE="$(grep -nF -- '- name: Upload nightly appcasts to R2' "$WORKFLOW_FILE" | cut -d: -f1)"
 TAG_MOVE_LINE="$(grep -nF -- '- name: Move nightly tag to built commit' "$WORKFLOW_FILE" | cut -d: -f1)"
 if [ -z "$R2_UPLOAD_LINE" ] || [ -z "$TAG_MOVE_LINE" ] || [ "$TAG_MOVE_LINE" -le "$R2_UPLOAD_LINE" ]; then
   echo "FAIL: the nightly tag completion marker must move only after GitHub and R2 publication succeed"
@@ -208,17 +208,35 @@ if ! awk '
 fi
 
 if ! awk '
-  /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
+  /^  build-sign-notarize-nightly:/ { job="publish"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "publish" && /variant: \$\{\{ fromJSON\(needs\.decide\.outputs\.variants\) \}\}/ { saw_matrix=1 }
+  job == "publish" && /NIGHTLY_VARIANT: \$\{\{ matrix\.variant \}\}/ { saw_variant_env=1 }
+  job == "publish" && /^      - name: Thin bundle to the variant architecture/ { in_thin=1; next }
+  in_thin && /^      - name:/ { in_thin=0 }
+  in_thin && /if: matrix\.variant != '\''universal'\''/ { saw_thin_gate=1 }
+  in_thin && /thin-app-bundle\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { saw_thin=1 }
+  job == "publish" && /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
-  in_verify && /lipo -archs "\$APP_BINARY"/ { saw_app=1 }
-  in_verify && /lipo -archs "\$CLI_BINARY"/ { saw_cli=1 }
-  in_verify && /lipo -archs "\$HELPER_BINARY"/ { saw_helper=1 }
-  in_verify && /\[\[ "\$APP_ARCHS" == \*arm64\* && "\$APP_ARCHS" == \*x86_64\* \]\]/ { saw_app_assert=1 }
-  in_verify && /\[\[ "\$CLI_ARCHS" == \*arm64\* && "\$CLI_ARCHS" == \*x86_64\* \]\]/ { saw_cli_assert=1 }
-  in_verify && /\[\[ "\$HELPER_ARCHS" == \*arm64\* && "\$HELPER_ARCHS" == \*x86_64\* \]\]/ { saw_helper_assert=1 }
-  END { exit !(saw_app && saw_cli && saw_helper && saw_app_assert && saw_cli_assert && saw_helper_assert) }
+  in_verify && /Contents\/MacOS\/cmux"/ { saw_app=1 }
+  in_verify && /Contents\/Resources\/bin\/cmux"/ { saw_cli=1 }
+  in_verify && /Contents\/Resources\/bin\/ghostty"/ { saw_helper=1 }
+  in_verify && /Contents\/Resources\/bin\/cmux-tui"/ { saw_tui=1 }
+  in_verify && /\[\[ "\$archs" == \*arm64\* && "\$archs" == \*x86_64\* \]\]/ { saw_universal_assert=1 }
+  in_verify && /\[ "\$archs" = "\$NIGHTLY_VARIANT" \]/ { saw_thin_assert=1 }
+  in_verify && /Mach-O universal/ { saw_fat_scan=1 }
+  END { exit !(saw_matrix && saw_variant_env && saw_thin_gate && saw_thin && saw_app && saw_cli && saw_helper && saw_tui && saw_universal_assert && saw_thin_assert && saw_fat_scan) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must verify universal app, CLI, and helper slices with lipo"
+  echo "FAIL: nightly workflow must thin each variant from the universal build and verify every bundled binary matches the variant architecture"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Run CLI version memory guard regression/ { guard_line=NR }
+  /^      - name: Thin bundle to the variant architecture/ { thin_line=NR }
+  END { exit !(guard_line && thin_line && guard_line < thin_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the CLI memory guard must run on the universal bundle before thinning, so x86_64 variants never need Rosetta on the runner"
   exit 1
 fi
 
@@ -232,8 +250,36 @@ if ! grep -Fq 'cp appcast.xml appcast-universal.xml' "$WORKFLOW_FILE"; then
   exit 1
 fi
 
-if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly appcast.xml' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly workflow must generate the unified nightly appcast"
+if ! grep -Fq './scripts/sparkle_generate_appcast.sh "$NIGHTLY_DMG_IMMUTABLE" nightly "$NIGHTLY_APPCAST"' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly workflow must generate one appcast per variant"
+  exit 1
+fi
+
+if ! awk '
+  /NIGHTLY_APPCAST="appcast-\$\{NIGHTLY_VARIANT\}\.xml"/ { saw_thin_feed=1 }
+  /NIGHTLY_APPCAST="appcast\.xml"/ { saw_legacy_feed=1 }
+  /"https:\/\/files\.cmux\.com\/nightly\/\$\{NIGHTLY_APPCAST\}"/ { saw_feed_injection=1 }
+  /NIGHTLY_DMG_IMMUTABLE="cmux-nightly-macos-\$\{NIGHTLY_VARIANT\}-\$\{NIGHTLY_BUILD\}\.dmg"/ { saw_immutable_name=1 }
+  END { exit !(saw_thin_feed && saw_legacy_feed && saw_feed_injection && saw_immutable_name) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: each variant must bake its own feed URL and immutable DMG name"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Assemble legacy nightly names/ { in_legacy=1; next }
+  in_legacy && /^      - name:/ { in_legacy=0 }
+  in_legacy && /cp cmux-nightly-macos-universal\.dmg cmux-nightly-macos\.dmg/ { saw_universal_legacy=1 }
+  in_legacy && /cp cmux-nightly-macos-x86_64\.dmg cmux-nightly-macos\.dmg/ { saw_intel_legacy=1 }
+  in_legacy && /cp appcast-x86_64\.xml appcast\.xml/ { saw_intel_feed=1 }
+  END { exit !(saw_universal_legacy && saw_intel_legacy && saw_intel_feed) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: the legacy nightly DMG and feed must serve the universal build during the transition and the x86_64 build afterwards"
+  exit 1
+fi
+
+if ! grep -Fq 'NIGHTLY_LEGACY_UNIVERSAL_UNTIL: "20' "$WORKFLOW_FILE"; then
+  echo "FAIL: the universal legacy build must have a dated retirement"
   exit 1
 fi
 
@@ -248,10 +294,10 @@ if ! awk '
   in_upload && /if: needs\.decide\.outputs\.should_publish != '\''true'\''/ { saw_if=1 }
   in_upload && /uses: actions\/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7/ { saw_upload=1 }
   in_upload && /cmux-nightly-macos\*\.dmg/ { saw_arm_artifacts=1 }
-  in_upload && /appcast-universal\.xml/ { saw_universal_appcast=1 }
-  END { exit !(saw_if && saw_upload && saw_arm_artifacts && saw_universal_appcast) }
+  in_upload && /appcast\*\.xml/ { saw_appcasts=1 }
+  END { exit !(saw_if && saw_upload && saw_arm_artifacts && saw_appcasts) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: non-main nightly runs must upload nightly artifacts and compatibility appcasts"
+  echo "FAIL: non-main nightly runs must upload every nightly DMG and appcast"
   exit 1
 fi
 
@@ -269,13 +315,17 @@ if ! awk '
   /^      - name: Publish nightly release assets/ { in_publish=1; next }
   in_publish && /^      - name:/ { in_publish=0 }
   in_publish && /if: needs\.decide\.outputs\.should_publish == '\''true'\''/ { saw_publish_if=1 }
-  in_publish && /cmux-nightly-macos-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
+  in_publish && /cmux-nightly-macos-\*-\$\{\{ github\.run_id \}\}\*\.dmg/ { saw_immutable=1 }
   in_publish && /cmux-nightly-macos\.dmg/ { saw_stable=1 }
+  in_publish && /cmux-nightly-macos-arm64\.dmg/ { saw_arm=1 }
+  in_publish && /cmux-nightly-macos-x86_64\.dmg/ { saw_intel=1 }
+  in_publish && /appcast-arm64\.xml/ { saw_arm_appcast=1 }
+  in_publish && /appcast-x86_64\.xml/ { saw_intel_appcast=1 }
   in_publish && /appcast-universal\.xml/ { saw_universal_appcast=1 }
-  END { exit !(saw_publish_if && saw_immutable && saw_stable && saw_universal_appcast) }
+  END { exit !(saw_publish_if && saw_immutable && saw_stable && saw_arm && saw_intel && saw_arm_appcast && saw_intel_appcast && saw_universal_appcast) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: main nightly publish must include immutable/stable assets and compatibility appcast"
+  echo "FAIL: main nightly publish must include per-architecture immutable and stable DMGs, their appcasts, and the legacy names"
   exit 1
 fi
 
-echo "PASS: nightly workflow keeps the universal nightly track guarded"
+echo "PASS: nightly workflow builds once, thins per architecture, and keeps the legacy track migrating"

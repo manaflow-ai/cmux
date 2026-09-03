@@ -4,6 +4,7 @@ import {
   issueNativeHandoffCookie,
   NATIVE_HANDOFF_QUERY_PARAM,
 } from "../native-handoff-cookie";
+import { requestOrigin } from "../../lib/request-origin";
 
 
 function canSetAutoHandoff(request: NextRequest): boolean {
@@ -13,8 +14,9 @@ function canSetAutoHandoff(request: NextRequest): boolean {
 
 function sameOriginURL(value: string, request: NextRequest): URL | null {
   try {
-    const url = new URL(value, request.nextUrl.origin);
-    return url.origin === request.nextUrl.origin ? url : null;
+    const origin = requestOrigin(request);
+    const url = new URL(value, origin);
+    return url.origin === origin ? url : null;
   } catch {
     return null;
   }
@@ -22,11 +24,11 @@ function sameOriginURL(value: string, request: NextRequest): URL | null {
 
 export function GET(request: NextRequest) {
   const afterAuthReturnTo = request.nextUrl.searchParams.get("after_auth_return_to");
-  if (!afterAuthReturnTo) return NextResponse.redirect(new URL("/handler/sign-in", request.url));
+  if (!afterAuthReturnTo) return NextResponse.redirect(new URL("/handler/sign-in", requestOrigin(request)));
 
   const afterSignInURL = sameOriginURL(afterAuthReturnTo, request);
   if (!afterSignInURL || afterSignInURL.pathname !== "/handler/after-sign-in") {
-    return NextResponse.redirect(new URL("/", request.url));
+    return NextResponse.redirect(new URL("/", requestOrigin(request)));
   }
 
   const nativeReturnTo = afterSignInURL.searchParams.get("native_app_return_to");
@@ -37,7 +39,7 @@ export function GET(request: NextRequest) {
     afterSignInURL.searchParams.set(NATIVE_HANDOFF_QUERY_PARAM, nonce);
   }
 
-  const stackSignInURL = new URL("/handler/sign-in", request.nextUrl.origin);
+  const stackSignInURL = new URL("/handler/sign-in", requestOrigin(request));
   stackSignInURL.searchParams.set("after_auth_return_to", afterSignInURL.toString());
   const response = NextResponse.redirect(stackSignInURL);
   if (nonce) {

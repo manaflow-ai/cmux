@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 import type * as Layer from "effect/Layer";
 import { after } from "next/server";
 import { env } from "../../app/env";
-import { unauthorized, verifyRequest, type AuthedUser } from "../vms/auth";
+import { unauthorized, verifyRequestIdentity } from "../vms/auth";
+import { authProviderErrorResponse } from "../vms/authErrors";
 import { enforceBrowserMutationProtection, jsonResponse } from "../vms/routeHelpers";
 import { irohExpectedError } from "./errors";
 import {
@@ -27,7 +28,10 @@ export type IrohRouteOperation =
   | "relay_token";
 
 type RouteDependencies = {
-  readonly verify?: typeof verifyRequest;
+  readonly verify?: (
+    request: Request,
+    options: { readonly allowCookie: false; readonly requireStackSession: boolean },
+  ) => Promise<{ readonly id: string } | null>;
   readonly broker?: IrohTrustBrokerShape;
   readonly runtime?: Layer.Layer<IrohTrustBroker, never, never>;
   readonly publishConnectivityInvalidation?: (
@@ -44,12 +48,24 @@ export async function handleIrohRoute(
   operation: IrohRouteOperation,
   dependencies: RouteDependencies = {},
 ): Promise<Response> {
-  const verify = dependencies.verify ?? verifyRequest;
-  let user: AuthedUser | null;
+  // Identity only: the broker needs the user id, and local token verification
+  // keeps the ~100 req/s registration traffic off Stack's per-request API
+  // budget. Pair grants, revocation, and relay tokens are rare and sensitive,
+  // so they still ask Stack and refuse a revoked session immediately.
+  const verify = dependencies.verify ?? verifyRequestIdentity;
+  let user: { readonly id: string } | null;
   try {
-    user = await verify(request, { allowCookie: false });
-  } catch {
-    return jsonResponse({ error: "unauthorized" }, 401);
+    user = await verify(request, {
+      allowCookie: false,
+      requireStackSession: requiresStackSession(operation),
+    });
+  } catch (error) {
+    // A Stack Auth throttle or outage is not the caller's fault. Answering 401
+    // told every host that its credentials were rejected, and the irx host
+    // retries a 401 every few seconds with the same tokens, which kept Stack's
+    // project-wide limit exhausted for every other route. 429 + Retry-After
+    // (or 503) lets clients honor the broker cooldown instead.
+    return authProviderErrorResponse(error, `iroh.${operation}.auth`);
   }
   if (!user) return unauthorized();
   const clientNamespace = request.headers.get("x-cmux-app-namespace") ?? "legacy";
@@ -194,6 +210,20 @@ export function buildConnectivityInvalidationRequest(
     body: JSON.stringify({ revision }),
   });
 }
+export function requiresStackSession(operation: IrohRouteOperation): boolean {
+  switch (operation) {
+    case "challenge":
+    case "register":
+    case "discover":
+    case "endpoint_attestation":
+      return false;
+    case "revoke":
+    case "pair_grant":
+    case "relay_token":
+      return true;
+  }
+}
+
 function invoke(
   broker: IrohTrustBrokerShape,
   operation: IrohRouteOperation,

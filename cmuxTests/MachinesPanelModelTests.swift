@@ -376,7 +376,7 @@ final class MachinesPanelModelTests: XCTestCase {
         )
     }
 
-    func testCloudTreePoolsThenWorkspacePointerLists() {
+    func testCloudTreeWorkspacesLeadThenPools() {
         let ws0 = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
         let ws1 = SurfaceRemoteWorkspace(id: "ws_side", name: "side", index: 1, focused: false)
         let wsEmpty = SurfaceRemoteWorkspace(id: "ws_empty", name: "scratch", index: 2, focused: false)
@@ -406,16 +406,14 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
+        // One machine, many workspaces: the Workspaces group leads (every workspace the
+        // machine reports, pointer rows under each), then the pool of terminals no
+        // workspace views, then the machine's displays and ports.
         XCTAssertEqual(ids, [
             "machine:local",
             "machine:local/ws/\(local.uuidString)",
             "resource:local/terminal/AAA",
             "machine:vivid-newt",
-            "machine:vivid-newt/terminals",
-            "resource:vivid-newt/terminal/term_1",
-            "resource:vivid-newt/terminal/term_2",
-            "machine:vivid-newt/displays",
-            "resource:vivid-newt/display/display:1",
             "machine:vivid-newt/workspaces",
             "machine:vivid-newt/ws/ws_main",
             "machine:vivid-newt/ws/ws_main/resource:vivid-newt/terminal/term_1",
@@ -425,6 +423,12 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1",
             "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ws/ws_empty/resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/terminals",
+            "resource:vivid-newt/terminal/term_2",
+            "machine:vivid-newt/displays",
+            "resource:vivid-newt/display/display:1",
+            "machine:vivid-newt/ports",
+            "resource:vivid-newt/browser/port:3000",
         ])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
@@ -469,24 +473,22 @@ final class MachinesPanelModelTests: XCTestCase {
             CloudTreeNodeBuilder.flattened(nodes).first { $0.id == "machine:vivid-newt/ws/ws_main" }?.dragGroup?.resources,
             [remoteA.id]
         )
-        XCTAssertFalse(ids.contains { $0.contains("port") }, "ports stay out of the tree for now")
         let flattened = CloudTreeNodeBuilder.flattened(nodes)
         let byID = Dictionary(flattened.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 
-        // Pool rows carry the view badge; open markers come from the catalog's projections.
-        if case .terminal(let row) = byID["resource:vivid-newt/terminal/term_1"]!.kind {
-            XCTAssertFalse(row.isOpen)
-            XCTAssertEqual(row.viewBadge, 2)
-            XCTAssertEqual(row.resource.agent?.source, "claude")
-        } else { XCTFail("expected term_1 pool row") }
+        // The pool lists only the zero-view terminal; open markers come from the
+        // catalog's projections, and a pointer row never repeats in the pool.
+        XCTAssertNil(byID["resource:vivid-newt/terminal/term_1"], "term_1 shows under its workspaces, not in the pool")
         if case .terminal(let row) = byID["resource:vivid-newt/terminal/term_2"]!.kind {
             XCTAssertTrue(row.isOpen)
             XCTAssertEqual(row.viewBadge, 0, "zero views = alive in the pool, in no workspace")
         } else { XCTFail("expected term_2 pool row") }
-        // Pointer rows have workspace-scoped identity and no badge.
+        // Pointer rows have workspace-scoped identity, no badge, and the terminal's own facts.
         if case .terminal(let row) = byID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1"]!.kind {
             XCTAssertNil(row.viewBadge)
+            XCTAssertFalse(row.isOpen)
             XCTAssertEqual(row.resource.id.key, "term_1")
+            XCTAssertEqual(row.resource.agent?.source, "claude")
         } else { XCTFail("expected pointer row") }
         // The empty workspace still gets a row (from the machine info), with no pointers.
         if case .workspace(_, let workspace, let count, _) = byID["machine:vivid-newt/ws/ws_empty"]!.kind {
@@ -494,25 +496,30 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(count, 0)
         } else { XCTFail("expected empty workspace row") }
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
-            XCTAssertEqual(count, 2)
+            XCTAssertEqual(count, 1)
         } else { XCTFail("expected terminals pool") }
+        // A listening port is a row of its own (the `cmux vm open <m>:port/<n>` address).
+        if case .port(let resource, _) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
+            XCTAssertEqual(resource.port, 3000)
+        } else { XCTFail("expected port row") }
         if case .localMachine(let row) = flattened[0].kind {
             XCTAssertEqual(row.name, "Austin's Mac"); XCTAssertEqual(row.terminalCount, 1); XCTAssertEqual(row.browserCount, 0)
         } else { XCTFail("expected This Mac first") }
         if case .localWorkspace(let row) = flattened[1].kind { XCTAssertEqual(row.title, "cmux90"); XCTAssertTrue(row.isSelected) } else { XCTFail("expected local workspace") }
         XCTAssertEqual(flattened.compactMap { $0.dragResource?.id.rawValue }, [
             "local/terminal/AAA",
-            "vivid-newt/terminal/term_1", "vivid-newt/terminal/term_2",
-            "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/terminal/term_1", "vivid-newt/display/display:1",
             "vivid-newt/display/display:1",
-        ], "pool rows, then one drag resource per pointer (or implicit display) row")
+            "vivid-newt/terminal/term_2",
+            "vivid-newt/display/display:1",
+            "vivid-newt/browser/port:3000",
+        ], "one drag resource per pointer (or implicit display) row, then the pool rows, then the port")
         XCTAssertTrue(flattened[0].isMachineRow)
         XCTAssertTrue(flattened[3].isMachineRow)
         XCTAssertEqual(flattened[3].machine, .cloud("vivid-newt"))
         // Only terminals and displays leave the tree by drag; workspaces,
-        // browsers, machines, and headers do not.
+        // browsers, ports, machines, and headers do not.
         for node in flattened {
             switch node.kind {
             case .terminal, .display:
@@ -1000,5 +1007,146 @@ struct MachinesPanelPaidPlanTests {
         let error = VMClientError.httpStatus(402, #"{"error":"vm_requires_pro"}"#)
         #expect(error.description.contains("https://cmux.com/pricing"))
         #expect(error.description.contains("Upgrade to cmux Pro"))
+    }
+}
+
+/// Pins the coderouter spend readout: the wire payload decodes into typed
+/// totals, rows key on the machine id the list already uses (`vmId` echoes
+/// `GET /api/vm` `id`), and an unavailable or empty readout renders nothing.
+@Suite("Cloud machines coderouter usage")
+struct MachineUsageReadoutTests {
+    private let payload = Data("""
+    {
+      "teamId": "team_1",
+      "periodDays": 30,
+      "kind": "ready",
+      "asOf": "2026-09-02T00:00:00Z",
+      "machines": [
+        {
+          "vmId": "noble-wren",
+          "displayName": "wren",
+          "totals": { "inputTokens": 30000, "cachedInputTokens": 5000, "outputTokens": 6000, "totalTokens": 41000, "apiEquivalentUsd": 1.234 }
+        },
+        {
+          "vmId": "idle-owl",
+          "displayName": null,
+          "totals": { "inputTokens": 0, "cachedInputTokens": 0, "outputTokens": 0, "totalTokens": 0, "apiEquivalentUsd": 0.0 }
+        },
+        {
+          "vmId": "5f0f7d0e-1b2c-4d3e-8f90-123456789abc",
+          "providerVmId": "brave-fox",
+          "displayName": "fox",
+          "totals": { "inputTokens": 10, "cachedInputTokens": 0, "outputTokens": 5, "totalTokens": 15, "apiEquivalentUsd": 0.01 }
+        },
+        {
+          "vmId": "noble-wren",
+          "displayName": "duplicate",
+          "totals": { "inputTokens": 1, "cachedInputTokens": 0, "outputTokens": 0, "totalTokens": 1, "apiEquivalentUsd": 0.5 }
+        }
+      ]
+    }
+    """.utf8)
+
+    private func machine(_ id: String) -> MachineSnapshot {
+        MachineSnapshotBuilder.snapshot(from: VMSummary(
+            id: id, provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil
+        ))
+    }
+
+    @Test("A finite number outside Int range decodes as zero, never a trap")
+    func hugeTokenCountsDoNotTrap() throws {
+        let payload = Data("""
+        { "teamId": "team_1", "periodDays": 30, "kind": "ready", "asOf": null,
+          "machines": [ { "vmId": "big", "displayName": null,
+            "totals": { "inputTokens": 1e100, "cachedInputTokens": -1e100, "outputTokens": 2.5, "totalTokens": 9007199254740993, "apiEquivalentUsd": 0.5 } } ] }
+        """.utf8)
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let totals = try #require(usage.machines.first?.totals)
+        #expect(totals.inputTokens == 0)
+        #expect(totals.cachedInputTokens == 0)
+        #expect(totals.outputTokens == 2)
+        #expect(totals.totalTokens == 9007199254740993)
+    }
+
+    @Test("The team payload decodes into typed totals")
+    func payloadDecodes() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        #expect(usage.teamID == "team_1")
+        #expect(usage.kind == .ready)
+        #expect(usage.periodDays == 30)
+        #expect(usage.asOf == Date(timeIntervalSince1970: 1_788_307_200))
+        #expect(usage.machines.count == 4)
+        let wren = try #require(usage.machines.first)
+        #expect(wren.vmID == "noble-wren")
+        #expect(wren.displayName == "wren")
+        #expect(wren.periodDays == 30)
+        #expect(wren.totals == MachineUsageTotals(
+            inputTokens: 30000, cachedInputTokens: 5000, outputTokens: 6000, totalTokens: 41000, apiEquivalentUsd: 1.234
+        ))
+        #expect(usage.machines[1].displayName == nil, "JSON null reads as no label")
+    }
+
+    @Test("Rows key on the machine id; blanks and repeats collapse to one entry")
+    func lookupKeysOnMachineID() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let byID = usage.byMachineID
+        #expect(Set(byID.keys) == ["noble-wren", "idle-owl", "brave-fox", "5f0f7d0e-1b2c-4d3e-8f90-123456789abc"])
+        #expect(byID["noble-wren"]?.displayName == "wren", "the first entry wins on a repeated vmId")
+        #expect(byID["brave-fox"]?.displayName == "fox", "the provider id keys the row, since GET /api/vm lists it as the machine id")
+
+        let stamped = MachineSnapshotBuilder.applyingUsage(
+            to: [machine("noble-wren"), machine("idle-owl"), machine("unknown-fox")],
+            usage: byID
+        )
+        #expect(stamped[0].usage?.totals.totalTokens == 41000)
+        #expect(stamped[1].usage?.totals.isEmpty == true)
+        #expect(stamped[2].usage == nil, "a machine the payload never names carries no readout")
+
+        let cleared = MachineSnapshotBuilder.applyingUsage(to: stamped, usage: [:])
+        #expect(cleared.allSatisfy { $0.usage == nil }, "a later payload without the machine drops the stale readout")
+    }
+
+    @Test("An unavailable payload yields no rows, and malformed payloads throw")
+    func unavailableAndMalformed() throws {
+        let unavailable = try MachineUsageClient.decodeTeamUsage(Data("""
+        {"teamId":"team_1","periodDays":30,"kind":"unavailable","asOf":null,"machines":[]}
+        """.utf8))
+        #expect(unavailable.kind == .unavailable)
+        #expect(unavailable.asOf == nil)
+        #expect(unavailable.byMachineID.isEmpty)
+
+        #expect(throws: MachineUsageClientError.self) {
+            try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"weird","machines":[]}"#.utf8))
+        }
+        #expect(throws: MachineUsageClientError.self) {
+            try MachineUsageClient.decodeTeamUsage(Data(#"{"teamId":"t","kind":"ready","machines":[{"totals":{}}]}"#.utf8))
+        }
+    }
+
+    @Test("The row line reads cost, compact tokens, and the window; idle machines show nothing")
+    func rowLine() throws {
+        let usage = try MachineUsageClient.decodeTeamUsage(payload)
+        let byID = usage.byMachineID
+        let wren = try #require(byID["noble-wren"])
+        let line = try #require(CloudTreeMachineRowContent.usageLine(wren))
+        #expect(line.hasPrefix("$1.23"), "two decimals, USD: \(line)")
+        #expect(line.contains("41K"), "compact token count: \(line)")
+        #expect(line.hasSuffix("30d"), "window label: \(line)")
+        let owl = try #require(byID["idle-owl"])
+        #expect(CloudTreeMachineRowContent.usageLine(owl) == nil)
+
+        var withUsage = machine("noble-wren")
+        withUsage.usage = byID["noble-wren"]
+        let fact = try #require(CloudTreeMachineRowContent.inlineFact(withUsage, style: .compact))
+        #expect(fact.contains("$1.23"), "single-line rows carry the spend inline")
+        #expect(CloudTreeMachineRowContent.inlineFact(machine("noble-wren"), style: .compact) == nil)
+    }
+
+    @Test("Two-line rows grow by one line for the spend readout")
+    func twoLineHeightGrows() {
+        let twoLine = CloudTreeStyle.presets.first { $0.machineRowLayout == .twoLine }
+        guard let twoLine else { return }
+        #expect(twoLine.machineRowHeight(hasStats: false, hasUsage: true) > twoLine.machineRowHeight(hasStats: false))
+        #expect(CloudTreeStyle.compact.machineRowHeight(hasStats: false, hasUsage: true) == CloudTreeStyle.compact.machineRowHeight(hasStats: false))
     }
 }

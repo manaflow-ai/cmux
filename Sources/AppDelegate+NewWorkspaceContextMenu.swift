@@ -41,9 +41,12 @@ extension AppDelegate {
         return true
     }
 
+    /// Pops the menu below `anchorView`, or at `location` (in `anchorView`
+    /// coordinates) when the caller only knows where the click landed.
     @discardableResult
     func showNewWorkspaceContextMenu(
         anchorView: NSView,
+        at location: NSPoint? = nil,
         debugSource: String = "titlebar.newWorkspace.contextMenu"
     ) -> Bool {
         let context = contextForMainWindow(anchorView.window)
@@ -62,7 +65,7 @@ extension AppDelegate {
 
         menu.popUp(
             positioning: nil,
-            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
+            at: location ?? NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
             in: anchorView
         )
         return true
@@ -75,15 +78,13 @@ extension AppDelegate {
         let model = NewWorkspaceMenuModel.build(
             newWorkspaceContextMenuItems: cmuxConfigStore.newWorkspaceContextMenuItems,
             agentChatAction: resolvedBuiltInNewAgentChatAction(cmuxConfigStore: cmuxConfigStore),
-            cloudSectionEnabled: CloudMachinesFeature.isEnabled,
             templateNames: savedLayoutNames(),
             loadedActions: cmuxConfigStore.loadedActions,
             newWorkspaceActionID: cmuxConfigStore.newWorkspaceActionID,
             deletable: { [weak self, weak cmuxConfigStore] action in
                 guard let self, let cmuxConfigStore else { return false }
                 return isDeletableGlobalAction(action, cmuxConfigStore: cmuxConfigStore)
-            },
-            sectionOrder: cmuxConfigStore.newWorkspaceMenuSectionOrder
+            }
         )
         return renderNewWorkspaceContextMenu(
             model: model,

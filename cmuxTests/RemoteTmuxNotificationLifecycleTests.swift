@@ -251,11 +251,19 @@ struct RemoteTmuxNotificationLifecycleTests {
             subtitle: "",
             body: "Body"
         )
-        #expect(result == .delivered(
-            workspaceID: harness.workspace.id,
-            surfaceID: panePanel.id,
-            windowID: harness.windowID
-        ))
+        guard case .delivered(
+            let workspaceID,
+            let surfaceID,
+            let windowID,
+            let notificationID
+        ) = result else {
+            Issue.record("Expected a delivered notification, got \(result)")
+            return
+        }
+        #expect(workspaceID == harness.workspace.id)
+        #expect(surfaceID == panePanel.id)
+        #expect(windowID == harness.windowID)
+        #expect(notificationID != nil)
 
         let notification = try #require(
             TerminalNotificationStore.shared.notifications.first(where: {
@@ -263,6 +271,7 @@ struct RemoteTmuxNotificationLifecycleTests {
             }),
             "A delivered projected-pane notification must actually enter the store"
         )
+        #expect(notification.id == notificationID)
         #expect(notification.panelId == containerPanelID)
         #expect(TerminalNotificationStore.shared.hasVisibleNotificationIndicator(
             forTabId: harness.workspace.id,

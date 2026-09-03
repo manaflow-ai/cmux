@@ -93,10 +93,15 @@ never on a connection-scoped lease.
 
 One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
 `cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
-sha256, from the artifacts manifest. Freestyle's delivery mechanism stays what
-it is: a systemd unit in the VM snapshot, with the binary swapped in the unit
-file. (Other providers had their own rows here — a template-baked binary and a
-snapshot entrypoint — until they were removed.)
+sha256, from the artifacts manifest. Freestyle's delivery mechanism is a
+systemd unit in the VM snapshot running the `cmux-devbox-boot` supervisor, with
+the pinned binary baked at `/root/.cmux/bin/cmux-tui`. A Freestyle snapshot is
+a memory image, so the supervisor binds the daemon identity to the platform
+instance id (Firecracker MMDS `instance-id`) and mints a fresh identity on a
+clone; the bake parks the daemon before snapshotting so no live identity is
+ever shared. Create therefore runs no guest bootstrap. (Other providers had
+their own rows here — a template-baked binary and a snapshot entrypoint —
+until they were removed.)
 
 The daemon's remote state dir must live on the persistent volume (the machine's
 home; Freestyle runs the daemon as root with `HOME=/root`, so the
@@ -216,13 +221,22 @@ from the daemon's own session model rather than a cloud-specific catalog:
 
 ```
 <machine>                        status · memory · disk · link
-  workspaces/
+  workspaces/                    one machine, many cmux-tui workspaces
     <name>  ws_…  *              cmux-tui workspace (focused marked *)
       ● term_…  <title>  <cwd>  [agent claude running]  (open: surface:3)
+    <name>  ws_…                 another workspace on the same machine
+  terminals/                     the pool: terminals no workspace views
+    ● term_…  <title>            (`cmux vm tree` prints these as "(detached)" under workspaces/)
   desktop                        noVNC screen (Mac-side synthetic node)
   ports/
     3000  http                   forwarded port (Mac-side synthetic node)
 ```
+
+A machine is the big box and its workspaces are rows under it, never machines
+of their own. The sidebar's Cloud tab renders the same order: the machine's
+Workspaces group first (always its own row, with a ＋ that is
+`cmux vm workspace new`; an empty machine shows "No workspaces yet" under it),
+then Terminals (only the detached ones), Displays, Ports, Browsers.
 
 The app keeps one headless `cmux-tui remote connect --headless` link per
 awake machine and reads `session current snapshot --json` plus the
