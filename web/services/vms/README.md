@@ -95,19 +95,31 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's base default is `freestyle-cmux-devbox-20260902e`, image
-  `sh-e4dc9393a82e4dfaaa8f90b01b0d247c`, baked and verified on cmux's Freestyle account from
-  https://github.com/manaflow-ai/cmux/pull/11666 (`6a1243bfd7`, baked cmux-tui daemon, `freestyle/ubuntu-sm` base). The retired beta entry stays listed for the record and is never a default; earlier
-  public entries stay for rollback.
+- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761b` ladder, baked and
+  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
+  (`090e3daddd`, epoch `2026-09-02-r4`: the desktop session with owner-signalled readiness
+  (`Type=notify`), the accessibility bus, clipboard helper and published `DISPLAY`, baked cmux-tui
+  daemon, `freestyle/ubuntu-sm` base): `sm` `sh-60effaffd5404e5ab8dbdb08bd5f5eed`, `md`
+  `sh-1ce6c11f5d6e4f8e98c19454e9a38751`, `lg` `sh-bda89603f1ab41a2902ac5d781e2c6ce`, `xl`
+  `sh-95b526e17c234593a45edfb572e49396`, `2xl` `sh-236a1866dd244082ba0f06829df2358d`. The retired
+  beta entry stays listed for the record and is never a default; earlier public entries (the
+  `11761a`, `20260903b` and `edge1` ladders before it) stay for rollback.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
-  `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
-  `ubuntu` work user, cmux login banner) is validated but listed as a non-default reference bake
-  for that reason; re-promote it under cmux's key to make it the default.
+  `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
   with the manifest diff; merging promotes. See
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
+- Every devbox default is a **desktop** image (one snapshot serves both kinds): TigerVNC on
+  `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0 wallpaper, the
+  accessibility bus for computer-use, and noVNC on 6901; the contract lives in
+  `services/vms/images/desktop.ts`. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+  vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
+  (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
+  path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is
+  not listening. noVNC has no auth of its own, so a machine outside a private network (created
+  before private networking) gets an error rather than a public URL.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the manifest remains the source of truth.
 - To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new

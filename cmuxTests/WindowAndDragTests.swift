@@ -1880,6 +1880,7 @@ final class WindowDragHandleHitTests: XCTestCase {
             titlebarHeight: 36, windowAppearance: .rightSidebarPanelViewTestDefault,
             workspaceId: nil,
             onResumeSession: nil,
+            onOpenSession: nil,
             onOpenFilePreview: { _ in },
             onOpenAsPane: { _ in },
             onClose: {},

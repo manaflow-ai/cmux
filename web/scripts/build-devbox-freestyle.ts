@@ -60,8 +60,13 @@
  * daemon still runs as root until the driver adopts the ubuntu user for
  * sessions.
  *
- * Desktop contract (desktop/start-vnc.sh): RFB 5901 loopback, noVNC 6901,
- * run as `ubuntu` by the cmux-desktop systemd unit.
+ * Desktop contract (web/services/vms/images/desktop.ts, desktop/start-vnc.sh):
+ * RFB 5901 loopback, noVNC 6901, run as `ubuntu` by the cmux-desktop systemd
+ * unit, which publishes DISPLAY and the accessibility bus at
+ * /run/cmux-desktop/env for every other shell (/etc/cmux/desktop-env.sh). The
+ * desktop packages, files and the Ghostty .deb come from the Dockerfile
+ * (devbox-image-common.ts reads them), so the container recipe and this bake
+ * cannot drift.
  */
 import { Freestyle } from "freestyle";
 import { fileURLToPath } from "node:url";
@@ -72,18 +77,33 @@ import {
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
-  DEVBOX_GHOSTTY_DEB_URL,
+  DEVBOX_DESKTOP_INSTALLS,
   DEVBOX_INSTANCE_ID_COMMAND,
   bakeMetadata,
   bakePreflight,
   devboxAgentPins,
   devboxCuaDriverVersion,
+  devboxDesktopPackages,
   devboxFileBytes,
+  devboxGhosttyDebSha256,
+  devboxGhosttyDebUrl,
   devboxParkDaemonCommand,
   emitBakeResult,
   hasFlag,
   manifestEntrySkeleton,
 } from "./devbox-image-common";
+import {
+  DEVBOX_DESKTOP_DISPLAY,
+  DEVBOX_DESKTOP_ENV_FILE,
+  DEVBOX_DESKTOP_HOME,
+  DEVBOX_DESKTOP_NOVNC_PORT,
+  DEVBOX_DESKTOP_RFB_PORT,
+  DEVBOX_DESKTOP_RUNTIME_DIR,
+  DEVBOX_DESKTOP_START_SCRIPT,
+  DEVBOX_DESKTOP_SUPERVISOR,
+  DEVBOX_DESKTOP_UNIT,
+  DEVBOX_DESKTOP_USER,
+} from "../services/vms/images/desktop";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -122,11 +142,11 @@ const BUILD_ENV = {
   LANG: "C.UTF-8",
 };
 
-/** The work user: the base's uid-1000 account, the API and SSH default. */
-const WORK_USER = "ubuntu";
+/** The work user: the base's uid-1000 account, the API and SSH default, and the desktop session's user. */
+const WORK_USER = DEVBOX_DESKTOP_USER;
 
 const instanceIdCommand = DEVBOX_INSTANCE_ID_COMMAND;
-const WORK_HOME = `/home/${WORK_USER}`;
+const WORK_HOME = DEVBOX_DESKTOP_HOME;
 
 const builderSnapshot = process.env.CMUX_FREESTYLE_BUILDER_SNAPSHOT?.trim() || "freestyle/ubuntu-sm";
 const { vm, vmId } = await fs.vms.create({
@@ -284,43 +304,85 @@ try {
   );
 
   if (withDesktop) {
-    // Desktop + media stack (Blaxel cmux-devbox apt list): TigerVNC, openbox,
-    // tint2, Thunar, feh, noVNC + websockify, and the GL/Vulkan/xkb libraries
-    // Ghostty and Chrome render with under Xvnc.
+    // Desktop + media stack (the Dockerfile's CMUX_IMAGE_DESKTOP_PACKAGES):
+    // TigerVNC, openbox, tint2, Thunar, feh, noVNC + websockify, the
+    // accessibility bus (at-spi2-core) and D-Bus, and the GL/Vulkan/xkb
+    // libraries Ghostty and Chrome render with under Xvnc.
     await step(
       "desktop-apt",
-      "apt-get update -q && apt-get install -y --no-install-recommends tigervnc-standalone-server tigervnc-tools openbox tint2 thunar feh novnc websockify at-spi2-core dbus-x11 x11-xserver-utils xdg-utils adwaita-icon-theme libgl1-mesa-dri mesa-vulkan-drivers libvulkan1 libxkbcommon0 libxkbcommon-x11-0 netcat-openbsd && rm -rf /var/lib/apt/lists/* && { [ -e /usr/share/novnc/index.html ] || ln -s vnc.html /usr/share/novnc/index.html; } && command -v Xtigervnc && command -v websockify && command -v openbox && command -v tint2",
+      `apt-get update -q && apt-get install -y --no-install-recommends ${devboxDesktopPackages().join(" ")} && rm -rf /var/lib/apt/lists/* && { [ -e /usr/share/novnc/index.html ] || ln -s vnc.html /usr/share/novnc/index.html; } && command -v Xtigervnc && command -v vncconfig && command -v websockify && command -v openbox && command -v tint2 && command -v dbus-launch && command -v dbus-send && command -v gdbus && command -v feh && command -v thunar && { test -x /usr/libexec/at-spi-bus-launcher || test -x /usr/lib/at-spi2-core/at-spi-bus-launcher; }`,
     );
 
-    // Ghostty: pinned community .deb for Ubuntu 24.04 (no upstream .deb
-    // exists). libgl1-mesa-dri above is the software GL its renderer uses.
+    // Ghostty: the Dockerfile's pinned community .deb for Ubuntu 24.04 (no
+    // upstream .deb exists), verified against the Dockerfile's SHA-256 before
+    // dpkg runs as root. libgl1-mesa-dri above is the software GL its
+    // renderer uses.
     await step(
       "ghostty",
-      `curl -fsSL -o /tmp/ghostty.deb ${DEVBOX_GHOSTTY_DEB_URL} && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb && ghostty +version | head -1`,
+      `curl -fsSL -o /tmp/ghostty.deb ${devboxGhosttyDebUrl()} && echo '${devboxGhosttyDebSha256()}  /tmp/ghostty.deb' | sha256sum -c - && apt-get update -q && apt-get install -y --no-install-recommends /tmp/ghostty.deb && rm -rf /var/lib/apt/lists/* /tmp/ghostty.deb && ghostty +version | head -1`,
     );
 
-    // Dock launchers and icons live under /etc/cmux so the dock never depends
-    // on a distro's /usr/share/applications or icon-theme layout.
+    // Every desktop file, at the path the Dockerfile COPYs it to
+    // (DEVBOX_DESKTOP_INSTALLS is the one map). Dock launchers and icons
+    // live under /etc/cmux so the dock never depends on a distro's
+    // /usr/share/applications or icon-theme layout.
     await step("desktop-dirs", "mkdir -p /etc/cmux/apps /etc/cmux/icons /usr/share/backgrounds/cmux");
-    await put("desktop/google-chrome-cmux.desktop", "/etc/cmux/apps/google-chrome-cmux.desktop");
-    await put("desktop/thunar-cmux.desktop", "/etc/cmux/apps/thunar-cmux.desktop");
-    await put("desktop/ghostty-cmux.desktop", "/etc/cmux/apps/ghostty-cmux.desktop");
-    await put("desktop/tint2rc", "/etc/cmux/tint2rc");
-    await put("desktop/wallpaper.jpg", "/usr/share/backgrounds/cmux/wallpaper.jpg");
-    await put("desktop/start-vnc.sh", "/usr/local/bin/start-vnc.sh", 0o755);
-    await put("desktop/cmux-desktop-boot", "/usr/local/bin/cmux-desktop-boot", 0o755);
-    await put("desktop/cmux-desktop.service", "/etc/systemd/system/cmux-desktop.service");
+    for (const install of DEVBOX_DESKTOP_INSTALLS) {
+      await put(install.source, install.target, install.mode);
+    }
     await step(
       "desktop-icons",
       "cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png && cp \"$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)\" /etc/cmux/icons/thunar.png && cp \"$(find /usr/share/icons -name 'com.mitchellh.ghostty.png' -path '*128*' | head -1)\" /etc/cmux/icons/ghostty.png && test -s /etc/cmux/icons/thunar.png && test -s /etc/cmux/icons/ghostty.png && test -s /etc/cmux/icons/google-chrome.png",
     );
 
     // Bring the desktop up under systemd as the work user and prove the
-    // contract ports answer. The "First Run" marker pre-accepts Chrome's
-    // first-run/ToS dialog (cmux-desktop-boot re-asserts it on every boot).
+    // contract. `systemctl enable --now` returns only once the Type=notify
+    // unit has reported READY (start-vnc.sh: display accepting connections,
+    // noVNC bound, session env published), so nothing here polls. Then: both
+    // ports answer (RFB loopback-only), noVNC serves its client, the window
+    // manager, dock, clipboard helper and accessibility bus run, the
+    // wallpaper is on the root window, root can reach the display too (cmux
+    // sessions run as root), exactly one desktop supervisor exists (systemd's;
+    // cmux-devbox-boot must not start a second one under systemd), login
+    // shells of both accounts inherit DISPLAY from the published env, the
+    // work user's also the accessibility and session buses, and cua-driver's
+    // doctor sees the display and the accessibility bus. The "First Run"
+    // marker pre-accepts Chrome's first-run/ToS dialog (cmux-desktop-boot
+    // re-asserts it on every boot).
+    const desktopEnvLine = `'[ -f /etc/cmux/desktop-env.sh ] && . /etc/cmux/desktop-env.sh'`;
+    /** One login shell as `user` (its own HOME, a clean PATH) running `command`. */
+    const loginAs = (user: string, home: string, command: string): string =>
+      `sudo -n -u ${user} env -i HOME=${home} USER=${user} TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc '${command}'`;
     await step(
       "desktop-unit",
-      `bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && grep -q '^User=${WORK_USER}$' /etc/systemd/system/cmux-desktop.service && mkdir -p ${WORK_HOME}/.config/google-chrome && touch '${WORK_HOME}/.config/google-chrome/First Run' && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}/.config && systemctl daemon-reload && systemctl enable --now cmux-desktop && for i in $(seq 1 60); do ss -tln | grep -q ':6901 ' && ss -tln | grep -q ':5901 ' && break; sleep 1; done && ss -tln | grep -q ':5901 ' && ss -tln | grep -q ':6901 ' && curl -fsS http://127.0.0.1:6901/ | grep -qi novnc && pgrep -u ${WORK_USER} -x openbox >/dev/null && pgrep -u ${WORK_USER} -x tint2 >/dev/null && systemctl is-active cmux-desktop && runuser -u ${WORK_USER} -- env DISPLAY=:1 xdpyinfo | grep dimensions`,
+      [
+        `bash -n ${DEVBOX_DESKTOP_START_SCRIPT} && sh -n ${DEVBOX_DESKTOP_SUPERVISOR} && sh -n /etc/cmux/desktop-env.sh`,
+        `grep -q '^User=${WORK_USER}$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
+        `grep -q '^RuntimeDirectory=${DEVBOX_DESKTOP_RUNTIME_DIR.replace("/run/", "")}$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
+        `grep -q '^Type=notify$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service && grep -q '^NotifyAccess=all$' /etc/systemd/system/${DEVBOX_DESKTOP_UNIT}.service`,
+        `echo ${desktopEnvLine} > /etc/profile.d/cmux-desktop.sh`,
+        ...rcFiles.map((rc) => `echo ${desktopEnvLine} >> ${rc}`),
+        `mkdir -p ${WORK_HOME}/.config/google-chrome && touch '${WORK_HOME}/.config/google-chrome/First Run' && chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}/.config`,
+        `systemctl daemon-reload && systemctl enable --now ${DEVBOX_DESKTOP_UNIT} && systemctl is-active ${DEVBOX_DESKTOP_UNIT}`,
+        `[ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p Type --value)" = notify ] && [ "$(systemctl show ${DEVBOX_DESKTOP_UNIT} -p NotifyAccess --value)" = all ]`,
+        `test -s ${DEVBOX_DESKTOP_ENV_FILE}`,
+        `ss -tln | grep -q ':${DEVBOX_DESKTOP_RFB_PORT} ' && ss -tln | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`,
+        `ss -tln | grep ':${DEVBOX_DESKTOP_RFB_PORT} ' | grep -q '127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}'`,
+        `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc`,
+        `pgrep -u ${WORK_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${WORK_USER} -x openbox >/dev/null && pgrep -u ${WORK_USER} -x tint2 >/dev/null && pgrep -u ${WORK_USER} -x vncconfig >/dev/null && pgrep -u ${WORK_USER} -f at-spi-bus-launcher >/dev/null`,
+        `[ "$(pgrep -u ${WORK_USER} -f ${DEVBOX_DESKTOP_SUPERVISOR} | wc -l)" = 1 ]`,
+        `systemctl is-active ${DEVBOX_DESKTOP_UNIT}`,
+        `runuser -u ${WORK_USER} -- env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xdpyinfo | grep dimensions`,
+        `env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xdpyinfo >/dev/null`,
+        `env DISPLAY=${DEVBOX_DESKTOP_DISPLAY} xprop -root _XROOTPMAP_ID | grep -q 0x`,
+        `grep -q "^export DISPLAY='${DEVBOX_DESKTOP_DISPLAY}'$" ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS_ADDRESS=' ${DEVBOX_DESKTOP_ENV_FILE} && grep -q '^export AT_SPI_BUS=' ${DEVBOX_DESKTOP_ENV_FILE}`,
+        `[ "$(env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'echo "$DISPLAY"')" = "${DEVBOX_DESKTOP_DISPLAY}" ]`,
+        `[ -z "$(env -i HOME=/root PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'echo "$DBUS_SESSION_BUS_ADDRESS"')" ]`,
+        `[ "$(${loginAs(WORK_USER, WORK_HOME, 'echo "$DISPLAY"')})" = "${DEVBOX_DESKTOP_DISPLAY}" ]`,
+        loginAs(WORK_USER, WORK_HOME, 'test -n "$DBUS_SESSION_BUS_ADDRESS" && test -n "$AT_SPI_BUS_ADDRESS"'),
+        `${loginAs(WORK_USER, WORK_HOME, "cua-driver doctor")} > /tmp/cua-doctor.txt 2>&1; cat /tmp/cua-doctor.txt; grep -q 'X11 connection: connected' /tmp/cua-doctor.txt && grep -q 'AT-SPI: bus address present' /tmp/cua-doctor.txt && ! grep -q 'accessibility bus not reachable' /tmp/cua-doctor.txt && rm -f /tmp/cua-doctor.txt`,
+        "echo desktop-ok",
+      ].join(" && "),
     );
   }
 
