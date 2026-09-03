@@ -314,22 +314,23 @@ complete notice is also shipped in the `CmuxLocalLinux` package resource.
 ### Alpine Linux root filesystem
 
 The bundled `CmuxLocalLinux` archive is an Alpine Linux 3.24.1 x86 root
-filesystem tarball, converted into iSH's fakefs layout on the device at first
-boot:
+filesystem tarball with the cmux tool set installed, baked by
+`scripts/bake-ish-rootfs.sh` (image 2026.09.02) and converted into iSH's fakefs
+layout on the device at first boot:
 
-- **Source:** https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/x86/alpine-minirootfs-3.24.1-x86.tar.gz
-- **Archive:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz`
-- **SHA-256:** `634355e2245c9d56186d1b86fb6e034453eb303aea15b573ca250b343376fffd`
+- **Source:** https://github.com/manaflow-ai/ish/releases/download/cmux-rootfs-2026.09.02/alpine-rootfs-3.24.1-x86-cmux-2026.09.02.tar.gz
+- **Archive:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz` (downloaded by `scripts/build-ish-ios.sh`, not tracked in Git)
+- **SHA-256:** `1b843033cda58c495469ad9d90f90a5ac3a930b6d2bbbaeaf094e00e0f2b8454`
 - **Package manifest:** `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json`
 
-The archive's package database reports GPL-2.0-only for Alpine base layout,
-apk-tools, libapk, scanelf, and BusyBox; MIT for Alpine keys, Alpine release,
-and musl; MPL-2.0 and MIT for the CA certificate bundle; Apache-2.0 for
-OpenSSL's libcrypto3 and libssl3; MIT, BSD-2-Clause, and GPL-2.0-or-later for
-musl-utils; and the zlib license for zlib. The package resource
-`CmuxLocalLinux/Resources/THIRD_PARTY_NOTICES.md` records this list and points
-to the package metadata and upstream license sources. The exact
-corresponding-source procedure for the distributed app is in
+The archive's package database reports 63 packages. GPL-2.0-only covers
+alpine-baselayout, alpine-baselayout-data, apk-tools, busybox, busybox-binsh, git, git-init-template, libapk, scanelf, ssl_client; GPL-3.0-or-later covers bash, gdbm, nano, readline; the remaining
+packages are under MIT, BSD, Apache-2.0, PSF-2.0, Vim, X11, ISC, MPL-2.0,
+curl, zlib, and similar permissive licenses. The full per-package table is in
+the package resource `CmuxLocalLinux/Resources/THIRD_PARTY_NOTICES.md`, which
+points to the package metadata and upstream license sources. Node.js and pi are
+installed on demand by `cmux-linux add node` and are not distributed in the
+app. The exact corresponding-source procedure for the distributed app is in
 `Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/SOURCE-OFFER.md`.
 
 ### iroh-ffi

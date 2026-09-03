@@ -15,6 +15,7 @@ import OSLog
 import SwiftUI
 
 #if canImport(UIKit) && DEBUG
+import CmuxLocalLinux
 import CmuxMobileTerminal
 #endif
 
@@ -31,6 +32,30 @@ private struct MobileDebugEntryPoint {
     func localLinuxEnabled() -> Bool {
         ProcessInfo.processInfo.environment["CMUX_LOCAL_LINUX"] == "1"
             || ProcessInfo.processInfo.arguments.contains("--cmux-local-linux")
+    }
+
+    /// Bytes the harness types into the local shell once it is running, so a
+    /// simulator run can prove a command end to end without a driver. A
+    /// trailing newline is added when missing.
+    func localLinuxInput() -> Data? {
+        guard let text = ProcessInfo.processInfo.environment["CMUX_LOCAL_LINUX_INPUT"],
+              !text.isEmpty else { return nil }
+        return Data((text.hasSuffix("\n") ? text : text + "\n").utf8)
+    }
+}
+
+/// Sends the harness input exactly once, after the shell reports `.running`.
+private struct LocalLinuxHarnessInput: ViewModifier {
+    let controller: LocalLinuxComputerController
+    let input: Data?
+    @State private var didSend = false
+
+    func body(content: Content) -> some View {
+        content.onChange(of: controller.state, initial: true) { _, state in
+            guard let input, state == .running, !didSend else { return }
+            didSend = true
+            controller.send(input)
+        }
     }
 }
 
@@ -444,6 +469,10 @@ public struct CMUXMobileRootScene: View {
             // DEBUG switch and the Computers row share one lifecycle path.
             NavigationStack {
                 LocalLinuxComputerView(controller: localLinuxComputerProvider.controller)
+                    .modifier(LocalLinuxHarnessInput(
+                        controller: localLinuxComputerProvider.controller,
+                        input: MobileDebugEntryPoint().localLinuxInput()
+                    ))
             }
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()

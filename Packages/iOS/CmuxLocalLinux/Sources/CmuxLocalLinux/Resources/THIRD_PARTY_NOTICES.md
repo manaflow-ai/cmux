@@ -41,20 +41,41 @@ The iSH archive reader is built from the vendored libarchive source at
 
 ## Alpine Linux root filesystem
 
-The bundled archive is an Alpine Linux 3.24.1 x86 root filesystem tarball. It
-is converted into iSH's fakefs layout on the device by `cmux_ish_import_rootfs`
-(iSH's `fakefs_import`). The source URL, archive digest, and exact package
-versions are in `alpine-rootfs.json`. The package licenses reported by Alpine's
-`lib/apk/db/installed` are:
+The bundled archive is an Alpine Linux 3.24.1 x86 root filesystem tarball with the
+cmux tool set (bash, git, OpenSSH client, curl, Python 3 and pip, Vim, nano,
+tmux, ripgrep, jq, tree) installed by `scripts/bake-ish-rootfs.sh` in the cmux
+repository (image 2026.09.02). It is converted into iSH's fakefs layout on the
+device by `cmux_ish_import_rootfs` (iSH's `fakefs_import`). Node.js and the pi
+coding agent are not bundled; `cmux-linux add node` downloads them from the
+Alpine and npm registries on the user's request. The source URL, archive
+digest, and exact package versions are in `alpine-rootfs.json`. The package
+licenses reported by Alpine's `lib/apk/db/installed` are:
 
-| Package family | License(s) |
+| License(s) | Packages |
 | --- | --- |
-| alpine-baselayout, apk-tools, libapk, scanelf, busybox, ssl_client | GPL-2.0-only |
-| alpine-keys, alpine-release, musl | MIT |
-| ca-certificates-bundle | MPL-2.0 and MIT |
-| libcrypto3, libssl3 | Apache-2.0 |
-| musl-utils | MIT, BSD-2-Clause, and GPL-2.0-or-later |
-| zlib | Zlib |
+| MIT | alpine-keys, alpine-release, brotli-libs, c-ares, jq, libexpat, libffi, libpsl, musl, nghttp2-libs, py3-pip, py3-pip-pyc |
+| GPL-2.0-only | alpine-baselayout, alpine-baselayout-data, apk-tools, busybox, busybox-binsh, git, git-init-template, libapk, scanelf, ssl_client |
+| GPL-3.0-or-later | bash, gdbm, nano, readline |
+| PSF-2.0 | pyc, python3, python3-pyc, python3-pycache-pyc0 |
+| BSD-3-Clause | libedit, libevent, pcre2 |
+| SSH-OpenSSH | openssh-client-common, openssh-client-default, openssh-keygen |
+| Vim | vim, vim-common, xxd |
+| X11 | libncursesw, libpanelw, ncurses-terminfo-base |
+| Apache-2.0 | libcrypto3, libssl3 |
+| BSD-2-Clause | mpdecimal, oniguruma |
+| GPL-2.0-or-later AND LGPL-2.1-or-later | libgcc, libstdc++ |
+| GPL-2.0-or-later OR LGPL-3.0-or-later | libidn2, libunistring |
+| MPL-2.0 AND MIT | ca-certificates, ca-certificates-bundle |
+| curl | curl, libcurl |
+| BSD-3-Clause OR GPL-2.0-or-later | zstd-libs |
+| GPL-2.0-or-later | tree |
+| GPL-2.0-or-later AND 0BSD AND Public-Domain AND LGPL-2.1-or-later | xz-libs |
+| ISC | tmux |
+| MIT AND BSD-2-Clause AND GPL-2.0-or-later | musl-utils |
+| MIT OR Unlicense | ripgrep |
+| Zlib | zlib |
+| blessing | sqlite-libs |
+| bzip2-1.0.6 | libbz2 |
 
 The corresponding license texts and source links are maintained by the Alpine
 Linux project and the upstream projects listed in the package metadata. The
