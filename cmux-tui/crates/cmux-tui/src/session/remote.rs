@@ -4826,9 +4826,8 @@ fn append_pipe_io_colors(
         replay_reset,
     );
 
-    let cursor_visual = presence
-        .cursor_visual
-        .then(|| colors.cursor_style.zip(colors.cursor_blink).map(|(style, blink)| (style, blink)));
+    let cursor_visual =
+        presence.cursor_visual.then(|| colors.cursor_style.zip(colors.cursor_blink));
     append_cached_pipe_io_cursor_visual(
         bytes,
         &mut cache.cursor_visual,
@@ -7926,20 +7925,22 @@ mod tests {
             lifecycle_sender,
             Arc::new(PipeIoByteBudget::new(1024)),
         );
-        let colors = json!({
-            "fg": "#102030",
-            "bg": "#405060",
-            "cursor": "#708090",
-            "cursor_style": "underline",
-            "cursor_blink": true,
-            "palette": {"196": "#010203"},
-        });
+        let colors = || {
+            json!({
+                "fg": "#102030",
+                "bg": "#405060",
+                "cursor": "#708090",
+                "cursor_style": "underline",
+                "cursor_blink": true,
+                "palette": {"196": "#010203"},
+            })
+        };
 
         session.handle_line(json!({
             "event": "output",
             "surface": 7,
             "data": base64::engine::general_purpose::STANDARD.encode(b"first"),
-            "colors": colors.clone(),
+            "colors": colors(),
         }));
         let PipeIoEvent::Output(first) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
         else {
@@ -7951,7 +7952,7 @@ mod tests {
             "event": "output",
             "surface": 7,
             "data": base64::engine::general_purpose::STANDARD.encode(b"second"),
-            "colors": colors,
+            "colors": colors(),
         }));
         let PipeIoEvent::Output(second) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
         else {
