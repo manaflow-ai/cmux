@@ -910,9 +910,23 @@ pub(crate) struct SidebarMessages {
     pub machine_replacement_not_pending: &'static str,
     pub machine_replacement_target_missing: &'static str,
     pub managed_ssh_requires_unix: &'static str,
+    /// Compact machine spend readout template: `{usd}` is the formatted
+    /// dollar amount and `{days}` the trailing window length.
+    pub machine_usage_readout: &'static str,
 }
 
 impl SidebarMessages {
+    /// Render the machine spend readout, e.g. `$1.23 / 30d`.
+    pub(crate) fn machine_usage_readout(
+        &self,
+        api_equivalent_usd: f64,
+        period_days: u32,
+    ) -> String {
+        self.machine_usage_readout
+            .replace("{usd}", &format_usd(api_equivalent_usd))
+            .replace("{days}", &period_days.to_string())
+    }
+
     pub(crate) fn connecting_to_message(&self, target: &str) -> String {
         self.connecting_to.replace("{target}", target)
     }
@@ -957,6 +971,25 @@ impl SidebarMessages {
         )
         .then_some(self.action_workspace_port)
     }
+}
+
+/// Format a dollar amount with two decimals and thousands separators.
+/// Non-finite or negative inputs render as zero so a bad upstream number
+/// can never produce a misleading readout.
+pub(crate) fn format_usd(amount: f64) -> String {
+    let amount = if amount.is_finite() && amount > 0.0 { amount } else { 0.0 };
+    let cents = (amount * 100.0).round() as u64;
+    let whole = cents / 100;
+    let fraction = cents % 100;
+    let digits = whole.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    format!("${grouped}.{fraction:02}")
 }
 
 impl ForeignViewportMessages {
@@ -1025,6 +1058,8 @@ pub(crate) struct LocalServerMessages {
     pub start_help: &'static str,
     pub ensure_help: &'static str,
     pub status_help: &'static str,
+    pub stats_help: &'static str,
+    pub stats_unsupported: &'static str,
     pub stop_help: &'static str,
     pub reload_config_help: &'static str,
     pub running: &'static str,
@@ -1142,13 +1177,15 @@ static ENGLISH: Catalog = Catalog {
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <ACTION>     Start, inspect, stop, or reload one local session\n  cmux remote connect <ROUTE>  Attach through an authenticated remote route\n  cmux remote ssh <HOST>       Bootstrap and attach over direct SSH\n  cmux remote forward <ROUTE>  Forward a workspace TCP service locally\n  cmux remote rpc <ROUTE>     Run workspace coding-agent RPC requests\n  cmux remote enroll <ACTION> Enroll, approve, list, or revoke devices\n  cmux remote known-daemons   List client-pinned daemon identities and routes\n  cmux remote stop            Stop a replaceable SSH sidecar explicitly",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [OPTIONS]",
-        root_server_usage: "  cmux server <start|ensure|status|stop|reload-config> [OPTIONS]",
+        root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [OPTIONS]",
         root_server_scope: "  server        Manage one named local durable session owner",
         session_stop_help: "  cmux session <name>|current stop",
-        help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server ensure [--session <name>] [--socket <path>]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
+        help: "USAGE\n  cmux server start [START OPTIONS]\n  cmux server ensure [--session <name>] [--socket <path>]\n  cmux server status [--session <name>] [--socket <path>]\n  cmux server stats [--session <name>] [--socket <path>]\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n  cmux server reload-config [--session <name>] [--socket <path>]\n\n`server` always targets the local durable mux owner for one named session.\nUse `cmux remote --help` for authenticated remote-daemon lifecycle.\n",
         start_help: "USAGE\n  cmux server start [START OPTIONS]\n\nStart the local durable mux owner for one named session in the foreground.\n",
         ensure_help: "USAGE\n  cmux server ensure [--session <name>] [--socket <path>]\n\nStart a detached local session owner when none is running, wait until it\naccepts clients, and report it. Ensuring a running session succeeds.\n",
         status_help: "USAGE\n  cmux server status [--session <name>] [--socket <path>]\n",
+        stats_help: "USAGE\n  cmux server stats [--session <name>] [--socket <path>]\n\nReport where the daemon spends its time: registry lock waits and holders,\njournal writer batch sizes and commit latency, and connection admission.\nUse --json for the exact `server-stats` object.\n",
+        stats_unsupported: "this server does not support server-stats; upgrade cmux-tui",
         stop_help: "USAGE\n  cmux server stop [--session <name>] [--socket <path>] [--force]\n\nStopping an absent server succeeds. Durable session topology is preserved.\n",
         reload_config_help: "USAGE\n  cmux server reload-config [--session <name>] [--socket <path>]\n",
         running: "local server is running",
@@ -1766,6 +1803,7 @@ OPTIONS:
         machine_replacement_not_pending: "Machine replacement is no longer pending",
         machine_replacement_target_missing: "Machine replacement target is missing",
         managed_ssh_requires_unix: "Managed SSH machine connections require Unix",
+        machine_usage_readout: "{usd} / {days}d",
     },
 };
 
@@ -1789,13 +1827,15 @@ static JAPANESE: Catalog = Catalog {
     local_server: LocalServerMessages {
         startup_lifecycle_usage: "  cmux server <操作>       一つのローカルセッションを起動、確認、停止、再読み込み\n  cmux remote connect <ルート>  認証済みリモートルート経由で接続\n  cmux remote ssh <ホスト>       直接 SSH で導入して接続\n  cmux remote forward <ルート>  ワークスペースの TCP サービスをローカル転送\n  cmux remote rpc <ルート>       ワークスペースのコーディングエージェント RPC を実行\n  cmux remote enroll <操作>      デバイスを登録、承認、一覧、失効\n  cmux remote known-daemons      クライアントに固定したデーモン ID とルートを一覧表示\n  cmux remote stop               置換可能な SSH サイドカーを明示的に停止",
         root_remote_usage: "  cmux remote <connect|ssh|forward|rpc|enroll|known-daemons|stop> [オプション]",
-        root_server_usage: "  cmux server <start|ensure|status|stop|reload-config> [オプション]",
+        root_server_usage: "  cmux server <start|ensure|status|stats|stop|reload-config> [オプション]",
         root_server_scope: "  server        一つの名前付きローカル永続セッション所有者を管理",
         session_stop_help: "  cmux session <名前>|current stop",
-        help: "使用方法\n  cmux server start [起動オプション]\n  cmux server ensure [--session <名前>] [--socket <パス>]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
+        help: "使用方法\n  cmux server start [起動オプション]\n  cmux server ensure [--session <名前>] [--socket <パス>]\n  cmux server status [--session <名前>] [--socket <パス>]\n  cmux server stats [--session <名前>] [--socket <パス>]\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n\n`server` は常に一つの名前付きセッションのローカル永続 mux 所有者を対象にします。\n認証済みリモートデーモンの操作は `cmux remote --help` を参照してください。\n",
         start_help: "使用方法\n  cmux server start [起動オプション]\n\n一つの名前付きセッションのローカル永続 mux 所有者をフォアグラウンドで起動します。\n",
         ensure_help: "使用方法\n  cmux server ensure [--session <名前>] [--socket <パス>]\n\nローカルセッション所有者が実行されていない場合はデタッチ状態で起動し、\nクライアントを受け付けるまで待って結果を報告します。実行中の場合も成功します。\n",
         status_help: "使用方法\n  cmux server status [--session <名前>] [--socket <パス>]\n",
+        stats_help: "使用方法\n  cmux server stats [--session <名前>] [--socket <パス>]\n\nデーモンの時間の使われ方を報告します: レジストリロックの待機と保持元、\nジャーナルライターのバッチサイズとコミット遅延、接続の受け入れ状況。\n正確な `server-stats` オブジェクトは --json で取得できます。\n",
+        stats_unsupported: "このサーバーは server-stats に対応していません。cmux-tui を更新してください",
         stop_help: "使用方法\n  cmux server stop [--session <名前>] [--socket <パス>] [--force]\n\nサーバーが存在しない場合も成功します。永続セッションの構成は保持されます。\n",
         reload_config_help: "使用方法\n  cmux server reload-config [--session <名前>] [--socket <パス>]\n",
         running: "ローカルサーバーは実行中です",
@@ -2410,6 +2450,7 @@ ID とセッション:
         machine_replacement_not_pending: "保留中のマシン切り替えがありません",
         machine_replacement_target_missing: "マシン切り替え先が見つかりません",
         managed_ssh_requires_unix: "管理 SSH マシン接続には Unix が必要です",
+        machine_usage_readout: "{usd} / {days}日",
     },
 };
 
@@ -2927,5 +2968,29 @@ mod tests {
         assert_eq!(japanese.as_str(), "端末グリッド (12x5)");
         assert_eq!(japanese.bytes.len(), 64);
         assert_eq!(JAPANESE.foreign_viewport.hint_width(12, 5), 19);
+    }
+
+    #[test]
+    fn usd_formatting_is_two_decimal_and_grouped() {
+        assert_eq!(format_usd(0.0), "$0.00");
+        assert_eq!(format_usd(1.234), "$1.23");
+        assert_eq!(format_usd(1.235), "$1.24");
+        assert_eq!(format_usd(999.999), "$1,000.00");
+        assert_eq!(format_usd(1234567.5), "$1,234,567.50");
+        assert_eq!(format_usd(-3.0), "$0.00");
+        assert_eq!(format_usd(f64::NAN), "$0.00");
+        assert_eq!(format_usd(f64::INFINITY), "$0.00");
+    }
+
+    #[test]
+    fn machine_usage_readout_is_localized() {
+        assert_eq!(
+            catalog_for_locale("en_US.UTF-8").sidebar.machine_usage_readout(1.23, 30),
+            "$1.23 / 30d"
+        );
+        assert_eq!(
+            catalog_for_locale("ja_JP.UTF-8").sidebar.machine_usage_readout(1.23, 30),
+            "$1.23 / 30日"
+        );
     }
 }

@@ -1,3 +1,4 @@
+import { preconnectFreestyle } from "../../../../../services/vms/drivers/freestyle";
 import {
   jsonResponse,
   resolveVmRouteAccountScope,
@@ -17,6 +18,8 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",

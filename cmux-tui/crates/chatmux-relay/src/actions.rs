@@ -43,6 +43,7 @@ const MAX_RUNTIME_ENVIRONMENT_ENTRIES: usize = 64;
 const MAX_RUNTIME_ENVIRONMENT_BYTES: usize = 256_000;
 const MAX_RUNTIME_FILES: usize = 8;
 pub(crate) const MAX_BLOCKING_FILE_ACTIONS: usize = 8;
+const MAX_WAIT_RETRIES: u32 = 50;
 
 // ---------------------------------------------------------------------------
 // Path policy (pure)
@@ -931,7 +932,8 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
     if files.is_empty() {
         return command.to_owned();
     }
-    let mut setup: Vec<String> = vec!["set +e".to_owned(), "umask 077".to_owned()];
+    let mut setup: Vec<String> = vec!["set -e".to_owned()];
+    let mut initializers: Vec<String> = Vec::new();
     let mut cleanup: Vec<String> = Vec::new();
     for (index, file) in files.iter().enumerate() {
         let sanitized: String = file
@@ -944,6 +946,9 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
             .collect();
         let hint = if sanitized.is_empty() { "secret".to_owned() } else { sanitized };
         let shell_path = format!("__chatmux_file_{index}");
+        initializers.push(format!("{shell_path}="));
+        cleanup
+            .push(format!("if [ -n \"${{{shell_path}-}}\" ]; then rm -f -- \"${shell_path}\"; fi"));
         setup.push(format!("{shell_path}=$(mktemp \"${{TMPDIR:-/tmp}}/chatmux-{hint}.XXXXXX\")"));
         setup.push(format!("chmod 600 \"${shell_path}\""));
         setup.push(format!(
@@ -952,16 +957,28 @@ pub fn command_with_process_files(command: &str, files: &[RuntimeFile]) -> Strin
         ));
         setup.push(format!("unset {}", file.content_environment_variable));
         setup.push(format!("export {}=\"${shell_path}\"", file.path_environment_variable,));
-        cleanup.push(format!("rm -f -- \"${shell_path}\""));
     }
     let cleanup_body = cleanup.join("; ");
-    setup.push(format!("__chatmux_cleanup() {{ {cleanup_body}; }}"));
-    setup.push("trap __chatmux_cleanup EXIT".to_owned());
-    setup.push("trap 'exit 143' HUP INT TERM".to_owned());
-    setup.push(format!("( /bin/sh -c {} )", shell_quote(command)));
-    setup.push("__chatmux_status=$?".to_owned());
+    let mut supervisor = vec![
+        "set -e".to_owned(),
+        format!("__chatmux_cleanup() {{ trap '' HUP INT TERM; set +e; {cleanup_body}; }}"),
+    ];
+    supervisor.extend(initializers);
+    supervisor.extend([
+        "trap __chatmux_cleanup 0".to_owned(),
+        "trap 'exit 143' HUP INT TERM".to_owned(),
+        "umask 077".to_owned(),
+    ]);
+    supervisor.extend(setup.into_iter().skip(1));
+    let mut setup = supervisor;
+    setup.push(format!("if ( /bin/sh -c {} ); then", shell_quote(command)));
+    setup.push("  __chatmux_status=$?".to_owned());
+    setup.push("else".to_owned());
+    setup.push("  __chatmux_status=$?".to_owned());
+    setup.push("fi".to_owned());
+    setup.push("trap '' HUP INT TERM".to_owned());
+    setup.push("trap - 0".to_owned());
     setup.push("__chatmux_cleanup".to_owned());
-    setup.push("trap - EXIT HUP INT TERM".to_owned());
     setup.push("exit $__chatmux_status".to_owned());
     setup.join("\n")
 }
@@ -981,20 +998,166 @@ enum RunOutcome {
     Failed { message: String },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WaitRetryAction {
+    Retry,
+    Escalate,
+}
+
+fn next_wait_retry(retries: &mut u32) -> WaitRetryAction {
+    *retries = retries.saturating_add(1);
+    if *retries >= MAX_WAIT_RETRIES {
+        *retries = 0;
+        WaitRetryAction::Escalate
+    } else {
+        WaitRetryAction::Retry
+    }
+}
+
 #[cfg(unix)]
-struct ProcessGroupGuard {
-    pid: Option<u32>,
+struct ProcessTreeOwner {
+    child: tokio::process::Child,
+    keeper: tokio::process::Child,
+    keeper_stdin: Option<tokio::process::ChildStdin>,
+    pgid: libc::pid_t,
     armed: bool,
 }
 
 #[cfg(unix)]
-impl Drop for ProcessGroupGuard {
+impl ProcessTreeOwner {
+    async fn spawn(mut command: tokio::process::Command) -> Result<Self, ()> {
+        use std::os::unix::process::CommandExt as _;
+
+        let mut keeper_command = tokio::process::Command::new("/bin/sh");
+        keeper_command
+            .args(["-c", "trap '' TERM HUP INT; while read -r _; do :; done"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true)
+            .process_group(0);
+        let mut keeper = keeper_command.spawn().map_err(|_| ())?;
+        let Some(pgid) = keeper.id().map(|pid| pid as libc::pid_t) else {
+            let _ = keeper.start_kill();
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_millis(250), keeper.wait()).await;
+            return Err(());
+        };
+        let Some(keeper_stdin) = keeper.stdin.take() else {
+            let _ = keeper.start_kill();
+            let _ =
+                tokio::time::timeout(std::time::Duration::from_millis(250), keeper.wait()).await;
+            return Err(());
+        };
+        // SAFETY: setpgid is async-signal-safe. The keeper is already the
+        // process-group leader, so this only joins the target to its group.
+        unsafe {
+            command.as_std_mut().pre_exec(move || {
+                if libc::setpgid(0, pgid) == 0 {
+                    Ok(())
+                } else {
+                    Err(std::io::Error::last_os_error())
+                }
+            });
+        }
+        let child = match command.spawn() {
+            Ok(child) => child,
+            Err(_) => {
+                drop(keeper_stdin);
+                let _ = keeper.start_kill();
+                let _ = keeper.wait().await;
+                return Err(());
+            }
+        };
+        Ok(Self { child, keeper, keeper_stdin: Some(keeper_stdin), pgid, armed: true })
+    }
+
+    fn terminate(&self) {
+        // The keeper keeps this PGID alive until cleanup. No existence probe
+        // is needed, so there is no check-then-signal PID reuse window.
+        unsafe {
+            libc::kill(-self.pgid, libc::SIGTERM);
+        }
+    }
+
+    fn kill(&self) {
+        unsafe {
+            libc::kill(-self.pgid, libc::SIGKILL);
+        }
+    }
+
+    async fn finish(mut self) {
+        self.armed = false;
+        drop(self.keeper_stdin.take());
+        let _ =
+            tokio::time::timeout(std::time::Duration::from_millis(250), self.keeper.wait()).await;
+        if self.keeper.try_wait().ok().flatten().is_none() {
+            let _ = self.keeper.start_kill();
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(250), self.keeper.wait())
+                .await;
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ProcessTreeOwner {
     fn drop(&mut self) {
         if self.armed {
-            // Cancellation drops Child without waiting. Kill the whole group
-            // so descendants cannot retain inherited output pipes or continue
-            // running after the relay has released its action permit.
-            signal_process_tree(self.pid, true);
+            unsafe {
+                libc::kill(-self.pgid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+struct ProcessTreeOwner {
+    child: tokio::process::Child,
+    job: WindowsJob,
+    armed: bool,
+}
+
+#[cfg(windows)]
+fn windows_job_should_terminate(armed: bool) -> bool {
+    armed
+}
+
+#[cfg(windows)]
+impl ProcessTreeOwner {
+    async fn spawn(mut command: tokio::process::Command) -> Result<Self, ()> {
+        let mut child = command.spawn().map_err(|_| ())?;
+        let job = match WindowsJob::attach(&child) {
+            Ok(job) => job,
+            Err(_) => {
+                let _ = child.start_kill();
+                let _ =
+                    tokio::time::timeout(std::time::Duration::from_millis(250), child.wait()).await;
+                return Err(());
+            }
+        };
+        Ok(Self { child, job, armed: true })
+    }
+
+    fn terminate(&self) {
+        self.job.terminate();
+    }
+
+    fn kill(&self) {
+        self.job.terminate();
+    }
+
+    async fn finish(mut self) {
+        self.armed = false;
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ProcessTreeOwner {
+    fn drop(&mut self) {
+        if windows_job_should_terminate(self.armed) {
+            self.job.terminate();
         }
     }
 }
@@ -1010,6 +1173,7 @@ async fn run_spec(
     cwd_fd: Option<ScopedCwdFd>,
     timeout_ms: u64,
     env: &HashMap<String, String>,
+    cancellation: Option<tokio_util::sync::CancellationToken>,
 ) -> RunOutcome {
     use tokio::io::AsyncReadExt as _;
     let mut command = match &spec {
@@ -1059,27 +1223,14 @@ async fn run_spec(
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
     command.kill_on_drop(true);
-    #[cfg(unix)]
-    command.process_group(0);
-    let mut child = match command.spawn() {
-        Ok(child) => child,
+    let mut owner = match ProcessTreeOwner::spawn(command).await {
+        Ok(owner) => owner,
         Err(_) => return RunOutcome::Failed { message: "process failed to start".to_owned() },
     };
-    #[cfg(windows)]
-    let job = match WindowsJob::attach(&child) {
-        Ok(job) => Some(job),
-        Err(_) => {
-            let _ = child.start_kill();
-            return RunOutcome::Failed { message: "process failed to start".to_owned() };
-        }
-    };
-    let pid = child.id();
-    #[cfg(unix)]
-    let mut process_group_guard = ProcessGroupGuard { pid, armed: true };
     // Collect a little past the char cap (bytes over-approximate chars).
     let byte_cap = (MAX_OUTPUT_CHARS + 10_000) * 4;
-    let mut stdout = child.stdout.take();
-    let mut stderr = child.stderr.take();
+    let mut stdout = owner.child.stdout.take();
+    let mut stderr = owner.child.stderr.take();
     let mut output: Vec<u8> = Vec::new();
     let mut timed_out = false;
     let deadline = tokio::time::sleep(std::time::Duration::from_millis(timeout_ms));
@@ -1092,6 +1243,10 @@ async fn run_spec(
     let mut kill_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut drain_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
     let mut final_wait_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut wait_retry_deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>> = None;
+    let mut wait_retries = 0_u32;
+    let mut cancelled = false;
+    let mut escalation_pending = false;
     loop {
         // A timed-out process group still needs its escalation pass even when
         // the shell leader has already exited. Otherwise closing inherited
@@ -1101,10 +1256,24 @@ async fn run_spec(
             && !stderr_open
             && kill_deadline.is_none()
             && final_wait_deadline.is_none()
+            && !escalation_pending
         {
             break;
         }
         tokio::select! {
+            () = async {
+                match cancellation.as_ref() {
+                    Some(token) => token.cancelled().await,
+                    None => std::future::pending().await,
+                }
+            }, if !cancelled => {
+                cancelled = true;
+                owner.terminate();
+                escalation_pending = true;
+                kill_deadline = Some(Box::pin(tokio::time::sleep(
+                    std::time::Duration::from_millis(250),
+                )));
+            }
             read = async {
                 match stdout.as_mut() {
                     Some(stream) => stream.read(&mut stdout_buf).await,
@@ -1135,7 +1304,7 @@ async fn run_spec(
                     }
                 }
             }
-            status = child.wait(), if exited.is_none() => {
+            status = owner.child.wait(), if exited.is_none() && wait_retry_deadline.is_none() => {
                 // The child is gone, but descendants may still own the output
                 // pipes. Preserve a timeout escalation that is already in
                 // flight, and bound the remaining drain after a timeout.
@@ -1148,14 +1317,48 @@ async fn run_spec(
                 match status {
                     Ok(status) => {
                         exited = Some(status.code().map(i64::from).unwrap_or(1));
-                        // `wait` has reaped the leader. Disarm before any
-                        // subsequent cancellation can target a reused PID.
+                        wait_retries = 0;
+                    }
+                    Err(error) => {
                         #[cfg(unix)]
+                        if error.raw_os_error() == Some(libc::ECHILD) {
+                            exited = Some(1);
+                            wait_retries = 0;
+                        } else {
+                            match next_wait_retry(&mut wait_retries) {
+                                WaitRetryAction::Retry => {
+                                    wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                        std::time::Duration::from_millis(10),
+                                    )));
+                                }
+                                WaitRetryAction::Escalate => {
+                                    owner.kill();
+                                    escalation_pending = true;
+                                    kill_deadline = Some(Box::pin(tokio::time::sleep(
+                                        std::time::Duration::from_millis(250),
+                                    )));
+                                }
+                            }
+                        }
+                        #[cfg(not(unix))]
                         {
-                            process_group_guard.armed = false;
+                            let _ = error;
+                            match next_wait_retry(&mut wait_retries) {
+                                WaitRetryAction::Retry => {
+                                    wait_retry_deadline = Some(Box::pin(tokio::time::sleep(
+                                        std::time::Duration::from_millis(10),
+                                    )));
+                                }
+                                WaitRetryAction::Escalate => {
+                                    owner.kill();
+                                    escalation_pending = true;
+                                    kill_deadline = Some(Box::pin(tokio::time::sleep(
+                                        std::time::Duration::from_millis(250),
+                                    )));
+                                }
+                            }
                         }
                     }
-                    Err(_) => exited = Some(1),
                 }
             }
             () = &mut deadline, if !timed_out => {
@@ -1164,25 +1367,8 @@ async fn run_spec(
                 // inherited stdout/stderr. Kill the whole POSIX process group
                 // so the supervisor gets its EXIT cleanup, then enforce a
                 // hard bound for processes that ignore TERM.
-                if exited.is_some() {
-                    signal_process_group(pid, false);
-                } else {
-                    // The process group is the authoritative target. If the
-                    // group disappeared before we could signal it, use the
-                    // live Child handle instead of the numeric PID. A PID
-                    // can be reused by an unrelated process while this
-                    // invocation is still draining inherited pipes.
-                    #[cfg(unix)]
-                    if !signal_process_tree(pid, false) {
-                        let _ = child.start_kill();
-                    }
-                    #[cfg(not(unix))]
-                    signal_process_tree(pid, false);
-                }
-                #[cfg(windows)]
-                if let Some(job) = job.as_ref() {
-                    job.terminate();
-                }
+                owner.terminate();
+                escalation_pending = true;
                 // Keep the escalation timer owned by this invocation. A
                 // detached task could fire after the process exits and its
                 // PID is reused by an unrelated process.
@@ -1201,23 +1387,9 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if kill_deadline.is_some() => {
-                if exited.is_some() {
-                    signal_process_group(pid, true);
-                } else {
-                    // See the timeout branch above: never fall back to a
-                    // numeric PID after a process-group signal fails.
-                    #[cfg(unix)]
-                    if !signal_process_tree(pid, true) {
-                        let _ = child.start_kill();
-                    }
-                    #[cfg(not(unix))]
-                    signal_process_tree(pid, true);
-                }
-                #[cfg(windows)]
-                if let Some(job) = job.as_ref() {
-                    job.terminate();
-                }
+                owner.kill();
                 kill_deadline = None;
+                escalation_pending = false;
                 if exited.is_none() {
                     final_wait_deadline = Some(Box::pin(tokio::time::sleep(
                         std::time::Duration::from_millis(250),
@@ -1240,7 +1412,7 @@ async fn run_spec(
                     None => std::future::pending().await,
                 }
             }, if final_wait_deadline.is_some() && exited.is_none() => {
-                let _ = child.start_kill();
+                let _ = owner.child.start_kill();
                 final_wait_deadline = None;
                 exited = Some(1);
                 if stdout_open || stderr_open {
@@ -1249,57 +1421,26 @@ async fn run_spec(
                     )));
                 }
             }
+            () = async {
+                match wait_retry_deadline.as_mut() {
+                    Some(timer) => timer.as_mut().await,
+                    None => std::future::pending().await,
+                }
+            }, if wait_retry_deadline.is_some() => {
+                wait_retry_deadline = None;
+            }
         }
     }
-    #[cfg(windows)]
-    drop(job);
-    #[cfg(unix)]
-    {
-        process_group_guard.armed = false;
-    }
+    owner.finish().await;
     if timed_out {
         return RunOutcome::TimedOut;
+    }
+    if cancelled {
+        return RunOutcome::Failed { message: "process cancelled".to_owned() };
     }
     let text = String::from_utf8_lossy(&output);
     RunOutcome::Done { exit_code: exited.unwrap_or(0), output: text.into_owned() }
 }
-
-#[cfg(unix)]
-fn signal_process_tree(pid: Option<u32>, kill: bool) -> bool {
-    signal_process_group_id(pid, kill, |group, signal| {
-        // SAFETY: the process group id is owned by the child we spawned.
-        unsafe { libc::kill(group, signal) }
-    })
-}
-
-#[cfg(unix)]
-fn signal_process_group_id<F>(pid: Option<u32>, kill: bool, send: F) -> bool
-where
-    F: FnOnce(libc::pid_t, libc::c_int) -> libc::c_int,
-{
-    let Some(pid) = pid else { return false };
-    let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
-    let group = -(pid as i32);
-    send(group, signal) == 0
-}
-
-#[cfg(unix)]
-fn signal_process_group(pid: Option<u32>, kill: bool) {
-    let Some(pid) = pid else { return };
-    let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
-    // Once the leader has exited, never fall back to signalling its numeric
-    // PID: the operating system may have reused it while descendants keep
-    // the process group alive. The group id is the only safe target here.
-    unsafe {
-        libc::kill(-(pid as i32), signal);
-    }
-}
-
-#[cfg(not(unix))]
-fn signal_process_tree(_pid: Option<u32>, _kill: bool) {}
-
-#[cfg(not(unix))]
-fn signal_process_group(_pid: Option<u32>, _kill: bool) {}
 
 #[cfg(windows)]
 struct WindowsJob {
@@ -1384,6 +1525,7 @@ pub struct ActionContext {
     pub env: HashMap<String, String>,
     /// Process-owned capacity retained by file work that outlives a socket.
     pub file_slots: Arc<tokio::sync::Semaphore>,
+    pub process_cancellation: tokio_util::sync::CancellationToken,
     #[cfg(test)]
     pub(crate) test_file_operation_barrier: Option<Arc<std::sync::Barrier>>,
 }
@@ -1592,6 +1734,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
     let version = frame.get("version").and_then(Value::as_i64).unwrap_or(3);
     let action_id = frame.get("actionId").and_then(Value::as_str).unwrap_or_default().to_owned();
     let fail = |code: &str, message: &str| fail_result(version, &action_id, code, message);
+    let process_cancellation = context.process_cancellation.clone();
 
     let verb = frame.get("verb").and_then(Value::as_str).unwrap_or_default().to_owned();
     if !ACTION_VERBS.contains(&verb.as_str()) {
@@ -1745,7 +1888,8 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
             };
             let raw =
                 args.get("path").and_then(Value::as_str).filter(|p| !p.is_empty()).unwrap_or(".");
-            let pattern = args.get("pattern").and_then(Value::as_str).unwrap_or_default();
+            let pattern =
+                args.get("pattern").and_then(Value::as_str).unwrap_or_default().to_owned();
             if pattern.is_empty() {
                 return fail("failed", "grep: pattern is required");
             }
@@ -1803,7 +1947,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                             "--exclude-dir=.git".to_owned(),
                             "--exclude-dir=node_modules".to_owned(),
                             "-e".to_owned(),
-                            pattern.to_owned(),
+                            pattern,
                             "--".to_owned(),
                             process_path,
                         ],
@@ -1812,6 +1956,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                     command_cwd_fd,
                     timeout_ms,
                     &env,
+                    Some(process_cancellation.clone()),
                 )
                 .await
             })
@@ -1886,6 +2031,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 command_cwd_fd,
                 timeout_ms,
                 &env,
+                Some(process_cancellation.clone()),
             )
             .await;
             run_reply(version, &action_id, outcome, args.get("limit"), Some(500), timeout_ms)
@@ -1927,6 +2073,7 @@ pub async fn perform_action(frame: &Value, context: &ActionContext) -> Value {
                 scoped_cwd_fd,
                 timeout_ms,
                 &env,
+                Some(process_cancellation.clone()),
             )
             .await;
             run_reply(version, &action_id, outcome, None, None, timeout_ms)
@@ -1955,6 +2102,7 @@ mod tests {
             home,
             env: HashMap::new(),
             file_slots: Arc::new(tokio::sync::Semaphore::new(MAX_BLOCKING_FILE_ACTIONS)),
+            process_cancellation: tokio_util::sync::CancellationToken::new(),
             test_file_operation_barrier: None,
         }
     }
@@ -1965,19 +2113,6 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // realpath so canonical checks match (macOS /tmp -> /private/tmp).
         std::fs::canonicalize(&dir).unwrap()
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn process_group_failure_does_not_fallback_to_numeric_pid() {
-        let mut targets = Vec::new();
-        let signalled = signal_process_group_id(Some(4_321), false, |target, _| {
-            targets.push(target);
-            -1
-        });
-
-        assert!(!signalled);
-        assert_eq!(targets, vec![-4_321]);
     }
 
     #[cfg(windows)]
@@ -2487,11 +2622,111 @@ mod tests {
         let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
         let outcome = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env),
+            run_spec(RunSpec::Shell { command: "sleep 5 &" }, Path::new("/"), None, 20, &env, None),
         )
         .await
         .expect("timeout cleanup must not wait for a descendant pipe");
         assert!(matches!(outcome, RunOutcome::TimedOut));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn timeout_after_leader_reap_kills_descendant_group() {
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-owner-timeout-{}", std::process::id()));
+        std::fs::remove_file(&pid_file).ok();
+        let command = format!("sleep 30 & echo $! > {}; exit 0", pid_file.display());
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let worker = tokio::spawn(async move {
+            run_spec(RunSpec::Shell { command: &command }, Path::new("/"), None, 100, &env, None)
+                .await
+        });
+        let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Some(pid) = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant pid marker");
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), worker)
+            .await
+            .expect("timeout cleanup must complete")
+            .expect("runner task must join");
+        assert!(matches!(outcome, RunOutcome::TimedOut));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "descendant must be killed");
+        std::fs::remove_file(pid_file).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn cancellation_after_leader_reap_kills_descendant_group() {
+        use tokio_util::sync::CancellationToken;
+
+        let pid_file =
+            std::env::temp_dir().join(format!("chatmux-owner-cancel-{}", std::process::id()));
+        std::fs::remove_file(&pid_file).ok();
+        let command = format!("sleep 30 & echo $! > {}; exit 0", pid_file.display());
+        let env = scrubbed_env(&HashMap::from([("PATH".to_owned(), "/usr/bin:/bin".to_owned())]));
+        let cancellation = CancellationToken::new();
+        let worker_cancellation = cancellation.clone();
+        let worker = tokio::spawn(async move {
+            run_spec(
+                RunSpec::Shell { command: &command },
+                Path::new("/"),
+                None,
+                30_000,
+                &env,
+                Some(worker_cancellation),
+            )
+            .await
+        });
+        let pid = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            loop {
+                if let Some(pid) = std::fs::read_to_string(&pid_file)
+                    .ok()
+                    .and_then(|value| value.trim().parse::<libc::pid_t>().ok())
+                {
+                    break pid;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("descendant pid marker");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        cancellation.cancel();
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), worker)
+            .await
+            .expect("cancellation cleanup must complete")
+            .expect("runner task must join");
+        assert!(matches!(
+            outcome,
+            RunOutcome::Failed { message } if message == "process cancelled"
+        ));
+        assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "descendant must be killed");
+        std::fs::remove_file(pid_file).ok();
+    }
+
+    #[test]
+    fn persistent_wait_errors_escalate_to_bounded_cleanup() {
+        let mut retries = 0;
+        for _ in 0..MAX_WAIT_RETRIES.saturating_sub(1) {
+            assert_eq!(next_wait_retry(&mut retries), WaitRetryAction::Retry);
+        }
+        assert_eq!(next_wait_retry(&mut retries), WaitRetryAction::Escalate);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn successful_windows_owner_cleanup_does_not_terminate_job() {
+        assert!(!windows_job_should_terminate(false));
+        assert!(windows_job_should_terminate(true));
     }
     #[tokio::test]
     async fn exec_receives_scoped_process_environment_values() {
@@ -2508,6 +2743,49 @@ mod tests {
         )
         .await;
         assert_eq!(exec["result"]["output"], "abc123");
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn process_file_setup_failure_does_not_run_command_or_leak_secret() {
+        let root = scratch("process-file-setup-failure");
+        let tmpdir_file = root.join("not-a-directory");
+        std::fs::write(&tmpdir_file, "").unwrap();
+        let marker = root.join("command-ran");
+        let roots = vec![root.display().to_string()];
+        let mut context = ctx("supervised", Some(roots.clone()), root.clone());
+        context.env = scrubbed_env(&HashMap::from([
+            ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+            ("TMPDIR".to_owned(), tmpdir_file.display().to_string()),
+        ]));
+        let secret = "process-file-secret";
+        let exec = perform_action(
+            &json!({
+                "verb": "exec",
+                "actionId": "process-file-setup-failure",
+                "allowedRoots": roots,
+                "args": {
+                    "command": format!("printf '%s' \"$MY_SECRET\" > '{}'", marker.display()),
+                },
+                "runtime": {
+                    "environment": { "MY_SECRET": secret },
+                    "files": [{
+                        "contentEnvironmentVariable": "MY_SECRET",
+                        "pathEnvironmentVariable": "MY_SECRET_PATH",
+                        "pathHint": "credentials",
+                    }],
+                },
+                "timeoutMs": 10000,
+            }),
+            &context,
+        )
+        .await;
+
+        assert_eq!(exec["ok"], true, "{exec}");
+        assert_ne!(exec["result"]["exitCode"], 0, "setup unexpectedly succeeded: {exec}");
+        assert!(!marker.exists(), "target command ran after setup failure: {exec}");
+        assert!(!exec.to_string().contains(secret), "secret leaked in action result: {exec}");
         std::fs::remove_dir_all(&root).ok();
     }
 

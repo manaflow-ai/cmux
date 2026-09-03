@@ -299,6 +299,12 @@ jobs:
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 
+      - name: Validate Sparkle delta finalization
+        run: ./tests/test_finalize_sparkle_deltas.sh
+
+      - name: Validate previous nightly build fetch
+        run: ./tests/test_fetch_previous_nightly_dmgs.sh
+
       - name: Validate Computer Use helper notarization behavior
         run: ./tests/test_notarize_computer_use_helper.sh
 
@@ -2229,6 +2235,9 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
+
+      - name: Validate app bundle thinning
+        run: ./tests/test_thin_app_bundle.sh
 
       - name: Compute Xcode compilation cache key
         id: compilation-cache-key

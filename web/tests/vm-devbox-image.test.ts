@@ -10,7 +10,7 @@ import {
   CMUX_TUI_SESSION,
   cmuxTuiDaemonCommand,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_TEMPLATE_FILES, devboxAgentPins } from "../scripts/devbox-image-common";
+import { DEVBOX_TEMPLATE_FILES, devboxAgentPins, devboxCuaDriverVersion, devboxParkDaemonCommand } from "../scripts/devbox-image-common";
 
 // Contract tests for the shared cmux Cloud devbox image template
 // (services/vms/images/devbox), consumed by build-devbox-freestyle.ts,
@@ -56,7 +56,7 @@ const sourceAgentConfig = (home: string, coderouterOrigin: string): Promise<void
         ...process.env,
         HOME: home,
         OPENAI_BASE_URL: `${coderouterOrigin}/v1`,
-        OPENAI_API_KEY: "crt_test-token",
+        OPENAI_API_KEY: "cmux-vm-edge-placeholder",
         CMUX_CODEROUTER_URL: coderouterOrigin,
       },
       stdio: "ignore",
@@ -76,6 +76,9 @@ describe("devbox image template", () => {
       "chrome-managed-policy.json",
       "cmux-bashrc",
       "cmux-devbox-boot",
+      "cmux-motd",
+      // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
+      "desktop",
       "seed-history",
     ]);
     // The bake scripts' preflight covers the same set (minus the README).
@@ -85,6 +88,7 @@ describe("devbox image template", () => {
       "chrome-managed-policy.json",
       "cmux-bashrc",
       "cmux-devbox-boot",
+      "cmux-motd",
       "seed-history",
     ]);
   });
@@ -94,8 +98,83 @@ describe("devbox image template", () => {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
-    const result = spawnSync("sh", ["-n", path.join(templateDir, "cmux-devbox-boot")]);
-    expect(result.status).toBe(0);
+    for (const name of ["cmux-devbox-boot", "cmux-motd"]) {
+      const result = spawnSync("sh", ["-n", path.join(templateDir, name)]);
+      expect({ name, status: result.status }).toEqual({ name, status: 0 });
+    }
+  });
+
+  test("the login banner is cmux's, offline, and installed everywhere the base motd was", () => {
+    const motd = read("cmux-motd");
+    // The `cmux cloud` chevron logo from the CLI's cloud welcome
+    // (CLI/cmux.swift), same gradient and tagline.
+    expect(motd).toContain("persistent cloud VM");
+    expect(motd).toContain("ready for coding agents");
+    for (const rgb of ["0;212;255", "24;181;250", "48;150;245", "72;119;241", "96;88;239", "110;73;238", "124;58;237"]) {
+      expect(motd).toContain(`38;2;${rgb}m`);
+    }
+    expect(readFileSync(path.join(import.meta.dirname, "../../CLI/cmux.swift"), "utf8")).toContain(
+      "x cloud\\\\033[0m",
+    );
+    // Seeds are readable by the work user (the seed pass runs as root and
+    // ble.sh creates its cache dir 0700), and Ghostty's TERM is seeded too.
+    expect(dockerfile).toContain("chmod -R a+rX /etc/cmux/blesh-cache-seed");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("chmod -R a+rX /etc/cmux/blesh-cache-seed");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("linux xterm-ghostty; do");
+    // Fast and offline: only baked files and cheap local commands.
+    for (const forbidden of ["curl", "wget", "npm ", "claude --version", "apt"]) {
+      expect({ forbidden, present: motd.includes(forbidden) }).toEqual({ forbidden, present: false });
+    }
+    // Same sections as `cmux welcome`: shortcuts and the links.
+    expect(motd).toContain("Shortcuts");
+    for (const line of ["New workspace", "Command palette", "Jump to latest unread", "https://cmux.com/docs", "https://discord.gg/xsgFEVrWCZ", "founders@manaflow.com"]) {
+      expect(motd).toContain(line);
+    }
+    expect(dockerfile).toContain("COPY cmux-motd /etc/update-motd.d/00-cmux");
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    expect(freestyleScript).toContain('"cmux-motd", "/etc/update-motd.d/00-cmux", 0o755');
+    // The stock Ubuntu scripts stay in place but silent; the static motd is emptied.
+    expect(freestyleScript).toContain("chmod -x");
+    expect(freestyleScript).toContain(": > /etc/motd");
+  });
+
+  test("the Freestyle bake uses the base's toolchain and pins the agents on top of it", () => {
+    // freestyle/ubuntu ships Node LTS under nvm (symlinked into /usr/local/bin),
+    // Bun, Python 3.12, uv and Docker, plus its own copies of Claude Code,
+    // Codex and OpenCode. The bake keeps that toolchain (no mise) and replaces
+    // the agent copies with the exact Dockerfile pins via the base's npm, then
+    // symlinks every agent bin into /usr/local/bin so non-login shells (daemon
+    // panes) resolve them without a profile.
+    const freestyleScript = readScript("build-devbox-freestyle.ts");
+    expect(freestyleScript).not.toContain("mise.run");
+    expect(freestyleScript).not.toContain("/opt/mise");
+    expect(freestyleScript).toContain("readlink /usr/local/bin/node | grep -q /usr/local/nvm/");
+    expect(freestyleScript).toContain("npm install -g --foreground-scripts");
+    expect(freestyleScript).toContain('nvm_bin="$(dirname "$(readlink -f /usr/local/bin/node)")"');
+    expect(freestyleScript).toContain('ln -sfn "$nvm_bin/${pin.binary}" /usr/local/bin/${pin.binary}');
+    // The pins are proven from a clean login shell AS the work user during the
+    // bake itself (probing as root with HOME=/home/ubuntu leaves root-owned
+    // state dirs that break ble.sh for every later login).
+    expect(freestyleScript).toContain("sudo -n -u ${WORK_USER} env -i HOME=${WORK_HOME} USER=${WORK_USER} TERM=xterm bash -lc '${pin.binary} --version' | grep -F '${pin.version}'");
+    // Home hygiene: single devshell source, ble.sh state dir, legal notice
+    // silenced, home owned by the work user, two silent real logins.
+    // Per-user rc files only: after Ubuntu's own PS1, and loaded once.
+    expect(freestyleScript).toContain('const rcFiles = ["/etc/skel/.bashrc", "/root/.bashrc", `${WORK_HOME}/.bashrc`]');
+    expect(freestyleScript).toContain("chmod a+rwxt /usr/local/share/blesh/state.d");
+    expect(freestyleScript).toContain("motd.legal-displayed");
+    expect(freestyleScript).toContain("chown -R ${WORK_USER}:${WORK_USER} ${WORK_HOME}");
+    // The interactive probe is a real pty (tmux) as the work user and requires the cmux prompt.
+    expect(freestyleScript).toContain("interactiveShellProbe(1)");
+    expect(freestyleScript).toContain("interactiveShellProbe(2)");
+    expect(freestyleScript).toContain('grep -q "λ"');
+    expect(readScript("verify-devbox-image.ts")).toContain("ubuntu-login-silent-");
+    expect(readScript("verify-devbox-image.ts")).toContain("home-owned-by-ubuntu");
+    expect(readScript("verify-devbox-image.ts")).toContain("devshell-sourced-once");
+    // The verifier checks both shell families without PATH help of its own.
+    const verify = readScript("verify-devbox-image.ts");
+    expect(verify).toContain("-login-pin-ok");
+    expect(verify).toContain("-nonlogin-pin-ok");
+    expect(verify).toContain("test ! -e /opt/mise");
   });
 
   test("ble.sh integration stays minimal: no token highlighting, ghost text only", () => {
@@ -117,6 +196,23 @@ describe("devbox image template", () => {
     }
     expect(dockerfile).toContain("/usr/local/share/blesh/cache.d/0");
     expect(readScript("build-devbox-freestyle.ts")).toContain("blesh-cache-seed");
+  });
+
+  test("the Dockerfile is the Ubuntu 24.04 recipe the Freestyle bake replays, desktop included", () => {
+    // freestyle/ubuntu is Ubuntu 24.04; the reference recipe builds on the
+    // same distro so its package names, the Ghostty .deb and the desktop
+    // stack are exactly what the bake installs (desktop pins are read from
+    // this file: vm-devbox-desktop.test.ts).
+    expect(dockerfile).toMatch(/^FROM ubuntu:24\.04$/m);
+    expect(dockerfile).toContain("ARG CMUX_IMAGE_DESKTOP_PACKAGES=");
+    expect(dockerfile).toContain("ARG CMUX_IMAGE_GHOSTTY_DEB_URL=");
+    // The work user is the uid-1000 account (ubuntu on both), with the
+    // passwordless sudo Freestyle's base already grants it.
+    expect(dockerfile).toContain('work_user="$(getent passwd 1000 | cut -d: -f1)"');
+    expect(dockerfile).toContain('echo "$work_user ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/91-work-user-nopasswd');
+    // ss for the desktop's port probes (start-vnc.sh) on both recipes.
+    expect(dockerfile).toContain("iproute2");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("iproute2");
   });
 
   test("stays within the Dockerfile portability restrictions", () => {
@@ -150,9 +246,35 @@ describe("devbox image template", () => {
       cmuxTuiDaemonCommand('"${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}"').replace("cd /root && ", ""),
     );
     expect(cmuxTuiDaemonCommand()).toContain("--remote-ws 0.0.0.0:1337");
-    expect(devboxBoot).toContain("if [ -x /root/.cmux/bin/cmux-tui ]");
+    expect(devboxBoot).toContain("BIN=/root/.cmux/bin/cmux-tui");
+    expect(devboxBoot).toContain('if [ -x "$BIN" ]');
     expect(dockerfile).toContain("COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot");
-    // No binary is baked and the old cmuxd stack is gone everywhere.
+    // A Freestyle snapshot is a memory image: the supervisor keys the daemon
+    // identity on the platform instance id, wiping cmux-remote's default root
+    // state dir on a clone, and holds the daemon on the builder itself.
+    expect(devboxBoot).toContain("REMOTE_STATE_DIR=/root/.local/state/cmux/remote");
+    expect(devboxBoot).toContain("/latest/meta-data/instance-id");
+    expect(devboxBoot).toContain("BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id");
+    expect(devboxBoot).toContain("BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id");
+    expect(devboxBoot).toContain('rm -rf "$REMOTE_STATE_DIR"');
+    // The supervisor owns the daemon as a background child so it can stop a
+    // daemon that belongs to another machine (a clone of a live machine).
+    expect(devboxBoot).toContain("daemon_pid=$!");
+    expect(devboxBoot).toContain("stop_daemon");
+    // The desktop it may start (containers only) is a sibling, never wired
+    // into the daemon's command or lifecycle.
+    expect(devboxBoot).toContain("start_desktop");
+    expect(devboxBoot.split("start_desktop").length - 1).toBe(2);
+    // The Freestyle bake installs the pin with the driver's own install
+    // command, proves the daemon, and parks it before the snapshot; the size
+    // derive parks before each of its snapshots too.
+    const freestyleBake = readScript("build-devbox-freestyle.ts");
+    expect(freestyleBake).toContain('await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));');
+    expect(freestyleBake).toContain('await step("cmux-tui-daemon-park", devboxParkDaemonCommand());');
+    expect(readScript("derive-devbox-sizes.ts")).toContain("await sh(vm, devboxParkDaemonCommand(), 120_000);");
+    expect(devboxParkDaemonCommand()).toContain("> /etc/cmux/bake-instance-id");
+    expect(devboxParkDaemonCommand()).toContain("daemon-parked-for-clones");
+    // The container image bakes no binary, and the old cmuxd stack is gone everywhere.
     // The image itself carries nothing cmuxd-era, and no bake or verify
     // script installs or launches the old daemon (prose references to the
     // legacy driver are fine).
@@ -215,9 +337,10 @@ describe("devbox image template", () => {
 
     const devboxCuaVersion = /CUA_DRIVER_RS_VERSION=(\S+)/.exec(dockerfile)?.[1];
     expect(devboxCuaVersion).toBeTruthy();
-    expect(readScript("build-devbox-freestyle.ts")).toContain(
-      `CUA_DRIVER_RS_VERSION=${devboxCuaVersion}`,
-    );
+    expect(devboxCuaDriverVersion(dockerfile)).toBe(devboxCuaVersion!);
+    // The Freestyle replay reads the pin through the helper, never a second copy.
+    expect(readScript("build-devbox-freestyle.ts")).toContain("CUA_DRIVER_RS_VERSION=${cuaVersion}");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("devboxCuaDriverVersion()");
   });
 
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {
@@ -268,15 +391,61 @@ describe("devbox image template", () => {
     expect(dockerfile).toContain("test ! -e /root/.pi/agent/models.json");
     expect(dockerfile).toContain("test ! -e /root/.config/opencode/opencode.json");
     expect(dockerfile).toContain("test ! -e /root/.config/cmux/model-plane.env");
-    // The build check proves the pi config generates and carries no token,
-    // and that an unreachable config endpoint writes no opencode config.
-    expect(dockerfile).toContain(
-      `grep -qF '"x-coderouter-route-token": "$OPENAI_API_KEY"' /tmp/agent-config-check/.pi/agent/models.json`,
-    );
-    expect(dockerfile).toContain("! grep -q 'crt_check' /tmp/agent-config-check/.pi/agent/models.json");
-    expect(dockerfile).toContain(
+    // The build check proves the pi config generates with the placeholder JWT
+    // and no route-token header (the edge injects it), that every model-plane
+    // var is persisted, and that an unreachable config endpoint writes no
+    // opencode config. The same check runs in the Freestyle bake and verify.
+    for (const check of [
+      `grep -qF '"apiKey": "e30.' /tmp/agent-config-check/.pi/agent/models.json`,
+      "! grep -q 'x-coderouter-route-token' /tmp/agent-config-check/.pi/agent/models.json",
+      "! grep -q 'crt_' /tmp/agent-config-check/.pi/agent/models.json",
       "test ! -e /tmp/agent-config-check/.config/opencode/opencode.json",
+      `grep -q "export CMUX_VM_ID='vm-check'" /tmp/agent-config-check/.config/cmux/model-plane.env`,
+      `grep -q "export ANTHROPIC_BASE_URL='https://example.invalid'" /tmp/agent-config-check/.config/cmux/model-plane.env`,
+    ]) {
+      expect(dockerfile).toContain(check);
+    }
+    for (const script of ["build-devbox-freestyle.ts", "verify-devbox-image.ts"]) {
+      const source = readScript(script);
+      expect(source).toContain("OPENAI_API_KEY=cmux-vm-edge-placeholder");
+      expect(source).toContain("CMUX_VM_ID=vm-check");
+      expect(source).toContain("x-coderouter-route-token");
+      expect(source).not.toContain("OPENAI_API_KEY=crt_check");
+    }
+    // No bake self-check may feed a token-shaped key into the generator.
+    expect(dockerfile).not.toContain("crt_check");
+    expect(dockerfile).not.toContain("crt_persisted");
+  });
+
+  test("agent config exports the platform CA to Node only when the file exists", () => {
+    const agentConfig = read("agent-config.sh");
+    expect(agentConfig).toContain(
+      "NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/freestyle-tls.crt",
     );
+    // The export is guarded by the file's existence and does not override a
+    // user's own setting; on this host the file is absent, so nothing leaks.
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-ca-"));
+    try {
+      const result = spawnSync(
+        "sh",
+        ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "\${NODE_EXTRA_CA_CERTS-unset}"`],
+        { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: undefined } },
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout.toString()).toBe(
+        existsSync("/usr/local/share/ca-certificates/freestyle-tls.crt")
+          ? "/usr/local/share/ca-certificates/freestyle-tls.crt"
+          : "unset",
+      );
+      const kept = spawnSync(
+        "sh",
+        ["-c", `. ${path.join(templateDir, "agent-config.sh")}; printf '%s' "$NODE_EXTRA_CA_CERTS"`],
+        { env: { ...process.env, HOME: home, NODE_EXTRA_CA_CERTS: "/tmp/mine.crt" } },
+      );
+      expect(kept.stdout.toString()).toBe("/tmp/mine.crt");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 
   test("agent config generator materializes the coderouter plane from boot env", () => {
@@ -290,8 +459,11 @@ describe("devbox image template", () => {
             ...process.env,
             HOME: home,
             OPENAI_BASE_URL: "https://example.invalid/v1",
-            OPENAI_API_KEY: "crt_test",
+            OPENAI_API_KEY: "cmux-vm-edge-placeholder",
             CMUX_CODEROUTER_URL: "https://example.invalid",
+            ANTHROPIC_BASE_URL: "https://example.invalid",
+            ANTHROPIC_API_KEY: "cmux-vm-edge-placeholder",
+            CMUX_VM_ID: "11111111-2222-4333-8444-555555555555",
           },
         },
       );
@@ -304,14 +476,24 @@ describe("devbox image template", () => {
       // instead of relying on the custom-provider default.
       expect(codex).toContain("supports_websockets = false");
       expect(codex).toContain('persistence = "save-all"');
+      // Every model-plane var is persisted generically, single-quoted.
       const plane = readFileSync(path.join(home, ".config/cmux/model-plane.env"), "utf8");
-      expect(plane).toContain("export OPENAI_API_KEY='crt_test'");
-      expect(plane).toContain("export CMUX_CODEROUTER_URL='https://example.invalid'");
-      // pi: the built-in openai-codex provider is pointed at the plane. The
-      // route token rides the x-coderouter-route-token header as an env
-      // reference pi resolves at request time; the apiKey is the public
-      // placeholder JWT (pi requires a JWT-shaped key client-side), so the
-      // file carries no secret.
+      expect(plane).toBe(
+        [
+          "# generated by cmux from machine boot env; managed, do not edit",
+          "export OPENAI_BASE_URL='https://example.invalid/v1'",
+          "export OPENAI_API_KEY='cmux-vm-edge-placeholder'",
+          "export CMUX_CODEROUTER_URL='https://example.invalid'",
+          "export ANTHROPIC_BASE_URL='https://example.invalid'",
+          "export ANTHROPIC_API_KEY='cmux-vm-edge-placeholder'",
+          "export CMUX_VM_ID='11111111-2222-4333-8444-555555555555'",
+          "",
+        ].join("\n"),
+      );
+      // pi: the built-in openai-codex provider is pointed at the plane with
+      // the public placeholder JWT (pi requires a JWT-shaped key
+      // client-side). No route-token header is configured: the edge injects
+      // it, so the file carries no secret and no header line.
       const pi = readFileSync(path.join(home, ".pi/agent/models.json"), "utf8");
       expect(JSON.parse(pi)).toEqual({
         providers: {
@@ -320,11 +502,13 @@ describe("devbox image template", () => {
             baseUrl: "https://example.invalid/v1",
             apiKey:
               "e30.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiY29kZXJvdXRlciJ9fQ.signature",
-            headers: { "x-coderouter-route-token": "$OPENAI_API_KEY" },
           },
         },
       });
-      expect(pi).not.toContain("crt_test");
+      expect(pi).not.toContain("x-coderouter-route-token");
+      expect(pi).not.toContain("crt_");
+      // claude: env only, nothing generated.
+      expect(existsSync(path.join(home, ".claude"))).toBe(false);
       // opencode: the config endpoint is unreachable here, so nothing may be
       // written (the next shell retries).
       expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
@@ -355,11 +539,12 @@ describe("devbox image template", () => {
     });
     try {
       await sourceAgentConfig(home, server.origin);
-      expect(authorization).toBe("Bearer crt_test-token");
+      // The guest sends only the placeholder; the edge adds the route token.
+      expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
       const configPath = path.join(home, ".config/opencode/opencode.json");
       const written = readFileSync(configPath, "utf8");
-      // The inlined route token is swapped for a runtime env reference, so a
-      // resurrected machine with a fresh token needs no rewrite.
+      // A route token the endpoint inlined is swapped for a runtime env
+      // reference (as is the placeholder itself), so no token lands on disk.
       expect(JSON.parse(written)).toEqual({
         provider: {
           go: {
@@ -424,15 +609,20 @@ describe("devbox image template", () => {
 });
 
 describe("model-plane env reaches provider creates", () => {
-  // The vm route mints coderouter model-plane env into CreateOptions.envs and
-  // the devbox agent-config generator consumes it. Freestyle has no VM-level
-  // create env, so the driver persists the file the guest sources instead.
-  test("freestyle persists the model-plane env file its guests source", () => {
+  // The workflow provisions coderouter model-plane env (placeholders) into
+  // CreateOptions.envs plus the edge rule into CreateOptions.edgeRules; the
+  // devbox agent-config generator consumes the env. Freestyle has no VM-level
+  // create env, so the driver persists the file the guest sources instead and
+  // passes the rule inline on the create.
+  test("the model-plane env is baked once, the guest falls back to it, and the edge rule rides inline", () => {
     const driver = readFileSync(
       path.join(import.meta.dirname, "../services/vms/drivers/freestyle.ts"),
       "utf8",
     );
-    expect(driver).toContain("renderFreestyleModelPlaneEnvFile");
-    expect(driver).toContain("/root/.config/cmux/model-plane.env");
+    expect(driver).not.toContain("writeModelPlaneEnv");
+    expect(driver).toContain("tls: { rules: tlsRules }");
+    expect(readScript("build-devbox-freestyle.ts")).toContain("renderVmGuestModelPlaneEnvFile(vmGuestModelPlaneEnv())");
+    expect(readScript("verify-devbox-image.ts")).toContain("test -s /etc/cmux/model-plane.env");
+    expect(read("agent-config.sh")).toContain("elif [ -f /etc/cmux/model-plane.env ]; then");
   });
 });

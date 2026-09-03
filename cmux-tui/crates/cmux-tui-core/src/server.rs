@@ -73,8 +73,8 @@ use crate::workspace_registry::TerminalLifecycle;
 use crate::{
     AgentRecord, AgentSource, AgentState, AttachFrame, BrowserAttachState, BrowserFrameStream,
     DefaultColors, Direction, GraphicsStatus, JournalClass, JournalSensitivity, JournalSubject,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, Mux, MuxEvent, Node,
-    NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
+    Node, NotificationLevel, PairingDecision, PaneId, RenderAttachFrame, RenderAttachStream, Rgb,
     ScreenId, SidebarPluginStatus, SplitDir, SplitId, SurfaceId, SurfaceKind, SurfaceNotification,
     SurfaceRenderFrame, TerminalColors, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceId,
     WorkspaceMutation, ZoomMode, assign_short_ids,
@@ -107,7 +107,11 @@ pub const MAX_CREATION_SELECTOR_FALLBACKS: usize = 7;
 pub const PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY: &str =
     "provider-managed-workspace-authority-v2";
 pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
+/// Advertises the `server-stats` command.
+pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
+/// The daemon answers `machine-usage` and emits `machine-usage-changed`.
+pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
 pub const STABLE_SPLIT_IDS_PROTOCOL_VERSION: u32 = 8;
 pub const STACK_LAYOUT_PROTOCOL_VERSION: u32 = 9;
@@ -127,6 +131,20 @@ fn validate_client_focus_id(client_id: &str) -> anyhow::Result<()> {
         anyhow::bail!("bad request: invalid client_id");
     }
     Ok(())
+}
+
+/// `machine-usage` result and `machine-usage-changed` payload body: `usage`
+/// is the readout object or null when the daemon has none.
+fn machine_usage_json(usage: Option<&MachineUsage>) -> Value {
+    json!({
+        "usage": usage.map(|usage| json!({
+            "vm_id": usage.vm_id,
+            "period_days": usage.period_days,
+            "total_tokens": usage.total_tokens,
+            "api_equivalent_usd": usage.api_equivalent_usd,
+            "as_of": usage.as_of,
+        })),
+    })
 }
 
 fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&'static str> {
@@ -150,6 +168,8 @@ fn advertised_capabilities(bounded_clear_history_fallback_writes: bool) -> Vec<&
         PROVIDER_MANAGED_WORKSPACE_GUARD_CAPABILITY,
         BROWSER_PROVIDER_CAPABILITY,
         CLIENT_FOCUS_CAPABILITY,
+        MACHINE_USAGE_CAPABILITY,
+        SERVER_STATS_CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);
@@ -611,6 +631,10 @@ struct BrowserProviderTargetRequest {
 #[serde(tag = "cmd", rename_all = "kebab-case")]
 enum Command {
     Identify,
+    /// Report where this daemon spends its time: registry lock contention
+    /// with holder sites, journal writer batch metrics, and connection
+    /// admission. Owner-only diagnostics, never journaled.
+    ServerStats,
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's
     /// `identify` response.
@@ -630,6 +654,8 @@ enum Command {
         capabilities: Option<Vec<String>>,
     },
     ListClients,
+    /// Read the machine-level model spend readout hosted by this daemon.
+    MachineUsage,
     /// Publish the native browser process's live CDP targets. This is an
     /// owner-only, connection-scoped lease and never enters the journal.
     RegisterBrowserProvider {
@@ -2842,21 +2868,30 @@ struct ConnectionPermit {
     _lease: Arc<ConnectionPermitLease>,
 }
 
-struct ConnectionPermitLease(Arc<AtomicU64>);
+struct ConnectionPermitLease(Arc<crate::diagnostics::ConnectionStats>);
 
 impl Drop for ConnectionPermitLease {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
+        self.0.release();
     }
 }
 
-fn claim_connection(active: &Arc<AtomicU64>) -> Option<ConnectionPermit> {
-    active
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
-            (count < MAX_SERVER_CONNECTIONS as u64).then_some(count + 1)
-        })
-        .ok()
-        .map(|_| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(active.clone())) })
+fn claim_connection(
+    connections: &Arc<crate::diagnostics::ConnectionStats>,
+) -> Option<ConnectionPermit> {
+    connections
+        .try_claim(MAX_SERVER_CONNECTIONS as u64)
+        .then(|| ConnectionPermit { _lease: Arc::new(ConnectionPermitLease(connections.clone())) })
+}
+
+fn server_stats(mux: &Mux) -> crate::diagnostics::ServerStatsSnapshot {
+    crate::diagnostics::ServerStatsSnapshot {
+        schema: crate::diagnostics::SERVER_STATS_SCHEMA,
+        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
+        registry_lock: mux.registry_lock_stats(),
+        journal_writer: mux.journal_writer_stats(),
+        connections: mux.connection_stats().snapshot(MAX_SERVER_CONNECTIONS as u64),
+    }
 }
 
 impl BoundedOutbound {
@@ -4957,7 +4992,7 @@ pub fn serve_paused(mux: Arc<Mux>, path: Option<PathBuf>) -> anyhow::Result<Pend
         cleanup(&path);
         return Err(error.into());
     }
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let render_service = Arc::new(RenderService::new());
     let shutdown = Arc::new(AtomicBool::new(false));
     let server_shutdown = shutdown.clone();
@@ -5045,7 +5080,7 @@ pub fn serve_websocket(
     let shutdown = Arc::new(AtomicBool::new(false));
     let connections = Arc::new(Mutex::new(HashMap::new()));
     let next_connection = Arc::new(AtomicU64::new(1));
-    let active_connections = Arc::new(AtomicU64::new(0));
+    let active_connections = mux.connection_stats().clone();
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
@@ -11081,6 +11116,12 @@ fn handle_command_with_cancellation(
     cancellation: Option<&AtomicBool>,
 ) -> anyhow::Result<Value> {
     match cmd {
+        Command::ServerStats => {
+            if !mux.control_clients.is_unix(client) {
+                anyhow::bail!("server stats requires a trusted local connection");
+            }
+            Ok(serde_json::to_value(server_stats(mux))?)
+        }
         Command::Identify => {
             let (registry_id, generation) = mux.registry_identity();
             Ok(json!({
@@ -11124,6 +11165,7 @@ fn handle_command_with_cancellation(
             Ok(json!({}))
         }
         Command::ListClients => Ok(mux.control_clients_json(client)),
+        Command::MachineUsage => Ok(machine_usage_json(mux.machine_usage().as_ref())),
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -13091,6 +13133,11 @@ fn subscribed_event_json(event: &MuxEvent) -> Value {
             }),
         },
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
+        MuxEvent::MachineUsageChanged(usage) => {
+            let mut payload = machine_usage_json(usage.as_ref());
+            payload["event"] = json!("machine-usage-changed");
+            payload
+        }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
         MuxEvent::WindowTitleRequested(title) => {
             json!({"event": "window-title-requested", "title": title})
@@ -13277,7 +13324,7 @@ mod tests {
         assert_eq!(result, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
         let (sender, receiver) = std::sync::mpsc::channel();
-        let acquire_socket = socket.clone();
+        let acquire_socket = socket;
         let acquire = std::thread::spawn(move || {
             sender.send(SocketStartLock::acquire(&acquire_socket, Instant::now())).unwrap();
         });
@@ -17983,13 +18030,50 @@ mod tests {
 
     #[test]
     fn server_connection_permits_enforce_and_release_the_cap() {
-        let active = Arc::new(AtomicU64::new(MAX_SERVER_CONNECTIONS as u64));
-        assert!(claim_connection(&active).is_none());
-        active.store(MAX_SERVER_CONNECTIONS as u64 - 1, Ordering::Release);
-        let permit = claim_connection(&active).expect("last connection slot");
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64);
-        drop(permit);
-        assert_eq!(active.load(Ordering::Acquire), MAX_SERVER_CONNECTIONS as u64 - 1);
+        let connections = Arc::new(crate::diagnostics::ConnectionStats::default());
+        let permits: Vec<ConnectionPermit> = (0..MAX_SERVER_CONNECTIONS)
+            .map(|_| claim_connection(&connections).expect("slot below the cap"))
+            .collect();
+        assert!(claim_connection(&connections).is_none());
+        assert_eq!(connections.active(), MAX_SERVER_CONNECTIONS as u64);
+        drop(permits);
+        assert_eq!(connections.active(), 0);
+        let snapshot = connections.snapshot(MAX_SERVER_CONNECTIONS as u64);
+        assert_eq!(snapshot.refused, 1);
+        assert_eq!(snapshot.peak, MAX_SERVER_CONNECTIONS as u64);
+    }
+
+    #[test]
+    fn server_stats_report_lock_writer_and_connection_metrics() {
+        let mux = test_mux();
+        let unix_client = mux.control_clients.register(ClientTransport::Unix, test_writer());
+        let websocket_client =
+            mux.control_clients.register(ClientTransport::WebSocket, test_writer());
+        let identity = handle_command(&mux, 0, Command::Identify, &test_writer()).unwrap();
+        assert!(
+            identity["capabilities"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| c == SERVER_STATS_CAPABILITY)
+        );
+        // Any registry use records a hold at its call site.
+        let _ = mux.registry_identity();
+        let stats =
+            handle_command(&mux, unix_client, Command::ServerStats, &test_writer()).unwrap();
+        assert_eq!(stats["schema"].as_u64(), Some(crate::diagnostics::SERVER_STATS_SCHEMA as u64));
+        assert!(stats["uptime_ms"].is_u64());
+        let lock = &stats["registry_lock"];
+        assert!(lock["hold_us"]["count"].as_u64().unwrap() >= 1, "{lock}");
+        assert!(lock["holder"].is_null(), "{lock}");
+        let site = lock["top_sites"][0]["site"].as_str().unwrap();
+        assert!(site.contains("mux.rs:"), "{site}");
+        assert_eq!(stats["connections"]["limit"].as_u64(), Some(MAX_SERVER_CONNECTIONS as u64));
+        assert!(stats["journal_writer"].is_object() || stats["journal_writer"].is_null());
+
+        let error = handle_command(&mux, websocket_client, Command::ServerStats, &test_writer())
+            .expect_err("remote clients must not receive internal server stats");
+        assert!(error.to_string().contains("trusted local connection"));
     }
 
     #[test]
@@ -18476,7 +18560,7 @@ mod tests {
 
     #[test]
     fn scheduler_retains_connection_permit_until_dispatcher_exit() {
-        let active = Arc::new(AtomicU64::new(0));
+        let active = Arc::new(crate::diagnostics::ConnectionStats::default());
         let permit = claim_connection(&active).unwrap();
         let scheduler = Arc::new(ConnectionSurfaceScheduler::new_with_connection_permit(
             Arc::new(ServerSurfaceOperationAdmission::default()),
@@ -18493,14 +18577,14 @@ mod tests {
 
         assert!(!scheduler.close_and_wait(Duration::from_millis(25)));
         assert_eq!(
-            active.load(Ordering::Acquire),
+            active.active(),
             1,
             "timed-out shutdown released admission while its dispatcher was live"
         );
 
         release_tx.send(()).unwrap();
         assert!(scheduler.close_and_wait(Duration::from_secs(1)));
-        assert_eq!(active.load(Ordering::Acquire), 0);
+        assert_eq!(active.active(), 0);
     }
 
     #[test]

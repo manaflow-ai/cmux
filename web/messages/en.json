@@ -122,6 +122,15 @@
     "genericBody": "Please try again. If the problem continues, contact support.",
     "backToSignIn": "Back to sign in"
   },
+  "cloudPublicationAccess": {
+    "title": "You don't have access",
+    "signIn": "Sign in to cmux",
+    "signedInAs": "Signed in as {identity}",
+    "switchAccount": "Switch account",
+    "invalidTitle": "This access link isn't valid",
+    "invalidBody": "Return to the site and try again.",
+    "footer": "Access is managed by cmux."
+  },
   "common": {
     "downloadForMac": "Download for Mac",
     "viewOnGitHub": "View on GitHub",
@@ -145,7 +154,9 @@
       "accountGroup": "account",
       "billing": "billing",
       "team": "team",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "adminGroup": "admin",
+      "adminPro": "pro access"
     },
     "home": {
       "title": "dashboard",
@@ -164,7 +175,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Manage shared AI accounts and route requests with coderouter.",
       "title": "coderouter",
-      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling."
+      "description": "coderouter routes llm requests across provider accounts with failover and usage-aware scheduling.",
+      "machines": {
+        "title": "Machines",
+        "description": "Per-machine coderouter usage for {team} over the last {days} days.",
+        "machineColumn": "Machine",
+        "tokensColumn": "Total tokens",
+        "apiEquivalentColumn": "API-equivalent value",
+        "unnamed": "Unnamed machine",
+        "empty": "No machines have used coderouter in the last {days} days.",
+        "unavailable": "Machine usage is temporarily unavailable.",
+        "estimateNote": "API-equivalent value is an estimate using public list prices, not actual spend."
+      }
     },
     "accountMenu": {
       "label": "Account menu",
@@ -200,17 +222,17 @@
         "name": "cmux Pro",
         "activeBody": "Your plan renews on {date}.",
         "pendingBody": "Your plan is scheduled to end on {date}.",
-        "monthlyPrice": "$30/mo",
-        "annualPrice": "$24/mo, billed annually",
-        "legacyAnnualPrice": "$20/mo, billed annually"
+        "monthlyPrice": "${amount}/mo",
+        "annualPrice": "${monthly}/mo, billed annually",
+        "grantedBody": "Pro access was granted to this account by the cmux team. There is no subscription to manage."
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "your team",
         "activeBody": "{team} renews on {date}.",
         "pendingBody": "{team} is scheduled to end on {date}.",
-        "price": "$35/seat/mo",
-        "annualPrice": "$28/seat/mo, billed annually"
+        "price": "${amount}/seat/mo",
+        "annualPrice": "${monthly}/seat/mo, billed annually"
       },
       "details": {
         "renewsOn": "Renews on",
@@ -284,6 +306,146 @@
         "leave": "Leave TestFlight"
       }
     },
+    "admin": {
+      "eyebrow": "admin",
+      "title": "pro access",
+      "description": "grant or remove Pro for any account, team, or email, and downgrade paying customers. only verified {domains} accounts can open this page.",
+      "search": {
+        "label": "Find a user, team, or email",
+        "placeholder": "email, name, team, or id",
+        "button": "Search",
+        "searching": "Searching…",
+        "hint": "Matches primary email, display name, team name, or exact id. Up to 25 results each. Every change asks for confirmation."
+      },
+      "sections": {
+        "users": "Users ({count})",
+        "teams": "Teams ({count})",
+        "pending": "Pending email grants ({count})"
+      },
+      "results": {
+        "user": "User",
+        "team": "Team",
+        "email": "Email",
+        "plan": "Plan",
+        "access": "Access",
+        "stripe": "Stripe",
+        "grant": "Manual grant",
+        "actions": "Actions",
+        "empty": "No users, teams, or pending grants matched.",
+        "noEmail": "no email",
+        "verified": "verified",
+        "unverified": "unverified",
+        "members": "{count, plural, =1 {1 member} other {# members}}",
+        "noSubscription": "no subscription",
+        "cancelling": "cancels at period end",
+        "membersUnknown": "member count unavailable"
+      },
+      "access": {
+        "pro": "Pro",
+        "team": "Team",
+        "free": "Free"
+      },
+      "plans": {
+        "pro": "Pro",
+        "founders": "Founders",
+        "team": "Team"
+      },
+      "grant": {
+        "none": "none",
+        "current": "{plan}",
+        "by": "{who} · {when}"
+      },
+      "pending": {
+        "waiting": "applies at first verified sign-in"
+      },
+      "emailGrant": {
+        "title": "No account with this email yet",
+        "body": "Grant Pro to {email} now. It applies automatically the first time that email signs in with a verified mailbox."
+      },
+      "actions": {
+        "grantPro": "Grant Pro",
+        "grantFounders": "Grant Founders",
+        "grantTeam": "Grant Team",
+        "removeGrant": "Remove grant",
+        "downgrade": "Downgrade",
+        "resumeSubscription": "Resume subscription",
+        "revokePending": "Revoke",
+        "saving": "Saving…"
+      },
+      "confirm": {
+        "cancel": "Cancel",
+        "grant": "Confirm grant",
+        "grantTitle": "Grant {plan}?",
+        "grantUserBody": "This account gets {plan} access everywhere without a subscription. It stays until an admin removes the grant.",
+        "grantTeamBody": "{count, plural, =1 {1 member gets} other {All # members get}} Team access without a subscription. It stays until an admin removes the grant.",
+        "grantEmailBody": "The grant is stored now and applied at that email's first verified sign-in. Revoke it here before then if needed.",
+        "removeGrantTitle": "Remove the manual grant?",
+        "removeGrantBody": "Access drops to Free immediately.",
+        "removeTeamGrantBody": "Every member loses Team access immediately.",
+        "removeGrantBodyStripe": "The active Stripe subscription still grants access. Use Downgrade to end that too.",
+        "downgradeTitle": "Downgrade this paying customer?",
+        "downgradeBody": "The Stripe subscription cancels at the end of the current period. Access continues until then and no refund is issued.",
+        "downgradeTeamBody": "The team's Stripe subscription cancels at the end of the current period. All members keep access until then and no refund is issued.",
+        "resumeTitle": "Resume the subscription?",
+        "resumeBody": "The scheduled cancellation is removed and the subscription renews normally.",
+        "revokePendingTitle": "Revoke this pending grant?",
+        "revokePendingBody": "Nothing is applied when this email signs in.",
+        "grantTeamBodyUnknown": "The member list could not be loaded, so the scope of this grant is unknown. Reload and try again."
+      },
+      "notices": {
+        "granted": "{plan} granted to {target}.",
+        "grantRemoved": "Manual grant removed from {target}.",
+        "downgraded": "{target} cancels at the end of the current period.",
+        "resumed": "Subscription for {target} resumed.",
+        "emailGranted": "{plan} will apply to {target} at first verified sign-in.",
+        "pendingRevoked": "Pending grant for {target} revoked.",
+        "supersededNotCleared": "Grant recorded, but the previous grant is still active on {count, plural, =1 {1 account} other {# accounts}}. Search that email and use Remove grant on the user row, or it clears at their next sign-in."
+      },
+      "errors": {
+        "network": "Network error. Try again.",
+        "forbidden": "Your account is not an admin. Sign in with a verified cmux.com, manaflow.ai, or manaflow.com email.",
+        "notFound": "No matching account or subscription.",
+        "conflict": "Another change to this account is in progress, or the email matches several accounts.",
+        "billing": "Billing is not available right now.",
+        "generic": "The request failed. Try again shortly."
+      },
+      "list": {
+        "title": "All Pro users",
+        "description": "Every account with Pro access and why: active Stripe subscriptions from the billing mirror, manual grants found by walking the account directory, and grants waiting for a first sign-in.",
+        "reload": "Reload",
+        "loading": "Loading…",
+        "stats": {
+          "proUsers": "Pro users",
+          "subscribers": "Stripe subscribers",
+          "userGrants": "Manual grants",
+          "teams": "Teams",
+          "pending": "Pending grants"
+        },
+        "scanUsers": "accounts",
+        "scanTeams": "teams",
+        "scanProgress": "Scanning {label} for manual grants… {scanned} checked.",
+        "scanDone": "Scanned {scanned} {label} for manual grants.",
+        "scanFailed": "Scan of {label} stopped after {scanned}.",
+        "scanTruncated": "Reached the page limit before the end of the directory.",
+        "scanning": "Scanning…",
+        "empty": "None.",
+        "sections": {
+          "subscribers": "Stripe Pro subscribers ({count})",
+          "userGrants": "Manual user grants ({count})",
+          "teams": "Teams with Team access ({count})",
+          "pending": "Pending email grants ({count})"
+        },
+        "periodEnd": "Period end",
+        "userId": "User id",
+        "teamId": "Team id",
+        "source": "Source",
+        "detail": "Detail",
+        "sourceStripe": "Stripe subscription",
+        "sourceGrant": "Manual grant",
+        "seats": "{count, plural, =1 {1 seat} other {# seats}}",
+        "truncated": "This list is capped at 5,000 rows per source and some rows are not shown. Use search for anything missing."
+      }
+    },
     "aiAccounts": {
       "metaTitle": "AI accounts — cmux",
       "metaDescription": "Manage team AI provider accounts for cmux.",
@@ -341,6 +503,50 @@
       "opencodeTool": "OpenCode",
       "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude upstream accounts",
+      "description": "Claude Code inside this team's cmux Cloud VMs sends Anthropic Messages traffic through coderouter. Add any number of accounts: Anthropic API keys, Claude Code OAuth tokens, or Amazon Bedrock credentials. Each machine is pinned to one account so prompt caching keeps working; a rate limit or a rejected credential puts that account in cooldown and moves the machine to the next one.",
+      "emptyTitle": "No Claude upstream accounts",
+      "emptyBody": "Claude requests from this team's Cloud VMs fail until an account is added.",
+      "accountsLabel": "{count, plural, one {# account} other {# accounts}}",
+      "loadErrorTitle": "Claude upstream could not load",
+      "loadErrorBody": "The upstream settings could not be read. Try again shortly.",
+      "kindSelectorLabel": "Upstream kind",
+      "kindApiKey": "Anthropic API key",
+      "kindOauth": "Claude Code OAuth token",
+      "kindBedrock": "Amazon Bedrock",
+      "labelField": "Label",
+      "labelPlaceholder": "Optional, for example work",
+      "apiKeyField": "API key",
+      "oauthTokenField": "OAuth token",
+      "oauthHint": "Create a long-lived token on your own machine with",
+      "regionField": "AWS region",
+      "accessKeyIdField": "Access key ID",
+      "secretAccessKeyField": "Secret access key",
+      "sessionTokenField": "Session token",
+      "optionalPlaceholder": "Optional",
+      "saveAction": "Add account",
+      "savingAction": "Adding",
+      "saveSuccess": "Account added.",
+      "saveError": "Account could not be added.",
+      "validationError": "Check the credential format and try again.",
+      "teamAccessError": "You do not have access to this team.",
+      "removeAction": "Remove",
+      "removingAction": "Removing",
+      "removeError": "Account could not be removed.",
+      "removeConfirmTitle": "Remove this Claude upstream account?",
+      "removeConfirmBody": "Machines pinned to it move to the team's other accounts. If it is the last one, Claude requests from this team's Cloud VMs fail until a new account is added.",
+      "cancelAction": "Cancel",
+      "stateActive": "Active",
+      "stateDisabled": "Disabled",
+      "coolingDown": "Cooling down until {until}",
+      "lastFailure": "last failure {code}",
+      "lastUsed": "last used {at}",
+      "neverUsed": "never used",
+      "enableAction": "Enable",
+      "disableAction": "Disable",
+      "updateError": "Account could not be updated."
     }
   },
   "vault": {
@@ -573,12 +779,12 @@
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
       "cta": "Get Pro",
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Unlimited active Cloud VMs",
+        "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk",
+        "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
       "vaultFeatures": [
@@ -591,7 +797,6 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
       "cta": "Get Teams",
       "featuresLead": "Everything in Pro, plus:",
       "features": [
@@ -671,9 +876,23 @@
         {
           "label": "Concurrent Cloud VMs",
           "free": "false",
+          "pro": "50",
+          "team": "50 per user",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Cloud VM size",
+          "free": "false",
+          "pro": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "team": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "enterprise": "Custom"
+        },
+        {
+          "label": "Workspaces",
+          "free": "Unlimited",
           "pro": "Unlimited",
           "team": "Unlimited",
-          "enterprise": "Custom"
+          "enterprise": "Unlimited"
         },
         {
           "label": "iOS app",
@@ -744,7 +963,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include unlimited active machines."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
         },
         {
           "q": "What is cmux Vault?",
@@ -757,7 +976,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $30/mo, or $24/mo when billed annually (a 20% savings). Team is $35/user/mo, or $28/user/mo when billed annually. Paid plans include unlimited active Cloud VMs, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -765,7 +984,7 @@
         },
         {
           "q": "Do you have a team plan?",
-          "a": "Yes. Team is $35/user/mo, or $28/user/mo when billed annually, with centralized billing for your whole team and priority support."
+          "a": "Yes. Team is $60/user/mo, or $48/user/mo when billed annually, with centralized billing for your whole team and priority support."
         }
       ]
     },
@@ -3042,6 +3261,8 @@
     "metaDescription": "Download cmux NIGHTLY, a separate app built automatically from the latest main commit. Runs alongside the stable version with its own auto-updates.",
     "description": "cmux NIGHTLY is built automatically from the latest commit on main. It has its own bundle ID, so it runs alongside the stable version without conflicts. Use it to test new features before they ship.",
     "download": "Download NIGHTLY for Mac",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "Nightly builds may contain bugs or incomplete features. If something breaks, report it on <githubLink>GitHub</githubLink> or in <discordLink>#nightly-bugs on Discord</discordLink>, and switch back to the stable release."
   },
   "languageSwitcher": {

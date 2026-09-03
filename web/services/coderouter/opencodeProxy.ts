@@ -7,27 +7,67 @@ import {
   reportCoderouterFailure,
 } from "./observability";
 import { observeModelUsage } from "./responseUsage";
+import {
+  newLedgerRequestId,
+  recordRouteEvent,
+  recordUsageEvent,
+} from "./usageLedger";
+import {
+  authenticateRequestRouteToken,
+  VM_PLACEHOLDER_API_KEY,
+  type RouteTokenAuthFailure,
+  type RouteTokenIdentity,
+} from "./routeTokenAuth";
 
 const OPENCODE_CONSOLE = "https://console.opencode.ai";
 
+type OpenCodeDependencies = {
+  readonly authenticate: typeof authenticateRouteToken;
+  readonly select: typeof selectAccountForRequest;
+  readonly credential: typeof freshCredential;
+  readonly remoteConfig: (accessToken: string) => Promise<Record<string, unknown>>;
+};
+
+const defaultDependencies: OpenCodeDependencies = {
+  authenticate: authenticateRouteToken,
+  select: selectAccountForRequest,
+  credential: freshCredential,
+  remoteConfig,
+};
+
+const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
+  missing_route_token: "Sign in with `cr login` and retry.",
+  invalid_route_token:
+    "Your coderouter session expired or was revoked. Run `cr login` and retry.",
+  vm_mismatch:
+    "This machine's coderouter credential does not match the machine it was issued to.",
+};
+
 export async function openCodeClientConfig(
   request: Request,
+  dependencies: OpenCodeDependencies = defaultDependencies,
 ): Promise<Response> {
-  const auth = await routeIdentity(request);
-  if (!auth) {
-    captureAuthRejection(request, "opencode_config");
-    return Response.json({ error: "unauthorized" }, { status: 401 });
+  const auth = await authenticateRequestRouteToken(
+    request,
+    dependencies.authenticate,
+  );
+  if (!auth.ok) {
+    captureAuthRejection("opencode_config", auth.reason);
+    return apiError("unauthorized", AUTH_FAILURE_MESSAGES[auth.reason], 401, false);
   }
-  const resolved = await openCodeAccount(auth.teamId);
+  const resolved = await openCodeAccount(auth.identity.teamId, dependencies);
   if (!resolved)
     return Response.json({ error: "no_usable_account" }, { status: 503 });
-  const remote = await remoteConfig(resolved.credential.accessToken);
+  const remote = await dependencies.remoteConfig(resolved.credential.accessToken);
   // The proxy origin comes from the serving request, not a hardcoded host,
   // so the config works on every deployment of this app (coderouter.dev,
   // the cmux origin Cloud VMs are minted against, previews, self-hosted).
+  //
+  // A VM-bound token never leaves the edge: the guest's config carries the
+  // public placeholder key, and the edge injects the real token per request.
   const provider = rewriteProviders(
     remote,
-    auth.token,
+    auth.identity.vmId === null ? auth.identity.token : VM_PLACEHOLDER_API_KEY,
     new URL(request.url).origin,
   );
   return Response.json(
@@ -42,12 +82,18 @@ export async function proxyOpenCodeRequest(
   request: Request,
   providerId: string,
   path: readonly string[],
+  dependencies: OpenCodeDependencies = defaultDependencies,
 ): Promise<Response> {
   const startedAt = performance.now();
-  const auth = await routeIdentity(request);
-  if (!auth) {
-    captureAuthRejection(request, "opencode_proxy");
+  const requestId = newLedgerRequestId();
+  const authResult = await authenticateRequestRouteToken(
+    request,
+    dependencies.authenticate,
+  );
+  if (!authResult.ok) {
+    captureAuthRejection("opencode_proxy", authResult.reason);
     captureOpenCodeHealth({
+      requestId,
       startedAt,
       status: 401,
       outcome: "unauthorized",
@@ -55,15 +101,17 @@ export async function proxyOpenCodeRequest(
     });
     return apiError(
       "unauthorized",
-      "Your coderouter session expired or was revoked. Run `cr login` and retry.",
+      AUTH_FAILURE_MESSAGES[authResult.reason],
       401,
       false,
     );
   }
-  const resolved = await openCodeAccount(auth.teamId);
+  const auth = authResult.identity;
+  const resolved = await openCodeAccount(auth.teamId, dependencies);
   if (!resolved) {
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 503,
       outcome: "no_usable_account",
@@ -78,14 +126,15 @@ export async function proxyOpenCodeRequest(
   }
   let config: Record<string, unknown>;
   try {
-    config = await remoteConfig(resolved.credential.accessToken);
+    config = await dependencies.remoteConfig(resolved.credential.accessToken);
   } catch (error) {
     reportCoderouterFailure("provider_usage", error, {
       provider: "opencode-go",
       operation: "config",
     });
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 502,
       outcome: "provider_unavailable",
@@ -102,7 +151,8 @@ export async function proxyOpenCodeRequest(
   const provider = config[providerId];
   if (!isRecord(provider)) {
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 404,
       outcome: "unknown_provider",
@@ -120,7 +170,8 @@ export async function proxyOpenCodeRequest(
   const base = isRecord(api) ? api.url : undefined;
   if (typeof base !== "string" || !safeProviderURL(base)) {
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 502,
       outcome: "invalid_provider",
@@ -163,7 +214,8 @@ export async function proxyOpenCodeRequest(
       provider: "opencode-go",
     });
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 502,
       outcome: "provider_unavailable",
@@ -185,7 +237,8 @@ export async function proxyOpenCodeRequest(
   // Emit terminal health before the response body is consumed; token parsing
   // remains an independent aggregate-usage concern.
   captureOpenCodeHealth({
-    teamId: auth.teamId,
+    requestId,
+    identity: auth,
     startedAt,
     status: upstream.status,
     outcome: upstream.ok ? "success" : "upstream_error",
@@ -205,7 +258,22 @@ export async function proxyOpenCodeRequest(
         cached_input_tokens: usage.cachedInputTokens,
         output_tokens: usage.outputTokens,
         total_tokens: usage.totalTokens,
+        ...vmIdProperty(auth.vmId),
       },
+    });
+    recordUsageEvent({
+      requestId,
+      teamId: auth.teamId,
+      stackUserId: auth.stackUserId,
+      vmId: auth.vmId,
+      provider: "opencode-go",
+      agent: "opencode",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      cachedInputTokens: usage.cachedInputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      status: upstream.status,
     });
   });
   return new Response(body, {
@@ -216,10 +284,7 @@ export async function proxyOpenCodeRequest(
 
 async function openCodeAccount(
   teamId: string,
-  dependencies = {
-    select: selectAccountForRequest,
-    credential: freshCredential,
-  },
+  dependencies: Pick<OpenCodeDependencies, "select" | "credential"> = defaultDependencies,
 ) {
   const attempted: string[] = [];
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -350,34 +415,24 @@ function withoutSecrets(
   );
 }
 
-async function routeIdentity(
-  request: Request,
-): Promise<{ teamId: string; stackUserId: string; token: string } | null> {
-  const header = request.headers.get("authorization")?.trim() ?? "";
-  const token = /^Bearer[ \t]+(.+)$/i.exec(header)?.[1]?.trim();
-  if (!token) return null;
-  const identity = await authenticateRouteToken(token);
-  return identity ? { ...identity, token } : null;
-}
-
 function captureAuthRejection(
-  request: Request,
   surface: "opencode_config" | "opencode_proxy",
+  reason: RouteTokenAuthFailure,
 ): void {
-  const authorization = request.headers.get("authorization")?.trim() ?? "";
   captureCoderouterEvent({
     event: "coderouter_auth_rejected",
-    properties: {
-      surface,
-      reason: /^Bearer[ \t]+(.+)$/i.test(authorization)
-        ? "invalid_route_token"
-        : "missing_route_token",
-    },
+    properties: { surface, reason },
   });
 }
 
+/** Per-VM attribution for bound tokens; omitted for unbound (CLI) tokens. */
+function vmIdProperty(vmId: string | null): { vm_id?: string } {
+  return vmId === null ? {} : { vm_id: vmId };
+}
+
 function captureOpenCodeHealth(input: {
-  readonly teamId?: string;
+  readonly requestId: string;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
   readonly startedAt: number;
   readonly status: number;
   readonly outcome:
@@ -398,20 +453,36 @@ function captureOpenCodeHealth(input: {
   readonly attempts?: number;
   readonly responseStreamed?: boolean;
 }): void {
+  const durationMs = Math.round(performance.now() - input.startedAt);
   captureCoderouterEvent({
     event: "coderouter_route_health",
-    ...(input.teamId ? { teamId: input.teamId } : {}),
+    ...(input.identity ? { teamId: input.identity.teamId } : {}),
     properties: {
       provider: "opencode-go",
       agent: "opencode",
       outcome: input.outcome,
       failure_stage: input.failureStage,
       status: input.status,
-      duration_ms: Math.round(performance.now() - input.startedAt),
+      duration_ms: durationMs,
       attempt_count: input.attempts ?? 0,
       refresh_retry_count: 0,
       response_streamed: input.responseStreamed ?? false,
+      ...vmIdProperty(input.identity?.vmId ?? null),
     },
+  });
+  recordRouteEvent({
+    requestId: input.requestId,
+    teamId: input.identity?.teamId,
+    vmId: input.identity?.vmId ?? null,
+    provider: "opencode-go",
+    agent: "opencode",
+    outcome: input.outcome,
+    failureStage: input.failureStage,
+    status: input.status,
+    attemptCount: input.attempts ?? 0,
+    refreshRetryCount: 0,
+    durationMs,
+    responseStreamed: input.responseStreamed ?? false,
   });
 }
 

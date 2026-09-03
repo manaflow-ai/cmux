@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "web",
@@ -31,8 +32,9 @@
         "@vercel/otel": "^2.1.2",
         "drizzle-orm": "1.0.0-beta.22",
         "effect": "^3.21.2",
-        "freestyle": "0.2.9",
+        "freestyle": "0.2.10",
         "fzstd": "^0.1.1",
+        "jose": "^6.2.3",
         "next": "16.3.4",
         "next-intl": "^4.11.2",
         "next-themes": "^0.4.6",
@@ -47,6 +49,7 @@
         "stripe": "22.3.0",
         "turndown": "^7.2.4",
         "turndown-plugin-gfm": "^1.0.2",
+        "unique-names-generator": "4.7.1",
         "ws": "^8.20.0",
         "zod": "^4.3.6",
       },
@@ -1372,7 +1375,7 @@
 
     "for-each": ["for-each@0.3.5", "", { "dependencies": { "is-callable": "^1.2.7" } }, "sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg=="],
 
-    "freestyle": ["freestyle@0.2.9", "", { "dependencies": { "dotenv": "^17.4.2", "ws": "^8.18.0", "yargs": "^17.7.2" }, "bin": { "freestyle": "dist/cli/index.js" } }, "sha512-coFGZhYYh+anvcIeV1OoBtZl4xmy9mTTqAxD/mSpSbpudT9E83p5hDaOL5sAXuV+DGLyEhP4ZxiC+k1CNDBTTA=="],
+    "freestyle": ["freestyle@0.2.10", "", { "dependencies": { "dotenv": "^17.4.2", "ws": "^8.18.0", "yargs": "^17.7.2" }, "bin": { "freestyle": "dist/cli/index.js" } }, "sha512-LjyTUBARgSAbdTIVwuenSp7+aOLqPPE8gF2II6ixj8kx3dqdQOels4Vt9kO298ZpLpbZCbvTNyeUKu56m2+k4A=="],
 
     "fsevents": ["fsevents@2.3.2", "", { "os": "darwin" }, "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA=="],
 
@@ -2039,6 +2042,8 @@
     "unbox-primitive": ["unbox-primitive@1.1.0", "", { "dependencies": { "call-bound": "^1.0.3", "has-bigints": "^1.0.2", "has-symbols": "^1.1.0", "which-boxed-primitive": "^1.1.1" } }, "sha512-nWJ91DjeOkej/TA8pXQ3myruKpKEYgqvpw9lz4OPHj/NWFNluYrjbz9j01CJ8yKQd2g4jFoOkINCTW2I5LEEyw=="],
 
     "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
+
+    "unique-names-generator": ["unique-names-generator@4.7.1", "", {}, "sha512-lMx9dX+KRmG8sq6gulYYpKWZc9RlGsgBR6aoO8Qsm3qvkSJ+3rAymr+TnV8EDMrIrwuFJ4kruzMWM/OpYzPoow=="],
 
     "unist-util-is": ["unist-util-is@6.0.1", "", { "dependencies": { "@types/unist": "^3.0.0" } }, "sha512-LsiILbtBETkDz8I9p1dQ0uyRUWuaQzd/cuEeS1hoRSyW5E5XGmTzlwY1OrNzzakGowI9Dr/I8HVaw4hTtnxy8g=="],
 

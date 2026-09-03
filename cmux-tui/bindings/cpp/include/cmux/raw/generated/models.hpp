@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589";
+inline constexpr std::string_view kProtocolIrSha256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -64,6 +64,8 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
+struct MachineUsage;
+struct MachineUsageResult;
 struct MintTerminalRendererResult;
 struct MoveTerminalResult;
 enum class NotificationLevel;
@@ -92,6 +94,15 @@ struct ResolveTerminalResult;
 struct ResourceSelectors;
 struct RunResult;
 struct Screen;
+struct ServerStatsConnections;
+struct ServerStatsHistogram;
+struct ServerStatsJournalWriter;
+struct ServerStatsLockHolder;
+struct ServerStatsLockSite;
+struct ServerStatsLockStall;
+struct ServerStatsRegistryLock;
+struct ServerStatsResult;
+enum class ServerStatsWriterPhase;
 struct SetCellPixelsResult;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
@@ -164,6 +175,7 @@ struct ListClientsRequest;
 struct ListClientsResult;
 struct ListTerminalsRequest;
 struct ListWorkspacesRequest;
+struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
 struct MintTerminalRendererRequest;
 struct MintTerminalRendererByTerminalRequest;
@@ -206,6 +218,7 @@ struct SelectTabRequest;
 struct SelectWorkspaceRequest;
 struct SendRequest;
 struct SendKeyRequest;
+struct ServerStatsRequest;
 struct SetCellPixelsRequest;
 struct SetClientInfoRequest;
 struct SetClientSizingRequest;
@@ -240,6 +253,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct LayoutChangedEvent;
+struct MachineUsageChangedEvent;
 struct NotificationEvent;
 struct OutputEvent;
 struct OverflowEvent;
@@ -1488,6 +1502,29 @@ struct LivePane {
     friend bool operator==(const LivePane&, const LivePane&) = default;
 };
 
+struct MachineUsage {
+    double api_equivalent_usd{};
+    std::optional<std::string> as_of{};
+    std::uint32_t period_days{};
+    std::uint64_t total_tokens{};
+    std::string vm_id{};
+    friend bool operator==(const MachineUsage&, const MachineUsage&) = default;
+};
+
+struct MachineUsageChangedEvent {
+    std::optional<MachineUsage> usage{};
+    friend bool operator==(const MachineUsageChangedEvent&, const MachineUsageChangedEvent&) = default;
+};
+
+struct MachineUsageRequest {
+    friend bool operator==(const MachineUsageRequest&, const MachineUsageRequest&) = default;
+};
+
+struct MachineUsageResult {
+    std::optional<MachineUsage> usage{};
+    friend bool operator==(const MachineUsageResult&, const MachineUsageResult&) = default;
+};
+
 struct MarkWorkspacesProviderManagedRequest {
     std::string authority{};
     friend bool operator==(const MarkWorkspacesProviderManagedRequest&, const MarkWorkspacesProviderManagedRequest&) = default;
@@ -2144,6 +2181,93 @@ struct SendRequest {
     Id surface{};
     Field<std::string> text{};
     friend bool operator==(const SendRequest&, const SendRequest&) = default;
+};
+
+struct ServerStatsConnections {
+    std::uint64_t accepted{};
+    std::uint64_t active{};
+    std::uint64_t limit{};
+    std::uint64_t peak{};
+    std::uint64_t refused{};
+    friend bool operator==(const ServerStatsConnections&, const ServerStatsConnections&) = default;
+};
+
+struct ServerStatsHistogram {
+    std::uint64_t count{};
+    std::uint64_t max{};
+    std::uint64_t mean{};
+    std::uint64_t p50{};
+    std::uint64_t p90{};
+    std::uint64_t p99{};
+    friend bool operator==(const ServerStatsHistogram&, const ServerStatsHistogram&) = default;
+};
+
+enum class ServerStatsWriterPhase {
+    idle,
+    waiting_lock,
+    committing,
+};
+
+struct ServerStatsJournalWriter {
+    ServerStatsHistogram batch_size{};
+    std::uint64_t batches{};
+    std::uint64_t commit_failures{};
+    ServerStatsHistogram commit_lock_wait_us{};
+    ServerStatsHistogram commit_us{};
+    std::uint64_t deadline_expiries{};
+    std::uint64_t durable_events{};
+    std::uint64_t durable_queued{};
+    ServerStatsWriterPhase phase{};
+    std::uint64_t phase_for_us{};
+    ServerStatsHistogram receipt_wait_us{};
+    std::uint64_t terminal_events{};
+    std::uint64_t terminal_queued{};
+    friend bool operator==(const ServerStatsJournalWriter&, const ServerStatsJournalWriter&) = default;
+};
+
+struct ServerStatsLockHolder {
+    std::uint64_t held_for_us{};
+    std::string site{};
+    friend bool operator==(const ServerStatsLockHolder&, const ServerStatsLockHolder&) = default;
+};
+
+struct ServerStatsLockSite {
+    std::uint64_t acquisitions{};
+    std::uint64_t hold_max_us{};
+    std::uint64_t hold_total_us{};
+    std::string site{};
+    friend bool operator==(const ServerStatsLockSite&, const ServerStatsLockSite&) = default;
+};
+
+struct ServerStatsLockStall {
+    std::optional<std::string> blocker{};
+    std::uint64_t waited_us{};
+    std::string waiter{};
+    friend bool operator==(const ServerStatsLockStall&, const ServerStatsLockStall&) = default;
+};
+
+struct ServerStatsRegistryLock {
+    std::uint64_t contended_acquisitions{};
+    ServerStatsHistogram hold_us{};
+    std::optional<ServerStatsLockHolder> holder{};
+    std::optional<ServerStatsLockStall> last_stall{};
+    std::uint64_t stalls{};
+    std::vector<ServerStatsLockSite> top_sites{};
+    ServerStatsHistogram wait_us{};
+    friend bool operator==(const ServerStatsRegistryLock&, const ServerStatsRegistryLock&) = default;
+};
+
+struct ServerStatsRequest {
+    friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
+};
+
+struct ServerStatsResult {
+    ServerStatsConnections connections{};
+    std::optional<ServerStatsJournalWriter> journal_writer{};
+    ServerStatsRegistryLock registry_lock{};
+    std::uint32_t schema{};
+    std::uint64_t uptime_ms{};
+    friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
 struct SetCellPixelsRequest {
@@ -2834,6 +2958,18 @@ struct Codec<LivePane> {
 };
 
 template <>
+struct Codec<MachineUsage> {
+    static Result<Json> encode(const MachineUsage& value);
+    static Result<MachineUsage> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineUsageResult> {
+    static Result<Json> encode(const MachineUsageResult& value);
+    static Result<MachineUsageResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<MintTerminalRendererResult> {
     static Result<Json> encode(const MintTerminalRendererResult& value);
     static Result<MintTerminalRendererResult> decode(const Json& value);
@@ -2999,6 +3135,60 @@ template <>
 struct Codec<Screen> {
     static Result<Json> encode(const Screen& value);
     static Result<Screen> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsConnections> {
+    static Result<Json> encode(const ServerStatsConnections& value);
+    static Result<ServerStatsConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsHistogram> {
+    static Result<Json> encode(const ServerStatsHistogram& value);
+    static Result<ServerStatsHistogram> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalWriter> {
+    static Result<Json> encode(const ServerStatsJournalWriter& value);
+    static Result<ServerStatsJournalWriter> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockHolder> {
+    static Result<Json> encode(const ServerStatsLockHolder& value);
+    static Result<ServerStatsLockHolder> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockSite> {
+    static Result<Json> encode(const ServerStatsLockSite& value);
+    static Result<ServerStatsLockSite> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsLockStall> {
+    static Result<Json> encode(const ServerStatsLockStall& value);
+    static Result<ServerStatsLockStall> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRegistryLock> {
+    static Result<Json> encode(const ServerStatsRegistryLock& value);
+    static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsResult> {
+    static Result<Json> encode(const ServerStatsResult& value);
+    static Result<ServerStatsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsWriterPhase> {
+    static Result<Json> encode(const ServerStatsWriterPhase& value);
+    static Result<ServerStatsWriterPhase> decode(const Json& value);
 };
 
 template <>
@@ -3434,6 +3624,12 @@ struct Codec<ListWorkspacesRequest> {
 };
 
 template <>
+struct Codec<MachineUsageRequest> {
+    static Result<Json> encode(const MachineUsageRequest& value);
+    static Result<MachineUsageRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<MarkWorkspacesProviderManagedRequest> {
     static Result<Json> encode(const MarkWorkspacesProviderManagedRequest& value);
     static Result<MarkWorkspacesProviderManagedRequest> decode(const Json& value);
@@ -3686,6 +3882,12 @@ struct Codec<SendKeyRequest> {
 };
 
 template <>
+struct Codec<ServerStatsRequest> {
+    static Result<Json> encode(const ServerStatsRequest& value);
+    static Result<ServerStatsRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetCellPixelsRequest> {
     static Result<Json> encode(const SetCellPixelsRequest& value);
     static Result<SetCellPixelsRequest> decode(const Json& value);
@@ -3887,6 +4089,12 @@ template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineUsageChangedEvent> {
+    static Result<Json> encode(const MachineUsageChangedEvent& value);
+    static Result<MachineUsageChangedEvent> decode(const Json& value);
 };
 
 template <>

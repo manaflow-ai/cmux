@@ -81,13 +81,20 @@ export type CreateOptions = {
    */
   memoryMb?: number;
   /**
-   * Machine-level environment injected at create time (e.g. the coderouter
-   * model-plane env: OPENAI_BASE_URL + a per-machine route token). Values may
-   * be secrets: drivers must pass them to the provider's create call only and
-   * never echo them into VMHandle.providerMetadata, which is persisted.
-   * Providers without machine-level env support ignore it.
+   * The snapshot's own shape when the image is a sized ladder entry
+   * (services/vms/images/sizes.ts): the machine boots at the shape that was
+   * sold and the driver must not read it back or resize. Absent for size-less
+   * images, which are grown to `memoryMb`.
    */
-  envs?: Readonly<Record<string, string>>;
+  imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
+  /**
+   * Per-domain request headers the provider's TLS edge injects into every
+   * request the guest makes to `domain` (the coderouter route token and the
+   * VM id). Header values are secrets: drivers pass them to the provider's
+   * create call only, never persist them, and never write them into the guest.
+   * Providers without an injecting edge must refuse them rather than drop them.
+   */
+  edgeRules?: readonly VmEdgeRule[];
   /**
    * The owner's private network to attach the machine to. When present the
    * machine takes an address on it and its session daemon is reachable only
@@ -103,7 +110,22 @@ export type ProviderNetworkRef = {
   readonly id: string;
 };
 
-export type RestoreOptions = {
+/** One edge header-injection rule; see CreateOptions.edgeRules. */
+export type VmEdgeRule = {
+  /** Exact host name the guest dials (no port, no scheme). */
+  readonly domain: string;
+  /** Headers the edge sets on every request to `domain`, overwriting the guest's. */
+  readonly headers: Readonly<Record<string, string>>;
+  /**
+   * Where the edge connects for `domain` (port 443). Lets the guest dial one
+   * fixed alias while each deployment routes it to its own API host. Absent:
+   * the edge connects to `domain` itself.
+   */
+  readonly destinationHost?: string;
+};
+
+/** Create-time inputs a restore-from-snapshot shares with a fresh create. */
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -328,7 +350,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
   /** Read a network back, or null when it no longer exists at the provider. */
   getNetwork(networkId: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */

@@ -2337,6 +2337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // widens coverage to other entrypoints.
         let needsTerminationSnapshotBackstop = !isTerminatingApp
         isTerminatingApp = true
+        MemoryPressureMonitor.shared.stop()
         computerUseUXCoordinator.teardownForTermination()
         if needsTerminationSnapshotBackstop {
             _ = saveSessionSnapshotIncludingProcessDetectedIndexes(includeScrollback: true, removeWhenEmpty: false)
@@ -2425,6 +2426,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         VMClient.bootstrap(auth: auth.coordinator)
         RemotesClient.bootstrap(auth: auth.coordinator)
         AIAccountsClient.bootstrap(auth: auth.coordinator)
+        CoderouterClient.bootstrap(auth: auth.coordinator)
+        MachineUsageClient.bootstrap(auth: auth.coordinator)
         PhonePushClient.shared.configure(auth: auth.coordinator)
         MobileHostService.shared.configure(auth: auth.coordinator)
         caffeineController.onStateChange = { [weak self] enabled in
@@ -8631,13 +8634,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     imageKinds: page?.limits?.imageKinds ?? [],
                     submit: { [weak self] request in
                         guard let self else { return false }
-                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, completion in
+                        return MachineCreateCoordinator.shared.start(request) { [weak self] arguments, progress, completion in
                             guard let self else { return false }
                             return self.launchCloudVMBaseOpen(
                                 workspace: workspace,
                                 socketPath: socketPath,
                                 preferredWindow: launchWindow,
                                 arguments: arguments,
+                                onProgress: progress,
                                 onCompletion: { result in
                                     completion(result)
                                     onCompletion?(result)
@@ -8680,6 +8684,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         socketPath: String,
         preferredWindow: NSWindow?,
         arguments: [String],
+        onProgress: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)?
     ) -> Bool {
         if let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {
@@ -8694,6 +8699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 "CMUX_CLOUD_ATTACH_RETRY_LIMIT": "12",
                 "CMUX_CLOUD_ATTACH_RETRY_DELAY_SECONDS": "2",
             ],
+            onOutput: onProgress,
             onCompletion: { completion in
                 if !completion.succeeded,
                    let loadingPanel = workspace.panels.values.first(where: { $0.panelType == .cloudVMLoading }) as? CloudVMLoadingPanel {

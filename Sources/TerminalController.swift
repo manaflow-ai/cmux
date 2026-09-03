@@ -554,10 +554,25 @@ class TerminalController {
             NotificationCenter.default.addObserver(
                 forName: name,
                 object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.scheduleSocketReadSnapshotRefresh()
+                // These topology notifications are posted by MainActor-owned
+                // workspace/window mutations. A nil queue keeps invalidation
+                // synchronous at the notification boundary.
+                queue: nil
+            ) { [weak self] notification in
+                let topologyChanged = name == .mainWindowContextsDidChange
+                    || name == .workspaceOrderDidChange
+                    || (name == .workspacePaneGeometryDidChange
+                        && notification.userInfo?[GhosttyNotificationKey.topologyChanged] as? Bool == true)
+                // This observer is explicitly installed on the main queue.
+                // Invalidate before creating the deferred publication task so
+                // a queued socket read cannot observe a completed claim after
+                // the topology has already changed.
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if topologyChanged {
+                        self.invalidateSocketHandleTopologyRefresh()
+                    }
+                    self.scheduleSocketReadSnapshotRefresh()
                 }
             }
         }
@@ -677,11 +692,11 @@ class TerminalController {
         }
     }
 
-    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () throws -> T) rethrows -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
         defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
-        return body()
+        return try body()
     }
 
     /// The stack of socket command keys currently executing on this thread
@@ -1185,6 +1200,14 @@ class TerminalController {
                     return response
                 }
             }
+            if request.method == "surface.read_selection" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 5
+                ) {
+                    await self.v2SurfaceReadSelection(params: parsedRequest.params)
+                }
+            }
             if request.method == "mobile.task.models.list" {
                 return v2AsyncResultCall(
                     id: request.id,
@@ -1562,6 +1585,26 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "vault.sessions":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultSessions(params: request.params)
+            }
+        case "vault.search":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultSearch(params: request.params)
+            }
+        case "vault.checkpoints":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpoints(params: request.params)
+            }
+        case "vault.checkpoint":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpointCreate(params: request.params)
+            }
+        case "vault.fork":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultFork(params: request.params)
+            }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "surface.ssh_session_attach.resolve":
@@ -1690,6 +1733,8 @@ class TerminalController {
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
             return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("coderouter."):
+            return socketWorkerCoderouterResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -2800,6 +2845,11 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "vault.sessions",
+            "vault.search",
+            "vault.checkpoints",
+            "vault.checkpoint",
+            "vault.fork",
             "caffeine.status",
             "caffeine.set",
             "comments.list",
@@ -2842,6 +2892,13 @@ class TerminalController {
             "auth.begin_sign_in",
             "auth.sign_out",
             "vm.list",
+            "vm.publication_list",
+            "vm.publication_create",
+            "vm.publication_verify",
+            "vm.publication_update",
+            "vm.publication_delete",
+            "vm.domain_list",
+            "vm.domain_verify",
             "vm.create",
             "vm.base_open",
             "vm.base_reset",
@@ -2883,6 +2940,13 @@ class TerminalController {
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "coderouter.claude_upstream.get",
+            "coderouter.claude_upstream.set",
+            "coderouter.claude_upstream.add",
+            "coderouter.claude_upstream.update",
+            "coderouter.claude_upstream.remove",
+            "coderouter.claude_upstream.clear",
+            "coderouter.machines",
             "window.list",
             "window.current",
             "window.focus",
@@ -2976,6 +3040,7 @@ class TerminalController {
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
+            "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
             "pane.list",
@@ -3952,7 +4017,13 @@ class TerminalController {
               !code.isEmpty else {
             return nil
         }
-        return ["backend_code": code, "http_status": status]
+        var payload: [String: Any] = ["backend_code": code, "http_status": status]
+        // The server trace id (support reference) travels with the structured
+        // error so the CLI and scripts can log it without parsing display text.
+        if let traceId = object["traceId"] as? String, !traceId.isEmpty {
+            payload["trace_id"] = traceId
+        }
+        return payload
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
@@ -4049,7 +4120,7 @@ class TerminalController {
         return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
+    func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
@@ -4113,6 +4184,7 @@ class TerminalController {
                 }
             }
         }
+        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
     }
 
     // MARK: - V2 Context Resolution

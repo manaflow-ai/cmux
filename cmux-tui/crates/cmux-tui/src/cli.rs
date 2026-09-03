@@ -82,7 +82,7 @@ pub(super) fn is_remote_invocation(args: &[String]) -> bool {
                     || value.starts_with("--session=")
                     || value.starts_with("--machine=") =>
             {
-                index += 1
+                index += 1;
             }
             value if value.starts_with('-') => return false,
             value => return REMOTE_COMMANDS.contains(&value),
@@ -229,7 +229,10 @@ fn parse_command(
             .collect::<Vec<_>>();
         let topic = match words.as_slice() {
             ["server", action, ..]
-                if matches!(*action, "start" | "ensure" | "status" | "stop" | "reload-config") =>
+                if matches!(
+                    *action,
+                    "start" | "ensure" | "status" | "stats" | "stop" | "reload-config"
+                ) =>
             {
                 Some(format!("server {action}"))
             }
@@ -399,6 +402,7 @@ fn scope_help_for(
         "server start" => Cow::Borrowed(catalog.local_server.start_help),
         "server ensure" => Cow::Borrowed(catalog.local_server.ensure_help),
         "server status" => Cow::Borrowed(catalog.local_server.status_help),
+        "server stats" => Cow::Borrowed(catalog.local_server.stats_help),
         "server stop" => Cow::Borrowed(catalog.local_server.stop_help),
         "server reload-config" => Cow::Borrowed(catalog.local_server.reload_config_help),
         "machine" => Cow::Borrowed(MACHINE_HELP),
@@ -768,6 +772,31 @@ mod tests {
         assert_eq!(global.session.as_deref(), Some("review-session"));
         assert_eq!(global.socket, Some(PathBuf::from("/tmp/review.sock")));
         assert!(matches!(plan.action, lifecycle::ServerAction::ReloadConfig));
+    }
+
+    #[test]
+    fn server_stats_parses_with_routing_options() {
+        let ParsedCommand::Command { global, plan: CommandPlan::Server(plan) } =
+            parse(&strings(&["server", "stats", "--session", "review-session"])).unwrap()
+        else {
+            panic!("server stats must produce a server plan");
+        };
+        assert_eq!(global.session.as_deref(), Some("review-session"));
+        assert!(matches!(plan.action, lifecycle::ServerAction::Stats));
+        assert!(
+            scope_help_for("server stats", crate::localization::catalog()).contains("server stats")
+        );
+    }
+
+    #[test]
+    fn server_stats_help_routes_to_the_stats_topic() {
+        let ParsedCommand::Help(Some(topic)) =
+            parse(&strings(&["server", "stats", "--help"])).unwrap()
+        else {
+            panic!("server stats help must produce a scoped help topic");
+        };
+        assert_eq!(topic, "server stats");
+        assert!(scope_help_for(&topic, crate::localization::catalog()).contains("--json"));
     }
 
     #[test]

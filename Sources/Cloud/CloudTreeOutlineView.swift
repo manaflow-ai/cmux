@@ -336,7 +336,9 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             switch node.kind {
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats))
+                // Same rule as usageLine (nil for empty totals), without formatting text per row.
+                let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
+                return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
             case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))
             case .terminalsPool, .displaysPool, .workspacesGroup, .portsGroup, .browsersGroup, .workspace, .localWorkspace, .terminal, .display, .browser, .port, .placeholder:

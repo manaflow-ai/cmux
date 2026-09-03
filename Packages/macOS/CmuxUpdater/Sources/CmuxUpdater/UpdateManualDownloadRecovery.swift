@@ -24,13 +24,22 @@ public struct UpdateManualDownloadRecovery: Sendable {
     ///
     /// - Parameters:
     ///   - stableDownloadURLString: Direct DMG URL for the stable channel.
-    ///   - nightlyDownloadURLString: Direct DMG URL for the nightly channel.
+    ///   - nightlyDownloadURLString: Direct DMG URL for the nightly channel. Defaults to the
+    ///     nightly DMG for `hostArchitecture`, since nightly ships one DMG per architecture.
+    ///   - hostArchitecture: The architecture whose nightly DMG is offered by default.
     public init(
         stableDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/latest/download/cmux-macos.dmg",
-        nightlyDownloadURLString: String = "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg"
+        nightlyDownloadURLString: String? = nil,
+        hostArchitecture: UpdateHostArchitecture = .current
     ) {
         self.stableDownloadURLString = stableDownloadURLString
         self.nightlyDownloadURLString = nightlyDownloadURLString
+            ?? Self.nightlyDownloadURLString(for: hostArchitecture)
+    }
+
+    /// The direct nightly DMG URL for `architecture`.
+    public static func nightlyDownloadURLString(for architecture: UpdateHostArchitecture) -> String {
+        "https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos-\(architecture.rawValue).dmg"
     }
 
     /// Returns a direct download URL when manually downloading is a sensible recovery for

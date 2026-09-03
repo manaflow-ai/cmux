@@ -122,6 +122,15 @@
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
     "backToSignIn": "サインインに戻る"
   },
+  "cloudPublicationAccess": {
+    "title": "アクセス権がありません",
+    "signIn": "cmux にサインイン",
+    "signedInAs": "{identity} としてサインイン中",
+    "switchAccount": "アカウントを切り替える",
+    "invalidTitle": "このアクセスリンクは無効です",
+    "invalidBody": "サイトに戻って、もう一度お試しください。",
+    "footer": "アクセスは cmux によって管理されています。"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -145,7 +154,9 @@
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "adminGroup": "管理",
+      "adminPro": "Pro アクセス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -164,7 +175,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
       "title": "coderouter",
-      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "machines": {
+        "title": "マシン",
+        "description": "{team} のマシン別 coderouter 使用状況（過去{days}日間）。",
+        "machineColumn": "マシン",
+        "tokensColumn": "合計トークン",
+        "apiEquivalentColumn": "API換算額",
+        "unnamed": "名前のないマシン",
+        "empty": "過去{days}日間に coderouter を使用したマシンはありません。",
+        "unavailable": "マシン別の使用状況は現在利用できません。",
+        "estimateNote": "API換算額は公開定価による推定で、実際の請求額ではありません。"
+      }
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -200,17 +222,17 @@
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
         "pendingBody": "プランは{date}に終了する予定です。",
-        "monthlyPrice": "$30/月",
-        "annualPrice": "$24/月（年払い）",
-        "legacyAnnualPrice": "$20/月（年払い）"
+        "monthlyPrice": "${amount}/月",
+        "annualPrice": "${monthly}/月（年払い）",
+        "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月",
-        "annualPrice": "$28/シート/月（年払い）"
+        "price": "${amount}/シート/月",
+        "annualPrice": "${monthly}/シート/月（年払い）"
       },
       "details": {
         "renewsOn": "更新日",
@@ -284,6 +306,146 @@
         "leave": "TestFlightから退出"
       }
     },
+    "admin": {
+      "eyebrow": "管理",
+      "title": "Pro アクセス",
+      "description": "任意のアカウント、チーム、メールに Pro を付与または解除し、有料顧客をダウングレードします。このページを開けるのは確認済みの {domains} アカウントのみです。",
+      "search": {
+        "label": "ユーザー、チーム、またはメールを検索",
+        "placeholder": "メール、名前、チーム、または ID",
+        "button": "検索",
+        "searching": "検索中…",
+        "hint": "メインのメール、表示名、チーム名、または完全一致の ID で検索します。各最大 25 件。すべての変更は確認を求めます。"
+      },
+      "sections": {
+        "users": "ユーザー ({count})",
+        "teams": "チーム ({count})",
+        "pending": "保留中のメール付与 ({count})"
+      },
+      "results": {
+        "user": "ユーザー",
+        "team": "チーム",
+        "email": "メール",
+        "plan": "プラン",
+        "access": "アクセス",
+        "stripe": "Stripe",
+        "grant": "手動付与",
+        "actions": "操作",
+        "empty": "一致するユーザー、チーム、保留中の付与はありません。",
+        "noEmail": "メールなし",
+        "verified": "確認済み",
+        "unverified": "未確認",
+        "members": "{count} 人のメンバー",
+        "noSubscription": "サブスクリプションなし",
+        "cancelling": "期間終了時に解約",
+        "membersUnknown": "メンバー数を取得できません"
+      },
+      "access": {
+        "pro": "Pro",
+        "team": "Team",
+        "free": "Free"
+      },
+      "plans": {
+        "pro": "Pro",
+        "founders": "Founders",
+        "team": "Team"
+      },
+      "grant": {
+        "none": "なし",
+        "current": "{plan}",
+        "by": "{who} · {when}"
+      },
+      "pending": {
+        "waiting": "初回の確認済みサインイン時に適用"
+      },
+      "emailGrant": {
+        "title": "このメールのアカウントはまだありません",
+        "body": "{email} に今すぐ Pro を付与します。そのメールが確認済みのメールボックスで初めてサインインしたときに自動的に適用されます。"
+      },
+      "actions": {
+        "grantPro": "Pro を付与",
+        "grantFounders": "Founders を付与",
+        "grantTeam": "Team を付与",
+        "removeGrant": "付与を解除",
+        "downgrade": "ダウングレード",
+        "resumeSubscription": "サブスクリプションを再開",
+        "revokePending": "取り消し",
+        "saving": "保存中…"
+      },
+      "confirm": {
+        "cancel": "キャンセル",
+        "grant": "付与を確定",
+        "grantTitle": "{plan} を付与しますか？",
+        "grantUserBody": "このアカウントはサブスクリプションなしで全機能の {plan} アクセスを得ます。管理者が解除するまで継続します。",
+        "grantTeamBody": "{count} 人のメンバー全員がサブスクリプションなしで Team アクセスを得ます。管理者が解除するまで継続します。",
+        "grantEmailBody": "付与は今保存され、そのメールの初回の確認済みサインイン時に適用されます。必要であればそれまでにここで取り消せます。",
+        "removeGrantTitle": "手動付与を解除しますか？",
+        "removeGrantBody": "アクセスは直ちに Free になります。",
+        "removeTeamGrantBody": "すべてのメンバーが直ちに Team アクセスを失います。",
+        "removeGrantBodyStripe": "有効な Stripe サブスクリプションが引き続きアクセスを付与します。それも終了するにはダウングレードを使用してください。",
+        "downgradeTitle": "この有料顧客をダウングレードしますか？",
+        "downgradeBody": "Stripe サブスクリプションは現在の期間終了時に解約されます。それまでアクセスは継続し、返金はありません。",
+        "downgradeTeamBody": "チームの Stripe サブスクリプションは現在の期間終了時に解約されます。それまで全メンバーのアクセスは継続し、返金はありません。",
+        "resumeTitle": "サブスクリプションを再開しますか？",
+        "resumeBody": "予定されていた解約が取り消され、サブスクリプションは通常どおり更新されます。",
+        "revokePendingTitle": "この保留中の付与を取り消しますか？",
+        "revokePendingBody": "このメールがサインインしても何も適用されません。",
+        "grantTeamBodyUnknown": "メンバー一覧を読み込めなかったため、この付与の範囲が不明です。再読み込みしてからお試しください。"
+      },
+      "notices": {
+        "granted": "{target} に {plan} を付与しました。",
+        "grantRemoved": "{target} の手動付与を解除しました。",
+        "downgraded": "{target} は現在の期間終了時に解約されます。",
+        "resumed": "{target} のサブスクリプションを再開しました。",
+        "emailGranted": "{target} の初回の確認済みサインイン時に {plan} が適用されます。",
+        "pendingRevoked": "{target} の保留中の付与を取り消しました。",
+        "supersededNotCleared": "付与は記録されましたが、以前の付与が {count} 件のアカウントでまだ有効です。そのメールを検索してユーザー行の「付与を解除」を使用するか、次回サインイン時に解除されます。"
+      },
+      "errors": {
+        "network": "ネットワークエラーです。もう一度お試しください。",
+        "forbidden": "このアカウントは管理者ではありません。確認済みの cmux.com、manaflow.ai、または manaflow.com のメールでサインインしてください。",
+        "notFound": "一致するアカウントまたはサブスクリプションがありません。",
+        "conflict": "このアカウントへの別の変更が進行中か、メールが複数のアカウントに一致します。",
+        "billing": "請求機能は現在利用できません。",
+        "generic": "リクエストに失敗しました。しばらくしてからお試しください。"
+      },
+      "list": {
+        "title": "すべての Pro ユーザー",
+        "description": "Pro アクセスを持つすべてのアカウントとその理由: 請求ミラーの有効な Stripe サブスクリプション、アカウント一覧を走査して見つけた手動付与、初回サインイン待ちの付与。",
+        "reload": "再読み込み",
+        "loading": "読み込み中…",
+        "stats": {
+          "proUsers": "Pro ユーザー",
+          "subscribers": "Stripe 契約者",
+          "userGrants": "手動付与",
+          "teams": "チーム",
+          "pending": "保留中の付与"
+        },
+        "scanUsers": "アカウント",
+        "scanTeams": "チーム",
+        "scanProgress": "手動付与を探して{label}を走査中… {scanned} 件確認。",
+        "scanDone": "{scanned} 件の{label}を走査しました。",
+        "scanFailed": "{label}の走査は {scanned} 件で停止しました。",
+        "scanTruncated": "一覧の終端に達する前にページ上限に達しました。",
+        "scanning": "走査中…",
+        "empty": "なし。",
+        "sections": {
+          "subscribers": "Stripe Pro 契約者 ({count})",
+          "userGrants": "手動付与ユーザー ({count})",
+          "teams": "Team アクセスを持つチーム ({count})",
+          "pending": "保留中のメール付与 ({count})"
+        },
+        "periodEnd": "期間終了",
+        "userId": "ユーザー ID",
+        "teamId": "チーム ID",
+        "source": "ソース",
+        "detail": "詳細",
+        "sourceStripe": "Stripe サブスクリプション",
+        "sourceGrant": "手動付与",
+        "seats": "{count} シート",
+        "truncated": "この一覧はソースごとに 5,000 行までに制限されており、一部の行は表示されていません。見つからないものは検索してください。"
+      }
+    },
     "aiAccounts": {
       "metaTitle": "AIアカウント — cmux",
       "metaDescription": "cmuxのチームAIプロバイダーアカウントを管理します。",
@@ -341,6 +503,50 @@
       "opencodeTool": "OpenCode",
       "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude アップストリームアカウント",
+      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。",
+      "emptyTitle": "Claude アップストリームアカウントがありません",
+      "emptyBody": "アカウントを追加するまで、このチームの Cloud VM からの Claude リクエストは失敗します。",
+      "accountsLabel": "{count} 件のアカウント",
+      "loadErrorTitle": "Claudeアップストリームを読み込めませんでした",
+      "loadErrorBody": "アップストリーム設定を読み取れませんでした。しばらくしてから再試行してください。",
+      "kindSelectorLabel": "アップストリームの種類",
+      "kindApiKey": "Anthropic APIキー",
+      "kindOauth": "Claude Code OAuthトークン",
+      "kindBedrock": "Amazon Bedrock",
+      "labelField": "ラベル",
+      "labelPlaceholder": "任意。例: work",
+      "apiKeyField": "APIキー",
+      "oauthTokenField": "OAuthトークン",
+      "oauthHint": "自分のマシンで次のコマンドを実行して長期トークンを作成します:",
+      "regionField": "AWSリージョン",
+      "accessKeyIdField": "アクセスキーID",
+      "secretAccessKeyField": "シークレットアクセスキー",
+      "sessionTokenField": "セッショントークン",
+      "optionalPlaceholder": "任意",
+      "saveAction": "アカウントを追加",
+      "savingAction": "追加中",
+      "saveSuccess": "アカウントを追加しました。",
+      "saveError": "アカウントを追加できませんでした。",
+      "validationError": "認証情報の形式を確認して再試行してください。",
+      "teamAccessError": "このチームへのアクセス権がありません。",
+      "removeAction": "削除",
+      "removingAction": "削除中",
+      "removeError": "アカウントを削除できませんでした。",
+      "removeConfirmTitle": "この Claude アップストリームアカウントを削除しますか?",
+      "removeConfirmBody": "このアカウントに固定されたマシンはチームの他のアカウントに移ります。最後のアカウントの場合、新しいアカウントを追加するまでこのチームの Cloud VM からの Claude リクエストは失敗します。",
+      "cancelAction": "キャンセル",
+      "stateActive": "有効",
+      "stateDisabled": "無効",
+      "coolingDown": "{until} までクールダウン中",
+      "lastFailure": "最後の失敗 {code}",
+      "lastUsed": "最終使用 {at}",
+      "neverUsed": "未使用",
+      "enableAction": "有効にする",
+      "disableAction": "無効にする",
+      "updateError": "アカウントを更新できませんでした。"
     }
   },
   "vault": {
@@ -573,12 +779,12 @@
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
       "cta": "Pro を入手",
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "アクティブな Cloud VM は無制限",
+        "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク",
+        "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
       "vaultFeatures": [
@@ -591,7 +797,6 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
@@ -671,9 +876,23 @@
         {
           "label": "同時 Cloud VM 数",
           "free": "false",
+          "pro": "50",
+          "team": "ユーザーごとに 50",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "Cloud VM のサイズ",
+          "free": "false",
+          "pro": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "team": "5 vCPU / 20 GB RAM / 200 GB ディスク",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "ワークスペース",
+          "free": "無制限",
           "pro": "無制限",
           "team": "無制限",
-          "enterprise": "カスタム"
+          "enterprise": "無制限"
         },
         {
           "label": "iOS アプリ",
@@ -744,7 +963,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではアクティブなマシンを無制限に利用できます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシン（各 5 vCPU / 20 GB RAM / 200 GB ディスク）を利用できます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -757,7 +976,7 @@
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）です。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。有料プランではアクティブな Cloud VM を無制限に利用でき、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用でき、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -765,7 +984,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
+          "a": "はい。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -2910,6 +3129,8 @@
     "metaDescription": "cmux NIGHTLYをダウンロード。mainの最新コミットから自動ビルドされる独立アプリ。安定版と並行して動作し、独自の自動アップデート機能付き。",
     "description": "cmux NIGHTLYはmainの最新コミットから自動ビルドされます。独自のバンドルIDを持つため、安定版と競合せず並行して動作します。新機能をリリース前にテストできます。",
     "download": "Mac版 NIGHTLYをダウンロード",
+    "appleSilicon": "Apple silicon",
+    "intel": "Intel",
     "warning": "ナイトリービルドにはバグや未完成の機能が含まれる場合があります。問題が発生した場合は<githubLink>GitHub</githubLink>または<discordLink>Discordの#nightly-bugs</discordLink>で報告し、安定版に切り替えてください。"
   },
   "languageSwitcher": {

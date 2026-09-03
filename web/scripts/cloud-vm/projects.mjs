@@ -44,7 +44,6 @@ export const requiredRuntimeEnvKeys = [
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
   "FREESTYLE_API_KEY",
-  "FREESTYLE_SANDBOX_SNAPSHOT",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
   "PGDATABASE",
@@ -98,6 +97,11 @@ export const legacyCloudVmEnvKeys = [
   "RIVET_PUBLIC_ENDPOINT",
   "RIVET_RUNNER_VERSION",
   "RIVET_TOKEN",
+  // Subrouter and coderouter access gates were removed: team membership is
+  // the only requirement. The runtime ignores these keys; delete them.
+  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+  "SUBROUTER_ALLOWED_TEAM_IDS",
+  "CODEROUTER_HOSTED_PRO_REQUIRED",
 ];
 
 export function normalizeTarget(value) {

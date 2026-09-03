@@ -666,7 +666,24 @@ final class WindowTerminalPortal: NSObject {
     /// transaction can commit — the main thread wedges permanently. These
     /// drain on the next main-queue turn instead.
     private var pendingDeferredSurfaceRefreshes: [ObjectIdentifier: String] = [:]
+    /// Refreshes requested while a window resize transaction is active. They
+    /// are delivered only after the explicit end-resize geometry pass, so a
+    /// stale drawable can never be presented from an intermediate frame.
+    private var pendingLiveResizeSurfaceRefreshes: [ObjectIdentifier: String] = [:]
     private var hasDeferredSurfaceRefreshScheduled = false
+    /// `didEndLiveResize` is delivered after AppKit stops reporting
+    /// `inLiveResize`, but the final portal pass is still queued. Keep the
+    /// renderer phase closed across that gap so an intervening layout cannot
+    /// publish a drawable before the final pane frames are committed.
+    private var liveResizeEndPending = false
+    /// Explicitly tracks the resize phase propagated to hosted views. This is
+    /// separate from AppKit's `inLiveResize`, which can remain true briefly
+    /// after the end notification and must not relatch the final pass.
+    private var liveResizePhaseActive = false
+    /// Prevents a late native `didResize` callback from reopening the phase
+    /// after the portal has committed the end pass but before AppKit clears
+    /// `inLiveResize`. A new `willStartLiveResize` resets this marker.
+    private var liveResizeEndedWhileNativeResize = false
     private var hasExternalGeometrySyncScheduled = false
     private var pendingExternalGeometrySyncRequiresImmediate = false
     /// True while some request since the last executed pass asked for the
@@ -703,6 +720,7 @@ final class WindowTerminalPortal: NSObject {
         weak var hostedView: GhosttySurfaceScrollView?
         weak var anchorView: NSView?
         var visibleInUI: Bool
+        var awaitingGeometrySettlement: Bool
         var zPriority: Int
         var transientRecoveryRetriesRemaining: Int
     }
@@ -741,10 +759,16 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    /// Creates a portal and installs its host into the window's content overlay.
+    /// When requested, the initial hierarchy is laid out before the first bind.
     init(window: NSWindow, syncLayout: Bool = true) {
         self.window = window
         super.init()
         hostView.wantsLayer = true
+        // The portal is a sibling of the SwiftUI content tree. Keep a
+        // view-level clip as the durable boundary while AppKit and the
+        // layer-hosting terminal descendants change frames during a resize.
+        hostView.clipsToBounds = true
         hostView.layer?.masksToBounds = true
         hostView.postsFrameChangedNotifications = true
         hostView.postsBoundsChangedNotifications = true
@@ -773,10 +797,28 @@ final class WindowTerminalPortal: NSObject {
         return body()
     }
 
+    /// Installs the window and hierarchy observers that drive one portal-owned
+    /// geometry state machine for live resize and ordinary layout changes.
     private func installGeometryObservers(for window: NSWindow) {
         guard geometryObservers.isEmpty else { return }
 
         let center = NotificationCenter.default
+        geometryObservers.append(center.addObserver(
+            forName: NSWindow.willStartLiveResizeNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.selfFrameWriteDepth == 0 else { return }
+                // A new drag is the authoritative begin boundary. Clear any
+                // end marker left by a prior transaction before a frame tick
+                // can arrive for this one.
+                self.liveResizeEndPending = false
+                self.liveResizeEndedWhileNativeResize = false
+                self.liveResizePhaseActive = true
+                self.setHostedViewsWindowLiveResizeActive(true)
+            }
+        })
         geometryObservers.append(center.addObserver(
             forName: NSWindow.didResizeNotification,
             object: window,
@@ -815,6 +857,13 @@ final class WindowTerminalPortal: NSObject {
 #endif
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
                 if self.isWindowLiveResizeActive {
+                    // Once an end pass has committed, a late native callback
+                    // belongs to the old transaction. Wait for a new
+                    // willStartLiveResize instead of reopening the renderer
+                    // gate and stranding the next settled geometry.
+                    guard !self.liveResizeEndedWhileNativeResize else { return }
+                    self.liveResizePhaseActive = true
+                    self.setHostedViewsWindowLiveResizeActive(true)
                     // Live resize: run the pass INSIDE this tick so hosted
                     // frames commit together with the window's new size. The
                     // pass forces subtree layout first (fresh anchor frames)
@@ -838,6 +887,12 @@ final class WindowTerminalPortal: NSObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self, self.selfFrameWriteDepth == 0 else { return }
+                self.liveResizeEndPending = true
+                self.liveResizePhaseActive = true
+                // Close the gate immediately. The queued final pass owns the
+                // release, so a view callback cannot publish an intermediate
+                // drawable in the interval between didEnd and that pass.
+                self.setHostedViewsWindowLiveResizeActive(true)
                 self.scheduleExternalGeometrySynchronize()
             }
         })
@@ -925,6 +980,20 @@ final class WindowTerminalPortal: NSObject {
         if isWindowLiveResizeActiveOverrideForTesting { return true }
 #endif
         return hostView.inLiveResize || window?.inLiveResize == true
+    }
+
+    /// Whether renderer size writes must wait for the final live-resize pass.
+    private var isRendererResizeDeferred: Bool {
+        liveResizePhaseActive || liveResizeEndPending
+    }
+
+    /// Propagate the window resize phase to each hosted terminal. Pane frames
+    /// may follow every live-resize tick, but renderer/drawable geometry must
+    /// stay on one committed epoch until the final pass.
+    private func setHostedViewsWindowLiveResizeActive(_ active: Bool) {
+        for entry in entriesByHostedId.values {
+            entry.hostedView?.setWindowLiveResizeActive(active)
+        }
     }
 
     /// The portal whose sync pass is currently on the stack, if any. A
@@ -1024,7 +1093,8 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func synchronizeLayoutHierarchy() {
+    @discardableResult
+    private func synchronizeLayoutHierarchy() -> Bool {
         // Idempotence at the choke point. Several paths funnel here (window
         // notifications, anchor geometry callbacks, deferred full syncs,
         // transient recovery), each forcing subtree layout — and each layout
@@ -1035,7 +1105,7 @@ final class WindowTerminalPortal: NSObject {
         // and the echo dies here, whichever path carried it. AppKit still
         // runs pending inner layout before display on its own.
         let signature = externalGeometrySignature()
-        if let last = lastHierarchySyncSignature, last == signature { return }
+        if let last = lastHierarchySyncSignature, last == signature { return true }
 #if DEBUG
         RemoteTmuxSizingDiagnostics.fullHierarchySyncCount += 1
 #endif
@@ -1045,9 +1115,11 @@ final class WindowTerminalPortal: NSObject {
         hostView.layoutSubtreeIfNeeded()
         _ = synchronizeHostFrameToReference()
         lastHierarchySyncSignature = externalGeometrySignature()
+        return false
     }
 
     private var lastHierarchySyncSignature: ExternalGeometrySignature?
+    private var geometrySettlementPassesRemaining = 4
 
     @discardableResult
     private func synchronizeHostFrameToReference() -> Bool {
@@ -1080,6 +1152,8 @@ final class WindowTerminalPortal: NSObject {
         return frameInContainer.width > 1 && frameInContainer.height > 1
     }
 
+    /// Reconciles the portal hierarchy and every live entry against the latest
+    /// external geometry snapshot, preserving one ordered renderer phase.
     fileprivate func synchronizeAllEntriesFromExternalGeometryChange() {
         if let activePortalId = Self.currentlySynchronizingPortalId {
             if activePortalId == ObjectIdentifier(self) {
@@ -1103,6 +1177,10 @@ final class WindowTerminalPortal: NSObject {
 #endif
         defer {
             Self.currentlySynchronizingPortalId = nil
+            if !isRendererResizeDeferred {
+                setHostedViewsWindowLiveResizeActive(false)
+                flushPendingLiveResizeSurfaceRefreshesIfReady()
+            }
             if resyncRequestedDuringPass {
                 resyncRequestedDuringPass = false
                 DispatchQueue.main.async { [weak self] in
@@ -1118,10 +1196,70 @@ final class WindowTerminalPortal: NSObject {
         // carries the exact geometry the last pass left behind, so it dies
         // here in one cheap comparison; any real change differs somewhere
         // and syncs fully.
-        guard ensureInstalled() else { return }
-        synchronizeLayoutHierarchy()
-        synchronizeAllHostedViews(excluding: nil)
+        // The end notification is the authoritative phase boundary. Do not
+        // re-check `inLiveResize` here: AppKit can clear that property one
+        // callback later, and waiting for it would leave the renderer gate
+        // latched across the final frame.
+        let nativeResizeActive = isWindowLiveResizeActive
+        if !nativeResizeActive {
+            liveResizeEndedWhileNativeResize = false
+        }
+        // A late native callback can reach this method after the end pass has
+        // already committed. Ignore that old transaction until a new
+        // willStartLiveResize establishes a fresh phase.
+        if nativeResizeActive,
+           liveResizeEndedWhileNativeResize,
+           !liveResizeEndPending {
+            return
+        }
+        if nativeResizeActive,
+           !liveResizeEndPending,
+           !liveResizeEndedWhileNativeResize {
+            liveResizePhaseActive = true
+        }
+        let endingLiveResize = liveResizeEndPending
+        setHostedViewsWindowLiveResizeActive(isRendererResizeDeferred)
+        // Installation only mutates hierarchy here. Flush layout once below,
+        // then reconcile all hosted views against that same geometry snapshot.
+        guard ensureInstalled(syncLayout: false) else {
+            // Keep the explicit phase finite even if AppKit has temporarily
+            // removed the portal target during teardown or reparenting. The
+            // defer block below then releases every hosted renderer and flushes
+            // any refreshes queued for the resize end.
+            if endingLiveResize {
+                liveResizeEndPending = false
+                liveResizePhaseActive = false
+                liveResizeEndedWhileNativeResize = nativeResizeActive
+                setHostedViewsWindowLiveResizeActive(false)
+            }
+            return
+        }
+        let hierarchyWasAlreadySettled = synchronizeLayoutHierarchy()
+        if endingLiveResize {
+            // The window's final frame and split-tree layout are now current.
+            // Open the renderer phase only after that geometry is committed;
+            // the per-host pass below applies the final drawable sizes.
+            liveResizeEndPending = false
+            liveResizePhaseActive = false
+            liveResizeEndedWhileNativeResize = nativeResizeActive
+            setHostedViewsWindowLiveResizeActive(false)
+        }
+        synchronizeAllHostedViews(
+            excluding: nil,
+            syncLayout: false,
+            portalIsPrepared: true
+        )
         reconcileVisibleHostedViewsAfterGeometrySync(reason: "portal.externalGeometrySync")
+        if hierarchyWasAlreadySettled {
+            finishVisibleEntryGeometrySettlements()
+        } else if entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+            if geometrySettlementPassesRemaining > 0 {
+                geometrySettlementPassesRemaining -= 1
+                scheduleExternalGeometrySynchronize(forceImmediate: false)
+            } else {
+                finishVisibleEntryGeometrySettlements()
+            }
+        }
     }
 
 #if DEBUG
@@ -1223,9 +1361,16 @@ final class WindowTerminalPortal: NSObject {
         dividerOverlayView.needsDisplay = true
     }
 
+    /// Ensures the portal host is attached at the current content-overlay
+    /// target and restores its clipping/ordering invariants.
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
         guard let window else { return false }
+        // AppKit can re-materialize a layer-backed host while its window is
+        // being resized. Reassert both sides of the clipping contract at the
+        // installation choke point before any child frame is written.
+        hostView.clipsToBounds = true
+        hostView.layer?.masksToBounds = true
         guard let (container, reference) = installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
         else { return false }
         let browserHost = preferredBrowserHost(in: container)
@@ -1452,6 +1597,7 @@ final class WindowTerminalPortal: NSObject {
         return frameInHost
     }
 
+    /// Detaches one hosted pane and releases its portal-owned resize phase.
     func detachHostedView(withId hostedId: ObjectIdentifier) {
         guard let entry = entriesByHostedId.removeValue(forKey: hostedId) else { return }
 #if DEBUG
@@ -1468,9 +1614,11 @@ final class WindowTerminalPortal: NSObject {
         )
 #endif
         if let hostedView = entry.hostedView {
+            hostedView.finishPortalGeometrySettlement()
             if let restoredMask = preAdoptionAutoresizingMaskByHostedId.removeValue(forKey: hostedId) {
                 hostedView.autoresizingMask = restoredMask
             }
+            hostedView.clearWindowLiveResizeStateForPortal()
             if hostedView.superview === hostView {
                 hostedView.removeFromSuperview()
             }
@@ -1483,6 +1631,8 @@ final class WindowTerminalPortal: NSObject {
     func hideEntry(forHostedId hostedId: ObjectIdentifier) {
         guard var entry = entriesByHostedId[hostedId] else { return }
         entry.visibleInUI = false
+        entry.hostedView?.finishPortalGeometrySettlement()
+        entry.awaitingGeometrySettlement = false
         entry.transientRecoveryRetriesRemaining = 0
         entriesByHostedId[hostedId] = entry
         entry.hostedView?.isHidden = true
@@ -1501,7 +1651,16 @@ final class WindowTerminalPortal: NSObject {
         let becameVisible = visibleInUI && !entry.visibleInUI
         let becameHidden = !visibleInUI && entry.visibleInUI
         entry.visibleInUI = visibleInUI
-        if !visibleInUI { entry.transientRecoveryRetriesRemaining = 0 }
+        if becameVisible {
+            lastHierarchySyncSignature = nil
+            geometrySettlementPassesRemaining = 4
+            entry.awaitingGeometrySettlement = true
+            entry.hostedView?.beginPortalGeometrySettlement()
+        } else if !visibleInUI {
+            entry.awaitingGeometrySettlement = false
+            entry.hostedView?.finishPortalGeometrySettlement()
+            entry.transientRecoveryRetriesRemaining = 0
+        }
         entriesByHostedId[hostedId] = entry
         // A view that just became visible may still hold the frame it was
         // born with (bind can seed from a pre-settle anchor reading, and a
@@ -1562,6 +1721,7 @@ final class WindowTerminalPortal: NSObject {
         )
     }
 
+    /// Binds one hosted terminal to its anchor and seeds a safe initial frame.
     private func bind(
         hostedView: GhosttySurfaceScrollView,
         to anchorView: NSView,
@@ -1570,6 +1730,7 @@ final class WindowTerminalPortal: NSObject {
         syncLayout: Bool
     ) {
         guard ensureInstalled(syncLayout: syncLayout) else { return }
+        hostedView.setWindowLiveResizeActive(isRendererResizeDeferred)
 
         let hostedId = ObjectIdentifier(hostedView)
         let anchorId = ObjectIdentifier(anchorView)
@@ -1615,6 +1776,7 @@ final class WindowTerminalPortal: NSObject {
             hostedView: hostedView,
             anchorView: anchorView,
             visibleInUI: visibleInUI,
+            awaitingGeometrySettlement: visibleInUI,
             zPriority: zPriority,
             transientRecoveryRetriesRemaining: 0
         )
@@ -1624,6 +1786,11 @@ final class WindowTerminalPortal: NSObject {
             return previousAnchor !== anchorView
         }()
         let becameVisible = (previousEntry?.visibleInUI ?? false) == false && visibleInUI
+        if becameVisible || (visibleInUI && didChangeAnchor) {
+            lastHierarchySyncSignature = nil
+            geometrySettlementPassesRemaining = 4
+            hostedView.beginPortalGeometrySettlement()
+        }
         let priorityIncreased = zPriority > (previousEntry?.zPriority ?? Int.min)
 #if DEBUG
         if previousEntry == nil || didChangeAnchor || becameVisible || priorityIncreased || hostedView.superview !== hostView {
@@ -1695,6 +1862,8 @@ final class WindowTerminalPortal: NSObject {
         pruneDeadEntries()
     }
 
+    /// Reconciles the hosted terminal associated with one anchor, coalescing
+    /// the remaining entries into the portal's single external pass.
     func synchronizeHostedViewForAnchor(_ anchorView: NSView, syncLayout: Bool = true) {
         // Anchor geometry callbacks fire for every layout pass — including
         // the passes our own syncs run — and treating each one as a
@@ -1716,11 +1885,28 @@ final class WindowTerminalPortal: NSObject {
         // changing, and the end-of-resize sync (windowDidEndLiveResize →
         // scheduleExternalGeometrySynchronize) stays unconditional.
         guard TerminalWindowPortalRegistry.isInteractiveGeometryResizeActive(in: window) else {
-            if !isWindowLiveResizeActive {
+            let nativeResizeActive = isWindowLiveResizeActive
+            if !nativeResizeActive {
+                liveResizeEndedWhileNativeResize = false
+            } else if !liveResizeEndPending, !liveResizeEndedWhileNativeResize {
+                liveResizePhaseActive = true
+            }
+            if nativeResizeActive,
+               liveResizeEndedWhileNativeResize,
+               !liveResizeEndPending {
+                return
+            }
+            if !isRendererResizeDeferred {
                 pruneDeadEntries()
             }
             let anchorId = ObjectIdentifier(anchorView)
             if let hostedId = hostedByAnchorId[anchorId] {
+                // This callback belongs to one anchor. Keep the phase update
+                // O(1); the window resize observer and consolidated pass
+                // propagate it to the remaining entries once per tick.
+                entriesByHostedId[hostedId]?.hostedView?.setWindowLiveResizeActive(
+                    isRendererResizeDeferred
+                )
                 synchronizeHostedView(withId: hostedId, syncLayout: false)
             }
             scheduleExternalGeometrySynchronize(forceImmediate: false)
@@ -1763,6 +1949,8 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    /// Reconciles visible hosted panes and refreshes only after their geometry
+    /// is safe to present.
     private func reconcileVisibleHostedViewsAfterGeometrySync(reason: String, syncLayout: Bool = true) {
         // During a live window resize this pass would re-reconcile every
         // visible surface once per resize tick, right after
@@ -1771,7 +1959,7 @@ final class WindowTerminalPortal: NSObject {
         // mid-resize; the end-of-resize sync (windowDidEndLiveResize →
         // scheduleExternalGeometrySynchronize) runs it unconditionally once
         // live resize is over.
-        guard !isWindowLiveResizeActive else { return }
+        guard !isRendererResizeDeferred else { return }
         for (hostedId, entry) in entriesByHostedId {
             guard entry.visibleInUI, let hostedView = entry.hostedView, !hostedView.isHidden else { continue }
             if hostedView.reconcileGeometryNow() {
@@ -1788,6 +1976,18 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
+    /// Coalesces a follow-up full hosted-view pass for layout callbacks that
+    /// cannot safely redraw synchronously.
+    private func finishVisibleEntryGeometrySettlements() {
+        for hostedId in entriesByHostedId.keys {
+            guard var entry = entriesByHostedId[hostedId], entry.visibleInUI,
+                  entry.awaitingGeometrySettlement, let hostedView = entry.hostedView else { continue }
+            entry.awaitingGeometrySettlement = false
+            entriesByHostedId[hostedId] = entry
+            hostedView.finishPortalGeometrySettlement()
+        }
+    }
+
     private func scheduleDeferredFullSynchronizeAll(includeVisibleReconcile: Bool = false) {
         if includeVisibleReconcile {
             deferredFullSyncIncludesVisibleReconcile = true
@@ -1799,7 +1999,12 @@ final class WindowTerminalPortal: NSObject {
             self.hasDeferredFullSyncScheduled = false
             let reconcileVisible = self.deferredFullSyncIncludesVisibleReconcile
             self.deferredFullSyncIncludesVisibleReconcile = false
-            self.synchronizeAllHostedViews(excluding: nil)
+            // This callback is also the bind path's first settlement pass. Run
+            // the hierarchy once and retain its fingerprint result so an
+            // unstable first pass cannot flush an intermediate PTY size.
+            guard self.ensureInstalled(syncLayout: false) else { return }
+            let hierarchyWasAlreadySettled = self.synchronizeLayoutHierarchy()
+            self.synchronizeAllHostedViews(excluding: nil, syncLayout: false)
             if reconcileVisible {
                 // syncLayout false: this runs off a layout callback during
                 // divider/sidebar drags, where a synchronous display wedges
@@ -1808,16 +2013,69 @@ final class WindowTerminalPortal: NSObject {
                     reason: "portal.deferredFullSync", syncLayout: false
                 )
             }
+            if hierarchyWasAlreadySettled {
+                self.finishVisibleEntryGeometrySettlements()
+            } else if self.entriesByHostedId.values.contains(where: { $0.visibleInUI && $0.awaitingGeometrySettlement }) {
+                if self.geometrySettlementPassesRemaining > 0 {
+                    self.geometrySettlementPassesRemaining -= 1
+                    self.scheduleExternalGeometrySynchronize(forceImmediate: false)
+                } else {
+                    self.finishVisibleEntryGeometrySettlements()
+                }
+            }
         }
     }
 
+    /// Delivers refreshes held during a window resize after the final geometry
+    /// and renderer sizes have committed.
+    private func flushPendingLiveResizeSurfaceRefreshesIfReady() {
+        guard !isRendererResizeDeferred, !pendingLiveResizeSurfaceRefreshes.isEmpty else { return }
+        let pending = pendingLiveResizeSurfaceRefreshes
+        pendingLiveResizeSurfaceRefreshes = [:]
+        for (pendingId, pendingReason) in pending {
+            guard let entry = entriesByHostedId[pendingId],
+                  entry.visibleInUI,
+                  let hostedView = entry.hostedView,
+                  !hostedView.isHidden else { continue }
+            hostedView.refreshSurfaceNow(reason: pendingReason)
+        }
+    }
+
+    /// Moves a refresh queued before a resize began into the resize-held queue
+    /// if its delivery block runs after the phase has opened. Queue admission
+    /// alone is not sufficient: the phase can change between enqueue and
+    /// execution, so delivery must validate the current publication boundary.
+    @discardableResult
+    private func holdDeferredSurfaceRefreshesDuringLiveResizeIfNeeded() -> Bool {
+        guard isRendererResizeDeferred else { return false }
+        for (hostedId, reason) in pendingDeferredSurfaceRefreshes {
+            if pendingLiveResizeSurfaceRefreshes[hostedId] == nil {
+                pendingLiveResizeSurfaceRefreshes[hostedId] = reason
+            }
+        }
+        pendingDeferredSurfaceRefreshes.removeAll()
+        return true
+    }
+
+    /// Queues a surface refresh until it is safe to present against committed
+    /// pane and drawable geometry.
     private func deferSurfaceRefresh(forHostedId hostedId: ObjectIdentifier, reason: String) {
+        if isRendererResizeDeferred {
+            // A refresh requested by a live-resize geometry pass must wait for
+            // the explicit end-resize pass. Delivering it on an arbitrary
+            // queue turn can present an old drawable against a new pane frame.
+            pendingLiveResizeSurfaceRefreshes[hostedId] = reason
+            return
+        }
         pendingDeferredSurfaceRefreshes[hostedId] = reason
         guard !hasDeferredSurfaceRefreshScheduled else { return }
         hasDeferredSurfaceRefreshScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.hasDeferredSurfaceRefreshScheduled = false
+            if self.holdDeferredSurfaceRefreshesDuringLiveResizeIfNeeded() {
+                return
+            }
             let pending = self.pendingDeferredSurfaceRefreshes
             self.pendingDeferredSurfaceRefreshes = [:]
             for (pendingId, pendingReason) in pending {
@@ -1830,8 +2088,14 @@ final class WindowTerminalPortal: NSObject {
         }
     }
 
-    private func synchronizeAllHostedViews(excluding hostedIdToSkip: ObjectIdentifier?, syncLayout: Bool = true) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
+    /// Reconciles all mapped hosted panes after the portal host is prepared.
+    /// `portalIsPrepared` avoids repeating hierarchy work for each entry.
+    private func synchronizeAllHostedViews(
+        excluding hostedIdToSkip: ObjectIdentifier?,
+        syncLayout: Bool = true,
+        portalIsPrepared: Bool = false
+    ) {
+        guard portalIsPrepared || ensureInstalled(syncLayout: false) else { return }
         if syncLayout {
             synchronizeLayoutHierarchy()
         } else {
@@ -1852,8 +2116,14 @@ final class WindowTerminalPortal: NSObject {
                !entry.visibleInUI, entry.hostedView?.isHidden == true {
                 continue
             }
-            synchronizeHostedView(withId: hostedId, syncLayout: syncLayout)
+            synchronizeHostedView(
+                withId: hostedId,
+                syncLayout: syncLayout,
+                portalIsPrepared: true,
+                deferDividerOverlay: true
+            )
         }
+        ensureDividerOverlayOnTop()
     }
 
     private func resetTransientRecoveryRetryIfNeeded(forHostedId hostedId: ObjectIdentifier, entry: inout Entry) {
@@ -1898,8 +2168,15 @@ final class WindowTerminalPortal: NSObject {
         return true
     }
 
-    private func synchronizeHostedView(withId hostedId: ObjectIdentifier, syncLayout: Bool = true) {
-        guard ensureInstalled(syncLayout: syncLayout) else { return }
+    /// Reconciles one hosted pane with its anchor and applies visibility,
+    /// clipping, and renderer-refresh policy for the current resize phase.
+    private func synchronizeHostedView(
+        withId hostedId: ObjectIdentifier,
+        syncLayout: Bool = true,
+        portalIsPrepared: Bool = false,
+        deferDividerOverlay: Bool = false
+    ) {
+        guard portalIsPrepared || ensureInstalled(syncLayout: syncLayout) else { return }
         guard var entry = entriesByHostedId[hostedId] else { return }
         guard let hostedView = entry.hostedView else {
             entriesByHostedId.removeValue(forKey: hostedId)
@@ -2194,7 +2471,7 @@ final class WindowTerminalPortal: NSObject {
                 // pane's Metal layer was even realized — is what made resizing a
                 // window full of mirrored panes drag. The end-of-resize sync runs
                 // after live resize is over and takes this branch normally.
-                if entry.visibleInUI, !shouldHide, !hostedView.isHidden, !isWindowLiveResizeActive {
+                if entry.visibleInUI, !shouldHide, !hostedView.isHidden, !isRendererResizeDeferred {
                     if syncLayout {
                         hostedView.refreshSurfaceNow(reason: "portal.frameChange")
                     } else {
@@ -2237,7 +2514,7 @@ final class WindowTerminalPortal: NSObject {
             // transaction can commit. Unlike the frame-change branch above,
             // a reveal cannot skip its redraw outright — the surface would
             // sit blank until later churn — so defer it one main-queue turn.
-            if syncLayout, !isWindowLiveResizeActive {
+            if syncLayout, !isRendererResizeDeferred {
                 hostedView.refreshSurfaceNow(reason: "portal.reveal")
             } else {
                 deferSurfaceRefresh(forHostedId: hostedId, reason: "portal.reveal.deferred")
@@ -2266,7 +2543,9 @@ final class WindowTerminalPortal: NSObject {
         }
 #endif
 
-        ensureDividerOverlayOnTop()
+        if !deferDividerOverlay {
+            ensureDividerOverlayOnTop()
+        }
     }
 
     private func pruneDeadEntries() {
@@ -2304,7 +2583,14 @@ final class WindowTerminalPortal: NSObject {
         Set(entriesByHostedId.keys)
     }
 
+    /// Releases observers, resize state, and all portal-owned hosted views.
     func tearDown() {
+        liveResizeEndPending = false
+        liveResizePhaseActive = false
+        liveResizeEndedWhileNativeResize = false
+        pendingLiveResizeSurfaceRefreshes.removeAll()
+        pendingDeferredSurfaceRefreshes.removeAll()
+        setHostedViewsWindowLiveResizeActive(false)
         removeGeometryObservers()
         for hostedId in Array(entriesByHostedId.keys) {
             detachHostedView(withId: hostedId)
