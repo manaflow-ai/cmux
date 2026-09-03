@@ -322,6 +322,24 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.body == "attach failed (HTTP 502)\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
     }
 
+    @Test func progressMachineIDSurvivesBoundedTranscriptEviction() {
+        let (coordinator, launches, _, changes, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+
+        // The progress stream saw the protocol line, but the completion's
+        // bounded stdout transcript no longer contains it.
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+        launches.complete(status: 1, output: "Error: attach failed", machineID: nil)
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
+            machineID: "calm-petrel",
+            output: "Error: attach failed"
+        ))
+        #expect(!coordinator.retry(id))
+    }
+
     @Test func localizedCreatedLineWithoutProtocolMarkerDoesNotClaimAMachine() {
         let (coordinator, launches, _, changes, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
