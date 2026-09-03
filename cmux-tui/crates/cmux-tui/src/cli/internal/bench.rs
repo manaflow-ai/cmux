@@ -419,13 +419,13 @@ fn run_separate_typing_probe(
     let _ = gates.probes_submitted.wait();
     let _ = gates.release_workers.wait();
 
-    if let Some(connection) = conn.as_mut() {
-        if let Err(error) = drain_separate_typing(connection, pending, report) {
-            setup_error = Some(match setup_error {
-                Some(previous) => format!("{previous}; {error}"),
-                None => error,
-            });
-        }
+    if let Some(Err(error)) =
+        conn.as_mut().map(|connection| drain_separate_typing(connection, pending, report))
+    {
+        setup_error = Some(match setup_error {
+            Some(previous) => format!("{previous}; {error}"),
+            None => error,
+        });
     }
     if let Some(error) = setup_error {
         report.lock().unwrap().errors.push(format!("typing(separate): {error}"));
@@ -550,6 +550,9 @@ fn count_hosts_in_ps_listing(listing: &str, owner_pid: u64) -> u64 {
         .count() as u64
 }
 
+// One worker owns one connection and every knob that shapes its submission
+// plan; bundling these into a struct would only move the same ten fields.
+#[allow(clippy::too_many_arguments)]
 fn run_create_loop(
     socket: &std::path::Path,
     creates: usize,
@@ -640,13 +643,13 @@ fn drain_pending(
             let error = value.get("error").and_then(Value::as_str).unwrap_or("command failed");
             match request.kind {
                 SubmissionKind::Create { kind, .. } => {
-                    report.lock().unwrap().errors.push(format!("create[{client}:{kind}]: {error}"))
+                    report.lock().unwrap().errors.push(format!("create[{client}:{kind}]: {error}"));
                 }
                 SubmissionKind::TypingInterleaved { .. } => {
-                    report.lock().unwrap().errors.push(format!("typing(interleaved): {error}"))
+                    report.lock().unwrap().errors.push(format!("typing(interleaved): {error}"));
                 }
                 SubmissionKind::TypingAfterBatch { .. } => {
-                    report.lock().unwrap().errors.push(format!("typing(after-batch): {error}"))
+                    report.lock().unwrap().errors.push(format!("typing(after-batch): {error}"));
                 }
             }
             continue;
@@ -729,7 +732,7 @@ fn record_create_result(
                     .lock()
                     .unwrap()
                     .warnings
-                    .push(format!("close-terminal {terminal_id}: {error}"))
+                    .push(format!("close-terminal {terminal_id}: {error}"));
             }
         }
     }
