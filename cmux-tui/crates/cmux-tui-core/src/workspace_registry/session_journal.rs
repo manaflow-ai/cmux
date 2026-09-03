@@ -1465,9 +1465,7 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
             break;
         }
         anyhow::ensure!(
-            trailing[..count]
-                .iter()
-                .all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
+            trailing[..count].iter().all(|byte| matches!(byte, b' ' | b'\n' | b'\r' | b'\t')),
             "journal segment {segment_id} contains trailing data"
         );
     }
