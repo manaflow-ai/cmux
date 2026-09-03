@@ -86,6 +86,7 @@ const FLOW_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 /// uses non-blocking sends with both message and byte budgets. Keep part of
 /// each budget available for control/error frames after PTY data saturates.
 const WRITER_QUEUE_CAPACITY: usize = 128;
+const FLOW_RESUME_MESSAGES: usize = WRITER_QUEUE_CAPACITY - 32;
 const WRITER_QUEUE_BYTE_CAP: u64 = (MAX_TUNNEL_FRAME_BYTES as u64 + HEADER_BYTES as u64) * 2;
 const WRITER_CONTROL_MESSAGE_RESERVE: usize = 8;
 const WRITER_CONTROL_BYTE_RESERVE: u64 = 64 * 1024;
@@ -755,7 +756,9 @@ async fn serve_connection(stream: TcpStream, manager: Arc<PtyManager>, parent: C
                             connection.finish();
                             break;
                         }
-                        if previous.saturating_sub(length) < FLOW_RESUME_BYTES {
+                        if previous.saturating_sub(length) < FLOW_RESUME_BYTES
+                            && connection.writer_tx.capacity() >= FLOW_RESUME_MESSAGES
+                        {
                             connection.publish_flow(false);
                         }
                     }
