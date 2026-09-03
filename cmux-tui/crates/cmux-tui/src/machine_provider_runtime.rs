@@ -276,6 +276,7 @@ impl Drop for ProviderMachineConnectionLease {
             closing: Arc::clone(&closing),
             key,
             connection_id: connection_id.clone(),
+            admissions: Arc::clone(&self.admissions),
         };
         if let Err(error) = self.close_worker.schedule(
             key,
@@ -289,20 +290,24 @@ impl Drop for ProviderMachineConnectionLease {
                 }
             }),
         ) {
-            match error {
-                crossbeam_channel::TrySendError::Full(task) => {
-                    drop(task);
+            let (reason, task) = match error {
+                crossbeam_channel::TrySendError::Full(task) => ("close backlog is full", task),
+                crossbeam_channel::TrySendError::Disconnected(task) => {
+                    ("close worker disconnected", task)
+                }
+            };
+            // Admission is capped, so this fallback can create at most the
+            // documented number of close reapers. It preserves the remote
+            // close obligation when the owned worker cannot accept the task.
+            if std::thread::Builder::new()
+                .name("provider-close-reaper".into())
+                .spawn(task)
+                .is_err()
+            {
                     crate::client_log::stderr_log!(
                         "provider",
-                        "cmux-tui: failed to schedule provider machine close: close backlog is full"
+                        "cmux-tui: failed to start provider machine close reaper after {reason}"
                     );
-                }
-                crossbeam_channel::TrySendError::Disconnected(_) => {
-                    crate::client_log::stderr_log!(
-                        "provider",
-                        "cmux-tui: failed to schedule provider machine close: close worker disconnected"
-                    );
-                }
             }
         }
     }
