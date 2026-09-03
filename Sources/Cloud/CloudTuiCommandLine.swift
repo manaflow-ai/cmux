@@ -9,13 +9,28 @@ struct CloudTuiCommandLine: Sendable {
     /// `remote connect <route> --device-name … --state-dir … --headless --json [--invite-file …]`:
     /// a headless link whose stdout carries `connection-snapshot` JSON lines with the
     /// local mux socket path (`remote_cli.rs` `connect_with_flags`).
-    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?) -> [String] {
+    /// `--wireguard-hub <socket>` makes the client dial the route through the app's
+    /// in-process WireGuard hub (``CloudWireGuardHub``) instead of the OS network stack;
+    /// it is added only for routes inside the private Cloud VM network.
+    static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?, wireguardHubSocket: String? = nil) -> [String] {
         var arguments = ["remote", "connect", route, "--device-name", deviceName, "--state-dir", stateDir, "--headless", "--json"]
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
         }
+        if let wireguardHubSocket, !wireguardHubSocket.isEmpty {
+            arguments += ["--wireguard-hub", wireguardHubSocket]
+        }
         return arguments
     }
+
+    /// `wg hub --config <wg-quick file> --socket <unix path>`: the one process that owns the
+    /// app's WireGuard tunnel and serves SOCKS5 to every link on this Mac.
+    static func wireGuardHubArguments(configPath: String, socketPath: String) -> [String] {
+        ["wg", "hub", "--config", configPath, "--socket", socketPath]
+    }
+
+    /// The probe capability a client advertises when it understands `--wireguard-hub`.
+    static let wireGuardHubCapability = "wireguard-hub"
 
     /// Whole-session public snapshot (`session current snapshot`, `--json`).
     static func snapshotArguments(socketPath: String) -> [String] {

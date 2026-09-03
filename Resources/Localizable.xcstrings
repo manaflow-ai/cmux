@@ -59069,6 +59069,74 @@
         }
       }
     },
+    "cli.vpn.status.appTunnel.error": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App tunnel last error: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリトンネルの最後のエラー: %@"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.appTunnel.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App tunnel: idle (starts with the first Cloud machine link; no sudo needed)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリトンネル: 待機中（最初のクラウドマシン接続で起動します。sudo は不要）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.appTunnel.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App tunnel: unavailable (the bundled cmux-tui client lacks wireguard-hub; machine links use the system tunnel)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリトンネル: 利用不可（同梱の cmux-tui クライアントに wireguard-hub がないため、マシン接続はシステムトンネルを使用します）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.appTunnel.up": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App tunnel: up (machine links: %lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アプリトンネル: 接続中（マシン接続: %lld 件）"
+          }
+        }
+      }
+    },
     "cli.vpn.status.backend": {
       "extractionState": "manual",
       "localizations": {

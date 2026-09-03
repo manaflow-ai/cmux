@@ -68,6 +68,8 @@ actor CloudMachineLink {
     private var eventsProcess: Process?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
+    /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
+    private var releaseHubLease: (@Sendable () async -> Void)?
 
     /// One tick per daemon-side change (from `session current events`) or link state
     /// change; ends when the link dies.
@@ -84,8 +86,23 @@ actor CloudMachineLink {
     var isConnected: Bool { connected != nil && state == .connected }
 
     /// Spawns the headless client against `route` and waits for its local socket.
-    func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
-        if let connected, state == .connected { return connected }
+    ///
+    /// `wireguardHubSocket` routes the client through the app's WireGuard hub for a
+    /// machine on the private network; `releaseHubLease` is called exactly once when the
+    /// link ends (disconnect, exit, or a failed connect), so the hub can idle out.
+    func connect(
+        route: String,
+        session: String,
+        invitationURI: String?,
+        timeout: Duration = .seconds(60),
+        wireguardHubSocket: String? = nil,
+        releaseHubLease: (@Sendable () async -> Void)? = nil
+    ) async throws -> Connected {
+        if let connected, state == .connected {
+            await releaseHubLease?()
+            return connected
+        }
+        self.releaseHubLease = releaseHubLease
         try paths.ensureStateDir()
         var inviteFilePath: String?
         if let invitationURI, !invitationURI.isEmpty {
@@ -102,7 +119,8 @@ actor CloudMachineLink {
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
-            inviteFilePath: inviteFilePath
+            inviteFilePath: inviteFilePath,
+            wireguardHubSocket: wireguardHubSocket
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
@@ -124,6 +142,7 @@ actor CloudMachineLink {
             state = .error
             lastError = Self.errorText(error)
             removeInviteFile()
+            await releaseHubLeaseOnce()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
         self.process = process
@@ -165,7 +184,7 @@ actor CloudMachineLink {
         return connected
     }
 
-    func disconnect() {
+    func disconnect() async {
         eventsProcess?.terminate()
         eventsProcess = nil
         process?.terminate()
@@ -174,6 +193,7 @@ actor CloudMachineLink {
         state = .unavailable
         removeInviteFile()
         changesContinuation.finish()
+        await releaseHubLeaseOnce()
     }
 
     /// Runs one cmux-tui command against the link's socket and returns its stdout.
@@ -258,7 +278,7 @@ actor CloudMachineLink {
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
 
-    private func linkProcessDidExit(status: Int32) {
+    private func linkProcessDidExit(status: Int32) async {
         eventsProcess?.terminate()
         eventsProcess = nil
         process = nil
@@ -270,6 +290,13 @@ actor CloudMachineLink {
         }
         changesContinuation.yield()
         changesContinuation.finish()
+        await releaseHubLeaseOnce()
+    }
+
+    private func releaseHubLeaseOnce() async {
+        guard let release = releaseHubLease else { return }
+        releaseHubLease = nil
+        await release()
     }
 
     private func removeInviteFile() {

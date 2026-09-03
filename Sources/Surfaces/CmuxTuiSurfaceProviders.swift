@@ -12,6 +12,9 @@ final class CmuxTuiSurfaceProviderRegistry {
     private var catalog: SurfaceCatalog?
     private var providers: [String: CmuxTuiSurfaceProvider] = [:]
     private let links: CloudMachineLinkManager
+    /// The app's one WireGuard hub for private-network machines; nil when no cmux-tui
+    /// client is bundled (then no link can be made at all).
+    let wireGuardHub: CloudWireGuardHub?
     private var pollTask: Task<Void, Never>?
     private var accessObserver: NSObjectProtocol?
     private var themeObserver: NSObjectProtocol?
@@ -19,8 +22,21 @@ final class CmuxTuiSurfaceProviderRegistry {
     /// Same cadence as the Machines panel's list refresh.
     private let pollInterval: Duration = .seconds(45)
 
-    init(links: CloudMachineLinkManager = CloudMachineLinkManager()) {
+    init(links: CloudMachineLinkManager, wireGuardHub: CloudWireGuardHub?) {
         self.links = links
+        self.wireGuardHub = wireGuardHub
+    }
+
+    /// The production registry: one hub over the bundled client, shared by every link.
+    convenience init() {
+        let hub = CloudTuiClientPaths.clientURL().map { CloudWireGuardHub.production(clientURL: $0) }
+        self.init(links: CloudMachineLinkManager(hub: hub), wireGuardHub: hub)
+    }
+
+    /// Kills the hub child synchronously; for `applicationWillTerminate`, where nothing
+    /// may await and an orphaned hub would keep a WireGuard session alive after quit.
+    nonisolated func terminateWireGuardHubForAppQuit() {
+        wireGuardHub?.terminateForAppQuit()
     }
 
     /// Registers this Mac's cloud machines with the catalog and starts polling.
@@ -132,6 +148,8 @@ final class CmuxTuiSurfaceProviderRegistry {
         for id in providers.keys { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
         await links.disconnectAll()
+        // Signing out drops the tunnel too: the next account enrolls its own.
+        await wireGuardHub?.stop()
     }
 }
 

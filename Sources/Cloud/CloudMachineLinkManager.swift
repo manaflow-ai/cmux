@@ -32,6 +32,10 @@ actor CloudMachineLinkManager {
 
     private let paths: CloudTuiClientPaths
     private let clientURL: URL?
+    /// The app's in-process WireGuard hub; nil in tests that never touch the network.
+    /// A machine whose route points into the private network is linked through it when
+    /// the bundled client advertises `wireguard-hub`; every other route dials directly.
+    private let hub: CloudWireGuardHub?
     private var links: [String: CloudMachineLink] = [:]
     private var connecting: [String: Task<CloudMachineLink.Connected, Error>] = [:]
     private var lastFailure: [String: (at: Date, error: String)] = [:]
@@ -68,6 +72,7 @@ actor CloudMachineLinkManager {
     init(
         paths: CloudTuiClientPaths = CloudTuiClientPaths(),
         clientURL: URL? = CloudTuiClientPaths.clientURL(),
+        hub: CloudWireGuardHub? = nil,
         hostThemeColors: @escaping @Sendable () async -> (foreground: String, background: String)? = {
             await MainActor.run {
                 let app = GhosttyApp.shared
@@ -77,7 +82,17 @@ actor CloudMachineLinkManager {
     ) {
         self.paths = paths
         self.clientURL = clientURL
+        self.hub = hub
         self.hostThemeColors = hostThemeColors
+    }
+
+    /// Whether a link to `route` goes through the WireGuard hub: the client must know
+    /// the flag and the route's host must be a literal address inside the private
+    /// network (the hub's enrolled routes when known, else the private ranges).
+    nonisolated static func usesWireGuardHub(route: String, clientCapabilities: [String], enrolledRoutes: [String]) -> Bool {
+        guard clientCapabilities.contains(CloudTuiCommandLine.wireGuardHubCapability),
+              let host = IPNetworkPrefix.routeHost(route) else { return false }
+        return CloudWireGuardHub.routesHost(host, enrolledRoutes: enrolledRoutes)
     }
 
     var hasClient: Bool { clientURL != nil }
@@ -97,30 +112,49 @@ actor CloudMachineLinkManager {
         #if DEBUG
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
-        let task = Task<CloudMachineLink.Connected, Error> { [paths] in
+        let task = Task<CloudMachineLink.Connected, Error> { [paths, hub] in
             let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
             let client = await MainActor.run { VMClient.shared }
             guard let client else {
                 throw VMClientError.malformedResponse("Cloud VM client is not available (not signed in).")
             }
+            let capabilities = Self.clientCapabilities(clientURL: clientURL)
             let endpoint = try await client.openCmuxRemote(
                 id: machineID,
                 deviceFingerprint: paths.deviceFingerprint(for: machineID),
-                clientCapabilities: Self.clientCapabilities(clientURL: clientURL)
+                clientCapabilities: capabilities
             )
             var approval: Task<Void, Never>?
             if let invitation = endpoint.invitation {
                 approval = Task { await self.approveEnrollment(machineID: machineID, invitationID: invitation.invitationId, client: client) }
             }
             defer { approval?.cancel() }
+            // A private-network route needs the hub; enrolling it (idempotent) also tells
+            // us the exact routes, and a host outside them falls back to a direct dial.
+            var hubSocket: String?
+            var releaseLease: (@Sendable () async -> Void)?
+            if let hub, Self.usesWireGuardHub(route: endpoint.route, clientCapabilities: capabilities, enrolledRoutes: []) {
+                let claim = try await hub.acquire()
+                if Self.usesWireGuardHub(route: endpoint.route, clientCapabilities: capabilities, enrolledRoutes: claim.ready.routes) {
+                    hubSocket = claim.ready.socketPath
+                    releaseLease = { await hub.release(claim.lease) }
+                    #if DEBUG
+                    cmuxDebugLog("cloud.link.wireguardHub machine=\(machineID) socket=\(claim.ready.socketPath)")
+                    #endif
+                } else {
+                    await hub.release(claim.lease)
+                }
+            }
             do {
                 return try await link.connect(
                     route: endpoint.route,
                     session: endpoint.session,
                     invitationURI: endpoint.invitation?.uri,
                     // Enrollment rides this same window (see enrollingConnectTimeout).
-                    timeout: endpoint.invitation == nil ? connectTimeout : enrollingConnectTimeout
+                    timeout: endpoint.invitation == nil ? connectTimeout : enrollingConnectTimeout,
+                    wireguardHubSocket: hubSocket,
+                    releaseHubLease: releaseLease
                 )
             } catch {
                 await link.disconnect()

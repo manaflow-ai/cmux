@@ -348,6 +348,35 @@ describe("enrollVmTunnel", () => {
     expect(gatewayCalls.createTunnel).toHaveLength(0);
   });
 
+  test("a slug the provider already holds is adopted: recorded as this device's tunnel, key rotated", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repoCalls = newRepoCalls();
+    // The driver reports adoption when the provider account already had the slug
+    // (same Mac, different cmux backend) and it re-keyed that tunnel.
+    const gateway: VmProviderGatewayShape = {
+      ...testGateway({ calls: gatewayCalls }),
+      createTunnel: (_provider, createOptions) =>
+        Effect.sync(() => {
+          gatewayCalls.createTunnel.push(createOptions);
+          return providerTunnel({ clientPublicKey: createOptions.clientPublicKey, adopted: true });
+        }),
+    };
+    const tunnel = await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceFingerprint: "device-1",
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(Effect.provide(layerFor(testRepo({ calls: repoCalls }), gateway))),
+    );
+    expect(tunnel.adopted).toBe(true);
+    expect(tunnel.created).toBe(false);
+    expect(tunnel.rotated).toBe(true);
+    expect(tunnel.clientPublicKey).toBe(CLIENT_KEY);
+    expect(repoCalls.inserts).toBe(1);
+    expect(gatewayCalls.createTunnel).toHaveLength(1);
+  });
+
   test("a control-plane row whose provider tunnel is gone re-enrolls fresh", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();

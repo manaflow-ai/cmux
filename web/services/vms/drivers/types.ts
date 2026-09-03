@@ -304,6 +304,15 @@ export type ProviderTunnel = {
   /** The tunnel's address inside the attached network, i.e. what the VMs see. */
   readonly addressV4: string | null;
   readonly addressV6: string | null;
+  /**
+   * True when `createTunnel` found the slug already taken at the provider and
+   * took that tunnel over (attached the network, rotated its key to the
+   * caller's) instead of creating one. The provider account is shared by every
+   * cmux control plane (prod, staging, each dev backend), while a computer's
+   * identity dir is not, so the same device enrolling against a second backend
+   * must land on its existing provider tunnel rather than fail.
+   */
+  readonly adopted?: boolean;
 };
 
 export type CreateProviderTunnelOptions = {

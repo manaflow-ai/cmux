@@ -96,6 +96,7 @@ export async function POST(request: Request): Promise<Response> {
         "cmux.vm.tunnel.id": tunnel.tunnelId,
         "cmux.vm.tunnel.created": tunnel.created,
         "cmux.vm.tunnel.rotated": tunnel.rotated,
+        "cmux.vm.tunnel.adopted": tunnel.adopted,
       });
       return jsonResponse(tunnelPayload(tunnel));
     },
@@ -237,6 +238,7 @@ function tunnelPayload(tunnel: VmTunnelDescriptor) {
     network: tunnel.network,
     created: tunnel.created,
     rotated: tunnel.rotated,
+    adopted: tunnel.adopted,
   };
 }
 
