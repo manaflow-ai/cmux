@@ -6296,6 +6296,10 @@ extension TabManager {
         hasher.combine(true)
         hasher.combine(snapshot.kind.rawValue)
         hasher.combine(snapshot.sessionId)
+        // The persisted command is the value the restore path actually writes;
+        // include it so a builder/registration change cannot leave autosave
+        // believing an unchanged snapshot already contains the new binding.
+        hashOptionalString(snapshot.resumeCommand, into: &hasher)
         hasher.combine(snapshot.processDetectedSessionIDSource)
         hasher.combine(snapshot.registration)
         hashOptionalString(snapshot.permissionMode, into: &hasher)

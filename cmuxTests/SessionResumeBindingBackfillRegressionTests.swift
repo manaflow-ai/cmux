@@ -197,7 +197,7 @@ struct SessionResumeBindingBackfillRegressionTests {
     }
 
     @Test
-    func fingerprintHashesPersistedResumeInputsWithoutRenderingCommand() {
+    func fingerprintHashesPersistedResumeInputs() {
         let registration = CmuxVaultAgentRegistration(
             id: "fingerprint-agent",
             name: "Fingerprint Agent",
