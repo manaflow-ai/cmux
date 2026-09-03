@@ -56,6 +56,10 @@ const PREVIEW_WS_QUEUE_CAPACITY: usize = 64;
 const PREVIEW_WS_QUEUE_BYTES: usize = 64 * 1024 * 1024;
 /// Maximum number of live client connections retained by one preview proxy.
 pub const PREVIEW_PROXY_CONNECTION_CAP: usize = 128;
+/// Maximum number of target upgrade copy tasks retained by one preview proxy.
+/// Upgraded sockets outlive their HTTP connection task, so they need a
+/// separate admission bound from the client connection cap.
+pub const PREVIEW_PROXY_UPGRADE_CAP: usize = 64;
 /// Maximum number of target-port listeners retained by one relay.
 /// Opening another target evicts the least-recently-used listener.
 pub const PREVIEW_PROXY_CAP: usize = 32;
@@ -388,6 +392,7 @@ struct ProxyShared {
     next_peer_id: AtomicU64,
     next_cdp_id: AtomicI64,
     shutdown: tokio::sync::watch::Receiver<bool>,
+    upgrade_slots: Arc<tokio::sync::Semaphore>,
     upgrades: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
@@ -443,6 +448,7 @@ async fn spawn_proxy(target_port: u16, ring: Arc<ConsoleRing>) -> Result<ProxyRu
         next_peer_id: AtomicU64::new(1),
         next_cdp_id: AtomicI64::new(PROXY_CDP_ID_BASE),
         shutdown: stopped.clone(),
+        upgrade_slots: Arc::new(tokio::sync::Semaphore::new(PREVIEW_PROXY_UPGRADE_CAP)),
         upgrades: Mutex::new(Vec::new()),
     });
     let connection_slots = Arc::new(tokio::sync::Semaphore::new(PREVIEW_PROXY_CONNECTION_CAP));
@@ -924,6 +930,9 @@ async fn forward_upgrade(
     shared: Arc<ProxyShared>,
     request: hyper::Request<hyper::body::Incoming>,
 ) -> hyper::Response<ProxyBody> {
+    let Ok(upgrade_slot) = Arc::clone(&shared.upgrade_slots).try_acquire_owned() else {
+        return text_response(503, "preview upgrade capacity exhausted");
+    };
     let (mut sender, _driver) = match connect_target(&shared).await {
         Ok(ready) => ready,
         Err(response) => return response,
@@ -945,6 +954,7 @@ async fn forward_upgrade(
     }
     let client_upgrade = hyper::upgrade::on(&mut response);
     let task = tokio::spawn(async move {
+        let _upgrade_slot = upgrade_slot;
         let (Ok(client), Ok(server)) = tokio::join!(client_upgrade, server_upgrade) else {
             return;
         };
