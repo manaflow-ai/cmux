@@ -105,6 +105,13 @@ export type CreateOptions = {
    */
   edgeRules?: readonly VmEdgeRule[];
   /**
+   * Scheduler for work that must not delay the create response: the guest
+   * probe that waits for the provider's TLS edge to activate the coderouter
+   * rule (Freestyle takes seconds). The route passes its after-response hook;
+   * a caller without one (scripts, tests) gets the work awaited inline.
+   */
+  afterResponse?: (work: () => Promise<void>) => void;
+  /**
    * The owner's private network to attach the machine to. When present the
    * machine takes an address on it and its session daemon is reachable only
    * from other members — the owner's other machines, and the owner's computer
@@ -128,7 +135,7 @@ export type VmEdgeRule = {
 };
 
 /** Create-time inputs a restore-from-snapshot shares with a fresh create. */
-export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata"> & {
+export type RestoreOptions = Pick<CreateOptions, "envs" | "edgeRules" | "providerMetadata" | "afterResponse"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
