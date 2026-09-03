@@ -18,7 +18,7 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::{self, BufReader, Read, Write};
 use std::sync::mpsc;
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -461,9 +461,47 @@ struct PendingRequest {
 /// the wire. The second barrier prevents a create worker from draining its
 /// connection before that probe has submitted its requests.
 struct ProbeGates {
-    creates_submitted: Barrier,
-    probes_submitted: Barrier,
-    release_workers: Barrier,
+    creates_submitted: DeadlineGate,
+    probes_submitted: DeadlineGate,
+    release_workers: DeadlineGate,
+}
+
+struct DeadlineGate {
+    state: Mutex<(usize, u64)>,
+    wake: Condvar,
+    parties: usize,
+}
+
+impl DeadlineGate {
+    fn new(parties: usize) -> Self {
+        Self { state: Mutex::new((0, 0)), wake: Condvar::new(), parties }
+    }
+
+    fn wait(&self, deadline: Instant) -> bool {
+        let mut state = self.state.lock().unwrap();
+        let generation = state.1;
+        state.0 += 1;
+        if state.0 == self.parties {
+            state.0 = 0;
+            state.1 += 1;
+            self.wake.notify_all();
+            return true;
+        }
+        loop {
+            let remaining = bounded_wait_duration(deadline, Duration::from_millis(100));
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, result) = self.wake.wait_timeout(state, remaining).unwrap();
+            state = next;
+            if state.1 != generation {
+                return true;
+            }
+            if result.timed_out() {
+                return false;
+            }
+        }
+    }
 }
 
 struct SubscriberGuard {
@@ -494,9 +532,9 @@ impl ProbeGates {
     fn new(client_count: usize) -> Self {
         let parties = client_count + 1;
         Self {
-            creates_submitted: Barrier::new(parties),
-            probes_submitted: Barrier::new(parties),
-            release_workers: Barrier::new(parties),
+            creates_submitted: DeadlineGate::new(parties),
+            probes_submitted: DeadlineGate::new(parties),
+            release_workers: DeadlineGate::new(parties),
         }
     }
 }
@@ -573,7 +611,7 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
 
     // Wait until every create connection has submitted its batch, then run
     // the separate-connection probe while those requests remain unread.
-    let _ = gates.creates_submitted.wait();
+    let _ = gates.creates_submitted.wait(bench_deadline);
     run_separate_typing_probe(
         &socket,
         baseline_surface,
@@ -627,8 +665,8 @@ fn run_separate_typing_probe(
     deadline: Instant,
 ) {
     if probes == 0 {
-        let _ = gates.probes_submitted.wait();
-        let _ = gates.release_workers.wait();
+        let _ = gates.probes_submitted.wait(deadline);
+        let _ = gates.release_workers.wait(deadline);
         return;
     }
     let mut setup_error = None;
@@ -664,8 +702,8 @@ fn run_separate_typing_probe(
         }
     }
 
-    let _ = gates.probes_submitted.wait();
-    let _ = gates.release_workers.wait();
+    let _ = gates.probes_submitted.wait(deadline);
+    let _ = gates.release_workers.wait(deadline);
 
     if let Some(Err(error)) =
         conn.as_mut().map(|connection| drain_separate_typing(connection, pending, report, deadline))
@@ -882,9 +920,9 @@ fn run_create_loop(
     // All workers reach this point before any response is read. The main
     // thread uses this barrier to start the separate-connection probe against
     // the same in-flight create load.
-    let _ = gates.creates_submitted.wait();
-    let _ = gates.probes_submitted.wait();
-    let _ = gates.release_workers.wait();
+    let _ = gates.creates_submitted.wait(deadline);
+    let _ = gates.probes_submitted.wait(deadline);
+    let _ = gates.release_workers.wait(deadline);
 
     let Some(mut conn) = conn else {
         return Err(setup_error.unwrap_or_else(|| "create connection unavailable".into()));
@@ -1458,6 +1496,12 @@ mod tests {
         assert_eq!(bounded_wait_duration(now, VISIBILITY_GRACE), Duration::ZERO);
         let deadline = now + Duration::from_millis(50);
         assert!(bounded_wait_duration(deadline, VISIBILITY_GRACE) <= Duration::from_millis(50));
+    }
+
+    #[test]
+    fn deadline_gate_times_out_missing_participant() {
+        let gate = DeadlineGate::new(2);
+        assert!(!gate.wait(Instant::now() + Duration::from_millis(5)));
     }
 
     #[test]
