@@ -1,0 +1,66 @@
+name: Bake iSH rootfs
+
+# Bakes the Alpine x86 image for Linux on this iPhone with Docker's 32-bit
+# emulation and uploads it as a workflow artifact. Publishing the release asset
+# on manaflow-ai/ish needs a token with write access to that repository; when
+# ISH_RELEASE_TOKEN is absent the job prints the manual publish command instead.
+on:
+  workflow_dispatch:
+    inputs:
+      image_version:
+        description: Image version (YYYY.MM.DD, optional trailing letter)
+        required: true
+      pi_package:
+        description: npm spec installed by `cmux-linux add node`
+        required: false
+        default: "@earendil-works/pi-coding-agent@0.84.4"
+      publish:
+        description: Publish the release asset on manaflow-ai/ish
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Enable 32-bit x86 emulation
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+        with:
+          platforms: linux/386
+
+      - name: Bake image
+        env:
+          CMUX_ROOTFS_IMAGE_VERSION: ${{ inputs.image_version }}
+          CMUX_ROOTFS_PI_PACKAGE: ${{ inputs.pi_package }}
+          PUBLISH: ${{ inputs.publish }}
+          GH_TOKEN: ${{ secrets.ISH_RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          args=(--version "$CMUX_ROOTFS_IMAGE_VERSION")
+          if [[ "$PUBLISH" == "true" ]]; then
+            if [[ -z "${GH_TOKEN:-}" ]]; then
+              echo "ISH_RELEASE_TOKEN is not configured; baking without publishing." >&2
+            else
+              args+=(--publish)
+            fi
+          fi
+          ./scripts/bake-ish-rootfs.sh "${args[@]}"
+
+      - name: Upload image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ish-rootfs-${{ inputs.image_version }}
+          path: |
+            build/ish-rootfs/*.tar.gz
+            build/ish-rootfs/*.packages.json
+            Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json
+          if-no-files-found: error

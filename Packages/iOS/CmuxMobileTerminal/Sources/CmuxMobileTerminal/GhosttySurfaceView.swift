@@ -34,6 +34,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     private var appliedTerminalConfigTheme: TerminalTheme?
     weak var delegate: GhosttySurfaceViewDelegate?
     private let fontSize: Float32
+    /// Whether the input accessory should use macOS modifier labels and expose
+    /// the Command key. Local and non-Mac terminals use Ctrl/Alt labels and do
+    /// not offer Command, which has no terminal byte representation there.
+    private let isMacRemote: Bool
     /// Surface-owned live font size (points). Zoom mutates this; it is the
     /// source of truth for the current size, so the size accumulates correctly
     /// across taps even though the actual libghostty apply is coalesced.
@@ -659,6 +663,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
 
     var surface: ghostty_surface_t?
     var surfaceGeneration: UInt64 = 0
+    /// Whether libghostty created a usable terminal surface for this view.
+    ///
+    /// Surface creation can fail after the shared ``GhosttyRuntime`` has
+    /// opened successfully, for example when a render callback cannot be
+    /// registered or a recovered IOSurface cannot be allocated. Hosts that
+    /// own a local PTY must check this before publishing a running session;
+    /// otherwise output is accepted into a black view with no recovery path.
+    public var hasRendererSurface: Bool {
+        surface != nil
+    }
     #if DEBUG
     var latencyLastAppliedSequence: UInt64?
     #endif
@@ -960,12 +974,16 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     ///   - terminalTheme: Renderer-effective colors used by surrounding UIKit chrome.
     ///   - terminalConfigTheme: Raw Ghostty configuration defaults. Defaults to
     ///     `terminalTheme` for callers that do not mirror a remote surface.
+    ///   - isMacRemote: Whether the target uses macOS modifier conventions.
+    ///     Defaults to `true` for existing paired-Mac surfaces.
     public init(runtime: GhosttyRuntime, delegate: GhosttySurfaceViewDelegate,
                 fontSize: Float32 = 10, terminalTheme: TerminalTheme = .monokai,
-                terminalConfigTheme: TerminalTheme? = nil) {
+                terminalConfigTheme: TerminalTheme? = nil,
+                isMacRemote: Bool = true) {
         self.runtime = runtime
         self.delegate = delegate
         self.fontSize = fontSize
+        self.isMacRemote = isMacRemote
         self.liveFontSize = fontSize
         self.userBaseFontSize = fontSize
         self.terminalTheme = terminalTheme.validatedOrDefault()
@@ -995,6 +1013,10 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         #endif
         installBottomDockContainer()
         installPersistentToolbar()
+        // `TerminalInputTextView` builds its toolbar lazily with the historic
+        // paired-Mac default. Apply the explicit target after that setup so a
+        // local Linux surface removes Command and shows Ctrl/Alt immediately.
+        inputProxy.updateModifierLabels(isMacRemote: isMacRemote)
         installComposerContainer()
         installBottomDockConstraints()
         installArtifactChipContainer()
@@ -3036,6 +3058,24 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         processOutput(data, completion: nil)
     }
 
+    /// Replaces the terminal model with a complete replay in one queued
+    /// operation.
+    ///
+    /// A local terminal keeps its shell and bounded output ring while this
+    /// view can be detached from a window. Re-attaching the view therefore
+    /// replays bytes into a Ghostty model that may already contain those
+    /// bytes. Prefixing the replay with RIS (ESC c) clears the screen,
+    /// scrollback, modes, and cursor state before the history is applied.
+    /// Keeping both byte sequences in one `processOutput` call preserves FIFO
+    /// ordering on the surface work queue and avoids displaying a transient
+    /// blank reset between the reset and the replay.
+    public func processTerminalReplay(_ data: Data) {
+        var resetAndReplay = Data(capacity: data.count + 2)
+        resetAndReplay.append(contentsOf: [0x1B, 0x63])
+        resetAndReplay.append(data)
+        processOutput(resetAndReplay)
+    }
+
     func makeSurfaceOperationID() -> UInt64 {
         nextSurfaceOperationID &+= 1
         return nextSurfaceOperationID
@@ -3683,6 +3723,12 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         }
         artifactChipAccessibilityObserverTokens.removeAll()
         prepareForReuseAfterDetach()
+        // SwiftUI dismantle releases the host view, but the bridge deliberately
+        // retains its view while libghostty callbacks are possible. Dispose the
+        // C surface here instead of relying on deinit, which cannot run while
+        // that bridge-to-view cycle is alive. Transient window detaches still
+        // use `prepareForReuseAfterDetach()` and keep the surface for reattach.
+        disposeSurface()
     }
 
     /// Quiesces the surface on window detach: resigns input, stops the display
@@ -3893,11 +3939,22 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         stopDisplayLink()
         cancelRenderPipelineRecoveryResumeTimer()
         resetScrollStateForSurfaceReplacement()
-        guard let surface else { return }
+        let currentBridge = bridge
+        guard let surface else {
+            // Surface creation failures release the bridge owner at their
+            // failure boundary. If a caller dismantles this view a second
+            // time while a prior free is still queued, do not release that
+            // owner before libghostty has finished using its raw UIView
+            // pointer.
+            return
+        }
         GhosttySurfaceView.unregister(surface: surface)
         self.surface = nil
-        let currentBridge = bridge
         let currentQueue = outputQueue
+        // Disable callbacks immediately, but keep the bridge's strong view
+        // owner until the queued free returns. libghostty stores the iOS view
+        // as a borrowed raw pointer, so releasing that owner before the serial
+        // teardown drains would permit a use-after-free.
         currentBridge.detach()
         // Free on the SAME serial `outputQueue` that runs `process_output`,
         // `render_now`, and `binding_action` (all of which capture this C
@@ -3907,22 +3964,35 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         // never use-after-free against the free, and no two of them ever touch
         // the surface concurrently. `processOutput`'s main-actor guard stops new
         // work from being enqueued once `surface` is nil, so only the bounded
-        // backlog drains before the free. The host-owned bridge retain stays
+        // backlog drains before the free. The bridge keeps the raw UIKit owner
         // alive until synchronous libghostty teardown has stopped callbacks.
-        enqueueSurfaceFree(surface, generation: surfaceGeneration, on: currentQueue)
+        enqueueSurfaceFree(
+            surface,
+            bridge: currentBridge,
+            generation: surfaceGeneration,
+            on: currentQueue
+        )
     }
 
     func enqueueSurfaceFree(
         _ surface: ghostty_surface_t,
+        bridge: GhosttySurfaceBridge,
         generation: UInt64, on queue: GhosttySurfaceWorkQueue,
         completion: (@MainActor @Sendable () -> Void)? = nil
     ) {
-        surfaceFreeDrainWatchdog.start(generation: generation) { [weak self] in self?.pendingSurfaceFreeCount ?? 0 }
-        queue.async { [weak self] in
+        let watchdog = surfaceFreeDrainWatchdog
+        let pendingFreesAtEnqueue = pendingSurfaceFreeCount
+        watchdog.start(generation: generation) { pendingFreesAtEnqueue }
+        let finish: @MainActor @Sendable () -> Void = { [bridge, watchdog, completion] in
+            bridge.releaseSurfaceViewAfterFree()
+            watchdog.cancel(generation: generation)
+            completion?()
+        }
+        queue.async {
             let userdata = ghostty_surface_userdata(surface)
             ghostty_surface_free(surface)
             GhosttySurfaceBridge.releaseRetainedOpaque(userdata)
-            Task { @MainActor in self?.surfaceFreeDrainWatchdog.cancel(generation: generation); completion?() }
+            Task { @MainActor in finish() }
         }
     }
 
@@ -3955,18 +4025,25 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     }
 
     func initializeSurface() {
-        guard let app = runtime?.app else { return }
-        surface = makeSurface(app: app)
-        if let surface {
-            GhosttySurfaceView.register(surface: surface, for: self)
-            appliedTerminalConfigTheme = nil
-            applyTerminalConfigTheme()
-            // A live C surface is not proof that its first pixels reached the
-            // IOSurface layer. Keep the fallback visible until a tokened frame
-            // is acknowledged by Ghostty.
-            surfaceHasReceivedOutput = false
-            hasAppliedOutput = false
+        guard let app = runtime?.app,
+              let createdSurface = makeSurface(app: app) else {
+            // `bridge` retains the view for libghostty callbacks. No C
+            // surface owns that retain when creation fails, so release the
+            // cycle here instead of waiting for deinit, which cannot run while
+            // the bridge still points back to this view.
+            bridge.releaseSurfaceViewAfterFree()
+            stopDisplayLink()
+            return
         }
+        surface = createdSurface
+        GhosttySurfaceView.register(surface: createdSurface, for: self)
+        appliedTerminalConfigTheme = nil
+        applyTerminalConfigTheme()
+        // A live C surface is not proof that its first pixels reached the
+        // IOSurface layer. Keep the fallback visible until a tokened frame
+        // is acknowledged by Ghostty.
+        surfaceHasReceivedOutput = false
+        hasAppliedOutput = false
         setNeedsGeometrySync()
         startDisplayLink()
     }
@@ -5380,6 +5457,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         surfaceConfig.io_write_userdata = bridgePointer
         guard let createdSurface = ghostty_surface_new(app, &surfaceConfig) else {
             retainedBridge.release()
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         guard ghostty_surface_set_render_presented_callback(
@@ -5389,6 +5467,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ) else {
             ghostty_surface_free(createdSurface)
             retainedBridge.release()
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         guard ghostty_surface_set_render_failed_callback(
@@ -5398,12 +5477,27 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
         ) else {
             ghostty_surface_free(createdSurface)
             retainedBridge.release()
+            bridge.releaseSurfaceViewAfterFree()
             return nil
         }
         return createdSurface
     }
 
     func handleOutboundBytes(_ bytes: Data) {
+        guard !bytes.isEmpty else { return }
+
+        // A local PTY is the source of truth for this surface. When its
+        // terminal parser receives a query (for example DA, cursor-position,
+        // or focus reporting), libghostty writes the response through the
+        // manual-I/O callback. Route those bytes back to the local host so the
+        // emulated process receives the response. Paired-Mac mirrors keep the
+        // display-only behavior below: the Mac owns the real PTY and must not
+        // receive duplicate focus/query responses from the phone renderer.
+        if !isMacRemote {
+            delegate?.ghosttySurfaceView(self, didProduceTerminalOutput: bytes)
+            return
+        }
+
         // The mirror is display-only, so any bytes its libghostty writes toward a
         // PTY are spurious: the Mac is the real terminal and already produces
         // them. The clearest case is focus reporting — `set_focus` on

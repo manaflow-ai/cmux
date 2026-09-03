@@ -64,7 +64,7 @@ jobs:
           fi
           BASE_MERGE_BASE="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
           git diff --name-only "$BASE_MERGE_BASE" "$HEAD_SHA" > /tmp/changed-files.txt
-          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/Shared/|Packages/iOS/|Sources/Mobile/|vendor/ish(/|$)|vendor/stack-auth-swift-sdk-prerelease/|\.gitmodules$|scripts/(build-ish-ios|ensure-ish-build-tools|verify-ish-ios-artifacts)\.(sh|py)$|scripts/lint-ios-package-conventions\.sh$|\.github/actions/provision-ish-ios/action\.yml$)' /tmp/changed-files.txt; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
           else
             echo "No iOS-owned files changed; skipping iOS tests."
@@ -265,6 +265,21 @@ jobs:
           # falls back to a from-source build. The iOS app links GhosttyKit via
           # a local-path binaryTarget, so it must exist before package resolve.
           ./scripts/ensure-ghosttykit.sh
+
+      - name: Provision iSH kernel
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}
+        uses: ./.github/actions/provision-ish-ios
+
+      # Run the local Linux package suite once per workflow, after the shared
+      # artifact preflight. The iphone matrix leg is the default selector; an
+      # ipad-only dispatch runs it on that leg so a narrowed workflow never
+      # silently drops package coverage.
+      - name: Run CmuxLocalLinux package tests
+        if: >-
+          ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family)
+              && (matrix.family == 'iphone' || (github.event_name == 'workflow_dispatch' && inputs.device_family == 'ipad')) }}
+        run: |
+          swift test --package-path Packages/iOS/CmuxLocalLinux --disable-sandbox --parallel
 
       - name: Pick simulator
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.device_family != 'both' && inputs.device_family != matrix.family) }}

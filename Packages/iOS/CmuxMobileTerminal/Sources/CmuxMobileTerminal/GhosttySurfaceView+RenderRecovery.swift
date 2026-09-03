@@ -266,6 +266,7 @@ extension GhosttySurfaceView {
             pendingSurfaceFreeCount += 1
             enqueueSurfaceFree(
                 oldSurface,
+                bridge: oldBridge,
                 generation: surfaceGeneration,
                 on: oldQueue
             ) { [weak self] in
@@ -279,6 +280,11 @@ extension GhosttySurfaceView {
                 GhosttySurfaceView.RecoveryStressObservers.notifyFreeDrain(self)
                 #endif
             }
+        } else {
+            // A recovery can be requested after a failed surface creation.
+            // No C userdata retain exists in that case, so release the old
+            // bridge's strong view owner immediately.
+            oldBridge.releaseSurfaceViewAfterFree()
         }
 
         surface = nil

@@ -253,7 +253,8 @@ struct cmuxApp: App {
             personalIrohForget: Self.root.irxDiscovery ?? Self.root.iroh,
             buildCompatibilityPolicy: Self.root.buildCompatibilityPolicy,
             signOutHook: Self.root.signOutHook,
-            diagnosticLog: Self.root.diagnosticLog
+            diagnosticLog: Self.root.diagnosticLog,
+            localLinuxComputerProvider: Self.root.localLinuxComputerProvider
         )
     }
 }

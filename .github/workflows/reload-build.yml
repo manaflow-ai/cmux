@@ -520,6 +520,10 @@ jobs:
             echo "scripts/ensure-cmux-iroh.sh absent in source ref; skipping iroh FFI provisioning"
           fi
 
+      - name: Provision iSH kernel (iOS)
+        if: ${{ inputs.platform == 'ios' }}
+        uses: ./.github/actions/provision-ish-ios
+
       # --- iOS: build an UNSIGNED debug archive (signed locally by the caller) ---
       - name: Build unsigned iOS archive
         if: ${{ inputs.platform == 'ios' }}

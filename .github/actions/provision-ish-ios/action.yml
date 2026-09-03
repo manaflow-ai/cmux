@@ -1,0 +1,36 @@
+name: Provision iSH iOS kernel
+description: Restore or build and verify the generated iSH XCFramework.
+
+inputs:
+  device-only:
+    description: Build and accept only the iphoneos arm64 slice.
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve iSH kernel revision
+      id: ish-revision
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "sha=$(git -C vendor/ish rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+    - name: Cache iSH kernel xcframework
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: IshKernel.xcframework
+        key: ish-kernel-${{ inputs.device-only == 'true' && 'device' || 'full' }}-${{ runner.os }}-${{ steps.ish-revision.outputs.sha }}-${{ hashFiles('scripts/build-ish-ios.sh', 'scripts/ensure-ish-build-tools.sh', 'scripts/verify-ish-ios-artifacts.sh', 'scripts/verify-ish-ios-artifacts.py', '.github/actions/provision-ish-ios/action.yml', 'Packages/iOS/CmuxLocalLinux/ShimSource/**', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.json', 'Packages/iOS/CmuxLocalLinux/Sources/CmuxLocalLinux/Resources/alpine-rootfs.tar.gz') }}
+
+    - name: Build and verify iSH kernel
+      shell: bash
+      env:
+        DEVICE_ONLY: ${{ inputs.device-only }}
+      run: |
+        set -euo pipefail
+        args=(--build)
+        if [[ "$DEVICE_ONLY" == "true" ]]; then
+          args+=(--device-only)
+        fi
+        ./scripts/verify-ish-ios-artifacts.sh "${args[@]}"

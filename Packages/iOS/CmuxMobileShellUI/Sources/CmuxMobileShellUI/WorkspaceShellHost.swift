@@ -23,6 +23,7 @@ struct WorkspaceShellHost: View {
     var tailscalePairingRequired = false
     var showSettings: () -> Void = {}
     var showComputers: () -> Void = {}
+    var openLocalLinux: (() -> Void)? = nil
     var taskComposerPresentation = MobileChildSheetPresentation()
     let reconnectStoredMac: () -> Void
     let workspaceListDidBecomeVisible: @MainActor @Sendable () async -> Void
@@ -43,6 +44,7 @@ struct WorkspaceShellHost: View {
             tailscalePairingRequired: tailscalePairingRequired,
             showSettings: showSettings,
             showComputers: showComputers,
+            openLocalLinux: openLocalLinux,
             taskComposerPresentation: taskComposerPresentation
         )
         .task(id: deadlineTaskID) {

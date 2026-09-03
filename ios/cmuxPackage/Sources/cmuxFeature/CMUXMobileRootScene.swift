@@ -15,17 +15,58 @@ import OSLog
 import SwiftUI
 
 #if canImport(UIKit) && DEBUG
+import CmuxLocalLinux
 import CmuxMobileTerminal
 #endif
 
-private let mobileRootSceneLog = Logger(subsystem: "dev.cmux.ios", category: "mobile-root-scene")
+/// Shared subsystem for feature-owned iOS logs. Keep categories distinct so
+/// one predicate can collect the complete feature trace.
+nonisolated let cmuxIOSLogSubsystem = "dev.cmux.ios"
+
+private let mobileRootSceneLog = Logger(subsystem: cmuxIOSLogSubsystem, category: "mobile-root-scene")
+
+#if os(iOS) && DEBUG
+/// DEBUG launch switches are accepted from either the environment (the
+/// reload scripts use this form) or the command line (convenient in Xcode).
+private struct MobileDebugEntryPoint {
+    func localLinuxEnabled() -> Bool {
+        ProcessInfo.processInfo.environment["CMUX_LOCAL_LINUX"] == "1"
+            || ProcessInfo.processInfo.arguments.contains("--cmux-local-linux")
+    }
+
+    /// Bytes the harness types into the local shell once it is running, so a
+    /// simulator run can prove a command end to end without a driver. A
+    /// trailing newline is added when missing.
+    func localLinuxInput() -> Data? {
+        guard let text = ProcessInfo.processInfo.environment["CMUX_LOCAL_LINUX_INPUT"],
+              !text.isEmpty else { return nil }
+        return Data((text.hasSuffix("\n") ? text : text + "\n").utf8)
+    }
+}
+
+/// Sends the harness input exactly once, after the shell reports `.running`.
+private struct LocalLinuxHarnessInput: ViewModifier {
+    let controller: LocalLinuxComputerController
+    let input: Data?
+    @State private var didSend = false
+
+    func body(content: Content) -> some View {
+        content.onChange(of: controller.state, initial: true) { _, state in
+            guard let input, state == .running, !didSend else { return }
+            didSend = true
+            controller.send(input)
+        }
+    }
+}
+
+#endif
 
 /// Top-level mobile scene root.
 ///
 /// Renders the live cmux mobile UI: a ``CMUXMobileAppView`` backed by a fresh
 /// ``CMUXMobileShellStore`` and the injected ``AuthCoordinator``. In DEBUG
-/// builds, setting the environment variable `CMUX_ZOOM_STRESS=1` instead mounts
-/// the terminal zoom-stress repro harness (`MobileZoomStressView`).
+/// builds, local launch switches can mount the on-device Linux terminal or one
+/// of the existing terminal stress harnesses instead of the production shell.
 ///
 /// The composition root (`cmuxApp`) builds the ``CMUXMobileRuntime`` and the
 /// ``MobileAuthComposition`` and hands them here. The scene injects the
@@ -46,6 +87,9 @@ public struct CMUXMobileRootScene: View {
     private let pushCoordinator: MobilePushCoordinator
     private let displaySettings: MobileDisplaySettings
     private let featureFlags: MobileFeatureFlags
+    /// Phone-owned local Linux computer presenter, created once by the app
+    /// composition root and injected into the view tree.
+    private let localLinuxComputerProvider: LocalLinuxComputerProvider
     /// The user's Auto-Connect vs Tailscale connection-method choice, shared by
     /// the shell store (dial ordering) and the Settings/onboarding UI.
     private let connectionMethodStore: MobileConnectionMethodStore
@@ -123,6 +167,9 @@ public struct CMUXMobileRootScene: View {
     ///     by Iroh discovery, persistence, and connection validation.
     ///   - signOutHook: Ordered local and remote service teardown for sign-out.
     ///   - diagnosticLog: The privacy-safe structured connection log.
+    ///   - localLinuxComputerProvider: Phone-owned local Linux presenter. The
+    ///     app composition root owns its lifetime and tests can inject a
+    ///     fixture provider explicitly.
     public init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -140,7 +187,8 @@ public struct CMUXMobileRootScene: View {
         personalIrohForget: (any MobileIrohMacForgetting)? = nil,
         buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy,
         signOutHook: MobileSignOutHook,
-        diagnosticLog: DiagnosticLog
+        diagnosticLog: DiagnosticLog,
+        localLinuxComputerProvider: LocalLinuxComputerProvider
     ) {
         self.runtime = runtime
         self.auth = auth
@@ -158,6 +206,7 @@ public struct CMUXMobileRootScene: View {
         self.personalIrohForget = personalIrohForget
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.signOutHook = signOutHook
+        self.localLinuxComputerProvider = localLinuxComputerProvider
         self.pairedMacStore = Self.openPairedMacStore(diagnosticLog: diagnosticLog)
         self.draftStore = InMemoryTerminalDraftStore()
         self.diagnosticLog = diagnosticLog
@@ -391,6 +440,7 @@ public struct CMUXMobileRootScene: View {
             .environment(\.mobileDiagnosticLog, diagnosticLog)
             .tailscaleStatusMonitor(tailscaleStatusMonitor)
             #if os(iOS)
+            .mobileLocalComputerProvider(localLinuxComputerProvider)
             .environment(pushCoordinator)
             .environment(displaySettings)
             .terminalFilesChipEnabled(featureFlags.terminalFilesChipEnabled)
@@ -414,6 +464,16 @@ public struct CMUXMobileRootScene: View {
             WorkspaceListLayoutPreviewView()
         } else if let recoveryStress = MobileRecoveryStressConfiguration.parse(arguments: ProcessInfo.processInfo.arguments) {
             MobileRecoveryStressView(configuration: recoveryStress)
+        } else if MobileDebugEntryPoint().localLinuxEnabled() {
+            // The harness drives the production destination directly, so the
+            // DEBUG switch and the Computers row share one lifecycle path.
+            NavigationStack {
+                LocalLinuxComputerView(controller: localLinuxComputerProvider.controller)
+                    .modifier(LocalLinuxHarnessInput(
+                        controller: localLinuxComputerProvider.controller,
+                        input: MobileDebugEntryPoint().localLinuxInput()
+                    ))
+            }
         } else if ProcessInfo.processInfo.environment["CMUX_ZOOM_STRESS"] == "1" {
             MobileZoomStressView()
         } else if ProcessInfo.processInfo.environment["CMUX_BOTTOM_SCROLL_STRESS"] == "1" {

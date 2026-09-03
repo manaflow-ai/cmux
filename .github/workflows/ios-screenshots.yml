@@ -78,6 +78,9 @@ jobs:
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
 
+      - name: Provision iSH kernel
+        uses: ./.github/actions/provision-ish-ios
+
       - name: Resolve screenshot devices (6.9" iPhone + 13" iPad)
         run: |
           set -euo pipefail

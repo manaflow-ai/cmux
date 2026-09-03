@@ -94,6 +94,10 @@ jobs:
           ./scripts/install-zig-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
 
+      - name: Provision iSH kernel
+        if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
+        uses: ./.github/actions/provision-ish-ios
+
       - name: Materialize isolated staging account
         if: ${{ matrix.mode == 'automatic' || matrix.mode == 'relay-only' || matrix.mode == 'relay-expiry' }}
         env:

@@ -35,6 +35,7 @@ let package = Package(
         .package(path: "../../Packages/iOS/CmuxMobileBrowser"),
         .package(path: "../../Packages/iOS/CmuxMobileBrowserStream"),
         .package(path: "../../Packages/iOS/CmuxMobileCamera"),
+        .package(path: "../../Packages/iOS/CmuxLocalLinux"),
         .package(path: "../../Packages/iOS/CmuxMobileCrashReporting"),
         .package(path: "../../Packages/iOS/CmuxMobileDiagnostics"),
         .package(path: "../../Packages/iOS/CmuxMobilePairedMac"),
@@ -64,6 +65,15 @@ let package = Package(
                 "CmuxMobileBrowser",
                 "CmuxMobileBrowserStream",
                 "CmuxMobileCamera",
+                // The local Linux provider is a product from the neighboring
+                // package, not a target in this composition package. Keep the
+                // product edge conditional so host-side package tests do not
+                // link the iOS-only binary slice.
+                .product(
+                    name: "CmuxLocalLinux",
+                    package: "CmuxLocalLinux",
+                    condition: .when(platforms: [.iOS])
+                ),
                 "CmuxMobileCrashReporting",
                 "CmuxMobileDiagnostics",
                 "CmuxMobilePairedMac",

@@ -337,4 +337,48 @@ struct MobileRootPresentationStateTests {
         #expect(state.apply(.dismissPairing) == .finishPairing)
         #expect(state.presentation == nil)
     }
+
+    @Test func localLinuxCoverOpensOnlyFromAnIdleSlot() {
+        var state = MobileRootPresentationState()
+
+        #expect(state.apply(.presentLocalLinux) == .none)
+        #expect(state.presentation == .localLinux)
+        #expect(state.isLocalLinuxPresented)
+        #expect(!state.isRootSheetPresented)
+
+        // Computers and a second cover request both yield to the open cover.
+        #expect(state.apply(.presentComputers) == .none)
+        #expect(state.apply(.presentLocalLinux) == .none)
+        #expect(state.presentation == .localLinux)
+
+        #expect(state.apply(.dismissLocalLinux) == .retryAutoConnectMigration)
+        #expect(state.isIdle)
+        #expect(!state.isLocalLinuxPresented)
+    }
+
+    @Test func localLinuxCoverYieldsToAnOpenSheet() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentComputers)
+
+        #expect(state.apply(.presentLocalLinux) == .none)
+        #expect(state.presentation == .computers)
+        #expect(!state.isLocalLinuxPresented)
+    }
+
+    @Test func localLinuxCoverInteractiveDismissalClearsTheSlot() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentLocalLinux)
+
+        #expect(state.apply(.sheetDidRequestDismissal) == .none)
+        #expect(state.isIdle)
+        #expect(state.apply(.dismissLocalLinux) == .none)
+    }
+
+    @Test func signOutClosesTheLocalLinuxCover() {
+        var state = MobileRootPresentationState()
+        state.apply(.presentLocalLinux)
+
+        #expect(state.apply(.authenticationChanged(isAuthenticated: false)) == .none)
+        #expect(state.isIdle)
+    }
 }

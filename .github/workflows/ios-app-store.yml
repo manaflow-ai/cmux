@@ -63,6 +63,11 @@ jobs:
       - name: Provision GhosttyKit
         run: ./scripts/ensure-ghosttykit.sh
 
+      - name: Provision iSH kernel
+        uses: ./.github/actions/provision-ish-ios
+        with:
+          device-only: "true"
+
       - name: Install asc CLI
         run: |
           set -euo pipefail
@@ -78,7 +83,7 @@ jobs:
             exit 1
           fi
           "$BREW_BIN" list asc >/dev/null 2>&1 || "$BREW_BIN" install asc
-          echo "$(dirname "$BREW_BIN")" >> "$GITHUB_PATH"
+          dirname "$BREW_BIN" >> "$GITHUB_PATH"
 
       - name: Verify asc CLI
         run: |
@@ -102,10 +107,12 @@ jobs:
           mkdir -p "$KEY_DIR"
           printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
-          echo "ASC_API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
-          echo "ASC_KEY_ID=$ASC_API_KEY_ID" >> "$GITHUB_ENV"
-          echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID" >> "$GITHUB_ENV"
-          echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+          {
+            echo "ASC_API_KEY_PATH=$KEY_PATH"
+            echo "ASC_KEY_ID=$ASC_API_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_API_ISSUER_ID"
+            echo "ASC_PRIVATE_KEY_PATH=$KEY_PATH"
+          } >> "$GITHUB_ENV"
 
       - name: Import iOS distribution signing cert
         env:

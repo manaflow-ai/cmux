@@ -213,6 +213,17 @@ find_hq_cloud_ios() {
 ARTIFACT_ROOT="${CLOUD_TESTFLIGHT_ARTIFACT_ROOT:-$REPO_ROOT/artifacts/cloud-testflight}"
 mkdir -p "$ARTIFACT_ROOT"
 
+# The cloud builder receives this checkout through an rsync overlay. Ensure the
+# local-path IshKernel binary target exists before that overlay is created, so
+# a clean clone cannot reach the remote archive with an absent kernel artifact.
+# The beta lane archives only a device slice; simulator builds use the reload
+# and screenshot paths, which verify the simulator slice explicitly.
+ISH_ARTIFACT_VERIFY="$REPO_ROOT/scripts/verify-ish-ios-artifacts.sh"
+if [[ ! -x "$ISH_ARTIFACT_VERIFY" ]]; then
+  die "missing iSH artifact verifier: $ISH_ARTIFACT_VERIFY (run from a cmux checkout containing the local Linux package)"
+fi
+"$ISH_ARTIFACT_VERIFY" --build --device-only
+
 ARCHIVE_PATH=""
 
 build_archive_cloud() {

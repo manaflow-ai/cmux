@@ -543,10 +543,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
         accessoryDismissLeadingConstraint = dismissLeadingConstraint
         accessoryScrollTrailingConstraint = scrollTrailingConstraint
-        // The cmux iOS app always drives a macOS cmux surface, so default the
-        // accessory to Mac modifiers: retitle Ctrl/Alt to ⌃/⌥ and insert the ⌘
-        // button. `updateModifierLabels(isMacRemote:)` can still switch this if a
-        // non-Mac remote is ever introduced.
+        // Paired surfaces normally target a macOS cmux host, so build the
+        // accessory with Mac modifiers first: retitle Ctrl/Alt to ⌃/⌥ and
+        // insert the ⌘ button. `GhosttySurfaceView` applies its explicit
+        // target after this lazy setup, which lets local Linux surfaces switch
+        // to Ctrl/Alt without changing the existing remote path.
         updateModifierLabels(isMacRemote: true)
         return container
     }()

@@ -94,8 +94,8 @@ extension WorkspaceListView {
                                     machineSnapshots: machineSnapshots
                                 )
                             )
-                            if canCreateWorkspace {
-                                newWorkspaceButton.equatable()
+                            if newTerminalMenuValue.isEnabled {
+                                newTerminalMenu.equatable()
                             }
                         }
                     }
@@ -110,8 +110,8 @@ extension WorkspaceListView {
                             actions: workspaceListFilterMenuActions
                         )
                         .equatable()
-                        if canCreateWorkspace {
-                            newWorkspaceButton.equatable()
+                        if newTerminalMenuValue.isEnabled {
+                            newTerminalMenu.equatable()
                         }
                     }
                 }
