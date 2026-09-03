@@ -3266,8 +3266,7 @@ impl Surface {
                                 let title = replacement.title().unwrap_or_default();
                                 let pwd = replacement.pwd();
                                 let mut scroll_changed = None;
-                                let generation = {
-                                    let mut term = pty.term.lock().unwrap();
+                                let generation = pty.with_terminal_stream_update(|term| {
                                     let before = terminal_scroll_position(&term);
                                     **term = replacement;
                                     pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
@@ -3298,9 +3297,8 @@ impl Surface {
                                         ),
                                     });
                                     pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1
-                                };
+                                });
                                 drop(geometry);
-                                pty.stream_progress.notify();
                                 pty.request_frame(generation);
                                 if let Some(mux) = mux.upgrade() {
                                     mux.emit_terminal_title(surface.id, title.into());
@@ -6429,6 +6427,18 @@ impl PtySurface {
         }
     }
 
+    /// Apply one replacement to the terminal stream and publish its revision.
+    /// The revision must be published before another screen reader can acquire
+    /// the terminal lock.
+    fn with_terminal_stream_update<R>(&self, update: impl FnOnce(&mut Terminal) -> R) -> R {
+        let result = {
+            let mut term = self.term.lock().unwrap();
+            update(&mut term)
+        };
+        self.stream_progress.notify();
+        result
+    }
+
     /// Publish the last PTY generation before the mux drops this surface.
     ///
     /// A normal frame request may still be waiting for the cadence deadline,
@@ -8860,6 +8870,71 @@ mod tests {
             .recv_timeout(Duration::from_secs(1))
             .expect("snapshot result was not delivered");
         assert!(text.contains("new-output"), "snapshot omitted applied output: {text:?}");
+        assert!(revision > revision_before, "snapshot returned stale revision {revision}");
+        progress.set_before_notify_hook(None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_replacement_publishes_revision_before_unlocking_terminal() {
+        let mux =
+            Mux::new_for_test("hosted-replacement-snapshot-boundary", SurfaceOptions::default());
+        let surface =
+            Surface::spawn_for_test(1, SurfaceOptions::default(), Arc::downgrade(&mux)).unwrap();
+        let progress = &surface.as_pty().unwrap().stream_progress;
+        let revision_before = progress.revision();
+        let (notify_started_tx, notify_started_rx) = sync_channel(1);
+        let (release_notify_tx, release_notify_rx) = sync_channel(1);
+        let release_notify = Arc::new(Mutex::new(release_notify_rx));
+        let release_notify_hook = release_notify.clone();
+        progress.set_before_notify_hook(Some(Arc::new(move || {
+            notify_started_tx.send(()).unwrap();
+            release_notify_hook
+                .lock()
+                .unwrap()
+                .recv_timeout(Duration::from_secs(2))
+                .expect("hosted replacement test did not release the notification boundary");
+        })));
+
+        let mut replacement = Terminal::new(81, 24, 10_000, Callbacks::default()).unwrap();
+        replacement.resize(81, 24, 8, 16).unwrap();
+        let update_surface = surface.clone();
+        let update = std::thread::spawn(move || {
+            let pty = update_surface.as_pty().unwrap();
+            let mut geometry = pty.geometry.lock().unwrap();
+            let next_geometry = PtyGeometry { cols: 81, ..*geometry };
+            pty.with_terminal_stream_update(|term| {
+                **term = replacement;
+                *geometry = next_geometry;
+                term.vt_write(b"host-replacement");
+            });
+        });
+        notify_started_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("hosted replacement did not reach the notification boundary");
+
+        let (snapshot_entered_tx, snapshot_entered_rx) = sync_channel(1);
+        let (snapshot_tx, snapshot_rx) = sync_channel(1);
+        let snapshot_surface = surface.clone();
+        let snapshot_thread = std::thread::spawn(move || {
+            let snapshot = snapshot_surface.terminal_screen_snapshot().unwrap();
+            snapshot_entered_tx.send(()).unwrap();
+            snapshot_tx.send((snapshot.text, snapshot.revision)).unwrap();
+        });
+        let entered_during_notify =
+            snapshot_entered_rx.recv_timeout(Duration::from_millis(250)).is_ok();
+
+        release_notify_tx.send(()).unwrap();
+        update.join().unwrap();
+        snapshot_thread.join().unwrap();
+        assert!(
+            !entered_during_notify,
+            "hosted replacement unlocked terminal before revision publication"
+        );
+        let (text, revision) = snapshot_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("hosted replacement snapshot was not delivered");
+        assert!(text.contains("host-replacement"), "snapshot omitted replacement text: {text:?}");
         assert!(revision > revision_before, "snapshot returned stale revision {revision}");
         progress.set_before_notify_hook(None);
     }
