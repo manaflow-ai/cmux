@@ -150,6 +150,78 @@ struct VMTunnelManager: Sendable {
         )
     }
 
+    /// Which config is actually up. Liveness alone cannot tell enrollments
+    /// apart: every enrollment gives this Mac the same tunnel-side address, so
+    /// an interface left up for another account — or for keys the server has
+    /// since rotated — looks "up" while carrying the wrong peer, and `cmux vpn
+    /// up` used to answer "already up" and change nothing. `vpn up` therefore
+    /// records the digest of the config it brought up, `vpn down` clears it,
+    /// and `isStale()` compares that record with the config on disk.
+    var appliedDigestURL: URL { stateDir.appendingPathComponent("\(Self.interfaceName).applied", isDirectory: false) }
+
+    /// SHA-256 of the config on disk; nil when there is none.
+    func configDigest() -> String? {
+        guard let data = try? Data(contentsOf: configURL) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// The digest of the config `cmux vpn up` last brought up; nil when unknown.
+    func appliedDigest() -> String? {
+        guard let text = try? String(contentsOf: appliedDigestURL, encoding: .utf8) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// `applied: true` after wg-quick brought the current config up, `false`
+    /// after the interface was taken down.
+    func recordApplied(_ applied: Bool) throws {
+        guard applied else {
+            try? FileManager.default.removeItem(at: appliedDigestURL)
+            return
+        }
+        guard let digest = configDigest() else {
+            throw TunnelError.configMalformed("no tunnel config to record as applied")
+        }
+        try ensureStateDir()
+        try write(digest + "\n", to: appliedDigestURL)
+    }
+
+    /// Up, but not with the config on disk: another enrollment, rotated keys,
+    /// or a tunnel brought up before this record existed (treated as stale
+    /// once, so the next `vpn up` re-applies and records it).
+    func isStale() -> Bool {
+        Self.isStale(interfaceUp: wgQuickInterfaceUp(), appliedDigest: appliedDigest(), configDigest: configDigest())
+    }
+
+    static func isStale(interfaceUp: Bool, appliedDigest: String?, configDigest: String?) -> Bool {
+        guard interfaceUp, let configDigest else { return false }
+        return appliedDigest != configDigest
+    }
+
+    /// Why a private-network route cannot work right now — the line the
+    /// sidebar shows ahead of the raw link error — or nil when the tunnel is
+    /// up with the current enrollment.
+    func privateRouteBlocker() -> String? {
+        let up = wgQuickInterfaceUp()
+        return Self.privateRouteBlocker(interfaceUp: up, stale: up && isStale())
+    }
+
+    static func privateRouteBlocker(interfaceUp: Bool, stale: Bool) -> String? {
+        if !interfaceUp {
+            return String(
+                localized: "cloudTree.link.tunnelDown",
+                defaultValue: "This Mac's tunnel to your Cloud VM network is down \u{2014} run `cmux vpn up`."
+            )
+        }
+        if stale {
+            return String(
+                localized: "cloudTree.link.tunnelStale",
+                defaultValue: "This Mac's tunnel is up for a different enrollment \u{2014} run `cmux vpn up` to switch it."
+            )
+        }
+        return nil
+    }
+
     /// Whether wg-quick currently has this tunnel up, without privileges.
     ///
     /// wg-quick's own record (`/var/run/wireguard/cmux.name`) is root-only on

@@ -59819,6 +59819,23 @@
         }
       }
     },
+    "cli.vpn.status.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: up, but for a different enrollment (run `cmux vpn up` to switch it)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 接続中ですが別の登録のものです（`cmux vpn up` で切り替えてください）"
+          }
+        }
+      }
+    },
     "cli.vpn.status.up": {
       "extractionState": "manual",
       "localizations": {
@@ -59849,6 +59866,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "wg-quick がインストールされていません。`brew install wireguard-tools` でインストールしてください。"
+          }
+        }
+      }
+    },
+    "cli.vpn.switching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel that is up was brought up for another enrollment (a different account, or older keys). Replacing it with this one (sudo will prompt for your password)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のトンネルは別の登録（別のアカウント、または古い鍵）で立ち上げられたものです。このトンネルに置き換えます（sudo がパスワードを求めます）…"
           }
         }
       }
@@ -61334,6 +61368,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブラウザ %d"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel to your Cloud VM network is down — run `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac から Cloud VM ネットワークへのトンネルが切断されています — `cmux vpn up` を実行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel is up for a different enrollment — run `cmux vpn up` to switch it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のトンネルは別の登録で接続されています — `cmux vpn up` で切り替えてください。"
           }
         }
       }

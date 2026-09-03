@@ -54,8 +54,12 @@ extension CMUXCLI {
             throw CLIError(message: "The cmux app did not return a tunnel config. Update cmux and retry.")
         }
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
+        // Up, but with another enrollment's config (a different account on the
+        // same Mac, or keys the server rotated): "already up" would leave every
+        // private route dead, so the stale interface is replaced instead.
+        let stale = (response["stale"] as? Bool) ?? false
 
-        if interfaceUp {
+        if interfaceUp, !stale {
             if jsonOutput {
                 print(jsonString(["status": "up", "config_path": configPath, "changed": false]))
             } else {
@@ -81,7 +85,28 @@ extension CMUXCLI {
             } else if (response["rotated"] as? Bool) == true {
                 print(String(localized: "cli.vpn.rotated", defaultValue: "Refreshed this Mac's tunnel keys."))
             }
-            print(String(localized: "cli.vpn.bringingUp", defaultValue: "Bringing the tunnel up (sudo will prompt for your password)…"))
+            if interfaceUp {
+                print(String(
+                    localized: "cli.vpn.switching",
+                    defaultValue: "The tunnel that is up was brought up for another enrollment (a different account, or older keys). Replacing it with this one (sudo will prompt for your password)…"
+                ))
+            } else {
+                print(String(localized: "cli.vpn.bringingUp", defaultValue: "Bringing the tunnel up (sudo will prompt for your password)…"))
+            }
+        }
+        if interfaceUp {
+            let downStatus = runInteractiveProcess(
+                executablePath: "/usr/bin/sudo",
+                arguments: [wgQuick, "down", configPath]
+            )
+            guard downStatus == 0 else {
+                throw CLIError(message: """
+                    wg-quick down failed (exit \(downStatus)) while replacing the stale tunnel.
+
+                    What to do:
+                      Check the output above, run `cmux vpn down`, then retry `cmux vpn up`.
+                    """)
+            }
         }
         let status = runInteractiveProcess(
             executablePath: "/usr/bin/sudo",
@@ -95,8 +120,13 @@ extension CMUXCLI {
                   Check the output above. If the interface half-started, run `cmux vpn down` first, then retry.
                 """)
         }
+        // Tell the app which config is up now, so a later enrollment (another
+        // account, rotated keys) is detected as stale instead of read as "up".
+        // Best effort: the tunnel works either way; without the record the next
+        // `vpn up` simply re-applies once.
+        _ = try? client.sendV2(method: "vm.tunnel_applied", params: ["applied": true], responseTimeout: 30)
         if jsonOutput {
-            print(jsonString(["status": "up", "config_path": configPath, "changed": true]))
+            print(jsonString(["status": "up", "config_path": configPath, "changed": true, "switched": interfaceUp]))
         } else {
             print(String(localized: "cli.vpn.up", defaultValue: "Tunnel is up."))
             printVPNAddresses(response)
@@ -132,6 +162,8 @@ extension CMUXCLI {
         guard status == 0 else {
             throw CLIError(message: "wg-quick down failed (exit \(status)). Check the output above.")
         }
+        // Nothing is up now: clear the applied-config record (best effort).
+        _ = try? client.sendV2(method: "vm.tunnel_applied", params: ["applied": false], responseTimeout: 30)
         if jsonOutput {
             print(jsonString(["status": "down", "changed": true]))
         } else {
@@ -214,9 +246,15 @@ extension CMUXCLI {
             return
         }
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
+        let stale = (response["stale"] as? Bool) ?? false
         let configPresent = (response["config_present"] as? Bool) ?? false
         let neAvailable = (response["network_extension_available"] as? Bool) ?? false
-        if interfaceUp {
+        if interfaceUp, stale {
+            print(String(
+                localized: "cli.vpn.status.stale",
+                defaultValue: "Tunnel: up, but for a different enrollment (run `cmux vpn up` to switch it)"
+            ))
+        } else if interfaceUp {
             print(String(localized: "cli.vpn.status.up", defaultValue: "Tunnel: up"))
         } else if configPresent {
             print(String(localized: "cli.vpn.status.down", defaultValue: "Tunnel: down (enrolled; run `cmux vpn up`)"))

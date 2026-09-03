@@ -240,6 +240,9 @@ extension TerminalController {
                     "created": state.endpoint.created,
                     "rotated": state.endpoint.rotated,
                     "interface_up": manager.wgQuickInterfaceUp(),
+                    // Up with a config other than the one just written (another
+                    // account's enrollment, rotated keys): `vpn up` must replace it.
+                    "stale": manager.isStale(),
                     "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
                 ]
             }
@@ -255,8 +258,24 @@ extension TerminalController {
                     "config_present": hasConfig,
                     "interface_name": VMTunnelManager.interfaceName,
                     "interface_up": manager.wgQuickInterfaceUp(),
+                    "stale": manager.isStale(),
                     "device_fingerprint": fingerprint,
                     "network_extension_available": VMTunnelManager.networkExtensionAvailable(),
+                ]
+            }
+        case "vm.tunnel_applied":
+            // `cmux vpn up` reports which config wg-quick brought up (`applied:
+            // true`) and `vpn down` that none is (`applied: false`). The app
+            // keeps the digest, so a later enrollment on disk reads as stale
+            // instead of as "already up".
+            return v2VmCall(id: id) {
+                let manager = VMTunnelManager()
+                let applied = (params["applied"] as? Bool) ?? true
+                try manager.recordApplied(applied)
+                return [
+                    "applied": applied,
+                    "digest": manager.appliedDigest() ?? NSNull(),
+                    "stale": manager.isStale(),
                 ]
             }
         case "vm.tunnel_revoke":
