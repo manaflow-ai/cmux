@@ -395,16 +395,14 @@ struct VMTunnelManager: Sendable {
 
     /// Whether wg-quick currently has this tunnel up, without privileges.
     ///
-    /// wg-quick's own record (`/var/run/wireguard/cmux.name`) is root-only on
-    /// macOS, so instead this asks the question the network can answer: does
-    /// any interface hold one of the tunnel's own `[Interface] Address`es from
-    /// the config this manager wrote? Those are fixed platform-side addresses
-    /// unique to the tunnel, so a match is the tunnel and nothing else. A
-    /// future NetworkExtension tunnel reports through NEVPNStatus instead.
+    /// Two facts are required: wg-quick's root-owned marker for this interface
+    /// exists, and some interface holds one of the `[Interface] Address`es from
+    /// this config. The marker separates this build's tunnel from another
+    /// enrollment (all enrollments use the same tunnel-side address); the
+    /// address check prevents a stale marker after a crash from claiming that
+    /// an interface is live. A future NetworkExtension tunnel reports through
+    /// NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
-        // The address is shared by every enrollment on this Mac. The
-        // root-owned marker is what proves this particular deployment's
-        // interface, rather than Nightly's production interface, is up.
         guard FileManager.default.fileExists(atPath: runtimeNameFileURL.path) else { return false }
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
         let expected = Self.interfaceAddresses(in: config)
