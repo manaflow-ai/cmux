@@ -13,7 +13,7 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 
-const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid]";
+const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check]";
 const args = process.argv.slice(2);
 const { webDir, target, project, rest } = parseWebDirAndTarget(args, usage);
 const shouldCreate = rest.includes("--create");
@@ -23,6 +23,33 @@ const skipAttach = rest.includes("--skip-attach");
 // metadata key the entitlements layer reads (cmuxVmPlan). Required to
 // exercise provisioning now that free plans are gated (vm_requires_pro).
 const paid = rest.includes("--paid");
+// --edge-check proves the coderouter edge model plane from inside the guest:
+// no route token on disk, the injected token reaches coderouter, and one
+// codex turn completes through the edge.
+const edgeCheck = rest.includes("--edge-check");
+// --claude-check extends --edge-check to the Claude leg: the smoke team gets an
+// Anthropic API key upstream (CMUX_SMOKE_CLAUDE_API_KEY, never logged) through
+// PUT /api/coderouter/claude-upstream, then one `claude -p` turn runs in the
+// guest through the edge. Proves routing, upstream rewrite, and the usage row.
+const claudeCheck = rest.includes("--claude-check");
+// Either an Anthropic API key (CMUX_SMOKE_CLAUDE_API_KEY) or a full
+// PUT /api/coderouter/claude-upstream body (CMUX_SMOKE_CLAUDE_UPSTREAM_JSON,
+// e.g. a bedrock upstream) becomes the smoke team's Claude upstream.
+const claudeUpstreamApiKey = process.env.CMUX_SMOKE_CLAUDE_API_KEY?.trim() ?? "";
+const claudeUpstreamJson = process.env.CMUX_SMOKE_CLAUDE_UPSTREAM_JSON?.trim() ?? "";
+const claudeUpstreamBody = claudeUpstreamJson
+  ? claudeUpstreamJson
+  : claudeUpstreamApiKey
+    ? JSON.stringify({ kind: "anthropic_api_key", apiKey: claudeUpstreamApiKey })
+    : "";
+if (claudeCheck && !edgeCheck) {
+  console.error("--claude-check requires --edge-check");
+  process.exit(2);
+}
+if (claudeCheck && !claudeUpstreamBody) {
+  console.error("--claude-check requires CMUX_SMOKE_CLAUDE_API_KEY or CMUX_SMOKE_CLAUDE_UPSTREAM_JSON in the environment");
+  process.exit(2);
+}
 const provider = optionValue(rest, "--provider") ?? "freestyle";
 const image = optionValue(rest, "--image");
 const targetUrl = optionValue(rest, "--url") ?? project.url;
@@ -162,6 +189,20 @@ try {
     beforeCount: Array.isArray(authedJson.vms) ? authedJson.vms.length : null,
   };
 
+  if (claudeCheck) {
+    const upstream = await fetchWithTimeout(`${targetUrl}/api/coderouter/claude-upstream`, {
+      method: "PUT",
+      headers: { ...authHeaders, "content-type": "application/json" },
+      body: claudeUpstreamBody,
+    });
+    const upstreamText = await upstream.text();
+    if (upstream.status !== 200 && upstream.status !== 201) {
+      throw new Error(`PUT /api/coderouter/claude-upstream expected 200/201, got ${upstream.status}: ${upstreamText}`);
+    }
+    const parsedUpstream = JSON.parse(upstreamText);
+    result.claudeUpstream = parsedUpstream.upstream?.identifier ?? null;
+  }
+
   if (shouldCreate) {
     const createStartedAt = performance.now();
     const create = await fetchWithTimeout(`${targetUrl}/api/vm`, {
@@ -229,6 +270,70 @@ try {
       attachTransport = attached.transport;
     }
 
+    let edge;
+    if (edgeCheck) {
+      const exec = async (command, timeoutMs = 120_000) => {
+        const response = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/exec`, {
+          method: "POST",
+          headers: { ...authHeaders, "content-type": "application/json" },
+          body: JSON.stringify({ command, timeoutMs }),
+        }, timeoutMs + 30_000);
+        const text = await response.text();
+        if (response.status !== 200) throw new Error(`POST exec expected 200, got ${response.status}: ${text}`);
+        return JSON.parse(text);
+      };
+      const guestEnv = "export HOME=/root; for f in /etc/profile.d/*.sh; do [ -r \"$f\" ] && . \"$f\"; done; . /etc/cmux/agent-config.sh;";
+      const originHost = await exec(`${guestEnv} printf '%s' "$CMUX_CODEROUTER_URL" | sed -e 's#^https\\?://##' -e 's#/.*$##'`);
+      const hosts = await exec("sed -n '/BEGIN freestyle-tls-egress/,/END freestyle-tls-egress/p' /etc/hosts");
+      const host = (originHost.stdout ?? "").trim();
+      const steered = host.length > 0 && (hosts.stdout ?? "").includes(host);
+      // Any crt_ string under the agent config roots means a token leaked into the guest.
+      const leak = await exec("grep -rslE 'crt_[A-Za-z0-9_-]{40,}' /root/.config/cmux /root/.codex /root/.pi /root/.config/opencode /etc/cmux /etc/environment /etc/profile.d 2>/dev/null; true");
+      const tokenOnDisk = (leak.stdout ?? "").trim();
+      // /v1/models needs an upstream client_version query, so the self-usage
+      // route is the guest-side proof that the bound token arrived.
+      const models = await exec(`${guestEnv} curl -sS --max-time 20 -o /dev/null -w '%{http_code}' -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+      const modelsStatus = (models.stdout ?? "").trim();
+      const codex = await exec(`${guestEnv} cd /root && codex exec --skip-git-repo-check 'Reply with exactly the single word pong and nothing else.' 2>&1 | tail -20`, 240_000);
+      const codexOut = `${codex.stdout ?? ""}${codex.stderr ?? ""}`;
+      // codex echoes the prompt, so only a line that is exactly the answer counts.
+      const codexPong = codexOut.split("\n").some((line) => line.trim().toLowerCase() === "pong");
+      // The edge delivered the token but the team has no upstream subscription:
+      // a real outcome on staging teams, reported rather than failed.
+      const codexOutcome = codexPong ? "answered" : /no_usable_account/.test(codexOut) ? "no_account" : "failed";
+      edge = {
+        hostsSteered: steered,
+        tokenOnDisk: tokenOnDisk === "" ? null : tokenOnDisk,
+        modelsStatus,
+        codexExit: codex.exitCode,
+        codexOutcome,
+        codexTail: codexOut.slice(-400),
+      };
+      if (claudeCheck) {
+        // Claude Code trusts the edge CA through NODE_EXTRA_CA_CERTS exported by
+        // agent-config.sh and authenticates with the placeholder x-api-key; the
+        // edge-injected route token selects the team's upstream.
+        const claude = await exec(
+          `${guestEnv} cd /root && claude -p 'Reply with exactly the single word pong and nothing else.' --model claude-haiku-4-5-20251001 2>&1 | tail -20`,
+          240_000,
+        );
+        const claudeOut = `${claude.stdout ?? ""}${claude.stderr ?? ""}`;
+        const claudePong = claudeOut.split("\n").some((line) => line.trim().toLowerCase().replace(/[.!]$/, "") === "pong");
+        edge.claudeExit = claude.exitCode;
+        edge.claudeOutcome = claudePong ? "answered" : /claude_upstream_not_configured|no upstream/i.test(claudeOut) ? "no_upstream" : "failed";
+        edge.claudeTail = claudeOut.slice(-400);
+        const selfUsage = await exec(`${guestEnv} curl -sS --max-time 20 -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/api/coderouter/vm-usage/self"`);
+        edge.selfUsage = (selfUsage.stdout ?? "").trim().slice(0, 600);
+      }
+      const problems = [];
+      if (!steered) problems.push(`guest /etc/hosts is not steered to the edge for ${host || "the coderouter origin"}`);
+      if (tokenOnDisk) problems.push(`route token found in guest files: ${tokenOnDisk}`);
+      if (modelsStatus !== "200") problems.push(`GET /api/coderouter/vm-usage/self from the guest returned ${modelsStatus || "nothing"}`);
+      if (codexOutcome === "failed") problems.push(`codex turn through the edge did not answer: ${edge.codexTail}`);
+      if (claudeCheck && edge.claudeOutcome !== "answered") problems.push(`claude turn through the edge did not answer: ${edge.claudeTail}`);
+      if (problems.length > 0) throw new Error(`edge check failed: ${problems.join("; ")}`);
+    }
+
     const destroyStartedAt = performance.now();
     const destroy = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}`, {
       method: "DELETE",
@@ -246,6 +351,7 @@ try {
       ...(skipAttach
         ? { attachSkipped: true }
         : { attachTransport, attachDurationMs }),
+      ...(edge ? { edge } : {}),
       destroyed: true,
       destroyDurationMs,
     });

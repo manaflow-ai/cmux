@@ -27,10 +27,6 @@ const isVercelNonPreviewDeployment =
   typeof process.env.VERCEL_ENV === "string" &&
   process.env.VERCEL_ENV !== "preview" &&
   !isDocsZone;
-const isVercelProductionDeployment =
-  process.env.VERCEL === "1" &&
-  process.env.VERCEL_ENV === "production" &&
-  !isDocsZone;
 const irohMinterUrlPolicy: IrohMinterUrlPolicy = {
   allowInsecureLoopback:
     trimEnv(process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER) === "1",
@@ -47,18 +43,6 @@ const requireVercelNonPreviewValue = (
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${name} is required for deployed non-preview runtimes`,
-      });
-    }
-  });
-const requireVercelProductionValue = (
-  name: string,
-  schema: z.ZodType<string> = z.string().min(1),
-): z.ZodType<string | undefined> =>
-  schema.optional().superRefine((value, context) => {
-    if (isVercelProductionDeployment && !value) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: `${name} is required for deployed production runtimes`,
       });
     }
   });
@@ -288,12 +272,8 @@ export const env = createEnv({
         "CMUX_VM_PUBLICATION_GENERATED_DOMAIN must be a lowercase DNS zone with at least two labels",
       )
       .optional(),
-    // Hosted coderouter requires an active personal cmux Pro subscription.
-    // Self-hosted deployments leave this unset (or set it to "0").
-    CODEROUTER_HOSTED_PRO_REQUIRED: requireVercelProductionValue(
-      "CODEROUTER_HOSTED_PRO_REQUIRED",
-      z.enum(["0", "1"]),
-    ),
+    // Hosted coderouter and Subrouter have no plan, permission, or team
+    // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
@@ -317,14 +297,6 @@ export const env = createEnv({
     SUBROUTER_STACK_TENANT_DELETE_TOKEN: requireVercelNonPreviewValue(
       "SUBROUTER_STACK_TENANT_DELETE_TOKEN",
       z.string().min(32).max(1_024),
-    ),
-    SUBROUTER_ENFORCE_STACK_PERMISSIONS: requireVercelNonPreviewValue(
-      "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
-      z.enum(["0", "1"]),
-    ),
-    SUBROUTER_ALLOWED_TEAM_IDS: requireVercelNonPreviewValue(
-      "SUBROUTER_ALLOWED_TEAM_IDS",
-      z.string().min(1).max(8_192),
     ),
     SUBROUTER_STACK_AUTH_TIMEOUT_MS: z.string()
       .regex(/^[1-9][0-9]{0,4}$/)
@@ -473,9 +445,6 @@ export const env = createEnv({
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
     ),
-    CODEROUTER_HOSTED_PRO_REQUIRED: trimEnv(
-      process.env.CODEROUTER_HOSTED_PRO_REQUIRED,
-    ),
     CRON_SECRET: trimEnv(process.env.CRON_SECRET),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
@@ -488,12 +457,6 @@ export const env = createEnv({
     SUBROUTER_HOSTED_URL: trimEnv(process.env.SUBROUTER_HOSTED_URL),
     SUBROUTER_STACK_TENANT_DELETE_TOKEN: trimEnv(
       process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN,
-    ),
-    SUBROUTER_ENFORCE_STACK_PERMISSIONS: trimEnv(
-      process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS,
-    ),
-    SUBROUTER_ALLOWED_TEAM_IDS: trimEnv(
-      process.env.SUBROUTER_ALLOWED_TEAM_IDS,
     ),
     SUBROUTER_STACK_AUTH_TIMEOUT_MS: trimEnv(
       process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS,

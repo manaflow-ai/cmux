@@ -271,7 +271,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
       "title": "coderouter",
-      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji."
+      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "machines": {
+        "title": "Mašine",
+        "description": "Korištenje coderoutera po mašini za {team} u posljednjih {days} dana.",
+        "machineColumn": "Mašina",
+        "tokensColumn": "Ukupno tokena",
+        "apiEquivalentColumn": "API ekvivalentna vrijednost",
+        "unnamed": "Mašina bez naziva",
+        "empty": "Nijedna mašina nije koristila coderouter u posljednjih {days} dana.",
+        "unavailable": "Korištenje po mašini trenutno nije dostupno.",
+        "estimateNote": "API ekvivalentna vrijednost je procjena na osnovu javnih cjenovnika, a ne stvarni trošak."
+      }
     },
     "accountMenu": {
       "label": "Meni računa",

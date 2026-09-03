@@ -16,7 +16,6 @@ import {
 
 export type CoderouterAnalyticsEvent =
   | "coderouter_account_added"
-  | "coderouter_account_limit_reached"
   | "coderouter_account_removed"
   | "coderouter_account_status_viewed"
   | "coderouter_auth_rejected"
@@ -24,9 +23,12 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_route_session_revoked"
   | "coderouter_organization_catalog_viewed"
   | "coderouter_metrics_loaded"
+  | "coderouter_vm_usage_viewed"
   | "coderouter_route_health"
   | "coderouter_cli_command_started"
   | "coderouter_cli_command_completed"
+  | "coderouter_claude_upstream_set"
+  | "coderouter_claude_upstream_removed"
   | "coderouter_model_request_completed";
 
 type AnalyticsScalar = string | number | boolean;
@@ -60,17 +62,24 @@ const MAX_COUNT = 1_000_000_000_000;
 const ANALYTICS_SCHEMA_VERSION = 3;
 const ANALYTICS_SERVICE_VERSION = "coderouter-web-v1";
 
+/**
+ * Runs a best-effort telemetry task after the response is sent. Shared by the
+ * PostHog capture and the ClickHouse usage ledger so both leave the request
+ * path the same way.
+ */
+export function deferCoderouterTask(task: Promise<unknown>): void {
+  try {
+    after(task);
+  } catch {
+    // Unit tests and non-request scripts do not have a Next request scope.
+    // The promise is already running; always absorb rejection.
+    void task.catch(() => undefined);
+  }
+}
+
 const defaultDependencies: AnalyticsDependencies = {
   fetch,
-  defer: (task) => {
-    try {
-      after(task);
-    } catch {
-      // Unit tests and non-request scripts do not have a Next request scope.
-      // The promise is already running; always absorb rejection.
-      void task.catch(() => undefined);
-    }
-  },
+  defer: deferCoderouterTask,
   enabled: () =>
     process.env.VERCEL_ENV === "production" ||
     process.env.CODEROUTER_ANALYTICS_FORCE === "1",
@@ -171,10 +180,11 @@ async function deliver(
 
 function eventNeedsUserScope(event: CoderouterAnalyticsEvent): boolean {
   return event === "coderouter_account_added" ||
-    event === "coderouter_account_limit_reached" ||
     event === "coderouter_account_removed" ||
     event === "coderouter_route_session_issued" ||
-    event === "coderouter_route_session_revoked";
+    event === "coderouter_route_session_revoked" ||
+    event === "coderouter_claude_upstream_set" ||
+    event === "coderouter_claude_upstream_removed";
 }
 
 function eventProperties(
@@ -189,15 +199,6 @@ function eventProperties(
         return null;
       }
       return { provider, source, already_exists: input.already_exists };
-    }
-    case "coderouter_account_limit_reached": {
-      const provider = accountProvider(input.provider);
-      if (!provider) return null;
-      return {
-        provider,
-        account_count_bucket: countBucket(input.account_count),
-        free_limit: typeof input.free_limit === "number" ? input.free_limit : 0,
-      };
     }
     case "coderouter_account_removed": {
       const source = lifecycleSource(input.source);
@@ -223,20 +224,7 @@ function eventProperties(
       const reason = authReason(input.reason);
       return surface && reason ? { surface, reason } : null;
     }
-    case "coderouter_route_session_issued": {
-      if (typeof input.hosted_pro_required !== "boolean") return null;
-      const output: Record<string, AnalyticsScalar> = {
-        hosted_pro_required: input.hosted_pro_required,
-      };
-      const basis = enumValue(input.entitlement_basis, [
-        "free_tier",
-        "subscription",
-        "pro_required",
-        "ungated",
-      ]);
-      if (basis) output.entitlement_basis = basis;
-      return output;
-    }
+    case "coderouter_route_session_issued":
     case "coderouter_route_session_revoked":
       return {};
     case "coderouter_organization_catalog_viewed":
@@ -259,12 +247,23 @@ function eventProperties(
         ? { outcome, failure_stage: failureStage }
         : null;
     }
+    case "coderouter_vm_usage_viewed": {
+      const surface = enumValue(input.surface, [
+        "dashboard",
+        "vm_usage_api",
+        "team_machines_api",
+        "vm_self_api",
+      ]);
+      const outcome = enumValue(input.outcome, ["ready", "unavailable"]);
+      return surface && outcome ? { surface, outcome } : null;
+    }
     case "coderouter_route_health": {
       const provider = routeProvider(input.provider);
       const agent = enumValue(input.agent, [
         "codex",
         "opencode",
         "pi",
+        "claude",
         "other",
         "unknown",
       ]);
@@ -287,6 +286,7 @@ function eventProperties(
         "upstream_response",
       ]);
       if (!provider || !agent || !outcome || !failureStage) return null;
+      const vmId = analyticsVmId(input.vm_id);
       return {
         provider,
         agent,
@@ -297,11 +297,19 @@ function eventProperties(
         attempt_bucket: attemptBucket(input.attempt_count),
         refresh_bucket: attemptBucket(input.refresh_retry_count),
         response_streamed: input.response_streamed === true,
+        ...(vmId ? { vm_id: vmId } : {}),
       };
     }
     case "coderouter_cli_command_started":
     case "coderouter_cli_command_completed":
       return cliCommandProperties(input);
+    case "coderouter_claude_upstream_set": {
+      const upstreamKind = claudeUpstreamKind(input.upstream_kind);
+      if (!upstreamKind || typeof input.replaced !== "boolean") return null;
+      return { upstream_kind: upstreamKind, replaced: input.replaced };
+    }
+    case "coderouter_claude_upstream_removed":
+      return {};
   }
 }
 
@@ -380,6 +388,8 @@ function aiUsageProperties(
     outputTokens,
     totalTokens,
   });
+  const vmId = analyticsVmId(input.vm_id);
+  const upstreamKind = claudeUpstreamKind(input.upstream_kind);
   return {
     $ai_model: model,
     $ai_provider: provider,
@@ -395,7 +405,21 @@ function aiUsageProperties(
     coderouter_unpriced_tokens: estimate.unpricedTokens,
     coderouter_pricing_version: CODEROUTER_API_RATE_CARD_VERSION,
     coderouter_team_scope: teamScope,
+    ...(vmId ? { coderouter_vm_id: vmId } : {}),
+    ...(upstreamKind ? { upstream_kind: upstreamKind } : {}),
   };
+}
+
+/**
+ * Cloud VM id a bound route token attributes usage to. The id is an opaque
+ * server-minted UUID (no personal data), so it is forwarded as-is after a
+ * shape check that keeps free-form strings out of the closed schema.
+ */
+function analyticsVmId(value: AnalyticsScalar | null | undefined): string | null {
+  return typeof value === "string" &&
+      /^[A-Za-z0-9_-]{1,128}$/.test(value)
+    ? value
+    : null;
 }
 
 function safeCount(value: AnalyticsScalar | null | undefined): number {
@@ -447,7 +471,11 @@ function lifecycleSource(value: unknown): string | null {
 }
 
 function routeProvider(value: unknown): string | null {
-  return enumValue(value, ["codex", "opencode-go", "unknown"]);
+  return enumValue(value, ["codex", "opencode-go", "claude", "unknown"]);
+}
+
+function claudeUpstreamKind(value: unknown): string | null {
+  return enumValue(value, ["anthropic_api_key", "anthropic_oauth", "bedrock"]);
 }
 
 function aiProvider(value: AnalyticsScalar | null | undefined): string {
@@ -471,14 +499,21 @@ function authSurface(value: unknown): string | null {
   return enumValue(value, [
     "responses",
     "models",
+    "messages",
+    "count_tokens",
     "opencode_config",
     "opencode_proxy",
     "session_validation",
+    "vm_usage",
   ]);
 }
 
 function authReason(value: unknown): string | null {
-  return enumValue(value, ["missing_route_token", "invalid_route_token"]);
+  return enumValue(value, [
+    "missing_route_token",
+    "invalid_route_token",
+    "vm_mismatch",
+  ]);
 }
 
 function enumValue<const Value extends string>(
