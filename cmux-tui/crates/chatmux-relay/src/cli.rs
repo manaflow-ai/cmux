@@ -67,6 +67,10 @@ fn is_mode_flag(argument: &str) -> bool {
     matches!(argument, "--no-onboard" | "--code" | "--managed")
 }
 
+fn is_known_option(argument: &str) -> bool {
+    is_value_flag(argument) || is_mode_flag(argument) || Command::from_flag(argument).is_some()
+}
+
 pub fn parse_cli_args<I, S>(args: I) -> Result<ParsedArgs, CliUsageError>
 where
     I: IntoIterator<Item = S>,
@@ -80,7 +84,9 @@ where
 
         if is_value_flag(argument) {
             let value = match args.get(index + 1).map(String::as_str) {
-                Some(value) if value != "--" && !value.starts_with('-') => value.to_owned(),
+                Some(value) if !value.is_empty() && value != "--" && !is_known_option(value) => {
+                    value.to_owned()
+                }
                 _ => return Err(missing_value(argument)),
             };
             match argument {
@@ -198,6 +204,13 @@ mod tests {
         assert!(parsed.managed_mode);
         assert_eq!(parsed.enrollment_file.as_deref(), Some("/var/run/enroll.json"));
         assert_eq!(parsed.command, None);
+    }
+
+    #[test]
+    fn accepts_dash_prefixed_config_and_rejects_empty_config() {
+        let parsed = parse(&["--config", "-relay.toml"]).expect("dash value parses");
+        assert_eq!(parsed.config_path.as_deref(), Some("-relay.toml"));
+        assert!(parse(&["--config", ""]).is_err());
     }
 
     #[test]
