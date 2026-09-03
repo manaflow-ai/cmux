@@ -758,6 +758,7 @@ struct ScheduledSenderInner {
     limits: SessionLimits,
     cancel: CancellationToken,
     tasks: Mutex<Option<Vec<JoinHandle<()>>>>,
+    shutdown_join: Mutex<Option<JoinHandle<()>>>,
     join_started: AtomicBool,
     shutdown_complete: CancellationToken,
     active_tasks: AtomicUsize,
@@ -774,6 +775,13 @@ impl Drop for ScheduledSenderInner {
             for task in tasks {
                 task.abort();
             }
+        }
+        let join = match self.shutdown_join.lock() {
+            Ok(mut join) => join.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(join) = join {
+            join.abort();
         }
     }
 }
@@ -798,6 +806,7 @@ impl ScheduledSender {
             limits,
             cancel: CancellationToken::new(),
             tasks: Mutex::new(Some(Vec::with_capacity(8))),
+            shutdown_join: Mutex::new(None),
             join_started: AtomicBool::new(false),
             shutdown_complete: CancellationToken::new(),
             active_tasks: AtomicUsize::new(0),
@@ -907,13 +916,16 @@ impl ScheduledSender {
             .is_ok()
         {
             let tasks = self.inner.tasks.lock().unwrap().take().unwrap_or_default();
-            for task in tasks {
-                let _ = task.await;
-            }
-            self.inner.shutdown_complete.cancel();
-        } else {
-            self.inner.shutdown_complete.cancelled().await;
+            let shutdown_complete = self.inner.shutdown_complete.clone();
+            let join = tokio::spawn(async move {
+                for task in tasks {
+                    let _ = task.await;
+                }
+                shutdown_complete.cancel();
+            });
+            self.inner.shutdown_join.lock().unwrap().replace(join);
         }
+        self.inner.shutdown_complete.cancelled().await;
     }
 
     async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
@@ -1140,6 +1152,11 @@ mod tests {
         close_barrier: Barrier,
     }
 
+    struct CloseJoinGateLink {
+        send_entered: Semaphore,
+        send_release: Semaphore,
+    }
+
     #[async_trait]
     impl FrameLink for RejectingLink {
         fn description(&self) -> &str {
@@ -1230,6 +1247,31 @@ mod tests {
 
         async fn close(&self) -> Result<(), LinkError> {
             self.close_barrier.wait().await;
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for CloseJoinGateLink {
+        fn description(&self) -> &str {
+            "close-join-gate"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            self.send_entered.add_permits(1);
+            self.send_release.acquire().await.unwrap().forget();
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
             Ok(())
         }
     }
@@ -1431,6 +1473,46 @@ mod tests {
         link.release.add_permits(1);
         let _ = first.await;
         let _ = second.await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_close_does_not_poison_later_shutdown_waiters() {
+        let link = Arc::new(CloseJoinGateLink {
+            send_entered: Semaphore::new(0),
+            send_release: Semaphore::new(0),
+        });
+        let session =
+            ReliableSession::new(SessionId([20; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Bulk, 1, Bytes::from_static(b"in flight"), FrameFlags::empty())
+                    .await
+            }
+        });
+        link.send_entered.acquire().await.unwrap().forget();
+
+        let first_close = tokio::spawn({
+            let session = session.clone();
+            async move { session.close().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !session.scheduler.inner.join_started.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("first close did not begin scheduler shutdown");
+        first_close.abort();
+        let _ = first_close.await;
+
+        link.send_release.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), session.close())
+            .await
+            .expect("later close waited forever after cancelled shutdown")
+            .unwrap();
+        assert_eq!(send.await.unwrap().unwrap(), 1);
     }
 
     #[tokio::test]
