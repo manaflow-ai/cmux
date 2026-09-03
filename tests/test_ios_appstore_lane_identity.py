@@ -667,7 +667,13 @@ def _copy_isolated_ios_upload_repo(target: Path) -> Path:
     subprocess.run(["git", "config", "user.email", "test@example.invalid"], cwd=repo, check=True)
     subprocess.run(["git", "config", "user.name", "Test Runner"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "--allow-empty", "-m", "init"], cwd=repo, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-    subprocess.run(["git", "tag", "ios-v1.0.0"], cwd=repo, check=True)
+    # CI runners may set tag.gpgSign globally. Disable signing explicitly so
+    # this fixture remains a lightweight tag and never opens an editor.
+    subprocess.run(
+        ["git", "-c", "tag.gpgSign=false", "tag", "ios-v1.0.0"],
+        cwd=repo,
+        check=True,
+    )
     return repo
 
 
