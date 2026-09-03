@@ -1057,12 +1057,14 @@ mod tests {
         started: Arc<Semaphore>,
         release: Arc<Semaphore>,
         finished: Arc<Semaphore>,
+        aborted: Arc<Semaphore>,
     }
 
     struct GatedCloseHandle {
         started: Arc<Semaphore>,
         release: Arc<Semaphore>,
         finished: Arc<Semaphore>,
+        aborted: Arc<Semaphore>,
     }
 
     fn controlled_receive_link(
@@ -1101,13 +1103,15 @@ mod tests {
         let started = Arc::new(Semaphore::new(0));
         let release = Arc::new(Semaphore::new(0));
         let finished = Arc::new(Semaphore::new(0));
+        let aborted = Arc::new(Semaphore::new(0));
         (
             GatedCloseLink {
                 started: started.clone(),
                 release: release.clone(),
                 finished: finished.clone(),
+                aborted: aborted.clone(),
             },
-            GatedCloseHandle { started, release, finished },
+            GatedCloseHandle { started, release, finished, aborted },
         )
     }
 
@@ -1241,6 +1245,10 @@ mod tests {
             self.release.acquire().await.map_err(|_| LinkError::Closed)?.forget();
             self.finished.add_permits(1);
             Ok(())
+        }
+
+        fn abort_close(&self) {
+            self.aborted.add_permits(1);
         }
     }
 
@@ -1656,6 +1664,48 @@ mod tests {
         ));
         assert!(weak_physical.upgrade().is_none(), "stalled physical link was retained by mux");
         drop(mux);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn close_aborts_child_link_after_close_timeout() {
+        let (physical, handle) = gated_close_link();
+        let physical = Arc::new(physical);
+        let weak_physical = Arc::downgrade(&physical);
+        let child = Arc::new(
+            LaneMuxLink::new(
+                "child",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: physical }],
+            )
+            .unwrap(),
+        );
+        let mux = Arc::new(
+            LaneMuxLink::new(
+                "parent",
+                vec![LinkRoute { lanes: Lane::ALL.to_vec(), link: child.clone() }],
+            )
+            .unwrap(),
+        );
+
+        let close = tokio::spawn({
+            let mux = mux.clone();
+            async move { mux.close().await }
+        });
+        wait_for_signal(&handle.started, "stalled child physical close").await;
+
+        tokio::time::advance(Duration::from_secs(3)).await;
+        let result = tokio::time::timeout(Duration::from_secs(1), close);
+        tokio::pin!(result);
+        tokio::task::yield_now().await;
+        tokio::time::advance(Duration::from_secs(1)).await;
+        let result = result.await.expect("parent close remained blocked").unwrap();
+        assert!(matches!(
+            result,
+            Err(LinkError::Transport(message)) if message == "timed out closing physical link"
+        ));
+        wait_for_signal(&handle.aborted, "child close cancellation").await;
+        assert!(weak_physical.upgrade().is_none(), "child close retained physical link");
+        drop(mux);
+        drop(child);
     }
 
     #[tokio::test(start_paused = true)]
