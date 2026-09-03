@@ -1633,6 +1633,11 @@
           "default": "preview",
           "description": "What double-clicking (or pressing Return on a search result for) a file in the file explorer does. `preview` opens the built-in cmux file preview (the default and historical behavior). `defaultEditor` opens with the macOS default app for the file type. `preferredEditor` opens with the `app.preferredEditor` command, falling back to the default app when none is set. Only applies to files; directories always expand/collapse, and non-local (remote) file explorers always open the cmux preview.",
           "descriptionKey": "schemaDescriptions.fileExplorer.doubleClickAction"
+        },
+        "colorByFileType": {
+          "type": "boolean",
+          "default": false,
+          "description": "Color file and folder names in the tree by file type, using the terminal palette's 16 ANSI slots. Directories take the slot `ls` uses for `di`, executables the one it uses for `ex`, archives `*.tar.gz`, and so on, so the tree matches the terminal beside it and tracks whatever Ghostty theme is selected, in light and dark. Git status still wins over the type color, and an unrecognized name keeps the ordinary label color."
         }
       }
     },

@@ -29,6 +29,12 @@ extension CmuxSettingsFileStore {
         } else if section.keys.contains("doubleClickAction") {
             logInvalid("fileExplorer.doubleClickAction", sourcePath: sourcePath)
         }
+
+        if let value = jsonBool(section["colorByFileType"]) {
+            snapshot.managedUserDefaults[FileExplorerFileTypeColor.defaultsKey] = .bool(value)
+        } else if section.keys.contains("colorByFileType") {
+            logInvalid("fileExplorer.colorByFileType", sourcePath: sourcePath)
+        }
     }
 
     func parseSidebarWorkspaceTodosBeta(
