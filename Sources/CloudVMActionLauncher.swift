@@ -108,16 +108,15 @@ final class CloudVMActionLauncher {
         let errorPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = errorPipe
+        let outputDelivery = onOutput.map { MainActorOutputCoalescer(handler: $0) }
         let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe) { chunk in
-            guard let chunk = String(data: chunk, encoding: .utf8), !chunk.isEmpty else { return }
-            Task { @MainActor in
-                onOutput?(chunk)
-            }
+            outputDelivery?.enqueue(chunk)
         }
         outputCollector.start()
         let launchWindow = preferredWindow
         process.terminationHandler = { terminatedProcess in
-            let output = outputCollector.finish()
+            let result = outputCollector.finishResult()
+            let output = result.output
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
@@ -128,7 +127,7 @@ final class CloudVMActionLauncher {
                         terminationStatus: terminationStatus,
                         output: output,
                         workspaceId: Self.createdWorkspaceId(from: output),
-                        machineId: Self.createdMachineId(from: output)
+                        machineId: Self.createdMachineId(from: result.stdout)
                     )
                 )
                 if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation {
@@ -205,14 +204,16 @@ final class CloudVMActionLauncher {
 
     /// `cmux vm new` prints `OK machine=<id>` the moment the machine exists,
     /// before it tries to open it, so a failed open still reports the machine.
-    private static func createdMachineId(from output: String) -> String? {
-        for token in output.split(whereSeparator: \.isWhitespace) {
-            let string = String(token)
-            guard string.hasPrefix("machine=") else { continue }
-            let id = String(string.dropFirst("machine=".count))
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
-                return id
-            }
+    nonisolated static func createdMachineId(from stdout: String) -> String? {
+        for rawLine in stdout.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("OK machine=") else { continue }
+            let payload = line.dropFirst("OK machine=".count)
+            let id = payload.split(maxSplits: 1, whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+            guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { continue }
+            let suffix = payload.dropFirst(id.count)
+            guard suffix.isEmpty || suffix.first?.isWhitespace == true else { continue }
+            return id
         }
         return nil
     }
@@ -376,6 +377,37 @@ final class CloudVMActionLauncher {
     }
 }
 
+/// Delivers bounded stdout progress through one consumer task. `AsyncStream`
+/// owns synchronization and drops the oldest chunks when its finite buffer is
+/// full, so pipe callbacks never create an unbounded MainActor task fanout.
+private final class MainActorOutputCoalescer: @unchecked Sendable {
+    private let continuation: AsyncStream<Data>.Continuation
+
+    init(handler: @escaping @MainActor (String) -> Void) {
+        let pair = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(128))
+        continuation = pair.continuation
+        Task {
+            for await data in pair.stream {
+                var safeData = data
+                while !safeData.isEmpty && String(data: safeData, encoding: .utf8) == nil { safeData.removeLast() }
+                while let first = safeData.first, (first & 0xC0) == 0x80 { safeData.removeFirst() }
+                guard let text = String(data: safeData, encoding: .utf8), !text.isEmpty else { continue }
+                await MainActor.run { handler(text) }
+            }
+        }
+    }
+
+    func enqueue(_ data: Data) {
+        guard !data.isEmpty else { return }
+        continuation.yield(data)
+    }
+}
+
+struct ProcessOutputResult: Sendable, Equatable {
+    let output: String
+    let stdout: String
+}
+
 final class ProcessOutputCollector: @unchecked Sendable {
     private enum Stream {
         case stdout
@@ -423,9 +455,13 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     @discardableResult
     func finish() -> String {
+        finishResult().output
+    }
+
+    func finishResult() -> ProcessOutputResult {
         lock.lock()
         guard !isFinished else {
-            let output = formattedOutputLocked()
+            let output = formattedResultLocked()
             lock.unlock()
             return output
         }
@@ -440,7 +476,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
         try? stderrHandle.close()
 
         lock.lock()
-        let output = formattedOutputLocked()
+        let output = formattedResultLocked()
         lock.unlock()
         return output
     }
@@ -462,7 +498,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     private func append(_ data: Data, to stream: Stream) {
         guard !data.isEmpty else { return }
-        onOutput?(data)
+        if case .stdout = stream { onOutput?(data) }
         lock.lock()
         defer { lock.unlock() }
 
@@ -475,24 +511,29 @@ final class ProcessOutputCollector: @unchecked Sendable {
     }
 
     private func appendBounded(_ data: Data, to buffer: inout Data) {
-        guard data.count < byteLimit else {
+        if data.count >= byteLimit {
             buffer = Data(data.suffix(byteLimit))
+            while !buffer.isEmpty && String(data: buffer, encoding: .utf8) == nil { buffer.removeFirst() }
             return
         }
-
         let overflow = buffer.count + data.count - byteLimit
         if overflow > 0 {
-            buffer.removeSubrange(0..<overflow)
+            buffer.removeSubrange(0..<min(overflow, buffer.count))
         }
         buffer.append(data)
+        while !buffer.isEmpty && String(data: buffer, encoding: .utf8) == nil { buffer.removeLast() }
+        while let first = buffer.first, (first & 0xC0) == 0x80 { buffer.removeFirst() }
     }
 
-    private func formattedOutputLocked() -> String {
+    private func formattedResultLocked() -> ProcessOutputResult {
         let output = String(data: stdout, encoding: .utf8) ?? ""
         let error = String(data: stderr, encoding: .utf8) ?? ""
-        return [output, error]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
+        return ProcessOutputResult(
+            output: [output, error]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n"),
+            stdout: output
+        )
     }
 }
