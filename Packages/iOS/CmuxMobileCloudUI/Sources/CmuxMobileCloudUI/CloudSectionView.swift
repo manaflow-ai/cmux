@@ -118,7 +118,7 @@ struct CloudFailureRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(CloudFailureCopy.message(for: failure))
+            Text(failure.localizedMessage)
                 .foregroundStyle(.secondary)
             // The underlying error, so a dogfooder can report the exact cause.
             Text(failure.detail)
@@ -145,9 +145,9 @@ struct CloudTunnelUnavailableView: View {
 }
 
 /// Localized copy for each failure kind.
-enum CloudFailureCopy {
-    static func message(for failure: CloudSessionFailure) -> String {
-        switch failure.kind {
+private extension CloudSessionFailure {
+    var localizedMessage: String {
+        switch kind {
         case .signedOut:
             return L10n.string("mobile.cloud.error.signedOut", defaultValue: "Your session expired. Sign in again to reach your cloud machines.")
         case .controlPlane:
