@@ -18712,8 +18712,10 @@ impl App {
             let state = self.projection_rail_state_mut(view_index);
             if next < rows.len() {
                 state.selected = next;
+                state.selected_target = rows.get(next).map(|row| row.target);
                 state.selected_action = None;
             } else {
+                state.selected_target = None;
                 state.selected_action = Some(next.saturating_sub(rows.len()));
             }
             state.follow_selection = true;
@@ -22571,6 +22573,7 @@ impl App {
                 Hit::ProjectionRow { view, row, target } => {
                     let state = self.projection_rail_state_mut(view);
                     state.selected = row;
+                    state.selected_target = Some(target);
                     state.selected_action = None;
                     state.follow_selection = true;
                     self.activate_projection_target(target)?;
@@ -22593,6 +22596,7 @@ impl App {
                                 .position(|candidate| candidate.target == action)
                                 .unwrap_or_default();
                             let state = self.projection_rail_state_mut(view);
+                            state.selected_target = None;
                             state.selected_action = Some(action_index);
                             state.follow_selection = true;
                         }

@@ -78,7 +78,17 @@ impl Default for ProjectionRailState {
 impl ProjectionRailState {
     /// Keep resource selection attached to its target when rows reorder.
     pub(crate) fn reconcile_selection(&mut self, rows: &[ProjectionRow]) {
+        if self.selected_action.is_some() {
+            return;
+        }
+        if let Some(target) = self.selected_target {
+            if let Some(index) = rows.iter().position(|row| row.target == target) {
+                self.selected = index;
+                return;
+            }
+        }
         self.selected = self.selected.min(rows.len().saturating_sub(1));
+        self.selected_target = rows.get(self.selected).map(|row| row.target);
     }
 }
 
@@ -559,7 +569,8 @@ mod tests {
 
     #[test]
     fn projection_selection_follows_target_when_agent_rows_reorder() {
-        let tree = tree();
+        let mut tree = tree();
+        tree.workspaces[0].screens[0].panes[0].tabs.push(tab(6, "new blocked"));
         let agents = |states: [(&str, u64); 3]| {
             [4, 5, 6]
                 .into_iter()
@@ -574,13 +585,35 @@ mod tests {
                 .collect::<Vec<_>>()
         };
         let spec = spec(vec![SidebarResourceKind::Agents]);
-        let initial = rows(&spec, &tree, &agents([("working", 30), ("working", 20), ("working", 10)]), 0, &HashSet::new());
-        assert_eq!(initial.iter().map(|row| row.target).collect::<Vec<_>>()[1], ProjectionTarget::Surface { workspace: 0, screen: 0, pane: 3, index: 1, surface: 5, agent: true });
+        let initial = rows(
+            &spec,
+            &tree,
+            &agents([("working", 30), ("working", 20), ("working", 10)]),
+            0,
+            &HashSet::new(),
+        );
+        assert_eq!(
+            initial.iter().map(|row| row.target).collect::<Vec<_>>()[1],
+            ProjectionTarget::Surface {
+                workspace: 0,
+                screen: 0,
+                pane: 3,
+                index: 1,
+                surface: 5,
+                agent: true
+            }
+        );
 
         let mut state = ProjectionRailState { selected: 1, ..Default::default() };
         state.reconcile_selection(&initial);
 
-        let reordered = rows(&spec, &tree, &agents([("blocked", 1), ("working", 20), ("blocked", 40)]), 0, &HashSet::new());
+        let reordered = rows(
+            &spec,
+            &tree,
+            &agents([("blocked", 1), ("working", 20), ("blocked", 40)]),
+            0,
+            &HashSet::new(),
+        );
         state.reconcile_selection(&reordered);
         assert_eq!(state.selected, 2);
         assert_eq!(reordered[state.selected].target, initial[1].target);
