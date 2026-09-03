@@ -1394,6 +1394,7 @@ mod tests {
             &socket,
             &events,
             &report,
+            Instant::now() + BENCH_DEADLINE,
         );
         server.join().unwrap();
         let _ = std::fs::remove_file(&socket);
