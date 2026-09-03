@@ -144,17 +144,6 @@ impl TerminalExit {
     }
 }
 
-/// Wait for the native child hidden behind cmux-pty without collapsing Unix
-/// signal/core information into its display-only fallback status.
-///
-/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
-/// is an alternate backend and becomes an explicit unknown outcome.
-pub(crate) fn wait_for_native_child_status(
-    child: &mut (dyn cmux_pty::Child + Send + Sync),
-) -> TerminalExit {
-    wait_for_native_child_status_with_reap_result(child).0
-}
-
 /// Wait for a PTY child and report whether the wait reaped it successfully.
 ///
 /// Callers that retain an owning guard can use the boolean to avoid issuing a
