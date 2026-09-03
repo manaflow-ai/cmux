@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "shard": {
+      "value": "westus2-a"
+    },
+    "availabilityZone": {
+      "value": ""
+    },
+    "relayBinaryUrl": {
+      "value": "https://files.cmux.com/cmux-relay/replace-with-40-char-commit/cmux-relay-x86_64-unknown-linux-musl"
+    },
+    "relayBinarySha256": {
+      "value": "replace-with-64-char-lowercase-sha256"
+    },
+    "keyVaultName": {
+      "value": "replace-with-key-vault"
+    },
+    "relaySecretName": {
+      "value": "cmux-relay-hmac"
+    },
+    "certificateSecretName": {
+      "value": "cmux-relay-tls"
+    },
+    "certificateSecretId": {
+      "value": "https://replace-with-key-vault.vault.azure.net/secrets/cmux-relay-tls/replace-with-version"
+    },
+    "adminUsername": {
+      "value": "cmuxrelay"
+    },
+    "adminSshPublicKey": {
+      "value": "ssh-ed25519 replace-with-break-glass-key"
+    }
+  }
+}
