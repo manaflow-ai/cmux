@@ -52,6 +52,8 @@ const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES;
 const REMOTE_FRAME_LOG_MAX_ENTRIES: usize = 16 * 1024;
 const REMOTE_FRAME_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
+const REMOTE_FRAME_DUMP_MAX_FILES: usize = 32;
+const REMOTE_FRAME_DUMP_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
 const REMOTE_TERMINAL_CELL_MAX: u64 = 1024 * 1024;
 const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
@@ -3774,6 +3776,7 @@ fn private_dump_directory(path: &Path) -> io::Result<PrivateDumpDirectory> {
     validate_dump_directory(&directory, true)?;
     let temporary = open_private_child_directory(&directory, ".cmux-dump-tmp")?;
     prune_stale_dump_temps(&temporary)?;
+    prune_dump_files(&directory)?;
     Ok(PrivateDumpDirectory { output: directory, temporary })
 }
 
@@ -3954,6 +3957,128 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
                 return Err(error);
             }
         }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn is_private_dump_name(name: &[u8]) -> bool {
+    [
+        (&b"mirror-"[..], &b".txt"[..]),
+        (&b"frames-"[..], &b".log"[..]),
+    ]
+    .into_iter()
+    .any(|(prefix, suffix)| {
+        name.strip_prefix(prefix)
+            .and_then(|name| name.strip_suffix(suffix))
+            .is_some_and(|id| !id.is_empty() && id.iter().all(|byte| byte.is_ascii_digit()))
+    })
+}
+
+#[cfg(unix)]
+fn prune_dump_files(directory: &fs::File) -> io::Result<()> {
+    prune_dump_files_with_limits(
+        directory,
+        REMOTE_FRAME_DUMP_MAX_FILES,
+        REMOTE_FRAME_DUMP_MAX_BYTES,
+    )
+}
+
+#[cfg(unix)]
+fn prune_dump_files_with_limits(
+    directory: &fs::File,
+    maximum_files: usize,
+    maximum_bytes: u64,
+) -> io::Result<()> {
+    use std::os::fd::{AsRawFd, FromRawFd};
+
+    struct DumpFile {
+        name: Vec<u8>,
+        modified: (u64, u32),
+        bytes: u64,
+    }
+
+    let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { libc::fdopendir(duplicate) };
+    if stream.is_null() {
+        unsafe { libc::close(duplicate) };
+        return Err(io::Error::last_os_error());
+    }
+    let stream = DirectoryStream(stream);
+    let mut dumps = Vec::new();
+    loop {
+        let entry = unsafe { libc::readdir(stream.0) };
+        if entry.is_null() {
+            break;
+        }
+        let name = unsafe { std::ffi::CStr::from_ptr((*entry).d_name.as_ptr()) };
+        let name_bytes = name.to_bytes();
+        if !is_private_dump_name(name_bytes) {
+            continue;
+        }
+        let mut metadata = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                metadata.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } != 0
+        {
+            continue;
+        }
+        let metadata = unsafe { metadata.assume_init() };
+        if metadata.st_mode & libc::S_IFMT != libc::S_IFREG
+            || metadata.st_uid != unsafe { libc::geteuid() }
+            || metadata.st_nlink != 1
+        {
+            continue;
+        }
+        let descriptor = unsafe {
+            libc::openat(
+                directory.as_raw_fd(),
+                name.as_ptr(),
+                libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
+        let modified = if descriptor >= 0 {
+            let file = unsafe { fs::File::from_raw_fd(descriptor) };
+            unsafe { libc::fchmod(file.as_raw_fd(), 0o600) };
+            file.metadata()
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|modified| (modified.as_secs(), modified.subsec_nanos()))
+                .unwrap_or((0, 0))
+        } else {
+            (0, 0)
+        };
+        dumps.push(DumpFile {
+            name: name_bytes.to_vec(),
+            modified,
+            bytes: metadata.st_size.max(0) as u64,
+        });
+    }
+    dumps.sort_by(|left, right| {
+        left.modified.cmp(&right.modified).then_with(|| left.name.cmp(&right.name))
+    });
+    let mut total_bytes = dumps.iter().map(|dump| dump.bytes).sum::<u64>();
+    while dumps.len() > maximum_files || total_bytes > maximum_bytes {
+        let dump = dumps.remove(0);
+        let name = std::ffi::CString::new(dump.name)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+        let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
+        if status != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::ENOENT) {
+                return Err(error);
+            }
+        }
+        total_bytes = total_bytes.saturating_sub(dump.bytes);
     }
     Ok(())
 }
@@ -5050,6 +5175,50 @@ mod tests {
         let _directory = private_dump_directory(&dump_path).unwrap();
 
         assert!(!stale_path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_pruning_enforces_file_and_byte_caps_oldest_first() {
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let files = [
+            ("mirror-1.txt", b"old-".as_slice(), 1_i64),
+            ("frames-1.log", b"middle".as_slice(), 2_i64),
+            ("mirror-2.txt", b"new-".as_slice(), 3_i64),
+        ];
+        for (name, contents, modified) in files {
+            let path = dump_path.join(name);
+            fs::write(&path, contents).unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+            let times = [
+                libc::timespec { tv_sec: modified, tv_nsec: 0 },
+                libc::timespec { tv_sec: modified, tv_nsec: 0 },
+            ];
+            assert_eq!(unsafe { libc::utimensat(libc::AT_FDCWD, path.as_ptr(), times.as_ptr(), 0) }, 0);
+        }
+
+        prune_dump_files_with_limits(&directory.output, 2, 10).unwrap();
+
+        assert!(!dump_path.join("mirror-1.txt").exists());
+        assert!(dump_path.join("frames-1.log").exists());
+        assert!(dump_path.join("mirror-2.txt").exists());
+        let retained = fs::read_dir(&dump_path)
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| is_private_dump_name(entry.file_name().as_os_str().as_bytes()))
+            .collect::<Vec<_>>();
+        assert_eq!(retained.len(), 2);
+        let bytes = retained
+            .iter()
+            .map(|entry| entry.metadata().unwrap().len())
+            .sum::<u64>();
+        assert_eq!(bytes, 10);
     }
 
     #[cfg(unix)]
