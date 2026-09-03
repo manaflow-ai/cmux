@@ -264,6 +264,18 @@ impl Conn {
         Ok(id)
     }
 
+    fn send_until(&mut self, request: Value, deadline: Instant) -> Result<u64, String> {
+        let remaining = bounded_wait_duration(deadline, RPC_TIMEOUT);
+        if remaining.is_zero() {
+            return Err("benchmark deadline exceeded".into());
+        }
+        self.reader
+            .get_mut()
+            .set_write_timeout(Some(remaining))
+            .map_err(|error| format!("timeout: {error}"))?;
+        self.send(request)
+    }
+
     fn read_value(&mut self) -> Result<Value, String> {
         loop {
             if let Some(end) = self.read_buffer.iter().position(|byte| *byte == b'\n') {
@@ -615,7 +627,7 @@ fn run_separate_typing_probe(
     if let Some(connection) = conn.as_mut() {
         for _ in 0..probes {
             let sent = Instant::now();
-            match connection.send(json!({"cmd":"send","surface":surface,"text":"x"})) {
+            match connection.send_until(json!({"cmd":"send","surface":surface,"text":"x"}), deadline) {
                 Ok(id) => pending.push((id, sent)),
                 Err(error) => {
                     setup_error = Some(format!("typing(separate) send: {error}"));
@@ -716,7 +728,7 @@ fn close_created_terminals(
     initial: &HashSet<String>,
     report: &Arc<Mutex<Report>>,
     deadline: Instant,
-    _owned_session: bool,
+    owned_session: bool,
 ) {
     let current = match list_terminal_ids(conn) {
         Ok(current) => current,
@@ -729,7 +741,7 @@ fn close_created_terminals(
     let plan = current
         .iter()
         .filter(|(id, life)| {
-            (created.contains(id) || !initial.contains(id))
+            (created.contains(id) || (owned_session && !initial.contains(id)))
                 && !matches!(life.as_str(), "tombstoned" | "exited")
         })
         .map(|(id, _)| id.to_string())
@@ -829,7 +841,7 @@ fn run_create_loop(
         );
         for submission in submissions {
             let sent = Instant::now();
-            match connection.send(command_for_submission(submission, pane, baseline_surface)) {
+            match connection.send_until(command_for_submission(submission, pane, baseline_surface), deadline) {
                 Ok(id) => pending.push(PendingRequest { id, sent, kind: submission }),
                 Err(error) => {
                     setup_error = Some(format!("create[{client}] send: {error}"));
@@ -1046,7 +1058,7 @@ fn measure_first_frame(
     conn.identify().ok()?;
     let start = Instant::now();
     let id =
-        conn.send(json!({"cmd":"attach-surface","surface":surface_id,"mode":"render"})).ok()?;
+        conn.send_until(json!({"cmd":"attach-surface","surface":surface_id,"mode":"render"}), deadline).ok()?;
     let deadline = Instant::now() + bounded_wait_duration(deadline, RPC_TIMEOUT);
     loop {
         if Instant::now() >= deadline {
