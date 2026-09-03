@@ -36,7 +36,10 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     case inputSeqBehind = 7
     /// A gap was detected in the delivered terminal byte stream.
     case byteGap = 8
-    /// A generic error at an instrumented seam.
+    /// A generic error at an instrumented seam. `b`, when present, is
+    /// ``DiagnosticFailureKind``: a bare record cannot be classified by the
+    /// incident policy's suppression rules, so writers should always carry
+    /// one.
     case error = 9
     /// A pairing attempt was short-circuited because the device had no network
     /// path (the reachability preflight failed before any connect).

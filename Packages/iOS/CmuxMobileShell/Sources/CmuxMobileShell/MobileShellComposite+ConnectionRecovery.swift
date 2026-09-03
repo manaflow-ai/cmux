@@ -251,8 +251,7 @@ extension MobileShellComposite {
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryStarted,
             surface: attempt.diagnosticID,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue,
+            a: recoveryDiagnosticTransportKind.rawValue,
             b: trigger.diagnosticCode,
             c: activePeerDiagnosticAlias.map(Int.init)
         ))
@@ -490,8 +489,7 @@ extension MobileShellComposite {
         diagnosticLog?.record(DiagnosticEvent(
             .recoverySucceeded,
             surface: attempt.diagnosticID,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue,
+            a: recoveryDiagnosticTransportKind.rawValue,
             c: activePeerDiagnosticAlias.map(Int.init)
         ))
     }
@@ -503,11 +501,21 @@ extension MobileShellComposite {
         diagnosticLog?.record(DiagnosticEvent(
             .recoveryFailed,
             surface: attempt.diagnosticID,
-            a: activeRoute.map { DiagnosticTransportKind($0.kind).rawValue }
-                ?? DiagnosticTransportKind.unknown.rawValue,
+            a: recoveryDiagnosticTransportKind.rawValue,
             b: failure.rawValue,
             c: activePeerDiagnosticAlias.map(Int.init)
         ))
+    }
+
+    /// Transport kind for recovery diagnostics: the live route when one still
+    /// exists, otherwise the retained kind of the route this recovery is
+    /// replacing (recovery teardown nils ``MobileShellComposite/activeRoute``
+    /// before the outcome records, which previously labeled every recovery
+    /// event "Unknown transport").
+    private var recoveryDiagnosticTransportKind: DiagnosticTransportKind {
+        activeRoute.map { DiagnosticTransportKind($0.kind) }
+            ?? lastKnownActiveTransportKind
+            ?? .unknown
     }
 
     /// A peer alias is stable for this process but never exports the Mac ID.

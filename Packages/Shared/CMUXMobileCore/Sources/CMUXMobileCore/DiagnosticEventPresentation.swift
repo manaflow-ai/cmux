@@ -349,7 +349,8 @@ public struct DiagnosticEventPresentation: Sendable {
 
     /// Event codes whose `b` slot carries a ``DiagnosticFailureKind``.
     private static let codesWithFailureB: Set<DiagnosticEventCode> = [
-        .pairFail, .transportDialFailed, .transportDialLegFailed, .recoveryFailed, .endpointFailed,
+        .pairFail, .error, .transportDialFailed, .transportDialLegFailed, .recoveryFailed,
+        .endpointFailed,
         .relayPolicyRefreshFailed, .sessionClosed, .routeUnavailable,
         .discoveryFailed, .admissionFailed, .hostAuthenticationFailed,
         .rpcFailed, .transportCloseAttribution, .appFeatureAction,

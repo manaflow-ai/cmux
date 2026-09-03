@@ -650,6 +650,23 @@ import Testing
         #expect(englishPresentation.failureKind(of: success) == nil)
     }
 
+    @Test func decodesCodedGenericErrors() {
+        let coded = DiagnosticEvent(
+            code: .error,
+            tNanos: 1,
+            b: DiagnosticFailureKind.connectionClosed.rawValue
+        )
+        #expect(englishPresentation.failureKind(of: coded) == .connectionClosed)
+        #expect(englishPresentation.describe(coded).fields == [
+            .init(key: "failure", value: "Connection closed"),
+        ])
+
+        // Older writers still record `.error` with no kind.
+        let bare = DiagnosticEvent(code: .error, tNanos: 1)
+        #expect(englishPresentation.failureKind(of: bare) == nil)
+        #expect(englishPresentation.describe(bare).fields.isEmpty)
+    }
+
     @Test(.enabled(
         if: LocalizationTestSupport().hasCompiledLocalization(for: Locale(identifier: "ja")),
         "Command-line SwiftPM copies string catalogs without compiling locale resources"
