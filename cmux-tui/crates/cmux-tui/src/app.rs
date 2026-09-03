@@ -10432,7 +10432,15 @@ impl App {
 
     fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
         match target {
-            ProjectionTarget::Workspace { index, .. } => {
+            ProjectionTarget::Workspace { id, .. } => {
+                // The hit map can outlive a tree snapshot while a remote
+                // reorder is queued. Resolve the stable workspace identity
+                // again instead of applying a stale row index.
+                let Some(index) =
+                    self.tree.workspaces().iter().position(|workspace| workspace.id == id)
+                else {
+                    return Ok(());
+                };
                 self.activate_workspace(index);
             }
             ProjectionTarget::Pane { workspace, screen, pane } => {
@@ -43648,14 +43656,19 @@ mod tests {
         app.activate_projection_target(target).unwrap();
 
         assert_eq!(app.tree.active_workspace, 1);
-        assert_eq!(app.tree.active_workspace().map(|workspace| workspace.id), Some(target_id(target)));
+        assert_eq!(
+            app.tree.active_workspace().map(|workspace| workspace.id),
+            Some(target_id(target))
+        );
 
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
         }
     }
 
-    fn target_id(target: crate::sidebar_projection::ProjectionTarget) -> cmux_tui_core::WorkspaceId {
+    fn target_id(
+        target: crate::sidebar_projection::ProjectionTarget,
+    ) -> cmux_tui_core::WorkspaceId {
         match target {
             crate::sidebar_projection::ProjectionTarget::Workspace { id, .. } => id,
             _ => unreachable!("workspace target expected"),
