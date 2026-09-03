@@ -1332,6 +1332,7 @@ struct InteractiveWrite {
     enqueued_at: Instant,
     sequence: u64,
     measure_latency: bool,
+    canceled: bool,
 }
 
 impl Drop for InteractiveWrite {
@@ -1503,8 +1504,13 @@ impl InteractiveWriter {
     }
 
     fn enqueue_inner(&self, message: String, measure_latency: bool) -> io::Result<u64> {
-        let mut write =
-            InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
+        let mut write = InteractiveWrite {
+            message,
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+            canceled: false,
+        };
         let message_bytes = write.message.len();
         let mut state = self.shared.state.lock();
         if let Some(failure) = &state.failure {
@@ -1547,8 +1553,13 @@ impl InteractiveWriter {
         measure_latency: bool,
         deadline: Instant,
     ) -> io::Result<u64> {
-        let mut write =
-            InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
+        let mut write = InteractiveWrite {
+            message,
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+            canceled: false,
+        };
         let message_bytes = write.message.len();
         loop {
             let Some(mut state) = self.shared.state.try_lock_until(deadline) else {
@@ -1611,6 +1622,34 @@ impl InteractiveWriter {
     fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
         let state = self.shared.state.lock();
         Ok((state.last_enqueued_sequence != 0).then_some(state.last_enqueued_sequence))
+    }
+
+    /// Mark a queued sequence as canceled without removing its FIFO position.
+    /// The writer worker consumes the tombstone in order and never sends it.
+    /// If the worker already took the sequence, return false so the caller can
+    /// abort the transport rather than risk sending an ambiguous command.
+    fn cancel_sequence(&self, sequence: u64) -> bool {
+        let Some(mut state) = self.shared.state.try_lock() else {
+            return false;
+        };
+        if state.last_written_sequence >= sequence {
+            return true;
+        }
+        let Some(index) = state.writes.iter().position(|write| write.sequence == sequence) else {
+            return false;
+        };
+        let message_bytes = state.writes[index].message.len();
+        {
+            let write = &mut state.writes[index];
+            zeroize_string(&mut write.message);
+            write.message.clear();
+            write.measure_latency = false;
+            write.canceled = true;
+        }
+        state.queued_bytes = state.queued_bytes.saturating_sub(message_bytes);
+        drop(state);
+        self.shared.changed.notify_one();
+        true
     }
 
     #[cfg(test)]
@@ -1791,6 +1830,16 @@ fn interactive_writer_worker(
             state.queued_bytes = state.queued_bytes.saturating_sub(write.message.len());
             write
         };
+
+        if write.canceled {
+            // Preserve the sequence barrier for later writes while keeping a
+            // timed-out command out of the transport entirely.
+            let mut state = shared.state.lock();
+            state.last_written_sequence = write.sequence;
+            drop(state);
+            shared.changed.notify_all();
+            continue;
+        }
 
         let result = writer.send(&write.message);
         match result {
@@ -3438,6 +3487,15 @@ impl RemoteSession {
         };
         if let Err(error) = deadline.write_remaining() {
             self.pending.lock().unwrap().remove(&id);
+            if !self.interactive_writer.cancel_sequence(sequence) {
+                // The worker may already be inside `send`. Closing the
+                // transport is the only safe way to prevent an ambiguous
+                // timed-out command from reaching the peer.
+                self.interactive_writer.abort(&io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "ordered remote write deadline expired",
+                ));
+            }
             return Err(error.into());
         }
         if let Err(error) = self.wait_for_ordered_write_until(sequence, deadline.write_deadline()) {
