@@ -86,37 +86,6 @@ export function discoveryScopeMatchesRegistration(
     && scope.localBinding.platform === registration.platform;
 }
 
-export function bindingMatchesDiscoveryScope(
-  binding: {
-    readonly deviceUuid: string;
-    readonly appInstanceId: string;
-    readonly tag: string;
-    readonly platform: string;
-    readonly pairingEnabled: boolean;
-  },
-  scope: IrohDiscoveryScope,
-): boolean {
-  const local = scope.localBinding;
-  if (
-    binding.deviceUuid === local.deviceId
-    && binding.appInstanceId === local.appInstanceId
-    && binding.tag === local.tag
-    && binding.platform === local.platform
-  ) {
-    return true;
-  }
-  const peers = scope.peerBindings;
-  return binding.platform === peers.platform
-    && (
-      peers.tags === undefined
-      || peers.tags.includes(binding.tag.toLowerCase())
-    )
-    && (
-      peers.pairingEnabled === undefined
-      || binding.pairingEnabled === peers.pairingEnabled
-    );
-}
-
 function peerTags(value: unknown): readonly string[] {
   if (
     !Array.isArray(value)

@@ -8,11 +8,6 @@ export type IrohTrustBrokerConfigShape = {
   readonly grantSigningPrivateKeyPem?: string;
   readonly grantSigningKid?: string;
   readonly grantVerificationKeysJson?: string;
-  readonly relayMinterUrl?: string;
-  readonly relayMinterHmacSecretBase64?: string;
-  readonly relayMinterInsecureLoopbackOptIn: boolean;
-  readonly deploymentEnvironment: string;
-  readonly isVercelDeployment: boolean;
 };
 
 export class IrohTrustBrokerConfig extends Context.Tag("cmux/IrohTrustBrokerConfig")<
@@ -27,12 +22,6 @@ export function irohTrustBrokerConfigFromEnv(): IrohTrustBrokerConfigShape {
     grantSigningPrivateKeyPem: env.CMUX_IROH_GRANT_SIGNING_KEY_P8,
     grantSigningKid: env.CMUX_IROH_GRANT_SIGNING_KID,
     grantVerificationKeysJson: env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
-    relayMinterUrl: env.CMUX_IROH_MINT_URL,
-    relayMinterHmacSecretBase64: env.CMUX_IROH_MINT_HMAC_SECRET_B64,
-    relayMinterInsecureLoopbackOptIn:
-      env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER === "1",
-    deploymentEnvironment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? "development",
-    isVercelDeployment: process.env.VERCEL === "1",
   };
 }
 

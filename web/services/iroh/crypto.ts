@@ -12,8 +12,6 @@ import {
   IROH_ENDPOINT_ATTESTATION_SCOPE,
   IROH_ENDPOINT_ATTESTATION_TYP,
   IROH_ENDPOINT_ATTESTATION_VERSION,
-  IROH_OFFLINE_PAIR_SESSION_LIFETIME_SECONDS,
-  IROH_OFFLINE_PAIR_SESSION_VERSION,
   IROH_ALPN,
   IROH_PAIR_GRANT_LIFETIME_SECONDS,
   IROH_PAIR_GRANT_TYP,
@@ -92,32 +90,6 @@ export type EndpointAttestationExpectation = {
   readonly identityGeneration: number;
   readonly platform: "mac" | "ios";
   readonly nowSeconds: number;
-};
-
-export type OfflinePairVerificationExpectation = {
-  readonly initiator: Omit<EndpointAttestationExpectation, "nowSeconds" | "platform"> & {
-    readonly platform: "ios";
-  };
-  readonly acceptor: Omit<EndpointAttestationExpectation, "nowSeconds" | "platform"> & {
-    readonly platform: "mac";
-  };
-  readonly nowSeconds: number;
-};
-
-export type OfflinePairSessionRecord = {
-  readonly version: typeof IROH_OFFLINE_PAIR_SESSION_VERSION;
-  readonly sessionId: string;
-  readonly acceptor: OfflinePairVerificationExpectation["acceptor"];
-  readonly proofHash: string;
-  readonly createdAtSeconds: number;
-  readonly expiresAtSeconds: number;
-  consumedAtSeconds: number | null;
-};
-
-export type OfflinePairInvitationProof = {
-  readonly version: typeof IROH_OFFLINE_PAIR_SESSION_VERSION;
-  readonly sessionId: string;
-  readonly proof: string;
 };
 
 export function registrationTranscript(input: {
@@ -348,109 +320,6 @@ export function verifyEndpointAttestation(
   ) as unknown as EndpointAttestationClaims;
   validateEndpointAttestationClaims(claims, expected);
   return claims;
-}
-
-function verifyOfflineSameAccountPair(input: {
-  readonly initiatorAttestation: string;
-  readonly acceptorAttestation: string;
-  readonly publicKeys: ReadonlyMap<string, string>;
-  readonly expected: OfflinePairVerificationExpectation;
-}): {
-  readonly initiator: EndpointAttestationClaims;
-  readonly acceptor: EndpointAttestationClaims;
-} {
-  if (
-    input.expected.initiator.platform !== "ios" ||
-    input.expected.acceptor.platform !== "mac"
-  ) {
-    throw new IrohForbiddenError({ code: "invalid_offline_pair_platforms" });
-  }
-  const initiator = verifyEndpointAttestation(input.initiatorAttestation, input.publicKeys, {
-    ...input.expected.initiator,
-    nowSeconds: input.expected.nowSeconds,
-  });
-  const acceptor = verifyEndpointAttestation(input.acceptorAttestation, input.publicKeys, {
-    ...input.expected.acceptor,
-    nowSeconds: input.expected.nowSeconds,
-  });
-  if (
-    initiator.bindingId === acceptor.bindingId ||
-    initiator.deviceId === acceptor.deviceId ||
-    initiator.endpointId === acceptor.endpointId ||
-    !canonicalSubjectsEqual(initiator.sub, acceptor.sub)
-  ) {
-    throw new IrohForbiddenError({ code: "offline_pair_same_account_proof_required" });
-  }
-  return { initiator, acceptor };
-}
-
-export function createOfflinePairSessionRecord(input: {
-  readonly sessionId: string;
-  readonly proof: string;
-  readonly acceptor: OfflinePairVerificationExpectation["acceptor"];
-  readonly nowSeconds: number;
-  readonly expiresAtSeconds: number;
-}): OfflinePairSessionRecord {
-  validateOfflinePairSessionWindow(input.nowSeconds, input.expiresAtSeconds);
-  validateEndpointExpectation(input.acceptor, "mac");
-  if (!UUID_PATTERN.test(input.sessionId) || input.sessionId !== input.sessionId.toLowerCase()) {
-    throw new IrohInvalidInputError({ code: "invalid_offline_pair_session" });
-  }
-  const proof = decodeCanonicalBase64url(input.proof, 32, "invalid_offline_pair_proof");
-  return {
-    version: IROH_OFFLINE_PAIR_SESSION_VERSION,
-    sessionId: input.sessionId.toLowerCase(),
-    acceptor: { ...input.acceptor },
-    proofHash: offlinePairProofHash(input.sessionId.toLowerCase(), input.acceptor, proof),
-    createdAtSeconds: input.nowSeconds,
-    expiresAtSeconds: input.expiresAtSeconds,
-    consumedAtSeconds: null,
-  };
-}
-
-export function verifyAndConsumeOfflineSameAccountPair(input: {
-  readonly initiatorAttestation: string;
-  readonly acceptorAttestation: string;
-  readonly publicKeys: ReadonlyMap<string, string>;
-  readonly expected: OfflinePairVerificationExpectation;
-  readonly session: OfflinePairSessionRecord;
-  readonly invitation: OfflinePairInvitationProof;
-}): {
-  readonly initiator: EndpointAttestationClaims;
-  readonly acceptor: EndpointAttestationClaims;
-  readonly sessionId: string;
-} {
-  const { session, invitation } = input;
-  if (
-    typeof invitation.sessionId !== "string" ||
-    !UUID_PATTERN.test(invitation.sessionId) ||
-    invitation.sessionId !== invitation.sessionId.toLowerCase()
-  ) {
-    throw new IrohInvalidInputError({ code: "invalid_offline_pair_session" });
-  }
-  if (
-    session.version !== IROH_OFFLINE_PAIR_SESSION_VERSION ||
-    invitation.version !== IROH_OFFLINE_PAIR_SESSION_VERSION ||
-    session.consumedAtSeconds !== null ||
-    session.sessionId !== invitation.sessionId ||
-    !sameEndpointExpectation(session.acceptor, input.expected.acceptor) ||
-    session.createdAtSeconds > input.expected.nowSeconds + 30 ||
-    session.expiresAtSeconds <= input.expected.nowSeconds
-  ) {
-    throw new IrohForbiddenError({ code: "offline_pair_session_unavailable" });
-  }
-  validateOfflinePairSessionWindow(
-    session.createdAtSeconds,
-    session.expiresAtSeconds,
-  );
-  const proof = decodeCanonicalBase64url(invitation.proof, 32, "invalid_offline_pair_proof");
-  const actualHash = offlinePairProofHash(session.sessionId, session.acceptor, proof);
-  if (!hashesEqual(session.proofHash, actualHash)) {
-    throw new IrohForbiddenError({ code: "invalid_offline_pair_proof" });
-  }
-  const verified = verifyOfflineSameAccountPair(input);
-  session.consumedAtSeconds = input.expected.nowSeconds;
-  return { ...verified, sessionId: session.sessionId };
 }
 
 export function parseVerificationKeys(
@@ -825,65 +694,6 @@ function configurationFailure(): never {
 function hasExactKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
   const keys = Object.keys(value);
   return keys.length === allowed.length && keys.every((key) => allowed.includes(key));
-}
-
-function canonicalSubjectsEqual(left: string, right: string): boolean {
-  const leftBytes = decodeCanonicalBase64url(left, 32, "invalid_endpoint_attestation");
-  const rightBytes = decodeCanonicalBase64url(right, 32, "invalid_endpoint_attestation");
-  return timingSafeEqual(leftBytes, rightBytes);
-}
-
-function validateOfflinePairSessionWindow(nowSeconds: number, expiresAtSeconds: number): void {
-  if (
-    !Number.isSafeInteger(nowSeconds) ||
-    !Number.isSafeInteger(expiresAtSeconds) ||
-    expiresAtSeconds <= nowSeconds ||
-    expiresAtSeconds - nowSeconds > IROH_OFFLINE_PAIR_SESSION_LIFETIME_SECONDS
-  ) {
-    throw new IrohInvalidInputError({ code: "invalid_offline_pair_session" });
-  }
-}
-
-function validateEndpointExpectation(
-  value: OfflinePairVerificationExpectation["acceptor"],
-  platform: "mac" | "ios",
-): void {
-  if (
-    !UUID_PATTERN.test(value.bindingId) ||
-    !UUID_PATTERN.test(value.deviceId) ||
-    value.platform !== platform ||
-    !Number.isSafeInteger(value.identityGeneration) ||
-    value.identityGeneration < 1 ||
-    value.identityGeneration > POSTGRES_INT32_MAX
-  ) {
-    throw new IrohInvalidInputError({ code: "invalid_offline_pair_session" });
-  }
-  endpointId(value.endpointId);
-}
-
-function sameEndpointExpectation(
-  left: OfflinePairVerificationExpectation["acceptor"],
-  right: OfflinePairVerificationExpectation["acceptor"],
-): boolean {
-  return left.bindingId === right.bindingId &&
-    left.deviceId === right.deviceId &&
-    left.endpointId === right.endpointId &&
-    left.identityGeneration === right.identityGeneration &&
-    left.platform === right.platform;
-}
-
-function offlinePairProofHash(
-  sessionId: string,
-  acceptor: OfflinePairVerificationExpectation["acceptor"],
-  proof: Uint8Array,
-): string {
-  return sha256(Buffer.concat([
-    Buffer.from(
-      `cmux/iroh/offline-pair-session/v1\n${sessionId}\n${acceptor.bindingId}\n${acceptor.deviceId}\n${acceptor.endpointId}\n${acceptor.identityGeneration}\n${acceptor.platform}\n`,
-      "utf8",
-    ),
-    Buffer.from(proof),
-  ]));
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
