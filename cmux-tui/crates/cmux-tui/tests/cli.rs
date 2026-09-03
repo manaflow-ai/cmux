@@ -4603,7 +4603,7 @@ fn pipe_io_startup_socket_validation_reports_setup_failed() {
     let invalid_session = "bad/session";
     let output = Command::new(bin())
         .args(["attach", "--session"])
-        .arg(&invalid_session)
+        .arg(invalid_session)
         .args(["--terminal", "term_0123456789abcdef0123456789abcdef", "--pipe-io"])
         .env_remove("CMUX_TUI_SOCKET")
         .stdin(Stdio::null())

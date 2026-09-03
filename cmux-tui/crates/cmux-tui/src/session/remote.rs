@@ -2372,11 +2372,7 @@ impl RemoteSession {
             let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
             socket.connect_timeout(&address, timeout)?;
             let stream: std::os::unix::net::UnixStream = socket.into();
-            return Self::connect_stream_with_subscription_until(
-                Box::new(stream),
-                subscribe,
-                deadline,
-            );
+            Self::connect_stream_with_subscription_until(Box::new(stream), subscribe, deadline)
         }
 
         #[cfg(windows)]
@@ -2387,7 +2383,7 @@ impl RemoteSession {
             let stream = transport::connect(path).map_err(|error| {
                 anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
             })?;
-            return Self::connect_stream_with_subscription_until(stream, subscribe, deadline);
+            Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
         }
 
         #[cfg(not(any(unix, windows)))]
