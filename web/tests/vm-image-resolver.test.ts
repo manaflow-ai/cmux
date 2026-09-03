@@ -34,6 +34,7 @@ const ladder = {
   sm: "sh-60effaffd5404e5ab8dbdb08bd5f5eed",
   md: "sh-1ce6c11f5d6e4f8e98c19454e9a38751",
   lg: "sh-bda89603f1ab41a2902ac5d781e2c6ce",
+  lgx: "PENDING-20260903c",
   xl: "sh-95b526e17c234593a45edfb572e49396",
   "2xl": "sh-236a1866dd244082ba0f06829df2358d",
 } as const;
@@ -122,9 +123,11 @@ describe("VM image resolver: request by kind", () => {
       [4097, "md"],
       [8192, "md"],
       [16384, "lg"],
-      // cmux's paid plan machine (20 GiB) is between lg and xl: it boots xl.
-      [20480, "xl"],
-      [24576, "xl"],
+      // cmux's paid plan machine (20 GiB) lands on lgx (12 vCPU / 24 GB), the
+      // step added for it; anything above boots xl.
+      [20480, "lgx"],
+      [24576, "lgx"],
+      [24577, "xl"],
       [32768, "xl"],
       [65536, "2xl"],
     ];
