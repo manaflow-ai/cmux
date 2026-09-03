@@ -883,6 +883,7 @@ impl WorkspaceRegistry {
         validate_identifier("mutation id", &mutation.id)?;
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("resource operation", operation)?;
+        let socket_report = fingerprint.get("source").and_then(Value::as_str) == Some("socket");
         let fingerprint = canonical_json(fingerprint)?;
         resource_patch_replay(&self.connection, mutation, operation, &fingerprint)
     }
@@ -954,6 +955,51 @@ impl WorkspaceRegistry {
             anyhow::bail!(
                 "resource revision conflict: expected {expected}, current {previous_revision}"
             );
+        }
+        // Socket reporters are observers, not a freshness clock. A second
+        // client can report the same effective state while the first report
+        // is still current. Record the new mutation key at the existing
+        // revision, then return it as a replay-equivalent no-op so this path
+        // does not churn resource events or roster recency. Hook and plugin
+        // projections keep their timestamp semantics for arbitration.
+        if socket_report && hook_state.is_none() && journal_sequence.is_none() {
+            let existing = tx
+                .query_row(
+                    "SELECT result_json FROM resource_agent_projections
+                     WHERE terminal_id = ?1",
+                    [terminal_id.as_str()],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?;
+            if let Some(existing_json) = existing {
+                let existing_value: Value = serde_json::from_str(&existing_json)
+                    .context("stored agent projection is not valid JSON")?;
+                if same_agent_projection_ignoring_timestamp(&existing_value, result)? {
+                    let stored_result_json = canonical_json(&existing_value)?;
+                    tx.execute(
+                        "INSERT INTO resource_mutations(
+                           origin, idempotency_key, operation, fingerprint, result_json,
+                           committed_revision
+                         ) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+                        params![
+                            mutation.origin,
+                            mutation.id,
+                            OPERATION,
+                            fingerprint,
+                            stored_result_json,
+                            i64::try_from(previous_revision)
+                                .context("resource revision exceeds SQLite range")?,
+                        ],
+                    )?;
+                    prune_resource_mutations(&tx)?;
+                    tx.commit()?;
+                    return Ok(ResourcePatchCommit {
+                        revision: previous_revision,
+                        result: existing_value,
+                        replayed: true,
+                    });
+                }
+            }
         }
         let revision = previous_revision
             .checked_add(1)
@@ -1614,6 +1660,26 @@ impl WorkspaceRegistry {
             .optional()
             .map_err(Into::into)
     }
+}
+
+/// Compare two agent projections while ignoring the local observation clock.
+/// The caller has already restricted this to a socket report, so a matching
+/// semantic value is safe to acknowledge without another resource revision.
+fn same_agent_projection_ignoring_timestamp(
+    existing: &Value,
+    incoming: &Value,
+) -> anyhow::Result<bool> {
+    let mut existing = existing.clone();
+    let mut incoming = incoming.clone();
+    let Some(existing_object) = existing.as_object_mut() else {
+        return Ok(false);
+    };
+    let Some(incoming_object) = incoming.as_object_mut() else {
+        return Ok(false);
+    };
+    existing_object.remove("updated_at_ms");
+    incoming_object.remove("updated_at_ms");
+    Ok(canonical_json(&existing)? == canonical_json(&incoming)?)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
