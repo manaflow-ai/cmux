@@ -8870,6 +8870,48 @@ mod unix {
             assert_eq!(*budget.queued_bytes.lock().unwrap(), 0);
         }
 
+        #[allow(dead_code)]
+        trait ParserBudgetStopSimulation {
+            fn parser_stopped(&self);
+        }
+
+        impl ParserBudgetStopSimulation for ParserBudget {
+            fn parser_stopped(&self) {
+                // This models the parser worker disappearing without releasing
+                // its last reservation. The current implementation has no
+                // liveness state to change, so the wake is intentionally not
+                // enough to unblock the waiter.
+                self.available.notify_all();
+            }
+        }
+
+        #[test]
+        fn parser_budget_waiter_exits_when_parser_stops() {
+            let budget = Arc::new(ParserBudget::new(4));
+            budget.reserve(4);
+            let (started, started_rx) = sync_channel(0);
+            let (finished, finished_rx) = sync_channel(0);
+            let waiter = {
+                let budget = budget.clone();
+                thread::spawn(move || {
+                    started.send(()).unwrap();
+                    budget.reserve(1);
+                    finished.send(()).unwrap();
+                })
+            };
+
+            started_rx.recv().unwrap();
+            assert!(
+                finished_rx.recv_timeout(Duration::from_millis(30)).is_err(),
+                "a saturated parser budget admitted a chunk before shutdown"
+            );
+            budget.parser_stopped();
+            finished_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("parser shutdown must release a saturated waiter");
+            waiter.join().unwrap();
+        }
+
         #[test]
         fn viewer_resize_apply_order_cannot_invert_reduced_sizes() {
             let viewer_sizes = Arc::new(Mutex::new(HashMap::new()));
