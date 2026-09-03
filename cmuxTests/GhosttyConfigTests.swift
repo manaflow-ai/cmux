@@ -6373,3 +6373,88 @@ final class BrowserImportScopeTests: XCTestCase {
         XCTAssertNil(scope)
     }
 }
+
+/// `macos-background-from-layer` is injected only when the terminal
+/// background actually composites against the host CALayer. A plain opaque
+/// background must keep Ghostty's stock in-Metal fill so default-background
+/// pixels are bit-identical to stock Ghostty (CoreAnimation compositing of
+/// the host layer drifts by +/-1/255 per channel).
+final class HostLayerBackgroundDecisionTests: XCTestCase {
+    func testOpaqueDefaultBackgroundUsesStockInMetalFill() {
+        XCTAssertFalse(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 1.0,
+                backgroundBlur: .disabled,
+                hasBackgroundImage: false
+            )
+        )
+    }
+
+    func testTranslucentBackgroundUsesHostLayer() {
+        XCTAssertTrue(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 0.95,
+                backgroundBlur: .disabled,
+                hasBackgroundImage: false
+            )
+        )
+    }
+
+    func testFullyTransparentBackgroundUsesHostLayer() {
+        XCTAssertTrue(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 0.0,
+                backgroundBlur: .disabled,
+                hasBackgroundImage: false
+            )
+        )
+    }
+
+    func testBlurRadiusUsesHostLayer() {
+        XCTAssertTrue(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 1.0,
+                backgroundBlur: .radius(20),
+                hasBackgroundImage: false
+            )
+        )
+    }
+
+    func testMacOSGlassBlurUsesHostLayer() {
+        XCTAssertTrue(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 1.0,
+                backgroundBlur: .macosGlassRegular,
+                hasBackgroundImage: false
+            )
+        )
+        XCTAssertTrue(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 1.0,
+                backgroundBlur: .macosGlassClear,
+                hasBackgroundImage: false
+            )
+        )
+    }
+
+    func testBackgroundImageUsesHostLayer() {
+        XCTAssertTrue(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 1.0,
+                backgroundBlur: .disabled,
+                hasBackgroundImage: true
+            )
+        )
+    }
+
+    func testOverrangeOpacityStaysOnStockFill() {
+        // Ghostty clamps background-opacity into 0...1; values >= 1 are opaque.
+        XCTAssertFalse(
+            GhosttyApp.shouldUseHostLayerBackground(
+                backgroundOpacity: 1.5,
+                backgroundBlur: .disabled,
+                hasBackgroundImage: false
+            )
+        )
+    }
+}

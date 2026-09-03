@@ -946,12 +946,18 @@ class GhosttyApp {
                 return
             }
 
-            loadInlineGhosttyConfig(
-                "macos-background-from-layer = true",
-                into: fallbackConfig,
-                prefix: "cmux-renderer-bg",
-                logLabel: "renderer background (fallback)"
-            )
+            // Same layer-vs-Metal background ownership decision as the main
+            // config path; the minimal fallback config has an opaque default
+            // background, so this keeps Ghostty's stock in-Metal fill.
+            let fallbackUsesLayerBackground = hostLayerBackgroundDecision(probing: fallbackConfig)
+            if fallbackUsesLayerBackground {
+                loadInlineGhosttyConfig(
+                    "macos-background-from-layer = true",
+                    into: fallbackConfig,
+                    prefix: "cmux-renderer-bg",
+                    logLabel: "renderer background (fallback)"
+                )
+            }
             loadInlineGhosttyConfig(
                 "macos-titlebar-proxy-icon = hidden",
                 into: fallbackConfig,
@@ -969,7 +975,7 @@ class GhosttyApp {
             loadCmuxOwnedGhosttyKeybindOverrides(fallbackConfig)
             loadNoActiveDisplayVsyncFallbackIfNeeded(fallbackConfig)
             let fallbackRenderingModeChanged = setUsesHostLayerBackground(
-                true,
+                fallbackUsesLayerBackground,
                 source: "initialize.fallbackConfig"
             )
             ghostty_config_finalize(fallbackConfig)
@@ -1078,6 +1084,57 @@ class GhosttyApp {
                 )
             }
         }
+    }
+
+    /// Reads the effective background keys from a finalized clone of `config`
+    /// and decides whether the host CALayer must own default-background pixels.
+    /// A clone is probed because `theme` expansion at finalize time may set
+    /// background keys the raw load has not seen yet, and the real config must
+    /// receive the `macos-background-from-layer` injection before finalize.
+    private func hostLayerBackgroundDecision(probing config: ghostty_config_t) -> Bool {
+        guard let probe = ghostty_config_clone(config) else {
+            // Conservative fallback: keep the pre-existing layer-backdrop
+            // behavior rather than risking a transparent-window flash.
+            return true
+        }
+        defer { ghostty_config_free(probe) }
+        ghostty_config_finalize(probe)
+
+        var opacity: Double = 1.0
+        let opacityKey = "background-opacity"
+        _ = ghostty_config_get(probe, &opacity, opacityKey, UInt(opacityKey.lengthOfBytes(using: .utf8)))
+
+        var imagePath = ghostty_config_path_s()
+        let imageKey = "background-image"
+        let hasBackgroundImage = ghostty_config_get(
+            probe,
+            &imagePath,
+            imageKey,
+            UInt(imageKey.lengthOfBytes(using: .utf8))
+        )
+
+        return Self.shouldUseHostLayerBackground(
+            backgroundOpacity: opacity,
+            backgroundBlur: defaultBackgroundBlurValue(from: probe),
+            hasBackgroundImage: hasBackgroundImage
+        )
+    }
+
+    /// Pure decision for `macos-background-from-layer` /
+    /// ``usesHostLayerBackground``: the host CALayer owns the backdrop only
+    /// when the terminal background composites against other layers
+    /// (translucent, blurred, or image-backed). A plain opaque background uses
+    /// Ghostty's stock in-Metal fill, which is bit-identical to stock Ghostty;
+    /// the CoreAnimation-composited host layer drifts by +/-1/255 per channel.
+    static func shouldUseHostLayerBackground(
+        backgroundOpacity: Double,
+        backgroundBlur: GhosttyBackgroundBlur,
+        hasBackgroundImage: Bool
+    ) -> Bool {
+        if backgroundOpacity < 1.0 { return true }
+        if backgroundBlur != .disabled { return true }
+        if hasBackgroundImage { return true }
+        return false
     }
 
     private func loadCmuxDefaultAppearanceConfig(
@@ -1205,19 +1262,28 @@ class GhosttyApp {
         loadRealUserGhosttyConfig(config, preferredColorScheme: preferredColorScheme, themeColorScheme: themeColorScheme)
         #endif
         loadCJKFontFallbackIfNeeded(config)
+        // Let cmux own the window-level backdrop only when the terminal
+        // background actually composites against it: translucent background
+        // (opacity < 1), compositor blur, or a background image. That is the
+        // case `macos-background-from-layer` was added for (#2378): one host
+        // CALayer backdrop instead of separate translucent fills for terminal
+        // and chrome surfaces. A plain opaque background keeps Ghostty's stock
+        // in-Metal background fill so default-background pixels are
+        // bit-identical to stock Ghostty; routing them through CoreAnimation
+        // compositing drifts by +/-1/255 per channel.
+        let usesLayerBackground = hostLayerBackgroundDecision(probing: config)
         let renderingModeChanged = setUsesHostLayerBackground(
-            true,
+            usesLayerBackground,
             source: "loadDefaultConfigFilesWithLegacyFallback"
         )
-        // Let cmux own the window-level backdrop once, while Ghostty keeps
-        // rendering text, cell backgrounds, and background images. This avoids
-        // separate translucent fills for terminal and chrome surfaces.
-        loadInlineGhosttyConfig(
-            "macos-background-from-layer = true",
-            into: config,
-            prefix: "cmux-renderer-bg",
-            logLabel: "renderer background"
-        )
+        if usesLayerBackground {
+            loadInlineGhosttyConfig(
+                "macos-background-from-layer = true",
+                into: config,
+                prefix: "cmux-renderer-bg",
+                logLabel: "renderer background"
+            )
+        }
         // Hide Ghostty's native AppKit proxy icon at the source instead of
         // overriding NSWindow.representedURL on every cmux main window.
         loadInlineGhosttyConfig(
