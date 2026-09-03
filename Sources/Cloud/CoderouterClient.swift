@@ -106,7 +106,8 @@ actor CoderouterClient {
     func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, validate: Bool, teamID: String?) async throws -> JSONValue {
         let (data, http) = try await request(
             "POST",
-            path: "/api/coderouter/claude-upstream\(validate ? "" : "?validate=0")",
+            path: "/api/coderouter/claude-upstream",
+            queryItems: validate ? [] : [URLQueryItem(name: "validate", value: "0")],
             jsonBody: input.jsonBody(label: label),
             teamID: teamID
         )
@@ -197,6 +198,7 @@ actor CoderouterClient {
     private func request(
         _ method: String,
         path: String,
+        queryItems: [URLQueryItem] = [],
         jsonBody: [String: Any]? = nil,
         teamID explicitTeamID: String?
     ) async throws -> (Data, HTTPURLResponse) {
@@ -214,6 +216,9 @@ actor CoderouterClient {
             throw CoderouterClientError.malformedResponse("the cmux backend URL is misconfigured")
         }
         comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + path
+        if !queryItems.isEmpty {
+            comps.queryItems = queryItems
+        }
         guard let url = comps.url else {
             throw CoderouterClientError.malformedResponse("could not build the request URL")
         }
@@ -285,7 +290,8 @@ actor CoderouterClient {
         }
         if status == 422 {
             let detail = redactedServerMessage(body)
-            return "The upstream rejected this credential; nothing was stored.\(detail.isEmpty ? "" : " \(detail)") Check that the key or token is current, or pass --no-validate to store it anyway."
+            let lead = detail.isEmpty ? "The upstream rejected this credential; nothing was stored." : detail
+            return "\(lead) Check that the key or token is current, or pass --no-validate to store it anyway."
         }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         var serverError: String?
