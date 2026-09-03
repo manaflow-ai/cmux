@@ -704,6 +704,7 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         // retain ownership and retry rather than releasing a PID that a late
         // control drop could mistake for this child. A requested termination
         // may use the owned blocking handle as the final fallback.
+        let mut observe_retry_delay = Duration::from_millis(10);
         loop {
             if child
                 .process_id()
@@ -716,7 +717,8 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
                 let _ = child.kill();
                 break;
             }
-            std::thread::sleep(Duration::from_millis(10));
+            std::thread::sleep(observe_retry_delay);
+            observe_retry_delay = (observe_retry_delay * 2).min(Duration::from_secs(1));
         }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
         exit_completion.child_exited(code);
