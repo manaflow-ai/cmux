@@ -366,4 +366,62 @@ struct CodexTabTitlePresentationTests {
         #expect(roundTripped.customTitleSource == .user)
         roundTripped.panel.close()
     }
+
+    @Test("restored auto-titled Dock tabs retain lifecycle presentation")
+    func restoredDockAutoTitleKeepsProvenance() throws {
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil }
+        )
+        defer { dock.closeAllPanels() }
+        let snapshotPanelId = UUID()
+        let panelSnapshot = SessionPanelSnapshot(
+            id: snapshotPanelId,
+            type: .terminal,
+            title: "Generated lane",
+            customTitle: "Generated lane",
+            customTitleSource: .auto,
+            directory: "/tmp",
+            isPinned: false,
+            isManuallyUnread: false,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: "/tmp"
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil
+        )
+        let restoredPanelIds = dock.restoreSessionSnapshot(
+            SessionSplitContainerSnapshot(
+                focusedPanelId: snapshotPanelId,
+                layout: .pane(
+                    SessionPaneLayoutSnapshot(
+                        panelIds: [snapshotPanelId],
+                        selectedPanelId: snapshotPanelId
+                    )
+                ),
+                panels: [panelSnapshot]
+            )
+        )
+        let panelId = try #require(restoredPanelIds[snapshotPanelId])
+        let tabId = try #require(dock.surfaceId(forPanelId: panelId))
+
+        dock.setAgentLifecycle(
+            key: "codex",
+            panelId: panelId,
+            lifecycle: .running
+        )
+        #expect(dock.bonsplitController.tab(tabId)?.title == "◐ Generated lane")
+        #expect(dock.bonsplitController.tab(tabId)?.isLoading == true)
+
+        let persisted = try #require(
+            dock.sessionSnapshot(includeScrollback: false)
+                .panels.first { $0.id == panelId }
+        )
+        #expect(persisted.customTitle == "Generated lane")
+        #expect(persisted.customTitleSource == .auto)
+    }
 }
