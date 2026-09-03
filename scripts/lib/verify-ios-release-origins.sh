@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Keep the platform tool configurable so the same fail-closed gate can be
+# exercised with the deterministic PlistBuddy shim in CI; production defaults
+# to Apple's system implementation.
+PLISTBUDDY="${PLISTBUDDY:-/usr/libexec/PlistBuddy}"
+
 # Fail-closed artifact gate for every signed/unsigned iOS Release archive.
 # TestFlight and App Store builds use the production Stack project and must
 # carry only production API, Iroh broker, and presence origins. This checks the
@@ -29,7 +34,7 @@ PLIST="$APP/Info.plist"
 
 read_plist() {
   local key="$1"
-  /usr/libexec/PlistBuddy -c "Print :$key" "$PLIST" 2>/dev/null || true
+  "$PLISTBUDDY" -c "Print :$key" "$PLIST" 2>/dev/null || true
 }
 
 require_exact() {
