@@ -78,4 +78,21 @@ final class ProcessPipeReadCrashRegressionTests: XCTestCase {
 
         XCTAssertTrue(result.stdout.contains("Error"))
     }
+
+    func testProcessOutputCollectorDeliversStderrProgressToLiveConsumer() {
+        let stdout = Pipe()
+        let stderr = Pipe()
+        var chunks: [String] = []
+        let collector = ProcessOutputCollector(stdout: stdout, stderr: stderr) { data in
+            if let chunk = String(data: data, encoding: .utf8) { chunks.append(chunk) }
+        }
+        collector.start()
+        try? stderr.fileHandleForWriting.write(contentsOf: Data("waiting for link\n".utf8))
+        try? stderr.fileHandleForWriting.close()
+        try? stdout.fileHandleForWriting.close()
+
+        _ = collector.finishResult()
+
+        XCTAssertTrue(chunks.contains("waiting for link\n"))
+    }
 }
