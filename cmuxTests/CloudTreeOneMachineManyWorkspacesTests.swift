@@ -75,6 +75,55 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ))
     }
 
+    @Test("An exited zero-view terminal is not marked detached")
+    func exitedZeroViewTerminalIsNotDetached() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        var exited = terminal("term_exited", title: "finished", in: [])
+        exited.lifecycle = .exited
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main])],
+            resources: [exited],
+            projections: []
+        )
+
+        let tree = rows(snapshot)
+        guard case .terminal(let row) = try #require(tree.first(where: {
+            $0.id == "resource:brave-otter/terminal/term_exited"
+        })?.kind) else {
+            Issue.record("expected the exited terminal in the Terminals group")
+            return
+        }
+        #expect(!row.isDetached, "an exited resource is not a live detached terminal")
+    }
+
+    @Test("An active projection marks terminal rows as open")
+    func activeProjectionMarksTerminalRowsOpen() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let viewed = terminal("term_viewed", in: [main])
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main])],
+            resources: [viewed],
+            projections: [SurfaceProjection(
+                resource: viewed.id,
+                workspaceID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+                panelID: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+            )]
+        )
+
+        let tree = rows(snapshot)
+        guard case .terminal(let poolRow) = try #require(tree.first(where: {
+            $0.id == "resource:brave-otter/terminal/term_viewed"
+        })?.kind),
+              case .terminal(let layoutRow) = try #require(tree.first(where: {
+                  $0.id == "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_viewed"
+              })?.kind) else {
+            Issue.record("expected both terminal rows")
+            return
+        }
+        #expect(poolRow.isOpen)
+        #expect(layoutRow.isOpen)
+    }
+
     @Test("A machine with a single workspace keeps its Workspaces group row and the group's +")
     func singleWorkspaceKeepsItsGroupRow() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
