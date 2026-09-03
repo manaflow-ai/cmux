@@ -45,6 +45,14 @@ class ConsumerTests(unittest.TestCase):
         self.assertIs(request.cols, MISSING)
         self.assertIs(request.rows, MISSING)
 
+    def test_machine_stats_unary_rejects_follow_true(self) -> None:
+        client = RecordingClient()
+
+        with self.assertRaisesRegex(ValueError, "machine_stats_follow"):
+            client.machine_stats(follow=True)
+
+        self.assertEqual(client.calls, [])
+
     def test_attachment_and_delta_helpers_select_wire_modes(self) -> None:
         client = CmuxClient.__new__(CmuxClient)
         calls = []
