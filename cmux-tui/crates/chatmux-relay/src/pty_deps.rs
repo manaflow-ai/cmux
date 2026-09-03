@@ -521,10 +521,6 @@ impl ChildLifecycle {
         state.1 = true;
         true
     }
-
-    fn termination_requested(&self) -> bool {
-        self.state.lock().expect("child lifecycle lock").1
-    }
 }
 
 fn force_kill_process_group(pid: libc::pid_t, process_group: libc::pid_t) {
@@ -549,6 +545,12 @@ fn force_kill_process_group(pid: libc::pid_t, process_group: libc::pid_t) {
     }
 }
 
+enum PtyChildCommand {
+    Kill,
+    ExitReady,
+    ObserveFailed,
+}
+
 /// A real PTY master behind a mutex; write/resize block briefly.
 struct MasterControl {
     master: Mutex<Box<dyn MasterPty + Send>>,
@@ -556,12 +558,14 @@ struct MasterControl {
     lifecycle: Arc<ChildLifecycle>,
     process_id: libc::pid_t,
     process_group: libc::pid_t,
+    command_tx: mpsc::Sender<PtyChildCommand>,
 }
 
 impl Drop for MasterControl {
     fn drop(&mut self) {
         if self.lifecycle.begin_termination() {
             force_kill_process_group(self.process_id, self.process_group);
+            let _ = self.command_tx.send(PtyChildCommand::Kill);
         }
     }
 }
@@ -583,6 +587,7 @@ impl PtyControl for MasterControl {
     fn kill(&self) {
         if self.lifecycle.begin_termination() {
             force_kill_process_group(self.process_id, self.process_group);
+            let _ = self.command_tx.send(PtyChildCommand::Kill);
         }
     }
 }
@@ -689,12 +694,14 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
         .ok_or_else(|| anyhow::anyhow!("PTY child did not provide a valid process ID"))?;
     let process_group = master.process_group_leader().filter(|group| *group > 0).unwrap_or(pid);
     let lifecycle = ChildLifecycle::new();
+    let (command_tx, command_rx) = mpsc::channel();
     let control = Arc::new(MasterControl {
         master: Mutex::new(master),
         writer: Mutex::new(writer),
         lifecycle: Arc::clone(&lifecycle),
         process_id: pid,
         process_group,
+        command_tx: command_tx.clone(),
     });
     output.set_overflow_control(&control);
     // Use the same bounded post-exit grace as pipe fallback. A background
@@ -710,20 +717,45 @@ fn spawn_real_pty(spec: &SpawnSpec) -> anyhow::Result<PtyHandle> {
     let mut child = child_cleanup.take();
     let exit_completion = Arc::clone(&completion);
     let wait_lifecycle = Arc::clone(&lifecycle);
+    let observer_tx = command_tx;
     std::thread::spawn(move || {
-        // Do not reap until WNOWAIT has fenced the PID. If observation fails,
-        // either honor an existing termination request with the owned child
-        // handle, or fence the PID before the fallback blocking wait. The
-        // latter keeps a late control drop from signaling a reused PID.
-        if child
-            .process_id()
-            .is_some_and(|pid| wait_for_child_exit_without_reaping(pid as libc::pid_t).is_ok())
-        {
-            wait_lifecycle.mark_exited();
-        } else if wait_lifecycle.termination_requested() {
-            let _ = child.kill();
-        } else {
-            wait_lifecycle.mark_reap_pending();
+        loop {
+            match wait_for_child_exit_without_reaping(pid) {
+                Ok(()) => {
+                    let _ = observer_tx.send(PtyChildCommand::ExitReady);
+                    break;
+                }
+                Err(_) => {
+                    let _ = observer_tx.send(PtyChildCommand::ObserveFailed);
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+            }
+        }
+    });
+    std::thread::spawn(move || {
+        // The wait owner alone may call the blocking Child methods. WNOWAIT
+        // fences normal reaping; a kill command remains available when
+        // observation fails.
+        loop {
+            match command_rx.recv() {
+                Ok(PtyChildCommand::ExitReady) => {
+                    wait_lifecycle.mark_exited();
+                    break;
+                }
+                Ok(PtyChildCommand::ObserveFailed) => {
+                    wait_lifecycle.mark_reap_pending();
+                }
+                Ok(PtyChildCommand::Kill) => {
+                    let _ = child.kill();
+                    break;
+                }
+                Err(_) => {
+                    if wait_lifecycle.begin_termination() {
+                        let _ = child.kill();
+                    }
+                    break;
+                }
+            }
         }
         let code = child.wait().map(|status| i64::from(status.exit_code() as i32)).unwrap_or(0);
         wait_lifecycle.mark_exited();
@@ -1443,12 +1475,14 @@ mod tests {
             });
         }
         let mut child = child.spawn().expect("test child");
+        let (command_tx, _command_rx) = mpsc::channel();
         let control = TestArc::new(MasterControl {
             master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
             writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
             lifecycle: ChildLifecycle::new(),
             process_id: child.id() as libc::pid_t,
             process_group: child.id() as libc::pid_t,
+            command_tx,
         });
         let (done_tx, done_rx) = mpsc::channel();
         let kill_control = TestArc::clone(&control);
@@ -1484,12 +1518,14 @@ mod tests {
             });
         }
         let mut child = child.spawn().expect("test child");
+        let (command_tx, _command_rx) = mpsc::channel();
         let control = MasterControl {
             master: TestMutex::new(Box::new(TestMasterPty) as Box<dyn MasterPty + Send>),
             writer: TestMutex::new(Box::new(Vec::<u8>::new()) as Box<dyn Write + Send>),
             lifecycle: ChildLifecycle::new(),
             process_id: child.id() as libc::pid_t,
             process_group: child.id() as libc::pid_t,
+            command_tx,
         };
         drop(control);
 
