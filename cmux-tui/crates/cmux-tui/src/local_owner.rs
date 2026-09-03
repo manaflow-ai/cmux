@@ -94,6 +94,12 @@ pub(crate) struct EnsuredOwnerHandle {
 }
 
 impl EnsuredOwnerHandle {
+    /// Process id of the owner; terminal hosts it spawned are its children
+    /// while it runs, which is how the bench audits for leaked hosts.
+    pub(crate) fn pid(&self) -> u64 {
+        self.pid
+    }
+
     /// Ask the owner to shut down (best effort) and remove the temp state root.
     pub(crate) fn stop(self, socket: &Path) {
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -126,6 +132,15 @@ impl EnsuredOwnerHandle {
         }
         if let Some(root) = self.state_root {
             let _ = std::fs::remove_dir_all(root);
+            // `SocketStartLock` deliberately leaves `<socket>.spawn-lock` in
+            // place for durable sessions, because unlinking it reopens the
+            // stale-socket start race for that session name. A bench session
+            // name is random and never started again, so removing its lock
+            // after the owner we spawned has been asked to exit leaves nothing
+            // behind under the runtime directory.
+            let mut name = socket.file_name().unwrap_or_default().to_os_string();
+            name.push(".spawn-lock");
+            let _ = std::fs::remove_file(socket.with_file_name(name));
         }
     }
 }
