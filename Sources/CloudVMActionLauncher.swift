@@ -495,7 +495,9 @@ final class ProcessOutputCollector: @unchecked Sendable {
         stderrHandle.readabilityHandler = nil
         append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
         append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
-        finishPendingUTF8()
+        lock.lock()
+        finishPendingUTF8Locked()
+        lock.unlock()
         try? stdoutHandle.close()
         try? stderrHandle.close()
 
@@ -517,7 +519,9 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        finishPendingUTF8()
+        lock.lock()
+        finishPendingUTF8Locked()
+        lock.unlock()
         try? stdoutHandle.close()
         try? stderrHandle.close()
     }
@@ -577,9 +581,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
         return (valid, Data())
     }
 
-    private func finishPendingUTF8() {
-        lock.lock()
-        defer { lock.unlock() }
+    private func finishPendingUTF8Locked() {
         if !stdoutPendingUTF8.isEmpty {
             stdout.append(String(decoding: stdoutPendingUTF8, as: UTF8.self).data(using: .utf8) ?? Data())
             stdoutPendingUTF8.removeAll(keepingCapacity: false)
