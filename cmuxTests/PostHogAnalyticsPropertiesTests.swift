@@ -16,7 +16,7 @@ struct PostHogAnalyticsPropertiesTests {
         let flags = CmuxFeatureFlags(
             defaults: defaults,
             remoteFlagValueProvider: { _ in nil },
-            remoteFlagLoader: { await probe.load() }
+            remoteFlagLoader: { _ in await probe.load() }
         )
 
         flags.start()
@@ -60,8 +60,16 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(secondPayload["distinctId"] as? String == distinctID)
         #expect(personProperties["$os"] as? String == "macOS")
         #expect((personProperties["cmux_architecture"] as? String)?.isEmpty == false)
+        #expect((personProperties["cmux_release_channel"] as? String)?.isEmpty == false)
         #expect(firstPayload["$anon_distinct_id"] == nil)
         #expect(firstPayload["person_properties"] == nil)
+        #expect(firstRequest.value(forHTTPHeaderField: "X-Cmux-Client") == "macos")
+        #expect(firstRequest.value(forHTTPHeaderField: "X-Cmux-Refresh-Reason") == "launch")
+        #expect(firstRequest.value(forHTTPHeaderField: "X-Cmux-Poll-Interval") == "1800")
+        #expect(
+            firstRequest.value(forHTTPHeaderField: "X-Cmux-Channel")
+                == CmuxFeatureFlags.releaseControlChannel()
+        )
     }
 
     @MainActor
@@ -83,6 +91,25 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(payload["distinctId"] as? String == "cmux-desktop-release-control")
         #expect((payload["context"] as? [String: Any])?.isEmpty == true)
         #expect(defaults.object(forKey: "cmux.flags.releaseControlDistinctID") == nil)
+        // Attribution headers carry only fleet-wide labels, so they stay on
+        // opted-out requests without weakening the no-identity body contract.
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-Client") == "macos")
+        #expect(request.value(forHTTPHeaderField: "X-Cmux-Refresh-Reason") == "launch")
+    }
+
+    @Test("feature flag release channel derives from the stamped marketing version")
+    func featureFlagReleaseChannelDerivesFromMarketingVersion() {
+        #expect(
+            CmuxFeatureFlags.releaseControlChannel(version: "0.64.22-nightly.202608250")
+                == "nightly"
+        )
+        #expect(CmuxFeatureFlags.releaseControlChannel(version: "0.65.0-rc.1") == "rc")
+        let plain = CmuxFeatureFlags.releaseControlChannel(version: "0.64.22")
+        #if DEBUG
+        #expect(plain == "dev")
+        #else
+        #expect(plain == "stable")
+        #endif
     }
 
     @Test("feature flag bool coercion accepts PostHog bool-like values")
@@ -286,7 +313,7 @@ struct PostHogAnalyticsPropertiesTests {
         let flags = CmuxFeatureFlags(
             defaults: defaults,
             remoteFlagValueProvider: { _ in nil },
-            remoteFlagLoader: { await probe.load() }
+            remoteFlagLoader: { _ in await probe.load() }
         )
         #expect(flags.remoteValue(for: flag) == false)
         #expect(!flags.effectiveValue(for: flag))

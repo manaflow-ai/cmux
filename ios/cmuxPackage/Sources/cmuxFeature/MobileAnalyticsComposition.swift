@@ -34,9 +34,15 @@ public struct MobileAnalyticsComposition {
     public let anonymousID: String
     /// The default mobile evaluation context sent to `/api/client-config`.
     public let clientConfigContext: ClientConfigEvaluationContext
+    /// The low-cardinality `X-Cmux-*` request labels for control-plane calls.
+    public let clientConfigAttribution: ClientConfigAttribution
     /// A request for anonymous mobile flag evaluation.
     public var anonymousClientConfigRequest: ClientConfigRequest {
-        ClientConfigRequest(distinctId: anonymousID, context: clientConfigContext)
+        ClientConfigRequest(
+            distinctId: anonymousID,
+            context: clientConfigContext,
+            attribution: clientConfigAttribution
+        )
     }
     /// The session store + sessionizer the app shell drives on foreground/background.
     public let sessionStore: AnalyticsSessionStore
@@ -101,6 +107,7 @@ public struct MobileAnalyticsComposition {
             anonDistinctId: anonymousID,
             evaluationContexts: ["mobile"]
         )
+        self.clientConfigAttribution = Self.clientConfigRequestAttribution()
         self.sessionStore = AnalyticsSessionStore(defaults: defaults)
     }
 
@@ -138,6 +145,29 @@ public struct MobileAnalyticsComposition {
         return props
     }
 
+    /// The `X-Cmux-*` labels sent with every control-plane request so the web
+    /// route's per-request log can attribute request volume by client, channel,
+    /// and build. Fleet-wide values only; no per-user identifier.
+    @MainActor private static func clientConfigRequestAttribution() -> ClientConfigAttribution {
+        let info = Bundle.main.infoDictionary
+        return ClientConfigAttribution(
+            client: "ios",
+            channel: releaseChannel(),
+            appVersion: info?["CFBundleShortVersionString"] as? String,
+            appBuild: info?["CFBundleVersion"] as? String
+        )
+    }
+
+    /// The coarse release channel. TestFlight installs report `stable`; the
+    /// route only needs to separate dev fleets from released clients.
+    private static func releaseChannel() -> String {
+        #if DEBUG
+        "dev"
+        #else
+        "stable"
+        #endif
+    }
+
     @MainActor private static func clientConfigDeviceProperties(
         anonymousID: String
     ) -> [String: ClientConfigJSONValue] {
@@ -145,6 +175,7 @@ public struct MobileAnalyticsComposition {
         var props: [String: ClientConfigJSONValue] = [
             "client_id": .string(anonymousID),
             "platform": .string("ios"),
+            "cmux_release_channel": .string(releaseChannel()),
         ]
         if let bundleIdentifier = Bundle.main.bundleIdentifier {
             props["bundle_identifier"] = .string(bundleIdentifier)

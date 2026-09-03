@@ -356,6 +356,96 @@ describe("client config", () => {
     expect(checkRateLimit).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  test("logs one normalized attribution line per proxied request", async () => {
+    const logCalls: Array<[string, Record<string, unknown>]> = [];
+    const originalConsoleLog = console.log;
+    console.log = ((...args: unknown[]) => {
+      logCalls.push([args[0] as string, args[1] as Record<string, unknown>]);
+    }) as typeof console.log;
+    try {
+      const fetchMock = mock(async () => new Response(
+        JSON.stringify({
+          errorsWhileComputingFlags: false,
+          featureFlags: { "pricing-page-visible": true },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ));
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const response = await POST(new Request("https://cmux.test/api/client-config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Cmux-Client": "macos",
+          "X-Cmux-Channel": "stable",
+          "X-Cmux-Refresh-Reason": "launch",
+          "X-Cmux-App-Version": "0.64.22",
+          "X-Cmux-App-Build": "6422",
+          "X-Cmux-Poll-Interval": "1800",
+        },
+        body: JSON.stringify({ distinctId: "browser-id" }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(logCalls).toHaveLength(1);
+      const [message, fields] = logCalls[0]!;
+      expect(message).toBe("client-config.route.request");
+      expect(fields).toMatchObject({
+        client: "macos",
+        channel: "stable",
+        reason: "launch",
+        appVersion: "0.64.22",
+        appBuild: "6422",
+        pollIntervalSeconds: 1800,
+        status: 200,
+      });
+      expect(typeof fields.durationMs).toBe("number");
+    } finally {
+      console.log = originalConsoleLog;
+    }
+  });
+
+  test("logs attribution for rate-limited requests before the body is read", async () => {
+    process.env.VERCEL = "1";
+    checkRateLimit.mockResolvedValue({ rateLimited: true, error: null });
+    const logCalls: Array<[string, Record<string, unknown>]> = [];
+    const originalConsoleLog = console.log;
+    console.log = ((...args: unknown[]) => {
+      logCalls.push([args[0] as string, args[1] as Record<string, unknown>]);
+    }) as typeof console.log;
+    try {
+      const fetchMock = mock(async () => {
+        throw new Error("PostHog flags should not be reached after a rate-limit block");
+      });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      const response = await POST(new Request("https://cmux.test/api/client-config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Cmux-Client": "ios",
+          "X-Cmux-Channel": "weird-channel",
+          "X-Cmux-Refresh-Reason": "timer",
+        },
+        body: JSON.stringify({ distinctId: "browser-id" }),
+      }));
+
+      expect(response.status).toBe(429);
+      expect(logCalls).toHaveLength(1);
+      const [message, fields] = logCalls[0]!;
+      expect(message).toBe("client-config.route.request");
+      expect(fields).toMatchObject({
+        client: "ios",
+        channel: "other",
+        reason: "timer",
+        appVersion: "unknown",
+        status: 429,
+      });
+    } finally {
+      console.log = originalConsoleLog;
+    }
+  });
 });
 
 function restoreEnv(key: string, value: string | undefined): void {

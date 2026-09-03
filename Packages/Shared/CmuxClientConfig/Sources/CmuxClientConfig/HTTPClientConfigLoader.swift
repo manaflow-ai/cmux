@@ -36,6 +36,11 @@ public struct HTTPClientConfigLoader: ClientConfigLoading {
         urlRequest.httpMethod = "POST"
         urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
         urlRequest.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let attribution = request.attribution {
+            for (field, value) in attribution.headerFields {
+                urlRequest.setValue(value, forHTTPHeaderField: field)
+            }
+        }
         urlRequest.httpBody = try encoder.encode(request)
 
         let (data, response) = try await session.data(for: urlRequest)

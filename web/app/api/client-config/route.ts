@@ -13,9 +13,27 @@ import {
   postHogFlagsBody,
   postHogFlagsUrl,
 } from "../../../services/client-config/posthogFlags";
+import { readClientConfigRequestAttribution } from "../../../services/client-config/requestAttribution";
 
 
 export async function POST(request: Request): Promise<Response> {
+  const startedAtMs = Date.now();
+  const attribution = readClientConfigRequestAttribution(request.headers);
+  const response = await handleClientConfigRequest(request);
+  // One structured line per request. This log is the per-client request
+  // counter: PostHog billing exposes only a daily project-wide flag-request
+  // total, so client/channel/version/reason attribution has to be recorded
+  // here, before the request loses its origin. Fields are allowlist-normalized
+  // in readClientConfigRequestAttribution; nothing user-identifying is logged.
+  console.log("client-config.route.request", {
+    ...attribution,
+    status: response.status,
+    durationMs: Date.now() - startedAtMs,
+  });
+  return response;
+}
+
+async function handleClientConfigRequest(request: Request): Promise<Response> {
   // An unset rule id means no rate limiting; a deleted rule (not-found) fails
   // open rather than making client config unavailable for every app boot.
   const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
