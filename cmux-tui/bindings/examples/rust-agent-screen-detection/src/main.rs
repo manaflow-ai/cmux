@@ -88,10 +88,13 @@ fn run_status() -> ExitCode {
 }
 
 fn run_explain(arguments: Vec<String>) -> ExitCode {
+    let live = arguments.iter().any(|argument| argument == "--live");
     let mut process = None;
     let mut screen_path = None;
+    let mut live_target = None;
     let mut title = String::new();
     let mut progress = String::new();
+    let mut json_output = true;
     let mut index = 0;
     while index < arguments.len() {
         let value = &arguments[index];
@@ -100,6 +103,28 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
             arguments.get(*index).cloned().ok_or_else(|| format!("{name} needs a value"))
         };
         match value.as_str() {
+            "--live" => {}
+            "--json" => json_output = true,
+            "--format" => {
+                let format = match next(&mut index, "--format") {
+                    Ok(value) => value,
+                    Err(error) => return print_error(error),
+                };
+                match format.as_str() {
+                    "json" => json_output = true,
+                    "text" => json_output = false,
+                    _ => return print_error("--format must be json or text".into()),
+                }
+            }
+            "--terminal" => {
+                if live_target.is_some() {
+                    return print_error("live explain target was supplied more than once".into());
+                }
+                live_target = Some(match next(&mut index, "--terminal") {
+                    Ok(value) => value,
+                    Err(error) => return print_error(error),
+                });
+            }
             "--process" => {
                 process = Some(match next(&mut index, "--process") {
                     Ok(value) => value,
@@ -124,17 +149,47 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
                     Err(error) => return print_error(error),
                 }
             }
+            _ if live && live_target.is_none() => live_target = Some(value.clone()),
+            _ if live => return print_error(format!("unexpected live explain argument {value:?}")),
             _ if process.is_none() => process = Some(value.clone()),
             _ if screen_path.is_none() => screen_path = Some(value.clone()),
             _ => return print_error(format!("unexpected explain argument {value:?}")),
         }
         index += 1;
     }
+
+    if live {
+        if process.is_some() || screen_path.is_some() || !title.is_empty() || !progress.is_empty() {
+            return print_error(
+                "--live cannot be combined with --process, --screen, --title, or --progress"
+                    .into(),
+            );
+        }
+        let Some(target) = live_target else {
+            return print_error(
+                "usage: cmux-agent-screen-detection explain --live <terminal-id-or-title>"
+                    .into(),
+            );
+        };
+        let socket = match env::var("CMUX_TUI_SOCKET") {
+            Ok(value) if !value.is_empty() => value,
+            _ => return print_error("CMUX_TUI_SOCKET is required for live explain".into()),
+        };
+        let session = env::var("CMUX_TUI_SESSION_ID").unwrap_or_else(|_| "main".into());
+        return match cmux_agent_screen_detection::diagnostics::explain_live(
+            &socket, &session, &target,
+        ) {
+            Ok(value) if json_output => print_json(&value),
+            Ok(value) => print_explain_text(&value),
+            Err(error) => print_error(error),
+        };
+    }
+
     let Some(process) = process else {
-        return print_error("usage: cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>]".into());
+        return print_error(explain_file_usage());
     };
     let Some(screen_path) = screen_path else {
-        return print_error("usage: cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>]".into());
+        return print_error(explain_file_usage());
     };
     let screen = match cmux_agent_screen_detection::manifest::read_bounded_utf8_file(
         Path::new(&screen_path),
@@ -144,8 +199,8 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
         Err(error) => return print_error(format!("read screen {screen_path}: {error}")),
     };
     match cmux_agent_screen_detection::manifest::ManifestSet::from_environment() {
-        Ok(set) => print_json(
-            &serde_json::to_value(set.explain(
+        Ok(set) => {
+            let value = serde_json::to_value(set.explain(
                 &process,
                 cmux_agent_screen_detection::manifest::DetectionInput {
                     screen: &screen,
@@ -153,10 +208,16 @@ fn run_explain(arguments: Vec<String>) -> ExitCode {
                     osc_progress: &progress,
                 },
             ))
-            .expect("detection explanation is serializable"),
-        ),
+            .expect("detection explanation is serializable");
+            if json_output { print_json(&value) } else { print_explain_text(&value) }
+        }
         Err(error) => print_error(error),
     }
+}
+
+fn explain_file_usage() -> String {
+    "usage: cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>] [--format json|text]"
+        .into()
 }
 
 fn run_update(arguments: Vec<String>) -> ExitCode {
@@ -211,9 +272,52 @@ fn print_error(error: String) -> ExitCode {
     ExitCode::FAILURE
 }
 
+fn print_explain_text(value: &serde_json::Value) -> ExitCode {
+    println!(
+        "terminal: {} ({})",
+        value["terminal_id"].as_str().unwrap_or("file"),
+        value["terminal_title"].as_str().unwrap_or("-")
+    );
+    println!("agent: {}", value["agent"].as_str().unwrap_or("unknown"));
+    println!("state: {}", value["state"].as_str().unwrap_or("unknown"));
+    println!(
+        "manifest: {} {}",
+        value["source"].as_str().unwrap_or("none"),
+        value["version"].as_str().unwrap_or("unknown")
+    );
+    if let Some(rule) = value["matched_rule"].as_str() {
+        println!("rule: {rule}");
+    } else {
+        println!("rule: none");
+    }
+    if let Some(reason) = value["fallback_reason"].as_str() {
+        println!("fallback_reason: {reason}");
+    }
+    if let Some(process) = value["process"].as_object() {
+        println!(
+            "process: {} pid={} source={}",
+            process["foreground_executable"]
+                .as_str()
+                .or_else(|| process["executable"].as_str())
+                .unwrap_or("unknown"),
+            process["pid"].as_u64().unwrap_or(0),
+            process["identity_source"].as_str().unwrap_or("unknown")
+        );
+    }
+    if let Some(screen) = value["screen"].as_object() {
+        println!(
+            "screen: {}x{} revision={}",
+            screen["cols"].as_u64().unwrap_or(0),
+            screen["rows"].as_u64().unwrap_or(0),
+            screen["revision"].as_u64().unwrap_or(0)
+        );
+    }
+    ExitCode::SUCCESS
+}
+
 fn print_help() {
     eprintln!(
-        "usage:\n  cmux-agent-screen-detection\n  cmux-agent-screen-detection list\n  cmux-agent-screen-detection status\n  cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>]\n  cmux-agent-screen-detection update [--url <catalog-url>] [--cache-dir <path>]"
+        "usage:\n  cmux-agent-screen-detection\n  cmux-agent-screen-detection list\n  cmux-agent-screen-detection status\n  cmux-agent-screen-detection explain <process> <screen-file> [--title <text>] [--progress <text>] [--format json|text]\n  cmux-agent-screen-detection explain --live <terminal-id-or-title> [--format json|text]\n  cmux-agent-screen-detection update [--url <catalog-url>] [--cache-dir <path>]"
     );
 }
 

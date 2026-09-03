@@ -585,16 +585,8 @@ fn scan_terminal(
     let revision_due = snapshot
         .stream_revision
         .map(|revision| state.tracker.observe_revision(&terminal_id, revision, now));
-    let manifest = process_discovery::identify_job(manifests, &job)
-        .map(|(manifest, _)| manifest)
-        .or_else(|| {
-            process
-                .foreground_executable
-                .as_deref()
-                .or(process.executable.as_deref())
-                .or_else(|| process.argv.first().map(String::as_str))
-                .and_then(|name| manifests.identify(name))
-        });
+    let manifest = process_discovery::identify_job_with_process_fallback(manifests, &job, &process)
+        .map(|(manifest, _)| manifest);
     let process_group_id = state.process_cache.authoritative_group_id(&terminal_id);
     let identity_edge = state.tracker.note_foreground_job_at_with_revision(
         &terminal_id,

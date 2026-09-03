@@ -94,6 +94,24 @@ pub fn identify_job<'a>(
     best.map(|(_, manifest, candidate)| (manifest, candidate))
 }
 
+/// Identify a process using the same foreground-group and public-process
+/// fallback used by the scanner. Keeping this order shared with diagnostics
+/// prevents an explain result from disagreeing with the state publisher.
+pub fn identify_job_with_process_fallback<'a>(
+    manifests: &'a ManifestSet,
+    job: &ForegroundJob,
+    process: &ProcessInfoResult,
+) -> Option<(&'a CompiledManifest, String)> {
+    identify_job(manifests, job).or_else(|| {
+        process
+            .foreground_executable
+            .as_deref()
+            .or(process.executable.as_deref())
+            .or_else(|| process.argv.first().map(String::as_str))
+            .and_then(|name| manifests.identify(name).map(|manifest| (manifest, name.to_string())))
+    })
+}
+
 fn identify_process<'a>(
     manifests: &'a ManifestSet,
     process: &ForegroundProcess,

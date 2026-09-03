@@ -231,6 +231,14 @@ manifest and does not call input or lifecycle mutation operations. A future
 capability-bound plugin socket must be designed as a separate host contract;
 an advisory flag here would not provide security.
 
+The reference detector exposes a read-only `explain --live` command for
+diagnosis. It resolves an exact terminal ID or title through `terminal.list`,
+then reads `terminal.process.get` and `terminal.screen.read` and evaluates the
+same userland manifests as the scanner. It rejects duplicate titles and emits
+the process identity source, screen revision, matched rule, evidence, and
+manifest provenance. This diagnostic command does not add an agent-specific
+daemon operation.
+
 The reducer clamps `normalized.observed_at_ms` to the journal commit time when
 the plugin clock is ahead. Older observation times remain unchanged, so a
 delayed append cannot become fresh evidence merely because it arrived late.

@@ -31,6 +31,22 @@ producer, reads terminal process metadata and viewport text, and appends
 `cmux.agent-plugin.v1` events. A different implementation can use Python,
 another language, or a different ruleset without a cmux core change.
 
+The package also provides a read-only live diagnostic that follows the same
+identity and manifest path as the scanner:
+
+```text
+CMUX_TUI_SOCKET=/tmp/cmux-debug-demo.sock \
+CMUX_TUI_SESSION_ID=demo \
+./cmux-agent-screen-detection explain --live term_0123456789abcdef0123456789abcdef
+```
+
+The target is an exact terminal ID or an exact terminal title. Duplicate titles
+are rejected and the error lists the IDs to use. The command returns the
+matched rule, evaluated evidence, process identity source, screen revision,
+and manifest provenance. It never writes to the journal or terminal. Its
+one-shot OSC metadata freshness is reported as `one_shot_unknown`; the
+continuous scanner applies the stronger revision fence between process edges.
+
 The supervisor must provide a `CMUX_PLUGIN_ID` that matches
 `[a-z0-9][a-z0-9_-]*`, is at most 64 bytes, and is not `cmux_agent`. The
 executable exits before connecting when that namespace is absent or invalid; it
