@@ -931,7 +931,7 @@ async fn relay_session(
                         }
                         if reconcile_owner_user_id_and_persist(
                             config,
-                            hello.owner_user_id.clone(),
+                            hello.owner_user_id,
                             config_path,
                             state.managed,
                         )
