@@ -255,10 +255,10 @@ Every machine runs the cmux-tui remote daemon: its own workspaces (`ws_…`) →
 cmux vm tree [<machine>|local] [--refresh] [--json]
 ```
 
-Socket `surface.catalog {machine?, refresh?}` (plus `workspace.list` to name local workspaces). The Finder-style view of every surface: **This Mac** first (terminals grouped by workspace, then browsers), then each cloud machine — its workspaces, each workspace's terminals (title, cwd, lifecycle, agent state, and the pane that already shows it), `desktop`, and forwarded `ports/`. Every line carries an address `cmux vm open` or `cmux surface open` accepts. `--refresh` re-syncs every provider first. `--json`: `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind: terminal|display|browser, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. Same as `cmux surface ls`. Sidebar: the Cloud tree itself; machine row › Refresh.
+Socket `surface.catalog {machine?, refresh?}` (plus `workspace.list` to name local workspaces). The Finder-style view of every surface: **This Mac** first (terminals grouped by workspace, then browsers), then each cloud machine — its **Workspaces**, **Ports**, **VNC Displays**, and final **Terminals** index. Workspace rows carry each terminal's title, cwd, lifecycle, agent state, and existing pane projections; every line carries an address `cmux vm open` or `cmux surface open` accepts. `--refresh` re-syncs every provider first. `--json`: `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind: terminal|display|browser, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. Same as `cmux surface ls`. Sidebar: the Cloud tree itself; machine row › Refresh.
 
 ```
-vivid-newt  running  · 24 GB · 16 GB disk · link connected
+vivid-newt  running  · 20 GB · 200 GB disk · link connected
   workspaces/                                  ← one machine, many workspaces: what you open and drag
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)

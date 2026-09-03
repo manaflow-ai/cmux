@@ -147,6 +147,7 @@ Agents started with `vm agent` authenticate inside the machine the way they woul
 | `claude`/`codex` not found on a brand-new machine | Provisioning is still running: `cmux vm exec <id> -- tail /tmp/cmux/provision.log`; the agents land in `/root/.npm-global/bin` (on PATH in login shells). |
 | First command after idle is slow | The machine was asleep: `cmux vm wait <id> --wake`. |
 | Attach/exec cannot reach any machine | The WireGuard tunnel is down: `cmux vpn up` (state: `cmux vpn status`; needs `brew install wireguard-tools`). Machines have no public ports. |
+| `vm tree --json` times out while a link is connecting | Retry without `--refresh` or scope it to `cmux vm tree <id>`; inspect `cmux vm ls --json`/`vm status <id>`, then use `vm exec` or `vm terminal read` directly when you already know the target. |
 | `vm route` says it would provision | The pool is empty/busy. Check the plan meter; `--provision` (or `vm run`) creates one. |
 | Create fails with `vm_requires_pro` or an active-limit error | Provisioning needs a paid plan (`cmux.com/pricing`), or the plan's machine cap is reached. Report it; let the user upgrade or choose a machine to remove. |
 | `vm open <m>/<ws>` says no such workspace | Names are the cmux-tui workspace names; copy the `ws_…` id from `cmux vm tree <m>` (`--refresh` right after a link attach). |
