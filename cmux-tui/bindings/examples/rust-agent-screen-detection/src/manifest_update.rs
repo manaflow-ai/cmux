@@ -52,6 +52,10 @@ impl UpdateLock {
             .read(true)
             .write(true)
             .create(true)
+            // The lock file is a persistent inode used only for flock. Keep
+            // any existing contents and make the non-truncating intent
+            // explicit for clippy and future readers.
+            .truncate(false)
             .open(&path)
             .map_err(|error| format!("open update lock {}: {error}", path.display()))?;
         #[cfg(unix)]
