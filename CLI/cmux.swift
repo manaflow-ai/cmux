@@ -4349,10 +4349,10 @@ struct CMUXCLI {
         if let mb = Int(key), mb >= 512 { return mb }
         return nil
     }
-    /// `--base` / `--no-desktop` → shell-only; anything else (including `--desktop`
-    /// and no flag) → a machine with a screen.
+    /// `--desktop` → a machine with a screen; anything else (including `--base`,
+    /// `--no-desktop`, and no flag) → shell-only, the same default as `vm new`.
     static func parseCloudVMKindFlags(_ args: [String]) -> VMMachineKind {
-        args.contains("--base") || args.contains("--no-desktop") ? .base : .desktop
+        args.contains("--desktop") ? .desktop : .base
     }
     private static let cloudVMDesktopPort = 6901
     /// Whether a machine payload (`vm.create` / `vm.status` / `vm.base_open`
@@ -4369,6 +4369,7 @@ struct CMUXCLI {
         vmId: String,
         windowRaw: String?,
         targetWorkspaceId: String?,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -4380,6 +4381,7 @@ struct CMUXCLI {
             targetWorkspaceId: targetWorkspaceId,
             forceSSH: false,
             shouldPinWorkspaceToTop: false,
+            focus: focus,
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat
@@ -5654,6 +5656,11 @@ struct CMUXCLI {
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
             switch sub {
+            case "help":
+                // `cmux vm help`, the same text as `cmux help vm` / `cmux vm --help` (and
+                // what the in-machine `cmux vm help` prints for its own verbs).
+                print(subcommandUsage(command) ?? usage())
+                return
             case "ls", "list":
                 let response = try client.sendV2(method: "vm.list")
                 if jsonOutput {
@@ -5791,6 +5798,7 @@ struct CMUXCLI {
                         vmId: vmId,
                         windowRaw: windowOpt ?? windowId,
                         targetWorkspaceId: workspaceOpt,
+                        focus: focus ?? true,
                         client: client,
                         jsonOutput: jsonOutput,
                         idFormat: idFormat
@@ -5819,6 +5827,10 @@ struct CMUXCLI {
                 let status = (response["status"] as? String) ?? "unknown"
                 print("\(id)  [\(provider)] \(status)")
                 print("image: \(image)")
+                if let address = response["address"] as? [String: Any],
+                   let ip = ((address["ipv4"] as? String) ?? (address["ipv6"] as? String)), !ip.isEmpty {
+                    print("address: \(ip)")
+                }
 
             case "prompt", "skill":
                 // The Machines panel's "Copy Cloud Prompt" / "Open Cloud Agent", as CLI.
@@ -5937,8 +5949,9 @@ struct CMUXCLI {
                         throw CLIError(message: """
                             vm new: unknown size '\(sizeOpt)'.
 
-                            Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).
-                            Plans cap the largest size; `cmux vm ls` shows your plan.
+                            Sizes: 20g (the plan machine) or memory in MB (at least 512).
+                            Every plan sells the plan machine; the backend resolves any
+                            other size to it. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -5957,7 +5970,7 @@ struct CMUXCLI {
                         Known flags:
                           --base            shell-only machine (no desktop, the default)
                           --desktop         machine with a screen (no image available yet)
-                          --size <2g|4g|8g|16g|24g|32g>
+                          --size <20g|<mb>>   memory preset (20g is the plan machine) or MB
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
                           --provider <provider>
@@ -6506,18 +6519,21 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|status|snapshot|fork|restore|shell|tui|rm|run|exec|push|pull|wait|open|ports|tools|handoff|promote-template|ssh> [args...]
+                    Usage: cmux \(command) <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
                       cmux vm new
+                      cmux vm tree
+                      cmux vm open <id>[/<ws>[/<term>]]
                       cmux vm status <id>
                       cmux vm snapshot <id>
                       cmux vm fork <id>
                       cmux vm exec <id> -- <command...>
                       cmux vm push <id> <local-path>
-                      cmux vm ssh <id>
                       cmux vm rm <id>
+
+                    `cmux help vm` lists every subcommand.
                     """)
             }
 
@@ -18631,16 +18647,17 @@ struct CMUXCLI {
               base open [--desktop|--base] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
-                                        open picks the kind (desktop by default).
+                                        open picks the kind (shell-only by default;
+                                        --desktop for a screen).
                                         --focus false opens it without switching
                                         to its workspace.
               base reset [--desktop|--base] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
-                                        Create a new machine by kind (desktop by
-                                        default; --base for shell-only). The server
+              new [--desktop|--base] [--size <20g|<mb>>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
+                                        Create a new machine by kind (shell-only by
+                                        default; --desktop for a screen). The server
                                         picks the image for the kind; --image <id>
                                         is an explicit override you normally omit.
                                         --focus false opens the machine without
@@ -19772,7 +19789,7 @@ struct CMUXCLI {
 
             ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
             on This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,
-            e.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/screen/display:1,
+            e.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,
             vivid-newt/browser/port:3000); panes project them. `open` reuses the pane already
             showing a resource unless --new; --pane with a side splits that pane on that side,
             --tab adds a tab to it. A local terminal moves to the destination (it is shown once).

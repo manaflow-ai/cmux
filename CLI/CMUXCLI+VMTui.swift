@@ -782,7 +782,9 @@ extension CMUXCLI {
         Options:
           --workspace <ws>   Put the pane in this local workspace (default: the machine's
                              open workspace, else where you are).
-          --focus <bool>     Focus the opened pane (default: false — panes open beside you).
+          --focus <bool>     Focus the opened pane. Default: true for a machine's shell and
+                             for terminals (like `vm shell` / `surface open`), false for
+                             desktop and port panes (they open beside you).
           --print            Ports only: print the URL, do not open a pane.
 
         Examples:
@@ -1249,8 +1251,12 @@ extension CMUXCLI {
             lines.append("  " + String(localized: "cli.vm.tree.ports", defaultValue: "ports/"))
             for (port, browser) in ports {
                 let label = (browser["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                // The direct private-network link the sidebar's port row shows and copies
+                // (`http://<private-ip>:<port>`); absent until `cmux vpn up` gave the machine
+                // a private address.
+                let link = (browser["url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let open = (browser["open"] as? Bool) == true
-                var cell = "    \(port)\(label.map { "  \($0)" } ?? "")  (cmux vm open \(id):port/\(port))"
+                var cell = "    \(port)\(label.map { "  \($0)" } ?? "")\(link.map { "  \($0)" } ?? "")  (cmux vm open \(id):port/\(port))"
                 if open { cell += "  " + String(localized: "cli.vm.tree.openMarker", defaultValue: "(open)") }
                 lines.append(cell)
             }

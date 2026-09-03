@@ -19,8 +19,19 @@ export const GUEST_CMUX_SHIM = `#!/bin/sh
 # this machine was linked to from the Mac (\`cmux vm link <src> <dst>\`).
 set -eu
 
-CMUX_TUI_BIN="\${CMUX_TUI_BIN:-/root/.cmux/bin/cmux-tui}"
-CMUX_GUEST_HOME="\${CMUX_GUEST_HOME:-\$HOME/.cmux}"
+# The daemon binary lives under the daemon's home, which depends on the image
+# layout (root daemon: /root; layout-aware bakes: the cmux user's home or the
+# persistent-volume backing path, with /usr/local/bin/cmux-tui symlinked to it).
+# Try the stable symlink first, then every known home.
+cmux_tui_default() {
+  for candidate in /usr/local/bin/cmux-tui /root/.cmux/bin/cmux-tui "\${HOME:-/root}/.cmux/bin/cmux-tui" \\
+    /home/cmux/.cmux/bin/cmux-tui /cmux/home/.cmux/bin/cmux-tui; do
+    if [ -x "\$candidate" ]; then printf '%s' "\$candidate"; return 0; fi
+  done
+  command -v cmux-tui 2>/dev/null || printf '%s' /root/.cmux/bin/cmux-tui
+}
+CMUX_TUI_BIN="\${CMUX_TUI_BIN:-\$(cmux_tui_default)}"
+CMUX_GUEST_HOME="\${CMUX_GUEST_HOME:-\${HOME:-/root}/.cmux}"
 PEERS_DIR="\$CMUX_GUEST_HOME/peers"
 LINKS_DIR="\$CMUX_GUEST_HOME/peer-links"
 LOCAL_SESSION="\${CMUX_TUI_SESSION:-cloud}"

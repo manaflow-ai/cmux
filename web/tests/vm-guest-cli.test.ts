@@ -131,6 +131,36 @@ describe("in-VM cmux shim", () => {
     });
   });
 
+  test("finds the daemon binary under the daemon's home when CMUX_TUI_BIN is unset", () => {
+    // The root layout keeps the binary at /root/.cmux/bin; layout-aware bakes
+    // symlink /usr/local/bin/cmux-tui. A dev Mac with either would shadow the
+    // per-test fake, so only assert when neither exists on this host.
+    const shadowed = ["/usr/local/bin/cmux-tui", "/root/.cmux/bin/cmux-tui"].some((path) => {
+      try {
+        return spawnSync("test", ["-x", path]).status === 0;
+      } catch {
+        return false;
+      }
+    });
+    if (shadowed) return;
+    const dir = mkdtempSync(join(tmpdir(), "cmux-guest-cli-home-"));
+    const shim = join(dir, "cmux");
+    writeFileSync(shim, GUEST_CMUX_SHIM);
+    chmodSync(shim, 0o755);
+    const binDir = join(dir, ".cmux", "bin");
+    spawnSync("mkdir", ["-p", binDir]);
+    const fakeTui = join(binDir, "cmux-tui");
+    writeFileSync(fakeTui, '#!/bin/sh\nprintf \'home-fake\'; printf \' %s\' "$@"; echo\n');
+    chmodSync(fakeTui, 0o755);
+    const result = spawnSync("sh", [shim, "notify", "--title", "T"], {
+      encoding: "utf8",
+      env: { NODE_ENV: "test", PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: dir, CMUX_TUI_TERMINAL_ID: TERMINAL_ID },
+    });
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("home-fake --session cloud --quiet notification create --title T --body  --terminal " + TERMINAL_ID);
+  });
+
   test("install command is a safe atomic base64 write", () => {
     const command = guestCliInstallCommand();
     expect(command).toContain(`${GUEST_CMUX_SHIM_PATH}.tmp`);

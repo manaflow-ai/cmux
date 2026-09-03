@@ -39,10 +39,11 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-  terminals/                                   ← the pool: every terminal the machine owns
+    (detached — no tab on the machine shows these)  ← terminals no workspace tab shows (e.g. `vm agent` runs)
+      ● term_9d0…  claude -p …
   desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
   ports/
-    3000  (cmux vm open vivid-newt:port/3000)     ← forwarded ports the machine listens on
+    3000  http  http://10.0.0.12:3000  (cmux vm open vivid-newt:port/3000)   ← forwarded ports; the link needs `cmux vpn up`
 ```
 
 The sidebar shows the same nodes (its order under a machine: Terminals, Displays, Workspaces, Ports; the CLI leads with `workspaces/`, then the detached pool, `desktop`, `ports/`); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). Placement flags that name nothing (`--workspace workspace:99`, `--pane pane:99`) are errors, never a silent open in the selected workspace; `--tabs`/`--tab` cannot be combined with a pane side.
@@ -73,9 +74,9 @@ Policy (shared with `run` and `agent`): the machine bound to the directory → a
 ## Lifecycle
 
 ```bash
-cmux vm new --detach                   # new Desktop machine (screen + shell), headless create
+cmux vm new --detach                   # new shell-only machine, headless create (--desktop: screen + shell, when the deployment has a desktop image)
 cmux vm new --base --detach            # shell-only machine
-cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|24g|32g or raw MB (disk follows memory, 16 GB max)
+cmux vm new --size 20g --detach        # memory preset: 20g (the plan machine) or raw MB; the backend resolves other sizes to the plan machine
 cmux vm new --name "build box" --detach # display label; the id stays the address
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
 cmux vm rename <id> <label>            # display label; the id stays the address
@@ -100,7 +101,7 @@ cmux vm run -- <command...>
 cmux vm run --sync -- bun test                 # push cwd to work/<basename>, run there
 cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
 cmux vm run --machine <id> -- <command...>     # pin; --new forces a fresh pool machine
-cmux vm run --size 16g --new -- <command...>   # size applies to machines this run creates
+cmux vm run --size 20g --new -- <command...>   # size applies to machines this run creates
 
 # a coding agent as a detached terminal in the machine's cmux-tui session
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"        # bare prompt → claude -p …
