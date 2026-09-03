@@ -8758,7 +8758,7 @@ fn sidebar_layout_for_state(
                 .min_by_key(|(_, spec)| spec.priority)
             else {
                 break;
-            }
+            };
             specs.remove(index);
         }
     }
@@ -13406,6 +13406,16 @@ impl App {
         let machine_rail = self.sidebar_layout.machine;
         let workspace_rail = self.sidebar_layout.workspace;
         let tabs_rail = self.sidebar_layout.tabs;
+        let projection_rails = self
+            .sidebar_layout
+            .ordered
+            .iter()
+            .filter_map(|placement| match placement.kind {
+                RailKind::Projection(_) => Some((placement.kind, placement.rect)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .into();
         let pointer_map_generation = self.session.pointer_map_generation();
         let reuse_owners = action == RenderAction::Paint
             && self.rendered_pointer_frame.pointer_map_generation == pointer_map_generation;

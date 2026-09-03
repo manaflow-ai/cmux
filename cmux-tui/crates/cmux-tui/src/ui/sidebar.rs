@@ -418,7 +418,8 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     if rows.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1))
     {
-        rail::button(frame, area, y, projection_empty_label(empty_resource), false, palette);
+        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
+        rail::button(frame, area, y, projection_empty_label(resource), false, palette);
     }
     for (row_index, row) in rows.iter().enumerate() {
         let span = row_spans[row_index];
