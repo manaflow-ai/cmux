@@ -1182,6 +1182,7 @@ struct AttachResponseDeadline {
 }
 
 impl AttachResponseDeadline {
+    #[cfg(test)]
     fn new(
         started: Instant,
         request_progress: u64,
@@ -1598,6 +1599,7 @@ impl InteractiveWriter {
         Ok((state.last_enqueued_sequence != 0).then_some(state.last_enqueued_sequence))
     }
 
+    #[cfg(test)]
     fn wait_until_written(&self, sequence: u64, timeout: Duration) -> io::Result<()> {
         self.wait_until_written_until(sequence, Instant::now() + timeout)
     }
