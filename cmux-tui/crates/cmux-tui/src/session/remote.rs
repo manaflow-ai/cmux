@@ -1431,6 +1431,10 @@ struct ReaperState {
     fail_next_spawn: bool,
 }
 
+// A wake token only prompts the reaper to inspect its pending list. Keep a
+// finite reserve for bursts while never allowing teardown to block on notify.
+const REMOTE_REAPER_WAKE_CAPACITY: usize = 1024;
+
 struct WorkerRuntime {
     admission: Arc<WorkerAdmission>,
     reaper: Arc<Mutex<ReaperState>>,
@@ -1509,7 +1513,8 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     if current.sender.is_some() {
         return;
     }
-    let (sender, receiver) = std::sync::mpsc::sync_channel::<()>(1);
+    let (sender, receiver) =
+        std::sync::mpsc::sync_channel::<()>(REMOTE_REAPER_WAKE_CAPACITY);
     let worker_state = state.clone();
     #[cfg(test)]
     if current.fail_next_spawn {
