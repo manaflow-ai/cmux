@@ -3,7 +3,7 @@ import { awsCredentialsProvider } from "@vercel/oidc-aws-credentials-provider";
 import { attachDatabasePool } from "@vercel/functions";
 import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { Pool } from "pg";
+import { Client, Pool } from "pg";
 import postgres, { type Sql } from "postgres";
 import { cloudDbConfig, cloudDbConfigKey, type CloudDbAwsRdsIamConfig } from "./config";
 import * as schema from "./schema";
@@ -27,6 +27,25 @@ export function createAwsRdsIamPool(
   config: CloudDbAwsRdsIamConfig,
   overrides: Partial<ConstructorParameters<typeof Pool>[0] & object> = {},
 ): Pool {
+  return new Pool({
+    ...awsRdsConnectionOptions(config),
+    max: config.poolMax,
+    ...overrides,
+  });
+}
+
+/** Creates an independently closable RDS client for bounded probes. */
+export function createAwsRdsIamClient(
+  config: CloudDbAwsRdsIamConfig,
+  overrides: Partial<ConstructorParameters<typeof Client>[0] & object> = {},
+): Client {
+  return new Client({
+    ...awsRdsConnectionOptions(config),
+    ...overrides,
+  });
+}
+
+function awsRdsConnectionOptions(config: CloudDbAwsRdsIamConfig) {
   const signer = new Signer({
     hostname: config.host,
     port: config.port,
@@ -38,7 +57,7 @@ export function createAwsRdsIamPool(
     }),
   });
 
-  return new Pool({
+  return {
     host: config.host,
     port: config.port,
     user: config.user,
@@ -48,9 +67,7 @@ export function createAwsRdsIamPool(
       rejectUnauthorized: config.sslRejectUnauthorized,
       ...(config.sslCaPem ? { ca: config.sslCaPem } : {}),
     },
-    max: config.poolMax,
-    ...overrides,
-  });
+  };
 }
 
 export function cloudDb(): CloudDb {
@@ -92,9 +109,16 @@ export async function pingCloudDb(
   signal: AbortSignal,
   timeoutMs: number,
 ): Promise<void> {
-  const client = (cloudDb() as unknown as { $client: unknown }).$client;
-  if (isPostgresJsClient(client)) {
-    const query = client.unsafe("select 1");
+  const config = cloudDbConfig();
+  if (config.driver === "url") {
+    const sql = postgres(config.url, {
+      max: 1,
+      prepare: false,
+      connect_timeout: Math.max(1, Math.ceil(timeoutMs / 1_000)),
+      idle_timeout: 1,
+      connection: { statement_timeout: Math.max(1, Math.floor(timeoutMs)) },
+    });
+    const query = sql.unsafe("select 1");
     const cancel = () => {
       try {
         query.cancel();
@@ -106,39 +130,44 @@ export async function pingCloudDb(
     signal.addEventListener("abort", cancel, { once: true });
     try {
       await query;
+      if (signal.aborted) throw abortedDatabaseProbe();
     } finally {
       signal.removeEventListener("abort", cancel);
+      await sql.end({ timeout: Math.max(1, Math.ceil(timeoutMs / 1_000)) }).catch(() => undefined);
     }
     return;
   }
 
-  if (isNodePostgresPool(client)) {
-    if (signal.aborted) throw new Error("database probe aborted");
-    // `query_timeout` is a node-postgres QueryConfig field. The installed
-    // @types/pg version omits it, so keep the narrow cast local to this probe.
-    await client.query({
-      text: "select 1",
-      query_timeout: Math.max(1, Math.floor(timeoutMs)),
-    });
-    if (signal.aborted) throw new Error("database probe aborted");
-    return;
+  const client = createAwsRdsIamClient(config, {
+    connectionTimeoutMillis: Math.max(1, Math.floor(timeoutMs)),
+    query_timeout: Math.max(1, Math.floor(timeoutMs)),
+    statement_timeout: Math.max(1, Math.floor(timeoutMs)),
+  });
+  let closePromise: Promise<void> | undefined;
+  const close = () => {
+    closePromise ??= client.end().catch(() => undefined);
+    return closePromise;
+  };
+  const abort = () => {
+    // This client belongs only to this probe, so closing its socket is a safe
+    // and immediate cancellation for both connection and query phases.
+    void close();
+  };
+  signal.addEventListener("abort", abort, { once: true });
+  try {
+    if (signal.aborted) throw abortedDatabaseProbe();
+    await client.connect();
+    if (signal.aborted) throw abortedDatabaseProbe();
+    await client.query({ text: "select 1" });
+    if (signal.aborted) throw abortedDatabaseProbe();
+  } finally {
+    signal.removeEventListener("abort", abort);
+    await close();
   }
-
-  throw new Error("unsupported cloud database client");
 }
 
-function isPostgresJsClient(value: unknown): value is Sql {
-  return typeof value === "function" &&
-    typeof (value as { unsafe?: unknown }).unsafe === "function";
-}
-
-type NodePostgresPool = {
-  query: (config: { text: string; query_timeout: number }) => Promise<unknown>;
-};
-
-function isNodePostgresPool(value: unknown): value is NodePostgresPool {
-  return typeof value === "object" && value !== null &&
-    typeof (value as { query?: unknown }).query === "function";
+function abortedDatabaseProbe(): DOMException {
+  return new DOMException("database probe aborted", "AbortError");
 }
 
 export async function closeCloudDbForTests(): Promise<void> {

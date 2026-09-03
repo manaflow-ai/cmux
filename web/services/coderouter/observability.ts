@@ -65,11 +65,10 @@ export function addCoderouterBreadcrumb(
  *
  * Two sinks. Sentry (legacy, kept for existing alert rules) receives a
  * synthetic `coderouter.<failure>` error with the context as tags. PostHog
- * Error Tracking, the primary sink, receives an `$exception` carrying the
- * real error's name, scrubbed message and stack frames, grouped by failure
- * kind and provider, `error` level for operator faults and `warning` for
- * provider-side ones, joined to the request's `$ai_trace` by the ledger
- * request id when a route is active.
+ * Error Tracking, the primary sink, receives an `$exception` carrying a safe
+ * error class and repository-only stack frames, grouped by failure kind and
+ * provider. The original message and stack stay in Sentry. Events are joined
+ * to the request's `$ai_trace` by the ledger request id when a route is active.
  */
 export function reportCoderouterFailure(
   failure: CodeRouterFailure,

@@ -1,22 +1,46 @@
 // PostHog Error Tracking (`$exception`) event bodies for coderouter.
 //
-// PostHog groups `$exception` events into issues by `$exception_fingerprint`
-// and renders `$exception_list[].stacktrace` when frames are supplied in the
-// Sentry-compatible raw shape. Messages and filenames are scrubbed of token
-// grammars before they leave the process; no request body, header, credential
-// or email is accepted here.
+// PostHog groups `$exception` events into issues by `$exception_fingerprint`.
+// It is a third-party analytics sink, so it receives only a structured error
+// class and source frames from known repository paths. The original error and
+// stack stay in Sentry, where the server-side scrubbing policy applies.
 import type { CoderouterRawEvent } from "./analytics";
 
-const SENSITIVE_TEXT = /(srt_[A-Za-z0-9_-]+|sk-[A-Za-z0-9_-]{8,}|Bearer\s+\S+|eyJ[A-Za-z0-9_-]{10,}|crt_[A-Za-z0-9_-]{16,})/g;
+const SENSITIVE_TEXT = [
+  /(?:https?|postgres(?:ql)?:)\/\/[^\s/@]+:[^\s/@]+@[^\s]+/gi,
+  /https?:\/\/[^\s]*(?:hooks\.slack\.com|api\.sentry\.io|posthog)[^\s]*/gi,
+  /\b(?:Bearer|Basic)\s+[^\s]+/gi,
+  /\b(?:srt|sk|crt|xox[baprs]|gh[pousr])[_-][A-Za-z0-9_-]{8,}\b/gi,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*\b/g,
+  /\b[A-Z0-9]{20,}\b/g,
+  /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g,
+  /\b(?:password|passphrase|secret|token|api[_-]?key|authorization|cookie|dsn|private[_-]?key)\s*[:=]\s*[^\s,;]+/gi,
+];
 const VALUE_MAX = 200;
 
+const SAFE_ERROR_NAMES = new Set([
+  "AggregateError",
+  "AbortError",
+  "Error",
+  "EvalError",
+  "FetchError",
+  "PostgresError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "TimeoutError",
+  "TypeError",
+  "URIError",
+  "ZodError",
+]);
+
 export function scrubTelemetryText(text: string): string {
-  return text.replace(SENSITIVE_TEXT, "[redacted]");
+  return SENSITIVE_TEXT.reduce((value, pattern) => value.replace(pattern, "[redacted]"), text);
 }
 
 export function errorSummary(error: unknown): string {
-  if (error instanceof Error) return scrubTelemetryText(`${error.name}: ${error.message}`);
-  return scrubTelemetryText(String(error));
+  if (error instanceof Error) return `${safeErrorName(error.name)}: message redacted`;
+  return "Unknown error: message redacted";
 }
 
 export type StackFrame = {
@@ -43,10 +67,11 @@ export function stackFrames(error: unknown): StackFrame[] {
     const match = FRAME_WITH_LOCATION.exec(line);
     if (!match) continue;
     const [, fn, file, lineno, colno] = match;
-    const filename = scrubTelemetryText(file ?? "").slice(0, VALUE_MAX);
+    const filename = safeFrameFilename(file ?? "");
+    if (!filename) continue;
     frames.push({
       filename,
-      function: (fn ?? "<anonymous>").slice(0, 120),
+      function: safeFunctionName(fn),
       lineno: Number(lineno),
       colno: Number(colno),
       in_app: !filename.includes("node_modules") && !filename.startsWith("node:"),
@@ -71,6 +96,10 @@ export type CoderouterExceptionInput = {
 
 export function exceptionEvent(input: CoderouterExceptionInput): CoderouterRawEvent {
   const frames = stackFrames(input.error);
+  const errorName = safeErrorName(input.type);
+  const value = input.error === undefined
+    ? scrubTelemetryText(input.value).slice(0, 500)
+    : `${errorName}: message redacted`;
   return {
     event: "$exception",
     userId: input.userId,
@@ -81,8 +110,8 @@ export function exceptionEvent(input: CoderouterExceptionInput): CoderouterRawEv
       $exception_fingerprint: input.fingerprint.slice(0, VALUE_MAX),
       $exception_list: JSON.stringify([
         {
-          type: input.type.slice(0, 120),
-          value: scrubTelemetryText(input.value).slice(0, 500),
+          type: errorName,
+          value,
           mechanism: {
             handled: input.handled ?? true,
             type: "coderouter",
@@ -93,6 +122,29 @@ export function exceptionEvent(input: CoderouterExceptionInput): CoderouterRawEv
       ]),
     },
   };
+}
+
+function safeErrorName(value: string): string {
+  const name = value.trim();
+  if (SAFE_ERROR_NAMES.has(name)) return name;
+  if (/^coderouter[._][a-z0-9_.-]{1,80}$/i.test(name)) return name;
+  return "Error";
+}
+
+function safeFrameFilename(value: string): string | undefined {
+  // Keep only a relative path below a checked-in source root. This drops
+  // temporary paths, URLs, query strings, and user-controlled filenames.
+  const normalized = value.replace(/^file:\/\//, "");
+  const match = normalized.match(/(?:^|\/)((?:web\/(?:app|services|db|scripts)|CLI|Sources)\/[A-Za-z0-9._/-]+)$/);
+  if (!match || match[1]!.includes("..")) return undefined;
+  return match[1]!.slice(0, VALUE_MAX);
+}
+
+function safeFunctionName(value: string | undefined): string {
+  const name = value?.trim() ?? "";
+  return /^[A-Za-z_$][A-Za-z0-9_$]*(?:[.$][A-Za-z_$][A-Za-z0-9_$]*){0,5}$/.test(name)
+    ? name.slice(0, 120)
+    : "<anonymous>";
 }
 
 export function cleanTelemetryProperties(

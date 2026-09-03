@@ -129,7 +129,7 @@ describe("traceEvents", () => {
     expect(events[0]!.properties.coderouter_fault).toBe("caller");
   });
 
-  test("an unhandled throw becomes a route_crash with the real stack", () => {
+  test("an unhandled throw becomes a route_crash without exporting its message", () => {
     const request = new Request("https://coderouter.dev/v1/responses", { method: "POST" });
     const context = newCoderouterRequestContext({ request, surface: "responses", route: "/v1/responses", requestId: "req-5" });
     const error = new TypeError("boom Bearer sk-ant-secret-value-1234567890");
@@ -137,17 +137,16 @@ describe("traceEvents", () => {
     const exception = events.find((entry) => entry.event === "$exception")!;
     const list = JSON.parse(String(exception.properties.$exception_list));
     expect(list[0].type).toBe("TypeError");
-    expect(list[0].value).toBe("TypeError: boom [redacted]");
+    expect(list[0].value).toBe("TypeError: message redacted");
     expect(list[0].mechanism.handled).toBe(false);
-    expect(list[0].stacktrace.type).toBe("raw");
-    expect(list[0].stacktrace.frames.length).toBeGreaterThan(0);
+    expect(list[0].stacktrace).toBeUndefined();
     expect(exception.properties.$exception_level).toBe("error");
     expect(exception.properties.coderouter_outcome).toBe("route_crash");
   });
 });
 
 describe("stackFrames", () => {
-  test("parses V8 frames outermost first and marks node_modules as not in_app", () => {
+  test("keeps only safe source frames from a V8 stack", () => {
     const error = new Error("x");
     error.stack = [
       "Error: x",
@@ -156,9 +155,14 @@ describe("stackFrames", () => {
       "    at outer (node:internal/process/task_queues:95:5)",
     ].join("\n");
     const frames = stackFrames(error);
-    expect(frames.map((frame) => frame.function)).toEqual(["outer", "<anonymous>", "inner"]);
-    expect(frames.map((frame) => frame.in_app)).toEqual([false, false, true]);
-    expect(frames[2]).toMatchObject({ lineno: 10, colno: 5, platform: "node:javascript" });
+    expect(frames.map((frame) => frame.function)).toEqual(["inner"]);
+    expect(frames.map((frame) => frame.in_app)).toEqual([true]);
+    expect(frames[0]).toMatchObject({
+      filename: "web/services/coderouter/codexProxy.ts",
+      lineno: 10,
+      colno: 5,
+      platform: "node:javascript",
+    });
   });
 
   test("exceptionEvent scrubs message text and drops nothing else", () => {
@@ -174,6 +178,29 @@ describe("stackFrames", () => {
     expect(list[0].mechanism.synthetic).toBe(true);
     expect(event.properties.coderouter_failure).toBe("rds");
     expect("skipped" in event.properties).toBe(false);
+  });
+
+  test("does not export an arbitrary error message or unsafe stack path", () => {
+    const error = new Error("password=super-secret https://user:pass@example.test");
+    error.stack = [
+      "Error: password=super-secret",
+      "    at handler (/tmp/tenant@example.test/secret.ts:1:2)",
+      "    at safe (web/services/coderouter/health.ts:3:4)",
+    ].join("\n");
+    const event = exceptionEvent({
+      type: error.name,
+      value: error.message,
+      fingerprint: "coderouter:health",
+      level: "error",
+      error,
+    });
+    const list = JSON.parse(String(event.properties.$exception_list));
+    expect(list[0].value).toBe("Error: message redacted");
+    expect(list[0].stacktrace.frames).toEqual([
+      expect.objectContaining({ filename: "web/services/coderouter/health.ts", function: "safe" }),
+    ]);
+    expect(JSON.stringify(event)).not.toContain("super-secret");
+    expect(JSON.stringify(event)).not.toContain("tenant@example.test");
   });
 });
 
