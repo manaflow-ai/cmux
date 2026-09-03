@@ -1537,7 +1537,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                   my $before = read_identity($pid);
                   next unless matches($before, $pid, $group, int($seconds), int($microseconds));
                   next if $before->[3] == 5;
-                  my $send = sub { kill($signals{$_[0]}, $pid) ? 1 : 0 };
+                  my $send = sub {
+                    my ($signal) = @_;
+                    my $current = read_identity($pid);
+                    return 0 unless matches($current, $pid, $group, int($seconds), int($microseconds));
+                    return 0 if $current->[3] == 5;
+                    return kill($signals{$signal}, $pid) ? 1 : 0;
+                  };
                   if ($signal_name eq "STOP") {
                     if ($before->[3] == 4) {
                       print {$output} "$line\n" if $original_state eq "T";
