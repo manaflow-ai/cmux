@@ -529,18 +529,21 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
       break;
     }
     if (!upstream) {
+      const providerUnavailable = failureStage === "upstream_transport";
       recordCoderouterOutcome({
-        outcome: "no_usable_account",
+        outcome: providerUnavailable ? "provider_unavailable" : "no_usable_account",
         failureStage,
         status: 503,
         provider: "codex",
         attempts: attempted.length,
       });
       return jsonError(
-        "no_usable_account",
+        providerUnavailable ? "provider_unavailable" : "no_usable_account",
         503,
-        { "retry-after": "15" },
-        "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+        { "retry-after": providerUnavailable ? "5" : "15" },
+        providerUnavailable
+          ? "The Codex provider could not be reached. Retry shortly."
+          : "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
         true,
       );
     }
