@@ -618,7 +618,7 @@ test_confirm=1
 test_lsof_mode=active
 test_active_commit="$active_commit"
 expect_success
-assert_exists "$old_commit"
+assert_missing "$old_commit"
 assert_exists "$active_commit"
 
 # The candidate scan has a hard upper bound, so sorting cannot grow without
