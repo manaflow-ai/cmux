@@ -4849,6 +4849,21 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn private_dump_directory_preserves_unowned_matching_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let unrelated_path = dump_path.join(".mirror-notes.tmp-99999999-backup");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        drop(directory);
+        fs::write(&unrelated_path, b"user data").unwrap();
+
+        let _directory = private_dump_directory(&dump_path).unwrap();
+
+        assert_eq!(fs::read(&unrelated_path).unwrap(), b"user data");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_dump_directory_rejects_symlink_components() {
         use std::os::unix::fs::symlink;
 
