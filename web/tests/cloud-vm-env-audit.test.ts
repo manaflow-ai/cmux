@@ -89,7 +89,7 @@ describe("cloud VM provider coherence audit", () => {
   test("the manifest's validated base default is the deployed image", () => {
     // The committed manifest is the only source of truth (resolver
     // defaultForKind). A clean env is one with the API key set.
-    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as {
+    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as unknown as {
       image: string | null;
       imageSource: string;
       problems: string[];
@@ -243,6 +243,20 @@ describe("required runtime env keys cover the production provider path", () => {
       "BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED",
       "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "E2B_SANDBOX_TEMPLATE", "CMUX_VM_E2B_ENABLED",
       "DAYTONA_API_KEY", "DAYTONA_API_URL", "DAYTONA_SANDBOX_SNAPSHOT", "CMUX_VM_DAYTONA_ENABLED",
+    ]) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
+    }
+  });
+
+  test("retired subrouter and coderouter access-gate keys are flagged as legacy, not demanded", () => {
+    // Access is team membership only; the runtime ignores these keys, so the
+    // audit must tell operators to delete them rather than ask for them.
+    for (const key of [
+      "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+      "SUBROUTER_ALLOWED_TEAM_IDS",
+      "CODEROUTER_HOSTED_PRO_REQUIRED",
     ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);

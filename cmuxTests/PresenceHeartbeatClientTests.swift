@@ -128,4 +128,14 @@ import Testing
         )
         #expect(JSONSerialization.isValidJSONObject(body))
     }
+    @Test func productionPresenceIgnoresStagingEnvironment() {
+        let defaults = UserDefaults(suiteName: "presence-prod-origin-\(UUID().uuidString)")!
+        #expect(PresenceHeartbeatClient.resolvedServiceURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                PresenceSettings.serviceURLEnvKey: "https://cmux-presence-dev.example",
+            ],
+            defaults: defaults
+        )?.absoluteString == PresenceSettings.productionServiceURL)
+    }
 }

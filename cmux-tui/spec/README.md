@@ -23,7 +23,7 @@ high-level SDKs:
 | --- | --- |
 | [`resource-api-v2.md`](resource-api-v2.md) | IDs, selectors, envelopes, mutations, streams, limits, and lifecycle rules |
 | [`resource-api-v2.json`](resource-api-v2.json) | JSON Schema for request, response, and stream envelopes |
-| [`resource-operations-v2.json`](resource-operations-v2.json) | Normative catalog of 124 transported and six local operations |
+| [`resource-operations-v2.json`](resource-operations-v2.json) | Normative catalog of 125 transported and six local operations |
 | [`resource-operations-v2.schema.json`](resource-operations-v2.schema.json) | JSON Schema for the operation catalog |
 | [`resource-operations-v2.md`](resource-operations-v2.md) | Human-readable operation inventory |
 | [`cli.md`](cli.md) | Noun-first public CLI |
