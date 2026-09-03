@@ -10,7 +10,7 @@ use cmux_remote_protocol::{
     FrameDecodeError, FrameFlags, Lane, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES, SessionId,
     WireFrame,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
