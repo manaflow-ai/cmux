@@ -7,7 +7,9 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError, Sender, channel};
+use std::sync::mpsc::{
+    Receiver, RecvError, RecvTimeoutError, Sender, TrySendError, channel, sync_channel,
+};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -1424,7 +1426,7 @@ impl Drop for WorkerSlot {
 type ReapRequest = (std::thread::JoinHandle<()>, Arc<WorkerCompletion>);
 
 struct ReaperState {
-    sender: Option<Sender<()>>,
+    sender: Option<std::sync::mpsc::SyncSender<()>>,
     worker: Option<std::thread::JoinHandle<()>>,
     pending: Vec<ReapRequest>,
     #[cfg(test)]
@@ -1509,7 +1511,7 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     if current.sender.is_some() {
         return;
     }
-    let (sender, receiver) = channel::<()>();
+    let (sender, receiver) = sync_channel::<()>(1);
     let worker_state = state.clone();
     #[cfg(test)]
     if current.fail_next_spawn {
@@ -1605,10 +1607,11 @@ fn enqueue_worker_reap_in_state(
     {
         let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
         current.pending.push((handle, completion));
-        if let Some(sender) = current.sender.as_ref()
-            && sender.send(()).is_err()
-        {
-            current.sender = None;
+        if let Some(sender) = current.sender.as_ref() {
+            match sender.try_send(()) {
+                Ok(()) | Err(TrySendError::Full(())) => {}
+                Err(TrySendError::Disconnected(())) => current.sender = None,
+            }
         }
     }
     let needs_start = state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none();
