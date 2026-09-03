@@ -196,6 +196,7 @@
       "select-workspace",
       "send",
       "send-key",
+      "server-stats",
       "set-client-info",
       "set-client-sizing",
       "set-default-colors",
