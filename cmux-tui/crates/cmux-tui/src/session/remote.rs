@@ -3702,6 +3702,12 @@ impl Drop for RemoteSession {
                         &format!("cannot write private dump {frames_name}: {error}"),
                     );
                 }
+                if let Err(error) = prune_dump_files(&directory.output) {
+                    crate::client_log::error(
+                        "mux-dump",
+                        &format!("cannot enforce private dump retention: {error}"),
+                    );
+                }
             }
         }
     }
@@ -4059,23 +4065,35 @@ fn prune_dump_files_with_limits(
             modified,
             bytes: metadata.st_size.max(0) as u64,
         });
-    }
-    dumps.sort_by(|left, right| {
-        left.modified.cmp(&right.modified).then_with(|| left.name.cmp(&right.name))
-    });
-    let mut total_bytes = dumps.iter().map(|dump| dump.bytes).sum::<u64>();
-    while dumps.len() > maximum_files || total_bytes > maximum_bytes {
-        let dump = dumps.remove(0);
-        let name = std::ffi::CString::new(dump.name)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
-        let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
-        if status != 0 {
-            let error = io::Error::last_os_error();
-            if error.raw_os_error() != Some(libc::ENOENT) {
-                return Err(error);
-            }
+        dumps.sort_by(|left, right| {
+            left.modified.cmp(&right.modified).then_with(|| left.name.cmp(&right.name))
+        });
+        if dumps.len() > maximum_files {
+            let dump = dumps.remove(0);
+            delete_dump_file(directory, &dump.name)?;
         }
+    }
+    let mut total_bytes = dumps.iter().map(|dump| dump.bytes).sum::<u64>();
+    while total_bytes > maximum_bytes {
+        let dump = dumps.remove(0);
+        delete_dump_file(directory, &dump.name)?;
         total_bytes = total_bytes.saturating_sub(dump.bytes);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn delete_dump_file(directory: &fs::File, name: &[u8]) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+
+    let name = std::ffi::CString::new(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
+    let status = unsafe { libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) };
+    if status != 0 {
+        let error = io::Error::last_os_error();
+        if error.raw_os_error() != Some(libc::ENOENT) {
+            return Err(error);
+        }
     }
     Ok(())
 }
@@ -4145,7 +4163,7 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
 
 #[cfg(target_os = "macos")]
 fn macos_dump_acl_tag_is_safe(tag: libc::c_int) -> bool {
-    const ACL_EXTENDED_DENY: libc::c_int = 2;
+    const ACL_EXTENDED_DENY: libc::c_int = 0x0000_0200;
     tag == ACL_EXTENDED_DENY
 }
 
@@ -5273,8 +5291,8 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_dump_acl_accepts_deny_and_rejects_allow_entries() {
-        assert!(macos_dump_acl_tag_is_safe(2));
-        assert!(!macos_dump_acl_tag_is_safe(1));
+        assert!(macos_dump_acl_tag_is_safe(0x0000_0200));
+        assert!(!macos_dump_acl_tag_is_safe(0x0000_0100));
         assert!(!macos_dump_acl_tag_is_safe(99));
     }
 
