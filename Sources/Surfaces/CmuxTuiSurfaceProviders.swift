@@ -649,7 +649,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     private func watchStats(link: CloudMachineLink) {
         guard statsWatcher == nil else { return }
         statsWatcher = Task { [weak self] in
-            for await sample in link.stats {
+            let stream = await link.stats
+            for await sample in stream {
                 guard let self else { return }
                 self.applyStats(sample)
             }

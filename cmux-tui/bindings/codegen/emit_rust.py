@@ -534,17 +534,17 @@ def _render_commands(ir: SdkIR, document: Mapping[str, Any]) -> str:
                     "    }",
                 ]
             )
-            if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
-                lines.extend(
-                    [
-                        "",
-                        f"    pub fn {method}_follow(&mut self, mut request: {request_name}) -> Result<CmuxStream> {{",
-                        *guards,
-                        f"        request.{command['stream']['mode_field']} = Some(true);",
-                        f"        self.execute_stream(&{metadata_name}, &request)",
-                        "    }",
-                    ]
-                )
+        if command["stream"] is not None and command["stream"].get("mode_field") == "follow":
+            lines.extend(
+                [
+                    "",
+                    f"    pub fn {method}_follow(&mut self, mut request: {request_name}) -> Result<CmuxStream> {{",
+                    *guards,
+                    f"        request.{command['stream']['mode_field']} = Some(true);",
+                    f"        self.execute_stream(&{metadata_name}, &request)",
+                    "    }",
+                ]
+            )
         lines.append("")
     lines.append("}")
     return "\n".join(lines).rstrip() + "\n"
