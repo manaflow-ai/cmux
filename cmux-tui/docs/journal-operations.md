@@ -56,17 +56,34 @@ Metrics, each reported as `count`, `p50`, `p90`, `p99`, `max` in milliseconds:
 | `close.surface_response_ms` | `close-surface` (view-only close) request to response |
 | `close.terminal_response_ms` | `close-terminal` (process-terminating close) request to response; this is the one that waits on host exit escalation, bounded by `terminal.close_wait` |
 | `typing.separate_conn_ms` | one-byte `send` on a connection that issues no creates, while creates are in flight |
-| `typing.same_conn_ms` | one-byte `send` on the connection that also issues creates, submitted after its create batch and before those responses are drained; a gap between this and the separate-connection number is head-of-line blocking |
+| `typing.same_conn_interleaved_ms` | one-byte `send` on the connection that also issues creates, one probe submitted right after each create request; the distribution is what a keystroke waits when 1..K creates are queued ahead of it on the same connection |
+| `typing.same_conn_after_batch_ms` | one-byte `send` on the create connection, all probes submitted after the whole create batch and before its responses are drained; every probe waits behind the entire batch, so p50 equals p99 and the value is the batch tail, not per-keystroke latency. A gap between either same-connection number and the separate-connection number is head-of-line blocking |
 
 `--clients N` runs N concurrent create loops on N connections; `--creates K` is
-creates per client; `--typing-probes M` sets the number of typing samples. The
+creates per client; `--typing-probes M` sets the number of typing samples (the
+interleaved probe is one per create and is enabled whenever M is non-zero). The
 JSON output also carries `lifecycle_counts` (the `lifecycle` field on each
 create response), `visibility_misses` (creates whose visibility delta did not
-arrive within the grace window), `commit`, and `platform`.
+arrive within the grace window), `terminals_closed_at_teardown`,
+`hosts_remaining` (terminal host processes still parented by the bench-owned
+session owner after teardown; `null` where the platform cannot count them),
+`warnings`, `errors`, `commit`, and `platform`. The text output prints the error
+count and first error and the lifecycle counts above the table, and the table
+carries `n` per metric.
+
+The bench owns the session it runs against. At teardown it lists the terminal
+catalog and closes every terminal that was not present before the run,
+including the baseline typing target and creates that were only detached with
+`close-surface`, because `server stop` keeps terminal hosts alive by design and
+a view-only close leaves the terminal and its shell running. Run it only
+against a throwaway session (the default) or a session nobody else is
+mutating. It exits 1 when any create, close, or probe failed: percentiles over
+a partial sample are not a measurement, and PTY exhaustion on a loaded machine
+is the usual cause of that failure.
 
 Read the numbers against the budget table: a `create.response_ms` far above the
-`accept`-stage cost, or a `typing.same_conn_ms` that spikes while creates are in
-flight, is the interaction cost the zero-wait work removes. The record-only
+`accept`-stage cost, or a `typing.same_conn_interleaved_ms` far above
+`typing.separate_conn_ms`, is the interaction cost the zero-wait work removes. The record-only
 `bench interact` job in `.github/workflows/cmux-tui.yml` publishes the JSON per
 commit as the `cmux-tui-bench-interact-<os>` artifact. Design and targets:
 `plans/cmux-tui-zero-wait-interaction.md` (IX0).

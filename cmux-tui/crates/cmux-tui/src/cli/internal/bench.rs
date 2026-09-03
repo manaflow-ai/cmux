@@ -7,8 +7,14 @@
 //! and close to response. It adds no protocol command and no resource
 //! operation; it only sends existing commands. The output feeds the IX0
 //! baseline of `plans/cmux-tui-zero-wait-interaction.md`.
+//!
+//! The bench owns the session it runs against: at the end it closes every
+//! terminal that appeared during the run (`server stop` keeps terminal hosts
+//! alive by design, so a bench that only detached views would leak one host
+//! and one shell per create), and it exits non-zero when any create, close, or
+//! probe failed so a degraded environment cannot pass as a measurement.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::sync::{Arc, Barrier, Mutex};
 use std::thread;
@@ -33,15 +39,22 @@ pub(crate) struct BenchPlan {
 
 pub(crate) fn run(global: GlobalArgs, plan: BenchPlan) -> i32 {
     match execute(&global, &plan) {
-        Ok(report) => match global.output {
-            OutputMode::Human => {
-                let mut out = io::stdout().lock();
-                let _ = out.write_all(render_text(&report).as_bytes());
-                let _ = out.flush();
-                0
-            }
-            output => crate::cli::wire::print_local_success(&report.to_json(), output),
-        },
+        Ok(report) => {
+            // Exit 1 when any create, close, or probe errored: percentiles
+            // over a partial sample are not a measurement. Usage errors are
+            // 2 and transport failures 3, as in the rest of the CLI.
+            let failed = !report.errors.is_empty();
+            let code = match global.output {
+                OutputMode::Human => {
+                    let mut out = io::stdout().lock();
+                    let _ = out.write_all(render_text(&report).as_bytes());
+                    let _ = out.flush();
+                    0
+                }
+                output => crate::cli::wire::print_local_success(&report.to_json(), output),
+            };
+            if failed { 1 } else { code }
+        }
         Err(error) => crate::cli::wire::print_local_error(
             &json!({"code":"bench.failed","message":error,"details":{},"retryable":false}),
             global.output,
@@ -215,19 +228,43 @@ struct SessionGuard {
 }
 
 /// The order in which a create connection submits requests before it drains
-/// any response. Keeping typing after the creates in this batch makes the
-/// connection's head-of-line behavior observable.
+/// any response. Two same-connection typing probes exist because they answer
+/// different questions: `TypingInterleaved` follows each create request, so
+/// its distribution is what one keystroke waits when 1..K creates are in
+/// flight ahead of it; `TypingAfterBatch` probes are all submitted after the
+/// whole batch, so they share one value, the wait behind the entire batch.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SubmissionKind {
     Create { index: usize, kind: usize },
-    TypingSame { probe: usize },
+    TypingInterleaved { index: usize },
+    TypingAfterBatch { probe: usize },
 }
 
 fn same_connection_submission_plan(creates: usize, typing_probes: usize) -> Vec<SubmissionKind> {
-    let mut submissions = Vec::with_capacity(creates + typing_probes);
-    submissions.extend((0..creates).map(|index| SubmissionKind::Create { index, kind: index % 3 }));
-    submissions.extend((0..typing_probes).map(|probe| SubmissionKind::TypingSame { probe }));
+    let mut submissions = Vec::with_capacity(creates * 2 + typing_probes);
+    for index in 0..creates {
+        submissions.push(SubmissionKind::Create { index, kind: index % 3 });
+        if typing_probes > 0 {
+            submissions.push(SubmissionKind::TypingInterleaved { index });
+        }
+    }
+    submissions.extend((0..typing_probes).map(|probe| SubmissionKind::TypingAfterBatch { probe }));
     submissions
+}
+
+/// Terminal ids to `close-terminal` at teardown: every terminal that is not in
+/// the pre-bench snapshot and is not already gone. The bench owns the session
+/// it runs against, so anything that appeared during the run is its own.
+fn teardown_close_plan<'a>(
+    initial: &HashSet<String>,
+    current: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Vec<String> {
+    current
+        .into_iter()
+        .filter(|(terminal_id, _)| !initial.contains(*terminal_id))
+        .filter(|(_, lifecycle)| !matches!(*lifecycle, "tombstoned" | "exited"))
+        .map(|(terminal_id, _)| terminal_id.to_string())
+        .collect()
 }
 
 struct PendingRequest {
@@ -267,9 +304,11 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let subscriber_thread = spawn_subscriber(subscriber, Arc::clone(&events), Arc::clone(&stop));
 
-    // A baseline terminal to type into.
+    // A baseline terminal to type into. Snapshot the terminal catalog first so
+    // teardown can close exactly what this run created.
     let mut control = Conn::open(&socket)?;
     control.identify()?;
+    let initial_terminals = list_terminal_ids(&mut control)?.into_iter().map(|(id, _)| id).collect();
     let baseline = control.request(json!({"cmd":"new-workspace"}))?;
     let baseline_surface = baseline["surface"].as_u64().ok_or("baseline surface missing")?;
     let active_pane = fetch_active_pane(&mut control)?;
@@ -319,6 +358,18 @@ fn execute(global: &GlobalArgs, plan: &BenchPlan) -> Result<Report, String> {
     }
     stop.store(true, std::sync::atomic::Ordering::Release);
     let _ = subscriber_thread.join();
+
+    close_created_terminals(&mut control, &initial_terminals, &report);
+    if let Some(owner_pid) = guard.owner.as_ref().map(|owner| owner.pid()) {
+        let remaining = count_child_terminal_hosts(owner_pid);
+        let mut report = report.lock().unwrap();
+        report.hosts_remaining = remaining;
+        if let Some(remaining) = remaining.filter(|count| *count > 0) {
+            report.warnings.push(format!(
+                "{remaining} terminal host process(es) still owned by the bench session at teardown"
+            ));
+        }
+    }
 
     drop(guard);
     Arc::try_unwrap(report)
@@ -414,10 +465,87 @@ fn command_for_submission(submission: SubmissionKind, pane: u64, surface: u64) -
             1 => json!({"cmd":"new-tab"}),
             _ => json!({"cmd":"split","pane":pane,"dir":"right"}),
         },
-        SubmissionKind::TypingSame { .. } => {
+        SubmissionKind::TypingInterleaved { .. } | SubmissionKind::TypingAfterBatch { .. } => {
             json!({"cmd":"send","surface":surface,"text":"x"})
         }
     }
+}
+
+/// `(terminal_id, lifecycle)` for every terminal the daemon knows about.
+fn list_terminal_ids(conn: &mut Conn) -> Result<Vec<(String, String)>, String> {
+    let data = conn.request(json!({"cmd":"list-terminals"}))?;
+    Ok(data["terminals"]
+        .as_array()
+        .map(|terminals| {
+            terminals
+                .iter()
+                .filter_map(|terminal| {
+                    Some((
+                        terminal["terminal_id"].as_str()?.to_string(),
+                        terminal["lifecycle"].as_str().unwrap_or("").to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Close every terminal this run created, including the baseline typing
+/// target and creates that were only `close-surface`d (a view-only close keeps
+/// the terminal, and `server stop` keeps its host alive by design).
+fn close_created_terminals(
+    conn: &mut Conn,
+    initial: &HashSet<String>,
+    report: &Arc<Mutex<Report>>,
+) {
+    let current = match list_terminal_ids(conn) {
+        Ok(current) => current,
+        Err(error) => {
+            report.lock().unwrap().errors.push(format!("teardown list-terminals: {error}"));
+            return;
+        }
+    };
+    let plan =
+        teardown_close_plan(initial, current.iter().map(|(id, life)| (id.as_str(), life.as_str())));
+    for terminal_id in plan {
+        match conn.request(json!({"cmd":"close-terminal","terminal_id":&terminal_id})) {
+            Ok(_) => report.lock().unwrap().terminals_closed_at_teardown += 1,
+            Err(error) => report
+                .lock()
+                .unwrap()
+                .errors
+                .push(format!("teardown close-terminal {terminal_id}: {error}")),
+        }
+    }
+}
+
+/// Count `__terminal-host` processes whose parent is the bench-owned session
+/// owner. Hosts do not carry the session in their command line, but the owner
+/// that spawned them is still their parent while it runs. `None` when the
+/// platform cannot answer.
+fn count_child_terminal_hosts(owner_pid: u64) -> Option<u64> {
+    if !cfg!(unix) {
+        return None;
+    }
+    let output = std::process::Command::new("ps").args(["-axo", "pid=,ppid=,command="]).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let listing = String::from_utf8_lossy(&output.stdout);
+    Some(count_hosts_in_ps_listing(&listing, owner_pid))
+}
+
+fn count_hosts_in_ps_listing(listing: &str, owner_pid: u64) -> u64 {
+    listing
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let _pid = fields.next()?;
+            let ppid = fields.next()?.parse::<u64>().ok()?;
+            let command = fields.collect::<Vec<_>>().join(" ");
+            (ppid == owner_pid && command.contains("__terminal-host")).then_some(())
+        })
+        .count() as u64
 }
 
 fn run_create_loop(
@@ -512,8 +640,11 @@ fn drain_pending(
                 SubmissionKind::Create { kind, .. } => {
                     report.lock().unwrap().errors.push(format!("create[{client}:{kind}]: {error}"))
                 }
-                SubmissionKind::TypingSame { .. } => {
-                    report.lock().unwrap().errors.push(format!("typing(same): {error}"))
+                SubmissionKind::TypingInterleaved { .. } => {
+                    report.lock().unwrap().errors.push(format!("typing(interleaved): {error}"))
+                }
+                SubmissionKind::TypingAfterBatch { .. } => {
+                    report.lock().unwrap().errors.push(format!("typing(after-batch): {error}"))
                 }
             }
             continue;
@@ -528,8 +659,11 @@ fn drain_pending(
                     value.get("data").cloned().unwrap_or(Value::Null),
                 ));
             }
-            SubmissionKind::TypingSame { .. } => {
-                report.lock().unwrap().typing_same.record(request.sent.elapsed());
+            SubmissionKind::TypingInterleaved { .. } => {
+                report.lock().unwrap().typing_same_interleaved.record(request.sent.elapsed());
+            }
+            SubmissionKind::TypingAfterBatch { .. } => {
+                report.lock().unwrap().typing_same_after_batch.record(request.sent.elapsed());
             }
         }
     }
@@ -584,11 +718,12 @@ fn record_create_result(
     // close, which blocks on host exit escalation (terminal.close_wait).
     if let Some(terminal_id) = terminal_id {
         let close_start = Instant::now();
-        match conn.request(json!({"cmd":"close-terminal","terminal_id":terminal_id})) {
+        match conn.request(json!({"cmd":"close-terminal","terminal_id":&terminal_id})) {
             Ok(_) => report.lock().unwrap().close_terminal.record(close_start.elapsed()),
             Err(error) => {
-                // A tab close may already have retired it; not an error worth failing on.
-                let _ = error;
+                // Teardown closes by catalog difference, so a failure here is
+                // reported, not fatal.
+                report.lock().unwrap().warnings.push(format!("close-terminal {terminal_id}: {error}"))
             }
         }
     }
@@ -719,9 +854,13 @@ struct Report {
     close_surface: Metric,
     close_terminal: Metric,
     typing_separate: Metric,
-    typing_same: Metric,
+    typing_same_interleaved: Metric,
+    typing_same_after_batch: Metric,
     lifecycle_counts: std::collections::BTreeMap<String, u64>,
     visibility_misses: u64,
+    terminals_closed_at_teardown: u64,
+    hosts_remaining: Option<u64>,
+    warnings: Vec<String>,
     errors: Vec<String>,
 }
 
@@ -735,9 +874,13 @@ impl Report {
             close_surface: Metric::default(),
             close_terminal: Metric::default(),
             typing_separate: Metric::default(),
-            typing_same: Metric::default(),
+            typing_same_interleaved: Metric::default(),
+            typing_same_after_batch: Metric::default(),
             lifecycle_counts: std::collections::BTreeMap::new(),
             visibility_misses: 0,
+            terminals_closed_at_teardown: 0,
+            hosts_remaining: None,
+            warnings: Vec::new(),
             errors: Vec::new(),
         }
     }
@@ -748,7 +891,7 @@ impl Report {
         }
     }
 
-    fn metrics(&self) -> [(&'static str, &Metric); 7] {
+    fn metrics(&self) -> [(&'static str, &Metric); 8] {
         [
             ("create.response_ms", &self.create_response),
             ("create.visible_ms", &self.create_visible),
@@ -756,7 +899,8 @@ impl Report {
             ("close.surface_response_ms", &self.close_surface),
             ("close.terminal_response_ms", &self.close_terminal),
             ("typing.separate_conn_ms", &self.typing_separate),
-            ("typing.same_conn_ms", &self.typing_same),
+            ("typing.same_conn_interleaved_ms", &self.typing_same_interleaved),
+            ("typing.same_conn_after_batch_ms", &self.typing_same_after_batch),
         ]
     }
 
@@ -783,6 +927,9 @@ impl Report {
             "metrics": Value::Object(metrics),
             "lifecycle_counts": self.lifecycle_counts,
             "visibility_misses": self.visibility_misses,
+            "terminals_closed_at_teardown": self.terminals_closed_at_teardown,
+            "hosts_remaining": self.hosts_remaining,
+            "warnings": self.warnings,
             "errors": self.errors,
         })
     }
@@ -799,20 +946,25 @@ fn render_text(report: &Report) -> String {
         std::env::consts::OS,
         report.socket
     ));
+    // Failures first: a table over a partial sample must not read as a result.
+    match report.errors.first() {
+        Some(first) => {
+            out.push_str(&format!("errors: {} (first: {first})\n", report.errors.len()))
+        }
+        None => out.push_str("errors: 0\n"),
+    }
+    out.push_str(&format!("lifecycle on create response: {:?}\n", report.lifecycle_counts));
     out.push_str(&format!(
-        "{:<30}{:>8}{:>10}{:>10}{:>10}{:>10}\n",
-        "metric", "count", "p50", "p90", "p99", "max"
+        "{:<34}{:>6}{:>10}{:>10}{:>10}{:>10}\n",
+        "metric", "n", "p50", "p90", "p99", "max"
     ));
     for (name, metric) in report.metrics() {
         if let Some(s) = metric.summary() {
             out.push_str(&format!(
-                "{:<30}{:>8}{:>10.2}{:>10.2}{:>10.2}{:>10.2}\n",
+                "{:<34}{:>6}{:>10.2}{:>10.2}{:>10.2}{:>10.2}\n",
                 name, s.count, s.p50, s.p90, s.p99, s.max
             ));
         }
-    }
-    if !report.lifecycle_counts.is_empty() {
-        out.push_str(&format!("lifecycle on create response: {:?}\n", report.lifecycle_counts));
     }
     if report.visibility_misses > 0 {
         out.push_str(&format!(
@@ -820,9 +972,16 @@ fn render_text(report: &Report) -> String {
             report.visibility_misses
         ));
     }
-    if !report.errors.is_empty() {
-        out.push_str(&format!("errors: {}\n", report.errors.len()));
-        for error in report.errors.iter().take(10) {
+    out.push_str(&format!(
+        "teardown: closed {} terminal(s); hosts still owned by the bench session: {}\n",
+        report.terminals_closed_at_teardown,
+        report.hosts_remaining.map_or("unknown".to_string(), |count| count.to_string())
+    ));
+    for warning in &report.warnings {
+        out.push_str(&format!("warning: {warning}\n"));
+    }
+    if report.errors.len() > 1 {
+        for error in report.errors.iter().skip(1).take(9) {
             out.push_str(&format!("  {error}\n"));
         }
     }
@@ -895,12 +1054,70 @@ mod tests {
             submissions,
             vec![
                 SubmissionKind::Create { index: 0, kind: 0 },
+                SubmissionKind::TypingInterleaved { index: 0 },
                 SubmissionKind::Create { index: 1, kind: 1 },
+                SubmissionKind::TypingInterleaved { index: 1 },
                 SubmissionKind::Create { index: 2, kind: 2 },
-                SubmissionKind::TypingSame { probe: 0 },
-                SubmissionKind::TypingSame { probe: 1 },
+                SubmissionKind::TypingInterleaved { index: 2 },
+                SubmissionKind::TypingAfterBatch { probe: 0 },
+                SubmissionKind::TypingAfterBatch { probe: 1 },
             ]
         );
+    }
+
+    #[test]
+    fn interleaved_probe_follows_each_create_and_needs_probes_enabled() {
+        let submissions = same_connection_submission_plan(4, 1);
+        let creates = submissions
+            .iter()
+            .filter(|s| matches!(s, SubmissionKind::Create { .. }))
+            .count();
+        let interleaved = submissions
+            .iter()
+            .filter(|s| matches!(s, SubmissionKind::TypingInterleaved { .. }))
+            .count();
+        assert_eq!((creates, interleaved), (4, 4));
+        for pair in submissions.windows(2) {
+            if let SubmissionKind::Create { index, .. } = pair[0] {
+                assert_eq!(pair[1], SubmissionKind::TypingInterleaved { index });
+            }
+        }
+        // With typing probes disabled the plan is creates only.
+        assert!(same_connection_submission_plan(2, 0)
+            .iter()
+            .all(|s| matches!(s, SubmissionKind::Create { .. })));
+    }
+
+    #[test]
+    fn teardown_closes_every_terminal_created_during_the_run() {
+        let initial: HashSet<String> = ["pre-a".to_string(), "pre-b".to_string()].into_iter().collect();
+        let current = [
+            ("pre-a", "running"),
+            ("pre-b", "exited"),
+            ("baseline", "running"),
+            ("new-tab", "running"),
+            ("split", "launching"),
+            ("already-gone", "tombstoned"),
+            ("finished", "exited"),
+        ];
+        let plan = teardown_close_plan(&initial, current.iter().copied());
+        assert_eq!(plan, vec!["baseline", "new-tab", "split"]);
+        // Nothing created: nothing closed, including pre-existing terminals.
+        assert!(teardown_close_plan(&initial, [("pre-a", "running")]).is_empty());
+    }
+
+    #[test]
+    fn host_count_matches_owner_children_only() {
+        let listing = "\
+  100  1 /usr/bin/cmux-tui --headless --session bench-1
+  101 100 /usr/bin/cmux-tui __terminal-host --bootstrap-stdio
+  102 100 /usr/bin/cmux-tui __terminal-host --bootstrap-stdio
+  103 999 /usr/bin/cmux-tui __terminal-host --bootstrap-stdio
+  104 100 /bin/zsh -l
+";
+        assert_eq!(count_hosts_in_ps_listing(listing, 100), 2);
+        assert_eq!(count_hosts_in_ps_listing(listing, 999), 1);
+        assert_eq!(count_hosts_in_ps_listing(listing, 7), 0);
     }
 
     #[test]
