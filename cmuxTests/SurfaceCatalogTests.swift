@@ -10,8 +10,6 @@ import Testing
 @MainActor
 @Suite
 struct SurfaceCatalogTests {
-    private struct TestTimeout: Error {}
-
     /// Lets timeout behavior be tested without waiting on wall-clock time.
     private final class ImmediateClock: Clock, @unchecked Sendable {
         typealias Instant = ContinuousClock.Instant
@@ -34,27 +32,6 @@ struct SurfaceCatalogTests {
                 return sleepCount
             }
             onSleep(count)
-        }
-    }
-
-    /// Await a test signal without allowing a broken setup to hang the test process.
-    private nonisolated func awaitFirst<T: Sendable>(
-        _ stream: AsyncStream<T>,
-        timeout: Duration = .seconds(1)
-    ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask {
-                var iterator = stream.makeAsyncIterator()
-                guard let value = await iterator.next() else { throw TestTimeout() }
-                return value
-            }
-            group.addTask {
-                try await ContinuousClock().sleep(for: timeout)
-                throw TestTimeout()
-            }
-            defer { group.cancelAll() }
-            guard let value = try await group.next() else { throw TestTimeout() }
-            return value
         }
     }
 
@@ -250,7 +227,7 @@ struct SurfaceCatalogTests {
             secondStartedContinuation.finish()
             return try await catalog.project(term.id, into: destination)
         }
-        _ = try await awaitFirst(secondStarted)
+        _ = try await AsyncTestSupport.awaitFirst(secondStarted)
         #expect(provider.materialized.count == 1, "a concurrent reuse must share the pending provider call")
 
         gate.release()
@@ -320,12 +297,12 @@ struct SurfaceCatalogTests {
             cancellationResultContinuation.finish()
         }
         project.cancel()
-        let cancelledBeforeRelease = try await awaitFirst(cancellationResult)
+        let cancelledBeforeRelease = try await AsyncTestSupport.awaitFirst(cancellationResult)
         #expect(cancelledBeforeRelease, "cancelling the caller must not wait for the provider")
 
         gate.release()
         await observer.value
-        _ = try await awaitFirst(discarded)
+        _ = try await AsyncTestSupport.awaitFirst(discarded)
         #expect(catalog.projections.isEmpty)
         #expect(provider.discarded.count == 1, "a late provider result must close the pane after the last caller cancels")
     }
@@ -457,19 +434,19 @@ struct SurfaceCatalogTests {
             group.addTask { try await replacement.value }
             group.addTask {
                 try await ContinuousClock().sleep(for: .seconds(1))
-                throw TestTimeout()
+                throw AsyncTestSupport.Timeout()
             }
             defer { group.cancelAll() }
-            guard let result = try await group.next() else { throw TestTimeout() }
+            guard let result = try await group.next() else { throw AsyncTestSupport.Timeout() }
             return result
         }
         #expect(result.reused == false)
         #expect(replacementProvider.materialized.count == 1)
 
-        _ = try await awaitFirst(retirementDeadline)
+        _ = try await AsyncTestSupport.awaitFirst(retirementDeadline)
         await Task.yield()
         gate.release()
-        _ = try await awaitFirst(discarded)
+        _ = try await AsyncTestSupport.awaitFirst(discarded)
         #expect(oldProvider.discarded.count == 1, "a result after retirement eviction must still close its pane")
     }
 
@@ -638,7 +615,7 @@ struct SurfaceCatalogTests {
             try await oldProject.value
         }
 
-        _ = try await awaitFirst(evictionStarted)
+        _ = try await AsyncTestSupport.awaitFirst(evictionStarted)
         await Task.yield()
 
         let replacementProvider = FakeProvider(machine: .cloud("vivid-newt"))

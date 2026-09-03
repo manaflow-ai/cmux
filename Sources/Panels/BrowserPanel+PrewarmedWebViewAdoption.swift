@@ -1,5 +1,6 @@
 import Foundation
 import WebKit
+import CmuxBrowser
 
 /// Hover-prewarm adoption support for ``BrowserPanel``: profile resolution
 /// shared with prewarm callers, and the eligibility gate the initializer uses
@@ -30,6 +31,17 @@ extension BrowserPanel {
               initialRequest == nil,
               renderInitialNavigation,
               let initialURL else {
+            return nil
+        }
+        guard !BrowserAppTheme.supportsAppSurface(
+            url: initialURL,
+            trustedOrigin: AuthEnvironment.appSessionHandoffOrigin
+        ) else {
+            // An older prewarm may still contain a page loaded without the
+            // native session. Never retain that page for a later panel.
+            BrowserPrewarmedWebViewPool.shared.discard(
+                reason: "native-app-session-required"
+            )
             return nil
         }
         return BrowserPrewarmedWebViewPool.shared.claim(

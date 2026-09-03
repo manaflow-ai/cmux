@@ -199,6 +199,46 @@ struct BrowserWebContentProcessTests {
     }
 
     @Test
+    func appSurfaceNavigationUsesTheNativeSessionStoreBeforeRendering() async throws {
+        let destinationURL = AuthEnvironment.appSessionHandoffOrigin
+            .appendingPathComponent("app-pricing")
+        let websiteDataStore = WKWebsiteDataStore.nonPersistent()
+        let (adopted, adoptedContinuation) = AsyncStream<Void>.makeStream()
+        var requestCount = 0
+        var adoptedStore: WKWebsiteDataStore?
+        let panel = BrowserPanel(
+            workspaceId: UUID(),
+            initialURL: destinationURL,
+            appSessionNavigationRequest: { destination in
+                requestCount += 1
+                #expect(destination == destinationURL)
+                return .navigation(BrowserAppSessionNavigation(
+                    request: URLRequest(url: destination),
+                    websiteDataStore: websiteDataStore,
+                    generation: 1,
+                    authSessionGeneration: 1
+                ))
+            },
+            appSessionNavigationDidAdopt: { store in
+                adoptedStore = store
+                adoptedContinuation.yield(())
+            }
+        )
+        defer {
+            adoptedContinuation.finish()
+            panel.close()
+        }
+
+        _ = try await AsyncTestSupport.awaitFirst(adopted, timeout: .seconds(2))
+
+        #expect(requestCount == 1)
+        #expect(adoptedStore === websiteDataStore)
+        #expect(panel.websiteDataStore === websiteDataStore)
+        #expect(panel.webView.configuration.websiteDataStore === websiteDataStore)
+        #expect(panel.shouldRenderWebView)
+    }
+
+    @Test
     func authenticatedHandoffNavigationPinsTheNativeAuthGeneration() {
         let navigation = BrowserAppSessionNavigation(
             request: URLRequest(url: URL(string: "https://cmux.test/dashboard")!),
