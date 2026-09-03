@@ -217,6 +217,80 @@ struct CloudTreeOneMachineManyWorkspacesTests {
         ], "Terminals lists every terminal once, whatever workspace shows it")
     }
 
+    @Test("A terminal that left a workspace's layout leaves its folder; Terminals still lists it, greyed as detached")
+    func aTerminalOutOfTheLayoutLeavesTheWorkspaceFolder() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let side = workspace("ws_side", "side", index: 1)
+        // Its tab in main was closed; the process keeps running on the machine.
+        let detached = terminal("term_bg", title: "cargo watch", in: [])
+        let snapshot = SurfaceCatalogSnapshot(
+            machines: [info(workspaces: [main, side])],
+            resources: [terminal("term_1", in: [main]), detached, terminal("term_2", in: [side])],
+            projections: []
+        )
+        let tree = rows(snapshot)
+        #expect(tree.map(\.id) == [
+            "machine:brave-otter",
+            "machine:brave-otter/workspaces",
+            "machine:brave-otter/ws/ws_main",
+            "machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1",
+            "machine:brave-otter/ws/ws_side",
+            "machine:brave-otter/ws/ws_side/resource:brave-otter/terminal/term_2",
+            "machine:brave-otter/terminals",
+            "resource:brave-otter/terminal/term_1",
+            "resource:brave-otter/terminal/term_bg",
+            "resource:brave-otter/terminal/term_2",
+        ], "no row for it under any workspace; one row for it in Terminals, like every other terminal")
+        let byID = Dictionary(tree.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        guard case .terminal(let poolRow) = try #require(byID["resource:brave-otter/terminal/term_bg"]).kind,
+              case .terminal(let viewedPoolRow) = try #require(byID["resource:brave-otter/terminal/term_1"]).kind,
+              case .terminal(let layoutRow) = try #require(byID["machine:brave-otter/ws/ws_main/resource:brave-otter/terminal/term_1"]).kind else {
+            Issue.record("expected the terminal rows"); return
+        }
+        #expect(poolRow.isDetached, "greyed, marked detached")
+        #expect(poolRow.viewBadge == 0)
+        #expect(!viewedPoolRow.isDetached && !layoutRow.isDetached)
+        #expect(CloudTreeRowHoverButtons.hasButtons(for: .terminal(poolRow)), "its hover × (Kill Terminal…) stays")
+        #expect(byID["resource:brave-otter/terminal/term_bg"]?.isDragSource == true, "a click or drag re-attaches it in a pane")
+        // The workspace is its layout: count, open/drag group, and `vm workspace open` agree.
+        guard case .workspace(_, _, let count, _) = try #require(byID["machine:brave-otter/ws/ws_main"]).kind else {
+            Issue.record("expected the workspace row"); return
+        }
+        #expect(count == 1)
+        let layoutOnly = [SurfaceResourceID(machine: machine, kind: .terminal, key: "term_1")]
+        #expect(byID["machine:brave-otter/ws/ws_main"]?.dragGroup?.resources == layoutOnly)
+        guard case .found(_, let members) = CloudTreeNodeBuilder.lookupRemoteWorkspace("main", on: machine, snapshot: snapshot) else {
+            Issue.record("expected main by name"); return
+        }
+        #expect(members.ids == layoutOnly)
+    }
+
+    @Test("VNC Displays lists one row per screen, each telling its screen apart")
+    func displaysAreOnePerScreen() throws {
+        let main = workspace("ws_main", "main", index: 0, focused: true)
+        let first = display(in: [])
+        let second = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .display, key: "display:2"), title: "Desktop", detail: nil,
+            lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 6901, url: nil
+        )
+        let snapshot = SurfaceCatalogSnapshot(machines: [info(workspaces: [main], hasDesktop: true)], resources: [first, second], projections: [])
+        let tree = rows(snapshot)
+        #expect(tree.map(\.id).suffix(3) == [
+            "machine:brave-otter/displays",
+            "resource:brave-otter/display/display:1",
+            "resource:brave-otter/display/display:2",
+        ], "the last group under the machine")
+        guard case .displaysPool(_, let count) = try #require(tree.first { $0.id == "machine:brave-otter/displays" }).kind else {
+            Issue.record("expected the VNC Displays group"); return
+        }
+        #expect(count == 2)
+        #expect(CloudTreeDisplayDetail.text(for: first) == "noVNC · :1")
+        #expect(CloudTreeDisplayDetail.text(for: second) == "noVNC · :2")
+        #expect(CloudTreeDisplayDetail.screenLabel(displayKey: "display:2") == ":2")
+        #expect(CloudTreeDisplayDetail.screenLabel(displayKey: "desktop") == nil)
+        #expect(CloudTreeDisplayDetail.screenLabel(displayKey: "display:") == nil)
+    }
+
     @Test("`vm workspace open` resolves a workspace the way its row does: by id, by unique name, every view counted")
     func lookupMatchesTheRow() throws {
         let main = workspace("ws_main", "main", index: 0, focused: true)
