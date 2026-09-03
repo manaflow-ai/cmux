@@ -28,22 +28,22 @@ import Testing
         #expect(a.keyPair != b.keyPair)
     }
 
-    @Test func resolverMintsOnceAndReusesStoredIdentity() throws {
+    @Test func resolverMintsOnceAndReusesStoredIdentity() async throws {
         let store = InMemoryCloudDeviceIdentityStore()
         let resolver = CloudDeviceIdentityResolver(store: store)
-        let first = try resolver.resolve()
-        let second = try resolver.resolve()
+        let first = try await resolver.resolve()
+        let second = try await resolver.resolve()
         #expect(first == second)
-        #expect(store.stored == first)
+        #expect(await store.stored == first)
     }
 
-    @Test func resolverFailsClosedWhenStoreIsUnavailable() {
+    @Test func resolverFailsClosedWhenStoreIsUnavailable() async {
         let store = InMemoryCloudDeviceIdentityStore(unavailable: true)
         let resolver = CloudDeviceIdentityResolver(store: store)
-        #expect(throws: CloudDeviceIdentityResolver.Failure.storeUnavailable) {
-            try resolver.resolve()
+        await #expect(throws: CloudDeviceIdentityResolver.Failure.storeUnavailable) {
+            try await resolver.resolve()
         }
-        #expect(store.stored == nil)
+        #expect(await store.stored == nil)
     }
 }
 

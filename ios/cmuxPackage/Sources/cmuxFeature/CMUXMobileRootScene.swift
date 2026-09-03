@@ -185,7 +185,7 @@ public struct CMUXMobileRootScene: View {
             apiBaseURL: auth.config.apiBaseURL,
             projectID: auth.config.stack.projectId
         )
-        _cloudSessionController = State(initialValue: MobileCloudComposition.makeController(auth: auth))
+        _cloudSessionController = State(initialValue: MobileCloudComposition(auth: auth).makeController())
     }
     #else
     /// Creates the root scene (non-iOS: no push).

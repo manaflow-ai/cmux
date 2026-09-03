@@ -40,7 +40,7 @@ import Testing
         #expect(controller.tunnel == .starting)
         await settle { controller.machines == .loaded([CloudMachine(id: "vm1", provider: "freestyle", status: "running")]) }
 
-        let identity = try #require(store.stored)
+        let identity = try await #require(store.stored)
         #expect(controller.tunnel == .ready(fingerprint: identity.fingerprint))
         #expect(service.calls.enroll.count == 1)
         #expect(service.calls.enroll[0].publicKey == identity.keyPair.publicKey)
@@ -152,7 +152,7 @@ import Testing
         guard case .failed(let failure) = controller.tunnel else { Issue.record("expected failure"); return }
         #expect(failure.kind == .identity)
         #expect(service.calls.enroll.isEmpty)
-        #expect(store.stored == nil)
+        #expect(await store.stored == nil)
     }
 
     @Test func disappearDuringStartDiscardsTheLateTunnel() async {

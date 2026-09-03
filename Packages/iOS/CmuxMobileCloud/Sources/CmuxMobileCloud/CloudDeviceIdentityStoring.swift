@@ -8,9 +8,9 @@ public import Foundation
 public protocol CloudDeviceIdentityStoring: Sendable {
     /// The stored identity, `.absent` on a fresh install, `.unavailable` when
     /// the store cannot be read now.
-    func read() -> CloudDeviceIdentityReadResult
+    func read() async -> CloudDeviceIdentityReadResult
     /// Persist `identity`, overwriting any previous value.
-    func write(_ identity: CloudDeviceIdentity) throws
+    func write(_ identity: CloudDeviceIdentity) async throws
 }
 
 /// Outcome of ``CloudDeviceIdentityStoring/read()``.

@@ -125,7 +125,7 @@ public final class CloudSessionController {
             guard let self else { return }
             let result: Result<(CloudDeviceIdentity, any CloudTunnel), CloudSessionFailure>
             do {
-                let identity = try identityResolver.resolve()
+                let identity = try await identityResolver.resolve()
                 let enrollment = try await service.enrollTunnel(
                     clientPublicKey: identity.keyPair.publicKey,
                     deviceFingerprint: identity.fingerprint,
