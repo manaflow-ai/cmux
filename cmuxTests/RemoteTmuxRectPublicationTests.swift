@@ -35,20 +35,15 @@ import Testing
         return (connection, writer, pipe)
     }
 
-    /// Feeds one scripted command result. The first time a window is staged,
-    /// `stagePendingLayout` issues its `pane-border-status` subscription ahead
-    /// of the rects fetch, and a real stream answers that `refresh-client -B`
-    /// with an empty result block of its own. Ack any such subscription slots
-    /// at the FIFO head first, so the scripted lines land on the
-    /// list-windows/list-panes slot they are written for.
+    /// Feeds one scripted command result to the FIFO head. Incidental setup
+    /// commands (the `pane-border-status` subscription a window's first staging
+    /// queues ahead of its rects fetch) are acknowledged by `replyToNextPaneRects`,
+    /// which walks the FIFO to the fetch the scripted lines are written for; this
+    /// helper must answer exactly one slot, or a caller's rects reply lands on the
+    /// wrong command.
     private func reply(
         _ connection: RemoteTmuxControlConnection, lines: [String], isError: Bool = false
     ) {
-        while case .other? = connection.pendingCommandKindsForTesting.first {
-            connection.handleMessageForTesting(
-                .commandResult(commandNumber: 0, lines: [], isError: false)
-            )
-        }
         connection.handleMessageForTesting(
             .commandResult(commandNumber: 0, lines: lines, isError: isError)
         )
