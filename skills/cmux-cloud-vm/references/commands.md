@@ -35,15 +35,19 @@ Tree line shapes:
 
 ```
 vivid-newt  running  · 24 GB · 16 GB disk · link connected
-  workspaces/                                  ← workspaces lead (what you open and drag)
+  workspaces/                                  ← one machine, many workspaces: what you open and drag
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-  terminals/                                   ← the pool: every terminal the machine owns
+    tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
+    (detached — no tab on the machine shows these)      ← the pool: terminals in no workspace
+      ● term_c04…  sleep 1000
   desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
+  ports/
+    3000  http  (cmux vm open vivid-newt:port/3000)
 ```
 
-The sidebar shows the same tree in the same order (Workspaces, Terminals, Displays); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md).
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`), then **Terminals** (only the detached ones), **Displays**, **Ports**, **Browsers**. Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id or the workspace name; an empty workspace still resolves, and `vm open` starts a shell in it.
 
 ## Surfaces: one open path for terminals, screens and browsers
 

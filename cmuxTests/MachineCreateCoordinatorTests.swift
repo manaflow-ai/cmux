@@ -313,7 +313,7 @@ struct MachineCreateCoordinatorTests {
     @Test func failureOutputIsRedactedBeforeItEntersSharedState() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
-        launches.complete(status: 1, output: "Error: provider blaxel rejected the request token abc123")
+        launches.complete(status: 1, output: "Error: provider freestyle rejected the request token abc123")
         let stored = coordinator.operations.first?.failureOutput
         #expect(stored == CloudVMActionLauncher.hiddenOutputPlaceholder)
         #expect(stored?.contains("token") == false)
@@ -415,8 +415,8 @@ struct MachinesPanelPendingCreateTests {
         failed.phase = .failed(output: "Error: quota")
         let machine = MachineSnapshot(
             id: "noble-wren",
-            provider: "blaxel",
-            image: "blaxel/base-image:latest",
+            provider: "freestyle",
+            image: "sh-08be343bf2b54b4bb0e5226b97eaa6c4",
             isDesktop: false,
             activity: .ready,
             createdAt: nil,
