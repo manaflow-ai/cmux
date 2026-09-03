@@ -211,7 +211,7 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
 
   test("propagates caller cancellation to the OpenCode upstream", async () => {
     const controller = new AbortController();
-    let upstreamSignal: AbortSignal | undefined;
+    let upstreamSignal: AbortSignal | null | undefined;
     let resolveFetchStarted!: () => void;
     const fetchStarted = new Promise<void>((resolve) => {
       resolveFetchStarted = resolve;

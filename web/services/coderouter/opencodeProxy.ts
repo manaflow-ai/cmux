@@ -31,6 +31,7 @@ type OpenCodeDependencies = {
   readonly select: typeof selectAccountForRequest;
   readonly credential: typeof freshCredential;
   readonly remoteConfig: (accessToken: string) => Promise<Record<string, unknown>>;
+  readonly fetch?: typeof fetch;
 };
 
 const defaultDependencies: OpenCodeDependencies = {
@@ -38,6 +39,7 @@ const defaultDependencies: OpenCodeDependencies = {
   select: selectAccountForRequest,
   credential: freshCredential,
   remoteConfig,
+  fetch,
 };
 
 const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
@@ -220,13 +222,14 @@ export async function proxyOpenCodeRequest(
   let upstream: Response;
   const upstreamStartedAt = performance.now();
   try {
-    upstream = await fetchWithHeadersTimeout(fetch, target, {
+    upstream = await fetchWithHeadersTimeout(dependencies.fetch ?? fetch, target, {
       method: request.method,
       headers,
       body:
         request.method === "GET" || request.method === "HEAD"
           ? undefined
           : request.body,
+      signal: request.signal,
       duplex: "half",
       cache: "no-store",
     } as RequestInit & { duplex: "half" });
