@@ -19,6 +19,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let showsGitBranchIcon: Bool
     let makesPullRequestsClickable: Bool
     let openPullRequestLinksInCmuxBrowser: Bool
+    let pullRequestLinkConfiguration: PullRequestLinkConfiguration
     let openPortLinksInCmuxBrowser: Bool
     let showsNotificationMessage: Bool
     let notificationMessageLineLimit: Int
@@ -55,6 +56,7 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         openPullRequestLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser(
             defaults: defaults
         )
+        pullRequestLinkConfiguration = PullRequestLinkSettingsStore(defaults: defaults).currentConfiguration
         openPortLinksInCmuxBrowser = BrowserLinkOpenSettings.openSidebarPortLinksInCmuxBrowser(
             defaults: defaults
         )

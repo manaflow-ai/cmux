@@ -2078,6 +2078,8 @@
           "wordWrap": "横スクロールする代わりに、エディタの右端で長い行を折り返します。"
         },
         "sidebar": {
+          "pullRequestLinkDestination": "サイドバーのプルリクエストリンクの遷移先です。github はプルリクエスト本来のURLを使い、graphite は Graphite のレビュー画面で開き、custom は customPullRequestLinkURLTemplate を使用します。",
+          "customPullRequestLinkURLTemplate": "pullRequestLinkDestination が custom のときに使うプルリクエストURLです。{owner}、{repo}、{number} を指定でき、{number} は必須です。空欄または無効なテンプレートの場合はプルリクエスト本来のページに戻ります。",
           "notificationMessageLineLimit": "各ワークスペースタイトルの下に表示する最新通知の最大行数です。",
           "rightMaxWidth": "右サイドバーの最大幅（ポイント）。省略すると、組み込みの動的上限が適用されます。"
         },

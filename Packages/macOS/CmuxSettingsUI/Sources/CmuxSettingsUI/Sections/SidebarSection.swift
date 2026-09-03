@@ -23,6 +23,8 @@ public struct SidebarSection: View {
     @State private var watchGit: DefaultsValueModel<Bool>
     @State private var prClickable: DefaultsValueModel<Bool>
     @State private var prLinks: DefaultsValueModel<Bool>
+    @State private var prLinkDestination: DefaultsValueModel<PullRequestLinkDestination>
+    @State private var prLinkTemplate: DefaultsValueModel<String>
     @State private var portLinks: DefaultsValueModel<Bool>
     @State private var showSSH: DefaultsValueModel<Bool>
     @State private var showPorts: DefaultsValueModel<Bool>
@@ -52,6 +54,8 @@ public struct SidebarSection: View {
         _watchGit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.watchGitStatus))
         _prClickable = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.makePullRequestsClickable))
         _prLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPullRequestLinksInCmuxBrowser))
+        _prLinkDestination = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.pullRequestLinkDestination))
+        _prLinkTemplate = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.customPullRequestLinkURLTemplate))
         _portLinks = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.openPortLinksInCmuxBrowser))
         _showSSH = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showSSH))
         _showPorts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.sidebar.showPorts))
@@ -86,6 +90,8 @@ public struct SidebarSection: View {
             watchGit,
             prClickable,
             prLinks,
+            prLinkDestination,
+            prLinkTemplate,
             portLinks,
             showSSH,
             showPorts,
@@ -408,6 +414,46 @@ public struct SidebarSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
+                configurationReview: .json("sidebar.pullRequestLinkDestination"),
+                String(localized: "settings.app.pullRequestLinkDestination", defaultValue: "Open PR Links At"),
+                subtitle: prLinkDestinationSubtitle(prVisible: showPR.current, destination: prLinkDestination.current),
+                controlWidth: 250
+            ) {
+                Picker("", selection: Binding(get: { prLinkDestination.current }, set: { prLinkDestination.set($0) })) {
+                    ForEach(PullRequestLinkDestination.allCases) { value in
+                        Text(value.displayName).tag(value)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("SettingsSidebarPullRequestLinkDestinationPicker")
+            }
+            .disabled(hideAll.current || !showPR.current)
+            SettingsCardDivider()
+
+            if prLinkDestination.current == .custom {
+                SettingsCardRow(
+                    configurationReview: .json("sidebar.customPullRequestLinkURLTemplate"),
+                    String(localized: "settings.app.customPullRequestLinkURLTemplate", defaultValue: "Custom PR URL"),
+                    subtitle: String(localized: "settings.app.customPullRequestLinkURLTemplate.subtitle", defaultValue: "Use {owner}, {repo}, and {number} for the pull request. Leave empty to open the PR's own page."),
+                    controlWidth: 330
+                ) {
+                    TextField(
+                        "",
+                        text: Binding(get: { prLinkTemplate.current }, set: { prLinkTemplate.set($0) }),
+                        prompt: Text(String(
+                            localized: "settings.app.customPullRequestLinkURLTemplate.prompt",
+                            defaultValue: "https://app.graphite.com/github/pr/{owner}/{repo}/{number}"
+                        ))
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityIdentifier("SettingsSidebarCustomPullRequestLinkURLTemplateField")
+                }
+                .disabled(hideAll.current || !showPR.current)
+                SettingsCardDivider()
+            }
+
+            SettingsCardRow(
                 configurationReview: .json("sidebar.openPortLinksInCmuxBrowser"),
                 String(localized: "settings.app.openSidebarPortLinks", defaultValue: "Open Sidebar Port Links in cmux Browser"),
                 subtitle: portLinks.current
@@ -481,6 +527,20 @@ public struct SidebarSection: View {
                     .controlSize(.small)
             }
             .disabled(hideAll.current)
+        }
+    }
+
+    private func prLinkDestinationSubtitle(prVisible: Bool, destination: PullRequestLinkDestination) -> String {
+        if !prVisible {
+            return String(localized: "settings.app.pullRequestLinkDestination.subtitleHidden", defaultValue: "Enable sidebar PR visibility to choose where PR links go.")
+        }
+        switch destination {
+        case .github:
+            return String(localized: "settings.app.pullRequestLinkDestination.subtitleGitHub", defaultValue: "PR links go to the pull request's own page.")
+        case .graphite:
+            return String(localized: "settings.app.pullRequestLinkDestination.subtitleGraphite", defaultValue: "PR links go to Graphite's review UI.")
+        case .custom:
+            return String(localized: "settings.app.pullRequestLinkDestination.subtitleCustom", defaultValue: "PR links go to your own review URL.")
         }
     }
 

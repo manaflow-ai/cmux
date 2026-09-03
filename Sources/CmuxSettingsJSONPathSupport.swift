@@ -323,6 +323,17 @@ enum SidebarSettingsFileMapping {
             return nil
         }
     }
+
+    static let pullRequestLinkDestinationKey = sidebar.pullRequestLinkDestination.userDefaultsKey
+    static let customPullRequestLinkURLTemplateKey = sidebar.customPullRequestLinkURLTemplate.userDefaultsKey
+
+    static func pullRequestLinkDestinationStoredValue(_ rawValue: String) -> String? {
+        PullRequestLinkDestination(rawValue: rawValue)?.rawValue
+    }
+
+    static func customPullRequestLinkURLTemplateStoredValue(_ rawValue: String) -> String? {
+        PullRequestLinkConfiguration.isValidURLTemplate(rawValue) ? rawValue : nil
+    }
 }
 
 enum AutomationSettingsFileMapping {
@@ -476,6 +487,8 @@ extension CmuxSettingsFileStore {
         "sidebar.watchGitStatus",
         "sidebar.makePullRequestsClickable",
         "sidebar.openPullRequestLinksInCmuxBrowser",
+        "sidebar.pullRequestLinkDestination",
+        "sidebar.customPullRequestLinkURLTemplate",
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.showSSH",
         "sidebar.showPorts",

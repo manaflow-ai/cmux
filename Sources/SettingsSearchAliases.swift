@@ -128,6 +128,7 @@ enum SettingsSearchAliasIndex {
         "sidebarAppearance:watch-git-status": localized("settings.search.alias.setting.app.watch-git-status", defaultValue: "sidebar.watchGitStatus git status branch watcher index lock"),
         "sidebarAppearance:make-pr-clickable": localized("settings.search.alias.setting.sidebarAppearance.make-pr-clickable", defaultValue: "sidebar.makePullRequestsClickable clickable pull requests pr mr reviews links select workspace row"),
         "sidebarAppearance:open-pr-links": localized("settings.search.alias.setting.app.open-pr-links", defaultValue: "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded"),
+        "sidebarAppearance:pr-link-destination": localized("settings.search.alias.setting.sidebarAppearance.pr-link-destination", defaultValue: "sidebar.pullRequestLinkDestination sidebar.customPullRequestLinkURLTemplate pr links destination github graphite stacked review host custom url template where"),
         "sidebarAppearance:open-port-links": localized("settings.search.alias.setting.app.open-port-links", defaultValue: "sidebar.openPortLinksInCmuxBrowser ports localhost links browser default external embedded"),
         "sidebarAppearance:show-ssh": localized("settings.search.alias.setting.app.show-ssh", defaultValue: "sidebar.showSSH remote host target ssh server"),
         "sidebarAppearance:show-ports": localized("settings.search.alias.setting.app.show-ports", defaultValue: "sidebar.showPorts localhost port listener dev server url"),

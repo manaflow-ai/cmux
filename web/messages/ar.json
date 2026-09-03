@@ -1148,6 +1148,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "إلى أين تؤدي روابط طلبات السحب في الشريط الجانبي. تُبقي github على عنوان URL الخاص بطلب السحب، ويفتحه graphite في واجهة المراجعة في Graphite، ويستخدم custom القيمة customPullRequestLinkURLTemplate.",
+          "customPullRequestLinkURLTemplate": "عنوان URL لطلب السحب المستخدم عندما تكون قيمة pullRequestLinkDestination هي custom. أدرج {owner} و{repo} و{number}؛ الرمز {number} مطلوب. إذا كان القالب فارغًا أو غير صالح، يُفتح طلب السحب في صفحته الأصلية.",
           "notificationMessageLineLimit": "الحد الأقصى لعدد الأسطر المعروضة لأحدث إشعار أسفل عنوان كل مساحة عمل.",
           "rightMaxWidth": "أقصى عرض بالنقاط للشريط الجانبي الأيمن. عند تركه فارغًا، يُطبّق الحد الديناميكي المضمن."
         },

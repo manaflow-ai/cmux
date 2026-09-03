@@ -1132,6 +1132,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "Куди ведуть посилання на пул-реквести на боковій панелі. github зберігає власну URL-адресу пул-реквесту, graphite відкриває його в інтерфейсі рецензування Graphite, а custom застосовує customPullRequestLinkURLTemplate.",
+          "customPullRequestLinkURLTemplate": "URL-адреса пул-реквесту, яка використовується, коли pullRequestLinkDestination має значення custom. Вкажіть {owner}, {repo} і {number}; {number} обов'язковий. Порожній або некоректний шаблон повертає до власної сторінки пул-реквесту.",
           "notificationMessageLineLimit": "Максимальна кількість рядків останнього сповіщення, що відображаються під заголовком кожного робочого простору.",
           "rightMaxWidth": "Максимальна ширина правої бічної панелі в пунктах. Якщо пропущено, застосовується вбудоване динамічне обмеження."
         },

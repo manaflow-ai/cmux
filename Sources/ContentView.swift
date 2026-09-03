@@ -10365,20 +10365,23 @@ struct ContentView: View {
         let pullRequests = workspace.sidebarPullRequestsInDisplayOrder()
         guard !pullRequests.isEmpty else { return false }
 
+        let linkConfiguration = PullRequestLinkSettingsStore().currentConfiguration
+        let urls = pullRequests.map { linkConfiguration.resolvedURL(for: $0.url) }
+
         var openedCount = 0
         if BrowserLinkOpenSettings.openSidebarPullRequestLinksInCmuxBrowser() {
-            for pullRequest in pullRequests {
-                if tabManager.openBrowser(url: pullRequest.url, insertAtEnd: true) != nil {
+            for url in urls {
+                if tabManager.openBrowser(url: url, insertAtEnd: true) != nil {
                     openedCount += 1
-                } else if NSWorkspace.shared.open(pullRequest.url) {
+                } else if NSWorkspace.shared.open(url) {
                     openedCount += 1
                 }
             }
             return openedCount > 0
         }
 
-        for pullRequest in pullRequests {
-            if NSWorkspace.shared.open(pullRequest.url) {
+        for url in urls {
+            if NSWorkspace.shared.open(url) {
                 openedCount += 1
             }
         }
@@ -12291,8 +12294,11 @@ struct VerticalTabsSidebar: View, Equatable {
             onOpenWorkspaceDescriptionURL: { url in
                 NSWorkspace.shared.open(url)
             },
-            onOpenPullRequest: { [prefer = input.settings.openPullRequestLinksInCmuxBrowser] url in
-                openInBrowser(url, prefer)
+            onOpenPullRequest: { [
+                prefer = input.settings.openPullRequestLinksInCmuxBrowser,
+                linkConfiguration = input.settings.pullRequestLinkConfiguration
+            ] url in
+                openInBrowser(linkConfiguration.resolvedURL(for: url), prefer)
             },
             onOpenPort: { [prefer = input.settings.openPortLinksInCmuxBrowser] port in
                 guard let url = URL(string: "http://localhost:\(port)") else { return }

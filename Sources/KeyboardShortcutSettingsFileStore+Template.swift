@@ -153,6 +153,8 @@ extension CmuxSettingsFileStore {
                     "watchGitStatus": SidebarWorkspaceDetailDefaults.watchGitStatus,
                     "makePullRequestsClickable": SettingCatalog().sidebar.makePullRequestsClickable.defaultValue,
                     "openPullRequestLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPullRequestLinksInCmuxBrowser,
+                    "pullRequestLinkDestination": SettingCatalog().sidebar.pullRequestLinkDestination.defaultValue.rawValue,
+                    "customPullRequestLinkURLTemplate": SettingCatalog().sidebar.customPullRequestLinkURLTemplate.defaultValue,
                     "openPortLinksInCmuxBrowser": BrowserLinkOpenSettings.defaultOpenSidebarPortLinksInCmuxBrowser,
                     "showSSH": SidebarWorkspaceDetailDefaults.showSSH,
                     "showPorts": SidebarWorkspaceDetailDefaults.showPorts,

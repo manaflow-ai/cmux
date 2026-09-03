@@ -1148,6 +1148,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "Dove portano i link alle pull request nella barra laterale. github mantiene l'URL della pull request, graphite la apre nell'interfaccia di revisione di Graphite e custom usa customPullRequestLinkURLTemplate.",
+          "customPullRequestLinkURLTemplate": "URL della pull request usato quando pullRequestLinkDestination è custom. Includi {owner}, {repo} e {number}; {number} è obbligatorio. Se il modello è vuoto o non valido, viene aperta la pagina della pull request.",
           "notificationMessageLineLimit": "Numero massimo di righe mostrate per la notifica più recente sotto il titolo di ogni area di lavoro.",
           "rightMaxWidth": "Larghezza massima in punti della barra laterale destra. Se omessa, si applica il limite dinamico integrato."
         },

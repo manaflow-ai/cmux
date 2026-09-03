@@ -1148,6 +1148,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "ទីតាំងដែលតំណសំណើទាញនៅរបារចំហៀងនាំទៅ។ github រក្សា URL ដើមរបស់សំណើទាញ, graphite បើកវានៅក្នុងផ្ទាំងត្រួតពិនិត្យរបស់ Graphite, ហើយ custom ប្រើ customPullRequestLinkURLTemplate។",
+          "customPullRequestLinkURLTemplate": "URL សំណើទាញដែលប្រើនៅពេល pullRequestLinkDestination ជា custom។ ដាក់ {owner}, {repo} និង {number}; {number} ត្រូវបានទាមទារ។ ទម្រង់ទំនេរ ឬមិនត្រឹមត្រូវ នឹងត្រឡប់ទៅទំព័រដើមរបស់សំណើទាញ។",
           "notificationMessageLineLimit": "ចំនួនបន្ទាត់អតិបរមាដែលបង្ហាញសម្រាប់ការជូនដំណឹងចុងក្រោយនៅខាងក្រោមចំណងជើងកន្លែងធ្វើការនីមួយៗ។",
           "rightMaxWidth": "ទទឹងអតិបរមាជាពិន្ទុសម្រាប់របារចំហៀងខាងស្តាំ។ បើមិនបញ្ជាក់ នឹងប្រើដែនកំណត់ថាមវន្តដែលមានស្រាប់។"
         },

@@ -103,6 +103,7 @@ struct SettingsRowAnchorResolutionTests {
         "sidebar.openPortLinksInCmuxBrowser",
         "sidebar.openPullRequestLinksInCmuxBrowser",
         "sidebar.pathLastSegmentOnly",
+        "sidebar.pullRequestLinkDestination",
         "sidebar.rightMaxWidth",
         "sidebar.showBranchDirectory",
         "sidebar.showCustomMetadata",

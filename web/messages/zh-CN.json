@@ -1148,6 +1148,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "侧边栏拉取请求链接的跳转位置。github 使用拉取请求自身的 URL，graphite 在 Graphite 的审查界面中打开，custom 则渲染 customPullRequestLinkURLTemplate。",
+          "customPullRequestLinkURLTemplate": "当 pullRequestLinkDestination 为 custom 时使用的拉取请求 URL。可包含 {owner}、{repo} 和 {number}，其中 {number} 为必填。模板为空或无效时，将回退到拉取请求自身的页面。",
           "notificationMessageLineLimit": "每个工作区标题下方显示的最新通知的最大行数。",
           "rightMaxWidth": "右侧边栏的最大宽度（点）。省略时使用内置动态上限。"
         },

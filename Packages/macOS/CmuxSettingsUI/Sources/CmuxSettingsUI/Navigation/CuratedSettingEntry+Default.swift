@@ -199,6 +199,15 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "watch-git-status", title: "Watch Git Status in Sidebar", synonyms: "sidebar.watchGitStatus git status branch watcher index lock"),
             .init(section: .sidebarAppearance, id: "make-pr-clickable", title: "Make Sidebar PR Clickable", synonyms: "sidebar.makePullRequestsClickable clickable pull requests pr mr reviews links select workspace row"),
             .init(section: .sidebarAppearance, id: "open-pr-links", title: "Open Sidebar PR Links in cmux Browser", synonyms: "sidebar.openPullRequestLinksInCmuxBrowser pr links github browser default external embedded"),
+            .init(
+                section: .sidebarAppearance,
+                id: "pr-link-destination",
+                title: String(localized: "settings.app.pullRequestLinkDestination", defaultValue: "Open PR Links At"),
+                synonyms: String(
+                    localized: "settings.search.alias.setting.sidebarAppearance.pr-link-destination",
+                    defaultValue: "sidebar.pullRequestLinkDestination sidebar.customPullRequestLinkURLTemplate pr links destination github graphite stacked review host custom url template where"
+                )
+            ),
             .init(section: .sidebarAppearance, id: "open-port-links", title: "Open Sidebar Port Links in cmux Browser", synonyms: "sidebar.openPortLinksInCmuxBrowser ports localhost links browser default external embedded"),
             .init(section: .sidebarAppearance, id: "show-ssh", title: "Show SSH in Sidebar", synonyms: "sidebar.showSSH remote host target ssh server"),
             .init(section: .sidebarAppearance, id: "show-ports", title: "Show Listening Ports in Sidebar", synonyms: "sidebar.showPorts localhost port listener dev server url"),

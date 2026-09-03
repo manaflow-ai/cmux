@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxSidebar
 import SwiftUI
 import Testing
@@ -1958,6 +1959,27 @@ struct SidebarAppKitRowCellTests {
         #expect(!settings.wrapsWorkspaceTitles)
         #expect(swiftUIRow.settings.branchDirectory == settings.branchDirectory)
         #expect(appKitRow.settings.branchDirectory == settings.branchDirectory)
+    }
+
+    @Test
+    func defaultSettingsLeavePullRequestLinksOnTheirOwnHost() {
+        let settings = SidebarTabItemSettingsSnapshot(defaults: Self.makeDefaults())
+        let canonical = URL(string: "https://github.com/manaflow-ai/cmux/pull/9641")!
+
+        #expect(settings.pullRequestLinkConfiguration.destination == .github)
+        #expect(settings.pullRequestLinkConfiguration.resolvedURL(for: canonical) == canonical)
+    }
+
+    @Test
+    func storedPullRequestLinkDestinationReachesBothRows() {
+        let defaults = Self.makeDefaults()
+        defaults.set(PullRequestLinkDestination.graphite.rawValue, forKey: "sidebarPullRequestLinkDestination")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let expected = PullRequestLinkConfiguration(destination: .graphite, customURLTemplate: "")
+
+        #expect(settings.pullRequestLinkConfiguration == expected)
+        #expect(Self.makeSwiftUIRow(settings: settings).settings.pullRequestLinkConfiguration == expected)
+        #expect(Self.makeModel(settings: settings).settings.pullRequestLinkConfiguration == expected)
     }
 
     @Test(arguments: [false, true])

@@ -1148,6 +1148,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "사이드바 풀 리퀘스트 링크가 열리는 위치입니다. github는 풀 리퀘스트 자체 URL을 유지하고, graphite는 Graphite 리뷰 화면에서 열며, custom은 customPullRequestLinkURLTemplate을 사용합니다.",
+          "customPullRequestLinkURLTemplate": "pullRequestLinkDestination이 custom일 때 사용하는 풀 리퀘스트 URL입니다. {owner}, {repo}, {number}를 사용할 수 있으며 {number}는 필수입니다. 템플릿이 비어 있거나 유효하지 않으면 풀 리퀘스트 자체 페이지로 돌아갑니다.",
           "notificationMessageLineLimit": "각 작업 공간 제목 아래에 표시되는 최신 알림의 최대 줄 수입니다.",
           "rightMaxWidth": "오른쪽 사이드바의 최대 너비(포인트). 생략하면 내장 동적 상한이 적용됩니다."
         },

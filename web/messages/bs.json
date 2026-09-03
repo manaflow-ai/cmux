@@ -1148,6 +1148,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "Gdje vode linkovi pull requestova u bočnoj traci. github zadržava vlastiti URL pull requesta, graphite ga otvara u Graphite sučelju za pregled, a custom primjenjuje customPullRequestLinkURLTemplate.",
+          "customPullRequestLinkURLTemplate": "URL pull requesta koji se koristi kada je pullRequestLinkDestination custom. Koristite {owner}, {repo} i {number}; {number} je obavezan. Prazan ili nevažeći šablon vraća na vlastitu stranicu pull requesta.",
           "notificationMessageLineLimit": "Maksimalan broj redova prikazanih za najnoviju obavijest ispod naslova svakog radnog prostora.",
           "rightMaxWidth": "Maksimalna širina desne bočne trake u tačkama. Ako se izostavi, primjenjuje se ugrađeno dinamičko ograničenje."
         },

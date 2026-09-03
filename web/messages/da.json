@@ -1148,6 +1148,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "Hvor pull request-links i sidebjælken fører til. github beholder pull requestens egen URL, graphite åbner den i Graphites review-grænseflade, og custom bruger customPullRequestLinkURLTemplate.",
+          "customPullRequestLinkURLTemplate": "Pull request-URL, der bruges, når pullRequestLinkDestination er custom. Brug {owner}, {repo} og {number}; {number} er påkrævet. En tom eller ugyldig skabelon falder tilbage til pull requestens egen side.",
           "notificationMessageLineLimit": "Det maksimale antal linjer, der vises for den seneste notifikation under hver arbejdsområdetitel.",
           "rightMaxWidth": "Maksimal bredde i punkter for højre sidepanel. Hvis den udelades, bruges den indbyggede dynamiske grænse."
         },

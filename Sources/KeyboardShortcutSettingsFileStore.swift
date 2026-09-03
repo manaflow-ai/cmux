@@ -720,6 +720,24 @@ final class CmuxSettingsFileStore {
                 logInvalid("sidebar.branchLayout", sourcePath: sourcePath)
             }
         }
+        if let raw = jsonString(section["pullRequestLinkDestination"]) {
+            if let value = SidebarSettingsFileMapping.pullRequestLinkDestinationStoredValue(raw) {
+                snapshot.managedUserDefaults[SidebarSettingsFileMapping.pullRequestLinkDestinationKey] = .string(value)
+            } else {
+                logInvalid("sidebar.pullRequestLinkDestination", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("pullRequestLinkDestination") {
+            logInvalid("sidebar.pullRequestLinkDestination", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(section["customPullRequestLinkURLTemplate"]) {
+            if let value = SidebarSettingsFileMapping.customPullRequestLinkURLTemplateStoredValue(raw) {
+                snapshot.managedUserDefaults[SidebarSettingsFileMapping.customPullRequestLinkURLTemplateKey] = .string(value)
+            } else {
+                logInvalid("sidebar.customPullRequestLinkURLTemplate", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("customPullRequestLinkURLTemplate") {
+            logInvalid("sidebar.customPullRequestLinkURLTemplate", sourcePath: sourcePath)
+        }
         if let rawBeta = section["beta"], let beta = rawBeta as? [String: Any] {
             parseSidebarWorkspaceTodosBeta(beta, sourcePath: sourcePath, snapshot: &snapshot)
         } else if section.keys.contains("beta") { logInvalid("sidebar.beta", sourcePath: sourcePath) }

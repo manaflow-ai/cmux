@@ -1149,6 +1149,8 @@
           "maxWidth": "Default maximum reading column width, in CSS pixels, for newly opened markdown viewers."
         },
         "sidebar": {
+          "pullRequestLinkDestination": "ปลายทางของลิงก์ pull request ในแถบด้านข้าง github จะใช้ URL ของ pull request เอง graphite จะเปิดในหน้าตรวจทานของ Graphite และ custom จะใช้ customPullRequestLinkURLTemplate",
+          "customPullRequestLinkURLTemplate": "URL ของ pull request ที่ใช้เมื่อ pullRequestLinkDestination เป็น custom ใส่ {owner} {repo} และ {number} โดย {number} จำเป็นต้องมี หากเทมเพลตว่างหรือไม่ถูกต้อง จะย้อนกลับไปใช้หน้าของ pull request เอง",
           "notificationMessageLineLimit": "จำนวนบรรทัดสูงสุดที่แสดงสำหรับการแจ้งเตือนล่าสุดใต้ชื่อของแต่ละพื้นที่ทำงาน",
           "rightMaxWidth": "ความกว้างสูงสุดเป็นพอยต์สำหรับแถบด้านขวา หากเว้นไว้ จะใช้ขีดจำกัดแบบไดนามิกในตัว"
         },
