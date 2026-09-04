@@ -336,6 +336,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
                 tableView.beginUpdates()
                 tableView.endUpdates()
             }
+            #if DEBUG
+            recordPayloadApplyRoute(.tableRelayout)
+            #endif
         } else {
             let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
             if !changedIndexPaths.isEmpty {

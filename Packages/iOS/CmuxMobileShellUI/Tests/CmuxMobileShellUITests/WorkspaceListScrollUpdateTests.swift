@@ -244,7 +244,7 @@ import UIKit
         )
     }
 
-    @Test func descriptionArrivalChangesRowHeightThroughTableReload() {
+    @Test func descriptionArrivalChangesRowHeightThroughInPlaceRelayout() {
         // A durable description adds a text line, changing the row's height
         // key: this payload change must keep riding the snapshot apply so
         // UITableView re-queries the row height.
@@ -258,7 +258,7 @@ import UIKit
         workspace.customDescription = "Durable workspace context"
         coordinator.update(configuration: configuration(workspaces: [workspace]), in: tableView)
 
-        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
+        #expect(coordinator.lastPayloadApplyRoute == .tableRelayout)
     }
 
     @Test func workspaceRenderEquivalenceQuantizesOnlyTimestamps() {
