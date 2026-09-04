@@ -16,12 +16,14 @@
         "snapshot": "この Cloud VM は保存済み状態に対応していません。",
         "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
         "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "openPort": "この Cloud VM のプロバイダーはマシンのポートをプレビュー URL として公開できません。",
         "default": "この Cloud VM は要求された操作に対応していません。"
       },
       "action": {
         "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "openPort": "再試行しても解決しません。マシン内から（`cmux vm exec`）アクセスするか、ポートを公開できるマシン種別を使ってください。",
         "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
       }
     },
@@ -122,6 +124,15 @@
     "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
     "backToSignIn": "サインインに戻る"
   },
+  "cloudPublicationAccess": {
+    "title": "アクセス権がありません",
+    "signIn": "cmux にサインイン",
+    "signedInAs": "{identity} としてサインイン中",
+    "switchAccount": "アカウントを切り替える",
+    "invalidTitle": "このアクセスリンクは無効です",
+    "invalidBody": "サイトに戻って、もう一度お試しください。",
+    "footer": "アクセスは cmux によって管理されています。"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -166,7 +177,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
       "title": "coderouter",
-      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "machines": {
+        "title": "マシン",
+        "description": "{team} のマシン別 coderouter 使用状況（過去{days}日間）。",
+        "machineColumn": "マシン",
+        "tokensColumn": "合計トークン",
+        "apiEquivalentColumn": "API換算額",
+        "unnamed": "名前のないマシン",
+        "empty": "過去{days}日間に coderouter を使用したマシンはありません。",
+        "unavailable": "マシン別の使用状況は現在利用できません。",
+        "estimateNote": "API換算額は公開定価による推定で、実際の請求額ではありません。"
+      }
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -483,6 +505,50 @@
       "opencodeTool": "OpenCode",
       "opencodeCommand": "Copy opencode command",
       "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude アップストリームアカウント",
+      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。",
+      "emptyTitle": "Claude アップストリームアカウントがありません",
+      "emptyBody": "アカウントを追加するまで、このチームの Cloud VM からの Claude リクエストは失敗します。",
+      "accountsLabel": "{count} 件のアカウント",
+      "loadErrorTitle": "Claudeアップストリームを読み込めませんでした",
+      "loadErrorBody": "アップストリーム設定を読み取れませんでした。しばらくしてから再試行してください。",
+      "kindSelectorLabel": "アップストリームの種類",
+      "kindApiKey": "Anthropic APIキー",
+      "kindOauth": "Claude Code OAuthトークン",
+      "kindBedrock": "Amazon Bedrock",
+      "labelField": "ラベル",
+      "labelPlaceholder": "任意。例: work",
+      "apiKeyField": "APIキー",
+      "oauthTokenField": "OAuthトークン",
+      "oauthHint": "自分のマシンで次のコマンドを実行して長期トークンを作成します:",
+      "regionField": "AWSリージョン",
+      "accessKeyIdField": "アクセスキーID",
+      "secretAccessKeyField": "シークレットアクセスキー",
+      "sessionTokenField": "セッショントークン",
+      "optionalPlaceholder": "任意",
+      "saveAction": "アカウントを追加",
+      "savingAction": "追加中",
+      "saveSuccess": "アカウントを追加しました。",
+      "saveError": "アカウントを追加できませんでした。",
+      "validationError": "認証情報の形式を確認して再試行してください。",
+      "teamAccessError": "このチームへのアクセス権がありません。",
+      "removeAction": "削除",
+      "removingAction": "削除中",
+      "removeError": "アカウントを削除できませんでした。",
+      "removeConfirmTitle": "この Claude アップストリームアカウントを削除しますか?",
+      "removeConfirmBody": "このアカウントに固定されたマシンはチームの他のアカウントに移ります。最後のアカウントの場合、新しいアカウントを追加するまでこのチームの Cloud VM からの Claude リクエストは失敗します。",
+      "cancelAction": "キャンセル",
+      "stateActive": "有効",
+      "stateDisabled": "無効",
+      "coolingDown": "{until} までクールダウン中",
+      "lastFailure": "最後の失敗 {code}",
+      "lastUsed": "最終使用 {at}",
+      "neverUsed": "未使用",
+      "enableAction": "有効にする",
+      "disableAction": "無効にする",
+      "updateError": "アカウントを更新できませんでした。"
     }
   },
   "vault": {
@@ -1913,7 +1979,7 @@
       "anchorNew": "グループのアンカーは、作成時には常に新規のワークスペースです。選択範囲のグループ化やグループの作成で、既存のワークスペースがアンカーに昇格することはありません。（アンカーを後から閉じた場合は、グループに残った最初のメンバーが昇格します。下記参照。）アンカーの作業ディレクトリは、選択範囲をグループ化する場合は最初に選択したワークスペースから、--cwd なしで CLI から作成する場合はアクティブなワークスペースから引き継がれます。",
       "anchorClose": "アンカーワークスペースを閉じても、閉じられるのはそのワークスペースだけです。グループに残った最初のメンバー（グループの並び順で最も先頭にあるもの）が新しいアンカーに昇格し、グループと他のメンバーはそのまま維持されます（昇格したメンバーはヘッダーにグループ名を表示します）。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。グループをグループ化されていないワークスペースに戻すには「グループ解除」を、グループ内のすべてのワークスペースを閉じるには「グループを削除」を使用します。",
       "identityTitle": "グループの識別情報",
-      "identityDesc": "グループには名前、アイコン（SF Symbol、デフォルトは folder.fill）、および任意のカスタムカラーがあります。これらはアンカーワークスペース自身のカスタマイズとは独立しています。アンカーの色とアイコンは作成時にグループから初期設定されますが、その後は別々に変更できます。",
+      "identityDesc": "グループには名前、アイコン（SF Symbol、デフォルトは folder.fill）、および任意のカスタムカラーがあります。自動化ではウィンドウ単位の external_id（または idempotency_key）も指定できます。同じ識別子で作成を繰り返すと、別のアンカーを追加せず既存のグループを返します。名前は識別子ではなく、現在のアンカーの明示的な来歴が安全なクリーンアップを制御します。",
       "pinningTitle": "ピン留め",
       "pinningDesc": "グループは個々のワークスペースのピン留めとは独立してピン留めできます。ピン留めされたトップレベルの行は、個々のワークスペースであれグループであれ、ピン留めされていない行より上に表示されます。各層の中では、グループとワークスペースはドラッグした順序を保ちます。",
       "layoutIntro": "サイドバーはトップレベルの行を上から下に次のように配置します。",
@@ -1937,8 +2003,8 @@
       "cliTitle": "CLI",
       "cliDesc": "すべてのグループ操作は cmux workspace-group サブコマンドでスクリプト化できます。ハイフン形式が先に提供されます。より広い cmux workspace コマンド名前空間が登場すると、cmux workspace group が正式な形式となり、ハイフン形式は今後ずっとエイリアスとして残ります。",
       "cliSubcommandsTitle": "サブコマンド",
-      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。完全な構造化ペイロードを得るには --json を渡してください。",
-      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
+      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。再試行でアトミックな作成または既存取得を行うには --idempotency-key（または --external-id）を渡し、完全な構造化ペイロードには --json を渡してください。",
+      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。cmux が作成したアンカーのみのグループでは、ungroup に --remove-generated-anchor を指定するとアンカーも削除できます。ユーザーが選択または昇格したアンカーは拒否されます。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
       "cliExamplesTitle": "例",
       "cliExampleGroup": "明示的に選んだ 2 つのワークスペースを名前を付けてグループ化します。",
       "cliExampleNew": "既存のグループ内に新しいワークスペースを作成します（例: worktree スクリプトと連携）。",
@@ -1947,7 +2013,7 @@
       "configNote": "グループごとの設定は、~/.config/cmux/cmux.json 内の workspaceGroups キーに置かれ、アンカーワークスペースの作業ディレクトリをキーとして照合されます。対応しているキー（グローバルな新規ワークスペースの配置や、ディレクトリごとの色・アイコン・配置・コンテキストメニューのアクションなど）については、設定リファレンスを参照してください。",
       "configLinkText": "workspaceGroups 設定リファレンス",
       "persistenceTitle": "永続化",
-      "persistenceDesc": "グループの名前、アンカー、ピン留め状態、折りたたみ状態、色、アイコンはワークスペースとともに保存され、起動をまたいで復元されます。グループのメンバーシップは各ワークスペースに保存されます。"
+      "persistenceDesc": "グループの名前、アンカー、ピン留め状態、折りたたみ状態、色、アイコン、外部識別子、アンカーの来歴はワークスペースとともに保存され、起動をまたいで復元されます。グループのメンバーシップは各ワークスペースに保存されます。"
     },
     "configuration": {
       "title": "設定",
@@ -3142,6 +3208,9 @@
     "metaTitle": "cmux Pro が有効になりました",
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
+    "purchaseComplete": "購入が完了しました",
+    "proLabel": "Pro プラン",
+    "dashboardLink": "ダッシュボードへ",
     "emailLabel": "購入メールアドレス",
     "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",

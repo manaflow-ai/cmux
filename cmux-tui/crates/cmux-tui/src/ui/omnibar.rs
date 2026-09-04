@@ -138,7 +138,7 @@ fn draw_idle(
     let suffix = " ⏸ chrome tab hidden";
     let tree_stalled = app
         .tree
-        .workspaces
+        .workspaces()
         .iter()
         .flat_map(|ws| ws.screens.iter())
         .flat_map(|screen| screen.panes.iter())

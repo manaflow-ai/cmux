@@ -23,7 +23,7 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
-/// tree (machine → cmux-tui workspaces → terminals, desktop, ports). Matches the
+/// tree (machine → Workspaces → terminals, Ports, VNC Displays, Terminals). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
 /// backgrounds, chrome-pill control bar. Outline rows receive immutable
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
@@ -794,7 +794,9 @@ struct MachineRowActions {
     /// so the sheet can show them inline instead of a detached alert.
     static func openNewMachine(
         arguments: [String] = ["vm", "new"],
-        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
+        onOutput: (@MainActor (String) -> Void)? = nil,
+        onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil,
+        onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil
     ) -> Bool {
         // `vm new` mints a fresh machine with its own persistent home and
         // attaches it; the base slot stays reachable via the ＋ menu's Open Base.
@@ -806,6 +808,8 @@ struct MachineRowActions {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
             presentsFailureAlert: false,
+            onCancellationReady: onCancellationReady,
+            onOutput: onOutput,
             onCompletion: onCompletion
         )
     }
@@ -815,6 +819,7 @@ struct MachineRowActions {
         arguments: [String],
         successTitle: String? = nil,
         presentOutputOnSuccess: Bool = false,
+        onCancellationReady: ((CloudVMActionLauncher.CancellationHandle) -> Void)? = nil,
         onSuccess: (@MainActor () -> Void)? = nil,
         onDidMutate: @escaping @MainActor () -> Void
     ) -> Bool {
@@ -826,7 +831,8 @@ struct MachineRowActions {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
             successTitle: successTitle,
-            presentOutputOnSuccess: presentOutputOnSuccess
+            presentOutputOnSuccess: presentOutputOnSuccess,
+            onCancellationReady: onCancellationReady
         ) { completion in
             if completion.terminationStatus == 0 {
                 onSuccess?()
