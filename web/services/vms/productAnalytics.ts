@@ -77,7 +77,7 @@ const METADATA_PICKERS: Record<VmLedgerEventType, MetadataPicker> = {
     idempotency_key_set: bool(m.idempotencyKeySet),
   }),
   "vm.destroyed": (m) => ({
-    reason: enumValue(m.source, VM_DESTROY_SOURCES) ?? "user_request",
+    reason: enumValue(m.source, VM_DESTROY_SOURCES) ?? "unknown",
     home_volume_deleted: bool(m.homeVolumeDeleted),
   }),
   "vm.attach": (m) => ({

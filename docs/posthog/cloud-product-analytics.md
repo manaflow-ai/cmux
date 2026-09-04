@@ -50,7 +50,7 @@ Common properties: `product: cloud_vm`, `ledger_event`, internal `vm_id`,
 | Event | Ledger row | Extra properties |
 | --- | --- | --- |
 | `cloud_vm_created` | `vm.created` | `origin` (`create`, `restore`, `fork`, `base`), `image_version`, `image_size`, `memory_mb`, `persistent_home`, `per_machine_home`, `idempotency_key_set` |
-| `cloud_vm_destroyed` | `vm.destroyed` | `reason` (`user_request`, `provider_status_cron`, `provider_status_refresh`, `base_open_provider_missing`), `lifetime_seconds`, `home_volume_deleted` |
+| `cloud_vm_destroyed` | `vm.destroyed` | `reason` (`user_request`, `provider_status_cron`, `provider_status_refresh`, `base_open_provider_missing`, or `unknown`), `lifetime_seconds`, `home_volume_deleted` |
 | `cloud_vm_attached` | `vm.attach` | `transport`, `invited` |
 | `cloud_vm_exec` | `vm.exec` | `exit_code`, `command_length` |
 | `cloud_vm_forked` | `vm.forked` | `native`, `idempotency_key_set` |
