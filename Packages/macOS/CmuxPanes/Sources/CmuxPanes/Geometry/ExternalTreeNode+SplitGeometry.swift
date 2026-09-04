@@ -100,18 +100,41 @@ extension ExternalTreeNode {
 
         guard let candidate = orientationMatches.first(where: {
             $0.paneInFirstChild == direction.requiresPaneInFirstChild
-        }) else {
+        }), let splitId = candidate.splitId else {
             return nil
         }
 
         let delta = CGFloat(amountPixels) / candidate.axisPixels
         let requested = candidate.dividerPosition + (direction.dividerDeltaSign * delta)
         let clamped = min(max(requested, 0.1), 0.9)
-        return SplitDividerAdjustment(splitId: candidate.splitId, position: clamped)
+        return SplitDividerAdjustment(splitId: splitId, position: clamped)
+    }
+
+    /// Plans one incremental growth step on the nearest split matching `axis`.
+    func growFocusedBranchAdjustment(
+        targetPaneId: String,
+        axis: PaneAxis,
+        amountPixels: UInt16
+    ) -> SplitDividerAdjustment? {
+        var candidates: [ResizeSplitCandidate] = []
+        let trace = collectResizeCandidates(targetPaneId: targetPaneId, candidates: &candidates)
+        guard trace.containsTarget,
+              let candidate = candidates.first(where: { $0.orientation == axis.splitOrientation }),
+              let splitId = candidate.splitId else {
+            return nil
+        }
+
+        let currentShare = candidate.paneInFirstChild
+            ? candidate.dividerPosition
+            : 1 - candidate.dividerPosition
+        let requestedShare = currentShare + (CGFloat(amountPixels) / candidate.axisPixels)
+        let clampedShare = min(max(requestedShare, 0.1), 0.9)
+        let dividerPosition = candidate.paneInFirstChild ? clampedShare : 1 - clampedShare
+        return SplitDividerAdjustment(splitId: splitId, position: dividerPosition)
     }
 
     private struct ResizeSplitCandidate {
-        let splitId: UUID
+        let splitId: UUID?
         let orientation: String
         let paneInFirstChild: Bool
         let dividerPosition: CGFloat
@@ -150,14 +173,13 @@ extension ExternalTreeNode {
             let combinedBounds = first.bounds.union(second.bounds)
             let containsTarget = first.containsTarget || second.containsTarget
 
-            if containsTarget,
-               let splitUUID = UUID(uuidString: split.id) {
+            if containsTarget {
                 let orientation = split.orientation.lowercased()
                 let axisPixels: CGFloat = orientation == "horizontal"
                     ? combinedBounds.width
                     : combinedBounds.height
                 candidates.append(ResizeSplitCandidate(
-                    splitId: splitUUID,
+                    splitId: UUID(uuidString: split.id),
                     orientation: orientation,
                     paneInFirstChild: first.containsTarget,
                     dividerPosition: CGFloat(split.dividerPosition),
