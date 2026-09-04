@@ -208,7 +208,7 @@ or argv:
 
 ```bash
 claude setup-token                                    # mints a long-lived sk-ant-oat01-... token
-cmux coderouter claude add oauth-token --label work   # hidden prompt; or CLAUDE_CODE_OAUTH_TOKEN / --stdin
+cmux coderouter claude add oauth-token --label work   # runs claude setup-token; or CLAUDE_CODE_OAUTH_TOKEN / --stdin
 cmux coderouter claude add oauth-token --label personal
 cmux coderouter claude list                           # id, kind, masked identifier, label, health
 cmux coderouter claude disable work                   # out of routing, keeps the credential
