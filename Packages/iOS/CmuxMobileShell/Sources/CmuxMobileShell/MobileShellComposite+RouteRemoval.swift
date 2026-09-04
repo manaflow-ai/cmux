@@ -4,16 +4,14 @@ import Foundation
 
 @MainActor
 extension MobileShellComposite {
-    /// Route identity for teardown must follow the same id-or-endpoint rules
-    /// used when a refreshed route replaces an older route record. The kind is
-    /// part of the identity so a Tailscale route cannot retire a different
-    /// transport that happens to use the same host and port.
+    /// Route identity for teardown follows the same kind-and-endpoint rules
+    /// used by persisted route removal. A refreshed route can reuse an id for
+    /// another endpoint, so the endpoint must be part of the match.
     private func routeMatchesForRemoval(
         _ removed: CmxAttachRoute,
         _ live: CmxAttachRoute
     ) -> Bool {
-        removed.kind == live.kind
-            && (removed.id == live.id || removed.endpoint == live.endpoint)
+        removed.kind == live.kind && removed.endpoint == live.endpoint
     }
 
     /// Retire any live session that is using the route after the persistent
@@ -22,8 +20,9 @@ extension MobileShellComposite {
     private func disconnectLiveRouteIfNeeded(
         _ removedRoute: CmxAttachRoute,
         ownerKey: MacPairingKey
-    ) {
+    ) async {
         let focused = connections[ownerKey.pairingID]
+        let foregroundClient = focused?.client ?? remoteClient
         let isForegroundRoute = connectionState == .connected
             && foregroundMacKey == ownerKey
             && (activeRoute.map {
@@ -42,6 +41,7 @@ extension MobileShellComposite {
                 removeFocusedConnection(ifMatching: focused)
             }
             disconnectLiveConnection(preservingOtherMacWorkspaceState: true)
+            await foregroundClient?.disconnectAndWaitForTransportDrain()
             return
         }
 
@@ -49,7 +49,7 @@ extension MobileShellComposite {
            routeMatchesForRemoval(removedRoute, focused.route) {
             removeFocusedConnection(ifMatching: focused)
             focused.client.retire()
-            Task { await focused.client.disconnect() }
+            await focused.client.disconnectAndWaitForTransportDrain()
             markSecondaryMacUnavailable(ownerKey)
         }
 
@@ -78,8 +78,10 @@ extension MobileShellComposite {
                   $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
               }) else { return false }
 
-        let routes = mac.routes.filter { $0.id != route.id }
-        guard routes.count != mac.routes.count else { return false }
+        guard let removedRoute = mac.routes.first(where: {
+            routeMatchesForRemoval(route, $0)
+        }) else { return false }
+        let routes = mac.routes.filter { $0.id != removedRoute.id }
         do {
             if routes.isEmpty {
                 guard deleteComputerIfLastRoute else { return false }
@@ -92,7 +94,7 @@ extension MobileShellComposite {
             } else {
                 let wrote = try await pairedMacStore.removeRouteIfAuthorized(
                     macDeviceID: mac.macDeviceID,
-                    route: route,
+                    route: removedRoute,
                     condition: .matchingInstanceTag(mac.instanceTag),
                     stackUserID: mac.stackUserID ?? scope.userID,
                     teamID: mac.teamID,
@@ -101,8 +103,8 @@ extension MobileShellComposite {
                 guard wrote else { return false }
             }
             guard await isScopeCurrent(scope) else { return false }
-            disconnectLiveRouteIfNeeded(
-                route,
+            await disconnectLiveRouteIfNeeded(
+                removedRoute,
                 ownerKey: MacPairingKey(
                     macDeviceID: mac.macDeviceID,
                     instanceTag: mac.instanceTag

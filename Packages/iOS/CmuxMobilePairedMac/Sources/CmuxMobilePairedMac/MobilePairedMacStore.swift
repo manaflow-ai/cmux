@@ -727,10 +727,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey
             )
-            guard let removed = currentRoutes.first(where: { $0.id == route.id })
-                    ?? currentRoutes.first(where: {
-                        $0.kind == route.kind && $0.endpoint == route.endpoint
-                    }) else { return }
+            // Endpoint and transport kind are the authoritative identity. A
+            // refreshed registry can reuse a route id for another endpoint,
+            // so accepting an id-only match could delete the wrong route.
+            guard let removed = currentRoutes.first(where: {
+                $0.kind == route.kind && $0.endpoint == route.endpoint
+            }) else { return }
             let remaining = currentRoutes.filter { $0.id != removed.id }
             guard !remaining.isEmpty else { return }
 
