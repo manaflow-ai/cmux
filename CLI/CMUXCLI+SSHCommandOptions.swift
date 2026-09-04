@@ -2,6 +2,18 @@ import CmuxFoundation
 import Foundation
 
 extension CMUXCLI {
+    /// Returns whether a leading token mixes a TTY flag with another short SSH option.
+    func isMixedTTYOptionCluster(_ argument: String) -> Bool {
+        guard argument.count > 2,
+              argument.first == "-",
+              argument.dropFirst().first != "-" else {
+            return false
+        }
+        let flags = argument.dropFirst()
+        return flags.contains(where: { $0 == "t" || $0 == "T" })
+            && flags.contains(where: { $0 != "t" && $0 != "T" })
+    }
+
     struct SSHCommandOptions {
         let destination: String
         let displayDestination: String
@@ -12,7 +24,7 @@ extension CMUXCLI {
         let windowRaw: String?
         let noFocus: Bool
         var sshOptions: [String]
-        let extraArguments: [String]
+        let remoteCommand: SSHRemoteCommand
         let terminalTransport: WorkspaceRemoteTerminalTransport
         let terminalProfile: WorkspaceRemoteTerminalProfile
         let agentSocketPath: String?
@@ -25,6 +37,18 @@ extension CMUXCLI {
         /// Set by `cmux vm new/shell/attach`; false for plain `cmux ssh`.
         let skipDaemonBootstrap: Bool
 
+        /// Explicit TTY flags, or cmux's forced-PTY default when no caller
+        /// `RequestTTY` option controls the interactive session.
+        var effectiveTTYRequestArguments: [String] {
+            if !remoteCommand.ttyRequestArguments.isEmpty {
+                return remoteCommand.ttyRequestArguments
+            }
+            guard !SSHAgentSocketResolver().hasOptionKey(sshOptions, key: "RequestTTY") else {
+                return []
+            }
+            return ["-tt"]
+        }
+
         init(
             destination: String,
             displayDestination: String? = nil,
@@ -35,7 +59,7 @@ extension CMUXCLI {
             windowRaw: String? = nil,
             noFocus: Bool,
             sshOptions: [String],
-            extraArguments: [String],
+            remoteCommand: SSHRemoteCommand,
             terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
             terminalProfile: WorkspaceRemoteTerminalProfile = .shell,
             agentSocketPath: String? = nil,
@@ -55,7 +79,7 @@ extension CMUXCLI {
             self.windowRaw = windowRaw
             self.noFocus = noFocus
             self.sshOptions = sshOptions
-            self.extraArguments = extraArguments
+            self.remoteCommand = remoteCommand
             self.terminalTransport = terminalTransport
             self.terminalProfile = terminalProfile
             self.agentSocketPath = agentSocketPath

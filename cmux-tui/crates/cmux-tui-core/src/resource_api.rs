@@ -1119,7 +1119,7 @@ mod tests {
                 "machine":"current",
                 "session":"current",
                 "terminal_id":terminal_id,
-                "state":"done",
+                "state":"blocked",
                 "source":"hook",
                 "source_session":"after",
             }),

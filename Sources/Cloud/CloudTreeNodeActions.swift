@@ -8,10 +8,17 @@ import Foundation
 struct CloudTreeNodeActions {
     /// Project a resource into the selected local workspace.
     let project: @MainActor (_ resource: SurfaceResourceID, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
+    /// Project a resource while retaining the exact daemon tab placement that
+    /// produced the row. This prevents a multi-view terminal from losing its
+    /// rename target during materialization.
+    let projectRemoteView: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView, _ placement: SurfacePlacement, _ reuseExisting: Bool) -> Void
     /// Project a resource into ONE local workspace, reusing only a pane already in it
     /// (a workspace's own Desktop row: a VNC pane in another workspace neither
     /// satisfies the open nor steals focus).
     let projectInLocalWorkspace: @MainActor (_ resource: SurfaceResourceID, _ workspaceID: UUID) -> Void
+    /// Project an exact remote placement into one local workspace, preserving the
+    /// daemon tab identity while narrowing reuse to that workspace.
+    let projectRemoteViewInLocalWorkspace: @MainActor (_ resource: SurfaceResourceID, _ view: SurfaceRemoteView, _ workspaceID: UUID) -> Void
     /// Start a plain terminal on a machine (in a cmux-tui workspace when given) and show it.
     let newTerminal: @MainActor (_ machine: SurfaceMachineID, _ remoteWorkspaceID: String?) -> Void
     /// Open a whole group (a workspace's terminals and browsers): the first at the
@@ -34,6 +41,10 @@ struct CloudTreeNodeActions {
     let closeWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
     /// Rename a remote workspace via a text prompt.
     let renameWorkspace: @MainActor (_ machine: SurfaceMachineID, _ workspace: SurfaceRemoteWorkspace) -> Void
+    /// Rename a remote terminal placement via a text prompt. A nil view means the
+    /// caller selected the machine pool, so the explicit compatibility operation
+    /// renames all views.
+    let renameTerminal: @MainActor (_ resource: SurfaceResource, _ view: SurfaceRemoteView?) -> Void
     /// Select a local workspace.
     let selectLocalWorkspace: @MainActor (_ workspaceID: UUID) -> Void
     let copyToPasteboard: @MainActor (_ text: String) -> Void
@@ -68,33 +79,116 @@ struct CloudTreeNodeActions {
             }
             return .workspace(id: workspaceID, placement: placement)
         }
-        let openingLabel: (SurfaceMachineID) -> String = { machine in
-            String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"), machine.isLocal
-                ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
-                : machine.rawValue)
-        }
+        // `catalog()` is a plain synchronous accessor, so resolving the
+        // machine's real name is safe here even though the mutation itself
+        // runs on a later Task.
         let machineName: (SurfaceMachineID) -> String = { machine in
-            machine.isLocal ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac") : machine.rawValue
+            Self.resolvedMachineName(machine, snapshot: catalog().snapshot)
+        }
+        let openingLabel: (SurfaceMachineID) -> String = { machine in
+            String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"), machineName(machine))
         }
         let startingLabel: (SurfaceMachineID) -> String = { machine in
-            String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machine.isLocal
-                ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
-                : machine.rawValue)
+            String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
         return CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
+                // Capture the caller's workspace before the async operation starts.
+                // Row selection and refresh notifications can otherwise change the
+                // globally selected tab while a port endpoint is materializing.
+                let capturedWorkspaceID = selectedWorkspaceID()
+                let capturedPortWorkspaceID: UUID?
+                if resource.forwardedPort != nil {
+                    capturedPortWorkspaceID = catalog().preferredLocalWorkspaceID(
+                        for: resource,
+                        fallback: capturedWorkspaceID
+                    )
+                } else {
+                    capturedPortWorkspaceID = nil
+                }
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
+                    let workspaceID: UUID
+                    if resource.forwardedPort != nil {
+                        guard let preferred = capturedPortWorkspaceID else {
+                            throw SurfaceCatalogError.destinationNotFound(
+                                SurfaceCatalog.portDestinationUnavailableMessage(machine: resource.machine)
+                            )
+                        }
+                        workspaceID = preferred
+                    } else {
+                        guard let capturedWorkspaceID else {
+                            throw SurfaceCatalogError.destinationNotFound("no selected workspace")
+                        }
+                        workspaceID = capturedWorkspaceID
+                    }
+                    let opened: (projection: SurfaceProjection, reused: Bool)
+                    if let port = resource.forwardedPort {
+                        opened = try await catalog.openCloudPort(
+                            machine: resource.machine,
+                            port: port,
+                            into: .workspace(id: workspaceID, placement: placement),
+                            focus: true,
+                            reuseExisting: reuseExisting,
+                            reuseInWorkspace: workspaceID
+                        )
+                    } else {
+                        opened = try await catalog.project(
+                            resource,
+                            into: .workspace(id: workspaceID, placement: placement),
+                            focus: true,
+                            reuseExisting: reuseExisting
+                        )
+                    }
+                    let projection = opened.projection
+                    // `focus: true` above puts input focus on the created pane, but a
+                    // pane opened as an additional tab does not by itself become the
+                    // SELECTED tab in its column — explicitly select it too, so
+                    // clicking a sidebar row always lands you looking at it.
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
+                }
+            },
+            projectRemoteView: { resource, view, placement, reuseExisting in
+                run(openingLabel(resource.machine)) { catalog in
+                    _ = try await catalog.project(
+                        resource,
+                        into: try destination(placement),
+                        focus: true,
+                        reuseExisting: reuseExisting,
+                        remoteView: view
+                    )
                 }
             },
             projectInLocalWorkspace: { resource, workspaceID in
+                run(openingLabel(resource.machine)) { catalog in
+                    if let port = resource.forwardedPort {
+                        _ = try await catalog.openCloudPort(
+                            machine: resource.machine,
+                            port: port,
+                            into: .workspace(id: workspaceID, placement: .split),
+                            focus: true,
+                            reuseExisting: true,
+                            reuseInWorkspace: workspaceID
+                        )
+                    } else {
+                        _ = try await catalog.project(
+                            resource,
+                            into: .workspace(id: workspaceID, placement: .split),
+                            focus: true,
+                            reuseExisting: true,
+                            reuseInWorkspace: workspaceID
+                        )
+                    }
+                }
+            },
+            projectRemoteViewInLocalWorkspace: { resource, view, workspaceID in
                 run(openingLabel(resource.machine)) { catalog in
                     _ = try await catalog.project(
                         resource,
                         into: .workspace(id: workspaceID, placement: .split),
                         focus: true,
                         reuseExisting: true,
-                        reuseInWorkspace: workspaceID
+                        reuseInWorkspace: workspaceID,
+                        remoteView: view
                     )
                 }
             },
@@ -102,7 +196,14 @@ struct CloudTreeNodeActions {
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                    _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                    let (projection, _) = try await catalog.project(
+                        resource.id,
+                        into: try destination(.tab),
+                        focus: true,
+                        reuseExisting: true,
+                        remoteView: Self.uniqueRemoteView(resource)
+                    )
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                 }
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
@@ -110,11 +211,23 @@ struct CloudTreeNodeActions {
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                        _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                        let (projection, _) = try await catalog.project(
+                            resource.id,
+                            into: try destination(.tab),
+                            focus: true,
+                            reuseExisting: true,
+                            remoteView: Self.uniqueRemoteView(resource)
+                        )
+                        SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
-                        _ = try await catalog.projectGroup(group.resources, into: try destination(placement), focus: true)
+                        let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)
+                        _ = try await catalog.projectGroup(
+                            routedGroup,
+                            into: try destination(placement),
+                            focus: true
+                        )
                     }
                 }
             },
@@ -123,14 +236,40 @@ struct CloudTreeNodeActions {
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
-                            [resource.id], title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
+                        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                            SurfaceResourceGroup(
+                                title: group.title,
+                                placements: [SurfaceResourcePlacement(
+                                    resource: resource.id,
+                                    remoteView: Self.uniqueRemoteView(resource),
+                                    remoteWorkspaceID: remoteWorkspaceID ?? group.remoteWorkspaceID
+                                )],
+                                remoteWorkspaceID: remoteWorkspaceID ?? group.remoteWorkspaceID
+                            ),
+                            title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
+                            focus: true,
+                            host: .app
+                        )
+                        catalog.bindCloudWorkspace(
+                            localWorkspaceID: opened.workspaceID, machine: machine,
+                            remoteWorkspaceID: resource.remoteWorkspace?.id ?? remoteWorkspaceID,
+                            generatedTitle: Self.localWorkspaceTitle(hostName: machineName(machine), group: group)
                         )
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
-                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
-                            group.resources, title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
+                        let routedGroup = group.withRemoteWorkspaceID(remoteWorkspaceID)
+                        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
+                            routedGroup,
+                            title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group),
+                            focus: true,
+                            host: .app
+                        )
+                        catalog.bindCloudWorkspace(
+                            localWorkspaceID: opened.workspaceID,
+                            machine: machine,
+                            remoteWorkspaceID: routedGroup.remoteWorkspaceID,
+                            generatedTitle: Self.localWorkspaceTitle(hostName: machineName(machine), group: group)
                         )
                     }
                 }
@@ -177,25 +316,57 @@ struct CloudTreeNodeActions {
                     current: workspace.name
                 ), name != workspace.name else { return }
                 run(String(format: String(localized: "cloudTree.operation.renameWorkspace", defaultValue: "Renaming %@\u{2026}"), workspace.name)) { catalog in
-                    guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    try await provider.renameRemoteWorkspace(id: workspace.id, name: name)
+                    try await catalog.renameRemoteWorkspace(on: machine, id: workspace.id, name: name)
+                }
+            },
+            renameTerminal: { resource, view in
+                let current = view?.name ?? (resource.title.isEmpty ? resource.id.key : resource.title)
+                guard let name = promptForName(
+                    title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
+                    current: current,
+                    allowsClear: true
+                ), name != current else { return }
+                let operationLabel = name.isEmpty
+                    ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)
+                run(operationLabel) { catalog in
+                    if let view {
+                        try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
+                    } else {
+                        try await catalog.renameTerminal(on: resource.machine, id: resource.id, name: name)
+                    }
                 }
             },
             selectLocalWorkspace: selectLocalWorkspace,
             copyToPasteboard: { text in
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
-                pasteboard.setString(text, forType: .string)
+                let ok = pasteboard.setString(text, forType: .string)
+                #if DEBUG
+                cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
+                #endif
             },
             refresh: refresh
         )
     }
 
-    /// "<machine>: <workspace>" — the local workspace a remote one opens as.
-    static func localWorkspaceTitle(machine: SurfaceMachineID, group: SurfaceResourceGroup) -> String {
+    /// The local workspace's title: the remote workspace's own name — what a
+    /// person actually named it, or typed into its terminal — never the
+    /// machine's raw provider id. `hostName` (the machine's friendly label)
+    /// only shows up when the workspace itself has no name to show.
+    static func localWorkspaceTitle(hostName: String, group: SurfaceResourceGroup) -> String {
         let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host = machine.isLocal ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac") : machine.rawValue
-        return name.isEmpty ? host : "\(host): \(name)"
+        return name.isEmpty ? hostName : name
+    }
+
+    /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
+    /// preferred name its own sidebar row shows), never the raw provider VM
+    /// id. Shared by every caller that needs a machine's name in
+    /// user-visible text (progress labels, a compound workspace title).
+    static func resolvedMachineName(_ machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> String {
+        if machine.isLocal { return String(localized: "cloudTree.machine.local", defaultValue: "This Mac") }
+        let name = snapshot.machines.first(where: { $0.id == machine })?.name
+        return name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? name! : machine.rawValue
     }
 
     /// The machine's ⌘N, shared by the sidebar's ＋ and the socket's `vm.workspace_new`:
@@ -226,12 +397,27 @@ struct CloudTreeNodeActions {
         } else {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
         }
-        let group = SurfaceResourceGroup(title: workspace.name, resources: [terminal.id])
+        let placement = SurfaceResourcePlacement(
+            resource: terminal.id,
+            remoteView: terminal.remoteViews?.first { $0.workspace.id == workspace.id },
+            remoteWorkspaceID: workspace.id
+        )
+        let group = SurfaceResourceGroup(
+            title: workspace.name,
+            placements: [placement],
+            remoteWorkspaceID: workspace.id
+        )
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
-            group.resources,
-            title: localWorkspaceTitle(machine: machine, group: group),
+            group,
+            title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
             host: .app
+        )
+        catalog.bindCloudWorkspace(
+            localWorkspaceID: opened.workspaceID,
+            machine: machine,
+            remoteWorkspaceID: workspace.id,
+            generatedTitle: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group)
         )
         return (workspace, terminal, opened)
     }
@@ -274,20 +460,37 @@ struct CloudTreeNodeActions {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// A one-field rename prompt. Returns the trimmed name, or nil on cancel/empty.
+    /// A one-field rename prompt. A terminal may explicitly clear its custom
+    /// name; a workspace must keep a non-empty name because it is also its
+    /// stable local identity label.
     @MainActor
-    private static func promptForName(title: String, current: String) -> String? {
+    private static func promptForName(title: String, current: String, allowsClear: Bool = false) -> String? {
         let alert = NSAlert()
         alert.messageText = title
         alert.alertStyle = .informational
         alert.addButton(withTitle: String(localized: "cloudTree.rename.confirm", defaultValue: "Rename"))
+        if allowsClear {
+            alert.addButton(withTitle: String(localized: "cloudTree.rename.clear", defaultValue: "Clear"))
+        }
         alert.addButton(withTitle: String(localized: "cloudTree.confirm.cancel", defaultValue: "Cancel"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.stringValue = current
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let response = alert.runModal()
+        if allowsClear && response == .alertSecondButtonReturn {
+            return ""
+        }
+        guard response == .alertFirstButtonReturn else { return nil }
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
+    }
+
+    /// A create operation returns the exact tab receipt. A newly-created
+    /// resource should carry that receipt into projection, while a missing or
+    /// multi-view receipt must remain explicit and use catalog resolution.
+    private static func uniqueRemoteView(_ resource: SurfaceResource) -> SurfaceRemoteView? {
+        guard resource.remoteViews?.count == 1 else { return nil }
+        return resource.remoteViews?.first
     }
 }

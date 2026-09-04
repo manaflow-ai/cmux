@@ -21,7 +21,18 @@ REPOSITORY = /\A[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\z/
 MAX_FILE_BYTES = 300_000
 MAX_YAML_NODES = 10_000
 MAX_YAML_DEPTH = 64
-CLA_ACTION = "manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf"
+# A policy transition may start from one of the two reviewed legacy action
+# revisions or from the exact workflow currently on main. Those references
+# are accepted only with their matching immutable workflow/helper bytes. A
+# changed policy must move directly to the maintained final revision.
+CLA_ACTION_LEGACY_REFS = %w[
+  manaflow-ai/cla-github-action@fc608ba7106e7029d981d487d7bad28a64325956
+  manaflow-ai/cla-github-action@b4d3c4fab86d21e7775c63522d4b39b3724ea4bf
+].freeze
+CLA_ACTION_CURRENT_BASE_REF = "manaflow-ai/cla-github-action@f567430d44e22bc0bb6ecd1e00d383ef22886025".freeze
+CLA_ACTION_FINAL = "manaflow-ai/cla-github-action@212a0f2dd659b24b48a30ba35966e06dc41736af".freeze
+CLA_ACTION_BASE_REFS = (CLA_ACTION_LEGACY_REFS + [CLA_ACTION_CURRENT_BASE_REF, CLA_ACTION_FINAL]).freeze
+CLA_ACTION = CLA_ACTION_FINAL
 # CLA policy jobs handle repository trust decisions and must stay on an
 # ephemeral GitHub-hosted runner. A repository variable could redirect this
 # privileged work to an untrusted self-hosted machine, so the label is an
@@ -45,11 +56,11 @@ CLA_SIGNATURES_PATH_PATTERN = %r{\Asignatures/version[0-9]+(?:\.[0-9]+)?/cla\.js
 # The privileged workflow is an explicit reviewed policy, not an extensible
 # script. Its candidate structure is checked as data, and every policy change
 # requires trusted review without a fragile follow-up hash bump.
-EXPECTED_GUARD_WORKFLOW_DIGEST = "01b3eed13d54db27ed195781dc0f6926a04cb9557de81f50762b532ea14e4440"
+EXPECTED_GUARD_WORKFLOW_DIGEST = "9fa2952791cfd01c5a74ca92640a9e1827fe5c98b7807167856da4381ea124b5"
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "fcd6013a41913c94b82585fafbc98475c173478b1ca3524125fcb37b19fb591a"
+EXPECTED_GUARD_SCRIPT_DIGEST = "cda4c1369aaa53f3d7f78651eff6b8c9d5664d83eac627c00b0a5bb485c26477"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -59,10 +70,38 @@ EXPECTED_GUARD_SCRIPT_DIGEST = "fcd6013a41913c94b82585fafbc98475c173478b1ca35241
 # and the candidate must pass every v3 check below.
 LEGACY_CLA_WORKFLOW_DIGEST = "22f4f8c4b7fb879514a5b072505877843fd94dc32b279f2aceb8fc216adde65f"
 LEGACY_CLA_RERUN_DIGEST = "f4f1fa51bb05b062ebf3f60cc949d8d5b4b501e7849cb065e9a07d7a34030840"
-# Current organization administrators who may approve a trusted control-plane
-# update. IDs are used instead of names, and the review must target the exact
-# PR head. This is the human path for intentional policy maintenance.
-TRUSTED_REVIEWER_IDS = %w[54008264 38676809 67667005].freeze
+LEGACY_CLA_HELPER_PATH = ".github/scripts/rerun-failed-cla.sh".freeze
+# The b4d3 action used a different, reviewed helper and workflow shape. Keep
+# the pair explicit so a digest from one revision cannot be paired with the
+# other.
+LEGACY_B4D3_CLA_WORKFLOW_DIGEST = "e03fa7a1d41eb5d59843807bf3a3bd153f5f7ab343f78e521d1d43cbecc43891"
+LEGACY_B4D3_CLA_REFRESH_DIGEST = "580ea1130f9745be686e428e45aa39c93ad290ca48736330c429e3206d9211ec"
+LEGACY_B4D3_CLA_HELPER_PATH = ".github/scripts/refresh-cla-check.sh".freeze
+# origin/main currently carries the f567 workflow and intentionally has no
+# rerun helper. This is a bounded one-time bridge to the final v3 workflow.
+CURRENT_MAIN_CLA_WORKFLOW_DIGEST = "eb7b2307430453b4b7067fa0b20394b4ead6e9356b9668f1d198be6acb9623e1".freeze
+REVIEWED_CLA_BASES = {
+  CLA_ACTION_LEGACY_REFS.fetch(0) => {
+    workflow_digest: LEGACY_CLA_WORKFLOW_DIGEST,
+    helper_digest: LEGACY_CLA_RERUN_DIGEST,
+    helper_path: LEGACY_CLA_HELPER_PATH
+  }.freeze,
+  CLA_ACTION_LEGACY_REFS.fetch(1) => {
+    workflow_digest: LEGACY_B4D3_CLA_WORKFLOW_DIGEST,
+    helper_digest: LEGACY_B4D3_CLA_REFRESH_DIGEST,
+    helper_path: LEGACY_B4D3_CLA_HELPER_PATH
+  }.freeze,
+  CLA_ACTION_CURRENT_BASE_REF => {
+    workflow_digest: CURRENT_MAIN_CLA_WORKFLOW_DIGEST,
+    helper_digest: nil,
+    helper_path: nil
+  }.freeze
+}.freeze
+# Designated maintainers who may approve a trusted control-plane update. The
+# PR author is deliberately excluded, even when they are an administrator, so
+# the validator cannot turn self-approval into a policy-change bypass. IDs are
+# used instead of names, and the review must target the exact PR head.
+TRUSTED_REVIEWER_IDS = %w[38676809 67667005].freeze
 TRUSTED_REVIEW_STATES = %w[APPROVED COMMENTED CHANGES_REQUESTED DISMISSED PENDING].freeze
 TRUSTED_REVIEW_DECISION_STATES = %w[APPROVED CHANGES_REQUESTED DISMISSED].freeze
 MAX_REVIEW_PAGES = 3
@@ -98,7 +137,8 @@ RESULT_ENV = {
   "GATE_RESULT" => "${{ needs.CLACommentGate.result }}",
   "ADMITTED" => "${{ needs.CLACommentGate.outputs.admitted || '' }}",
   "SIGNER_AUTHORIZED" => "${{ needs.CLACommentGate.outputs.signer_authorized || '' }}",
-  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}"
+  "WRITER_RESULT" => "${{ needs.CLALedgerWriter.result }}",
+  "CLA_PASSED" => "${{ needs.CLALedgerWriter.outputs.cla_passed || '' }}"
 }.freeze
 CLA_COMMENT_BINDING_OUTPUTS = {
   "comment_id" => "${{ steps.signer_preflight.outputs.comment_id }}",
@@ -429,8 +469,19 @@ def collect_latest_trusted_review!(latest, seen_review_ids, review)
   latest[reviewer_id] = [order, review] if previous.nil? || (order <=> previous[0]).positive?
 end
 
-def require_trusted_review!(repository, pr_number, head_sha)
+def trusted_review_approves_head?(review, head_sha, pr_author_id)
+  # The opener cannot provide the independent control-plane approval, even if
+  # the opener is one of the designated maintainers.
+  review["state"] == "APPROVED" &&
+    review["commit_id"] == head_sha &&
+    review.fetch("dismissed_at", nil).nil? &&
+    review.dig("user", "id") != pr_author_id
+end
+
+def require_trusted_review!(repository, pr_number, head_sha, pr_author_id)
   fail!("pull-request head SHA is malformed") unless head_sha.is_a?(String) && head_sha.match?(SHA)
+  fail!("pull-request author ID is malformed") unless
+    pr_author_id.is_a?(Integer) && pr_author_id.positive? && pr_author_id <= MAX_REVIEW_ID
   latest = {}
   seen_review_ids = {}
   1.upto(MAX_REVIEW_PAGES) do |page|
@@ -447,9 +498,7 @@ def require_trusted_review!(repository, pr_number, head_sha)
     fail!("pull-request review history is too large") if page == MAX_REVIEW_PAGES
   end
   approved = latest.values.any? do |_order, review|
-    review["state"] == "APPROVED" &&
-      review["commit_id"] == head_sha &&
-      review.fetch("dismissed_at", nil).nil?
+    trusted_review_approves_head?(review, head_sha, pr_author_id)
   end
   fail!("trusted approval for this control-plane update is required") unless approved
 end
@@ -661,9 +710,134 @@ def run_yaml_regression_matrix!
   puts "PASS: bounded YAML regression matrix (#{cases.length + 1} cases)"
 end
 
+def reviewed_cla_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
+  expected = REVIEWED_CLA_BASES[base_ref]
+  expected &&
+    expected[:workflow_digest] == base_workflow_digest &&
+    expected[:helper_digest] == base_script_digest &&
+    expected[:helper_path] == base_script_path
+end
+
+def legacy_action_base?(base_ref:, base_workflow_digest:, base_script_digest:, base_script_path:)
+  CLA_ACTION_LEGACY_REFS.include?(base_ref) && reviewed_cla_base?(
+    base_ref: base_ref,
+    base_workflow_digest: base_workflow_digest,
+    base_script_digest: base_script_digest,
+    base_script_path: base_script_path
+  )
+end
+
 def legacy_v2_base?(base_workflow_digest:, base_script_digest:)
-  base_workflow_digest == LEGACY_CLA_WORKFLOW_DIGEST &&
-    base_script_digest == LEGACY_CLA_RERUN_DIGEST
+  legacy_action_base?(
+    base_ref: CLA_ACTION_LEGACY_REFS.fetch(0),
+    base_workflow_digest: base_workflow_digest,
+    base_script_digest: base_script_digest,
+    base_script_path: LEGACY_CLA_HELPER_PATH
+  )
+end
+
+def cla_helper_path(action_ref)
+  return REVIEWED_CLA_BASES[action_ref][:helper_path] if REVIEWED_CLA_BASES.key?(action_ref)
+  return LEGACY_CLA_HELPER_PATH if action_ref == CLA_ACTION_FINAL
+
+  nil
+end
+
+def cla_action_reference(raw, name)
+  document = parse_workflow(raw)
+  references = []
+  walk(document) do |key, value|
+    next unless key == "uses" && value.is_a?(String)
+    next unless value.start_with?("manaflow-ai/cla-github-action@")
+
+    references << value
+  end
+  references = references.uniq
+  fail!("#{name} must invoke exactly one maintained CLA action revision") unless references.length == 1
+  references.first
+end
+
+def assert_cla_action_transition!(base_ref:, candidate_ref:, base_workflow_digest:, base_script_digest:, base_script_path:, policy_changed:)
+  fail!("base CLA action reference is not a reviewed immutable revision") unless
+    CLA_ACTION_BASE_REFS.include?(base_ref)
+  fail!("candidate CLA action reference is not a reviewed immutable revision") unless
+    CLA_ACTION_BASE_REFS.include?(candidate_ref)
+
+  if REVIEWED_CLA_BASES.key?(base_ref)
+    fail!("base CLA action is not the exact reviewed workflow/helper pair") unless reviewed_cla_base?(
+      base_ref: base_ref,
+      base_workflow_digest: base_workflow_digest,
+      base_script_digest: base_script_digest,
+      base_script_path: base_script_path
+    )
+  end
+
+  if policy_changed
+    fail!("CLA action policy changes must migrate directly to the final revision") unless candidate_ref == CLA_ACTION_FINAL
+  else
+    fail!("CLA action changed without a policy change") unless candidate_ref == base_ref
+  end
+  true
+end
+
+def run_action_transition_regression_matrix!
+  fc608 = CLA_ACTION_LEGACY_REFS.fetch(0)
+  b4d3 = CLA_ACTION_LEGACY_REFS.fetch(1)
+  current = CLA_ACTION_CURRENT_BASE_REF
+  final = CLA_ACTION_FINAL
+  cases = [
+    ["fc608 no-op", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
+    ["b4d3 no-op", b4d3, b4d3, false, LEGACY_B4D3_CLA_WORKFLOW_DIGEST, LEGACY_B4D3_CLA_REFRESH_DIGEST, LEGACY_B4D3_CLA_HELPER_PATH, true],
+    ["current f567 no-op", current, current, false, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, true],
+    ["current f567 to final", current, final, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, true],
+    ["fc608 to final", fc608, final, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, true],
+    ["b4d3 to final", b4d3, final, true, LEGACY_B4D3_CLA_WORKFLOW_DIGEST, LEGACY_B4D3_CLA_REFRESH_DIGEST, LEGACY_B4D3_CLA_HELPER_PATH, true],
+    ["final policy update", final, final, true, "0" * 64, "1" * 64, LEGACY_CLA_HELPER_PATH, true],
+    ["final no-op", final, final, false, "0" * 64, "1" * 64, LEGACY_CLA_HELPER_PATH, true],
+    ["unknown base", "manaflow-ai/cla-github-action@#{'a' * 40}", final, true, "0" * 64, nil, nil, false],
+    ["unknown candidate", final, "manaflow-ai/cla-github-action@#{'b' * 40}", true, "0" * 64, nil, LEGACY_CLA_HELPER_PATH, false],
+    ["f567 wrong workflow", current, final, true, "0" * 64, nil, nil, false],
+    ["f567 has helper", current, final, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, "1" * 64, LEGACY_CLA_HELPER_PATH, false],
+    ["f567 downgraded", current, fc608, true, CURRENT_MAIN_CLA_WORKFLOW_DIGEST, nil, nil, false],
+    ["fc608 paired with b4d3 bytes", fc608, final, true, LEGACY_B4D3_CLA_WORKFLOW_DIGEST, LEGACY_B4D3_CLA_REFRESH_DIGEST, LEGACY_B4D3_CLA_HELPER_PATH, false],
+    ["b4d3 paired with fc608 bytes", b4d3, final, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, false],
+    ["legacy changed helper", fc608, fc608, false, LEGACY_CLA_WORKFLOW_DIGEST, "1" * 64, LEGACY_CLA_HELPER_PATH, false],
+    ["legacy same ref policy change", fc608, fc608, true, LEGACY_CLA_WORKFLOW_DIGEST, LEGACY_CLA_RERUN_DIGEST, LEGACY_CLA_HELPER_PATH, false]
+  ]
+
+  failures = cases.each_with_object([]) do |(name, base_ref, candidate_ref, policy_changed, workflow_digest, script_digest, helper_path, expected), errors|
+    actual = begin
+      assert_cla_action_transition!(
+        base_ref: base_ref,
+        candidate_ref: candidate_ref,
+        base_workflow_digest: workflow_digest,
+        base_script_digest: script_digest,
+        base_script_path: helper_path,
+        policy_changed: policy_changed
+      )
+      true
+    rescue PolicyError
+      false
+    end
+    errors << "#{name}: expected #{expected}, got #{actual}" unless actual == expected
+  end
+  fail!("CLA action transition regression matrix failed: #{failures.join('; ')}") unless failures.empty?
+
+  fixtures = [fc608, b4d3, current, final].map do |reference|
+    <<~YAML
+      name: fixture
+      on: {}
+      permissions: {}
+      env: {}
+      jobs:
+        cla:
+          steps:
+            - uses: #{reference}
+    YAML
+  end
+  fixture_refs = fixtures.map { |raw| cla_action_reference(raw, "CLA action fixture") }
+  fail!("CLA action reference fixture regression failed") unless fixture_refs == [fc608, b4d3, current, final]
+  puts "PASS: CLA action transition regression matrix (#{cases.length} cases, #{fixtures.length} fixtures)"
 end
 
 def guard_script_digest(raw)
@@ -1685,7 +1859,7 @@ end
 
 def run_trusted_review_regression_matrix!
   head = "a" * 40
-  review = lambda do |id, state, at, commit = head, user = 54008264, dismissed = nil|
+  review = lambda do |id, state, at, commit = head, user = 38676809, dismissed = nil|
     {
       "id" => id,
       "user" => { "id" => user, "type" => "User" },
@@ -1699,14 +1873,14 @@ def run_trusted_review_regression_matrix!
   seen = {}
   collect_latest_trusted_review!(latest, seen, review.call(2, "COMMENTED", "2026-01-02T00:00:00Z"))
   collect_latest_trusted_review!(latest, seen, review.call(1, "APPROVED", "2026-01-01T00:00:00Z"))
-  fail!("trusted review ordering regression failed") unless latest.fetch("54008264")[1]["state"] == "APPROVED"
+  fail!("trusted review ordering regression failed") unless latest.fetch("38676809")[1]["state"] == "APPROVED"
 
   latest = {}
   seen = {}
   timestamp = "2026-01-03T00:00:00Z"
   collect_latest_trusted_review!(latest, seen, review.call(4, "COMMENTED", timestamp))
   collect_latest_trusted_review!(latest, seen, review.call(3, "APPROVED", timestamp))
-  fail!("trusted review ID tie-break regression failed") unless latest.fetch("54008264")[1]["id"] == 3
+  fail!("trusted review ID tie-break regression failed") unless latest.fetch("38676809")[1]["id"] == 3
 
   latest = {}
   seen = {}
@@ -1718,6 +1892,12 @@ def run_trusted_review_regression_matrix!
   seen = {}
   collect_latest_trusted_review!(latest, seen, review.call(10, "APPROVED", "2026-01-05T00:00:00Z", head, 67667005))
   fail!("Aziz trusted review regression failed") unless latest.fetch("67667005")[1]["state"] == "APPROVED"
+
+  self_review = review.call(13, "APPROVED", "2026-01-05T00:00:01Z", head, 38676809)
+  fail!("trusted reviewer self-approval regression failed") if
+    trusted_review_approves_head?(self_review, head, 38676809)
+  fail!("trusted independent approval regression failed") unless
+    trusted_review_approves_head?(self_review, head, 67667005)
 
   latest = {}
   seen = {}
@@ -1747,7 +1927,7 @@ def run_trusted_review_regression_matrix!
     duplicate_failed = true
   end
   fail!("duplicate review regression failed") unless duplicate_failed
-  puts "PASS: trusted review state regression matrix (9 cases)"
+  puts "PASS: trusted review state regression matrix (11 cases)"
 end
 
 def validate_workflow(raw)
@@ -1796,7 +1976,7 @@ def validate_workflow(raw)
     "CLAAssistant" => %w[name needs if runs-on timeout-minutes permissions steps],
     "CLALedgerWriter" => %w[name needs if runs-on timeout-minutes concurrency permissions outputs steps],
     "CLACompatibility" => %w[name needs if runs-on timeout-minutes permissions steps],
-    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes permissions steps],
+    "RerunFailedCLA" => %w[name needs if runs-on timeout-minutes concurrency permissions steps],
     "LockMergedPullRequest" => %w[name if runs-on timeout-minutes concurrency permissions steps]
   }
   [gate, assistant, writer, compatibility, rerun, lock].each_with_index do |value, index|
@@ -1821,7 +2001,8 @@ def validate_workflow(raw)
     }.merge(CLA_COMMENT_BINDING_OUTPUTS)
   fail!("CLALedgerWriter outputs are not the reviewed contract") unless
     writer["outputs"] == {
-      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}"
+      "signature_recorded" => "${{ steps.cla_action.outputs.signature_recorded }}",
+      "cla_passed" => "${{ steps.cla_action.outputs.cla_passed }}"
     }
   fail!("CLA ledger writer must depend on the admission gate") unless dependencies(writer, "CLALedgerWriter").include?("CLACommentGate")
   fail!("CLA ledger writer must not run with always()") if writer["if"].to_s.include?("always()")
@@ -1935,7 +2116,10 @@ def validate_workflow(raw)
     [gate["if"], assistant["if"], compatibility["if"], writer_condition],
     admission_run
   )
-  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?:\n\s*fi)/m]
+  # Stop at the first sibling branch. A non-signing recheck branch may need
+  # opener identity fields, but those fields must not be duplicated inside the
+  # exact signing declaration branch itself.
+  sign_branch = admission_run[/if \[\[ "\$\{COMMENT_BODY\}" == "#{Regexp.escape(CLA_SIGN_PHRASE)}" \]\]; then(.*?)(?=\n\s*(?:elif|fi))/m]
   fail!("CLA signing admission implementation is missing") unless sign_branch&.include?("printf 'admitted=true\\n'")
   fail!("CLA signing admission must not duplicate commit identity mapping") if sign_branch.match?(/COMMENT_AUTHOR_ID|PR_AUTHOR_ID/)
   preflight = step_using_with(gate, CLA_ACTION, "mode", "signer-preflight", "CLACommentGate")
@@ -1956,9 +2140,9 @@ def validate_workflow(raw)
   fail!("CLALedgerWriter permissions are not least-privilege") unless
     writer["permissions"] == { "contents" => "write", "issues" => "write", "pull-requests" => "write" }
   fail!("RerunFailedCLA permissions are not least-privilege") unless
-    rerun["permissions"] == { "actions" => "write", "contents" => "read", "issues" => "read", "pull-requests" => "read" }
+    rerun["permissions"] == { "actions" => "write", "checks" => "read", "contents" => "read", "issues" => "read", "pull-requests" => "read" }
   fail!("LockMergedPullRequest permissions are not least-privilege") unless
-    lock["permissions"] == { "issues" => "write", "pull-requests" => "read" }
+    lock["permissions"] == { "issues" => "write", "pull-requests" => "write" }
 
   action_step = step_using(writer, CLA_ACTION, "CLALedgerWriter")
   with_values = action_step["with"]
@@ -2047,7 +2231,7 @@ def validate_script(raw)
   end
 end
 
-def validate_guard_workflow(raw, authorize: true)
+def validate_guard_workflow(raw, authorize: true, pr_author_id: nil)
   document = parse_workflow(raw)
   digest = workflow_digest(raw)
   fail!("guard workflow name is not the reviewed context") unless document["name"] == GUARD_WORKFLOW_NAME
@@ -2116,16 +2300,20 @@ def validate_guard_workflow(raw, authorize: true)
     fail!("guard workflow uses an unapproved action") unless reference == "actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd"
   end
   if authorize && digest != EXPECTED_GUARD_WORKFLOW_DIGEST
-    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
+    require_trusted_review!(
+      ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"), pr_author_id
+    )
   end
 rescue Psych::Exception
   fail!("guard workflow YAML is invalid")
 end
 
-def validate_guard_script(raw)
+def validate_guard_script(raw, pr_author_id: nil)
   fail!("guard script is missing a Ruby shebang") unless raw.start_with?("#!/usr/bin/env ruby")
   if guard_script_digest(raw) != EXPECTED_GUARD_SCRIPT_DIGEST
-    require_trusted_review!(ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"))
+    require_trusted_review!(
+      ENV.fetch("GH_REPO"), ENV.fetch("PR_NUMBER"), ENV.fetch("HEAD_SHA"), pr_author_id
+    )
   end
   [
     "def parse_workflow",
@@ -2137,6 +2325,7 @@ def validate_guard_script(raw)
     "merge keys",
     "mapping keys must be strings",
     "run_yaml_regression_matrix!",
+    "run_action_transition_regression_matrix!",
     "run_environment_regression_matrix!",
     "run_runner_regression_matrix!",
     "run_comment_binding_regression_matrix!",
@@ -2147,6 +2336,23 @@ def validate_guard_script(raw)
     "ready_for_review",
     "collect_latest_trusted_review!",
     "def workflow_digest",
+    "CLA_ACTION_LEGACY_REFS",
+    "CLA_ACTION_CURRENT_BASE_REF",
+    "CLA_ACTION_BASE_REFS",
+    "CLA_ACTION_FINAL",
+    "REVIEWED_CLA_BASES",
+    "LEGACY_CLA_WORKFLOW_DIGEST",
+    "LEGACY_CLA_RERUN_DIGEST",
+    "LEGACY_B4D3_CLA_WORKFLOW_DIGEST",
+    "LEGACY_B4D3_CLA_REFRESH_DIGEST",
+    "LEGACY_CLA_HELPER_PATH",
+    "LEGACY_B4D3_CLA_HELPER_PATH",
+    "CURRENT_MAIN_CLA_WORKFLOW_DIGEST",
+    "def cla_action_reference",
+    "def assert_cla_action_transition!",
+    "def reviewed_cla_base?",
+    "def legacy_action_base?",
+    "def cla_helper_path",
     "Digest::SHA256.hexdigest(raw)",
     "literal on trigger key",
     "def legacy_v2_base?",
@@ -2208,9 +2414,12 @@ def validate_guard_script(raw)
     "GITHUB_CONTEXT_IN_RUN",
     "TOKEN_ENV_IN_RUN",
     "TRUSTED_REVIEW_STATES",
+    "trusted_review_approves_head?",
+    "pr_author_id",
+    "pull-request author ID is malformed",
     "base_workflow_digest",
     "validate_workflow(head_workflow)",
-    "require_trusted_review!(repository, pr_number, head_sha) if policy_changed",
+    "require_trusted_review!(repository, pr_number, head_sha, pr_author_id) if policy_changed",
     "def validate_workflow",
     "signer-preflight",
     "CLALedgerWriter",
@@ -2234,6 +2443,7 @@ end
 begin
   run_yaml_regression_matrix!
   run_guard_contract_regression_matrix!
+  run_action_transition_regression_matrix!
   run_trusted_cla_regression_matrix!
   run_environment_regression_matrix!
   run_runner_regression_matrix!
@@ -2256,6 +2466,7 @@ begin
   live_head = live_pr["head"]
   live_base_repo = live_base.is_a?(Hash) ? live_base["repo"] : nil
   live_head_repo = live_head.is_a?(Hash) ? live_head["repo"] : nil
+  live_author = live_pr["user"]
   fail!("pull request metadata changed while validating") unless
     live_pr["number"].to_s == pr_number &&
     live_pr["state"] == "open" &&
@@ -2274,21 +2485,45 @@ begin
     !live_head_repo["full_name"].empty? &&
     live_head_repo["id"].is_a?(Integer) &&
     live_head_repo["id"].positive?
+  fail!("pull request author metadata is malformed") unless
+    live_author.is_a?(Hash) && live_author["id"].is_a?(Integer) && live_author["id"].positive?
+  pr_author_id = live_author["id"]
+  head_repository = live_head_repo["full_name"].to_s
+  fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
 
   base_workflow = fetch_file(repository, base_sha, ".github/workflows/cla.yml")
-  head_workflow = fetch_file(repository, head_sha, ".github/workflows/cla.yml")
+  # A fork pull request stores the head commit in the head repository. Fetch
+  # base files from the protected repository and candidate files from the
+  # validated head repository, so normal external contributions are admitted.
+  head_workflow = fetch_file(head_repository, head_sha, ".github/workflows/cla.yml")
   fail!("CLA workflow is missing from the pull-request revision") if head_workflow.nil?
   base_guard_workflow = fetch_file(repository, base_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
-  head_guard_workflow = fetch_file(repository, head_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
+  head_guard_workflow = fetch_file(head_repository, head_sha, ".github/workflows/cla-policy-guard.yml", allow_missing: true)
   base_guard_script = fetch_file(repository, base_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
-  head_guard_script = fetch_file(repository, head_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
+  head_guard_script = fetch_file(head_repository, head_sha, "scripts/ci/validate-cla-policy.rb", allow_missing: true)
   guard_changed = base_guard_workflow != head_guard_workflow || base_guard_script != head_guard_script
 
   base_cla = fetch_file(repository, base_sha, CLA_DOCUMENT_PATH)
-  head_cla = fetch_file(repository, head_sha, CLA_DOCUMENT_PATH)
-  base_script = fetch_file(repository, base_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
-  head_script = fetch_file(repository, head_sha, ".github/scripts/rerun-failed-cla.sh", allow_missing: true)
-  policy_changed = base_workflow != head_workflow || base_script != head_script
+  head_cla = fetch_file(head_repository, head_sha, CLA_DOCUMENT_PATH)
+  base_action_ref = cla_action_reference(base_workflow, "base CLA workflow")
+  head_action_ref = cla_action_reference(head_workflow, "proposed CLA workflow")
+  base_script_path = cla_helper_path(base_action_ref)
+  head_script_path = cla_helper_path(head_action_ref)
+  base_script = base_script_path && fetch_file(repository, base_sha, base_script_path, allow_missing: true)
+  head_script = head_script_path && fetch_file(head_repository, head_sha, head_script_path, allow_missing: true)
+  policy_changed = base_workflow != head_workflow ||
+    base_script_path != head_script_path ||
+    base_script != head_script
+  base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
+  base_script_digest = base_script && Digest::SHA256.hexdigest(base_script)
+  assert_cla_action_transition!(
+    base_ref: base_action_ref,
+    candidate_ref: head_action_ref,
+    base_workflow_digest: base_workflow_digest,
+    base_script_digest: base_script_digest,
+    base_script_path: base_script_path,
+    policy_changed: policy_changed
+  )
   document_changed = Digest::SHA256.hexdigest(base_cla) != Digest::SHA256.hexdigest(head_cla)
   if policy_changed
     fail!("CLA workflow must use the reviewed document version") unless
@@ -2313,8 +2548,8 @@ begin
   if guard_changed
     fail!("guard workflow cannot be deleted") if head_guard_workflow.nil?
     fail!("guard validator cannot be deleted") if head_guard_script.nil?
-    validate_guard_workflow(head_guard_workflow)
-    validate_guard_script(head_guard_script)
+    validate_guard_workflow(head_guard_workflow, pr_author_id: pr_author_id)
+    validate_guard_script(head_guard_script, pr_author_id: pr_author_id)
   end
 
   if base_workflow == head_workflow && base_script == head_script
@@ -2325,46 +2560,34 @@ begin
   if base_script && head_script.nil?
     fail!("the pull-request revision deletes the rerun helper used by the base workflow")
   end
-  if base_workflow == head_workflow && base_script != head_script &&
-      Digest::SHA256.hexdigest(base_workflow.to_s) == LEGACY_CLA_WORKFLOW_DIGEST &&
-      Digest::SHA256.hexdigest(base_script.to_s) == LEGACY_CLA_RERUN_DIGEST
-    fail!("the legacy v2 CLA workflow must migrate to v3 before its helper changes")
-  end
   if base_workflow == head_workflow &&
-      !legacy_v2_base?(
-        base_workflow_digest: Digest::SHA256.hexdigest(base_workflow),
-        base_script_digest: Digest::SHA256.hexdigest(base_script.to_s)
+      !reviewed_cla_base?(
+        base_ref: base_action_ref,
+        base_workflow_digest: base_workflow_digest,
+        base_script_digest: base_script_digest,
+        base_script_path: base_script_path
       )
     # A guard-only change still has to prove that the policy already running
-    # on main is a reviewed v3 policy. The exact legacy v2 pair is the one
-    # intentional bridge: it is immutable base state and is allowed only
-    # until the separate v3 migration PR lands.
+    # on main is a reviewed v3 policy. Reviewed legacy/current bases are
+    # immutable transition states and are handled by the action contract above.
     validate_workflow(head_workflow)
   end
   if base_workflow != head_workflow
-    fail!("CLA rerun helper is missing from the changed workflow revision") if head_script.nil?
-    base_document = parse_workflow(base_workflow)
-    base_workflow_digest = Digest::SHA256.hexdigest(base_workflow)
-    base_script_digest = Digest::SHA256.hexdigest(base_script.to_s)
-    if base_document["name"] == "CLA Assistant v2" && !legacy_v2_base?(
-      base_workflow_digest: base_workflow_digest,
-      base_script_digest: base_script_digest
-    )
-      fail!("the legacy v2 CLA base is not the exact reviewed transition state")
-    end
+    fail!("CLA helper is missing from the changed workflow revision") if head_script.nil?
+    parse_workflow(base_workflow)
     validate_workflow(head_workflow)
   end
   validate_script(head_script) unless head_script.nil?
   # Policy changes always need a current, exact-head trusted approval. The
   # legacy digest bridge only identifies the permitted v2 base bytes. It never
   # skips this review or any strict v3 candidate validation.
-  require_trusted_review!(repository, pr_number, head_sha) if policy_changed
+  require_trusted_review!(repository, pr_number, head_sha, pr_author_id) if policy_changed
 
   candidate_dir = ENV["CANDIDATE_DIR"].to_s
   unless candidate_dir.empty?
     FileUtils.mkdir_p(candidate_dir)
     File.binwrite(File.join(candidate_dir, "cla.yml"), head_workflow) if head_workflow
-    File.binwrite(File.join(candidate_dir, "rerun-failed-cla.sh"), head_script) if head_script
+    File.binwrite(File.join(candidate_dir, File.basename(head_script_path)), head_script) if head_script
   end
   puts "PASS: base-controlled CLA policy validation for #{head_sha}"
 rescue PolicyError

@@ -8,15 +8,16 @@ Event lines are JSON objects with an `event` string and no response envelope.
 
 The schema notation and `Id`, `Workspace`, `Screen`, `Pane`, and `Tab` types come from [`commands.md`](commands.md#notation). `Cursor`, `Row`, and `Run` come from [`render.md`](render.md#shared-render-types).
 
-Implemented event lines can appear on two stream types:
+Implemented event lines can appear on subscribe, attach, or control lifecycle streams:
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `terminal-registry-changed`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `bell`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
+| Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -25,6 +26,8 @@ Events and command responses share one full-duplex connection. Each event or res
 Every entity-scoped event carries its subject id in the field named below. Tree deltas also carry every parent id needed to place the entity. Legacy session-wide events have no numeric entity subject; the table marks them `session` rather than inventing an id and changing their v5/v6 payloads.
 
 Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas belong only to a subscription that selected `tree_events:"deltas"`; `tree-changed` belongs to the default `"coarse"` subscription and may also appear on a delta subscription as a resync fallback. The tree-event selection does not affect other subscribe events. Attach events belong to the attachment selected by `attach-surface`; their `surface` field permits multiple attachments on one connection. `notification` and `scroll-changed` can appear on subscribe and selected attach streams. Consumers must tolerate those duplicated routes. Protocol v10 has no public stream id or cancellation command, so a connection must use at most one subscription and one attachment per surface when event origin must be unambiguous.
+
+Control lifecycle notices are sent on the authenticated control queue. They do not require a `subscribe` registration and are ordered after the command response that caused them.
 
 | Event | Stream | Subject field | Since/compatibility |
 | --- | --- | --- | --- |
@@ -50,7 +53,9 @@ Subscribe events belong to the `subscribe` registration. Tree lifecycle deltas b
 | `bell` | subscribe | `surface` | protocol 5 |
 | `notification` | subscribe, byte attach, browser attach | `notification` | protocol 6; optional related `surface` |
 | `config-reload-requested` | subscribe | session | protocol 6 |
+| `daemon-shutdown` | control | session | protocol 12; sent after the successful `shutdown-daemon` or `session.shutdown` response |
 | `window-title-requested` | subscribe | session | protocol 6 |
+| `machine-usage-changed` | subscribe | session | protocol 12 additive extension; capability `machine-usage-v1` |
 | `client-attached` | subscribe | `client` | protocol 6 |
 | `client-changed` | subscribe | `client` | protocol 6 |
 | `client-detached` | subscribe | `client` | protocol 6 |
@@ -138,7 +143,12 @@ Payload:
 object{event:"client-attached",client:uint64,transport:"unix"|"ws",name:string|null,kind:string|null}
 ```
 
-Meaning: A control connection attached its first surface. A connection that never calls `attach-surface` does not emit this event, and later surfaces on the same connection do not emit it again. Use `list-clients` for the attached surface set and sizes.
+Meaning: The server emits this once when the control connection commits its
+first attach stream, whether it comes from the legacy `attach-surface` command
+or a resource `terminal.attach` or `browser.attach` operation. A connection
+with no committed attachment does not emit it, and later streams or surfaces
+on the same connection do not emit it again. Use `list-clients` for the
+authoritative attached-surface set and reported sizes.
 
 Example:
 
@@ -182,7 +192,9 @@ Payload:
 object{event:"client-detached",client:uint64}
 ```
 
-Meaning: A control connection disconnected naturally or was ended by `detach-client`. This is emitted even if the connection never attached a surface.
+Meaning: The server emits this once when it removes a control connection,
+whether the connection ended naturally or through `detach-client`. It is
+emitted even when the connection never attached a surface.
 
 Example:
 
@@ -744,6 +756,28 @@ Example:
 {"event":"window-title-requested","title":"hello"}
 ```
 
+### machine-usage-changed
+
+| Field | Value |
+| --- | --- |
+| event | `machine-usage-changed` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-usage-v1` |
+
+Payload:
+
+```text
+object{event:"machine-usage-changed",usage:MachineUsage|null}
+```
+
+Meaning: The daemon's machine-level model spend readout changed. `usage` carries the same object `machine-usage` returns; null means the readout became unavailable and frontends must hide it. Emitted only when the value differs from the previous one, so a steady poll is silent.
+
+Example:
+
+```json
+{"event":"machine-usage-changed","usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}
+```
+
 ### empty
 
 | Field | Value |
@@ -764,6 +798,33 @@ Example:
 
 ```json
 {"event":"empty"}
+```
+
+## Control Events
+
+### daemon-shutdown
+
+| Field | Value |
+| --- | --- |
+| event | `daemon-shutdown` |
+| status | implemented control lifecycle event |
+| since | protocol 12 |
+
+Payload:
+
+```text
+object{event:"daemon-shutdown"}
+```
+
+Meaning: Sent on the control queue to every live control client after the
+`shutdown-daemon` or `session.shutdown` success response is flushed. It is sent even when the
+requesting client did not open a subscription. Clients should classify the
+following EOF and pending requests as expected daemon shutdown.
+
+Example:
+
+```json
+{"event":"daemon-shutdown"}
 ```
 
 ## Attach Events

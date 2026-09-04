@@ -41,7 +41,7 @@ struct AuthEnvironmentTests {
     @Test("explicit Stack values override the selected auth channel")
     func explicitStackValuesOverrideSelectedAuthChannel() {
         let environment = [
-            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_AUTH_ENVIRONMENT": "development",
             "CMUX_STACK_PROJECT_ID": "test-project",
             "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "test-key",
         ]
@@ -82,6 +82,61 @@ struct AuthEnvironmentTests {
             environment: ["CMUX_IROH_BROKER_BASE_URL": ":// malformed"],
             isDebugBuild: true
         ) == nil)
+    }
+
+    @Test("production auth cannot be redirected to a staging Iroh broker")
+    func productionAuthCannotBeRedirectedToStagingIrohBroker() {
+        let staging = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                "CMUX_IROH_BROKER_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: true
+        )
+        #expect(staging?.absoluteString == "https://cmux.com")
+
+        let release = AuthEnvironment.resolvedIrohBrokerBaseURL(
+            environment: [
+                "CMUX_IROH_BROKER_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: false
+        )
+        #expect(release?.absoluteString == "https://cmux.com")
+    }
+
+    @Test("production auth pins the authenticated API origin")
+    func productionAuthPinsAuthenticatedAPIOrigin() {
+        let debugProduction = AuthEnvironment.resolvedAPIBaseURL(
+            environment: [
+                "CMUX_AUTH_ENVIRONMENT": "production",
+                "CMUX_API_BASE_URL": "https://cmux-staging.vercel.app",
+            ],
+            isDebugBuild: true
+        )
+        #expect(debugProduction.absoluteString == "https://cmux.com")
+
+        let release = AuthEnvironment.resolvedAPIBaseURL(
+            environment: ["CMUX_API_BASE_URL": "https://cmux-staging.vercel.app"],
+            isDebugBuild: false
+        )
+        #expect(release.absoluteString == "https://cmux.com")
+    }
+
+    @Test("production auth pins Stack project and client key")
+    func productionAuthPinsStackCredentials() {
+        let environment = [
+            "CMUX_AUTH_ENVIRONMENT": "production",
+            "CMUX_STACK_PROJECT_ID": "staging-project",
+            "CMUX_STACK_PUBLISHABLE_CLIENT_KEY": "staging-key",
+        ]
+        #expect(AuthEnvironment.resolvedStackProjectID(
+            environment: environment,
+            isDebugBuild: true
+        ) == "9790718f-14cd-4f7e-824d-eaf527a82b82")
+        #expect(AuthEnvironment.resolvedStackPublishableClientKey(
+            environment: environment,
+            isDebugBuild: true
+        ) == "pck_kzj80gx4mh2jrzn1cx6y5e8jk0kwa01vkevh2p9zd4twr")
     }
 
     @Test("device registry publishes to shared staging in debug so dev phones read fresh routes")
@@ -436,6 +491,42 @@ struct AuthEnvironmentTests {
             isDebugBuild: true
         )
         #expect(debugLoopback.absoluteString == "http://localhost:4347")
+    }
+
+    @Test("debug app session handoff accepts the tagged Tailscale Serve origin")
+    func debugAppSessionHandoffAcceptsTaggedTailscaleOrigin() {
+        let environment = [
+            "CMUX_WWW_ORIGIN": "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+            "CMUX_DEV_BACKEND_TRANSPORT": "direct",
+            "CMUX_DEV_BACKEND_TAILSCALE_HOST": "cmux-dev-backend-1.tail137216.ts.net",
+        ]
+        let origin = AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: environment,
+            isDebugBuild: true
+        )
+        #expect(origin.absoluteString == environment["CMUX_WWW_ORIGIN"])
+    }
+
+    @Test("debug app session handoff rejects an untrusted Tailscale host or port")
+    func debugAppSessionHandoffRejectsUntrustedTailscaleHostOrPort() {
+        let baseEnvironment = [
+            "CMUX_WWW_ORIGIN": "https://cmux-dev-backend-1.tail137216.ts.net:3916/",
+            "CMUX_DEV_BACKEND_TRANSPORT": "direct",
+            "CMUX_DEV_BACKEND_TAILSCALE_HOST": "cmux-dev-backend-1.tail137216.ts.net",
+        ]
+        var wrongHost = baseEnvironment
+        wrongHost["CMUX_WWW_ORIGIN"] = "https://other.tail137216.ts.net:3916/"
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: wrongHost,
+            isDebugBuild: true
+        ).absoluteString == "https://cmux.com")
+
+        var wrongPort = baseEnvironment
+        wrongPort["CMUX_WWW_ORIGIN"] = "https://cmux-dev-backend-1.tail137216.ts.net:8443/"
+        #expect(AuthEnvironment.resolvedAppSessionHandoffOrigin(
+            environment: wrongPort,
+            isDebugBuild: true
+        ).absoluteString == "https://cmux.com")
     }
 
     @Test("Pro upgrade workspace reuse keeps a live tracked workspace")

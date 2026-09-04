@@ -12,7 +12,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `466f85867`, reachable from fork `main`.
+The submodule pinned by this branch is `abd40f6e4`, reachable from fork
+`main` after Ghostty PR #211 was merged.
 It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
 fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
 either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
@@ -20,9 +21,31 @@ changes below, including tokened iOS render dispositions, VT formatter cursor
 restoration, VT stream-boundary visibility, and Hangul canonical font
 resolution.
 
+### Repeated word-selection drag anchor
+
+- Pull request:
+  - https://github.com/manaflow-ai/ghostty/pull/211
+- Commits:
+  - `aa2fb7d9e` (test: anchor repeated selection at second click)
+  - `fb90d3515` (fix: anchor repeated word selection at latest click)
+  - `3f33233aa` (docs: describe repeated selection anchor)
+- File:
+  - `src/terminal/SelectionGesture.zig`
+- Summary:
+  - Moves the tracked pin and surface coordinates to every accepted repeated
+    press, so a double-click drag starts at the word under the second click.
+  - Measures the next repeat distance from the preceding press, matching the
+    moving anchor and preserving chained double/triple clicks.
+  - Adds behavior tests for the moved double-click anchor and chained repeat
+    distance.
+- Conflict note:
+  - Preserve the latest-press anchor when integrating upstream selection
+    changes. A repeat that selects the new word but drags from an older pin
+    regresses the visible selection and the next repeat's distance check.
+
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
-with SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
 pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
