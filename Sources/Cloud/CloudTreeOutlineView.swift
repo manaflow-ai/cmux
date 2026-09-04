@@ -451,8 +451,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
-            case .port(let resource, _):
-                nodeActions.project(resource.id, .split, true)
+            case .port(let resource, _, let openIn):
+                if let openIn {
+                    nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                } else {
+                    nodeActions.project(resource.id, .split, true)
+                }
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
             case .placeholder(let machineID, let placeholder):
@@ -623,8 +627,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
             case .display(let resource, let openIn):
                 return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn)
-            case .port(let resource, let url):
-                return resourceMenuItems(resource, isLocal: false, portURL: url)
+            case .port(let resource, let url, let openIn):
+                return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn, portURL: url)
             case .browsersGroup, .portsGroup:
                 return [
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },

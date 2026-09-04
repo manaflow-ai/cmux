@@ -52,7 +52,11 @@ final class CloudTreeNode: NSObject {
         /// raw address, never the `.internal` name: that name only resolves
         /// once `cmux vpn hosts` has synced `/etc/hosts`, so a link built from
         /// it would work only sometimes.
-        case port(SurfaceResource, url: String?)
+        /// `openIn` is the local workspace already showing the owning remote
+        /// workspace, when this is a workspace pointer rather than the machine
+        /// pool row. Keeping it on the node prevents a click from consulting
+        /// the globally selected workspace after a refresh.
+        case port(SurfaceResource, url: String?, openIn: UUID?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)
     }
@@ -123,7 +127,7 @@ final class CloudTreeNode: NSObject {
         case .localWorkspace: return .local
         case .terminal(let row): return row.resource.machine
         case .display(let resource, _): return resource.machine
-        case .port(let resource, _): return resource.machine
+        case .port(let resource, _, _): return resource.machine
         case .browser(let row): return row.resource.machine
         }
     }
@@ -151,7 +155,7 @@ final class CloudTreeNode: NSObject {
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
-        case .port(let resource, let url):
+        case .port(let resource, let url, _):
             return url ?? (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
         }
@@ -180,7 +184,7 @@ final class CloudTreeNode: NSObject {
         switch kind {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
-        case .display(let resource, _), .port(let resource, _): return resource
+        case .display(let resource, _), .port(let resource, _, _): return resource
         case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
             return nil
         }
@@ -539,6 +543,10 @@ enum CloudTreeNodeBuilder {
                                 machine: machine,
                                 info: info,
                                 port: $0.id.forwardedPort ?? $0.port
+                            ),
+                            openIn: localWorkspaceShowing(
+                                [$0.id],
+                                projectionIndex: projectionsByResource
                             )
                         )
                     )
@@ -621,7 +629,8 @@ enum CloudTreeNodeBuilder {
                                     machine: machine,
                                     info: info,
                                     port: browser.id.forwardedPort ?? browser.port
-                                )
+                                ),
+                                openIn: openInLocal
                             )
                         )
                     }

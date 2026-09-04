@@ -119,7 +119,7 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
-        case .port(let resource, let url):
+        case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",

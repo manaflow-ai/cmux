@@ -138,13 +138,24 @@ struct CloudTreeNodeActions {
             },
             projectInLocalWorkspace: { resource, workspaceID in
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(
-                        resource,
-                        into: .workspace(id: workspaceID, placement: .split),
-                        focus: true,
-                        reuseExisting: true,
-                        reuseInWorkspace: workspaceID
-                    )
+                    if let port = resource.forwardedPort {
+                        _ = try await catalog.openCloudPort(
+                            machine: resource.machine,
+                            port: port,
+                            into: .workspace(id: workspaceID, placement: .split),
+                            focus: true,
+                            reuseExisting: true,
+                            reuseInWorkspace: workspaceID
+                        )
+                    } else {
+                        _ = try await catalog.project(
+                            resource,
+                            into: .workspace(id: workspaceID, placement: .split),
+                            focus: true,
+                            reuseExisting: true,
+                            reuseInWorkspace: workspaceID
+                        )
+                    }
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
