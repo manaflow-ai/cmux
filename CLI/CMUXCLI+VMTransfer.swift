@@ -796,10 +796,20 @@ extension CMUXCLI {
 
     static let vmRunBindingTTLSeconds = 14 * 24 * 3600
 
+    /// The home the router keeps its state under. `$HOME` first: NSHomeDirectory()
+    /// resolves through Core Foundation (CFFIXED_USER_HOME, then the passwd entry)
+    /// and ignores a HOME override, so tests and other redirected runs would write
+    /// the user's real `~/.cmuxterm` instead of their own.
+    static func vmRunStateHomeDirectory() -> String {
+        if let home = ProcessInfo.processInfo.environment["HOME"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !home.isEmpty {
+            return home
+        }
+        return NSHomeDirectory()
+    }
+
     static func vmRunBindingsStoreURL() -> URL {
-        // NSHomeDirectory honors $HOME, so tests (and other redirected runs)
-        // get an isolated binding store instead of writing the user's.
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-run-bindings.json", isDirectory: false)
     }
@@ -839,7 +849,7 @@ extension CMUXCLI {
     }
 
     static func vmRunPoolStoreURL() -> URL {
-        URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+        URL(fileURLWithPath: vmRunStateHomeDirectory(), isDirectory: true)
             .appendingPathComponent(".cmuxterm", isDirectory: true)
             .appendingPathComponent("vm-run-pool.json", isDirectory: false)
     }
@@ -921,18 +931,27 @@ extension CMUXCLI {
         var busy: [(id: String, cpu: Double)] = []
 
         if !forceNew {
+            // Read the pool before listing: every id in this snapshot was recorded
+            // before `vm.list` answered, so one that the list does not carry is
+            // genuinely gone. An id another `vm run` records after this point is
+            // never in `poolIDs`, so the prune below cannot touch it.
+            let poolIDs = Self.loadVMRunPool()
             let listResponse = try client.sendV2(method: "vm.list", responseTimeout: 60)
             let vms = (listResponse["vms"] as? [[String: Any]]) ?? []
-            let poolIDs = Self.loadVMRunPool()
             // Forget pool ids whose machines are gone (deleted by the user), so the
             // store cannot grow stale or accidentally match a recycled id later.
             let liveIDs = Set(vms.compactMap { $0["id"] as? String })
-            let prunedPoolIDs = poolIDs.intersection(liveIDs)
-            if prunedPoolIDs != poolIDs {
-                // Only drop ids that are gone; a concurrent create may have added
-                // one between our load and this write.
-                try Self.updateVMRunPool { machines in machines.formIntersection(liveIDs) }
+            let staleIDs = poolIDs.subtracting(liveIDs)
+            if !staleIDs.isEmpty {
+                // Subtract only the ids this snapshot saw as gone. Intersecting the
+                // locked set with `liveIDs` would also drop a machine another `vm run`
+                // recorded after the list was taken but before this lock was held.
+                try Self.updateVMRunPool { machines in machines.subtract(staleIDs) }
             }
+            // Re-read after the prune so a machine another `vm run` recorded between
+            // the first load and `vm.list` (and that the list carries) is eligible now
+            // instead of pushing this run toward a needless provision.
+            let prunedPoolIDs = Self.loadVMRunPool().intersection(liveIDs)
             let pool = vms.filter { vm in
                 guard let id = vm["id"] as? String else { return false }
                 let status = ((vm["status"] as? String) ?? "").lowercased()
@@ -1013,7 +1032,9 @@ extension CMUXCLI {
         do {
             try Self.updateVMRunPool { machines in machines.insert(id) }
         } catch {
-            throw CLIError(message: "vm run: provisioned \(id) but could not record it in the pool store (\(error)). Use `cmux vm run --machine \(id)` or `cmux vm rm \(id)`.")
+            // Product-level copy only: the underlying failure names a local lock path
+            // and raw OS text, which do not belong in user-facing output.
+            throw CLIError(message: "vm run: provisioned \(id) but could not record it in the pool store, so later runs will not reuse it. Use `cmux vm run --machine \(id)` to keep using it or `cmux vm rm \(id)` to remove it.")
         }
         // The label is cosmetic (membership is already recorded), but without it
         // the machine is not recognizable as pool in `vm ls`, so say so.

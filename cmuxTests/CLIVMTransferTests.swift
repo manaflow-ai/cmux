@@ -358,6 +358,88 @@ extension CLINotifyProcessIntegrationRegressionTests {
         )
     }
 
+    /// Pruning a pool id whose machine is gone must not also drop an id that a
+    /// concurrent `vm run` recorded after this process took its `vm.list`
+    /// snapshot. The mock plays the other process: while answering `vm.list` it
+    /// records `pool-2` in the store, and the list it returns predates that machine.
+    func testVMRunPrunePreservesMachineRecordedAfterListSnapshot() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = makeSocketPath("vm-run-prune-race")
+        let listenerFD = try bindUnixSocket(at: socketPath)
+        let state = MockSocketServerState()
+
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let isolatedHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vm-run-home-\(UUID().uuidString.prefix(8))")
+        try FileManager.default.createDirectory(
+            at: isolatedHome.appendingPathComponent(".cmuxterm"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: isolatedHome) }
+        let poolStore = isolatedHome.appendingPathComponent(".cmuxterm/vm-run-pool.json")
+        // pool-1 is alive; gone-1 was deleted by the user and must be pruned.
+        try Self.writeJSON(["machines": ["gone-1", "pool-1"]], to: poolStore)
+
+        let serverHandled = startMockServer(listenerFD: listenerFD, state: state) { line in
+            if line.hasPrefix("auth ") { return "OK" }
+            guard let request = self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return self.malformedRequestResponse(raw: line)
+            }
+            switch method {
+            case "vm.list":
+                // The concurrent router finished provisioning pool-2 and recorded it
+                // while this list was in flight; the list itself does not carry it yet.
+                try? Self.writeJSON(["machines": ["gone-1", "pool-1", "pool-2"]], to: poolStore)
+                return self.v2Response(id: id, ok: true, result: [
+                    "vms": [
+                        ["id": "pool-1", "displayName": "agent-pool", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
+                        ["id": "user-vm", "displayName": "my precious", "status": "running", "provider": "blaxel", "image": "blaxel/base-image:latest"],
+                    ],
+                ])
+            case "vm.stats":
+                return self.v2Response(id: id, ok: true, result: ["id": "pool-1", "state": "awake", "cpu_percent": 4.0])
+            case "vm.exec":
+                return self.vmExecOKResponse(id: id, stdout: "routed\n")
+            default:
+                return self.v2Response(id: id, ok: false, error: ["code": "unexpected", "message": "Unexpected method \(method)"])
+            }
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        environment["HOME"] = isolatedHome.path
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["vm", "run", "--", "echo", "routed"],
+            environment: environment,
+            timeout: 30
+        )
+
+        wait(for: [serverHandled], timeout: 30)
+        XCTAssertFalse(result.timedOut, result.stderr)
+        XCTAssertEqual(result.status, 0, "stdout=\(result.stdout) stderr=\(result.stderr)")
+        XCTAssertFalse(
+            state.snapshot().contains { $0.contains(#""method":"vm.create""#) },
+            "pool-1 is idle; nothing should be provisioned"
+        )
+        let poolData = try Data(contentsOf: poolStore)
+        let pool = try JSONSerialization.jsonObject(with: poolData) as? [String: Any]
+        let machines = Set((pool?["machines"] as? [String]) ?? [])
+        XCTAssertEqual(
+            machines,
+            ["pool-1", "pool-2"],
+            "prune must drop only the id the snapshot saw as gone and keep the concurrently recorded one: \(machines)"
+        )
+    }
+
     func testVMRunProvisionsPoolMachineWhenPoolEmpty() throws {
         let cliPath = try bundledCLIPath()
         let socketPath = makeSocketPath("vm-run-create")

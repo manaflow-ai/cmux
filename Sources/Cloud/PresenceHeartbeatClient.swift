@@ -107,7 +107,7 @@ final class PresenceHeartbeatClient {
     /// Resolved service base URL: env override first (dev/tagged builds), then
     /// the defaults key, then the Debug-build dev-instance default. Nil
     /// disables the client entirely.
-    static func resolvedServiceURL(
+    nonisolated static func resolvedServiceURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         defaults: UserDefaults = .standard
     ) -> URL? {
