@@ -40,6 +40,7 @@ const EDGE_RULE: VmEdgeRule = {
 // platform. `probeExit` is what the edge readiness probe returns.
 function fakeFreestyle(input: { readonly probeExit: number }) {
   const creates: unknown[] = [];
+  const resizes: unknown[] = [];
   const execs: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
@@ -60,7 +61,9 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
     data: async () => ({ publicIpv6: "2602:f75c:0:1::2a" }),
     // Every VM boots at its snapshot's resources; create grows it to the plan
     // machine before bootstrap (see growToRequestedSize).
-    resize: async () => {},
+    resize: async (options: unknown) => {
+      resizes.push(options);
+    },
   };
   const client = {
     vms: {
@@ -72,7 +75,7 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
       ref: () => vm,
     },
   } as unknown as Freestyle;
-  return { client, creates, execs, writes, deletes };
+  return { client, creates, resizes, execs, writes, deletes };
 }
 
 function providerWith(fake: ReturnType<typeof fakeFreestyle>): FreestyleProvider {
@@ -325,6 +328,16 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.creates[0]).not.toHaveProperty("tls");
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.writes).toEqual([]);
+  });
+
+  test("grows a 4 GB image to the documented 32 GB starting disk", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({
+      image: "sh-devbox-4gb",
+      imageSize: { name: "sm", cpu: 1, memoryMb: 4096, storageMb: 16384 },
+    });
+
+    expect(fake.resizes).toEqual([{ storage: 32768 }]);
   });
 
 

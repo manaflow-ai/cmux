@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 
 import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingGateway";
-import { VmLimitExceededError } from "../services/vms/errors";
+import { VmLimitExceededError, VmSharedResourceLimitExceededError } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
 import { createVm, reconcileVmProviderStatuses } from "../services/vms/workflows";
@@ -279,6 +279,178 @@ describe("lazy active-limit provider refresh", () => {
     expect(observedIds).toContain("provider-vm-stale-freestyle");
     expect(observedIds).toHaveLength(200);
     expect(new Set(observed.map((u) => u.status))).toEqual(new Set(["destroyed"]));
+  });
+
+  test("repairs scoped legacy resource claims before retrying a shared-pool create", async () => {
+    const requested = row({
+      id: "00000000-0000-4000-8000-000000000109",
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const legacy = row({
+      id: "00000000-0000-4000-8000-000000000110",
+      status: "running",
+      providerVmId: "provider-vm-legacy-resource-repair",
+      providerMetadata: {},
+    });
+    let beginCalls = 0;
+    let candidateInput: { userId?: string; billingTeamId?: string | null; limit: number } | undefined;
+    let statsCalls = 0;
+    const reservations: unknown[] = [];
+    const repo = {
+      beginCreate: () => {
+        beginCalls += 1;
+        return beginCalls === 1
+          ? Effect.fail(new VmSharedResourceLimitExceededError({
+            kind: "shared_resources",
+            billingTeamId: requested.billingTeamId!,
+            phase: "create",
+            resource: "diskMb",
+            used: 200 * 1024,
+            requested: 32 * 1024,
+            limit: 200 * 1024,
+          }))
+          : Effect.succeed({ inserted: true, vm: requested });
+      },
+      legacyResourceReservationCandidates: (input: typeof candidateInput) => Effect.sync(() => {
+        candidateInput = input;
+        return [legacy];
+      }),
+      setResourceReservation: (input: unknown) => Effect.sync(() => {
+        reservations.push(input);
+        return true;
+      }),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" as const }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      markCreateRunning: () => Effect.succeed({
+        ...requested,
+        status: "running" as const,
+        providerVmId: "provider-vm-new-after-repair",
+      }),
+      markCreateFailed: () => Effect.void,
+      recordUsageEvent: () => Effect.void,
+      recordUsageEvents: () => Effect.void,
+    } as unknown as VmRepositoryShape;
+    const providers = {
+      create: () => Effect.succeed({
+        provider: "freestyle" as const,
+        providerVmId: "provider-vm-new-after-repair",
+        status: "running" as const,
+        image: "snapshot-test",
+        createdAt: FIXTURE_NOW.getTime(),
+      }),
+      destroy: () => Effect.void,
+      getStats: (_provider: string, providerVmId: string) => {
+        expect(providerVmId).toBe(legacy.providerVmId);
+        statsCalls += 1;
+        return Effect.succeed({
+          state: "awake" as const,
+          sampledAt: FIXTURE_NOW.getTime(),
+          cpus: 2,
+          memoryTotalMb: 8192,
+          diskTotalMb: 65536,
+        });
+      },
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+    } as unknown as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      createVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: "snapshot-test",
+      }).pipe(Effect.provide(Layer.mergeAll(
+        Layer.succeed(VmRepository, repo),
+        Layer.succeed(VmProviderGateway, providers),
+        Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+      ))),
+    );
+
+    expect(beginCalls).toBe(2);
+    expect(candidateInput).toEqual({
+      userId: requested.userId,
+      billingTeamId: requested.billingTeamId,
+      limit: 50,
+    });
+    expect(statsCalls).toBe(1);
+    expect(reservations).toEqual([{
+      id: legacy.id,
+      reservation: { vcpus: 2, memoryMb: 8192, diskMb: 65536 },
+    }]);
+  });
+
+  test("returns an impossible shared-pool request without a provider refresh", async () => {
+    let beginCalls = 0;
+    let statusCalls = 0;
+    let candidateCalls = 0;
+    const requested = row({ status: "provisioning", providerVmId: null });
+    const repo = {
+      beginCreate: () => {
+        beginCalls += 1;
+        return Effect.fail(new VmSharedResourceLimitExceededError({
+          kind: "shared_resources",
+          billingTeamId: requested.billingTeamId!,
+          phase: "create",
+          resource: "memoryMb",
+          used: 0,
+          requested: 24 * 1024,
+          limit: 20 * 1024,
+        }));
+      },
+      activeLimitCandidates: () => Effect.sync(() => {
+        statusCalls += 1;
+        return [];
+      }),
+      legacyResourceReservationCandidates: () => Effect.sync(() => {
+        candidateCalls += 1;
+        return [];
+      }),
+    } as unknown as VmRepositoryShape;
+    const providers = {
+      getStatus: () => Effect.sync(() => {
+        statusCalls += 1;
+        return "running" as const;
+      }),
+      getStats: () => Effect.sync(() => {
+        statusCalls += 1;
+        return { state: "awake" as const, sampledAt: FIXTURE_NOW.getTime(), diskTotalMb: 65536 };
+      }),
+    } as unknown as VmProviderGatewayShape;
+
+    const result = await Effect.runPromise(
+      createVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: "snapshot-test",
+      }).pipe(
+        Effect.provide(Layer.mergeAll(
+          Layer.succeed(VmRepository, repo),
+          Layer.succeed(VmProviderGateway, providers),
+          Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+        )),
+        Effect.flip,
+      ),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "VmSharedResourceLimitExceededError",
+      requested: 24 * 1024,
+      limit: 20 * 1024,
+    });
+    expect(beginCalls).toBe(1);
+    expect(statusCalls).toBe(0);
+    expect(candidateCalls).toBe(0);
   });
 });
 

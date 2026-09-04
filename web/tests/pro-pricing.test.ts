@@ -203,6 +203,12 @@ describe("pricing copy matches the plan policy", () => {
     })).toEqual({ vcpus: 8, memoryMb: 32768, diskMb: 65536 });
   });
 
+  test("a 4 GB image still reserves the documented 32 GB starting disk", () => {
+    expect(vmResourceReservationForCreate({
+      imageSize: { cpu: 1, memoryMb: 4096, storageMb: 16384 },
+    })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: VM_DISK_MB_DEFAULT });
+  });
+
   for (const [
     locale,
     messages,
