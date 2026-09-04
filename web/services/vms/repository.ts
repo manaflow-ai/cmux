@@ -1815,7 +1815,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           providerMetadata: sql`jsonb_set(
             coalesce(${cloudVms.providerMetadata}, '{}'::jsonb),
             '{cmuxResourceReservation,diskMb}',
-            to_jsonb(${diskMb}),
+            to_jsonb(${diskMb}::integer),
             true
           )`,
           updatedAt: new Date(),
