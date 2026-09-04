@@ -112,8 +112,11 @@ public actor MobileIrxRuntimeComposition {
     private var enginesByPeer: [String: IrxPeerEngine] = [:]
     /// Route material per peer, refreshed on every transport request.
     private var routesByPeer: [String: (relayURL: String?, directAddresses: [String])] = [:]
-    /// The control lane is single-consumer: one claim per admitted session.
-    private var claimedControlSessions: Set<String> = []
+    /// The control lane is single-consumer: one live transport owner per
+    /// admitted session. A second RPC client must not force a QUIC replacement
+    /// just to obtain the same lane, because foreground recovery and secondary
+    /// aggregation can overlap briefly.
+    private var controlLaneClaims = MobileIrxControlLaneClaims()
     /// The events uni-lane accept is single-consumer per session too.
     private var claimedEventSessions: Set<String> = []
 
@@ -466,7 +469,7 @@ public actor MobileIrxRuntimeComposition {
         await broker?.deactivate()
         identity = nil
         routesByPeer.removeAll()
-        claimedControlSessions.removeAll()
+        controlLaneClaims.removeAll()
         claimedEventSessions.removeAll()
 
         deviceListBox.clear()
@@ -1015,34 +1018,55 @@ public actor MobileIrxRuntimeComposition {
     }
 
     /// The deferred transport the RPC layer connects through. Each RPC client
-    /// generation claims one admitted session's control lane; a replacement
-    /// client forces a fresh dial (superseding the old session Mac-side).
+    /// generation claims one admitted session's control lane and releases that
+    /// claim when the transport closes.
     public func transport(
         for request: CmxByteTransportRequest
     ) async throws -> any CmxByteTransport {
         let peerHex = try peerTarget(for: request)
-        return IrxControlByteTransport(closeCode: .explicitRedial) { [weak self] in
-            guard let self else {
-                throw CompositionError.notSignedIn
+        let ownerID = UUID()
+        return IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: { [weak self] in
+                guard let self else {
+                    throw CompositionError.notSignedIn
+                }
+                return try await self.claimControlLane(
+                    peerHex: peerHex,
+                    ownerID: ownerID
+                )
+            },
+            onClose: { [weak self] in
+                await self?.releaseControlLane(ownerID: ownerID)
             }
-            return try await self.claimControlLane(peerHex: peerHex)
-        }
+        )
     }
 
     private func claimControlLane(
-        peerHex: String
+        peerHex: String,
+        ownerID: UUID
     ) async throws -> (IrxConnection, IrxLaneStream) {
         let engine = engine(forPeer: peerHex)
-        var session = try await engine.ensureSession(trigger: "control-transport")
-        if claimedControlSessions.contains(session.admit.session) {
-            // The live session's control lane already belongs to an earlier
-            // transport: this caller is a replacement client, so replace the
-            // session (one control owner per session, always).
-            session = try await engine.ensureSession(
-                explicit: true, trigger: "control-transport-replacement")
+        let session = try await engine.ensureSession(trigger: "control-transport")
+        guard controlLaneClaims.claim(
+            sessionID: session.admit.session,
+            ownerID: ownerID
+        ) else {
+            // One admitted session exposes one control lane. Returning a
+            // transient closed error lets the caller's bounded retry policy
+            // wait for the current owner to drain, while preserving the
+            // healthy QUIC session for the current owner.
+            Self.journal.record(
+                "client-runtime", "control-lane-busy",
+                ["peer": peerHex.prefix(12).lowercased()]
+            )
+            throw IrxConnectionError.closed(nil)
         }
-        claimedControlSessions.insert(session.admit.session)
         return (session.connection, session.control)
+    }
+
+    private func releaseControlLane(ownerID: UUID) {
+        controlLaneClaims.release(ownerID: ownerID)
     }
 }
 

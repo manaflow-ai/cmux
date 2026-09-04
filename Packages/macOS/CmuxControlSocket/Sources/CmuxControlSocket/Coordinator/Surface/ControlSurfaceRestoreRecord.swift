@@ -1,4 +1,4 @@
-/// Structured data consumed by `cmux restore`.
+/// Structured data consumed by `cmux restore` and `cmux fork`.
 ///
 /// `legacyCommand` is populated only for command-only records written by older
 /// builds. New records keep argv and environment structured through process
@@ -22,12 +22,21 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
     public let preparedArguments: [String]?
     /// The cwd against which `preparedArguments` was captured and may be retargeted.
     public let preparedArgumentsWorkingDirectory: String?
+    /// Registry- or provider-built process arguments used by `cmux fork`.
+    public let forkArguments: [String]?
+    /// The cwd against which `forkArguments` was captured and may be retargeted.
+    public let forkArgumentsWorkingDirectory: String?
     /// The last observed provider permission mode.
     public let permissionMode: String?
     /// Compatibility shell input retained for records persisted by older builds.
     public let legacyCommand: String?
+    /// Compatibility fork command retained when structured fork argv is unavailable.
+    public let legacyForkCommand: String?
 
-    /// Creates the structured restore record transported to `cmux restore`.
+    /// The wire-facing name for ``legacyForkCommand``.
+    public var forkCommand: String? { legacyForkCommand }
+
+    /// Creates the structured restore record transported to `cmux restore` or `cmux fork`.
     ///
     /// - Parameters:
     ///   - modeRawValue: The raw restore construction mode.
@@ -39,8 +48,11 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
     ///   - launchCommand: The structured launch capture.
     ///   - preparedArguments: Registry-built fallback process arguments.
     ///   - preparedArgumentsWorkingDirectory: The cwd embedded in prepared arguments.
+    ///   - forkArguments: Provider- or registry-built fork process arguments.
+    ///   - forkArgumentsWorkingDirectory: The cwd embedded in fork arguments.
     ///   - permissionMode: The last observed provider permission mode.
     ///   - legacyCommand: Compatibility input for records written by older builds.
+    ///   - legacyForkCommand: Compatibility fork input for older or non-structured records.
     public init(
         modeRawValue: String,
         kind: String,
@@ -52,7 +64,10 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
         preparedArguments: [String]?,
         preparedArgumentsWorkingDirectory: String?,
         permissionMode: String?,
-        legacyCommand: String?
+        legacyCommand: String?,
+        forkArguments: [String]? = nil,
+        forkArgumentsWorkingDirectory: String? = nil,
+        legacyForkCommand: String? = nil
     ) {
         self.modeRawValue = modeRawValue
         self.kind = kind
@@ -63,7 +78,10 @@ public struct ControlSurfaceRestoreRecord: Sendable, Equatable {
         self.launchCommand = launchCommand
         self.preparedArguments = preparedArguments
         self.preparedArgumentsWorkingDirectory = preparedArgumentsWorkingDirectory
+        self.forkArguments = forkArguments
+        self.forkArgumentsWorkingDirectory = forkArgumentsWorkingDirectory
         self.permissionMode = permissionMode
         self.legacyCommand = legacyCommand
+        self.legacyForkCommand = legacyForkCommand
     }
 }

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "app_id": "6783338052",
+  "bundle_id": "com.cmux.app",
+  "locale": "en-US",
+  "notes": "Truth manifest for the cmux iOS App Store screenshot set. SnapshotUITests captures the sources deterministically from in-app preview fixtures; ios/scripts/appstore-shots.sh post-processes captures to these exact ASC pixel sizes, stages final/<DISPLAY_TYPE>/, verifies, and uploads. ASC allows at most 10 screenshots per display type.",
+  "display_types": {
+    "APP_IPHONE_67": {
+      "capture_class": "iphone",
+      "size": [1320, 2868],
+      "transform": "fit",
+      "shots": [
+        { "position": 1, "slug": "claude", "source": "01-Claude" },
+        { "position": 2, "slug": "codex", "source": "02-Codex" },
+        { "position": 3, "slug": "workspaces", "source": "03-Workspaces" },
+        { "position": 4, "slug": "notifications", "source": "04-Notifications" },
+        { "position": 5, "slug": "lock-reply", "source": "lockshot:05-LockReply" },
+        { "position": 6, "slug": "diff-file", "source": "06-DiffFile" },
+        { "position": 7, "slug": "opencode", "source": "07-Opencode" },
+        { "position": 8, "slug": "composer", "source": "08-Composer" }
+      ]
+    },
+    "APP_IPAD_PRO_3GEN_129": {
+      "capture_class": "ipad",
+      "size": [2064, 2752],
+      "transform": "ipad_statusbar_crop",
+      "notes": "Portrait full-bleed. The live listing's page 1 is a sidebar+session split; the preview fixtures cannot render that split yet (workspace-list preview pushes a plain fixture detail), so the workspaces list stands in until a split preview exists.",
+      "shots": [
+        { "position": 1, "slug": "workspaces", "source": "03-Workspaces" },
+        { "position": 2, "slug": "session", "source": "01-Claude" },
+        { "position": 3, "slug": "diff-file", "source": "06-DiffFile" }
+      ]
+    },
+    "APP_IPAD_PRO_129": {
+      "capture_class": "ipad",
+      "size": [2048, 2732],
+      "transform": "framed",
+      "notes": "Marketing-framed portrait pages for the legacy 12.9-inch slot, composed from the iPad captures with the frame_assets backgrounds (same composition as compose_shots.py). simctl cannot rotate a simulator, so these embed portrait captures; the retired live pair embedded landscape.",
+      "shots": [
+        { "position": 1, "slug": "workspaces", "source": "03-Workspaces",
+          "headline": "All your agents, one tap away" },
+        { "position": 2, "slug": "notifications", "source": "09-Banner",
+          "headline": "Know the moment an agent needs you" }
+      ]
+    }
+  }
+}

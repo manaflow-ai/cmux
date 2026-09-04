@@ -94,12 +94,10 @@ extension MobileShellComposite {
     /// The method-pinned Iroh dial allowlist for one pairing, or `nil` when the
     /// pairing's effective method places no address pin on the Iroh dial.
     ///
-    /// Direct pins the dial to the user-enabled addresses. Tailscale Only on an
-    /// Iroh-identified pairing pins the dial to the pairing's numeric Tailscale
-    /// addresses: the method constrains PATHS while transport admission stays
-    /// the single auth authority, so control, background control, and terminal
-    /// lanes all live and die by the same dial policy. Legacy pairings without
-    /// an Iroh identity return `nil` and keep the grant-gated raw host lane.
+    /// Direct pins the dial to the user-enabled addresses. Tailscale Only does
+    /// not pin an Iroh dial: it selects the authorized raw Tailscale route, or
+    /// fails closed when that route is unavailable. Automatic remains the only
+    /// method that can select Iroh.
     ///
     /// An empty array means the method is pinned with nothing dialable:
     /// callers must fail closed and never substitute another path. Entries
@@ -127,38 +125,12 @@ extension MobileShellComposite {
                 )
             }
         case .tailscale:
-            guard pairing.routes.contains(where: { $0.kind == .iroh }) else {
-                return nil
-            }
-            return Self.irohTailscaleDialCandidates(for: pairing)
+            return nil
         case .automatic:
             return nil
         }
     }
 
-    /// Numeric Tailscale addresses a Tailscale Only pairing may pin its Iroh
-    /// dial to, deduplicated across the stored reconnect routes and the
-    /// device-local legacy grant list. Ports are never copied: a stored
-    /// Tailscale port names the legacy TCP listener, while the pin joins the
-    /// broker-published Iroh UDP port at dial time.
-    nonisolated static func irohTailscaleDialCandidates(
-        for pairing: MobilePairedMac
-    ) -> [CmxIrohDirectDialCandidate] {
-        var seen: Set<String> = []
-        var candidates: [CmxIrohDirectDialCandidate] = []
-        for route in pairing.routes + (pairing.legacyTailscaleRoutes ?? []) {
-            guard route.kind == .tailscale,
-                  case let .hostPort(host, _) = route.endpoint,
-                  let address = try? CmxIrohCustomPrivateAddress(host),
-                  seen.insert(address.value).inserted else {
-                continue
-            }
-            candidates.append(
-                CmxIrohDirectDialCandidate(address: address.value, port: nil)
-            )
-        }
-        return candidates
-    }
 
     /// Zero-touch discovery yields Iroh candidates only. It is pointless only
     /// when the app default is Tailscale AND no stored pairing opted back into
