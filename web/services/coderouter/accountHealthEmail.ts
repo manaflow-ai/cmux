@@ -278,7 +278,9 @@ export function selectAccountHealthNotices(
   limit = MAX_ACCOUNTS_PER_RUN,
 ): BrokenAccountNotice[] {
   if (limit <= 0) return [];
-  const subscriptionReserve = Math.min(subscriptions.length, Math.floor(limit / 2));
+  const subscriptionReserve = subscriptions.length > 0
+    ? Math.min(subscriptions.length, Math.max(1, Math.floor(limit / 2)))
+    : 0;
   const claudeCount = Math.min(claude.length, limit - subscriptionReserve);
   const unusedReserve = limit - claudeCount - subscriptionReserve;
   const subscriptionCount = Math.min(subscriptions.length, subscriptionReserve + unusedReserve);

@@ -159,6 +159,17 @@ describe("account health notification run", () => {
     expect(selected.filter((item) => item.source === "subscription")).toHaveLength(1);
   });
 
+  test("keeps source order while reserving capacity for both stores", () => {
+    const claude = [notice({ accountId: "claude-1" }), notice({ accountId: "claude-2" }), notice({ accountId: "claude-3" })];
+    const subscriptions = [
+      notice({ source: "subscription", kind: "codex", createdBy: null, accountId: "subscription-1" }),
+      notice({ source: "subscription", kind: "opencode", createdBy: null, accountId: "subscription-2" }),
+    ];
+    expect(selectAccountHealthNotices(claude, subscriptions, 4).map((item) => item.accountId)).toEqual([
+      "claude-1", "claude-2", "subscription-1", "subscription-2",
+    ]);
+  });
+
   test("caches team recipient lookup for several subscription notices", async () => {
     let lookups = 0;
     const first = notice({ source: "subscription", kind: "codex", createdBy: null });
