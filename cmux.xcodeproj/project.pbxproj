@@ -963,9 +963,13 @@
 		C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */ = {isa = PBXBuildFile; productRef = C750200000000000000000A2 /* CmuxTerminalCore */; };
 		CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */ = {isa = PBXBuildFile; productRef = CFF12E0000000000000000A2 /* CmuxTestSupport */; };
 		A2977C204AD69CF268D38EE3 /* CmuxTestWindowReleaseGuard.m in Sources */ = {isa = PBXBuildFile; fileRef = EA9B442F20273D64D2BA1FC5 /* CmuxTestWindowReleaseGuard.m */; };
+		D110040000000000000000A3 /* CmuxTopMemory in Frameworks */ = {isa = PBXBuildFile; productRef = D110040000000000000000A2 /* CmuxTopMemory */; };
+		D110040000000000000000A4 /* CmuxTopMemory in Frameworks */ = {isa = PBXBuildFile; productRef = D110040000000000000000A2 /* CmuxTopMemory */; };
 		906900000000000000000002 /* CmuxTopMemoryAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */; };
 		906901000000000000000008 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000007 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift */; };
 		C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */; };
+		C7A516000000000000000002 /* CmuxTopMemoryReasonLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A516000000000000000001 /* CmuxTopMemoryReasonLocalization.swift */; };
+		C7A516000000000000000003 /* CmuxTopMemoryReasonLocalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A516000000000000000001 /* CmuxTopMemoryReasonLocalization.swift */; };
 		B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */ = {isa = PBXBuildFile; fileRef = B35750000000000000000003 /* CmuxTopProcessArguments.swift */; };
 		C7A50C000000000000000003 /* CmuxTopProcessArgumentsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50C000000000000000004 /* CmuxTopProcessArgumentsTests.swift */; };
 		906901000000000000000002 /* CmuxTopProcessAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000001 /* CmuxTopProcessAttribution.swift */; };
@@ -974,6 +978,7 @@
 		C7A50E000000000000000002 /* CmuxTopProcessDetails.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */; };
 		C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */; };
 		90690100000000000000000A /* CmuxTopProcessOwner.swift in Sources */ = {isa = PBXBuildFile; fileRef = 906901000000000000000009 /* CmuxTopProcessOwner.swift */; };
+		C7A513000000000000000002 /* CmuxTopProcessOwnership.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A513000000000000000001 /* CmuxTopProcessOwnership.swift */; };
 		0A1107110000000000000018 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000019 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift */; };
 		C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */; };
 		C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A501000000000000000001 /* CmuxTopSnapshot.swift */; };
@@ -2669,6 +2674,7 @@
 		C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */; };
 		8C4BBF2DEF6DF93F395A9EE7 /* TerminalControllerSocketSecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */; };
 		9C1BEA3D2E6F49709A71C020 /* TerminalControllerTerminalTextTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */; };
+		C7A514000000000000000002 /* TerminalControllerTopMemoryAttribution.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A514000000000000000001 /* TerminalControllerTopMemoryAttribution.swift */; };
 		C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A505000000000000000001 /* TerminalControllerTopSupport.swift */; };
 		C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */; };
 		A5C41105A1B2C3D4E5F60718 /* TerminalControllingTTYWaiter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5C41106A1B2C3D4E5F60718 /* TerminalControllingTTYWaiter.swift */; };
@@ -4094,6 +4100,7 @@
 		906900000000000000000001 /* CmuxTopMemoryAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryAttributionTests.swift; sourceTree = "<group>"; };
 		906901000000000000000007 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryDiagnosticGroupAccumulator.swift; sourceTree = "<group>"; };
 		C7A510000000000000000001 /* CmuxTopMemoryDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryDiagnostics.swift; sourceTree = "<group>"; };
+		C7A516000000000000000001 /* CmuxTopMemoryReasonLocalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopMemoryReasonLocalization.swift; sourceTree = "<group>"; };
 		B35750000000000000000003 /* CmuxTopProcessArguments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessArguments.swift; sourceTree = "<group>"; };
 		C7A50C000000000000000004 /* CmuxTopProcessArgumentsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessArgumentsTests.swift; sourceTree = "<group>"; };
 		906901000000000000000001 /* CmuxTopProcessAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessAttribution.swift; sourceTree = "<group>"; };
@@ -4102,6 +4109,7 @@
 		C7A50E000000000000000001 /* CmuxTopProcessDetails.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessDetails.swift; sourceTree = "<group>"; };
 		C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessEnumeration.swift; sourceTree = "<group>"; };
 		906901000000000000000009 /* CmuxTopProcessOwner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessOwner.swift; sourceTree = "<group>"; };
+		C7A513000000000000000001 /* CmuxTopProcessOwnership.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessOwnership.swift; sourceTree = "<group>"; };
 		0A1107110000000000000019 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessSnapshot+PromptAgentDetection.swift"; sourceTree = "<group>"; };
 		C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessSnapshotCache.swift; sourceTree = "<group>"; };
 		C7A501000000000000000001 /* CmuxTopSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopSnapshot.swift; sourceTree = "<group>"; };
@@ -5773,6 +5781,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		C7A50A000000000000000001 /* TerminalControllerPaneResizeSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerPaneResizeSupport.swift; sourceTree = "<group>"; };
 		491751CE2321474474F27DCF /* TerminalControllerSocketSecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerSocketSecurityTests.swift; sourceTree = "<group>"; };
 		9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTerminalTextTests.swift; sourceTree = "<group>"; };
+		C7A514000000000000000001 /* TerminalControllerTopMemoryAttribution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTopMemoryAttribution.swift; sourceTree = "<group>"; };
 		C7A505000000000000000001 /* TerminalControllerTopSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerTopSupport.swift; sourceTree = "<group>"; };
 		C7A50B000000000000000001 /* TerminalControllerV2ParamParsingSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllerV2ParamParsingSupport.swift; sourceTree = "<group>"; };
 		A5C41106A1B2C3D4E5F60718 /* TerminalControllingTTYWaiter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalControllingTTYWaiter.swift; sourceTree = "<group>"; };
@@ -6302,6 +6311,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C750500000000000000000A3 /* CmuxTerminal in Frameworks */,
 				C750200000000000000000A3 /* CmuxTerminalCore in Frameworks */,
 				CFF12E0000000000000000A3 /* CmuxTestSupport in Frameworks */,
+				D110040000000000000000A3 /* CmuxTopMemory in Frameworks */,
 				CDFEED0300000000CDFEED03 /* CmuxUpdater in Frameworks */,
 				CDFEED0600000000CDFEED06 /* CmuxUpdaterUI in Frameworks */,
 				5E55200000000000000000B3 /* CmuxWindowing in Frameworks */,
@@ -6371,6 +6381,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
+				D110040000000000000000A4 /* CmuxTopMemory in Frameworks */,
 				730600040000000000000001 /* CmuxWindowing in Frameworks */,
 				5E2701040000000000000003 /* Sentry in Frameworks */,
 			);
@@ -7657,6 +7668,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				906901000000000000000001 /* CmuxTopProcessAttribution.swift */,
 				906901000000000000000009 /* CmuxTopProcessOwner.swift */,
 				C7A511000000000000000001 /* CmuxTopProcessEnumeration.swift */,
+				C7A513000000000000000001 /* CmuxTopProcessOwnership.swift */,
+				C7A516000000000000000001 /* CmuxTopMemoryReasonLocalization.swift */,
+				C7A514000000000000000001 /* TerminalControllerTopMemoryAttribution.swift */,
 				C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */,
 				B35750000000000000000003 /* CmuxTopProcessArguments.swift */,
 				C7A508000000000000000001 /* CmuxTopSnapshotScopeCache.swift */,
@@ -9600,6 +9614,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CE57E10000000000000000B2 /* CmuxSentryReporting */,
 				CE57E10000000000000000A2 /* CmuxSentryScrubbing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
+				D110040000000000000000A2 /* CmuxTopMemory */,
 				CC0DE10000000000000000A2 /* CmuxRemoteDaemon */,
 				CC0DE20000000000000000A2 /* CmuxRemoteWorkspace */,
 				CC0DE30000000000000000A2 /* CmuxRemoteSession */,
@@ -9713,6 +9728,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				F0C0A1000000000000000002 /* CmuxPhonePush */,
 				5E55200000000000000000B2 /* CmuxWindowing */,
 				CC0DE00000000000000000A2 /* CmuxCore */,
+				D110040000000000000000A2 /* CmuxTopMemory */,
 				A5001262 /* Bonsplit */,
 				A500D013A1B2C3D4E5F60718 /* CMUXDebugLog */,
 				CC0033E15A1B2C3D4E5F0011 /* CmuxDiffComments */,
@@ -9804,6 +9820,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CF00F00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxFoundation" */,
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
+				D110040000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTopMemory" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
 				CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */,
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
@@ -10520,12 +10537,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				90690100000000000000000C /* CmuxTaskManagerMemoryGroupAttribution.swift in Sources */,
 				906901000000000000000008 /* CmuxTopMemoryDiagnosticGroupAccumulator.swift in Sources */,
 				C7A510000000000000000002 /* CmuxTopMemoryDiagnostics.swift in Sources */,
+				C7A516000000000000000002 /* CmuxTopMemoryReasonLocalization.swift in Sources */,
 				B35750000000000000000004 /* CmuxTopProcessArguments.swift in Sources */,
 				906901000000000000000002 /* CmuxTopProcessAttribution.swift in Sources */,
 				C7A50D000000000000000002 /* CmuxTopProcessCPUTracker.swift in Sources */,
 				C7A50E000000000000000002 /* CmuxTopProcessDetails.swift in Sources */,
 				C7A511000000000000000002 /* CmuxTopProcessEnumeration.swift in Sources */,
 				90690100000000000000000A /* CmuxTopProcessOwner.swift in Sources */,
+				C7A513000000000000000002 /* CmuxTopProcessOwnership.swift in Sources */,
 				0A1107110000000000000018 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift in Sources */,
 				C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */,
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
@@ -11699,6 +11718,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001007 /* TerminalController.swift in Sources */,
 				C0DE00000000000000000C32 /* TerminalControllerControlCommandContext.swift in Sources */,
 				C7A50A000000000000000002 /* TerminalControllerPaneResizeSupport.swift in Sources */,
+				C7A514000000000000000002 /* TerminalControllerTopMemoryAttribution.swift in Sources */,
 				C7A505000000000000000002 /* TerminalControllerTopSupport.swift in Sources */,
 				C7A50B000000000000000002 /* TerminalControllerV2ParamParsingSupport.swift in Sources */,
 				EC010B01 /* TerminalCustomUploadRunner.swift in Sources */,
@@ -12173,6 +12193,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */,
 				C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
+				C7A516000000000000000003 /* CmuxTopMemoryReasonLocalization.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
@@ -13657,6 +13678,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxCore;
 		};
+		D110040000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTopMemory" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxTopMemory;
+		};
 		CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxRemoteDaemon;
@@ -13933,6 +13958,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 			isa = XCSwiftPackageProductDependency;
 			package = CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */;
 			productName = CmuxCore;
+		};
+		D110040000000000000000A2 /* CmuxTopMemory */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = D110040000000000000000A1 /* XCLocalSwiftPackageReference "CmuxTopMemory" */;
+			productName = CmuxTopMemory;
 		};
 		CC0DE10000000000000000A2 /* CmuxRemoteDaemon */ = {
 			isa = XCSwiftPackageProductDependency;

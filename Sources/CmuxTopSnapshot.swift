@@ -1,4 +1,5 @@
 import Darwin
+import CmuxTopMemory
 import Foundation
 
 struct CmuxTopResourceSummary: Sendable {
@@ -13,6 +14,26 @@ struct CmuxTopResourceSummary: Sendable {
     var residentMemorySourceFallbackPIDs: [Int] = []
     var unavailableMemoryPIDs: [Int] = []
     var unavailableResidentMemoryPIDs: [Int] = []
+
+    /// Adds one process' resource values to this aggregate.
+    mutating func append(_ process: CmuxTopProcessInfo) {
+        cpuPercent += process.cpuPercent
+        memoryBytes = CmuxTopProcessSnapshot.clampedAdd(memoryBytes, process.memoryBytes)
+        residentBytes = CmuxTopProcessSnapshot.clampedAdd(residentBytes, process.residentBytes)
+        virtualBytes = CmuxTopProcessSnapshot.clampedAdd(virtualBytes, process.virtualBytes)
+        processCount += 1
+        pids.append(process.pid)
+        if process.memorySource == .residentSize {
+            memorySourceFallbackPIDs.append(process.pid)
+        } else if process.memorySource == .unavailable {
+            unavailableMemoryPIDs.append(process.pid)
+        }
+        if process.residentMemorySource == .rusageResidentSize {
+            residentMemorySourceFallbackPIDs.append(process.pid)
+        } else if process.residentMemorySource == .unavailable {
+            unavailableResidentMemoryPIDs.append(process.pid)
+        }
+    }
 
     func payload() -> [String: Any] {
         [
@@ -139,19 +160,32 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
     private let pidsByCMUXSurfaceID: [UUID: [Int]]
     private let pidsByProcessGroupID: [Int: [Int]]
     private let residentMemorySources: [CmuxTopProcessMemorySource]
+    /// Immutable ownership indexes built alongside captures that need TTY attribution.
+    let terminalOwnershipResolver: CmuxTopProcessOwnershipResolver?
 
     static func capture(
         includeProcessDetails: Bool = false,
-        includeCMUXScope: Bool = true
+        includeCMUXScope: Bool = true,
+        includeOwnershipDetails: Bool = false
     ) -> CmuxTopProcessSnapshot {
-        CmuxTopProcessSnapshot(
-            processes: allProcesses(
-                includeProcessDetails: includeProcessDetails,
-                includeCMUXScope: includeCMUXScope
-            ),
+        let applicationPID = Int(Darwin.getpid())
+        let processes = allProcesses(
+            includeProcessDetails: includeProcessDetails,
+            includeCMUXScope: includeCMUXScope,
+            includeOwnershipDetails: includeOwnershipDetails,
+            ownershipApplicationPID: applicationPID
+        )
+        return CmuxTopProcessSnapshot(
+            processes: processes,
             sampledAt: Date(),
             includesProcessDetails: includeProcessDetails,
-            includesCMUXScope: includeCMUXScope
+            includesCMUXScope: includeCMUXScope,
+            terminalOwnershipResolver: includeOwnershipDetails
+                ? Self.makeTerminalProcessOwnershipResolver(
+                    processes: processes,
+                    applicationPID: applicationPID
+                )
+                : nil
         )
     }
 
@@ -159,11 +193,13 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         processes: [CmuxTopProcessInfo],
         sampledAt: Date,
         includesProcessDetails: Bool,
-        includesCMUXScope: Bool = true
+        includesCMUXScope: Bool = true,
+        terminalOwnershipResolver: CmuxTopProcessOwnershipResolver? = nil
     ) {
         self.sampledAt = sampledAt
         self.includesProcessDetails = includesProcessDetails
         self.includesCMUXScope = includesCMUXScope
+        self.terminalOwnershipResolver = terminalOwnershipResolver
         var processMap: [Int: CmuxTopProcessInfo] = [:]
         processMap.reserveCapacity(processes.count)
         for process in processes {
@@ -546,38 +582,60 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         return lastChildren
     }
 
+    /// Serializes one PID set's resource totals.
     func summaryPayload(for pids: Set<Int>, rootPIDs: Set<Int> = []) -> [String: Any] {
         summary(for: pids, rootPIDs: rootPIDs).payload()
     }
 
+    /// Reduces one PID set to resource totals and source diagnostics.
     func summary(for pids: Set<Int>, rootPIDs: Set<Int> = []) -> CmuxTopResourceSummary {
         let sortedPIDs = pids.filter { $0 > 0 }.sorted()
         var summary = CmuxTopResourceSummary()
-        summary.pids = sortedPIDs
         summary.missingPIDs = rootPIDs
             .filter { $0 > 0 && processesByPID[$0] == nil }
             .sorted()
 
         for pid in sortedPIDs {
             guard let process = processesByPID[pid] else { continue }
-            summary.cpuPercent += process.cpuPercent
-            summary.memoryBytes = Self.clampedAdd(summary.memoryBytes, process.memoryBytes)
-            summary.residentBytes = Self.clampedAdd(summary.residentBytes, process.residentBytes)
-            summary.virtualBytes = Self.clampedAdd(summary.virtualBytes, process.virtualBytes)
-            summary.processCount += 1
-            if process.memorySource == .residentSize {
-                summary.memorySourceFallbackPIDs.append(pid)
-            } else if process.memorySource == .unavailable {
-                summary.unavailableMemoryPIDs.append(pid)
-            }
-            if process.residentMemorySource == .rusageResidentSize {
-                summary.residentMemorySourceFallbackPIDs.append(pid)
-            } else if process.residentMemorySource == .unavailable {
-                summary.unavailableResidentMemoryPIDs.append(pid)
+            summary.append(process)
+        }
+        summary.pids = sortedPIDs
+
+        return summary
+    }
+
+    /// Reduces several overlapping PID sets in one process-map traversal.
+    func summaries(for pidSets: [Set<Int>]) -> [CmuxTopResourceSummary] {
+        guard !pidSets.isEmpty else { return [] }
+        let normalizedPIDSets = pidSets.map { Set($0.filter { $0 > 0 }) }
+        var membershipByPID: [Int: [Int]] = [:]
+        for (setIndex, pids) in normalizedPIDSets.enumerated() {
+            for pid in pids {
+                membershipByPID[pid, default: []].append(setIndex)
             }
         }
 
-        return summary
+        var summaries = Array(
+            repeating: CmuxTopResourceSummary(),
+            count: normalizedPIDSets.count
+        )
+        for (pid, setIndexes) in membershipByPID {
+            guard let process = processesByPID[pid] else { continue }
+            for setIndex in setIndexes {
+                summaries[setIndex].append(process)
+            }
+        }
+        for setIndex in normalizedPIDSets.indices {
+            summaries[setIndex].pids = normalizedPIDSets[setIndex].sorted()
+            summaries[setIndex].missingPIDs = normalizedPIDSets[setIndex]
+                .filter { processesByPID[$0] == nil }
+                .sorted()
+            summaries[setIndex].memorySourceFallbackPIDs.sort()
+            summaries[setIndex].residentMemorySourceFallbackPIDs.sort()
+            summaries[setIndex].unavailableMemoryPIDs.sort()
+            summaries[setIndex].unavailableResidentMemoryPIDs.sort()
+        }
+        return summaries
     }
 
     func programSummaryPayload(for pids: Set<Int>) -> [[String: Any]] {

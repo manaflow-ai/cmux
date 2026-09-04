@@ -5,6 +5,7 @@ private struct CmuxTopProcessSnapshotCacheState {
     var snapshot: CmuxTopProcessSnapshot?
     var includeProcessDetails = false
     var includeCMUXScope = true
+    var includeOwnershipDetails = false
 }
 
 // libproc snapshots are a short-lived platform bridge shared by the CLI, socket,
@@ -17,6 +18,7 @@ extension CmuxTopProcessSnapshot {
     static func captureCached(
         includeProcessDetails: Bool = false,
         includeCMUXScope: Bool = true,
+        includeOwnershipDetails: Bool = false,
         maximumAge: TimeInterval
     ) -> CmuxTopProcessSnapshot {
         let now = Date()
@@ -30,6 +32,10 @@ extension CmuxTopProcessSnapshot {
                       state.includeCMUXScope,
                       requested: includeCMUXScope
                   ),
+                  Self.cachedSnapshotOwnershipDetailsSatisfy(
+                      state.includeOwnershipDetails,
+                      requested: includeOwnershipDetails
+                  ),
                   now.timeIntervalSince(snapshot.sampledAt) <= maximumAge else {
                 return nil
             }
@@ -40,7 +46,8 @@ extension CmuxTopProcessSnapshot {
 
         let snapshot = capture(
             includeProcessDetails: includeProcessDetails,
-            includeCMUXScope: includeCMUXScope
+            includeCMUXScope: includeCMUXScope,
+            includeOwnershipDetails: includeOwnershipDetails
         )
         return cmuxTopProcessSnapshotCache.withLock { state in
             let storeTime = Date()
@@ -53,12 +60,17 @@ extension CmuxTopProcessSnapshot {
                    state.includeCMUXScope,
                    requested: includeCMUXScope
                ),
+               Self.cachedSnapshotOwnershipDetailsSatisfy(
+                   state.includeOwnershipDetails,
+                   requested: includeOwnershipDetails
+               ),
                storeTime.timeIntervalSince(cached.sampledAt) <= maximumAge {
                 return cached
             }
             state.snapshot = snapshot
             state.includeProcessDetails = includeProcessDetails
             state.includeCMUXScope = includeCMUXScope
+            state.includeOwnershipDetails = includeOwnershipDetails
             return snapshot
         }
     }
@@ -75,5 +87,13 @@ extension CmuxTopProcessSnapshot {
         requested: Bool
     ) -> Bool {
         cachedIncludesCMUXScope || !requested
+    }
+
+    /// Returns whether a cached snapshot contains the requested ownership paths.
+    private static func cachedSnapshotOwnershipDetailsSatisfy(
+        _ cachedIncludesOwnershipDetails: Bool,
+        requested: Bool
+    ) -> Bool {
+        cachedIncludesOwnershipDetails || !requested
     }
 }

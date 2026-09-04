@@ -3489,7 +3489,10 @@ class TerminalController {
             returning: CmuxTopProcessSnapshot.self
         ) { group in
             group.addTask(priority: .utility) {
-                CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+                CmuxTopProcessSnapshot.capture(
+                    includeProcessDetails: includeProcesses,
+                    includeOwnershipDetails: true
+                )
             }
             return await group.next()!
         }
@@ -3540,7 +3543,10 @@ class TerminalController {
               var windowNodes = payload.removeValue(forKey: "windows") as? [[String: Any]] else {
             return .err(code: "internal_error", message: "Invalid system.top payload", data: nil)
         }
-        let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: includeProcesses)
+        let processSnapshot = CmuxTopProcessSnapshot.capture(
+            includeProcessDetails: includeProcesses,
+            includeOwnershipDetails: true
+        )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)
         let totalPIDs = v2AnnotateTopWindows(
             &windowNodes,
@@ -3617,7 +3623,8 @@ class TerminalController {
         }
         let topGroupLimit = topGroupLimitValue ?? groupLimitValue ?? 12
         let processSnapshot = CmuxTopProcessSnapshot.captureCached(
-            includeProcessDetails: true,
+            includeProcessDetails: false,
+            includeOwnershipDetails: true,
             maximumAge: 2
         )
         let browserPIDOccurrences = v2TopBrowserPIDOccurrences(in: windowNodes)

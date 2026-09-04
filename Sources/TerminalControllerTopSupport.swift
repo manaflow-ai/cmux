@@ -1,21 +1,26 @@
-import Foundation
 import Darwin
+import CmuxTopMemory
+import Foundation
 
 extension TerminalController {
+    /// Builds a stable identifier for a workspace status tag.
     func v2TopTagIdentifier(workspaceId: UUID, key: String) -> String {
         "\(workspaceId.uuidString):tag:\(v2TopEscapedTagKey(key))"
     }
 
+    /// Builds the externally visible reference for a workspace status tag.
     func v2TopTagRef(workspaceId: UUID, key: String) -> String {
         "workspace:\(workspaceId.uuidString):tag:\(v2TopEscapedTagKey(key))"
     }
 
+    /// Percent-escapes a tag key for use in a top reference.
     func v2TopEscapedTagKey(_ key: String) -> String {
         var allowed = CharacterSet.alphanumerics
         allowed.insert(charactersIn: "-._~")
         return key.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
     }
 
+    /// Counts shared browser roots before per-window attribution.
     nonisolated func v2TopBrowserPIDOccurrences(in windows: [[String: Any]]) -> [Int: Int] {
         var counts: [Int: Int] = [:]
         for window in windows {
@@ -37,24 +42,42 @@ extension TerminalController {
         return counts
     }
 
+    /// Builds the diagnostic payload from already-annotated top windows.
     nonisolated func v2TopMemoryDiagnosticPayload(
         processSnapshot: CmuxTopProcessSnapshot,
         annotatedWindows: [[String: Any]],
         topGroupLimit: Int = 12
     ) -> [String: Any] {
-        processSnapshot.memoryDiagnosticPayload(
+        var unattributedTTYCandidates: Set<Int> = []
+        var unattributedTTYReasonByProcessID: [Int: String] = [:]
+        let attributionByPID = v2TopMemoryAttributionByPID(
+            in: annotatedWindows,
+            unattributedTTYProcessIDs: &unattributedTTYCandidates,
+            unattributedTTYReasonByProcessID: &unattributedTTYReasonByProcessID
+        )
+        return processSnapshot.memoryDiagnosticPayload(
             appPID: Int(Darwin.getpid()),
             topGroupLimit: topGroupLimit,
-            attributionByPID: v2TopMemoryAttributionByPID(in: annotatedWindows)
+            attributionByPID: attributionByPID,
+            unattributedTTYProcessIDs: v2TopUnattributedTTYProcessIDs(
+                candidates: unattributedTTYCandidates,
+                processSnapshot: processSnapshot,
+                provenProcessIDs: Set(attributionByPID.keys)
+            ),
+            unattributedTTYReasonByProcessID: unattributedTTYReasonByProcessID
         )
     }
 
+    /// Annotates every top window with process and resource ownership data.
     nonisolated func v2AnnotateTopWindows(
         _ windows: inout [[String: Any]],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver? = nil
     ) -> Set<Int> {
+        let ownershipResolver = ownershipResolver
+            ?? processSnapshot.terminalProcessOwnershipResolver()
         var allPIDs: Set<Int> = []
         for index in windows.indices {
             var workspaces = windows[index]["workspaces"] as? [[String: Any]] ?? []
@@ -68,7 +91,8 @@ extension TerminalController {
                         &workspaces[workspaceIndex],
                         processSnapshot: processSnapshot,
                         browserPIDOccurrences: browserPIDOccurrences,
-                        includeProcesses: includeProcesses
+                        includeProcesses: includeProcesses,
+                        ownershipResolver: ownershipResolver
                     )
                 )
                 windowTopLevelPIDs.formUnion(v2TopIntArray(workspaces[workspaceIndex]["top_level_pids"]))
@@ -88,11 +112,13 @@ extension TerminalController {
         return allPIDs
     }
 
+    /// Annotates one workspace and combines its child process IDs.
     nonisolated func v2AnnotateTopWorkspace(
         _ workspace: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver
     ) -> Set<Int> {
         var workspacePIDs: Set<Int> = []
         var workspaceTopLevelPIDs: Set<Int> = []
@@ -105,7 +131,8 @@ extension TerminalController {
                     &panes[paneIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
-                    includeProcesses: includeProcesses
+                    includeProcesses: includeProcesses,
+                    ownershipResolver: ownershipResolver
                 )
             )
             workspaceTopLevelPIDs.formUnion(v2TopIntArray(panes[paneIndex]["top_level_pids"]))
@@ -133,11 +160,13 @@ extension TerminalController {
         return workspacePIDs
     }
 
+    /// Annotates one pane and combines its surface process IDs.
     nonisolated func v2AnnotateTopPane(
         _ pane: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver
     ) -> Set<Int> {
         var panePIDs: Set<Int> = []
         var paneTopLevelPIDs: Set<Int> = []
@@ -149,7 +178,8 @@ extension TerminalController {
                     &surfaces[surfaceIndex],
                     processSnapshot: processSnapshot,
                     browserPIDOccurrences: browserPIDOccurrences,
-                    includeProcesses: includeProcesses
+                    includeProcesses: includeProcesses,
+                    ownershipResolver: ownershipResolver
                 )
             )
             paneTopLevelPIDs.formUnion(v2TopIntArray(surfaces[surfaceIndex]["top_level_pids"]))
@@ -162,32 +192,36 @@ extension TerminalController {
         return panePIDs
     }
 
+    /// Annotates a surface while preserving explicit WebKit roots.
     nonisolated func v2AnnotateTopSurface(
         _ surface: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
         browserPIDOccurrences: [Int: Int],
-        includeProcesses: Bool
+        includeProcesses: Bool,
+        ownershipResolver: CmuxTopProcessOwnershipResolver
     ) -> Set<Int> {
         var rootPIDs: Set<Int> = []
         var surfacePIDs: Set<Int> = []
 
-        if let surfaceID = v2TopUUID(surface["id"]) {
-            let cmuxPIDs = processSnapshot.pids(forCMUXSurfaceID: surfaceID)
-            surface["cmux_process_pids"] = cmuxPIDs.sorted()
-            rootPIDs.formUnion(cmuxPIDs)
-            surfacePIDs.formUnion(processSnapshot.expandedPIDs(rootPIDs: cmuxPIDs))
-        } else {
-            surface["cmux_process_pids"] = []
-        }
+        let surfaceID = v2TopUUID(surface["id"])
+        let ttyName = surface["tty"] as? String
+        let ownership = processSnapshot.terminalProcessOwnership(
+            surfaceID: surfaceID,
+            ttyName: ttyName,
+            resolver: ownershipResolver
+        )
 
-        if let ttyName = surface["tty"] as? String {
-            let ttyPIDs = processSnapshot.pids(forTTYName: ttyName)
-            surface["tty_process_pids"] = ttyPIDs.sorted()
-            rootPIDs.formUnion(ttyPIDs)
-            surfacePIDs.formUnion(processSnapshot.expandedPIDs(rootPIDs: ttyPIDs))
-        } else {
-            surface["tty_process_pids"] = []
-        }
+        surface["cmux_process_pids"] = ownership.explicitScopeProcessIDs.sorted()
+        surface["tty_process_pids"] = ownership.observedTTYProcessIDs.sorted()
+        surface["tty_owned_process_pids"] = ownership.ownedTTYProcessIDs.sorted()
+        surface["tty_unattributed_process_pids"] = ownership.ambiguousTTYProcessIDs.sorted()
+        surface["tty_process_ownership"] = ownership.payload()
+
+        // A controlling TTY is evidence that a process was attached, not that
+        // it is owned: PPID-1 processes can retain the TTY after reparenting.
+        rootPIDs.formUnion(ownership.rootProcessIDs)
+        surfacePIDs.formUnion(ownership.ownedProcessIDs)
+        var processAttributionReasons = ownership.reasonByProcessID
 
         var webviews = surface["webviews"] as? [[String: Any]] ?? []
         for webviewIndex in webviews.indices {
@@ -202,9 +236,22 @@ extension TerminalController {
                     includeProcesses: includeProcesses
                 )
             )
+            if let pid = v2TopInt(webviews[webviewIndex]["pid"]) {
+                processAttributionReasons[pid] = processAttributionReasons[pid]
+                    ?? CmuxTopProcessOwnershipReason.webViewRoot.rawValue
+            }
+            if let webviewReasons = webviews[webviewIndex]["process_attribution_reasons"] as? [String: String] {
+                for (rawPID, reason) in webviewReasons {
+                    guard let pid = Int(rawPID) else { continue }
+                    processAttributionReasons[pid] = processAttributionReasons[pid] ?? reason
+                }
+            }
         }
         surface["webviews"] = webviews
 
+        surface["process_attribution_reasons"] = Dictionary(uniqueKeysWithValues: processAttributionReasons
+            .sorted { $0.key < $1.key }
+            .map { (String($0.key), $0.value) })
         surface["root_pids"] = rootPIDs.sorted()
         surface["top_level_pids"] = processSnapshot.topLevelPIDs(for: surfacePIDs).sorted()
         surface["foreground_pgids"] = processSnapshot.foregroundProcessGroupIDs(for: surfacePIDs).sorted()
@@ -213,6 +260,7 @@ extension TerminalController {
         return surfacePIDs
     }
 
+    /// Annotates a WebKit root and its process-tree resources.
     nonisolated func v2AnnotateTopWebView(
         _ webview: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -225,6 +273,7 @@ extension TerminalController {
             webview["top_level_pids"] = []
             webview["foreground_pgids"] = []
             webview["resources"] = processSnapshot.summaryPayload(for: [])
+            webview["process_attribution_reasons"] = [:]
             webview["processes"] = []
             return []
         }
@@ -238,10 +287,17 @@ extension TerminalController {
         webview["top_level_pids"] = processSnapshot.topLevelPIDs(for: pids).sorted()
         webview["foreground_pgids"] = processSnapshot.foregroundProcessGroupIDs(for: pids).sorted()
         webview["resources"] = resources.attributedPayload(sharedAcross: sharedProcessCount)
+        webview["process_attribution_reasons"] = v2TopProcessAttributionReasons(
+            for: pids,
+            rootPIDs: rootPIDs,
+            processSnapshot: processSnapshot,
+            rootReason: CmuxTopProcessOwnershipReason.webViewRoot.rawValue
+        )
         webview["processes"] = includeProcesses ? processSnapshot.processTreePayload(for: pids, rootPIDs: rootPIDs) : []
         return pids
     }
 
+    /// Annotates a status tag's explicit process root.
     nonisolated func v2AnnotateTopTag(
         _ tag: inout [String: Any],
         processSnapshot: CmuxTopProcessSnapshot,
@@ -266,6 +322,7 @@ extension TerminalController {
         return pids
     }
 
+    /// Converts a Foundation JSON scalar to an integer.
     nonisolated func v2TopInt(_ raw: Any?) -> Int? {
         if let value = raw as? Int {
             return value
@@ -279,6 +336,7 @@ extension TerminalController {
         return nil
     }
 
+    /// Converts a Foundation JSON array to integer IDs.
     nonisolated func v2TopIntArray(_ raw: Any?) -> [Int] {
         if let values = raw as? [Int] {
             return values
@@ -287,12 +345,14 @@ extension TerminalController {
         return values.compactMap(v2TopInt)
     }
 
+    /// Trims and validates a Foundation JSON string.
     nonisolated func v2TopString(_ raw: Any?) -> String? {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// Converts a Foundation JSON scalar to a UUID.
     nonisolated func v2TopUUID(_ raw: Any?) -> UUID? {
         if let value = raw as? UUID {
             return value
@@ -303,130 +363,7 @@ extension TerminalController {
         return nil
     }
 
-    private nonisolated func v2TopMemoryAttributionByPID(in windows: [[String: Any]]) -> [Int: CmuxTopProcessAttribution] {
-        var result: [Int: CmuxTopProcessAttribution] = [:]
-        var ambiguousSpecificityByPID: [Int: Int] = [:]
-        var commonOwnerSourceSpecificityByPID: [Int: Int] = [:]
-        for window in windows {
-            let workspaces = window["workspaces"] as? [[String: Any]] ?? []
-            for workspace in workspaces {
-                let workspaceID = v2TopUUID(workspace["id"])
-                let workspaceRef = v2TopString(workspace["ref"])
-
-                let tags = workspace["tags"] as? [[String: Any]] ?? []
-                for tag in tags {
-                    let attribution = CmuxTopProcessAttribution(
-                        workspaceID: workspaceID,
-                        workspaceRef: workspaceRef,
-                        paneID: nil,
-                        paneRef: nil,
-                        surfaceID: nil,
-                        surfaceRef: nil,
-                        surfaceType: nil,
-                        reason: "status-tag-process-tree"
-                    )
-                    assignTopMemoryAttribution(
-                        attribution,
-                        from: tag,
-                        to: &result,
-                        ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
-                        commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
-                    )
-                }
-
-                let panes = workspace["panes"] as? [[String: Any]] ?? []
-                for pane in panes {
-                    let paneID = v2TopUUID(pane["id"])
-                    let paneRef = v2TopString(pane["ref"])
-                    let surfaces = pane["surfaces"] as? [[String: Any]] ?? []
-                    for surface in surfaces {
-                        let attribution = CmuxTopProcessAttribution(
-                            workspaceID: workspaceID,
-                            workspaceRef: workspaceRef,
-                            paneID: paneID,
-                            paneRef: paneRef,
-                            surfaceID: v2TopUUID(surface["id"]),
-                            surfaceRef: v2TopString(surface["ref"]),
-                            surfaceType: v2TopString(surface["type"]),
-                            reason: "surface-process-tree"
-                        )
-                        assignTopMemoryAttribution(
-                            attribution,
-                            from: surface,
-                            to: &result,
-                            ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
-                            commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
-                        )
-
-                        let webviews = surface["webviews"] as? [[String: Any]] ?? []
-                        for webview in webviews {
-                            assignTopMemoryAttribution(
-                                attribution,
-                                from: webview,
-                                to: &result,
-                                ambiguousSpecificityByPID: &ambiguousSpecificityByPID,
-                                commonOwnerSourceSpecificityByPID: &commonOwnerSourceSpecificityByPID
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        return result
-    }
-
-    private nonisolated func assignTopMemoryAttribution(
-        _ attribution: CmuxTopProcessAttribution,
-        from node: [String: Any],
-        to result: inout [Int: CmuxTopProcessAttribution],
-        ambiguousSpecificityByPID: inout [Int: Int],
-        commonOwnerSourceSpecificityByPID: inout [Int: Int]
-    ) {
-        let resources = node["resources"] as? [String: Any] ?? [:]
-        let newSpecificity = v2TopMemoryAttributionSpecificity(attribution)
-        var seenPIDs = Set<Int>()
-        for pid in v2TopIntArray(resources["pids"]) where seenPIDs.insert(pid).inserted {
-            if let ambiguousSpecificity = ambiguousSpecificityByPID[pid] {
-                guard newSpecificity > ambiguousSpecificity else { continue }
-                ambiguousSpecificityByPID.removeValue(forKey: pid)
-                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
-            }
-            guard let existing = result[pid] else {
-                result[pid] = attribution
-                continue
-            }
-            if existing == attribution { continue }
-            let existingSpecificity = v2TopMemoryAttributionSpecificity(existing)
-            let commonOwnerSourceSpecificity = commonOwnerSourceSpecificityByPID[pid]
-            let existingSourceSpecificity = commonOwnerSourceSpecificity ?? existingSpecificity
-            let mergedSourceSpecificity = max(existingSourceSpecificity, newSpecificity)
-            if let commonOwner = existing.owner.commonOwner(with: attribution.owner),
-               commonOwnerSourceSpecificity != nil || newSpecificity == existingSourceSpecificity {
-                let sharedReason: String
-                switch commonOwner.specificity {
-                case 3: sharedReason = "shared-surface-process-tree"
-                case 2: sharedReason = "shared-pane-process-tree"
-                default: sharedReason = "shared-workspace-process-tree"
-                }
-                result[pid] = CmuxTopProcessAttribution(owner: commonOwner, reason: sharedReason)
-                commonOwnerSourceSpecificityByPID[pid] = mergedSourceSpecificity
-            } else if newSpecificity > existingSourceSpecificity {
-                result[pid] = attribution
-                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
-            } else if newSpecificity == existingSourceSpecificity {
-                result.removeValue(forKey: pid)
-                ambiguousSpecificityByPID[pid] = newSpecificity
-                commonOwnerSourceSpecificityByPID.removeValue(forKey: pid)
-            } else {
-                continue
-            }
-        }
-    }
-
-    private nonisolated func v2TopMemoryAttributionSpecificity(_ attribution: CmuxTopProcessAttribution) -> Int {
-        attribution.owner.specificity
-    }
-
+    /// Adds the current app process to each eligible top window.
     nonisolated func v2AttachTopApplicationProcess(
         to windows: inout [[String: Any]],
         workspaceFilter: UUID? = nil

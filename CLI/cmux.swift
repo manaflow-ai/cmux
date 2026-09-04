@@ -22896,7 +22896,7 @@ struct CMUXCLI {
         var parts = ["process", pid, label]
         let attributionReason = topLabelText(process["attribution_reason"] as? String)
         if !attributionReason.isEmpty {
-            parts.append("[\(attributionReason)]")
+            parts.append("[\(CmuxTopMemoryReasonLocalization.label(for: attributionReason))]")
         }
         return parts.joined(separator: " ")
     }

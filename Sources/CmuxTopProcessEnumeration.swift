@@ -4,7 +4,13 @@ import Foundation
 private nonisolated let cmuxTopPIDPathBufferSize = 4096
 
 extension CmuxTopProcessSnapshot {
-    static func allProcesses(includeProcessDetails: Bool, includeCMUXScope: Bool) -> [CmuxTopProcessInfo] {
+    /// Captures process facts, optionally collecting the paths needed for TTY ownership.
+    static func allProcesses(
+        includeProcessDetails: Bool,
+        includeCMUXScope: Bool,
+        includeOwnershipDetails: Bool = false,
+        ownershipApplicationPID: Int = 0
+    ) -> [CmuxTopProcessInfo] {
         let sampledProcesses = allBSDProcesses()
         guard !sampledProcesses.isEmpty else { return [] }
 
@@ -31,6 +37,8 @@ extension CmuxTopProcessSnapshot {
                 from: process,
                 includeProcessDetails: includeProcessDetails,
                 includeCMUXScope: includeCMUXScope,
+                includeOwnershipDetails: includeOwnershipDetails,
+                ownershipApplicationPID: ownershipApplicationPID,
                 sampledAtNanoseconds: sampledAtNanoseconds,
                 currentCPUSamples: &currentCPUSamples
             ) else {
@@ -79,6 +87,8 @@ extension CmuxTopProcessSnapshot {
         from bsdInfo: proc_bsdinfo,
         includeProcessDetails: Bool,
         includeCMUXScope: Bool,
+        includeOwnershipDetails: Bool,
+        ownershipApplicationPID: Int,
         sampledAtNanoseconds: UInt64,
         currentCPUSamples: inout [CmuxTopProcessScopeCacheKey: CmuxTopProcessCPUSample]
     ) -> (info: CmuxTopProcessInfo, cpuSampleKey: CmuxTopProcessScopeCacheKey?)? {
@@ -90,9 +100,13 @@ extension CmuxTopProcessSnapshot {
         let cacheKey = scopeCacheKey(from: bsdInfo)
         let fallbackName = fixedString(bsdInfo.pbi_comm)
         let name = includeProcessDetails ? processName(pid: pid, fallback: fallbackName) : fallbackName
-        let path = includeProcessDetails ? processPath(pid: pid) : nil
         let rawTTY = Int64(bsdInfo.e_tdev)
         let ttyDevice = rawTTY > 0 ? rawTTY : nil
+        let shouldReadOwnershipPath = includeOwnershipDetails
+            && (pid == ownershipApplicationPID || ttyDevice != nil)
+        let path = (includeProcessDetails || shouldReadOwnershipPath)
+            ? processPath(pid: pid)
+            : nil
         let cmuxScope = includeCMUXScope
             ? cachedCMUXScope(for: pid, cacheKey: cacheKey, nowNanoseconds: sampledAtNanoseconds)
             : nil
