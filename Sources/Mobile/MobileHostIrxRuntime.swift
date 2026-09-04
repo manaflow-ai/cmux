@@ -703,6 +703,10 @@ final class MobileHostIrxRuntime {
             authorization: .irohAdmission(admittedPeer),
             artifactTransfers: artifactRegistry,
             independentEventWriter: eventWriter,
+            // IROH session liveness is owned by its keepalive lane. The
+            // generic control-lane idle timeout would close a healthy session
+            // while terminal/application lanes were still active.
+            idleTimeoutNanoseconds: 0,
             isCurrent: { [weak self] in
                 let runtime = self
                 return await MainActor.run { runtime?.generationToken == token }

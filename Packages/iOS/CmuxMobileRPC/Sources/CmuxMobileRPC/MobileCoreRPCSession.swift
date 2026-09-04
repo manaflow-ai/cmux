@@ -96,6 +96,11 @@ actor MobileCoreRPCSession {
     private var recordedConnectCancellationAttemptIDs: Set<Int> = []
     private var installedConnectionID: UUID?
     private var readerTask: Task<Void, Never>?
+    /// Watches the complete native connection, separately from the control
+    /// lane reader. IROH can close the shared QUIC session without making a
+    /// blocked application-lane read return, so relying on `readLoop` alone
+    /// leaves event listeners attached to a dead generation.
+    private var transportClosureTask: Task<Void, Never>?
     var independentEventPreparation: IndependentEventPreparation?
     var independentEventReader: IndependentEventReader?
     /// Subscription stream IDs that already made their one optional-lane
@@ -204,6 +209,7 @@ actor MobileCoreRPCSession {
             }
         }
         readerTask?.cancel()
+        transportClosureTask?.cancel()
         independentEventPreparation?.task.cancel()
         independentEventReader?.task.cancel()
         activeWrite?.task.cancel()
@@ -441,6 +447,8 @@ actor MobileCoreRPCSession {
         transport = nil
         readerTask?.cancel()
         readerTask = nil
+        transportClosureTask?.cancel()
+        transportClosureTask = nil
         independentEventPreparation?.task.cancel()
         independentEventPreparation = nil
         independentEventReader?.task.cancel()
@@ -806,6 +814,16 @@ actor MobileCoreRPCSession {
                 frames: stream
             )
         }
+        let nextTransportClosureTask = Task { [weak self] in
+            guard let observation = await (
+                candidate as? any CmxByteTransportClosureObserving
+            )?.transportClosureObservation() else {
+                return
+            }
+            await observation.waitUntilClosed()
+            guard !Task.isCancelled else { return }
+            await self?.transportDidClose(connectionID: connectionID)
+        }
 
         // Publish one coherent installed generation without suspending. Readers
         // use `transport` as the fast-path readiness flag, so it must become
@@ -815,6 +833,7 @@ actor MobileCoreRPCSession {
         readerTask = nextReaderTask
         writeQueue = continuation
         writerTask = nextWriterTask
+        transportClosureTask = nextTransportClosureTask
         transport = candidate
         installedConnectLease = connectLease
 
@@ -1345,6 +1364,11 @@ actor MobileCoreRPCSession {
     ) async {
         guard installedConnectionID == connectionID else { return }
         await tearDown(error: error)
+    }
+
+    private func transportDidClose(connectionID: UUID) async {
+        guard installedConnectionID == connectionID else { return }
+        await tearDown(error: .connectionClosed)
     }
 
     /// Detaches one installed transport close from session request handling and
