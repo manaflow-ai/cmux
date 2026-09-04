@@ -210,25 +210,26 @@ public actor AppLog {
     }
 
     /// Synchronously admits entries from arbitrary producer threads while
-    /// keeping the event buffer bounded. Control entries are never evicted;
-    /// when the event budget is full, only the oldest event is discarded.
+    /// keeping normal event and mirrored-line traffic bounded. Control entries
+    /// are never evicted; when the traffic budget is full, the oldest droppable
+    /// entry is discarded.
     // lint:allow lock - synchronous admission is required for nonisolated
     // producers; the lock is held only while updating a bounded in-memory queue.
     private final class EntryIngress: @unchecked Sendable {
         private struct State: Sendable {
             var entries: [Entry] = []
-            var bufferedEventCount = 0
+            var bufferedDroppableCount = 0
             var finished = false
         }
 
         private let lock = NSLock()
         private var state = State()
-        private let maxBufferedEvents: Int
+        private let maxBufferedEntries: Int
         private let wakeContinuation: AsyncStream<Void>.Continuation
         private var wakeIterator: AsyncStream<Void>.Iterator
 
-        init(maxBufferedEvents: Int = 2_048) {
-            self.maxBufferedEvents = max(1, maxBufferedEvents)
+        init(maxBufferedEntries: Int = 2_048) {
+            self.maxBufferedEntries = max(1, maxBufferedEntries)
             let (stream, continuation) = AsyncStream<Void>.makeStream(
                 bufferingPolicy: .bufferingNewest(1)
             )
@@ -239,13 +240,13 @@ public actor AppLog {
         func enqueue(_ entry: Entry) {
             let admitted = withStateLock { state in
                 guard !state.finished else { return false }
-                if case .event = entry {
-                    if state.bufferedEventCount >= maxBufferedEvents,
-                       let oldestEvent = state.entries.firstIndex(where: Self.isEvent) {
-                        state.entries.remove(at: oldestEvent)
-                        state.bufferedEventCount -= 1
+                if Self.isDroppable(entry) {
+                    if state.bufferedDroppableCount >= maxBufferedEntries,
+                       let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) {
+                        state.entries.remove(at: oldestDroppable)
+                        state.bufferedDroppableCount -= 1
                     }
-                    state.bufferedEventCount += 1
+                    state.bufferedDroppableCount += 1
                 }
                 state.entries.append(entry)
                 return true
@@ -265,7 +266,7 @@ public actor AppLog {
                     }
                     let batch = state.entries
                     state.entries.removeAll(keepingCapacity: true)
-                    state.bufferedEventCount = 0
+                    state.bufferedDroppableCount = 0
                     return batch
                 }) {
                     if !batch.isEmpty { return batch }
@@ -278,7 +279,7 @@ public actor AppLog {
                         guard !state.entries.isEmpty else { return nil }
                         let batch = state.entries
                         state.entries.removeAll(keepingCapacity: true)
-                        state.bufferedEventCount = 0
+                        state.bufferedDroppableCount = 0
                         return batch
                     }) {
                         return batch
@@ -293,7 +294,7 @@ public actor AppLog {
                 state.finished = true
                 let pending = state.entries
                 state.entries.removeAll(keepingCapacity: false)
-                state.bufferedEventCount = 0
+                state.bufferedDroppableCount = 0
                 return pending
             }
             for entry in pending {
@@ -308,9 +309,13 @@ public actor AppLog {
             return body(&state)
         }
 
-        private static func isEvent(_ entry: Entry) -> Bool {
-            if case .event = entry { return true }
-            return false
+        private static func isDroppable(_ entry: Entry) -> Bool {
+            switch entry {
+            case .event, .appLine:
+                return true
+            case .barrier, .clear:
+                return false
+            }
         }
 
         private static func resumeControl(_ entry: Entry) {

@@ -150,8 +150,8 @@ final class AppCompositionRoot {
         // opt-in), so this mirror never widens what gets persisted.
         Task {
             let sink = MobileDebugLog.shared.sink
-            for await line in await sink.lines() {
-                appLog.mirrorAppLine(line)
+            await sink.addLineObserver { [weak appLog] line in
+                appLog?.mirrorAppLine(line)
             }
         }
         let analytics = MobileAnalyticsComposition(

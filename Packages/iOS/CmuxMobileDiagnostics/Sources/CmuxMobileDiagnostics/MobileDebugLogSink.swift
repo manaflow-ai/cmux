@@ -14,6 +14,7 @@ public actor MobileDebugLogSink {
     private let startedAt: Date
     private let now: @Sendable () -> Date
     private var continuations: [UUID: AsyncStream<String>.Continuation] = [:]
+    private var appendObservers: [UUID: @Sendable (String) -> Void] = [:]
     private let fileURL: URL?
     private let fileHeader: String?
     private let maxFileBytes: Int
@@ -78,6 +79,23 @@ public actor MobileDebugLogSink {
         }
     }
 
+    /// Registers a synchronous observer for each line after it is timestamped
+    /// and before the append operation returns. This gives durable mirrors a
+    /// clear ordering point without depending on an unacknowledged stream
+    /// consumer.
+    @discardableResult
+    public func addLineObserver(
+        _ observer: @escaping @Sendable (String) -> Void
+    ) -> UUID {
+        let id = UUID()
+        appendObservers[id] = observer
+        return id
+    }
+
+    public func removeLineObserver(_ id: UUID) {
+        appendObservers[id] = nil
+    }
+
     deinit {
         if let fileHandle {
             try? fileHandle.close()
@@ -116,6 +134,9 @@ public actor MobileDebugLogSink {
                 continuation.yield(line)
             }
             appendToFile(line)
+            for observer in appendObservers.values {
+                observer(line)
+            }
         }
     }
 

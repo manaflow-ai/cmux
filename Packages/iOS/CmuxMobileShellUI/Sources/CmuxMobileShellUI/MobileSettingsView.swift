@@ -873,6 +873,7 @@ private struct MobileSettingsDiagnosticsSection: View {
     @State private var logExportTask: Task<Void, Never>?
     @State private var logExportTaskID: UUID?
     @State private var presentationHost: UIViewController?
+    @State private var exportErrorMessage: String?
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -946,10 +947,13 @@ private struct MobileSettingsDiagnosticsSection: View {
         ) {
             Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Logs"), role: .destructive) {
                 Task {
+                    // Stop and drain the string sink first. Its synchronous
+                    // observer mirrors each accepted line into AppLog, so the
+                    // AppLog barrier below includes every pre-clear line.
+                    await MobileDebugLog.shared.clearPersistedLog()
                     await irohSettingsModel?.clearDiagnosticReport()
                     await diagnosticLog?.clear()
                     await appLog?.clear()
-                    await MobileDebugLog.shared.clearPersistedLog()
                 }
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
@@ -977,6 +981,24 @@ private struct MobileSettingsDiagnosticsSection: View {
             logExportTaskID = nil
             irohSettingsModel?.cancelOperations()
         }
+        .alert(
+            L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"),
+            isPresented: Binding(
+                get: { exportErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented { exportErrorMessage = nil }
+                }
+            )
+        ) {
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {
+                exportErrorMessage = nil
+            }
+        } message: {
+            Text(exportErrorMessage ?? L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            ))
+        }
     }
 
     @MainActor
@@ -999,7 +1021,13 @@ private struct MobileSettingsDiagnosticsSection: View {
         guard !isPreparingExport, let appLog else { return }
         isPreparingExport = true
         defer { isPreparingExport = false }
-        guard let url = await appLog.exportLogs() else { return }
+        guard let url = await appLog.exportLogs() else {
+            exportErrorMessage = L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            )
+            return
+        }
         guard !Task.isCancelled else {
             try? FileManager.default.removeItem(at: url)
             return
@@ -1020,6 +1048,10 @@ private struct MobileSettingsDiagnosticsSection: View {
               let window = host.viewIfLoaded?.window,
               let root = window.rootViewController else {
             try? FileManager.default.removeItem(at: url)
+            exportErrorMessage = L10n.string(
+                "mobile.settings.diagnostics.export.failed",
+                defaultValue: "Couldn’t export logs. Check available storage and try again."
+            )
             return
         }
         let presenter = Self.topViewController(from: root)

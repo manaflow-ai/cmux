@@ -27630,6 +27630,65 @@
         }
       }
     },
+    "mobile.settings.diagnostics.export.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t export logs. Check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出せませんでした。空き容量を確認して、もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle konnten nicht exportiert werden. Prüfen Sie den verfügbaren Speicher und versuchen Sie es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible d’exporter les journaux. Vérifiez l’espace disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تصدير السجلات. تحقق من مساحة التخزين المتاحة وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron exportar los registros. Comprueba el almacenamiento disponible y vuelve a intentarlo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法匯出日誌。請檢查可用儲存空間並重試。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法导出日志。请检查可用存储空间并重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그를 내보낼 수 없습니다. 사용 가능한 저장 공간을 확인한 후 다시 시도하세요."
+          }
+        }
+      }
+    },
     "mobile.settings.diagnostics.shareAppLog": {
       "extractionState": "manual",
       "localizations": {
