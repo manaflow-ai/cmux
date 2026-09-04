@@ -156,6 +156,16 @@ pub(crate) fn sidebar_view_token(view: &SidebarViewSpec) -> u64 {
 /// All mutable frontend state owned by one named sidebar profile. Stable
 /// profile, view, and split ids keep state attached to its semantic owner
 /// when configuration order changes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct SidebarRailScrollState {
+    pub(crate) machine_rail_scroll: usize,
+    pub(crate) machine_footer_scroll: usize,
+    pub(crate) workspace_rail_scroll: usize,
+    pub(crate) workspace_footer_scroll: usize,
+    pub(crate) tabs_rail_scroll: usize,
+    pub(crate) tabs_footer_scroll: usize,
+}
+
 #[derive(Debug, Clone)]
 struct SidebarProfilePresentationState {
     projection_rails: HashMap<String, ProjectionRailState>,
@@ -192,6 +202,10 @@ struct SidebarProfilePresentationState {
     /// action in view. A wheel over the action section turns this off so the
     /// user can inspect hidden actions without changing the activation target.
     files_action_follow_selection: bool,
+    /// Scroll offsets for the native legacy rails. These belong to the
+    /// profile, rather than the App, so switching between layouts never moves
+    /// a rail to the offset last used by another layout.
+    rail_scroll: SidebarRailScrollState,
 }
 
 impl Default for SidebarProfilePresentationState {
@@ -213,6 +227,7 @@ impl Default for SidebarProfilePresentationState {
             files_restore_host: None,
             files_action_scroll: 0,
             files_action_follow_selection: true,
+            rail_scroll: SidebarRailScrollState::default(),
         }
     }
 }
@@ -7859,13 +7874,7 @@ pub struct App {
     pub sidebar_workspace_selection: usize,
     pub(crate) sidebar_recoverable_workspace_selection: usize,
     pub(crate) workspace_rail_selection: WorkspaceRailSelection,
-    pub(crate) machine_rail_scroll: usize,
-    pub(crate) machine_footer_scroll: usize,
-    pub(crate) workspace_rail_scroll: usize,
-    pub(crate) workspace_footer_scroll: usize,
     pub(crate) tabs_rail_selection: usize,
-    pub(crate) tabs_rail_scroll: usize,
-    pub(crate) tabs_footer_scroll: usize,
     sidebar_presentation: SidebarPresentationState,
     projection_rows_cache: VecDeque<ProjectionRowsCache>,
     projection_rows_revision: u64,
@@ -10658,13 +10667,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         sidebar_workspace_selection: 0,
         sidebar_recoverable_workspace_selection: 0,
         workspace_rail_selection: WorkspaceRailSelection::default(),
-        machine_rail_scroll: 0,
-        machine_footer_scroll: 0,
-        workspace_rail_scroll: 0,
-        workspace_footer_scroll: 0,
         tabs_rail_selection: 0,
-        tabs_rail_scroll: 0,
-        tabs_footer_scroll: 0,
         sidebar_presentation: SidebarPresentationState::default(),
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
@@ -11462,6 +11465,16 @@ impl App {
     fn active_sidebar_profile_state_mut(&mut self) -> &mut SidebarProfilePresentationState {
         let profile = self.config.sidebar.active_profile.clone();
         self.sidebar_presentation.profiles.entry(profile).or_default()
+    }
+
+    pub(crate) fn active_sidebar_rail_scroll(&self) -> SidebarRailScrollState {
+        self.active_sidebar_profile_state()
+            .map(|state| state.rail_scroll)
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn active_sidebar_rail_scroll_mut(&mut self) -> &mut SidebarRailScrollState {
+        &mut self.active_sidebar_profile_state_mut().rail_scroll
     }
 
     fn remember_active_projection_identities(&mut self) {
@@ -12451,7 +12464,7 @@ impl App {
     fn follow_sidebar_workspace(&mut self, index: usize) {
         if self.sidebar_workspace_selection != index {
             self.tabs_rail_selection = 0;
-            self.tabs_rail_scroll = 0;
+            self.active_sidebar_rail_scroll_mut().tabs_rail_scroll = 0;
         }
         self.sidebar_workspace_selection = index;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
@@ -14129,7 +14142,7 @@ impl App {
         self.sidebar_recoverable_workspace_selection = 0;
         self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
         self.tabs_rail_selection = 0;
-        self.tabs_rail_scroll = 0;
+        self.active_sidebar_rail_scroll_mut().tabs_rail_scroll = 0;
         self.tabs_rail_follow_selection = true;
         self.sidebar_followed_surface = None;
         self.sidebar_plugin_surface = None;
@@ -18587,6 +18600,10 @@ impl App {
                 Ok(action)
             }
             TerminalInput::Resize => {
+                // A resize replaces every sidebar rectangle. Release any
+                // pointer capture before the next frame, so a drag sampled
+                // against the old topology cannot mutate the new one.
+                self.invalidate_pointer_topology();
                 self.reassert_scoped_host_terminal_state();
                 if self.graphics_supported {
                     self.graphics_host_scene_reset_pending = true;
@@ -18840,6 +18857,14 @@ impl App {
         self.active_pointer_buttons.clear();
         self.ignored_pty_mouse_buttons.clear();
         self.reset_selection_click_sequence();
+    }
+
+    /// End pointer capture at a boundary that replaces the visible geometry.
+    /// Cancellation sends best-effort releases to browser and PTY surfaces;
+    /// the generation advance drops retained mouse input from the old frame.
+    fn invalidate_pointer_topology(&mut self) {
+        self.cancel_pointer_interaction();
+        self.advance_pointer_focus_generation();
     }
 
     #[cfg(test)]
@@ -20812,8 +20837,9 @@ impl App {
             self.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspaces().len());
         let body_rows = (self.tree.workspaces().len() + recoverable) * metrics.stride;
         let footer_rows = self.workspace_sidebar_action_rows().len();
-        let mut body_offset = self.workspace_rail_scroll;
-        let mut footer_offset = self.workspace_footer_scroll;
+        let scroll = self.active_sidebar_rail_scroll();
+        let mut body_offset = scroll.workspace_rail_scroll;
+        let mut footer_offset = scroll.workspace_footer_scroll;
         let viewport = crate::ui::rail::viewport_positioned(
             area,
             body_rows.max(1),
@@ -20861,7 +20887,7 @@ impl App {
                 {
                     if self.sidebar_workspace_selection != index {
                         self.tabs_rail_selection = 0;
-                        self.tabs_rail_scroll = 0;
+                        self.active_sidebar_rail_scroll_mut().tabs_rail_scroll = 0;
                     }
                     self.sidebar_workspace_selection = index;
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
@@ -22708,6 +22734,9 @@ impl App {
                 }
             }
             Action::ToggleSidebar => {
+                // Visibility changes repack the sidebar. End any gesture
+                // whose rectangles belong to the pre-toggle topology.
+                self.invalidate_pointer_topology();
                 self.sidebar_visible = !self.sidebar_visible;
                 if !self.sidebar_visible {
                     self.session.invalidate_sidebar_plugin_sync();
@@ -22721,6 +22750,9 @@ impl App {
                 }
             }
             Action::ToggleSidebarCompact => {
+                // Compact mode changes rail widths and can move split
+                // dividers. Pointer capture must not cross that boundary.
+                self.invalidate_pointer_topology();
                 self.sidebar_compact = !self.sidebar_compact;
                 self.sidebar_visible = true;
                 self.rebuild_projection_surface_indexes();
@@ -23974,8 +24006,9 @@ impl App {
             .map_or(0, |ui| ui.recoverable_workspaces().len());
         let body_rows = (len + recoverable).saturating_mul(metrics.stride);
         let actions = self.workspace_sidebar_action_rows();
-        let mut body_offset = self.workspace_rail_scroll;
-        let mut footer_offset = self.workspace_footer_scroll;
+        let scroll = self.active_sidebar_rail_scroll();
+        let mut body_offset = scroll.workspace_rail_scroll;
+        let mut footer_offset = scroll.workspace_footer_scroll;
         let viewport = crate::ui::rail::viewport_positioned(
             area,
             body_rows,
@@ -26165,13 +26198,14 @@ impl App {
             }) => {
                 let (track, total_rows, visible_rows, anchor_y, anchor_offset) =
                     (*track, *total_rows, *visible_rows, *anchor_y, *anchor_offset);
-                self.workspace_rail_scroll = viewport_drag_offset(
+                let offset = viewport_drag_offset(
                     total_rows,
                     visible_rows,
                     track.height,
                     anchor_offset,
                     y as i128 - anchor_y as i128,
                 );
+                self.active_sidebar_rail_scroll_mut().workspace_rail_scroll = offset;
                 Ok(RenderAction::Draw)
             }
             Some(Drag::FilesScrollbar {
@@ -26578,22 +26612,24 @@ impl App {
             return;
         }
         let relative = y.saturating_sub(track.y).min(track.height.saturating_sub(1));
+        let scroll = self.active_sidebar_rail_scroll();
         let (thumb_y, thumb_height) = viewport_thumb_geometry(
             total_rows,
             visible_rows,
-            self.workspace_rail_scroll,
+            scroll.workspace_rail_scroll,
             track.height,
         );
         if relative < thumb_y || relative >= thumb_y.saturating_add(thumb_height) {
-            self.workspace_rail_scroll =
+            self.active_sidebar_rail_scroll_mut().workspace_rail_scroll =
                 viewport_jump_offset(total_rows, visible_rows, track.height, relative);
         }
+        let anchor_offset = self.active_sidebar_rail_scroll().workspace_rail_scroll;
         self.drag = Some(Drag::WorkspaceScrollbar {
             track,
             total_rows,
             visible_rows,
             anchor_y: y,
-            anchor_offset: self.workspace_rail_scroll,
+            anchor_offset,
         });
     }
 
@@ -27711,27 +27747,32 @@ impl App {
                 usize::from(ui.snapshot.capabilities.create)
                     + usize::from(ui.snapshot.capabilities.connect)
             });
-            let viewport = crate::ui::rail::viewport_positioned(
-                area,
-                body_rows,
-                footer_rows,
-                &mut self.machine_rail_scroll,
-                &mut self.machine_footer_scroll,
-                None,
-                None,
-                crate::config::ActionsPosition::Bottom,
-            );
+            let viewport = {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                crate::ui::rail::viewport_positioned(
+                    area,
+                    body_rows,
+                    footer_rows,
+                    &mut scroll.machine_rail_scroll,
+                    &mut scroll.machine_footer_scroll,
+                    None,
+                    None,
+                    crate::config::ActionsPosition::Bottom,
+                )
+            };
             let delta = if down { 1 } else { -1 };
             let changed = if viewport.footer.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
                 scroll_rail_offset(
-                    &mut self.machine_footer_scroll,
+                    &mut scroll.machine_footer_scroll,
                     footer_rows,
                     viewport.footer.height as usize,
                     delta,
                 )
             } else if viewport.body.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
                 scroll_rail_offset(
-                    &mut self.machine_rail_scroll,
+                    &mut scroll.machine_rail_scroll,
                     body_rows,
                     viewport.body.height as usize,
                     if down { 3 } else { -3 },
@@ -27790,27 +27831,32 @@ impl App {
             let body_rows = (self.tree.workspaces().len() + recoverable_count) * metrics.stride;
             let footer_rows = self.workspace_sidebar_action_rows().len();
             let actions_position = self.workspace_actions_position();
-            let viewport = crate::ui::rail::viewport_positioned(
-                area,
-                body_rows,
-                footer_rows,
-                &mut self.workspace_rail_scroll,
-                &mut self.workspace_footer_scroll,
-                None,
-                None,
-                actions_position,
-            );
+            let viewport = {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                crate::ui::rail::viewport_positioned(
+                    area,
+                    body_rows,
+                    footer_rows,
+                    &mut scroll.workspace_rail_scroll,
+                    &mut scroll.workspace_footer_scroll,
+                    None,
+                    None,
+                    actions_position,
+                )
+            };
             let delta = if down { 1 } else { -1 };
             let changed = if viewport.footer.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
                 scroll_rail_offset(
-                    &mut self.workspace_footer_scroll,
+                    &mut scroll.workspace_footer_scroll,
                     footer_rows,
                     viewport.footer.height as usize,
                     delta,
                 )
             } else if viewport.body.contains(x, y) {
+                let scroll = self.active_sidebar_rail_scroll_mut();
                 scroll_rail_offset(
-                    &mut self.workspace_rail_scroll,
+                    &mut scroll.workspace_rail_scroll,
                     body_rows,
                     viewport.body.height as usize,
                     if down { 3 } else { -3 },
@@ -27828,24 +27874,30 @@ impl App {
             let targets = self.sidebar_tab_targets();
             let metrics = crate::ui::rail::RailMetrics::for_app(self);
             let body_rows = if targets.is_empty() { 1 } else { targets.len() * metrics.stride };
-            let mut footer_offset = self.tabs_footer_scroll;
-            let viewport = crate::ui::rail::viewport_positioned(
-                area,
-                body_rows,
-                0,
-                &mut self.tabs_rail_scroll,
-                &mut footer_offset,
-                None,
-                None,
-                crate::config::ActionsPosition::Bottom,
-            );
-            let changed = viewport.body.contains(x, y)
-                && scroll_rail_offset(
-                    &mut self.tabs_rail_scroll,
+            let mut footer_offset = self.active_sidebar_rail_scroll().tabs_footer_scroll;
+            let viewport = {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                crate::ui::rail::viewport_positioned(
+                    area,
                     body_rows,
-                    viewport.body.height as usize,
-                    if down { 3 } else { -3 },
-                );
+                    0,
+                    &mut scroll.tabs_rail_scroll,
+                    &mut footer_offset,
+                    None,
+                    None,
+                    crate::config::ActionsPosition::Bottom,
+                )
+            };
+            let changed = viewport.body.contains(x, y)
+                && {
+                    let scroll = self.active_sidebar_rail_scroll_mut();
+                    scroll_rail_offset(
+                        &mut scroll.tabs_rail_scroll,
+                        body_rows,
+                        viewport.body.height as usize,
+                        if down { 3 } else { -3 },
+                    )
+                };
             self.tabs_rail_follow_selection = false;
             return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
         }
@@ -31446,7 +31498,7 @@ mod tests {
         // A Workspaces footer scroll must not become the initial Files action
         // offset. The first configured action is the first action target after
         // entering Files in this profile.
-        app.workspace_footer_scroll = 2;
+        app.active_sidebar_rail_scroll_mut().workspace_footer_scroll = 2;
         app.focus = FocusTarget::WorkspaceRail;
         app.toggle_sidebar_view();
         app.sync_layout((100, 9));
@@ -31522,8 +31574,8 @@ mod tests {
 
         app.toggle_sidebar_view();
         assert_eq!(app.sidebar_view, SidebarView::Workspaces);
-        assert_eq!(app.workspace_footer_scroll, 2);
-        app.workspace_footer_scroll = 0;
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_footer_scroll, 2);
+        app.active_sidebar_rail_scroll_mut().workspace_footer_scroll = 0;
         app.toggle_sidebar_view();
         app.sync_layout((100, 9));
         let area = app.workspace_sidebar_area(9).expect("Files workspace host");
@@ -32466,6 +32518,63 @@ mod tests {
         app.activate_sidebar_profile(0);
         app.sync_layout((120, 20));
         assert!(app.sidebar_layout.tabs.is_none());
+    }
+
+    #[test]
+    fn sidebar_rail_scroll_offsets_follow_the_active_profile() {
+        let mux = Mux::new("sidebar-profile-scroll-state-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let first_views = vec![SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0)];
+        let second_views = vec![SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 28, 0)];
+        let first_layout = crate::config::sidebar_layout_of_columns(&first_views);
+        let second_layout = crate::config::sidebar_layout_of_columns(&second_views);
+        app.config.sidebar.profiles = vec![
+            SidebarProfileSpec {
+                id: "first".into(),
+                name: "First".into(),
+                views: first_views.clone(),
+                layout: first_layout.clone(),
+            },
+            SidebarProfileSpec {
+                id: "second".into(),
+                name: "Second".into(),
+                views: second_views.clone(),
+                layout: second_layout.clone(),
+            },
+        ];
+        app.config.sidebar.active_profile = "first".into();
+        app.config.sidebar.views = first_views;
+        app.config.sidebar.layout = first_layout;
+        app.config.sidebar.views_explicit = true;
+        app.sync_layout((100, 20));
+
+        let first_scroll = SidebarRailScrollState {
+            machine_rail_scroll: 1,
+            machine_footer_scroll: 2,
+            workspace_rail_scroll: 3,
+            workspace_footer_scroll: 4,
+            tabs_rail_scroll: 5,
+            tabs_footer_scroll: 6,
+        };
+        *app.active_sidebar_rail_scroll_mut() = first_scroll;
+
+        app.activate_sidebar_profile(1);
+        assert_eq!(app.active_sidebar_rail_scroll(), SidebarRailScrollState::default());
+
+        let second_scroll = SidebarRailScrollState {
+            machine_rail_scroll: 6,
+            machine_footer_scroll: 5,
+            workspace_rail_scroll: 4,
+            workspace_footer_scroll: 3,
+            tabs_rail_scroll: 2,
+            tabs_footer_scroll: 1,
+        };
+        *app.active_sidebar_rail_scroll_mut() = second_scroll;
+
+        app.activate_sidebar_profile(0);
+        assert_eq!(app.active_sidebar_rail_scroll(), first_scroll);
+        app.activate_sidebar_profile(1);
+        assert_eq!(app.active_sidebar_rail_scroll(), second_scroll);
     }
 
     #[test]
@@ -44383,6 +44492,47 @@ mod tests {
     }
 
     #[test]
+    fn resize_cancels_sidebar_pointer_capture_before_new_geometry() {
+        let mux = Mux::new("resize-sidebar-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((100, 20));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let generation = app.pointer_focus_generation;
+
+        app.handle(AppEvent::Input(Event::Resize(80, 20))).unwrap();
+        app.sync_layout((80, 20));
+
+        assert!(app.drag.is_none(), "resize must release the old sidebar drag");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.pointer_focus_generation != generation);
+        app.handle_left_drag(79, 10).unwrap();
+        assert!(app.drag.is_none(), "a post-resize drag must start only after a new press");
+    }
+
+    #[test]
+    fn sidebar_visibility_actions_cancel_old_pointer_capture() {
+        for action in [Action::ToggleSidebar, Action::ToggleSidebarCompact] {
+            let mux = Mux::new(
+                format!("sidebar-pointer-action-boundary-{action:?}"),
+                SurfaceOptions::default(),
+            );
+            let mut app = test_app(Session::Local(mux));
+            app.sync_layout((100, 20));
+            app.drag = Some(Drag::RailResize(RailKind::Workspace));
+            app.active_pointer_buttons.insert(MouseButton::Left);
+
+            app.run_action(action).unwrap();
+            app.sync_layout((100, 20));
+
+            assert!(app.drag.is_none(), "{action:?} must release sidebar pointer capture");
+            assert!(app.active_pointer_buttons.is_empty());
+            app.handle_left_drag(99, 10).unwrap();
+            assert!(app.drag.is_none(), "{action:?} cannot continue an old drag");
+        }
+    }
+
+    #[test]
     fn routine_paint_and_draw_do_not_defer_key_or_paste_input() {
         let mux = Mux::new("paint-key-latency-test", SurfaceOptions::default());
         let mut paint_app = test_app(Session::Local(mux));
@@ -44460,10 +44610,10 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert_eq!(
-            app.machine_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().machine_rail_scroll, 0,
             "a wheel event captured outside the old frame must not scroll a newly drawn rail"
         );
-        assert_eq!(app.machine_footer_scroll, 0);
+        assert_eq!(app.active_sidebar_rail_scroll().machine_footer_scroll, 0);
     }
 
     #[test]
@@ -44494,10 +44644,10 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert_eq!(
-            app.workspace_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().workspace_rail_scroll, 0,
             "a wheel event captured outside the old frame must not scroll a newly drawn rail"
         );
-        assert_eq!(app.workspace_footer_scroll, 0);
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_footer_scroll, 0);
     }
 
     #[test]
@@ -49406,8 +49556,8 @@ mod tests {
         });
         assert_ne!(scrolled_machine, first_machine);
         assert_ne!(scrolled_workspace, first_workspace);
-        assert!(app.machine_rail_scroll > 0);
-        assert!(app.workspace_rail_scroll > 0);
+        assert!(app.active_sidebar_rail_scroll().machine_rail_scroll > 0);
+        assert!(app.active_sidebar_rail_scroll().workspace_rail_scroll > 0);
     }
 
     #[test]
@@ -49446,8 +49596,15 @@ mod tests {
         app.handle_scroll(workspace_area.x + 1, workspace_area.y + 2, true, KeyModifiers::NONE)
             .unwrap();
 
-        assert_eq!(app.machine_rail_scroll, 0, "a pruned machine rail cannot consume the wheel");
-        assert!(app.workspace_rail_scroll > 0, "the visible workspace rail receives the wheel");
+        assert_eq!(
+            app.active_sidebar_rail_scroll().machine_rail_scroll,
+            0,
+            "a pruned machine rail cannot consume the wheel"
+        );
+        assert!(
+            app.active_sidebar_rail_scroll().workspace_rail_scroll > 0,
+            "the visible workspace rail receives the wheel"
+        );
     }
 
     #[test]
@@ -49497,7 +49654,7 @@ mod tests {
         app.handle_scroll(agents_area.x + 1, agents_area.y + 2, true, KeyModifiers::NONE).unwrap();
 
         assert_eq!(
-            app.workspace_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().workspace_rail_scroll, 0,
             "a pruned workspace rail cannot consume the wheel"
         );
         assert!(
@@ -49542,7 +49699,7 @@ mod tests {
         let (thumb_y, _) = crate::ui::viewport_thumb_geometry(
             total_rows,
             visible_rows,
-            app.workspace_rail_scroll,
+            app.active_sidebar_rail_scroll().workspace_rail_scroll,
             track.height,
         );
         assert_eq!(track.x + 1, divider.x);
@@ -49555,7 +49712,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })
         .unwrap();
-        let jumped = app.workspace_rail_scroll;
+        let jumped = app.active_sidebar_rail_scroll().workspace_rail_scroll;
         assert!(jumped > 0);
         assert!(!app.workspace_rail_follow_selection);
         assert_eq!(app.focus, FocusTarget::Pane);
@@ -49567,7 +49724,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })
         .unwrap();
-        assert!(app.workspace_rail_scroll < jumped);
+        assert!(app.active_sidebar_rail_scroll().workspace_rail_scroll < jumped);
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Up(MouseButton::Left),
             column: track.x,
@@ -49664,7 +49821,7 @@ mod tests {
         // Scrolling changes the physical row positions. The same receipt-
         // based hit test must follow the visible workspace rather than the
         // old fixed three-line formula.
-        app.workspace_rail_scroll = 6;
+        app.active_sidebar_rail_scroll_mut().workspace_rail_scroll = 6;
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let scrolled = app
             .hits
@@ -51181,7 +51338,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux));
         app.replace_tree(app.session.tree());
         app.sidebar_workspace_selection = 1;
-        app.workspace_rail_scroll = 3;
+        app.active_sidebar_rail_scroll_mut().workspace_rail_scroll = 3;
         let selected_workspace = app.tree.workspaces()[1].id;
         let mut initial = MachineUiState::new(MachineSnapshot {
             machines: vec![descriptor(1), descriptor(2), descriptor(3)],
@@ -51190,7 +51347,7 @@ mod tests {
         });
         initial.select_rail_target(crate::machine::MachineRailTarget::Machine(MachineKey(2)));
         app.machine_ui = Some(initial);
-        app.machine_rail_scroll = 6;
+        app.active_sidebar_rail_scroll_mut().machine_rail_scroll = 6;
 
         let update = MachineUiState::new(MachineSnapshot {
             machines: vec![descriptor(3), descriptor(2), descriptor(1)],
@@ -51206,9 +51363,9 @@ mod tests {
             app.machine_ui.as_ref().and_then(MachineUiState::rail_target),
             Some(crate::machine::MachineRailTarget::Machine(MachineKey(2)))
         );
-        assert_eq!(app.machine_rail_scroll, 6);
+        assert_eq!(app.active_sidebar_rail_scroll().machine_rail_scroll, 6);
         assert_eq!(app.tree.workspaces()[app.sidebar_workspace_selection].id, selected_workspace);
-        assert_eq!(app.workspace_rail_scroll, 3);
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_rail_scroll, 3);
     }
 
     enum FakeMachineAction {
@@ -51570,8 +51727,8 @@ mod tests {
         app.focus = FocusTarget::MachineRail;
         app.active_sidebar_profile_state_mut().workspace_width = Some(27);
         app.active_sidebar_profile_state_mut().machine_width = Some(19);
-        app.machine_rail_scroll = 3;
-        app.workspace_rail_scroll = 6;
+        app.active_sidebar_rail_scroll_mut().machine_rail_scroll = 3;
+        app.active_sidebar_rail_scroll_mut().workspace_rail_scroll = 6;
 
         let next_ui = provider_machine_ui();
         let (controller, requests) = fake_controller(FakeMachineAction::Return(Box::new(
@@ -51587,8 +51744,8 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::MachineRail);
         assert_eq!(app.active_sidebar_profile_state().unwrap().workspace_width, Some(27));
         assert_eq!(app.active_sidebar_profile_state().unwrap().machine_width, Some(19));
-        assert_eq!(app.machine_rail_scroll, 3);
-        assert_eq!(app.workspace_rail_scroll, 6);
+        assert_eq!(app.active_sidebar_rail_scroll().machine_rail_scroll, 3);
+        assert_eq!(app.active_sidebar_rail_scroll().workspace_rail_scroll, 6);
         assert!(!app.quit);
         assert_eq!(requests.lock().unwrap().as_slice(), &[MachineRequest::Switch(MachineKey(41))]);
     }
@@ -52932,13 +53089,7 @@ mod tests {
             sidebar_workspace_selection: 0,
             sidebar_recoverable_workspace_selection: 0,
             workspace_rail_selection: WorkspaceRailSelection::default(),
-            machine_rail_scroll: 0,
-            machine_footer_scroll: 0,
-            workspace_rail_scroll: 0,
-            workspace_footer_scroll: 0,
             tabs_rail_selection: 0,
-            tabs_rail_scroll: 0,
-            tabs_footer_scroll: 0,
             sidebar_presentation: super::SidebarPresentationState::default(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,

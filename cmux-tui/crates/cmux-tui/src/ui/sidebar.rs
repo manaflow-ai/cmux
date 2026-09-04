@@ -358,15 +358,18 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     } else {
         None
     };
-    let viewport = rail::viewport(
-        area,
-        body_rows,
-        footer_rows,
-        &mut app.machine_rail_scroll,
-        &mut app.machine_footer_scroll,
-        selected_body,
-        selected_footer,
-    );
+    let viewport = {
+        let scroll = app.active_sidebar_rail_scroll_mut();
+        rail::viewport(
+            area,
+            body_rows,
+            footer_rows,
+            &mut scroll.machine_rail_scroll,
+            &mut scroll.machine_footer_scroll,
+            selected_body,
+            selected_footer,
+        )
+    };
 
     let mut hits = Vec::new();
     if machines.is_empty()
@@ -501,15 +504,18 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         && app.tabs_sidebar_focused()
         && app.tabs_rail_follow_selection)
         .then_some(rail::RowSpan::new(app.tabs_rail_selection * metrics.stride, metrics.height));
-    let viewport = rail::viewport(
-        area,
-        body_rows,
-        0,
-        &mut app.tabs_rail_scroll,
-        &mut app.tabs_footer_scroll,
-        selected,
-        None,
-    );
+    let viewport = {
+        let scroll = app.active_sidebar_rail_scroll_mut();
+        rail::viewport(
+            area,
+            body_rows,
+            0,
+            &mut scroll.tabs_rail_scroll,
+            &mut scroll.tabs_footer_scroll,
+            selected,
+            None,
+        )
+    };
 
     if targets.is_empty() {
         if let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1)) {
@@ -911,16 +917,19 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         None
     };
     let actions_position = app.workspace_actions_position();
-    let viewport = rail::viewport_positioned(
-        area,
-        body_rows,
-        actions.len(),
-        &mut app.workspace_rail_scroll,
-        &mut app.workspace_footer_scroll,
-        selected_body,
-        selected_footer,
-        actions_position,
-    );
+    let viewport = {
+        let scroll = app.active_sidebar_rail_scroll_mut();
+        rail::viewport_positioned(
+            area,
+            body_rows,
+            actions.len(),
+            &mut scroll.workspace_rail_scroll,
+            &mut scroll.workspace_footer_scroll,
+            selected_body,
+            selected_footer,
+            actions_position,
+        )
+    };
     if let Some(usage) = app.machine_usage.as_ref() {
         let readout = messages.machine_usage_readout(usage.api_equivalent_usd, usage.period_days);
         rail::header_readout(frame, area, &readout, palette);
