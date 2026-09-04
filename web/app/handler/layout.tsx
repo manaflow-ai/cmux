@@ -1,23 +1,14 @@
-import { StackProvider, StackTheme } from "@stackframe/stack";
-import { getStackServerApp, isStackConfigured } from "../lib/stack";
-
 export const instant = false;
 
+/**
+ * cmux owns the auth screens under `/handler`, and they are plain server
+ * components. The Stack provider now lives on the catch-all route that still
+ * needs it, so signing in no longer downloads the auth SDK.
+ */
 export default function HandlerLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  if (!isStackConfigured()) {
-    return children;
-  }
-
-  const stackServerApp = getStackServerApp();
-  return stackServerApp ? (
-    <StackProvider app={stackServerApp}>
-      <StackTheme>{children}</StackTheme>
-    </StackProvider>
-  ) : (
-    children
-  );
+  return children;
 }
