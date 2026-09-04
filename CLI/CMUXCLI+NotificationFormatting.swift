@@ -28,7 +28,6 @@ extension CMUXCLI {
     /// lifecycle decision can share it (mirrors `hasActiveAntigravityBackgroundWork`).
     func hasActiveClaudeBackgroundWork(_ parsedInput: ClaudeHookParsedInput) -> Bool {
         guard let obj = parsedInput.rawObject else { return false }
-        if obj["stop_hook_active"] as? Bool == true { return true }
         if let crons = obj["session_crons"] as? [Any], !crons.isEmpty { return true }
         if let tasks = obj["background_tasks"] as? [[String: Any]] {
             return tasks.contains { ($0["status"] as? String) == "running" }

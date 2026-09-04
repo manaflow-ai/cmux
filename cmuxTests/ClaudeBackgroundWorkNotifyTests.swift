@@ -13,6 +13,15 @@ struct ClaudeBackgroundWorkNotifyTests {
         (snapshot.compactMap(AgentHookTestNotificationPipeline.candidatePresentation) + snapshot).first { $0.hasPrefix("notify_target_async ") && $0.contains(needle) }
     }
 
+    @Test func stopHookContinuationDoesNotPoisonTheLaterIdleSignal() throws {
+        let result = try runStopHook(name: "stop-continuation", sessionId: "continued-session", stdin: """
+        {"session_id":"continued-session","hook_event_name":"Stop","stop_hook_active":true,"last_assistant_message":"Intermediate response","background_tasks":[],"session_crons":[]}
+        """)
+        #expect(result.cachedPending == false)
+        #expect(notifyLine(result.snapshot, containing: "c=turn-complete;p=1") != nil)
+        #expect(journalEvent(result.snapshot, kind: "agent.turn.completed", pendingWork: true) != nil)
+    }
+
     private func statusLine(_ snapshot: [String], value: String) -> String? {
         snapshot.first { $0.hasPrefix("set_status claude_code \(value) ") }
     }
