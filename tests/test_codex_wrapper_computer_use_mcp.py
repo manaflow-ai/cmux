@@ -20,6 +20,246 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-codex-wrapper"
 SOURCE_CLAUDE_WRAPPER = ROOT / "Resources" / "bin" / "cmux-claude-wrapper"
 
+# This is the public Codex compatibility roster. Keep the contract here in
+# the same order as Resources/cmux-cua/SKILL.md: a fresh Codex process must
+# complete MCP discovery before it accepts its first user turn.
+CMUX_CUA_TOOL_ROSTER = [
+    "list_apps",
+    "get_app_state",
+    "click",
+    "perform_secondary_action",
+    "set_value",
+    "select_text",
+    "scroll",
+    "drag",
+    "press_key",
+    "type_text",
+]
+
+
+FAKE_MCP_HELPER = r'''#!/usr/bin/env python3
+import json
+import os
+import sys
+
+TOOLS = %r
+TRACE = os.environ.get("FAKE_MCP_TRACE_LOG")
+
+
+def record(event, payload=None):
+    if not TRACE:
+        return
+    value = {"event": event}
+    if payload is not None:
+        value["payload"] = payload
+    with open(TRACE, "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(value, sort_keys=True) + "\n")
+
+
+def receive():
+    headers = {}
+    while True:
+        line = sys.stdin.buffer.readline()
+        if not line:
+            return None
+        if line in (b"\r\n", b"\n"):
+            break
+        key, value = line.decode("ascii").split(":", 1)
+        headers[key.lower().strip()] = value.strip()
+    length = int(headers["content-length"])
+    body = sys.stdin.buffer.read(length)
+    if len(body) != length:
+        return None
+    return json.loads(body.decode("utf-8"))
+
+
+def send(message):
+    body = json.dumps(message, separators=(",", ":")).encode("utf-8")
+    sys.stdout.buffer.write(
+        ("Content-Length: %%d\r\n\r\n" %% len(body)).encode("ascii") + body
+    )
+    sys.stdout.buffer.flush()
+
+
+record(
+    "helper:started",
+    {
+        "force_proxy": os.environ.get("CMUX_CUA_MCP_FORCE_PROXY"),
+        "external_permission_flow": os.environ.get("CMUX_CUA_EXTERNAL_PERMISSION_FLOW"),
+        "auth_present": bool(os.environ.get("CMUX_CUA_SOCKET_AUTH_TOKEN")),
+        "daemon_app": os.environ.get("CMUX_CUA_DAEMON_APP"),
+        "permissions_gate": os.environ.get("CMUX_CUA_PERMISSIONS_GATE"),
+    },
+)
+
+while True:
+    message = receive()
+    if message is None:
+        break
+    method = message.get("method")
+    if method == "initialize":
+        record("helper:initialize")
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "cmux-cua-test", "version": "1"},
+                },
+            }
+        )
+    elif method == "notifications/initialized":
+        record("helper:initialized")
+    elif method == "tools/list":
+        record("helper:tools/list")
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": message.get("id"),
+                "result": {
+                    "tools": [
+                        {
+                            "name": name,
+                            "description": "test tool",
+                            "inputSchema": {"type": "object"},
+                        }
+                        for name in TOOLS
+                    ]
+                },
+            }
+        )
+    else:
+        record("helper:unexpected", {"method": method})
+'''
+
+
+FAKE_CODEX = r'''#!/usr/bin/env python3
+import json
+import os
+import subprocess
+import sys
+
+TRACE = os.environ.get("FAKE_MCP_TRACE_LOG")
+ARGS_LOG = os.environ["FAKE_CODEX_ARGS_LOG"]
+
+
+def record(event, payload=None):
+    if not TRACE:
+        return
+    value = {"event": event}
+    if payload is not None:
+        value["payload"] = payload
+    with open(TRACE, "a", encoding="utf-8") as stream:
+        stream.write(json.dumps(value, sort_keys=True) + "\n")
+
+
+def config(prefix, args):
+    for arg in args:
+        if arg.startswith(prefix):
+            return arg.split("=", 1)[1]
+    return None
+
+
+def send(stream, message):
+    body = json.dumps(message, separators=(",", ":")).encode("utf-8")
+    stream.write(
+        ("Content-Length: %%d\r\n\r\n" %% len(body)).encode("ascii") + body
+    )
+    stream.flush()
+
+
+def receive(stream):
+    headers = {}
+    while True:
+        line = stream.readline()
+        if not line:
+            raise RuntimeError("MCP helper closed before a response")
+        if line in (b"\r\n", b"\n"):
+            break
+        key, value = line.decode("ascii").split(":", 1)
+        headers[key.lower().strip()] = value.strip()
+    length = int(headers["content-length"])
+    body = stream.read(length)
+    if len(body) != length:
+        raise RuntimeError("short MCP response")
+    return json.loads(body.decode("utf-8"))
+
+
+args = sys.argv[1:]
+with open(ARGS_LOG, "w", encoding="utf-8") as stream:
+    for arg in args:
+        stream.write(arg + "\n")
+
+if os.environ.get("FAKE_MCP_HANDSHAKE") == "1":
+    command_raw = config("mcp_servers.cmux-cua.command=", args)
+    mcp_args_raw = config("mcp_servers.cmux-cua.args=", args)
+    if not command_raw or not mcp_args_raw:
+        record("codex:missing-mcp-config")
+        raise SystemExit(42)
+    command = json.loads(command_raw)
+    mcp_args = json.loads(mcp_args_raw)
+    child_env = os.environ.copy()
+    env_prefix = "mcp_servers.cmux-cua.env."
+    for arg in args:
+        if not arg.startswith(env_prefix):
+            continue
+        key, value = arg[len(env_prefix) :].split("=", 1)
+        child_env[key] = json.loads(value)
+    child_env["FAKE_MCP_TRACE_LOG"] = TRACE or ""
+    record("codex:mcp_spawn", {"command": command, "args": mcp_args})
+    helper = subprocess.Popen(
+        [command, *mcp_args],
+        env=child_env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        assert helper.stdin is not None and helper.stdout is not None
+        record("codex:mcp_initialize")
+        send(
+            helper.stdin,
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "codex-test", "version": "1"},
+                },
+            },
+        )
+        initialize_result = receive(helper.stdout)
+        record("codex:mcp_initialize_result", initialize_result)
+        send(
+            helper.stdin,
+            {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+        )
+        record("codex:mcp_initialized")
+        record("codex:mcp_tools_list")
+        send(
+            helper.stdin,
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+        )
+        tools_result = receive(helper.stdout)
+        names = [tool.get("name") for tool in tools_result.get("result", {}).get("tools", [])]
+        record("codex:mcp_tools_list_result", {"names": names})
+        if names != %r:
+            record("codex:mcp_roster_mismatch", {"names": names})
+            raise SystemExit(43)
+    except Exception as error:
+        record("codex:mcp_error", {"error": str(error)})
+        raise SystemExit(44)
+    finally:
+        helper.terminate()
+        helper.wait(timeout=5)
+
+record("codex:user_turn")
+'''
+
 
 def make_executable(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
@@ -159,6 +399,9 @@ def run_wrapper(
     global_skill_opt_out: bool = False,
     preexisting_legacy_link: bool = False,
     preexisting_skill_directory: bool = False,
+    mcp_handshake: bool = False,
+    diagnostics: bool = False,
+    non_cmux: bool = False,
 ) -> tuple[int, list[str], str, dict[str, object]]:
     with tempfile.TemporaryDirectory(prefix="cmux-codex-wrapper-test-") as td:
         tmp = Path(td)
@@ -183,17 +426,12 @@ def run_wrapper(
         )
 
         args_log = tmp / "codex-args.log"
+        mcp_trace_log = tmp / "mcp-trace.log"
         socket_path = tmp / "cmux.sock"
 
         make_executable(
             real_dir / "codex",
-            """#!/usr/bin/env bash
-set -euo pipefail
-: > "$FAKE_CODEX_ARGS_LOG"
-for arg in "$@"; do
-  printf '%s\\n' "$arg" >> "$FAKE_CODEX_ARGS_LOG"
-done
-""",
+            FAKE_CODEX % CMUX_CUA_TOOL_ROSTER,
         )
         inject_args_body = (
             "  exit 1\n"
@@ -230,7 +468,9 @@ exit 1
             helper_driver.parent.mkdir(parents=True)
             make_executable(
                 helper_driver,
-                "#!/usr/bin/env bash\nexit 0\n",
+                FAKE_MCP_HELPER % CMUX_CUA_TOOL_ROSTER
+                if mcp_handshake
+                else "#!/usr/bin/env bash\nexit 0\n",
             )
             write_helper_info(
                 helper_driver.parents[1] / "Info.plist",
@@ -247,12 +487,18 @@ exit 1
             sandbox_home.mkdir()
             env["HOME"] = str(sandbox_home)
             env["PATH"] = f"{wrapper_dir}:{real_dir}:{env.get('PATH', '/usr/bin:/bin')}"
-            env["CMUX_SURFACE_ID"] = "surface:test"
-            env["CMUX_SOCKET_PATH"] = str(socket_path)
+            if not non_cmux:
+                env["CMUX_SURFACE_ID"] = "surface:test"
+                env["CMUX_SOCKET_PATH"] = str(socket_path)
+            else:
+                env.pop("CMUX_SURFACE_ID", None)
+                env.pop("CMUX_SOCKET_PATH", None)
             env["CMUX_CUA_SOCKET_PATH"] = str(tmp / "cmux-cua.sock")
             env["CMUX_CUA_CODEX_SOCKET_PATH"] = str(tmp / "cmux-cua-codex.sock")
             env["CMUX_BUNDLED_CLI_PATH"] = str(wrapper_dir / "cmux")
             env["FAKE_CODEX_ARGS_LOG"] = str(args_log)
+            env["FAKE_MCP_TRACE_LOG"] = str(mcp_trace_log)
+            env["FAKE_MCP_HANDSHAKE"] = "1" if mcp_handshake else "0"
             env["NODE_OPTIONS"] = "--require=/tmp/cmux-mcp-preload-should-not-load.js"
             env["BUN_OPTIONS"] = "--preload=/tmp/cmux-mcp-preload-should-not-load.js"
             env.pop("CMUX_CODEX_HOOKS_DISABLED", None)
@@ -263,6 +509,10 @@ exit 1
             env.pop("CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL", None)
             env.pop("CMUX_CUA_SOCKET_AUTH_TOKEN", None)
             env["CMUX_COMPUTER_USE_APP_ENABLED"] = "1"
+            if diagnostics:
+                env["CMUX_CUA_DIAGNOSTICS"] = "1"
+            else:
+                env.pop("CMUX_CUA_DIAGNOSTICS", None)
             skills_root = sandbox_home / ".agents" / "skills"
             if preexisting_legacy_link:
                 skills_root.mkdir(parents=True, exist_ok=True)
@@ -302,7 +552,12 @@ exit 1
                     / "cmux-cua"
                 )
                 installed_helper.parent.mkdir(parents=True)
-                make_executable(installed_helper, "#!/usr/bin/env bash\nexit 0\n")
+                make_executable(
+                    installed_helper,
+                    FAKE_MCP_HELPER % CMUX_CUA_TOOL_ROSTER
+                    if mcp_handshake
+                    else "#!/usr/bin/env bash\nexit 0\n",
+                )
                 env["CMUX_CUA_CLIENT_PATH"] = str(installed_helper)
             if auth_token_file:
                 token_file = tmp / "auth-token"
@@ -375,7 +630,18 @@ exit 1
                     else None
                 ),
                 "legacy_present": legacy_skill.exists() or legacy_skill.is_symlink(),
+                "mcp_trace": [],
             }
+            if mcp_trace_log.exists():
+                trace: list[dict[str, object]] = []
+                for line in mcp_trace_log.read_text(encoding="utf-8").splitlines():
+                    try:
+                        value = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(value, dict):
+                        trace.append(value)
+                skill_probe["mcp_trace"] = trace
         finally:
             if test_socket is not None:
                 test_socket.close()
@@ -399,6 +665,143 @@ def configured_skill_path(args: list[str]) -> Path | None:
         return None
     escaped_path = raw[len(prefix) : -len(suffix)]
     return Path(json.loads(f'"{escaped_path}"'))
+
+
+def attachment_diagnostic(stderr: str, reason: str) -> bool:
+    expected = f"cmux-cua: codex attachment={reason}"
+    return expected in {line.strip() for line in stderr.splitlines()}
+
+
+def trace_events(skill: dict[str, object]) -> list[dict[str, object]]:
+    value = skill.get("mcp_trace")
+    return value if isinstance(value, list) else []
+
+
+def helper_was_started(skill: dict[str, object]) -> bool:
+    return any(
+        event.get("event") in {"codex:mcp_spawn", "helper:started"}
+        for event in trace_events(skill)
+    )
+
+
+def test_codex_fresh_session_handshakes_before_first_user_turn(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        mcp_handshake=True,
+        diagnostics=True,
+    )
+    expect(code == 0, f"fresh MCP handshake exited {code}: {stderr}", failures)
+    expect(
+        attachment_diagnostic(stderr, "attached"),
+        f"fresh session must report an attached cmux-cua proxy, got {stderr!r}",
+        failures,
+    )
+    expect(
+        "cmux-test-auth-token" not in stderr,
+        "attachment diagnostics must not disclose the daemon credential",
+        failures,
+    )
+    events = trace_events(skill)
+    names = [event.get("event") for event in events]
+    required = [
+        "codex:mcp_initialize",
+        "helper:initialize",
+        "codex:mcp_initialize_result",
+        "codex:mcp_initialized",
+        "codex:mcp_tools_list",
+        "helper:tools/list",
+        "codex:mcp_tools_list_result",
+        "codex:user_turn",
+    ]
+    positions = [names.index(name) if name in names else -1 for name in required]
+    expect(
+        all(position >= 0 for position in positions) and positions == sorted(positions),
+        f"fresh Codex must complete MCP discovery before user turn, got {names}",
+        failures,
+    )
+    tools_result = next(
+        (
+            event.get("payload", {}).get("names")
+            for event in events
+            if event.get("event") == "codex:mcp_tools_list_result"
+            and isinstance(event.get("payload"), dict)
+        ),
+        None,
+    )
+    expect(
+        tools_result == CMUX_CUA_TOOL_ROSTER,
+        f"fresh Codex must receive the exact cmux-cua tool roster, got {tools_result!r}",
+        failures,
+    )
+    helper_env = next(
+        (
+            event.get("payload")
+            for event in events
+            if event.get("event") == "helper:started"
+        ),
+        None,
+    )
+    expect(
+        isinstance(helper_env, dict)
+        and helper_env.get("force_proxy") == "1"
+        and helper_env.get("external_permission_flow") == "1"
+        and helper_env.get("auth_present") is True
+        and helper_env.get("daemon_app") is None
+        and helper_env.get("permissions_gate") is None,
+        f"fresh helper must retain forced proxy/TCC boundary environment, got {helper_env!r}",
+        failures,
+    )
+    expect(command_config(args) is not None, f"fresh session lost MCP config: {args}", failures)
+
+
+def test_codex_stale_socket_reports_fail_closed_attachment(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        dead_socket=True,
+        diagnostics=True,
+    )
+    expect(code == 0, f"stale-socket wrapper exited {code}: {stderr}", failures)
+    expect(
+        attachment_diagnostic(stderr, "stale-cmux-socket"),
+        f"stale cmux socket must be observable, got {stderr!r}",
+        failures,
+    )
+    expect(command_config(args) is None, f"stale socket must fail closed, got {args}", failures)
+    expect("hooks.cmux-test=true" in args, f"stale socket must preserve hooks, got {args}", failures)
+    expect("hello" in args, f"stale socket must preserve the prompt, got {args}", failures)
+    expect(not helper_was_started(skill), f"stale socket must not start an MCP helper, got {skill}", failures)
+
+
+def test_codex_disabled_hooks_reports_inert_attachment(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        hooks_disabled=True,
+        diagnostics=True,
+    )
+    expect(code == 0, f"disabled-hooks wrapper exited {code}: {stderr}", failures)
+    expect(args == ["hello"], f"disabled hooks must remain fully inert, got {args}", failures)
+    expect(
+        attachment_diagnostic(stderr, "hooks-disabled"),
+        f"disabled hooks must report why attachment was skipped, got {stderr!r}",
+        failures,
+    )
+    expect(not helper_was_started(skill), f"disabled hooks must not start an MCP helper, got {skill}", failures)
+
+
+def test_codex_outside_cmux_reports_fail_closed_attachment(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        non_cmux=True,
+        diagnostics=True,
+    )
+    expect(code == 0, f"non-cmux wrapper exited {code}: {stderr}", failures)
+    expect(args == ["hello"], f"outside cmux Codex must be untouched, got {args}", failures)
+    expect(
+        attachment_diagnostic(stderr, "outside-cmux"),
+        f"outside-cmux fail-closed behavior must be observable, got {stderr!r}",
+        failures,
+    )
+    expect(not helper_was_started(skill), f"outside cmux must not start an MCP helper, got {skill}", failures)
 
 
 def test_codex_gets_cmux_cua(failures: list[str]) -> None:
@@ -779,6 +1182,10 @@ def test_codex_skips_for_strict_mcp_config(failures: list[str]) -> None:
 
 def main() -> int:
     failures: list[str] = []
+    test_codex_fresh_session_handshakes_before_first_user_turn(failures)
+    test_codex_stale_socket_reports_fail_closed_attachment(failures)
+    test_codex_disabled_hooks_reports_inert_attachment(failures)
+    test_codex_outside_cmux_reports_fail_closed_attachment(failures)
     test_codex_gets_cmux_cua(failures)
     test_codex_skill_is_global_without_config_duplicate_by_default(failures)
     test_codex_migrates_legacy_computer_use_link(failures)
