@@ -968,6 +968,31 @@ func TestGeneratedEventDecodingAndUnknownFallback(t *testing.T) {
 	}
 }
 
+func TestGeneratedDaemonShutdownEventRequiresWireName(t *testing.T) {
+	for _, raw := range []string{
+		`{}`,
+		`{"extra":true}`,
+		`{"event":null}`,
+		`{"event":"other"}`,
+		`{"event":123}`,
+	} {
+		t.Run(raw, func(t *testing.T) {
+			var event DaemonShutdownEvent
+			if err := json.Unmarshal([]byte(raw), &event); err == nil {
+				t.Fatalf("invalid daemon-shutdown payload decoded successfully: %s", raw)
+			}
+		})
+	}
+
+	var event DaemonShutdownEvent
+	if err := json.Unmarshal(
+		[]byte(`{"event":"daemon-shutdown"}`),
+		&event,
+	); err != nil {
+		t.Fatalf("valid daemon-shutdown payload rejected: %v", err)
+	}
+}
+
 func TestProtocolSixResizedAliasDecodes(t *testing.T) {
 	event, ok := parseEvent(map[string]any{
 		"event":   "resized",
