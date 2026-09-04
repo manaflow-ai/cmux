@@ -3763,7 +3763,10 @@ fn private_dump_directory(path: &Path) -> io::Result<PrivateDumpDirectory> {
                 return Err(error);
             }
             if unsafe { libc::mkdirat(directory.as_raw_fd(), component.as_ptr(), 0o700) } != 0 {
-                return Err(io::Error::last_os_error());
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() != Some(libc::EEXIST) {
+                    return Err(error);
+                }
             }
             let next = unsafe {
                 libc::openat(
@@ -3814,6 +3817,10 @@ fn normalize_dump_path(path: &Path) -> io::Result<PathBuf> {
                 "dump path has no existing ancestor",
             ));
         }
+        if existing.as_os_str().is_empty() {
+            existing.push(".");
+            break;
+        }
     }
     let mut normalized = fs::canonicalize(existing)?;
     for component in missing.into_iter().rev() {
@@ -3841,7 +3848,10 @@ fn open_private_child_directory(parent: &fs::File, name: &str) -> io::Result<fs:
             return Err(error);
         }
         if unsafe { libc::mkdirat(parent.as_raw_fd(), name.as_ptr(), 0o700) } != 0 {
-            return Err(io::Error::last_os_error());
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() != Some(libc::EEXIST) {
+                return Err(error);
+            }
         }
         descriptor = unsafe {
             libc::openat(
@@ -5160,6 +5170,15 @@ mod tests {
 
         assert_eq!(directory.output.metadata().unwrap().permissions().mode() & 0o777, 0o700);
         assert_eq!(directory.temporary.metadata().unwrap().permissions().mode() & 0o777, 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relative_dump_path_with_new_directory_has_a_current_directory_ancestor() {
+        let normalized = normalize_dump_path(Path::new("new-private-dumps")).unwrap();
+
+        assert!(normalized.ends_with("new-private-dumps"));
+        assert!(normalized.is_absolute());
     }
 
     #[cfg(unix)]
