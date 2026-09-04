@@ -1874,28 +1874,30 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               printf '%s\n' "$cmux_ssh_auth_force_existing_line" >> "$cmux_ssh_auth_pending" || return 1
             done < "$cmux_ssh_auth_force_existing"
             [ -s "$cmux_ssh_auth_pending" ] || return 1
-            cmux_ssh_auth_force_pid_list=
+            # Repeat STOP with the shell builtin so the subsequent KILL does
+            # not depend on another process-table scan or a successful fork.
+            # The identity-aware pass above is the ownership fence for each
+            # bounded record. Signal one PID at a time so a wide tree cannot
+            # exceed the shell's argument limit or lose later members after
+            # one invalid row.
             while IFS=' ' read -r cmux_ssh_auth_force_depth cmux_ssh_auth_force_pid \
               cmux_ssh_auth_force_parent cmux_ssh_auth_force_group \
               cmux_ssh_auth_force_state cmux_ssh_auth_force_started; do
               case "$cmux_ssh_auth_force_pid" in
-                [1-9][0-9]*) cmux_ssh_auth_force_pid_list="$cmux_ssh_auth_force_pid_list $cmux_ssh_auth_force_pid" ;;
+                [1-9][0-9]*)
+                  kill -STOP "$cmux_ssh_auth_force_pid" >/dev/null 2>&1 || true
+                  ;;
               esac
             done < "$cmux_ssh_auth_pending"
-            [ -n "$cmux_ssh_auth_force_pid_list" ] || return 1
-            # Repeat STOP with the shell builtin so the subsequent KILL does
-            # not depend on another process-table scan or a successful fork.
-            # The identity-aware pass above is the ownership fence for this
-            # bounded PID list.
-            # shellcheck disable=SC2086
-            kill -STOP -- $cmux_ssh_auth_force_pid_list >/dev/null 2>&1 || true
-            # shellcheck disable=SC2086
-            kill -KILL -- $cmux_ssh_auth_force_pid_list >/dev/null 2>&1 || true
-            # A queued STOP can leave a target briefly stopped after KILL; CONT
-            # is harmless for gone processes and prevents a delayed STOP from
-            # stranding a target if the KILL raced process teardown.
-            # shellcheck disable=SC2086
-            kill -CONT -- $cmux_ssh_auth_force_pid_list >/dev/null 2>&1 || true
+            while IFS=' ' read -r cmux_ssh_auth_force_depth cmux_ssh_auth_force_pid \
+              cmux_ssh_auth_force_parent cmux_ssh_auth_force_group \
+              cmux_ssh_auth_force_state cmux_ssh_auth_force_started; do
+              case "$cmux_ssh_auth_force_pid" in
+                [1-9][0-9]*)
+                  kill -KILL "$cmux_ssh_auth_force_pid" >/dev/null 2>&1 || true
+                  ;;
+              esac
+            done < "$cmux_ssh_auth_pending"
             return 0
           }
 
