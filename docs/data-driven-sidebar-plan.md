@@ -34,6 +34,14 @@ These facts reduce duplication, but they do not make the system complete:
   Agents, and the shared strip, overflow reasons, Restore, profile keys, mouse
   actions, and context menu use one profile-keyed reducer. Explicit legacy
   columns, views, profiles, and sidebar plugins keep their existing shape.
+- The TUI interaction layer now treats layout output as the single mounted
+  state. Rendered view and split receipts carry complete semantic identity and
+  geometry, stale clicks fail closed, profile clicks resolve stable IDs after
+  reorder, and empty stacked projections pass keyboard focus to their neighbor.
+  Keyboard order, wheel admission, and PageUp/PageDown consume the same row
+  spans as rendering. The profile strip reports blocked or unseen-idle and
+  working counts, while Files restore intent remains tied to its exact host
+  ID.
 - This TUI reducer is frontend-local. It is not the future cross-frontend
   provider registry, action receipt, or semantic agent API.
 

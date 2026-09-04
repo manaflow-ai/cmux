@@ -11514,6 +11514,48 @@ impl App {
         !self.session.agents().is_empty()
     }
 
+    /// Return the compact profile-strip attention receipt. `!N` counts
+    /// blocked or unseen-idle agents. `~N` counts agents that are working.
+    /// The counts are global to the attached session so a hidden or collapsed
+    /// view cannot make active work disappear from the only persistent status
+    /// strip. The row itself remains the source of the detailed reason.
+    pub(crate) fn agent_attention_summary(&mut self) -> Option<String> {
+        let agents = self.session.agents();
+        if let Some(surface) = self.tree.active_surface() {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0);
+            self.agent_focus_stamps.insert(surface, now_ms);
+        }
+        let attention = agents
+            .iter()
+            .filter(|agent| {
+                agent.state == "blocked"
+                    || agent.state == "idle"
+                        && !self
+                            .agent_focus_stamps
+                            .get(&agent.surface)
+                            .is_some_and(|stamp| *stamp >= agent.updated_at_ms)
+            })
+            .count();
+        let working = agents.iter().filter(|agent| agent.state == "working").count();
+        if attention == 0 && working == 0 {
+            return None;
+        }
+        let mut summary = String::new();
+        if attention > 0 {
+            summary.push_str(&format!("!{attention}"));
+        }
+        if working > 0 {
+            if !summary.is_empty() {
+                summary.push(' ');
+            }
+            summary.push_str(&format!("~{working}"));
+        }
+        Some(summary)
+    }
+
     pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
             return Arc::<[ProjectionRow]>::from(Vec::new());
@@ -14327,11 +14369,12 @@ impl App {
         machine_context: Option<&Arc<MachinePointerContext>>,
     ) -> Option<PointerHitIdentity> {
         match hit {
-            Hit::SidebarProfile { index, .. } => self
+            Hit::SidebarProfile { token, .. } => self
                 .config
                 .sidebar
                 .profiles
-                .get(index)
+                .iter()
+                .find(|profile| sidebar_profile_token(&profile.id) == token)
                 .map(|profile| PointerHitIdentity::SidebarProfile(profile.id.clone())),
             Hit::SidebarPresentationMenu => Some(PointerHitIdentity::SidebarPresentation(
                 self.config.sidebar.active_profile.clone(),
@@ -21220,6 +21263,15 @@ impl App {
             ProjectionNavigationTarget::Row(index) => rows.get(index).cloned(),
             ProjectionNavigationTarget::Action(_) => None,
         });
+        if navigation.is_empty()
+            && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'))
+        {
+            // An empty projection still participates in the stacked rail
+            // navigation contract. There is no row index to clamp, so route
+            // a vertical movement directly to the adjacent mounted rail.
+            self.continue_past_rail_boundary(RailKind::Projection(view_index), key);
+            return Ok(RenderAction::Draw);
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             if !key.modifiers.contains(KeyModifiers::ALT)
                 && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
@@ -25285,15 +25337,15 @@ impl App {
 
         if let Some(hit) = hit {
             match hit {
-                Hit::SidebarProfile { index, token } => {
-                    if self
+                Hit::SidebarProfile { index: _, token } => {
+                    let current_index = self
                         .config
                         .sidebar
                         .profiles
-                        .get(index)
-                        .is_some_and(|profile| sidebar_profile_token(&profile.id) == token)
-                    {
-                        self.activate_sidebar_profile(index);
+                        .iter()
+                        .position(|profile| sidebar_profile_token(&profile.id) == token);
+                    if let Some(current_index) = current_index {
+                        self.activate_sidebar_profile(current_index);
                     }
                 }
                 Hit::SidebarPresentationMenu => {
@@ -30974,6 +31026,10 @@ mod tests {
         app.replace_tree(app.session.tree());
         app.sync_layout((100, 24));
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains("~1"),
+            "the profile strip discloses active agent work"
+        );
         let agent_row = app
             .hits
             .iter()
@@ -31599,11 +31655,11 @@ mod tests {
         );
 
         assert_eq!(before, Some(PointerHitIdentity::SidebarProfile("work".into())));
-        assert_eq!(after, Some(PointerHitIdentity::SidebarProfile("focus".into())));
+        assert_eq!(after, Some(PointerHitIdentity::SidebarProfile("work".into())));
     }
 
     #[test]
-    fn stale_profile_hit_fails_closed_after_profile_reorder() {
+    fn profile_hit_resolves_stable_id_after_profile_reorder() {
         let mux = Mux::new("sidebar-profile-stale-hit-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.sync_layout((100, 20));
@@ -31619,7 +31675,8 @@ mod tests {
 
         // Simulate a config reorder between pointer sampling and dispatch.
         // The rendered token belongs to Focus, while index 1 now names Work.
-        app.config.sidebar.active_profile = "focus".into();
+        // Resolve the stable profile id instead of dropping a valid click.
+        app.config.sidebar.active_profile = "work".into();
         app.config.sidebar.profiles.swap(0, 1);
         app.handle_left_down(profile.x, profile.y, KeyModifiers::NONE).unwrap();
         assert_eq!(app.config.sidebar.active_profile, "focus");
@@ -33066,6 +33123,22 @@ mod tests {
             !app.move_focus_between_sidebar_rails(Direction::Up),
             "no rail above the top of the column"
         );
+    }
+
+    #[test]
+    fn empty_projection_passes_vertical_keyboard_focus_to_stacked_rail() {
+        let mux = Mux::new("empty-projection-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+        app.focus = FocusTarget::ProjectionRail(1);
+
+        assert!(app.projection_rows(1).is_empty());
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
     }
 
     #[test]

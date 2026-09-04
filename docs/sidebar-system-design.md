@@ -1,9 +1,38 @@
 # cmux presentation system
 
-Status: proposed cross-frontend architecture. This document is the
-authoritative design for sidebar, right-panel, Dock, and pane-mounted views.
-The implementation plans and authoring guides link here. A route or field
-described as proposed is not an implemented API.
+Status: the native TUI composition slice is implemented. The cross-frontend
+provider registry and public semantic API remain proposed. This document is
+the authoritative design for sidebar, right-panel, Dock, and pane-mounted
+views. A route or field described as proposed is not an implemented API.
+
+## Implemented TUI contract
+
+The current TUI uses the same mounted-view model for native Workspaces,
+Machines, Tabs, Agents, and Files. Work and Focus are profile IDs. A split
+layout owns its child IDs and ratios. The renderer rebuilds mounted rails and
+wake dependencies from the solver result on every layout boundary, so a view
+hidden by width, height, pin state, or profile change cannot continue to
+receive updates.
+
+Mouse and keyboard input use semantic receipts. A view receipt covers the
+complete view definition, including scope, filter, sort, actions, action
+position, and row geometry. A split receipt covers its group, child order,
+orientation, divider index, and rectangle. A receipt that no longer matches
+the mounted layout is ignored. Workspace, surface, action, purge, and Files
+restore targets resolve stable IDs again at dispatch time; array positions are
+only display coordinates.
+
+The rendered geometry is the navigation contract. Two-line agent rows,
+configured row gaps, top or bottom actions, wheel regions, and PageUp/PageDown
+all use one row-span table. An empty projection still passes vertical focus to
+the adjacent stacked rail. The profile strip keeps an attention receipt (`!N`
+for blocked or unseen-idle agents and `~N` for working agents), hidden-view
+reason/count, and its management action within the narrow-width fallback.
+
+Files mode is host-backed. If its exact Workspaces host is hidden or cannot
+fit, the TUI switches to Workspaces and records the host ID. It restores Files
+only when that same host is mounted and usable. Removing or replacing the host
+clears the pending intent, so a future unrelated view cannot reopen Files.
 
 ## Decision
 

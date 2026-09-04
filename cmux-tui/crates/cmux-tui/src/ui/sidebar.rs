@@ -87,6 +87,7 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
 
     let hidden_count = app.sidebar_layout.hidden_views.len();
     let manage = "⋯";
+    let attention = app.agent_attention_summary();
     let hidden_reason = app.sidebar_layout.hidden_views.first().map(|hidden| hidden.reason);
     let hidden_reasons_match = hidden_reason.is_some_and(|reason| {
         app.sidebar_layout.hidden_views.iter().all(|hidden| hidden.reason == reason)
@@ -165,34 +166,39 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
             }
         }
     };
-    let mut tail = Vec::new();
-    if let Some(hidden) = hidden.as_ref() {
-        tail.push(hidden.clone());
-    }
-    tail.push(manage.to_string());
-    try_candidate(&labels, tail);
-    try_candidate(&labels, vec![manage.to_string()]);
-    let mut tail = Vec::new();
-    if let Some(overflow) = profile_overflow.as_ref() {
-        tail.push(overflow.clone());
-    }
-    if let Some(hidden) = hidden.as_ref() {
-        tail.push(hidden.clone());
-    }
-    tail.push(manage.to_string());
-    try_candidate(&active, tail);
-    let mut tail = Vec::new();
-    if let Some(overflow) = profile_overflow.as_ref() {
-        tail.push(overflow.clone());
-    }
-    tail.push(manage.to_string());
-    try_candidate(&active, tail);
-    let mut tail = Vec::new();
-    if let Some(hidden) = hidden.as_ref() {
-        tail.push(hidden.clone());
-    }
-    tail.push(manage.to_string());
-    try_candidate(&active, tail);
+    let tail_for = |include_overflow: bool,
+                    include_attention: bool,
+                    include_hidden: bool|
+     -> Vec<String> {
+        let mut tail = Vec::new();
+        if include_overflow
+            && let Some(overflow) = profile_overflow.as_ref()
+        {
+            tail.push(overflow.clone());
+        }
+        if include_attention
+            && let Some(attention) = attention.as_ref()
+        {
+            tail.push(attention.clone());
+        }
+        if include_hidden
+            && let Some(hidden) = hidden.as_ref()
+        {
+            tail.push(hidden.clone());
+        }
+        tail.push(manage.to_string());
+        tail
+    };
+    try_candidate(&labels, tail_for(false, true, true));
+    try_candidate(&labels, tail_for(false, true, false));
+    try_candidate(&labels, tail_for(false, false, true));
+    try_candidate(&labels, tail_for(false, false, false));
+    try_candidate(&active, tail_for(true, true, true));
+    try_candidate(&active, tail_for(true, true, false));
+    try_candidate(&active, tail_for(false, true, true));
+    try_candidate(&active, tail_for(false, true, false));
+    try_candidate(&active, tail_for(false, false, true));
+    try_candidate(&active, tail_for(false, false, false));
     try_candidate(&active, vec![manage.to_string()]);
     let (shown, tail_parts, profiles_fit) = chosen.unwrap_or_else(|| {
         // A name can be wider than the entire strip. Preserve at least one
