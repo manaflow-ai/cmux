@@ -629,16 +629,28 @@ enum AuthEnvironment {
     }
 
     private static var defaultAPIBaseURL: String {
-        if let url = ProcessInfo.processInfo.environment["CMUX_API_BASE_URL"]?
+        #if DEBUG
+        let isDebugBuild = true
+        #else
+        let isDebugBuild = false
+        #endif
+        return resolvedDefaultAPIBaseURL(environment: ProcessInfo.processInfo.environment, isDebugBuild: isDebugBuild)
+    }
+
+    /// The account API origin (billing plan, client config, devices, auth recovery):
+    /// `CMUX_API_BASE_URL` when set, else the dev web server in Debug builds.
+    static func resolvedDefaultAPIBaseURL(environment: [String: String], isDebugBuild: Bool) -> String {
+        if let url = environment["CMUX_API_BASE_URL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines),
            !url.isEmpty {
             return url
         }
-        #if DEBUG
-        return "http://localhost:\(cmuxPort)"
-        #else
-        return "https://api.cmux.sh"
-        #endif
+        if isDebugBuild {
+            return "http://localhost:\(resolvedCmuxPort(environment: environment))"
+        }
+        // Same origin as the VM API and the website; api.cmux.sh is the retired manaflow
+        // Render service (maintenance mode) and never served these routes.
+        return "https://cmux.com"
     }
 
     static var stackBaseURL: URL {
