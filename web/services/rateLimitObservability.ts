@@ -4,29 +4,22 @@ import { after } from "next/server";
 import { cloudDb } from "../db/client";
 import { reportError } from "./observability/report";
 
-const ALERT_COOLDOWN_MS = 5 * 60 * 1_000;
-const MAX_LOCAL_KEYS = 128;
-
 type AlertInput = {
   readonly route: string;
   readonly reason: "unset" | "not-found";
 };
 
 type ReporterDependencies = {
-  readonly now?: () => number;
   readonly claim?: (key: string) => Promise<"claimed" | "duplicate" | "unavailable">;
   readonly report?: typeof reportError;
 };
 
 /** Fleet-wide, bounded reporting for a missing Vercel firewall rule. */
 export class RateLimitRuleReporter {
-  private readonly now: () => number;
   private readonly claim: (key: string) => Promise<"claimed" | "duplicate" | "unavailable">;
   private readonly report: typeof reportError;
-  private readonly lastAlertAt = new Map<string, number>();
 
   constructor(dependencies: ReporterDependencies = {}) {
-    this.now = dependencies.now ?? Date.now;
     this.claim = dependencies.claim ?? claimAlert;
     this.report = dependencies.report ?? reportError;
   }
@@ -35,12 +28,6 @@ export class RateLimitRuleReporter {
     if (process.env.VERCEL_ENV !== "production") return;
 
     const key = `${input.route}:${input.reason}`;
-    const now = this.now();
-    const previous = this.lastAlertAt.get(key);
-    if (previous !== undefined && now - previous < ALERT_COOLDOWN_MS) return;
-    this.lastAlertAt.set(key, now);
-    this.trimLocalState();
-
     const work = async () => {
       const result = await this.claim(key);
       if (result === "unavailable") {
@@ -66,14 +53,6 @@ export class RateLimitRuleReporter {
       after(work);
     } catch {
       void work();
-    }
-  }
-
-  private trimLocalState(): void {
-    while (this.lastAlertAt.size > MAX_LOCAL_KEYS) {
-      const oldest = this.lastAlertAt.keys().next().value;
-      if (oldest === undefined) return;
-      this.lastAlertAt.delete(oldest);
     }
   }
 }
