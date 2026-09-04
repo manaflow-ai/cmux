@@ -13764,6 +13764,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 return
             }
             self.renderGridLivenessConsecutiveProbeFailures = 0
+            let transportClosed = await client.isTransportClosed()
+            guard self.renderGridLivenessListenerID == listenerID,
+                  self.terminalEventListenerID == listenerID,
+                  self.remoteClient === client,
+                  self.connectionState == .connected else { return }
+            if transportClosed == false {
+                // The subscription probe only proved that this application
+                // stream stalled. Keep the shared Iroh session, whose other
+                // lanes may still carry terminal input and keepalives, and
+                // restart only the event listener.
+                MobileDebugLog.anchormux(
+                    "sync.liveness event_lane_repair transport_alive silentMs=\(silentMs)"
+                )
+                self.resyncTerminalOutput(
+                    reason: "liveness_event_lane",
+                    restartEventStream: true,
+                    recoversConnectionOnSubscriptionFailure: false
+                )
+                return
+            }
             MobileDebugLog.anchormux("sync.liveness re-subscribe silentMs=\(silentMs)")
             self.recordAppEvent(
                 .terminalRenderLagDetected,
@@ -13866,10 +13886,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     func resyncTerminalOutput(
         reason: String,
         restartEventStream: Bool,
-        surfaceIDs requestedSurfaceIDs: [String]? = nil
+        surfaceIDs requestedSurfaceIDs: [String]? = nil,
+        recoversConnectionOnSubscriptionFailure: Bool = true
     ) {
         guard remoteClient != nil, connectionState == .connected else { return }
-        refreshTerminalOutputSubscription(reason: reason, restartEventStream: restartEventStream)
+        refreshTerminalOutputSubscription(
+            reason: reason,
+            restartEventStream: restartEventStream,
+            recoversConnectionOnSubscriptionFailure:
+                recoversConnectionOnSubscriptionFailure
+        )
 
         let surfaceIDs = requestedSurfaceIDs ?? Array(terminalByteContinuationsBySurfaceID.keys)
         MobileDebugLog.anchormux(
@@ -13880,10 +13906,17 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
-    private func refreshTerminalOutputSubscription(reason: String, restartEventStream: Bool) {
+    private func refreshTerminalOutputSubscription(
+        reason: String,
+        restartEventStream: Bool,
+        recoversConnectionOnSubscriptionFailure: Bool = true
+    ) {
         if restartEventStream {
             stopTerminalRefreshPolling()
-            startTerminalRefreshPolling()
+            startTerminalRefreshPolling(
+                recoversConnectionOnSubscriptionFailure:
+                    recoversConnectionOnSubscriptionFailure
+            )
         } else if terminalEventListenerTask == nil {
             startTerminalRefreshPolling()
         } else {
