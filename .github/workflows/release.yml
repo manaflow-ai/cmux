@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/ios-screenshots.yml
     with:
       ref: ${{ github.ref }}
-      languages: "en-US,ja"
+      languages: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
       upload: false
     secrets: inherit
 

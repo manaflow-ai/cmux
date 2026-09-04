@@ -1,8 +1,8 @@
 name: iOS App Store screenshots
 
 # Captures fastlane screenshots for the public App Store listing (com.cmux.app)
-# on the required device classes — 6.9" iPhone + 13" iPad — in every locale the
-# app is localized in (en-US + ja). The capture runs against a DEBUG build with
+# on the required device classes — 6.9" iPhone + 13" iPad — in every language
+# the app is localized in. The capture runs against a DEBUG build with
 # the CMUX_UITEST_MOCK_DATA hook, so no Apple signing is needed to shoot; only
 # the optional upload-to-ASC step needs the App Store Connect API key.
 #
@@ -19,10 +19,10 @@ on:
         type: string
         default: ""
       languages:
-        description: "Comma-separated App Store locales (app is localized in en-US, ja)"
+        description: "Comma-separated App Store locale identifiers for localized app captures"
         required: false
         type: string
-        default: "en-US,ja"
+        default: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
       upload:
         description: "Upload captured screenshots to the com.cmux.app App Store listing"
         required: false
@@ -35,9 +35,9 @@ on:
         required: false
         default: ""
       languages:
-        description: "Comma-separated App Store locales (app is localized in en-US, ja)"
+        description: "Comma-separated App Store locale identifiers for localized app captures"
         required: false
-        default: "en-US,ja"
+        default: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
       upload:
         description: "Upload captured screenshots to the com.cmux.app App Store listing"
         required: false
@@ -168,7 +168,7 @@ jobs:
       - name: Capture screenshots
         working-directory: ios
         env:
-          SNAPSHOT_LANGUAGES: ${{ inputs.languages || 'en-US,ja' }}
+          SNAPSHOT_LANGUAGES: ${{ inputs.languages || 'en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja' }}
           FASTLANE_SKIP_UPDATE_CHECK: "1"
           FASTLANE_HIDE_CHANGELOG: "1"
         run: |

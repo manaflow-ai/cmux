@@ -76,7 +76,7 @@ cmd_asc_snapshot() {
 
 cmd_capture() {
   need gh
-  local ref="HEAD" languages="en-US"
+  local ref="HEAD" languages="en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
   while [ $# -gt 0 ]; do
     case "$1" in
       --ref) ref="$2"; shift 2 ;;
