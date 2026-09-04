@@ -4,6 +4,7 @@ import { stackApiBaseURL } from "../../services/auth/stackApiBaseURL";
 import { cloudDb } from "../../db/client";
 import { withFreshAccountMetadataUser } from "../../services/account/metadataMutation";
 import { canonicalizeEmailForMatching } from "../../services/billing/emailMatching";
+import { withStackAuthSpan } from "../../services/auth/stackTelemetry";
 
 // env.ts trims every runtimeEnv source, so consumers receive sanitized values
 // regardless of whether zod validation is skipped.
@@ -165,26 +166,35 @@ async function updateStackUserViaApi(
   const baseURL = /\/api\/v1$/u.test(normalizedBaseURL)
     ? normalizedBaseURL
     : `${normalizedBaseURL}/api/v1`;
-  const response = await fetch(
-    `${baseURL.replace(/\/+$/, "")}/users/${encodeURIComponent(userId)}`,
-    {
-      method: "PATCH",
-      headers: {
-        "content-type": "application/json",
-        // Stack's current SDK uses the Hexclave-prefixed names; retain the
-        // Stack aliases for older project API versions during the migration.
-        "x-hexclave-access-type": "server",
-        "x-hexclave-project-id": projectId,
-        "x-hexclave-secret-server-key": secretServerKey,
-        "x-hexclave-override-error-status": "true",
-        "x-stack-access-type": "server",
-        "x-stack-project-id": projectId,
-        "x-stack-secret-server-key": secretServerKey,
-        "x-stack-override-error-status": "true",
-      },
-      body: JSON.stringify(patch),
-      signal: AbortSignal.timeout(10_000),
+  const response = await withStackAuthSpan(
+    "user_update",
+    async (span) => {
+      const response = await fetch(
+        `${baseURL.replace(/\/+$/, "")}/users/${encodeURIComponent(userId)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            // Stack's current SDK uses the Hexclave-prefixed names; retain the
+            // Stack aliases for older project API versions during the migration.
+            "x-hexclave-access-type": "server",
+            "x-hexclave-project-id": projectId,
+            "x-hexclave-secret-server-key": secretServerKey,
+            "x-hexclave-override-error-status": "true",
+            "x-stack-access-type": "server",
+            "x-stack-project-id": projectId,
+            "x-stack-secret-server-key": secretServerKey,
+            "x-stack-override-error-status": "true",
+          },
+          body: JSON.stringify(patch),
+          signal: AbortSignal.timeout(10_000),
+        },
+      );
+      span.setAttribute("http.response.status_code", response.status);
+      span.setAttribute("cmux.external.success", response.ok);
+      return response;
     },
+    { "cmux.auth.flow": "server_user_update" },
   );
   if (!response.ok) {
     // Do not include response bodies: Stack can echo account data or provider
