@@ -1,3 +1,4 @@
+import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { vmModelPlaneRevoker } from "../../../../services/vms/modelPlaneGateway";
 import {
   reconcileVmProviderStatuses,
@@ -6,8 +7,7 @@ import {
 
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

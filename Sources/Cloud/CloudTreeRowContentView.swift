@@ -757,8 +757,8 @@ struct CloudTreeMachineRowContent: View {
     /// about the machine. "Locked" stays — it explains a dead machine row.
     static func subtitle(_ machine: MachineSnapshot) -> String {
         var parts: [String] = []
-        if machine.label?.isEmpty == false {
-            // Labeled machines keep their address visible: the id is what CLI
+        if machine.showsName {
+            // Named machines keep their address visible: the id is what CLI
             // verbs and URLs use.
             parts.append(machine.id)
         }
