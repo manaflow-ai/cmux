@@ -2473,11 +2473,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
-        // Relayed phone replies type through the SAME entrypoint as the phone's
-        // direct RPC sends, so both lanes share claim resolution and injection.
-        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { params in
-            switch TerminalController.shared.v2MobileTerminalInput(params: params) {
+        // Relayed phone replies type through the SAME paste-and-submit
+        // entrypoint as the phone's direct RPC sends, so both lanes share claim
+        // resolution and key-event submission semantics.
+        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { [weak self] params, retargetsToLiveSurfaceOwner in
+            guard let self else { return .permanentlyUndeliverable }
+            let routedParams: [String: Any]
+            if retargetsToLiveSurfaceOwner {
+                guard let surfaceID = TerminalController.shared.v2UUID(params, "surface_id"),
+                      let target = self.agentNotificationDeliveryTarget(
+                          claimedTabId: TerminalController.shared.v2UUID(params, "workspace_id"),
+                          surfaceId: surfaceID
+                      ) else {
+                    return .retryable
+                }
+                var resolved = params
+                resolved["workspace_id"] = target.tabId.uuidString
+                resolved["surface_id"] = (target.surfaceId ?? surfaceID).uuidString
+                routedParams = resolved
+            } else {
+                routedParams = params
+            }
+            switch TerminalController.shared.v2MobileTerminalPaste(params: routedParams) {
             case .ok:
+                // `terminal.paste` applies the text before it attempts the
+                // named key. A false `submitted` flag is therefore a partial
+                // success, not a safe invitation to replay the whole reply:
+                // doing so would duplicate text in the agent prompt. The
+                // accepted paste is the durable delivery boundary; the user
+                // can press Return manually if the key was rejected.
                 return .delivered
             case .err(let code, _, _):
                 // `not_found` is transient here, not proof the target is gone:
