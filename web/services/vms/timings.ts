@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect";
 
 export type VmTimingStage =
   | "auth"
+  | "account"
+  | "workflow"
   | "request_parse"
   | "entitlements"
   | "begin_create"
