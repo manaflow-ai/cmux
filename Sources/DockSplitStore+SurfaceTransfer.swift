@@ -393,10 +393,19 @@ extension DockSplitStore {
         return detached
     }
 
-    /// Applies Dock-scoped identity and terminal placement before attachment.
+    /// Applies only the terminal placement needed while Bonsplit performs an
+    /// attachment. Workspace identity is rebound after the mutation succeeds.
     private func prepareDetachedPanelForDockAttachment(_ panel: any Panel) {
         if let terminal = panel as? TerminalPanel {
             terminal.surface.setFocusPlacement(.rightSidebarDock)
+        }
+    }
+
+    /// Retargets a panel only after the destination Bonsplit mutation has
+    /// succeeded, so a rejected attachment leaves the detached panel bound to
+    /// its source workspace and file-change coordinator.
+    private func bindDetachedPanelToDock(_ panel: any Panel) {
+        if let terminal = panel as? TerminalPanel {
             terminal.updateWorkspaceId(workspaceId)
         } else if let browser = panel as? BrowserPanel {
             let remote = currentRemoteBrowserSettings()
@@ -413,7 +422,15 @@ extension DockSplitStore {
         } else if let deferredBrowser = panel as? DeferredBrowserPanel {
             deferredBrowser.updateWorkspaceId(workspaceId)
         } else if let filePreview = panel as? FilePreviewPanel {
-            filePreview.updateWorkspaceId(workspaceId)
+            filePreview.updateWorkspaceId(
+                workspaceId,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
+        } else if let markdown = panel as? MarkdownPanel {
+            markdown.updateWorkspaceId(
+                workspaceId,
+                fileContentChangeCoordinator: fileContentChangeCoordinator
+            )
         }
     }
 
@@ -457,11 +474,13 @@ extension DockSplitStore {
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
+            (panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
+        bindDetachedPanelToDock(panel)
         bindSurface(newTabId, toPanelId: detached.panelId)
         adoptManualUnreadState(
             detached.manuallyUnread,
@@ -554,12 +573,14 @@ extension DockSplitStore {
             )
         }
         guard let newPane else {
+            (panel as? any FileContentChangeObservingPanel)?.stopWatchingForFileChanges()
             removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
             panels.removeValue(forKey: detached.panelId)
             clearSessionRestoreState(panelId: detached.panelId)
             return nil
         }
+        bindDetachedPanelToDock(panel)
         adoptManualUnreadState(
             detached.manuallyUnread,
             panelId: detached.panelId

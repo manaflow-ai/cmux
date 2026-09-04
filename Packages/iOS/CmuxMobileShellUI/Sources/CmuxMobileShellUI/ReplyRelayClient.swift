@@ -15,6 +15,8 @@ public struct RelayedReply: Equatable, Sendable {
     public let surfaceId: String
     /// The user's reply text, without the submit return.
     public let text: String
+    /// Whether the notification may follow its surface to a new workspace.
+    public let retargetsToLiveSurfaceOwner: Bool
 
     /// Creates a relayed reply from the parked reply's claims.
     public init(
@@ -22,12 +24,14 @@ public struct RelayedReply: Equatable, Sendable {
         macDeviceId: String,
         workspaceId: String?,
         surfaceId: String,
-        text: String
+        text: String,
+        retargetsToLiveSurfaceOwner: Bool = true
     ) {
         self.replyId = replyId
         self.macDeviceId = macDeviceId
         self.workspaceId = workspaceId
         self.surfaceId = surfaceId
+        self.retargetsToLiveSurfaceOwner = retargetsToLiveSurfaceOwner
         self.text = text
     }
 }
@@ -89,6 +93,7 @@ public struct SystemReplyRelayClient: ReplyRelaying {
             "replyId": reply.replyId,
             "macDeviceId": reply.macDeviceId,
             "surfaceId": reply.surfaceId,
+            "retargetsToLiveSurfaceOwner": reply.retargetsToLiveSurfaceOwner,
             "text": reply.text,
         ]
         if let workspaceId = reply.workspaceId, !workspaceId.isEmpty {
