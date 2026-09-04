@@ -121,10 +121,15 @@ function readBaseline(repoRoot) {
 }
 
 function baselineAt(repoRoot, revision) {
+  const commit = git(["rev-parse", "--verify", `${revision}^{commit}`], repoRoot, true);
+  if (commit.status !== 0) fail(`base revision ${revision} is not available in the checkout`);
+
+  const baselineObject = git(["cat-file", "-e", `${revision}:${BASELINE_FILE}`], repoRoot, true);
+  if (baselineObject.status !== 0) return { exists: false, entries: new Map() };
+
   const result = git(["show", `${revision}:${BASELINE_FILE}`], repoRoot, true);
-  return result.status === 0
-    ? { exists: true, entries: baselineEntries(result.stdout) }
-    : { exists: false, entries: new Map() };
+  if (result.status !== 0) fail(`could not read ${BASELINE_FILE} at base revision ${revision}`);
+  return { exists: true, entries: baselineEntries(result.stdout) };
 }
 
 function assertBaselineOnlyShrinks(repoRoot, base, baseline) {

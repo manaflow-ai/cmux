@@ -21,12 +21,12 @@ app/api/stripe/founders-welcome/route.ts	5842	async function has a complexity of
 app/api/stripe/webhook/route.ts	6504	async function `processStripeEvent` has a complexity of 39. Maximum allowed is 20.
 app/api/support/contact/route.ts	4070	async function has a complexity of 22. Maximum allowed is 20.
 app/api/vm/[id]/attach-endpoint/route.ts	3657	async function has a complexity of 21. Maximum allowed is 20.
-app/api/vm/route.ts	18806	async function has a complexity of 68. Maximum allowed is 20.
+app/api/vm/route.ts	18836	async function has a complexity of 68. Maximum allowed is 20.
 app/handler/after-sign-in/handler.ts	5622	async function `GET` has a complexity of 44. Maximum allowed is 20.
 app/handler/app-session-handoff/route.ts	2461	async function `POST` has a complexity of 25. Maximum allowed is 20.
 app/lib/browser-nightly-download.ts	1907	function `verifiedAssetLocation` has a complexity of 26. Maximum allowed is 20.
 app/lib/direct-dev-backend-origin.ts	1258	function `directDevBackendOrigin` has a complexity of 22. Maximum allowed is 20.
-proxy.ts	11477	function `middleware` has a complexity of 67. Maximum allowed is 20.
+proxy.ts	12094	function `middleware` has a complexity of 69. Maximum allowed is 20.
 services/admin/proGrants.ts	5104	async function `applyPendingEmailGrants` has a complexity of 21. Maximum allowed is 20.
 services/apns/payload.ts	1557	function `buildApnsPayload` has a complexity of 21. Maximum allowed is 20.
 services/apns/pushDeliveryService.ts	7311	async function `executePushDeliveryWithTargets` has a complexity of 26. Maximum allowed is 20.
@@ -45,7 +45,7 @@ services/coderouter/analytics.ts	3293	function `eventProperties` has a complexit
 services/coderouter/claudeProxy.ts	7491	async function `routeWithFailover` has a complexity of 25. Maximum allowed is 20.
 services/coderouter/claudeUpstream.ts	1774	function `parseClaudeUpstreamInput` has a complexity of 23. Maximum allowed is 20.
 services/coderouter/codexProxy.ts	11410	async function `proxyCodexRequestWith` has a complexity of 48. Maximum allowed is 20.
-services/coderouter/opencodeProxy.ts	9274	async function `proxyOpenCodeRequest` has a complexity of 33. Maximum allowed is 20.
+services/coderouter/opencodeProxy.ts	9714	async function `proxyOpenCodeRequest` has a complexity of 35. Maximum allowed is 20.
 services/coderouter/requestTelemetry.ts	3482	function `traceEvents` has a complexity of 26. Maximum allowed is 20.
 services/iroh/crypto.ts	2128	function `validatePairGrantClaims` has a complexity of 24. Maximum allowed is 20.
 services/iroh/crypto.ts	2189	function `validateEndpointAttestationClaims` has a complexity of 31. Maximum allowed is 20.
