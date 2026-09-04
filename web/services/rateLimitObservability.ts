@@ -25,18 +25,22 @@ export async function reportMissingRateLimitRule(input: {
   if (previous !== undefined && now - previous < ALERT_COOLDOWN_MS) return;
   lastAlertAt.set(key, now);
 
-  // Advisory locks are shared by all PostgreSQL sessions, including sessions
-  // owned by different Vercel instances. The winning session keeps this lock
-  // until the instance exits, so a fleet-wide cold-start storm emits one event.
+  // The durable ledger deduplicates across all Vercel instances. Keep the
+  // statement timeout inside the transaction so an Aurora outage cannot retain
+  // a pooled connection after this best-effort report.
   try {
-    const query = cloudDb().execute(sql`
-      select pg_try_advisory_lock(hashtextextended(${key}, 0)) as acquired
-    `) as unknown as Promise<readonly [{ acquired?: boolean }?]>;
-    const timeout = new Promise<undefined>((resolve) => {
-      setTimeout(() => resolve(undefined), 1_000);
+    const rows = await cloudDb().transaction(async (tx) => {
+      await tx.execute(sql`set local statement_timeout = '1000ms'`);
+      return tx.execute(sql`
+        insert into rate_limit_alert_reports (alert_key, reported_at)
+        values (${key}, now())
+        on conflict (alert_key) do update
+          set reported_at = excluded.reported_at
+          where rate_limit_alert_reports.reported_at < now() - interval '5 minutes'
+        returning alert_key
+      `);
     });
-    const rows = await Promise.race([query, timeout]);
-    if (!rows || !rows[0]?.acquired) return;
+    if (!rows[0]) return;
   } catch {
     // Reporting must not make a public endpoint depend on the database. The
     // local cooldown still prevents a hot process from generating a loop.
