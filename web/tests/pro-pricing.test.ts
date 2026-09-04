@@ -209,6 +209,13 @@ describe("pricing copy matches the plan policy", () => {
     })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: VM_DISK_MB_DEFAULT });
   });
 
+  test("an image reservation includes an operator disk override", () => {
+    expect(vmResourceReservationForCreate({
+      imageSize: { cpu: 1, memoryMb: 4096, storageMb: 16384 },
+      env: { CMUX_VM_DISK_MB: "65536" },
+    })).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 65536 });
+  });
+
   for (const [
     locale,
     messages,
