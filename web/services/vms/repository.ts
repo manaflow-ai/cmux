@@ -41,6 +41,7 @@ import {
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
   firstExceededSharedResource,
+  hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
   vmResourceReservationFromMetadata,
   withVmResourceReservationMetadata,
@@ -236,6 +237,18 @@ export type VmRepositoryShape = {
     /** Maximum number of rows to inspect in the synchronous limit retry. */
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Live rows whose resource claim predates the shared-pool marker. */
+  readonly legacyResourceReservationCandidates?: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    /** Keep provider reconciliation bounded on the request path. */
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Persist a provider-confirmed claim for a legacy VM row. */
+  readonly setResourceReservation?: (input: {
+    readonly id: string;
+    readonly reservation: VmResourceReservation;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly reservePausedResume: (input: {
     readonly id: string;
     readonly userId: string;
@@ -544,6 +557,21 @@ function reservedResourceFields() {
     // per-VM maximum so a quota read cannot undercount persistent storage.
     diskMb: reservedResourceField("diskMb", VM_DISK_MB_MAX),
   };
+}
+
+/** SQL predicate for a complete, bounded reservation marker. */
+function validResourceReservationMarkerSql() {
+  const markerKey = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
+  const marker = sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${markerKey}`;
+  const field = (key: "vcpus" | "memoryMb" | "diskMb") =>
+    sql<string | null>`${marker}->>${sql.raw(`'${key}'`)}`;
+  const boundedPositiveInteger = (value: ReturnType<typeof field>) => sql`
+    ${value} ~ '^[1-9][0-9]{0,9}$'
+    and (length(${value}) < 10 or ${value} <= '2147483647')`;
+  return sql`jsonb_typeof(${marker}) = 'object'
+    and ${boundedPositiveInteger(field("vcpus"))}
+    and ${boundedPositiveInteger(field("memoryMb"))}
+    and ${boundedPositiveInteger(field("diskMb"))}`;
 }
 
 async function reservedResourceTotals(
@@ -1555,6 +1583,48 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         )
         .orderBy(asc(cloudVms.updatedAt))
         .limit(input.limit);
+    }),
+
+  legacyResourceReservationCandidates: (input) =>
+    dbEffect("legacyResourceReservationCandidates", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select()
+        .from(cloudVms)
+        .where(
+          and(
+            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+            isNotNull(cloudVms.providerVmId),
+            accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+            sql`not coalesce((${validResourceReservationMarkerSql()}), false)`,
+          ),
+        )
+        .orderBy(asc(cloudVms.updatedAt))
+        .limit(input.limit);
+      // Keep a runtime check as a second boundary for adapters that return
+      // rows from a different SQL dialect or a stale read replica.
+      return rows.filter((row) => !hasVmResourceReservationMetadata(row.providerMetadata));
+    }),
+
+  setResourceReservation: (input) =>
+    dbEffect("setResourceReservation", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .update(cloudVms)
+        .set({
+          // Keep provider metadata and the control-plane claim in one JSON
+          // document without allowing a stale read to drop other fields.
+          providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(reservationMetadata(input.reservation))}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+          // Do not overwrite a valid claim written after candidate selection.
+          sql`not coalesce((${validResourceReservationMarkerSql()}), false)`,
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
     }),
 
   reservePausedResume: (input) =>

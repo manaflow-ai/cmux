@@ -267,7 +267,7 @@ describe("pricing copy matches the plan policy", () => {
   test("fallback locales inherit the shared English VM policy", async () => {
     for (const locale of locales) {
       if (locale === "en" || locale === "ja") continue;
-      const messages = await loadMessages(locale) as typeof enMessages;
+      const messages = await loadMessages(locale) as unknown as typeof enMessages;
       const pricing = messages.pricing;
       const proFeatures = pricing.pro.features.join("\n");
       expect(proFeatures).toContain("all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk");
