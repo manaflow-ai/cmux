@@ -4374,7 +4374,8 @@ struct CMUXCLI {
     // `vm_image_config_error`.
     /// `--size` spellings → memory in MB. The supported base-image ladder is
     /// 4 GB, 8 GB, 16 GB, 24 GB, 32 GB, and 64 GB of RAM, with disk sizes
-    /// following each image.
+    /// following each image. Pricing separately describes 5 vCPU, 20 GB RAM,
+    /// and 200 GB disk as one pool shared across the plan's Cloud VMs.
     private static let cloudVMSizeAliases: [String: Int] = [
         "4g": 4096, "4gb": 4096,
         "8g": 8192, "8gb": 8192,
