@@ -200,14 +200,29 @@ public actor LocalArtifactRepository: ArtifactStoring {
         var imported: [ArtifactRecord] = []
         for link in links.prefix(configuration.maximumBatchCount) {
             try Task.checkCancellation()
-            guard let canonical = identity.canonicalURL(link.url) else { continue }
+            let rawURL = link.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let parsedURL = URL(string: rawURL) else { continue }
+            let canonical: String
+            let kind: ArtifactKind
+            if parsedURL.isFileURL {
+                // Legacy Links rows are metadata references. Preserve an
+                // already-captured file URL even when the current automatic
+                // file-capture setting is disabled; that setting must not make
+                // an upgrade silently erase history.
+                canonical = parsedURL.standardizedFileURL.absoluteString
+                kind = .file
+            } else {
+                guard let httpCanonical = identity.canonicalURL(rawURL) else { continue }
+                canonical = httpCanonical
+                kind = .url
+            }
             let source: ArtifactSource = link.origin.lowercased() == "osc8" ? .terminalOSC8 : .terminalURL
             var metadata: [String: String] = [:]
             if let panelID = link.sourcePanelID { metadata["sourcePanelID"] = panelID.uuidString }
             if let surfaceTitle = link.sourceSurfaceTitle { metadata["sourceSurfaceTitle"] = surfaceTitle }
             let record = ArtifactRecord(
                 id: link.id,
-                kind: .url,
+                kind: kind,
                 identityKey: identity.key(kind: .url, value: canonical, ownership: normalizedOwnership(ownership)),
                 ownership: normalizedOwnership(ownership),
                 source: .migratedLink,
@@ -224,7 +239,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
                     lastSeenAt: record.lastSeenAt,
                     title: record.title,
                     metadata: record.metadata,
-                    occurrenceIncrement: max(0, record.occurrenceCount - 1)
+                    occurrenceIncrement: max(0, record.occurrenceCount - existing.occurrenceCount)
                 )
                 recordsByIdentity[record.identityKey] = merged
                 imported.append(merged)

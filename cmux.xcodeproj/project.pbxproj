@@ -3072,6 +3072,7 @@
 		D7AB00000000000000000011 /* WorkspaceAdjacentPaneMoveTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */; };
 		A11EAE000000000000000000 /* WorkspaceAppearanceConfigResolutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */; };
 		A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */; };
+		A8F100000000000000000031 /* WorkspaceArtifactsState+Projection.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F100000000000000000032 /* WorkspaceArtifactsState+Projection.swift */; };
 		A8F100000000000000000011 /* WorkspaceArtifactsState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8F100000000000000000012 /* WorkspaceArtifactsState.swift */; };
 		A85630010000000000000002 /* WorkspaceAttentionColor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A85630010000000000000001 /* WorkspaceAttentionColor.swift */; };
 		A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */; };
@@ -6240,6 +6241,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		D7AB00000000000000000012 /* WorkspaceAdjacentPaneMoveTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAdjacentPaneMoveTests.swift; sourceTree = "<group>"; };
 		A11EAE000000000000000001 /* WorkspaceAppearanceConfigResolutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceConfigResolutionTests.swift; sourceTree = "<group>"; };
 		A11EAD000000000000000001 /* WorkspaceAppearanceResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceAppearanceResolution.swift; sourceTree = "<group>"; };
+		A8F100000000000000000032 /* WorkspaceArtifactsState+Projection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceArtifactsState+Projection.swift; sourceTree = "<group>"; };
 		A8F100000000000000000012 /* WorkspaceArtifactsState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceArtifactsState.swift; sourceTree = "<group>"; };
 		A85630010000000000000001 /* WorkspaceAttentionColor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionColor.swift; sourceTree = "<group>"; };
 		A5F0C0010000000000000001 /* WorkspaceAttentionFlashRingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/WorkspaceAttentionFlashRingView.swift; sourceTree = "<group>"; };
@@ -7448,6 +7450,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E9A243534CEB9E9A49B44453 /* WorkspaceTodoState.swift */,
 				C0DE10166000000000000002 /* WorkspaceLinksState.swift */,
 				A8F100000000000000000012 /* WorkspaceArtifactsState.swift */,
+				A8F100000000000000000032 /* WorkspaceArtifactsState+Projection.swift */,
 				A8F100000000000000000014 /* ArtifactsPanelCompatibility.swift */,
 				A8F100000000000000000016 /* ArtifactActionRouter.swift */,
 				A8F100000000000000000018 /* ArtifactsPaneContent.swift */,
@@ -12224,6 +12227,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7D77A0EBBE3D8E05CDC16229 /* WorkspaceActionDispatcher.swift in Sources */,
 				A5FB1313 /* WorkspaceActionSaveDialogAccessory.swift in Sources */,
 				A11EAD000000000000000000 /* WorkspaceAppearanceResolution.swift in Sources */,
+				A8F100000000000000000031 /* WorkspaceArtifactsState+Projection.swift in Sources */,
 				A8F100000000000000000011 /* WorkspaceArtifactsState.swift in Sources */,
 				A85630010000000000000002 /* WorkspaceAttentionColor.swift in Sources */,
 				A5F0C0010000000000000002 /* WorkspaceAttentionFlashRingView.swift in Sources */,

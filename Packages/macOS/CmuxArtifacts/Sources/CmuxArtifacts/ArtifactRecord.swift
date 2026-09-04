@@ -127,7 +127,11 @@ public struct ArtifactRecord: Codable, Equatable, Hashable, Sendable, Identifiab
             source: source,
             createdAt: createdAt,
             lastSeenAt: max(self.lastSeenAt, lastSeenAt),
-            occurrenceCount: occurrenceCount + max(1, occurrenceIncrement),
+            // Restores may pass zero when the incoming snapshot already carries
+            // its full historical count; a fresh observation uses the default
+            // value of one. Clamping at zero prevents idempotent migration from
+            // inflating counts on every restart.
+            occurrenceCount: occurrenceCount + max(0, occurrenceIncrement),
             title: title ?? self.title,
             metadata: self.metadata.merging(Self.boundedMetadata(metadata)) { current, _ in current },
             representation: representation,

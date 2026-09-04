@@ -15,44 +15,47 @@ import Observation
 final class WorkspaceArtifactsState {
     private static let maximumRecentTitleChanges = 256
     private static let titleFetchRetryCooldown: TimeInterval = 60
-    private static let sourcePanelMetadataKey = "sourcePanelID"
-    private static let sourceTitleMetadataKey = "sourceSurfaceTitle"
+    static let sourcePanelMetadataKey = "sourcePanelID"
+    static let sourceTitleMetadataKey = "sourceSurfaceTitle"
 
-    private enum PersistenceEvent: Sendable {
+    enum PersistenceEvent: Sendable {
         case record(ArtifactRecord)
         case snapshot([ArtifactRecord])
+        case remove(UUID)
+        case clear(ArtifactScope)
+        case retention(Int)
     }
 
-    private(set) var structuralRevision: UInt64 = 0
-    private(set) var persistenceRevision: UInt64 = 0
+    internal(set) var structuralRevision: UInt64 = 0
+    internal(set) var persistenceRevision: UInt64 = 0
     private(set) var latestTitleChange: WorkspaceLinkTitleChange?
     private(set) var fetchTitlesEnabled: Bool
-    private(set) var retentionLimit: Int
+    internal(set) var retentionLimit: Int
     private(set) var isLoading = false
     private(set) var lastRepositoryError: String?
     private var didLoadRepositoryProjection = false
 
-    private(set) var records: [ArtifactRecord] = []
-    private var recordsByIdentity: [String: ArtifactRecord] = [:]
-    private var orderByID: [UUID: UInt64] = [:]
-    private var nextOrder: UInt64 = 0
-    private var titleStateByID: [UUID: WorkspaceLinkTitleFetchState] = [:]
-    private var titleGenerationByID: [UUID: UInt64] = [:]
-    private var activeTitleFetchIDByID: [UUID: UUID] = [:]
-    private var titleRetryAfterByID: [UUID: Date] = [:]
+    internal(set) var records: [ArtifactRecord] = []
+    var recordsByIdentity: [String: ArtifactRecord] = [:]
+    var orderByID: [UUID: UInt64] = [:]
+    var nextOrder: UInt64 = 0
+    var titleStateByID: [UUID: WorkspaceLinkTitleFetchState] = [:]
+    var titleGenerationByID: [UUID: UInt64] = [:]
+    var activeTitleFetchIDByID: [UUID: UUID] = [:]
+    var titleRetryAfterByID: [UUID: Date] = [:]
     private var titleChangeSequence: UInt64 = 0
     private var recentTitleChanges: [WorkspaceLinkTitleChange] = []
-    private let hostPolicy = CapturedLinkHostPolicy()
-    private let identity = ArtifactIdentity()
+    let hostPolicy = CapturedLinkHostPolicy()
+    let identity = ArtifactIdentity()
     private let repository: (any ArtifactStoring)?
-    private let workspaceID: UUID?
-    private var workingDirectory: String?
+    let workspaceID: UUID?
+    var workingDirectory: String?
     // Swift 6 makes `deinit` nonisolated. These handles are only assigned and
     // consumed by the main-actor lifecycle, while the deinitializer performs
     // the final stream/task cancellation after isolation has ended.
-    private nonisolated(unsafe) var persistenceContinuation: AsyncStream<PersistenceEvent>.Continuation?
-    private nonisolated(unsafe) var persistenceTask: Task<Void, Never>?
-    private var persistenceNeedsResync = false
+    nonisolated(unsafe) var persistenceContinuation: AsyncStream<PersistenceEvent>.Continuation?
+    nonisolated(unsafe) var persistenceTask: Task<Void, Never>?
+    var persistenceNeedsResync = false
 
     /// The injected catalog used by global scope and action routing.
     var artifactRepository: (any ArtifactStoring)? { repository }
@@ -94,6 +97,12 @@ final class WorkspaceArtifactsState {
                     case .snapshot(let records):
                         let owner = records.first?.ownership.workspaceID ?? workspaceID?.uuidString ?? ""
                         try await repository.replace(records: records, scope: .workspace(owner))
+                    case .remove(let id):
+                        try await repository.remove(id: id)
+                    case .clear(let scope):
+                        try await repository.clear(scope: scope)
+                    case .retention(let limit):
+                        try await repository.updateRetentionLimit(limit)
                     }
                 } catch {
                     // The projection remains usable while a later mutation or
@@ -332,9 +341,9 @@ final class WorkspaceArtifactsState {
         for entry in restoredEntries.sorted(by: { $0.lastSeen > $1.lastSeen }).prefix(cap) {
             let record = record(from: entry)
             upsertProjection(record)
-            enqueue(record: record)
         }
         markStructuralChange()
+        enqueueSnapshot()
     }
 
     /// Compatibility spelling used by the original Links snapshot adapter.
@@ -347,18 +356,23 @@ final class WorkspaceArtifactsState {
         let cap = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(retentionLimit)
         for record in restoredRecords.sorted(by: { $0.lastSeenAt > $1.lastSeenAt }).prefix(cap) {
             upsertProjection(record)
-            enqueue(record: record)
         }
         markStructuralChange()
+        enqueueSnapshot()
     }
 
     /// Removes one record through the shared mutation path.
     func remove(id: UUID) {
         guard let record = records.first(where: { $0.id == id }) else { return }
         recordsByIdentity.removeValue(forKey: record.identityKey)
+        orderByID.removeValue(forKey: record.id)
+        titleStateByID.removeValue(forKey: record.id)
+        titleGenerationByID.removeValue(forKey: record.id)
+        activeTitleFetchIDByID.removeValue(forKey: record.id)
+        titleRetryAfterByID.removeValue(forKey: record.id)
         records = ordered(recordsByIdentity.values)
         markStructuralChange()
-        if let repository { Task { try? await repository.remove(id: id) } }
+        if repository != nil { enqueue(.remove(id)) }
     }
 
     /// Clears this workspace's records while preserving other workspaces.
@@ -366,22 +380,28 @@ final class WorkspaceArtifactsState {
         guard !records.isEmpty else { return }
         clearProjection()
         markStructuralChange()
-        if let repository, let workspaceID {
-            Task { try? await repository.clear(scope: .workspace(workspaceID.uuidString)) }
-        }
+        if let workspaceID, repository != nil { enqueue(.clear(.workspace(workspaceID.uuidString))) }
     }
 
     /// Applies the Links-compatible retention/title settings to the artifact projection.
     func applyRetentionLimit(_ limit: Int) {
         let clamped = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(limit)
+        let didChangeLimit = retentionLimit != clamped
         retentionLimit = clamped
         let before = records.count
         records = Array(ordered(recordsByIdentity.values).prefix(clamped))
         recordsByIdentity = Dictionary(uniqueKeysWithValues: records.map { ($0.identityKey, $0) })
         if before != records.count {
+            let liveIDs = Set(records.map(\.id))
+            orderByID = orderByID.filter { liveIDs.contains($0.key) }
+            titleStateByID = titleStateByID.filter { liveIDs.contains($0.key) }
+            titleGenerationByID = titleGenerationByID.filter { liveIDs.contains($0.key) }
+            activeTitleFetchIDByID = activeTitleFetchIDByID.filter { liveIDs.contains($0.key) }
+            titleRetryAfterByID = titleRetryAfterByID.filter { liveIDs.contains($0.key) }
             markStructuralChange()
             enqueueSnapshot()
         }
+        if didChangeLimit, repository != nil { enqueue(.retention(clamped)) }
     }
 
     /// Applies live title-fetch settings without touching captured records unnecessarily.
@@ -440,119 +460,4 @@ final class WorkspaceArtifactsState {
         titleStateByID[id] = .idle
     }
 
-    private var ownership: ArtifactOwnership {
-        ArtifactOwnership(
-            workspaceID: workspaceID?.uuidString,
-            projectID: workingDirectory.map { identity.stableTextDigest($0) },
-            projectRoot: workingDirectory,
-            workspaceTitle: nil
-        )
-    }
-
-    private func merge(_ incoming: ArtifactRecord, at date: Date) -> ArtifactRecord {
-        if let existing = recordsByIdentity[incoming.identityKey] {
-            let updated = existing.merging(source: incoming.source, lastSeenAt: date, title: incoming.title, metadata: incoming.metadata)
-            recordsByIdentity[incoming.identityKey] = updated
-            records = ordered(recordsByIdentity.values)
-            return updated
-        }
-        recordsByIdentity[incoming.identityKey] = incoming
-        nextOrder &+= 1
-        orderByID[incoming.id] = nextOrder
-        records = ordered(recordsByIdentity.values)
-        if records.count > retentionLimit, let oldest = records.last {
-            recordsByIdentity.removeValue(forKey: oldest.identityKey)
-            orderByID.removeValue(forKey: oldest.id)
-            records.removeLast()
-        }
-        return incoming
-    }
-
-    private func captureInMemory(_ request: ArtifactIngestRequest, capturedAt: Date) -> ArtifactRecord? {
-        let representation: ArtifactRepresentation
-        let kind: ArtifactKind
-        let identityValue: String
-        switch request.input {
-        case .url(let value):
-            guard let canonical = identity.canonicalURL(value) else { return nil }
-            representation = .url(canonical); kind = request.kind ?? .url; identityValue = canonical
-        case .html(let value): representation = .inlineHTML(value); kind = request.kind ?? .html; identityValue = value
-        case .text(let value): representation = .inlineText(value); kind = request.kind ?? .text; identityValue = value
-        case .directory(let url): representation = .directory(path: url.path); kind = .directory; identityValue = url.path
-        case .file, .data: return nil
-        }
-        let record = ArtifactRecord(kind: kind, identityKey: identity.key(kind: kind == .url ? .url : kind, value: identityValue, ownership: ownership), ownership: ownership, source: request.source, createdAt: capturedAt, lastSeenAt: capturedAt, title: request.title, metadata: request.metadata, representation: representation, isUserOwned: request.authorization == .explicitUser)
-        let merged = merge(record, at: capturedAt)
-        markStructuralChange()
-        return merged
-    }
-
-    private func upsertProjection(_ record: ArtifactRecord) {
-        if let existing = recordsByIdentity[record.identityKey], existing.id != record.id {
-            recordsByIdentity[record.identityKey] = existing.merging(source: record.source, lastSeenAt: record.lastSeenAt, title: record.title, metadata: record.metadata, occurrenceIncrement: max(0, record.occurrenceCount - 1))
-        } else {
-            recordsByIdentity[record.identityKey] = record
-            nextOrder &+= 1
-            orderByID[record.id] = nextOrder
-        }
-        records = Array(ordered(recordsByIdentity.values).prefix(retentionLimit))
-        recordsByIdentity = Dictionary(uniqueKeysWithValues: records.map { ($0.identityKey, $0) })
-    }
-
-    private func clearProjection() {
-        records.removeAll(keepingCapacity: true)
-        recordsByIdentity.removeAll(keepingCapacity: true)
-        orderByID.removeAll(keepingCapacity: true)
-        titleStateByID.removeAll(); titleGenerationByID.removeAll(); activeTitleFetchIDByID.removeAll(); titleRetryAfterByID.removeAll()
-    }
-
-    private func markStructuralChange() {
-        structuralRevision &+= 1
-        persistenceRevision &+= 1
-    }
-
-    private func enqueue(record: ArtifactRecord) {
-        guard let continuation = persistenceContinuation else { return }
-        if case .dropped = continuation.yield(.record(record)), !persistenceNeedsResync {
-            persistenceNeedsResync = true
-            _ = continuation.yield(.snapshot(records))
-            persistenceNeedsResync = false
-        }
-    }
-
-    private func enqueueSnapshot() {
-        guard let continuation = persistenceContinuation else { return }
-        _ = continuation.yield(.snapshot(records))
-    }
-
-    private func linkEntry(for record: ArtifactRecord) -> WorkspaceCapturedLink? {
-        guard record.kind == .url || record.kind == .file else { return nil }
-        let url: String
-        switch record.representation {
-        case .url(let value): url = value
-        case .directory, .managedFile, .inlineText, .inlineHTML: return nil
-        }
-        let sourcePanelID = record.metadata[Self.sourcePanelMetadataKey].flatMap(UUID.init(uuidString:))
-        let sourceTitle = record.metadata[Self.sourceTitleMetadataKey]
-        let hostKey = URL(string: url).flatMap { hostPolicy.hostKey(for: $0.absoluteString) }
-        let origin: WorkspaceCapturedLinkOrigin = record.source == .terminalOSC8 ? .osc8 : .detected
-        return WorkspaceCapturedLink(id: record.id, url: url, hostKey: hostKey, firstSeen: record.createdAt, lastSeen: record.lastSeenAt, count: record.occurrenceCount, sourcePanelId: sourcePanelID, sourceSurfaceTitle: sourceTitle, origin: origin, fetchedTitle: record.title, titleFetchState: titleStateByID[record.id, default: .idle], titleFetchGeneration: titleGenerationByID[record.id, default: 0], activeTitleFetchID: activeTitleFetchIDByID[record.id], titleFetchRetryAfter: titleRetryAfterByID[record.id])
-    }
-
-    private func record(from entry: WorkspaceCapturedLink) -> ArtifactRecord {
-        var metadata: [String: String] = [:]
-        if let sourcePanelId = entry.sourcePanelId { metadata[Self.sourcePanelMetadataKey] = sourcePanelId.uuidString }
-        if let sourceSurfaceTitle = entry.sourceSurfaceTitle { metadata[Self.sourceTitleMetadataKey] = sourceSurfaceTitle }
-        return ArtifactRecord(id: entry.id, kind: entry.url.lowercased().hasPrefix("file://") ? .file : .url, identityKey: identity.key(kind: .url, value: entry.url, ownership: ownership), ownership: ownership, source: .migratedLink, createdAt: entry.firstSeen, lastSeenAt: entry.lastSeen, occurrenceCount: entry.count, title: entry.fetchedTitle, metadata: metadata, representation: .url(entry.url))
-    }
-
-    private func ordered<S: Sequence>(_ values: S) -> [ArtifactRecord] where S.Element == ArtifactRecord {
-        values.sorted {
-            if $0.lastSeenAt != $1.lastSeenAt { return $0.lastSeenAt > $1.lastSeenAt }
-            let lhsOrder = orderByID[$0.id, default: 0]
-            let rhsOrder = orderByID[$1.id, default: 0]
-            if lhsOrder != rhsOrder { return lhsOrder > rhsOrder }
-            return $0.id.uuidString < $1.id.uuidString
-        }
-    }
 }

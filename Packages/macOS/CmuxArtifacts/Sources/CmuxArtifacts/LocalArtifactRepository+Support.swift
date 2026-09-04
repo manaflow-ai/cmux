@@ -14,7 +14,7 @@ extension LocalArtifactRepository {
 
     func normalizedRecord(_ record: ArtifactRecord) -> ArtifactRecord {
         let ownership = normalizedOwnership(record.ownership)
-        ArtifactRecord(
+        return ArtifactRecord(
             id: record.id,
             kind: record.kind,
             identityKey: canonicalIdentity(for: record, ownership: ownership),

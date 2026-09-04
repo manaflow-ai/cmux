@@ -81,6 +81,7 @@ struct LocalArtifactRepositoryTests {
         #expect(imported.count == 1)
         _ = try await repo.importLegacyLinks([link], ownership: owner)
         #expect(try await repo.list(scope: .global).count == 1)
+        #expect(try await repo.list(scope: .global).first?.occurrenceCount == 3)
     }
 
     @Test("changed file bytes create a new content identity")
