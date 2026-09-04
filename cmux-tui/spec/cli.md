@@ -393,33 +393,70 @@ long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
 
-### Host projection boundary
+### Remote workspace and viewer boundary
 
-The local `browser` and `projection` scopes address the machine that owns the
-session. They do not create a path from a Cloud VM into a host filesystem or
-host browser profile. A remote agent may project a VM browser or VM file to a
-local viewer, but the projection is one-way and returns no host state.
+The `workspace`, `screen`, `pane`, `tab`, `terminal`, `browser`, and `projection`
+scopes address the machine that owns the session. A Cloud attach mints a lease
+for one machine, session, and explicit remote workspace set. `current` is
+resolved by that VM daemon. A remote agent may list and mutate only VM-owned
+resources in that lease. It never receives a host workspace, window, pane,
+surface, path, socket, clipboard, keychain, or browser-profile identifier.
+The default agent lease contains one remote workspace. `workspace create` adds
+the new workspace to the same lease. `workspace list` hides pre-existing
+workspaces until a host or orchestrator grants one explicitly.
 
-The Cloud extension uses explicit host actions:
+The desktop creates one local Cloud projection workspace for each attached
+remote workspace. Projection bindings map remote resource IDs to local
+placements internally. The host broker accepts typed remote actions, checks the
+machine, session, workspace, revision, nonce, expiry, idempotency, and limits,
+then applies them to the projection. It never forwards the local socket or
+returns a host ID. A remote move or close therefore cannot affect a local
+resource. Existing host-only placement may show a remote resource in a local
+workspace, but it uses a separate remote region. Remote control of a mixed
+layout is not a first-release surface.
+
+File, diff, Markdown, and browser verbs run in the VM context:
 
 ```text
-cmux host present <opaque-handle|https-url>
-cmux host present --pick file|video
-cmux host share <opaque-handle> --machine <machine-id>
+cmux open ./README.md
+cmux diff --repo .
+cmux markdown open ./plan.md
+cmux browser open http://127.0.0.1:3000
 ```
 
-`host present` returns a receipt only. The remote principal cannot use that
-receipt with `browser snapshot`, `browser get`, `browser screenshot`,
-`surface.read`, clipboard, accessibility, or raw operation calls. `host share`
-requires a local user-selected handle and transfers a bounded immutable copy.
-The VM never supplies a host path.
+The VM daemon canonicalizes file paths against the project grant and sends
+bounded snapshots, structured diff hunks, or inert Markdown data to the local
+viewer. The host never resolves a remote path or calls OS `open`. The browser
+process and network stack run in the VM. The local browser pane receives a
+pixel stream and explicit input; it does not load the URL in a host WebView.
+Agent DOM, scripts, cookies, storage, downloads, and profiles stay in the VM.
+Viewer actions return a durable remote surface ID when no client is attached;
+a later attach restores the surface from a revisioned snapshot.
 
-Host presentation rejects `file:`, `data:`, script, custom, loopback,
-link-local, and private-network URLs, including subresources, WebSockets,
-WebRTC, redirects, and DNS rebinding. It uses a fresh viewer profile with no
-host cookies. Existing host browser tabs,
-profiles, and raw browser automation endpoints are not Cloud resources and have
-no first-release command path.
+The guest image points `cmux` at the VM-local daemon socket. The host socket,
+host profile directory, and host environment are absent from the image. The
+remote command set therefore keeps the familiar verbs while changing their
+authority: `workspace current`, `tab move`, `surface project`, `open`, `diff`,
+`markdown`, and `browser` operate on the leased VM graph. Host-only browser
+actions such as profile import, host cookie access, host storage, and raw
+automation are rejected as `scope.denied` with the denied resource class in
+`details`.
+
+`file:` is limited to the VM project grant. HTTP access allows the VM's own
+loopback and assigned interface addresses plus exact VPC peer IPs from directed
+grants. The VM firewall and browser proxy enforce the policy for DNS, redirects,
+subresources, WebSockets, and WebRTC, blocking the
+host gateway, Mac LAN, metadata, link-local, and private ranges unless a
+directed peer grant allows them. The default agent policy is `vm-vpc`; public
+internet and a machine's published domain require an explicit machine policy.
+VPC network access does not grant another VM's cmux control.
+
+Local files and the local browser are not remote agent targets. A user may
+start a separate local `cmux open` action or explicitly transfer one selected,
+bounded file to the VM. The VM cannot supply a host path, request a picker, or
+receive a host viewer handle. A future host-browser handoff requires a
+disposable profile, origin policy, visible approval, and a separate audit
+contract.
 
 ## Local sidebar plugins
 

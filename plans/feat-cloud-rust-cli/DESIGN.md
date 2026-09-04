@@ -33,6 +33,12 @@ auth login
 A parser, help screen, Swift subprocess wrapper, or headless daemon without
 this path is not a release.
 
+The implementation must preserve this authority flow: create a ready VM and
+leased workspace, launch Claude with a model-only route, run the normal cmux
+viewer and topology verbs against the VM daemon, mirror events into one local
+Cloud workspace, and reconnect without changing resource IDs. A failed host
+attachment never changes the guest target or falls back to the local socket.
+
 The clean-install test uses a generated cmux.sh hostname. A separate live
 domain smoke must run the customer-zone DNS checklist, repeat verify after the
 DNS change, wait for wildcard certificate readiness, exercise protected and
@@ -82,10 +88,11 @@ requirement without making package tests depend on a user's DNS service.
     and secure handoff library are shared by standalone `coderouter` and
     `cmux coderouter`. Command, TTY, keyring, config, and process frontends
     remain separate.
-18. A Cloud VM may request one-way host presentation of a user-selected file,
-    video, or URL. Host file readback and control of an existing host browser
-    are disabled in the first release. Host sharing is an explicit local action
-    with a short-lived, bounded handle.
+18. A Cloud VM owns only its resources inside an explicit machine, session, and
+    workspace lease. The Mac projects those VM resources into a dedicated local
+    Cloud workspace. A remote agent cannot request a host file, host browser,
+    host path, or host socket. Local-file sharing is a separate user-only flow
+    with a short-lived, bounded copy.
 
 ## Ownership and dependency graph
 
@@ -98,7 +105,7 @@ requirement without making package tests depend on a user's DNS service.
 | Secure agent handoff | public coderouter-core handoff library | CodeRouter contract |
 | CLI frontend | cmux-tui/src/cli/cloud and command dispatch | Contract, client |
 | Remote data plane | cmux-remote, cmux-terminal-client | Contract, enrollment |
-| Host projection bridge | local host broker and native viewer adapters | Auth, remote session, local approval policy |
+| Remote topology and projection bridge | VM resource broker, local placement adapter, and native viewer adapters | Auth, remote session, workspace lease, local approval policy |
 | Private network | cmux-wg and Swift NetworkExtension bridge | Auth, grants, route API |
 | Backend facade | web/app/api, web/services/vms, CodeRouter services | Contract fixtures |
 | Guest runtime | image manifest, daemon supervisor, adapters | Action checks, machine principal |
@@ -115,7 +122,7 @@ C0 schema and errors
 → C3 fast machine catalog and operations
 → C4 create, base, snapshot, fork, restore
 → C5 remote sessions, terminal, exec, transfer
-→ C5a host presentation and share boundary
+→ C5a scoped remote topology and projection boundary
 → C6 VPN, private routes, ports, domains
 → C7 project environments and layouts
 → C8 agents and CodeRouter
@@ -414,59 +421,132 @@ Acceptance:
 - Exact argv survives shells and platforms without accidental expansion.
 - File transfer cannot exceed declared size, time, or cancellation limits.
 
-## C5a. Host presentation and share boundary
+## C5a. Scoped remote topology and projection boundary
 
-Implement a narrow host broker. Do not mount the host socket, filesystem, or
-browser profile into a Cloud machine. Every VM process is hostile, even when
-the user launched the agent.
+Make the VM the authority for its own workspace graph. Every process in a
+Cloud machine is hostile, including an agent launched by the user. At attach,
+the control plane mints a lease bound to one machine, session, and explicit
+remote workspace set. The daemon checks that lease on every topology action.
 
-Implement these typed actions:
+The remote agent may list, create, rename, move, reorder, and close VM-owned
+tabs, panes, terminals, browser surfaces, and viewer surfaces in that lease. It
+may apply an atomic layout and send terminal or VM-browser input. It may not
+enumerate local workspaces or windows, receive host IDs, call the host socket,
+use host paths or URLs, access host clipboard, keychain, SSH agent, or execute
+a local process. A `current` selector is resolved by the VM daemon only.
+
+Start an agent lease with one remote workspace. `workspace list` returns that
+workspace plus workspaces created by the same lease. A new workspace joins the
+lease. Adopting a pre-existing workspace requires a host or orchestrator grant.
+This prevents agents in one VM from mutating each other's layouts.
+
+V1 creates one dedicated local Cloud workspace for each attached remote
+workspace. It contains only projections of resources owned by that VM. A local
+user can move the whole projection workspace. A remote agent can move only
+remote resources in its lease. Existing host-only placement may show a remote
+resource in a local workspace, but it uses a separate remote region. Remote
+control of mixed local and remote layouts is deferred.
+
+Reuse the local placement and viewer rendering code behind a typed projection
+adapter. Do not reuse host authority. A projection binding maps a remote
+resource ID to a local placement, but host IDs never cross the link. The host
+broker checks machine, session, workspace, revision, nonce, expiry,
+idempotency, size, and rate limits. It never forwards a local socket or a
+generic RPC method.
+
+Topology control flows through the VM daemon, not directly to the Mac:
 
 ~~~text
-cmux host present <handle|https-url>
-cmux host present --pick file|video
-cmux host share <handle> --machine <machine>
+agent → VM-local cmux socket → lease check → remote mutation
+      → event/snapshot → host projection reconciler → local Cloud workspace
+user input → projection binding → VM daemon
 ~~~
 
-`host.present` lets a VM ask the local cmux app to show a user-selected file,
-video, or approved URL. `--pick file|video` opens a local picker and returns a
-pending approval until the user chooses an item. It returns a receipt only.
-The receipt cannot address
-the resulting host surface, read its DOM or pixels, inspect its path, or use
-clipboard and accessibility operations. Reuse the existing viewer construction
-and receipt plumbing, but keep host read and control authority in a separate
-namespace.
+The reconciler mirrors only the leased remote workspace and rejects events
+that name a local resource or an unknown revision. A remote agent never sends a
+host-layout mutation.
 
-`host.share` is the only first-release path for a Cloud agent to analyze a host
-file. A local user selects the item. The host creates an opaque handle bound to
-the account, machine, session, file identity, digest, size, MIME type, and
-expiry. The broker canonicalizes the path, rejects unsafe symlinks and active
-file types, and streams one bounded immutable copy. It never accepts a raw host
-path from the VM.
+Remote file and viewer commands execute in VM context:
 
-Host URL presentation accepts only the approved URL policy. Reject `file:`,
-`data:`, script, custom, loopback, link-local, and private-network destinations,
-including subresources, WebSockets, WebRTC, redirects, and DNS rebinding. Use a
-fresh viewer profile with no host cookies. Do not expose a raw browser
-automation endpoint.
+~~~text
+cmux open ./file
+cmux diff --repo .
+cmux markdown open ./plan.md
+cmux browser open http://127.0.0.1:3000
+~~~
 
-Do not implement `host.control` in this slice. If a later release needs it, use
-a disposable browser process and profile, one origin-scoped lease, no existing
-tabs or cookies, no file or private-network URLs, no clipboard or keychain,
-quarantined downloads, and local approval for navigation, form submission, and
-permission prompts.
+The daemon canonicalizes paths against the VM project root and rejects
+traversal, unsafe symlinks, and paths outside the grant. It sends bounded,
+immutable file snapshots, structured diff hunks, or inert Markdown render data
+to the local projection. The host never resolves a remote path or calls OS
+`open`. Scripts, active HTML, remote subresource fetches, executable bundles,
+and unsafe archive extraction are blocked. Binary and video previews use a
+sandboxed decoder or a VM-rendered stream. Each action creates a durable
+VM-owned viewer surface and returns its remote ID when no host is attached. A
+later attach restores it from a revisioned snapshot. Remote link clicks return
+to the VM resolver. File links open VM viewer surfaces, HTTP links open the VM
+browser, and custom schemes are rejected. Diff mutations use expected blob
+hashes and affect only the VM repository.
+
+The browser process and network stack run in the VM. The local pane is a pixel
+and input viewer, not a host WebView. Agent DOM, JavaScript, cookies, storage,
+downloads, and browser profiles stay in the VM. `file:` is limited to the VM
+project grant. HTTP access allows the VM's loopback and assigned interface
+addresses plus exact VPC peer IPs from directed grants. The default agent
+policy is `vm-vpc`; public egress and the machine's published domain are
+explicit machine policies. The VM firewall and browser proxy enforce
+this policy for DNS, redirects, subresources, WebSockets, and WebRTC, and
+block the host gateway, Mac LAN, link-local, metadata, and private ranges
+unless a directed peer grant allows them. VPC reachability never grants cmux
+control of another VM.
+
+Use `vm-vpc` as the default agent egress policy. It permits the VM's loopback,
+assigned interface addresses, its own published service, and exact peer IP and
+port grants. `internet` is an explicit user or team policy that adds public
+destinations while keeping host, metadata, and unapproved private ranges
+blocked. The guest firewall and browser proxy enforce the policy.
+
+Browser downloads stay in the VM. A host-side `cloud vm pull` with a selected
+destination is the only path to the Mac. Drag, drop, paste, camera, and
+microphone never create implicit host shares.
+
+Local files and the local browser are not remote agent targets. If a user wants
+to provide a host file, the user starts a local `cmux open` action or performs
+an explicit one-file, bounded transfer. The VM never supplies a host path,
+requests a picker, or receives a host viewer handle. A future isolated browser
+handoff needs a disposable profile, origin policy, visible approval, and a
+separate audit contract.
 
 Acceptance:
 
-- A hostile VM can request `host.present` only for a granted handle or allowed
-  URL and receives no host content or addressable host surface ID.
-- A `file:///Users/...` request, path traversal, symlink escape, private URL,
-  redirect, and DNS rebinding fail before a viewer opens.
-- A user-selected share transfers only the declared byte range and expires or
-  revokes when the machine or session ends.
-- Replayed, cross-session, and cross-team handles fail with stable errors.
-- A VM cannot invoke host browser snapshot, eval, screenshot, cookies, storage,
-  clipboard, accessibility, or shell operations through the bridge.
+- A hostile VM lists and mutates only its machine's leased workspace resources;
+  `machine:local` and every host ID are rejected.
+- Remote layout, move, close, terminal, and browser actions cannot affect a
+  local workspace or a resource owned by another machine.
+- VM file, diff, and Markdown paths reject traversal and symlink escapes and
+  produce bounded, inert snapshots.
+- A VM browser can reach its own loopback, interface addresses, and an exact
+  granted VPC peer, but not the host gateway, Mac LAN, metadata service, or
+  private range; redirects and DNS rebinding are rechecked.
+- The host renders VM browser frames without loading the URL in a host browser,
+  and no host cookie, DOM, pixel, path, clipboard, or keychain data returns.
+- Revoking a session or destroying a machine invalidates projection bindings,
+  browser streams, input leases, and peer grants.
+
+VNC, noVNC, and browser frame streams are VM-to-host only. The host never sends
+desktop, accessibility, camera, or microphone frames to a VM. Computer-use
+input from a remote agent terminates at the VM display adapter.
+
+### 80/20 release cut
+
+The first secure vertical slice contains one machine, one leased workspace,
+remote terminal and topology control, VM file/diff/Markdown snapshots, VM
+browser frames and input, explicit VPC peer rules, and automatic local
+projection. It rejects host paths, host browser control, host socket access,
+mixed-layout remote control, recursive host mounts, and implicit clipboard or
+download transfers. Public domain publication remains in the release, but it
+publishes only a VM port through the managed edge and never changes the host
+browser or host route table.
 
 ## C6. VPN, private routes, ports, and domains
 
@@ -488,7 +568,12 @@ in-process tunnel must share route generations and peer-grant policy.
 Private ports return tokened endpoints and probe bind reachability. Public
 publication is a separate verified-zone resource with TLS, access mode, health
 state, and cleanup. Domain operations never become an alias for port open.
-Machine-to-machine routes require directed grants, not team membership alone.
+Machine-to-machine routes require directed grants naming the destination machine,
+IP, port, and protocol, not team membership alone. `cloud network` changes
+Cloud routes only. `vpn up|down` changes host routes and is host-user-only.
+OpenSSH fallback disables agent forwarding and host keychain access unless a
+user explicitly chooses an isolated key. Local port forwarding binds loopback
+by default and never auto-opens a host browser.
 
 Public custom-domain publication is a managed-edge action. The Rust client
 validates the zone, access mode, and machine route in the publish request and
@@ -654,11 +739,15 @@ Separate compute ownership from model routing. The machine owns the process
 and workspace. CodeRouter owns upstream account selection, model route,
 affinity, cooldown/failover, and usage attribution. A short-lived VM-bound
 route token is edge-injected and is never written to the image or guest
-credential file.
+credential file. Its audience, machine ID, session ID, expiry, and allowed
+model actions are checked on every request. Agent launch removes host socket,
+host filesystem, clipboard, keychain, and SSH-agent variables from the guest
+environment.
 
 Adapter manifests declare binary detection, launch/resume/stop, session-ID
 extraction, hook installation, event mapping, required runtime conditions,
-permissions, and safe transcript sources. Claude, Codex, OpenCode, and Pi are
+permissions, safe transcript sources, and the leased VM workspace scope. They
+also list forbidden host resources. Claude, Codex, OpenCode, and Pi are
 fixtures using this contract, not transport-specific branches.
 
 Use the semantic event set for started, turn, approval, question, plan review,

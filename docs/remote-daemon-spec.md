@@ -21,6 +21,18 @@ This is a **living implementation spec** (also called an **execution spec**): a 
 2. browser traffic that egresses from the remote host via proxying
 3. tmux-style PTY resize semantics (`smallest screen wins`)
 
+### Cloud VM isolation override
+
+The CLI relay and reverse socket forwarding described below are legacy SSH
+compatibility behavior. They are not permitted for a Cloud VM or a Cloud agent,
+because they can forward a remote command to a local cmux socket. Cloud images
+must point `cmux` at the VM-local daemon socket, omit the host socket and host
+environment, and reject any `CMUX_SOCKET_PATH` that names a host relay. Cloud
+topology actions use the machine-scoped workspace lease and remote resource IDs
+from [the Cloud Rust system design](cloud-rust-system-design.md). A Cloud
+session must fail closed if the VM-local daemon is unavailable; it must never
+fall back to the legacy relay.
+
 ## 3. Current State (Implemented)
 
 ### 3.1 Remote Workspace + Reconnect UX

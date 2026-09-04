@@ -279,6 +279,11 @@ access to a local Mac browser, file, clipboard, or accessibility surface.
 Socket methods (the CLI, the sidebar tree, and agents use these for remote
 machine resources):
 
+The `surface_id`, `workspace_id`, and `panel_id` fields in host-side projection
+receipts are local-only. The guest-facing daemon strips them and returns the
+remote resource and remote workspace IDs. This prevents a remote agent from
+turning a projection receipt into a host lookup.
+
 | Method | Params | Result |
 | --- | --- | --- |
 | `vm.tree` | `{id?, refresh?}` | `{machines: [{id, status, image, has_desktop, memory_mb?, disk_mb?, link_state, remote_workspaces?}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail?, lifecycle, agent?, remote_workspace?, remote_views?, port?, url?, open_surface_ids}], projections: [{resource, workspace_id, panel_id}]}` — the renderer orders each machine as Workspaces, Ports, VNC Displays, then Terminals |
@@ -306,6 +311,28 @@ endpoint and placeholders, and the handoff library injects the authority for
 the process lifetime. The `skills/cmux-cloud-vm` skill teaches this policy to
 Claude Code, Codex, OpenCode, and Pi.
 
+The remote daemon is the only authority for a Cloud workspace. Its topology
+methods accept a machine-scoped session lease and remote workspace ID, then
+return only remote IDs. They support workspace, tab, pane, terminal, browser,
+and layout list, create, rename, move, reorder, and close operations. `current`
+is evaluated in that daemon. The daemon rejects a local machine selector,
+host surface ID, host path, or request without the leased workspace. A local
+projection binding is created by the host after attach and is never visible to
+the guest.
+
+Topology mutations follow one direction: the agent calls the VM-local socket,
+the daemon validates the lease and mutates its graph, then emits an event or
+snapshot. The host reconciler mirrors that remote state into the dedicated
+Cloud workspace. User input travels through the binding back to the daemon.
+The guest never sends a direct host-layout mutation.
+
+The guest image sets the daemon socket explicitly and omits the host socket,
+host home directory, host environment, clipboard, keychain, and SSH agent. The
+host opens the authenticated remote link. A missing or expired lease fails
+closed; it never falls back to a local socket. Browser processes and file
+readers are guest services. They return VM-owned frames or bounded snapshots,
+not host paths or host UI state.
+
 ## Surface catalog
 
 Terminals, VNC screens and Cloud browsers are *resources*; panes and
@@ -318,11 +345,11 @@ projections (resource, workspace, panel). Adapters push resources in:
 from the headless link, its noVNC screen `display:1`, its forwarded ports).
 `catalog.project(resource, into:)` is the single local open path for trusted
 desktop clients. A Cloud agent cannot enumerate or project `machine:local`
-resources. A remote request enters the host broker as a typed `host.present` or
-`host.share` action, with a user-selected opaque handle and an expiring local
-grant. The resulting host viewer is write-only from the VM's authority
-namespace. This preserves code reuse for placement and receipts without
-sharing host read or control authority.
+resources. When a Cloud resource is attached, the host broker creates a local
+projection binding and reuses the placement and viewer adapters. The remote
+principal receives only the remote resource receipt, never the host surface ID.
+This preserves code reuse for placement and receipts without sharing host read
+or control authority.
 
 Socket (worker lane, like `vm.*`):
 
@@ -336,8 +363,17 @@ Socket (worker lane, like `vm.*`):
 principal cannot use it to enumerate host files or host browser tabs. A
 `surface.project` result for a Cloud resource may create a local display, but
 the remote principal receives no host surface ID or readback authority. Host
-file and URL requests use the `host.present` and `host.share` actions described
-in the system security contract.
+file and host-browser actions are not part of the remote agent protocol. A
+local user may open a host item independently or perform an explicit bounded
+file transfer to a VM.
+
+The local display adapter must not interpret a VM URL by calling the host
+browser. It renders VM browser frames and sends explicit pointer and keyboard
+events back to the VM. VM network policy is enforced in the guest namespace and
+at the browser proxy: VM loopback, assigned interface addresses, and exact peer
+IPs from directed VPC grants may be allowed, while
+the host gateway, Mac LAN, metadata, link-local, and unapproved private ranges
+are denied. VPC reachability does not authorize a second VM's daemon.
 
 The `vm.tree`, `vm.terminal_open`, `vm.terminal_new`, `vm.desktop_open`,
 `vm.port_open` and `vm.link_socket` verbs keep their shapes and are wrappers

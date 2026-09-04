@@ -45,24 +45,53 @@ Linux, Windows, npm, PyPI, and Cloud guest workflows must not depend on Swift.
 
 ### Cloud to host boundary
 
-Cloud commands treat every VM process as untrusted. A remote command may ask
-the desktop to present a user-selected local item, but it cannot name an
-arbitrary host path or use the resulting viewer as a data source.
+Cloud commands treat every VM process as untrusted. The VM owns its workspace,
+tab, pane, terminal, browser, file, diff, and Markdown resources. A scoped
+lease binds the remote principal to one machine, session, and explicit remote
+workspace set. The host creates a dedicated local Cloud projection workspace
+and maps remote resource IDs to local placements. Host resource IDs never cross
+the link.
 
-The first-release host actions are:
+Remote topology actions can list, create, rename, move, reorder, and close only
+VM-owned resources in that lease. They cannot enumerate or mutate local
+workspaces, windows, panes, surfaces, paths, sockets, clipboard, keychain,
+SSH agent, or processes. The host broker checks machine, session, workspace,
+revision, nonce, expiry, idempotency, and size limits before applying a typed
+projection action. It never forwards the local socket or a generic RPC method.
 
-```text
-cmux host present <opaque-handle|https-url>
-cmux host present --pick file|video
-cmux host share <opaque-handle> --machine <machine-id>
-```
+`cmux open`, `cmux diff`, and `cmux markdown` invoked in a VM resolve paths
+against the VM project grant. They send bounded file snapshots, structured diff
+hunks, or inert Markdown render data to the host. The host never resolves a
+remote path or calls OS `open` on it. A VM browser is also VM-owned. Its local
+pane is a pixel and input viewer, not a host WebView. `file:` is limited to the
+VM project grant. HTTP access is limited to VM loopback, assigned interface
+addresses, and exact VPC peer IPs from directed grants, with firewall and proxy
+checks for redirects, DNS, subresources, WebSockets,
+and WebRTC. The host gateway, Mac LAN, metadata, link-local, and private ranges
+are blocked unless a directed peer grant allows them. The default agent policy
+is `vm-vpc`; public internet and a machine's published domain require an
+explicit machine policy.
 
-`host present` opens a safe local viewer and returns a receipt without file
-bytes, DOM, pixels, cookies, clipboard, accessibility state, or a usable host
-surface ID. `host share` is a local user action that sends one bounded copy to
-the selected VM. `file:`, `data:`, script, custom, loopback, link-local, and
-private-network URLs are rejected. Existing host browser profiles and raw
-browser control are not Cloud targets in the first release.
+Local files and the local browser are not remote agent targets. A user can open
+a local item separately or explicitly transfer one selected, bounded file to a
+VM. The VM cannot supply a host path, request a picker, receive a host viewer
+handle, or control an existing host browser. VPC reachability is network access
+only and does not grant another VM's cmux control.
+
+### Execution context
+
+The same verbs resolve against one explicit context:
+
+| Context | Authority | Example |
+| --- | --- | --- |
+| Guest | VM-local cmux daemon and leased workspace | `cmux workspace current`, `cmux browser open http://127.0.0.1:3000` |
+| Host Cloud | Cloud API plus an attached remote session | `cmux cloud session attach <session>` |
+| Host local | Local cmux socket | `cmux workspace list` |
+
+The guest image has no host socket, host profile directory, or host environment.
+If a guest daemon is unavailable, the command fails. It never falls back to a
+local socket. A host Cloud command also fails with a remote error instead of
+silently operating on a local workspace.
 
 ## Global Invocation
 
@@ -152,7 +181,7 @@ Environment:
 | `move-tab-to-new-workspace` | Move a tab or surface into a newly created workspace. |
 | `list-workspaces` | List workspaces. |
 | `new-workspace` | Create a workspace, optionally with cwd, command, description, layout, and per-workspace environment variables (`--env KEY=VALUE` repeatable, `--env-file <path>`). See [Workspace environment variables](#workspace-environment-variables). |
-| `ssh` | Open an SSH-backed workspace. Preserves the caller's live `SSH_AUTH_SOCK` for app-launched OpenSSH processes so `ForwardAgent yes` from ssh_config works normally. Supports `-A` / `--forward-agent` to request forwarding and `-a` / `--no-forward-agent` to disable forwarding for a workspace. Agent forwarding remains opt-in because forwarded agents can be used by processes on the remote host while the SSH session is active. |
+| `ssh` | Open an SSH-backed workspace. cmux-remote is preferred. The OpenSSH fallback disables agent forwarding and host keychain access. A local user may explicitly select an isolated key and `-A` / `--forward-agent`; guest and remote-agent contexts cannot request forwarding. |
 | `remote-daemon-status` | Print bundled remote daemon version, asset, checksum, and cache status. |
 | `ssh-session-list` | List persisted SSH PTY sessions for one remote workspace or all remote workspaces. Supports `--json`. |
 | `ssh-session-attach` | Create a local terminal surface that reattaches to an existing persisted SSH PTY session. |
@@ -324,12 +353,18 @@ Auth subcommands:
 
 VM subcommands:
 
+This table describes the trusted host CLI. Fields such as `surface_id`,
+`workspace_id`, `open_surface_ids`, and `open_workspace_ids` are local
+projection details and never cross into a guest response. In guest context,
+`local` is not a valid machine selector and only remote resource IDs are
+returned.
+
 | Command | Contract |
 | --- | --- |
 | `vm ls`, `vm list` | List VMs. |
 | `vm tree [<machine>\|local] [--refresh] [--json]` | The surface catalog (`surface.catalog`), rendered Finder-style: **This Mac** first (its terminals grouped by the local workspace showing them, then its browsers), then every cloud machine, with Workspaces, Ports, VNC Displays (one row per screen), and a final Terminals section containing every machine-owned terminal. Every line carries an address `vm open` or `surface open` accepts. `--refresh` re-syncs every backend first. `--json` prints the catalog payload `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail, lifecycle, agent, remote_workspace, remote_views, port, url, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. Same as `surface ls`. |
-| `vm workspace new <machine> [--name <name>] [--json]` | `vm.workspace_new`: creates a cmux-tui workspace on the machine (its ⌘N, with a first terminal) and opens it as a new local workspace. Prints `OK workspace=<local id> remote_workspace=<ws id> machine=<id>`. |
-| `vm workspace open <machine> <workspace> [--here] [--tabs] [--workspace <local>] [--pane <id\|ref> [--left\|--right\|--up\|--down]] [--json]` | `vm.workspace_open`: the machine workspace's terminals, browsers and pinned displays as a new local workspace, one pane each (what clicking the sidebar row does). `<workspace>` is the `ws_…` id or an unambiguous workspace name, resolved exactly like the sidebar row (every view of every terminal counts); the payload's `remote_workspace_id` is the resolved id. An existing workspace with nothing in it opens nothing and answers `Nothing to open: … cmux vm open <machine>/<ws> starts a terminal there`. `--here`/`--tabs`/`--pane`+side instead project the group into an existing local workspace (`here: true` + the `surface open` destination params; one pane at the destination, the rest as tabs) — the sidebar's "Open All Here" / "Open All in New Tabs" / drop on a pane edge. |
+| `vm workspace new <machine> [--name <name>] [--json]` | `vm.workspace_new`: creates a cmux-tui workspace on the machine (its ⌘N, with a first terminal) and opens it as a new local Cloud projection workspace. Prints `OK workspace=<local id> remote_workspace=<ws id> machine=<id>`. |
+| `vm workspace open <machine> <workspace> [--here] [--tabs] [--workspace <local>] [--pane <id\|ref> [--left\|--right\|--up\|--down]] [--json]` | `vm.workspace_open`: projects the machine workspace's terminals, browsers, and pinned displays into a dedicated local Cloud workspace, one pane each. `<workspace>` is the `ws_…` id or an unambiguous workspace name, resolved exactly like the sidebar row (every view of every terminal counts); the payload's `remote_workspace_id` is the resolved id. An existing workspace with nothing in it opens nothing and answers `Nothing to open: … cmux vm open <machine>/<ws> starts a terminal there`. `--here`/`--tabs`/`--pane`+side are host-user-only placement options. They may place remote resources into a local workspace, but the projection adapter keeps a separate remote region and remote moves cannot touch local resources. A guest or remote agent cannot pass these options. |
 | `vm prompt [--json]` / `vm prompt --open <agent>` (alias `skill`) | `vm.cloud_prompt` / `vm.cloud_agent_open`: installs the bundled cmux-cloud skill file at `~/.config/cmux/skills/cmux-cloud.md` and prints the kickoff prompt for any agent (the Machines panel's "Copy Cloud Prompt"), or opens a local terminal running claude\|codex\|opencode with it ("Open Cloud Agent"). |
 | `vm workspace rename <machine> <workspace-id> <name> [--json]` | `vm.workspace_rename`: renames the cmux-tui workspace (the sidebar row's "Rename…"). |
 | `vm workspace close <machine> <workspace-id> [--json]` | `vm.workspace_close`: closes the cmux-tui workspace; its terminals keep running in the Terminals pool (CLI-only; the sidebar's "Close Workspace…" is `vm workspace rm`). |
