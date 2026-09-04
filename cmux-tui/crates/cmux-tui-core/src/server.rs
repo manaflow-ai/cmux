@@ -22521,6 +22521,16 @@ mod tests {
     }
 
     #[test]
+    fn identify_advertises_private_link_port_discovery() {
+        assert!(advertised_capabilities(true).contains(&MACHINE_LISTENING_TCP_CAPABILITY));
+        let command: Command = serde_json::from_value(json!({
+            "cmd": "machine-listening-tcp",
+        }))
+        .unwrap();
+        assert!(matches!(command, Command::MachineListeningTcp));
+    }
+
+    #[test]
     fn protocol_key_input_round_trips_encoder_metadata() {
         let input = KeyInput {
             key: sys::GHOSTTY_KEY_NUMPAD_ENTER,
