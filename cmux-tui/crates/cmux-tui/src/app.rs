@@ -8092,6 +8092,10 @@ pub struct App {
     /// physical button is released, so one gesture cannot be split between
     /// two owners.
     ignored_pointer_buttons: HashSet<MouseButton>,
+    /// Buttons whose owner was canceled by a topology or modal boundary.
+    /// Keep a tombstone until the physical release arrives so that release
+    /// cannot be interpreted as a new click in the replacement surface.
+    canceled_pointer_buttons: HashSet<MouseButton>,
     #[cfg(test)]
     timeout_drain_hook: Option<TimeoutDrainHook>,
     encoder: KeyEncoder,
@@ -10854,6 +10858,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         drag: None,
         active_pointer_buttons: HashSet::new(),
         ignored_pointer_buttons: HashSet::new(),
+        canceled_pointer_buttons: HashSet::new(),
         #[cfg(test)]
         timeout_drain_hook: None,
         encoder,
@@ -14338,6 +14343,7 @@ impl App {
         self.drag = None;
         self.active_pointer_buttons.clear();
         self.ignored_pointer_buttons.clear();
+        self.canceled_pointer_buttons.clear();
         self.encode_buf.clear();
     }
 
@@ -22607,6 +22613,12 @@ impl App {
         let mut close = false;
         match mouse.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                // A thumb drag owns the pointer until its release. Swallow a
+                // wheel sample during that gesture instead of changing the
+                // offset behind the drag anchor.
+                if help.scrollbar_dragging() {
+                    return RenderAction::None;
+                }
                 let previous_offset = help.scroll_offset;
                 let delta = if mouse.kind == MouseEventKind::ScrollUp { -1 } else { 1 };
                 help.scroll_by(delta, total_rows);
@@ -24359,6 +24371,25 @@ impl App {
         }) {
             self.pending_pointer_motion = None;
         }
+        match mouse.kind {
+            MouseEventKind::Down(button) => {
+                // A fresh physical press starts a new ownership epoch for
+                // this button. A canceled release from the previous epoch
+                // must not suppress the new gesture.
+                self.canceled_pointer_buttons.remove(&button);
+            }
+            MouseEventKind::Drag(button) => {
+                if self.canceled_pointer_buttons.contains(&button) {
+                    return Ok(RenderAction::None);
+                }
+            }
+            MouseEventKind::Up(button) => {
+                if self.canceled_pointer_buttons.remove(&button) {
+                    return Ok(RenderAction::None);
+                }
+            }
+            _ => {}
+        }
         if self.pairing_dialog.is_none() && self.shortcut_help.is_some() {
             return Ok(self.handle_shortcut_help_mouse(mouse));
         }
@@ -24475,6 +24506,10 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 self.open_context_menu(mouse.column, mouse.row);
+                // This press opened the menu, so its matching release is the
+                // menu gesture rather than a stale release from a canceled
+                // pre-modal owner.
+                self.canceled_pointer_buttons.remove(&MouseButton::Right);
                 Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
@@ -24927,10 +24962,23 @@ impl App {
 
     fn cancel_pointer_interaction_with_split_settle(&mut self, settle_split: bool) -> bool {
         self.reset_selection_click_sequence();
+        let drag_button = self.drag.as_ref().map(|drag| match drag {
+            Drag::PtyMouse { button, .. } => *button,
+            _ => MouseButton::Left,
+        });
+        let mut canceled_buttons = self.active_pointer_buttons.clone();
+        canceled_buttons.extend(self.ignored_pointer_buttons.iter().copied());
+        if let Some(button) = drag_button {
+            canceled_buttons.insert(button);
+        }
         let menu_scrollbar_dragged =
             self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
         let shortcut_help_scrollbar_dragged =
             self.shortcut_help.as_mut().is_some_and(|help| help.scrollbar_drag.take().is_some());
+        if menu_scrollbar_dragged || shortcut_help_scrollbar_dragged {
+            canceled_buttons.insert(MouseButton::Left);
+        }
+        self.canceled_pointer_buttons.extend(canceled_buttons);
         let pointer_dragged = self.drag.is_some();
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
@@ -31316,6 +31364,19 @@ mod tests {
         })
         .unwrap();
         assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        let offset_after_down = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: track.x,
+                row: track.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        assert_eq!(app.shortcut_help.as_ref().unwrap().scroll_offset, offset_after_down);
 
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
         assert!(!app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
@@ -45089,6 +45150,33 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_modal_boundary_consumes_releases_from_canceled_buttons() {
+        let mux = Mux::new("keyboard-modal-canceled-button-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        app.drag = Some(Drag::RailResize(RailKind::Machine));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.ignored_pointer_buttons.insert(MouseButton::Right);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+
+        assert!(app.menu.is_some());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "a canceled release must not activate the new menu");
+        assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Right));
+    }
+
+    #[test]
     fn shortcuts_modal_boundary_releases_held_pointer_button() {
         let mux = Mux::new("shortcuts-modal-sidebar-pointer-boundary", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -54058,6 +54146,7 @@ mod tests {
             drag: None,
             active_pointer_buttons: HashSet::new(),
             ignored_pointer_buttons: HashSet::new(),
+            canceled_pointer_buttons: HashSet::new(),
             timeout_drain_hook: None,
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
