@@ -61,6 +61,11 @@ export const cloudVms = pgTable(
     // User-chosen label shown in machine lists. The provider VM id stays the
     // machine's address (URLs, CLI verbs); this is display-only.
     displayName: text("display_name"),
+    // Generated three-word name (`sleepy-teal-otter`, services/vms/vmNaming.ts).
+    // Assigned once at create, never renamed, unique among the owner's live
+    // machines. The provider VM id remains the machine address. Rows created
+    // before the column existed have none and show the provider id instead.
+    slug: text("slug"),
     imageId: text("image_id").notNull(),
     imageVersion: text("image_version"),
     status: vmStatus("status").notNull().default("provisioning"),
@@ -81,6 +86,10 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_provider_vm_id_unique")
       .on(table.provider, table.providerVmId)
       .where(sql`${table.providerVmId} is not null`),
+    // Live rows only: a destroyed or failed machine releases its name.
+    uniqueIndex("cloud_vms_billing_team_slug_live_unique")
+      .on(table.billingTeamId, table.slug)
+      .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
   ],
 );
 
