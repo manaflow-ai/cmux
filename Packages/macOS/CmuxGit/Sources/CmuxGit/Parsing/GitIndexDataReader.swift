@@ -31,7 +31,7 @@ nonisolated struct GitIndexDataReader: Sendable {
         }
         defer { Darwin.close(descriptor) }
 
-        var metadata = stat()
+        var metadata = Darwin.stat()
         guard Darwin.fstat(descriptor, &metadata) == 0,
               metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
               metadata.st_size >= 0,

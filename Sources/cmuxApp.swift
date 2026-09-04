@@ -8,6 +8,7 @@ import CmuxWorkspaces
 import CmuxTestSupport
 import CmuxUpdater
 import CmuxUpdaterUI
+import CmuxCEF
 import SwiftUI
 import Observation
 import Darwin
@@ -39,6 +40,10 @@ enum CmuxMain {
         Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
 #endif
         CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
+        // Chromium's allocator shim must own the malloc zone before the app
+        // allocates in earnest; a lazy dlopen minutes into the session
+        // corrupts the heap. See CEFRuntime.preloadFramework.
+        CEFRuntime.preloadFramework()
         SurfaceResumeApprovalStore.preloadSigningSecret()
         cmuxApp.main()
     }
