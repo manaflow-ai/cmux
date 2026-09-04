@@ -1125,6 +1125,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         const scope = baseScope(input);
         const name = baseName(input.baseName);
         try {
+          // oxlint-disable-next-line complexity -- This transaction keeps Base locks, idempotency, and generation writes atomic.
           return await db.transaction(async (tx) => {
             await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${scope.scopeType}:${scope.scopeId}:${name}`}, 0))`);
             await assertAccountVmCreateAllowed(tx, {
@@ -1344,6 +1345,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         const db = cloudDb();
         const scope = baseScope(input);
         const name = baseName(input.baseName);
+        // oxlint-disable-next-line complexity -- This transaction keeps Base locks, limits, and generation writes atomic.
         return await db.transaction(async (tx) => {
           await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`${scope.scopeType}:${scope.scopeId}:${name}`}, 0))`);
           await assertAccountVmCreateAllowed(tx, {

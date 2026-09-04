@@ -654,6 +654,7 @@ export function vmModelPlaneErrorResponse(
 }
 
 /** Translate a normalized workflow failure into the public VM error contract. */
+// oxlint-disable-next-line complexity -- Centralized dispatch preserves the public error precedence contract.
 export async function vmWorkflowErrorResponse(
   err: unknown,
   options: { readonly locale?: Locale } = {},

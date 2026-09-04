@@ -2196,6 +2196,7 @@ export function resizeVm(input: {
   /** Team allowance used to scale the shared resource pool. */
   readonly maxActiveVms?: number | null;
 }) {
+  // oxlint-disable-next-line complexity -- Resize orchestration must keep reservation, provider, rollback, and confirmation order explicit.
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
