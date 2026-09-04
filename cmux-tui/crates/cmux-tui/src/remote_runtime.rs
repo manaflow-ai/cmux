@@ -1942,9 +1942,7 @@ async fn run_daemon(
 
             #[cfg(not(feature = "iroh-transport"))]
             if options.iroh {
-                return Err(anyhow!(
-                    "Iroh transport is not included in this cmux-tui build"
-                ));
+                return Err(anyhow!("Iroh transport is not included in this cmux-tui build"));
             }
             #[cfg(feature = "iroh-transport")]
             let iroh = match options.iroh {
