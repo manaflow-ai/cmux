@@ -309,6 +309,7 @@ class TerminalController {
         "workspace.next",
         "workspace.previous",
         "workspace.last",
+        "workspace.last_forward",
         "workspace.group.focus",
         "workspace.cloud_vm_open",
         "surface.focus",
@@ -2735,7 +2736,7 @@ class TerminalController {
         // prompt_submit/rename) + workspace.group.* handled by ControlCommandCoordinator.
         // workspace.action (forwards to the still-shared v2WorkspaceAction) and
         // extension.sidebar.snapshot handled by ControlCommandCoordinator.
-        // workspace.next/previous/last/equalize_splits + workspace.remote.* (configure/
+        // workspace.next/previous/last/last_forward/equalize_splits + workspace.remote.* (configure/
         // foreground_auth_ready/reconnect/disconnect/status/pty_attach_end/
         // terminal_session_launching/terminal_session_connected/
         // terminal_session_end) handled by
@@ -3096,6 +3097,7 @@ class TerminalController {
             "workspace.next",
             "workspace.previous",
             "workspace.last",
+            "workspace.last_forward",
             "workspace.equalize_splits",
             "workspace.remote.configure",
             "workspace.remote.foreground_auth_ready",

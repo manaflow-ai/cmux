@@ -6842,6 +6842,14 @@ struct ContentView: View {
                 CommandPaletteContextKeys.workspaceCanMarkUnread,
                 sidebarUnread.canMarkWorkspaceUnread(forWorkspaceIds: [workspace.id])
             )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceCanNavigateBack,
+                tabManager.canNavigateBack
+            )
+            snapshot.setBool(
+                CommandPaletteContextKeys.workspaceCanNavigateForward,
+                tabManager.canNavigateForward
+            )
         }
 
         if let browserTarget = commandPaletteBrowserActionTarget,
@@ -7520,6 +7528,26 @@ struct ContentView: View {
                 subtitle: constant(String(localized: "command.previousWorkspace.subtitle", defaultValue: "Workspace Navigation")),
                 keywords: ["previous", "workspace", "navigate"],
                 when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.workspaceBack",
+                title: constant(String(localized: "command.workspaceBack.title", defaultValue: "Back in Workspace History")),
+                subtitle: constant(String(localized: "command.workspaceBack.subtitle", defaultValue: "Workspace Navigation")),
+                keywords: ["back", "workspace", "history", "navigate"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanNavigateBack) }
+            )
+        )
+        contributions.append(
+            CommandPaletteCommandContribution(
+                commandId: "palette.workspaceForward",
+                title: constant(String(localized: "command.workspaceForward.title", defaultValue: "Forward in Workspace History")),
+                subtitle: constant(String(localized: "command.workspaceForward.subtitle", defaultValue: "Workspace Navigation")),
+                keywords: ["forward", "workspace", "history", "navigate"],
+                when: { $0.bool(CommandPaletteContextKeys.hasWorkspace) },
+                enablement: { $0.bool(CommandPaletteContextKeys.workspaceCanNavigateForward) }
             )
         )
         contributions.append(
@@ -8648,6 +8676,12 @@ struct ContentView: View {
         }
         registry.register(commandId: "palette.previousWorkspace") {
             tabManager.selectPreviousTab()
+        }
+        registry.register(commandId: "palette.workspaceBack") {
+            tabManager.navigateBack()
+        }
+        registry.register(commandId: "palette.workspaceForward") {
+            tabManager.navigateForward()
         }
         registry.register(commandId: "palette.moveWorkspaceUp") {
             tabManager.moveSelectedWorkspace(by: -1)
