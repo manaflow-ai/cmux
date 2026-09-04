@@ -616,7 +616,8 @@ struct SessionIndexViewTests {
                 loadSnapshot: loadSnapshot,
                 beginSessionDrag: { _, _, _, _, _ in false },
                 onResume: nil,
-                onOpen: nil
+                onOpen: nil,
+                statusSnapshot: .init()
             ),
             onDismiss: onDismiss
         )
