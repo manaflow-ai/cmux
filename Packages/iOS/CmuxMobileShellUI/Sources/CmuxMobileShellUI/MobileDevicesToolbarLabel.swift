@@ -8,20 +8,26 @@ import SwiftUI
 /// a blocked Mac discoverable before the user opens the Computers sheet.
 struct MobileDevicesToolbarLabel: View {
     /// A gate rejection observed by the shell store. The list-auth projection
-    /// is also checked here because it can identify an outdated Mac before a
-    /// connection attempt is made.
+    /// is also checked here because it can identify an outdated or unverified
+    /// Mac before a connection attempt is made.
     let hasGateWarning: Bool
 
     private var showsWarning: Bool {
         Self.warningVisible(
             hasGateWarning: hasGateWarning,
             hasOutdatedListAuth: MobileMacListAuthState.shared.entriesByDeviceID.values
-                .contains(where: \.isOutdated)
+                .contains(where: \.isOutdated),
+            hasUnverifiedListAuth: MobileMacListAuthState.shared.entriesByDeviceID.values
+                .contains(where: { $0.status == "seeded" })
         )
     }
 
-    static func warningVisible(hasGateWarning: Bool, hasOutdatedListAuth: Bool) -> Bool {
-        hasGateWarning || hasOutdatedListAuth
+    static func warningVisible(
+        hasGateWarning: Bool,
+        hasOutdatedListAuth: Bool,
+        hasUnverifiedListAuth: Bool = false
+    ) -> Bool {
+        hasGateWarning || hasOutdatedListAuth || hasUnverifiedListAuth
     }
 
     var body: some View {

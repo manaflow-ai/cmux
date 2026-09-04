@@ -17,6 +17,14 @@ import Testing
         ))
     }
 
+    @Test func unverifiedListAuthShowsTheToolbarIndicator() {
+        #expect(MobileDevicesToolbarLabel.warningVisible(
+            hasGateWarning: false,
+            hasOutdatedListAuth: false,
+            hasUnverifiedListAuth: true
+        ))
+    }
+
     @Test func compatibleComputersHaveNoToolbarIndicator() {
         #expect(!MobileDevicesToolbarLabel.warningVisible(
             hasGateWarning: false,
