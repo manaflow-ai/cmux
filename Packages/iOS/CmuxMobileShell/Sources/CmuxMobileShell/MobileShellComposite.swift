@@ -13840,18 +13840,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     timeoutNanoseconds: timeoutNanoseconds
                 )
             case .failed:
-                // A probe timeout is weaker evidence than a failed
-                // subscription round-trip. The keepalive lane can still be
-                // healthy while a single control request stalls during Iroh
-                // path migration. Re-assert the existing subscription before
-                // promoting this suspicion to a session replacement; this is
-                // idempotent on the host and preserves the live event reader.
-                return await self.requestTerminalEventSubscription(
-                    client: client,
-                    reason: "liveness_probe_retry",
-                    topics: topics,
-                    timeoutNanoseconds: timeoutNanoseconds
-                )
+                return .failed
             }
         }
         // Bounded deadline via a one-shot DispatchSourceTimer — the same
@@ -13863,8 +13852,29 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         deadline.schedule(deadline: .now() + .nanoseconds(Int(clamping: timeoutNanoseconds)))
         deadline.setEventHandler { probe.cancel() }
         deadline.resume()
-        let ack = await probe.value
+        var ack = await probe.value
         deadline.cancel()
+
+        if case .failed = ack {
+            // A probe timeout is weaker evidence than a failed subscription
+            // round-trip. The keepalive lane can still be healthy while one
+            // control request stalls during Iroh path migration. Give the
+            // idempotent repair two fresh, independently bounded attempts
+            // before promoting this suspicion to a session replacement. The
+            // host-side operation is idempotent and preserves the live reader.
+            for _ in 0..<2 {
+                let retry = await requestTerminalEventSubscription(
+                    client: client,
+                    reason: "liveness_probe_retry",
+                    topics: topics,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
+                ack = retry
+                if retry.isSubscribed {
+                    break
+                }
+            }
+        }
         return ack
     }
 
