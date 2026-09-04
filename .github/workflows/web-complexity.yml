@@ -2,7 +2,7 @@ name: Web complexity
 
 on:
   # Run on every pull request so the required check is reported for both web
-  # and non-web changes. The job exits quickly when no web files changed.
+  # and non-web changes. The job exits quickly when no web or policy files changed.
   pull_request:
   push:
     branches:
@@ -41,9 +41,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            changed_files="$(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$CURRENT_SHA" -- web)"
+            changed_files="$(git diff --name-only --diff-filter=ACDMRT "$BASE_SHA" "$CURRENT_SHA" -- web .github/workflows/web-complexity.yml)"
           elif [ -n "${BEFORE_SHA:-}" ] && [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
-            changed_files="$(git diff --name-only --diff-filter=ACMRT "$BEFORE_SHA" "$CURRENT_SHA" -- web)"
+            changed_files="$(git diff --name-only --diff-filter=ACDMRT "$BEFORE_SHA" "$CURRENT_SHA" -- web .github/workflows/web-complexity.yml)"
           else
             changed_files="web/"
           fi
