@@ -845,6 +845,12 @@ import Testing
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: nil, background: nil) == nil)
         #expect(CloudTuiCommandLine.renameTabArguments(socketPath: "/k.sock", tabID: "tab_1", name: "db shell") ==
             ["--socket", "/k.sock", "--json", "tab", "tab_1", "rename", "--name", "db shell"])
+        // The daemon treats an empty tab name as a clear operation. Keep the
+        // empty token in argv so this stays distinct from a missing value.
+        #expect(CloudTuiCommandLine.renameTabArguments(socketPath: "/k.sock", tabID: "tab_1", name: "") ==
+            ["--socket", "/k.sock", "--json", "tab", "tab_1", "rename", "--name", ""])
+        #expect(CloudRemoteRenameName(rawValue: " \n") == .cleared)
+        #expect(CloudRemoteRenameName(rawValue: "  db shell  ").wireValue == "db shell")
         #expect(CloudTuiCommandLine.renameTabArguments(socketPath: "/k.sock", tabID: "tab_1", name: "db shell", expectedRevision: 9) ==
             ["--socket", "/k.sock", "--json", "--expected-revision", "9", "tab", "tab_1", "rename", "--name", "db shell"])
     }

@@ -60,6 +60,16 @@ struct SurfaceCatalogTests {
         #expect(coordinator.pendingName(for: tabKey) == nil)
     }
 
+    @Test("Cloud rename coordinator preserves an empty pending tab name")
+    func cloudRenameCoordinatorPreservesEmptyPendingTabName() async throws {
+        let coordinator = CloudRenameCoordinator()
+        let key = CloudRenameCoordinator.Key.tab(machine: .cloud("vivid-newt"), id: "tab-1")
+        let operation = coordinator.enqueue(key: key, pendingName: "") {}
+        #expect(coordinator.pendingName(for: key) == "")
+        try await operation.value
+        #expect(coordinator.pendingName(for: key) == nil)
+    }
+
     @MainActor
     private final class RenameEventRecorder {
         var events: [String] = []
