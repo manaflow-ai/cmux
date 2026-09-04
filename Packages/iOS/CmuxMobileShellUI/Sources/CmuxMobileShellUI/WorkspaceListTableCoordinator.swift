@@ -413,6 +413,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             if isScrollInteractionActive || tableView.isDragging || tableView.isDecelerating {
                 deferredConfigurationDuringScroll = deferredConfigurationDuringDrag
             } else {
+                // The drag payload is newer than any snapshot queued before
+                // the lift. Do not let that stale scroll snapshot overwrite
+                // the just-applied drag result below.
+                deferredConfigurationDuringScroll = nil
                 apply(configuration: deferredConfigurationDuringDrag, in: tableView)
             }
         }
