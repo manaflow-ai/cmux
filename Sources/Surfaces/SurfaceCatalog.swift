@@ -182,6 +182,7 @@ final class SurfaceCatalog {
         providers[provider.machine] = provider
         var info = provider.info
         if !provider.machine.isLocal {
+            preserveCanonicalCloudWorkspaceNames(in: &info)
             overlayPendingCloudWorkspaceRenames(machine: provider.machine, info: &info)
         }
         machines[provider.machine] = info
@@ -517,6 +518,14 @@ final class SurfaceCatalog {
             info: &mergedInfo,
             resources: &mergedResources
         )
+        // Fingerprint the graph that will actually be published, including any
+        // pending optimistic name overlay. Otherwise a stale payload accepted
+        // while a rename receipt is in flight can poison the equal-cursor fence
+        // and cause the subsequent canonical payload to be rejected.
+        let acceptedFingerprint = cloudWorkspaceGraphFingerprint(
+            info: mergedInfo,
+            resources: mergedResources
+        )
 
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
@@ -532,7 +541,7 @@ final class SurfaceCatalog {
         if let cursor {
             cloudCursors[machine] = cursor
             cloudGenerationsByMachine[machine, default: []].insert(cursor.generation)
-            cloudCursorFingerprints[machine] = (cursor: cursor, value: incomingFingerprint)
+            cloudCursorFingerprints[machine] = (cursor: cursor, value: acceptedFingerprint)
         }
         resolvePendingRestoredProjections(on: machine)
         CloudWorkspaceRenameWriteThrough.reconcileRemoteProjections(catalog: self)
@@ -593,6 +602,7 @@ final class SurfaceCatalog {
         guard accepts(writeFor: info.id, from: source) else { return }
         var adjusted = info
         if !info.id.isLocal {
+            preserveCanonicalCloudWorkspaceNames(in: &adjusted)
             overlayPendingCloudWorkspaceRenames(machine: info.id, info: &adjusted)
         }
         machines[info.id] = adjusted
@@ -600,6 +610,35 @@ final class SurfaceCatalog {
             CloudWorkspaceRenameWriteThrough.reconcileRemoteProjections(catalog: self)
         }
         notifyChange()
+    }
+
+    /// Keeps a status/metadata write from time-travelling the identity graph.
+    ///
+    /// Machine summaries do not carry the session cursor, so a provider update can
+    /// arrive after a newer snapshot (or a rename receipt) has already been accepted.
+    /// Preserve the canonical name for identities present in both graphs; new and
+    /// removed workspace ids remain visible until the next authoritative snapshot.
+    /// A nil incoming list is likewise an unknown graph, never an instruction to erase it.
+    private func preserveCanonicalCloudWorkspaceNames(in info: inout SurfaceMachineInfo) {
+        guard !info.id.isLocal,
+              cloudCursors[info.id] != nil,
+              let canonical = machines[info.id]?.remoteWorkspaces else { return }
+        guard let incoming = info.remoteWorkspaces else {
+            info.remoteWorkspaces = canonical
+            return
+        }
+        let canonicalByID = Dictionary(
+            canonical.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        info.remoteWorkspaces = incoming.map { workspace in
+            guard let current = canonicalByID[workspace.id], current.name != workspace.name else {
+                return workspace
+            }
+            var adjusted = workspace
+            adjusted.name = current.name
+            return adjusted
+        }
     }
 
     /// Finds a workspace name from the machine projection first, then from resource views.
