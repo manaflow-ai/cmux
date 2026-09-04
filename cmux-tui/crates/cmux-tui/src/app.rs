@@ -18782,6 +18782,10 @@ impl App {
                     && self.durable_notice_banner_row() == Some(mouse.row)
                     && self.dismiss_painted_durable_notice()
                 {
+                    self.cancel_pointer_interaction();
+                    if let MouseEventKind::Down(button) = mouse.kind {
+                        self.suppress_pointer_button_until_release(button);
+                    }
                     return Ok(RenderAction::Draw);
                 }
                 let dismissed = matches!(
@@ -22654,6 +22658,13 @@ impl App {
             _ => {}
         }
         if close {
+            // Closing the modal also retires its private scrollbar owner. A
+            // different button may have caused the close, so cancel every
+            // owner before fencing that button's eventual release.
+            self.cancel_pointer_interaction();
+            if let MouseEventKind::Down(button) = mouse.kind {
+                self.suppress_pointer_button_until_release(button);
+            }
             self.shortcut_help = None;
             RenderAction::Paint
         } else if changed {
@@ -24409,6 +24420,9 @@ impl App {
                 return Ok(if before != after { RenderAction::Draw } else { RenderAction::None });
             }
             if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if let MouseEventKind::Down(button) = mouse.kind {
+                    self.suppress_pointer_button_until_release(button);
+                }
                 if let MouseEventKind::Up(button) = mouse.kind {
                     self.active_pointer_buttons.remove(&button);
                 }
@@ -24925,6 +24939,28 @@ impl App {
 
     fn cancel_pointer_interaction(&mut self) -> bool {
         self.cancel_pointer_interaction_with_split_settle(true)
+    }
+
+    /// Consume a button press that a modal surface swallows before the normal
+    /// pointer admission path. Keep the release fenced, while preserving an
+    /// unrelated owner that already controls another button.
+    fn suppress_pointer_button_until_release(&mut self, button: MouseButton) {
+        let drag_button = self.drag.as_ref().map(|drag| match drag {
+            Drag::PtyMouse { button, .. } => *button,
+            _ => MouseButton::Left,
+        });
+        let another_owner = self.active_pointer_buttons.iter().any(|active| *active != button)
+            || drag_button.is_some_and(|active| active != button);
+        if another_owner {
+            self.ignored_pointer_buttons.insert(button);
+            return;
+        }
+        if self.active_pointer_buttons.contains(&button) || drag_button == Some(button) {
+            self.cancel_pointer_interaction();
+        }
+        self.active_pointer_buttons.remove(&button);
+        self.ignored_pointer_buttons.remove(&button);
+        self.canceled_pointer_buttons.insert(button);
     }
 
     /// Entering a modal command surface retires every pointer owner from the
@@ -31393,6 +31429,43 @@ mod tests {
             offset_after_key,
             "a drag after a keyboard boundary must not reuse the old help scrollbar owner"
         );
+    }
+
+    #[test]
+    fn shortcut_help_outside_press_cannot_activate_a_replacement_menu() {
+        let mux =
+            Mux::new("shortcut-help-outside-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let help = app.shortcut_help.as_ref().unwrap().rect;
+        let outside = if help.x > 0 {
+            (help.x - 1, help.y)
+        } else {
+            (help.x.saturating_add(help.width), help.y)
+        };
+        assert!(!help.contains(outside.0, outside.1));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: outside.0,
+            row: outside.1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.is_none());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+
+        app.menu = Some(ContextMenu::at(10, 5, vec![vec![MenuAction::ShowShortcuts]]));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "the stale outside release must not activate the new menu");
     }
 
     #[test]
@@ -46059,6 +46132,36 @@ mod tests {
             "the old right-button capture must not activate its menu behind a trusted dialog"
         );
         assert!(decision.try_recv().is_err());
+    }
+
+    #[test]
+    fn pairing_modal_swallowing_a_right_press_fences_its_release() {
+        let mux = Mux::new("pairing-right-release-boundary-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.pairing_dialog = Some(PairingDialog::new(challenge.clone()));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: 2,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+
+        app.pairing_dialog = None;
+        app.menu = Some(ContextMenu::at(10, 5, vec![vec![MenuAction::ShowShortcuts]]));
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "a pairing-owned release must not activate a later menu");
+        assert!(mux.respond_pairing(challenge.id, false));
+        assert!(decision.recv_timeout(Duration::from_secs(1)).is_ok());
     }
 
     #[test]
