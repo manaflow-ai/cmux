@@ -1,5 +1,8 @@
 import { reportError } from "./observability/report";
 
+const ALERT_COOLDOWN_MS = 5 * 60 * 1_000;
+const lastAlertAt = new Map<string, number>();
+
 /**
  * Report a Vercel firewall rule that is absent in production.
  *
@@ -12,6 +15,12 @@ export function reportMissingRateLimitRule(input: {
   readonly reason: "unset" | "not-found";
 }): void {
   if (process.env.VERCEL_ENV !== "production") return;
+
+  const key = `${input.route}:${input.reason}`;
+  const now = Date.now();
+  const previous = lastAlertAt.get(key);
+  if (previous !== undefined && now - previous < ALERT_COOLDOWN_MS) return;
+  lastAlertAt.set(key, now);
 
   reportError(
     new Error("Vercel firewall rate-limit rule is missing"),
