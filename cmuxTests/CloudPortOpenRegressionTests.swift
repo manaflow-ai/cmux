@@ -362,7 +362,7 @@ struct CloudPortOpenRegressionTests {
             selectLocalWorkspace: { _ in },
             onWillMutate: { _ in },
             onDidMutate: { completion.yield(()) },
-            onFailure: { message in Issue.record(message) },
+            onFailure: { message in Issue.record(Comment(rawValue: message)) },
             refresh: {}
         )
         actions.project(port.id, .split, true)
