@@ -41,6 +41,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import type { Span } from "@opentelemetry/api";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_BINARY_PATH,
@@ -1028,7 +1029,7 @@ export class FreestyleProvider implements VMProvider {
           // first attach doesn't race the unit; attach re-verifies anyway.
           try {
             await this.ensureCmuxTuiRunning(vm, vmId);
-            await this.announceOnPrivateNetwork(vm, data);
+            await this.announceOnPrivateNetwork(vm, data, span);
           } catch (healErr) {
             recordSpanError(span, healErr);
           }
@@ -1209,7 +1210,7 @@ export class FreestyleProvider implements VMProvider {
           if (!bundleResult || bundleResult.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
             healed = true;
             await this.ensureCmuxTuiRunning(vm, vmId);
-            await this.announceOnPrivateNetwork(vm, data);
+            await this.announceOnPrivateNetwork(vm, data, span);
             bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
@@ -1373,14 +1374,25 @@ export class FreestyleProvider implements VMProvider {
    * something dials in. Never fails the open: not being announced costs a
    * retry, while throwing here would cost the machine.
    */
-  private async announceOnPrivateNetwork(vm: Vm, data: FreestyleRouteAddresses): Promise<void> {
+  private async announceOnPrivateNetwork(vm: Vm, data: FreestyleRouteAddresses, span: Span): Promise<void> {
     const { networkIpv4 } = freestyleNetworkAddressMetadata(data);
-    if (!networkIpv4) return;
+    if (!networkIpv4) {
+      setSpanAttributes(span, { "cmux.vm.network.announced": false });
+      return;
+    }
     try {
-      await this.execResult(vm, freestyleAnnounceOnNetworkCommand(networkIpv4), EXEC_OVERHEAD_TIMEOUT_MS);
+      const result = await this.execResult(vm, freestyleAnnounceOnNetworkCommand(networkIpv4), EXEC_OVERHEAD_TIMEOUT_MS);
+      // Recorded because the failure it prevents is invisible: an announce
+      // that quietly does nothing looks exactly like one that worked, and the
+      // machine simply stays unreachable until it happens to transmit.
+      setSpanAttributes(span, {
+        "cmux.vm.network.announced": result?.exitCode === 0,
+        "cmux.vm.network.announce_exit": result?.exitCode ?? -1,
+      });
     } catch {
       // A machine that cannot announce is still worth handing back; the dial
       // may simply need one retry.
+      setSpanAttributes(span, { "cmux.vm.network.announced": false });
     }
   }
 
