@@ -879,6 +879,11 @@ struct WorkspaceShellView: View {
         .toolbar {
             splitSidebarBottomBar(unreadCount: unreadCount)
         }
+        // NavigationSplitView supplies its own sidebar toggle in the sidebar
+        // navigation bar. The detail column owns the stable, non-animating
+        // toggle in `workspaceOwnedTopBar`, so keeping the default here shows
+        // two controls for the same action on iPad.
+        .toolbar(removing: .sidebarToggle)
         .searchable(
             text: splitSearchText,
             isPresented: splitSearchPresentation,
