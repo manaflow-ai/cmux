@@ -209,11 +209,10 @@ struct ComputerUseUXTests {
             directCaptureReady: false))
     }
 
-    /// The first protected call for `$cmux-cua open cllcualtor and click 10 + 123`
-    /// must re-open onboarding when a persisted direct-capture marker outlives
-    /// either helper TCC grant, while a fully ready helper stays immediate.
+    /// Configured users retain the fail-closed permission readiness predicate;
+    /// presentation itself is still owned by the deliberate Settings action.
     @MainActor
-    @Test func firstProtectedInvocationGatesStaleHelperReadinessButReadyPathIsImmediate() {
+    @Test func configuredHelperReadinessRemainsFailClosedUntilReady() {
         #expect(ComputerUseOnboardingWindowController.shouldPresentAutomatically(
             seen: true, featureEnabled: true, permissionStatusIsKnown: true,
             accessibilityGranted: false, screenRecordingGranted: true,
@@ -257,17 +256,19 @@ struct ComputerUseUXTests {
         #expect(phase == .onboardingRequired)
     }
 
-    @Test @MainActor func onlyRealComputerUseToolHooksTriggerOnboarding() {
+    @Test @MainActor func workstreamComputerUseHooksNeverPresentOnboarding() throws {
         let invocation = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .preToolUse,
             source: "claude",
             toolName: "mcp__cmux-cua__start_session"
         )
+        // The hook is still recognized for live-session/cursor bookkeeping,
+        // but that recognition is deliberately not an onboarding request.
         #expect(ComputerUseUXCoordinator.isComputerUseToolInvocation(invocation))
 
-        // Sessions started by a pre-rename wrapper still carry the old server
-        // name and must keep triggering onboarding.
+        // The same namespaced event remains recognized for live-session
+        // bookkeeping, regardless of which supported wrapper emitted it.
         let legacyInvocation = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .preToolUse,
@@ -291,123 +292,56 @@ struct ComputerUseUXTests {
             toolName: "Bash"
         )
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
-    }
 
-    /// A permission/status probe is part of MCP discovery, not a request to
-    /// drive the desktop. It must never open the Accessibility/Screenshots
-    /// onboarding window on its own.
-    @Test @MainActor func passiveComputerUseStatusProbeDoesNotTriggerOnboarding() {
-        let permissionProbe = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .preToolUse,
-            source: "claude",
-            toolName: "mcp__cmux-cua__check_permissions"
+        var presentations: [ComputerUseOnboardingWindowController.StartingPoint] = []
+        var visible = false
+        let presentationCoordinator = ComputerUseOnboardingCoordinator(
+            presenter: { startingPoint in
+                presentations.append(startingPoint)
+                visible = true
+            },
+            isVisible: { visible }
         )
-
-        #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(permissionProbe))
-    }
-
-    @Test func computerUseIntentBoundarySeparatesPromptAndProtectedAction() throws {
-        let explicitPrompt = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .userPromptSubmit,
-            source: "codex",
-            context: WorkstreamContext(
-                lastUserMessage: "Please use $cmux-cua to open Calculator"
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent(
+                "cmux-cua-onboarding-ingress-\(UUID().uuidString)",
+                isDirectory: true
             )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let paths = ComputerUseRuntimePaths(
+            homeDirectoryURL: root,
+            socketRootDirectoryURL: root,
+            userIdentifier: 501,
+            environment: ["CMUX_TAG": "onboarding-ingress-test"],
+            authenticationToken: String(repeating: "a", count: 64),
+            hostAuthenticationToken: String(repeating: "b", count: 64)
         )
-        guard case .turnStarted(let turn) = ComputerUseIntentBoundary.observation(
-            for: explicitPrompt
-        ) else {
-            #expect(
-                Bool(false),
-                "an explicit $cmux-cua prompt must begin an intent turn"
-            )
-            return
-        }
-        let promptSignal = try #require(turn.signal)
-        #expect(promptSignal.kind == .explicitPrompt)
-
-        let ordinaryPrompt = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .userPromptSubmit,
-            source: "codex",
-            context: WorkstreamContext(lastUserMessage: "Run the unit tests")
+        let runtimeService = ComputerUseRuntimeService(paths: paths)
+        let catalog = SettingCatalog()
+        let defaultsSuite = "cmux-cua-onboarding-ingress-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
+        defer { defaults.removePersistentDomain(forName: defaultsSuite) }
+        let appCoordinator = ComputerUseUXCoordinator(
+            liveAgentIndex: SharedLiveAgentIndex(),
+            stateRepository: ComputerUseStateRepository(
+                authenticationKey: runtimeService.stateAuthenticationKey
+            ),
+            stateDirectoryURL: paths.stateDirectoryURL,
+            configStore: JSONConfigStore(
+                fileURL: root.appendingPathComponent("cmux.json")
+            ),
+            enabledKey: catalog.computerUse.enabled,
+            showInMenuBarKey: catalog.computerUse.showInMenuBar,
+            liveSettingRepository: ComputerUseLiveSettingRepository(
+                fileURL: root.appendingPathComponent("live/enabled")
+            ),
+            runtimeService: runtimeService,
+            userDefaults: defaults,
+            workspaceTitle: { _ in nil },
+            featureEnabled: { true },
+            onboardingCoordinator: presentationCoordinator
         )
-        guard case .turnStarted(let ordinaryTurn) = ComputerUseIntentBoundary.observation(
-            for: ordinaryPrompt
-        ) else {
-            #expect(Bool(false), "an ordinary prompt must still be a lifecycle boundary")
-            return
-        }
-        #expect(ordinaryTurn.signal == nil)
-
-        let protectedAction = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .preToolUse,
-            source: "codex",
-            toolName: "mcp__cmux-cua__get_app_state"
-        )
-        guard case .request(let actionSignal) = ComputerUseIntentBoundary.observation(
-            for: protectedAction
-        ) else {
-            #expect(
-                Bool(false),
-                "a namespaced protected action must create an intent signal"
-            )
-            return
-        }
-        #expect(actionSignal.kind == .protectedAction(toolName: "get_app_state"))
-
-        let explicitSkill = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .preToolUse,
-            source: "codex",
-            toolName: "Skill",
-            toolInputJSON: "{\"skill\":\"cmux-cua\",\"explicit\":true}"
-        )
-        guard case .request(let skillSignal) = ComputerUseIntentBoundary.observation(
-            for: explicitSkill
-        ) else {
-            #expect(Bool(false), "an explicitly executed cmux-cua skill must arm onboarding")
-            return
-        }
-        #expect(skillSignal.kind == .explicitSkill)
-
-        let discoveredSkill = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .preToolUse,
-            source: "codex",
-            toolName: "Skill",
-            toolInputJSON: "{\"skill\":\"cmux-cua\",\"discovery\":true}"
-        )
-        #expect(
-            ComputerUseIntentBoundary.observation(for: discoveredSkill) == .ignored,
-            "a catalog/discovery pass must not be treated as an explicit invocation"
-        )
-
-        let passiveProbe = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .preToolUse,
-            source: "codex",
-            toolName: "mcp__cmux-cua__health_report"
-        )
-        #expect(
-            ComputerUseIntentBoundary.observation(for: passiveProbe) == .ignored,
-            "status/discovery calls must not arm onboarding"
-        )
-
-        let lifecycleProbe = WorkstreamEvent(
-            sessionId: "session-1",
-            hookEventName: .preToolUse,
-            source: "codex",
-            toolName: "mcp__cmux-cua__set_agent_cursor_enabled"
-        )
-        #expect(ComputerUseIntentBoundary.observation(for: lifecycleProbe) == .ignored)
-    }
-
-    @Test func computerUseIntentBoundaryDoesNotTreatGenericUIPhraseAsIntent() {
-        let uiText = WorkstreamEvent(
+        let reportPrompt = WorkstreamEvent(
             sessionId: "session-1",
             hookEventName: .userPromptSubmit,
             source: "claude",
@@ -415,229 +349,94 @@ struct ComputerUseUXTests {
                 lastUserMessage: "The settings button says Enable cmux Computer Use"
             )
         )
-        guard case .turnStarted(let turn) = ComputerUseIntentBoundary.observation(for: uiText)
-        else {
-            #expect(Bool(false), "generic UI text must remain a prompt boundary")
-            return
-        }
-        #expect(turn.signal == nil)
-
-        let documentationPrompt = WorkstreamEvent(
-            sessionId: "session-4",
+        let quotedPrompt = WorkstreamEvent(
+            sessionId: "session-1",
             hookEventName: .userPromptSubmit,
             source: "claude",
             context: WorkstreamContext(
-                lastUserMessage: "Update the docs explaining how to use cmux computer use"
+                lastUserMessage: "Read the `$cmux-cua` help text, but do not run it."
             )
         )
-        guard case .turnStarted(let documentationTurn) = ComputerUseIntentBoundary.observation(
-            for: documentationPrompt
-        ) else {
-            #expect(Bool(false), "documentation requests must remain prompt boundaries")
-            return
-        }
-        #expect(documentationTurn.signal == nil)
-
-        let assistantOnlyText = WorkstreamEvent(
-            sessionId: "session-2",
+        let negatedPrompt = WorkstreamEvent(
+            sessionId: "session-1",
             hookEventName: .userPromptSubmit,
-            source: "claude",
-            context: WorkstreamContext(
-                assistantPreamble: "I can use cmux computer use later",
-                toolSummary: "The Computer Use button is available"
-            )
-        )
-        guard case .turnStarted(let assistantTurn) = ComputerUseIntentBoundary.observation(
-            for: assistantOnlyText
-        ) else {
-            #expect(Bool(false), "assistant/UI text must not be treated as a user intent")
-            return
-        }
-        #expect(assistantTurn.signal == nil)
-
-        let naturalPrompt = WorkstreamEvent(
-            sessionId: "session-3",
-            hookEventName: .userPromptSubmit,
-            source: "claude",
-            context: WorkstreamContext(
-                lastUserMessage: "Use cmux computer use to click the Save button"
-            )
-        )
-        guard case .turnStarted(let naturalTurn) = ComputerUseIntentBoundary.observation(
-            for: naturalPrompt
-        ) else {
-            #expect(Bool(false), "an imperative Computer Use prompt must arm onboarding")
-            return
-        }
-        #expect(naturalTurn.signal?.kind == .explicitPrompt)
-    }
-
-    @Test func computerUseIntentLedgerCoalescesConcurrentAndRetriedRequests() throws {
-        let session = ComputerUseIntentBoundary.Session(
             source: "codex",
-            sessionID: "session-1",
-            surfaceID: UUID().uuidString.lowercased()
+            context: WorkstreamContext(
+                lastUserMessage: "Do not use Computer Use for this task."
+            )
         )
-        let firstSignal = ComputerUseIntentBoundary.Signal(
-            kind: .protectedAction(toolName: "click"),
-            session: session,
-            requestToken: "request:first"
+        let helpPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            context: WorkstreamContext(
+                lastUserMessage: "What does cmux computer use do?"
+            )
         )
-        let secondSignal = ComputerUseIntentBoundary.Signal(
-            kind: .protectedAction(toolName: "type_text"),
-            session: session,
-            requestToken: "request:second"
+        let explicitLookingPrompt = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .userPromptSubmit,
+            source: "codex",
+            context: WorkstreamContext(
+                lastUserMessage: "Please use cmux computer use to click Save."
+            )
         )
-        var ledger = ComputerUseIntentBoundary.Ledger()
-        let firstClaim = ledger.observe(.request(firstSignal))
-        #expect(firstClaim != nil)
-        guard let firstClaim else { return }
-        #expect(ledger.observe(.request(firstSignal)) == nil)
+        let skillDiscovery = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "Skill",
+            toolInputJSON: "{\"skill\":\"cmux-cua\",\"discovery\":true}"
+        )
+        let statusProbe = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "mcp__cmux-cua__check_permissions"
+        )
+        let failedUnrelatedTool = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .postToolUseFailure,
+            source: "claude",
+            toolName: "Bash"
+        )
+        let events = [
+            invocation,
+            reportPrompt,
+            quotedPrompt,
+            negatedPrompt,
+            helpPrompt,
+            explicitLookingPrompt,
+            skillDiscovery,
+            statusProbe,
+            failedUnrelatedTool,
+        ]
+        for event in events {
+            appCoordinator.handleWorkstreamEvent(event)
+        }
         #expect(
-            ledger.observe(.request(secondSignal)) == nil,
-            "a concurrent action in the same turn must share the first gate"
+            presentations.isEmpty,
+            "agent activity, prompt text, skill discovery, and status probes stay quiet"
         )
 
-        ledger.finish(firstClaim, completion: .handled)
-        #expect(ledger.observe(.request(secondSignal)) == nil)
-
-        ledger.observe(.completed(session))
-        let nextClaim = ledger.observe(.request(secondSignal))
-        #expect(nextClaim != nil)
-        guard let nextClaim else { return }
-        #expect(nextClaim.signal == secondSignal)
-    }
-
-    @Test func computerUseIntentLedgerTreatsRepeatedPromptAsOneTurn() throws {
-        let session = ComputerUseIntentBoundary.Session(
-            source: "codex",
-            sessionID: "session-repeat",
-            surfaceID: nil
-        )
-        let signal = ComputerUseIntentBoundary.Signal(
-            kind: .explicitPrompt,
-            session: session,
-            requestToken: "turn:same"
-        )
-        var ledger = ComputerUseIntentBoundary.Ledger()
-        let first = ledger.observe(
-            .turnStarted(
-                ComputerUseIntentBoundary.TurnStart(
-                    session: session,
-                    token: "turn:same",
-                    signal: signal
-                )
-            )
-        )
-        #expect(first != nil)
-        guard let first else { return }
-        ledger.finish(first, completion: .handled)
+        #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .screenRecording))
+        #expect(presentations == [.screenRecording])
         #expect(
-            ledger.observe(
-                .turnStarted(
-                    ComputerUseIntentBoundary.TurnStart(
-                        session: session,
-                        token: "turn:same",
-                        signal: signal
-                    )
-                )
-            ) == nil,
-            "duplicate prompt callbacks must not create another gate"
+            !appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility),
+            "a concurrent Settings request reuses the visible onboarding flow"
         )
-        ledger.observe(.completed(session))
-        let next = ledger.observe(
-            .turnStarted(
-                ComputerUseIntentBoundary.TurnStart(
-                    session: session,
-                    token: "turn:same",
-                    signal: signal
-                )
-            )
-        )
-        #expect(next != nil)
-        guard let next else { return }
-        #expect(next.signal == signal)
-    }
 
-    @MainActor
-    @Test func onboardingIntentCoordinatorRunsOneEvaluationPerTurn() async throws {
-        let session = ComputerUseIntentBoundary.Session(
-            source: "claude",
-            sessionID: "session-1",
-            surfaceID: UUID().uuidString.lowercased()
-        )
-        let signal = ComputerUseIntentBoundary.Signal(
-            kind: .protectedAction(toolName: "get_window_state"),
-            session: session,
-            requestToken: "request:one"
-        )
-        var evaluationCount = 0
-        let coordinator = ComputerUseOnboardingIntentCoordinator { _ in
-            evaluationCount += 1
-            return .handled
+        visible = false // The user dismissed the window.
+        for event in events {
+            appCoordinator.handleWorkstreamEvent(event)
         }
-
-        coordinator.observe(.request(signal))
-        coordinator.observe(.request(signal))
-        await coordinator.waitForIdle()
-
-        #expect(evaluationCount == 1)
-        coordinator.observe(.completed(session))
-        let secondSignal = ComputerUseIntentBoundary.Signal(
-            kind: .protectedAction(toolName: "click"),
-            session: session,
-            requestToken: "request:two"
+        #expect(
+            presentations == [.screenRecording],
+            "dismissal and tool retries must not resurface onboarding"
         )
-        coordinator.observe(.request(secondSignal))
-        await coordinator.waitForIdle()
-        #expect(evaluationCount == 2)
-        coordinator.stop()
-    }
-
-    @MainActor
-    @Test func onboardingIntentCoordinatorReleasesOnlyTransientFailures() async {
-        let session = ComputerUseIntentBoundary.Session(
-            source: "codex",
-            sessionID: "session-retry",
-            surfaceID: nil
-        )
-        let signal = ComputerUseIntentBoundary.Signal(
-            kind: .protectedAction(toolName: "click"),
-            session: session,
-            requestToken: "request:retry"
-        )
-        var evaluations = 0
-        let coordinator = ComputerUseOnboardingIntentCoordinator { _ in
-            evaluations += 1
-            return evaluations == 1 ? .retry : .handled
-        }
-
-        coordinator.observe(.request(signal))
-        await coordinator.waitForIdle()
-        coordinator.observe(.request(signal))
-        await coordinator.waitForIdle()
-
-        #expect(evaluations == 2)
-        coordinator.observe(.request(signal))
-        await coordinator.waitForIdle()
-        #expect(evaluations == 2, "handled requests stay coalesced")
-        coordinator.stop()
-    }
-
-    @Test @MainActor
-    func toolInvocationCannotOverrideDisabledComputerUseSetting() {
-        #expect(ComputerUseUXCoordinator.shouldReconcileToolInvocation(
-            featureEnabled: true,
-            settingEnabled: true
-        ))
-        #expect(!ComputerUseUXCoordinator.shouldReconcileToolInvocation(
-            featureEnabled: true,
-            settingEnabled: false
-        ))
-        #expect(!ComputerUseUXCoordinator.shouldReconcileToolInvocation(
-            featureEnabled: false,
-            settingEnabled: true
-        ))
+        #expect(appCoordinator.presentOnboardingFromSettings(startingAt: .accessibility))
+        #expect(presentations == [.screenRecording, .accessibility])
+        appCoordinator.teardown()
     }
 
     @Test func parsesRealCuaStateFileShape() throws {
@@ -1720,7 +1519,6 @@ struct ComputerUseUXTests {
         ) == .none)
     }
 
-    @MainActor
     @Test func completedOnboardingRemainsVisibleBeforeAutomaticDismissal() {
         #expect(ComputerUseOnboardingStep.complete.rawValue > ComputerUseOnboardingStep.screenRecording.rawValue)
         #expect(ComputerUseOnboardingWindowController.completionDismissDelay >= .seconds(2))

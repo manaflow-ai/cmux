@@ -1,6 +1,7 @@
 ---
 name: cmux-cua
-description: "Drive real macOS apps from a cmux agent session via the bundled computer-use engine (accessibility tree + screenshot perception, click/type/scroll/drag, branded agent cursor). Use when an agent should see and operate GUI apps on the local Mac, when computer-use tools are missing or failing, or when explaining how to grant permissions, brand the cursor, or focus the driving session."
+disable-model-invocation: true
+description: "Use only after the user explicitly asks for Computer Use: drive real macOS apps from a cmux agent session via the bundled engine (accessibility tree + screenshots, click/type/scroll/drag, branded cursor), or explain its user-directed permission setup. Reading or discovering this skill is not consent."
 ---
 
 # cmux-cua
@@ -17,6 +18,11 @@ helper has its own TCC identity, so Accessibility and Screen Recording never
 belong to the main cmux app and granting Screen Recording never requires
 restarting cmux. Upstream telemetry and update checks are disabled at runtime.
 
+Do not invoke this skill, start its helper, request permissions, or perform a
+GUI action when the user is only reading, asking about, quoting, or mentioning
+Computer Use. Wait for a direct user request to use Computer Use; missing tools
+or permissions are not a reason to begin setup automatically.
+
 ## How it attaches
 
 - The `cmux-claude-wrapper` and `cmux-codex-wrapper` inject `cmux-cua` as an
@@ -25,8 +31,9 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   its authenticated approval broker; Claude uses the bundled native-profile
   proxy client. The Codex wrapper additionally passes
   `--codex-computer-use-compat`; the Claude wrapper deliberately does not.
-  No user setup per session — start `claude` or `codex` inside cmux and the
-  corresponding tool profile is there.
+  Attachment availability is not user consent: merely starting an agent or
+  discovering this skill is not a request to use it, and it must not open a
+  permission window or perform GUI work.
 - `ComputerUseRuntimeService` is the only helper lifecycle owner. It installs
   the nested helper under the tag-scoped
   `~/Library/Application Support/cmux/cmux-cua/helper/<scope>/` directory
@@ -70,23 +77,18 @@ the main cmux app:
 - **Accessibility** — inspect and drive app UI (`AXIsProcessTrusted`).
 - **Screen Recording** — screenshots / vision (`CGPreflightScreenCaptureAccess`).
 
-Onboarding is demand-driven and starts only at the host's accepted workstream
-intent boundary: a protected namespaced `cmux-cua` tool call, a canonical
-`$cmux-cua`/imperative Computer Use user prompt, or an explicitly executed
-`cmux-cua` skill call. cmux startup/resume, MCP initialize/tools-list or skill
-discovery, `check_permissions`/health/config probes, helper lifecycle events,
-and generic UI/assistant text are passive and never open it. A per-surface turn
-ledger coalesces concurrent/retried signals, so dismissing one flow stays quiet
-until a new explicit request. Settings → Computer Use always shows the two
-authoritative permission states; choosing **Grant…** for an ungranted
-permission opens that same permission step and its draggable helper-app
-recovery path. Each **Allow** action opens the matching permanent System
-Settings pane in one step and stays labeled **Allow** until the helper reports
-the grant; pressing it again simply reopens the same pane. If macOS has not
-listed the helper yet, drag or add the **cmux Computer Use** app tile to the
-list, then turn it on. cmux reads status from the helper over its Unix socket,
-advances beside System Settings to the next missing permission, and shows
-completion in place once both are granted.
+Onboarding is opened only by a deliberate user action in Settings → Computer
+Use (the **Grant…** or **Open System Settings** permission controls), not by a
+tool call, skill load, prompt text, MCP discovery, cmux startup, or agent
+resume. Settings → Computer Use always shows the two authoritative
+permission states; choosing **Grant…** for an ungranted permission opens that
+same permission step and its draggable helper-app recovery path. Each **Allow**
+action opens the matching permanent System Settings pane in one step and stays
+labeled **Allow** until the helper reports the grant; pressing it again simply
+reopens the same pane. If macOS has not listed the helper yet, drag or add the
+**cmux Computer Use** app tile to the list, then turn it on. cmux reads status
+from the helper over its Unix socket, advances beside System Settings to the
+next missing permission, and shows completion in place once both are granted.
 On macOS Tahoe a third confirmation follows Screen Recording: the system's
 direct-capture consent, an alert that says **cmux Computer Use** "is attempting
 to bypass the system private window picker". That alert is expected — it comes
@@ -94,13 +96,20 @@ from onboarding's host-authenticated capture probe, onboarding explains it in
 place, and the user must allow it before setup completes. Never "fix" it by
 suppressing the probe; without that consent, agent screenshots on Tahoe fail.
 The consent follows the helper's code signature, so every rebuilt (ad-hoc
-signed) dev helper re-triggers it: cmux invalidates its cached
-direct-capture-ready flag whenever it replaces the installed helper build,
-which re-presents onboarding so the alert always lands with its explanation.
+signed) dev helper can require the direct-capture step again: cmux invalidates
+its cached direct-capture-ready flag whenever it replaces the installed helper
+build. This remains quiet until the user deliberately re-enters Settings;
+helper replacement never presents onboarding on its own.
 Do not invoke `check_permissions {prompt:true}` or any standalone helper while
 this flow is active: that creates the stray native permission dialogs this
 onboarding deliberately avoids. The main cmux process never calls a TCC API or
 executes the cmux-cua binary.
+
+If an already-attached proxy is unconfigured, its protected call remains quiet
+and returns the helper's setup-required response after its bounded readiness
+wait: **“Computer Use onboarding is still in progress. Finish setup in cmux,
+then retry.”** Re-enter Settings deliberately to start setup; do not try to
+grant consent by calling a setup/status tool.
 
 A TCC prompt naming **Codex Computer Use** (`com.openai.sky.CUAService`) is
 not from cmux. The `codex` CLI ships its own computer-use helper; when codex
