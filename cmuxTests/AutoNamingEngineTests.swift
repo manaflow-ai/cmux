@@ -402,6 +402,13 @@ import Testing
             bypassMinTranscriptLines: true
         )
         #expect(inFlight == .skipInFlight)
+        let tooSoon = engine.throttleDecision(
+            snapshot: snapshot(lastTitle: "Title", lastLineCount: 100, lastNamedAt: base),
+            transcriptLineCount: 100,
+            now: Date(timeIntervalSince1970: base + config.minInterval - 1),
+            bypassMinTranscriptLines: true
+        )
+        #expect(tooSoon == .skipTooSoon)
     }
 
     @Test func hookUserTextExtractsPromptFromPayload() {

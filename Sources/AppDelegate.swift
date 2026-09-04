@@ -26,6 +26,7 @@ import ObjectiveC.runtime
 import Darwin
 import CmuxFoundation
 import CmuxSidebar
+import os
 
 private enum CmuxThemeNotifications {
     static let reloadConfig = Notification.Name("com.cmuxterm.themes.reload-config")
@@ -1051,6 +1052,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var isApplyingSessionRestore = false
     private var sessionAutosaveTimer: DispatchSourceTimer?
     private var sessionAutosaveTickInFlight = false
+    private var codexAutoNameTimer: Timer?
+    private var codexAutoNameTickInFlight = false
     private var sessionAutosaveDeferredRetryPending = false
     private var processDetectedSessionSaveGeneration: UInt64 = 0
     private let sessionPersistenceQueue = DispatchQueue(
@@ -17841,34 +17844,28 @@ extension AppDelegate: WindowDecorating {}
 // `cmux hooks codex auto-name --app-driven` against it. The engine throttle
 // dedups, so this names on first sight then refreshes at the throttle cadence.
 extension AppDelegate {
-    private static var codexAutoNameTimer: Timer?
+    private nonisolated static let codexAutoNameLogger = Logger(
+        subsystem: "com.cmuxterm.app",
+        category: "CodexAutoName"
+    )
     private static let codexAutoNameInterval: TimeInterval = 25
 
     func startCodexAutoNameMonitor() {
-        guard Self.codexAutoNameTimer == nil else { return }
-        let timer = Timer(timeInterval: Self.codexAutoNameInterval, repeats: true) { _ in
-            AppDelegate.shared?.tickCodexAutoName()
+        guard codexAutoNameTimer == nil else { return }
+        let timer = Timer(timeInterval: Self.codexAutoNameInterval, repeats: true) { [weak self] _ in
+            self?.tickCodexAutoName()
         }
         RunLoop.main.add(timer, forMode: .common)
-        Self.codexAutoNameTimer = timer
+        codexAutoNameTimer = timer
     }
 
     private static func codexMonitorDebugLog(_ message: String) {
         guard ProcessInfo.processInfo.environment["CMUX_AUTONAME_DEBUG"] == "1" else { return }
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let url = home.appendingPathComponent(".cmuxterm/auto-name-debug.log")
-        let line = "\(ISO8601DateFormatter().string(from: Date())) codex-monitor \(message)\n"
-        guard let data = line.data(using: .utf8) else { return }
-        if let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: url, options: .atomic)
-        }
+        Self.codexAutoNameLogger.debug("\(message, privacy: .private)")
     }
 
     private func tickCodexAutoName() {
+        guard !codexAutoNameTickInFlight else { return }
         guard let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
               FileManager.default.isExecutableFile(atPath: cliURL.path) else {
             Self.codexMonitorDebugLog("tick aborted: no bundled cli")
@@ -17877,7 +17874,9 @@ extension AppDelegate {
         let socketPath = TerminalController.shared.activeSocketPath(
             preferredPath: SocketControlSettings.socketPath()
         )
-        DispatchQueue.global(qos: .utility).async {
+        codexAutoNameTickInFlight = true
+        Task.detached(priority: .utility) {
+            defer { Task { @MainActor in AppDelegate.shared?.codexAutoNameTickInFlight = false } }
             Self.codexMonitorDebugLog("tick socket=\(socketPath)")
             // Hookless surface→PID discovery. The process monitor already scopes
             // every process to its surface via the inherited CMUX_WORKSPACE_ID /
@@ -17889,11 +17888,6 @@ extension AppDelegate {
             let snapshot = CmuxTopProcessSnapshot.capture(
                 includeProcessDetails: false,
                 includeCMUXScope: true
-            )
-            let codexInfos = snapshot.processesByPID.values.filter { Self.isCodexProcessName($0.name) }
-            let scoped = codexInfos.filter { $0.cmuxSurfaceID != nil }
-            Self.codexMonitorDebugLog(
-                "snapshot procs=\(snapshot.processesByPID.count) codex=\(codexInfos.count) codex-scoped=\(scoped.count)"
             )
             var seenSurfaces = Set<UUID>()
             for info in snapshot.processesByPID.values {
@@ -17938,12 +17932,18 @@ extension AppDelegate {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: launchPath)
         p.arguments = args
-        let out = Pipe()
-        p.standardOutput = out
+        let outputURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-monitor-\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: outputURL.path, contents: nil),
+              let output = try? FileHandle(forWritingTo: outputURL) else { return nil }
+        defer { try? FileManager.default.removeItem(at: outputURL) }
+        p.standardOutput = output
         p.standardError = FileHandle.nullDevice
         guard (try? p.run()) != nil else { return nil }
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
+        waitOrTerminate(p, timeout: 5)
+        try? output.close()
+        guard !p.isRunning, p.terminationStatus == 0,
+              let data = try? Data(contentsOf: outputURL) else { return nil }
         return String(decoding: data, as: UTF8.self)
     }
 
@@ -18004,19 +18004,38 @@ extension AppDelegate {
         Self.waitOrTerminate(process, timeout: 120)
     }
 
-    /// Wait for `process` to exit, polling cheaply; if it overruns `timeout`,
-    /// terminate (then kill) it so a hung subprocess can't pin a thread.
     private static func waitOrTerminate(_ process: Process, timeout: TimeInterval) {
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning {
-            if Date() >= deadline {
-                process.terminate()
-                Thread.sleep(forTimeInterval: 0.5)
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                break
-            }
-            Thread.sleep(forTimeInterval: 0.25)
+        guard !waitForProcessExit(process, timeout: timeout) else { return }
+        process.terminate()
+        if !waitForProcessExit(process, timeout: 2) {
+            kill(process.processIdentifier, SIGKILL)
+            _ = waitForProcessExit(process, timeout: 1)
         }
-        process.waitUntilExit() // reap the (now-exited) process
+    }
+
+    private static func waitForProcessExit(_ process: Process, timeout: TimeInterval) -> Bool {
+        if !process.isRunning {
+            process.waitUntilExit()
+            return true
+        }
+        let queue = kqueue()
+        guard queue >= 0 else { return false }
+        defer {
+            close(queue)
+        }
+        var event = kevent(
+            ident: UInt(process.processIdentifier), filter: Int16(EVFILT_PROC),
+            flags: UInt16(EV_ADD | EV_ENABLE | EV_ONESHOT),
+            fflags: UInt32(NOTE_EXIT), data: 0, udata: nil
+        )
+        guard kevent(queue, &event, 1, nil, 0, nil) == 0 else {
+            guard errno == ESRCH else { return false }
+            process.waitUntilExit()
+            return true
+        }
+        var timeoutSpec = timespec(tv_sec: Int(timeout), tv_nsec: Int((timeout - floor(timeout)) * 1_000_000_000))
+        guard kevent(queue, nil, 0, &event, 1, &timeoutSpec) > 0 else { return false }
+        process.waitUntilExit()
+        return true
     }
 }

@@ -1,26 +1,14 @@
 import Darwin
 import Foundation
+import os
+
+private nonisolated let autoNameLogger = Logger(subsystem: "com.cmuxterm.cli", category: "AutoName")
 
 extension CMUXCLI {
-    /// Appends a one-line auto-naming diagnostic to `~/.cmuxterm/auto-name-debug.log`
-    /// when `CMUX_AUTONAME_DEBUG=1`. Sentry breadcrumbs are not readable on the
-    /// machine; this makes a naming failure (throttle skip, summarizer nil,
-    /// unusable output, applied title) diagnosable locally. No-op otherwise, and
-    /// never logs transcript/prompt content.
+    /// Emits an auto-naming diagnostic through unified logging when enabled.
     func autoNameDebugLog(_ event: String, _ fields: [String: String] = [:]) {
         guard ProcessInfo.processInfo.environment["CMUX_AUTONAME_DEBUG"] == "1" else { return }
-        let ts = ISO8601DateFormatter().string(from: Date())
-        let kv = fields.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: " ")
-        let line = "\(ts) auto-name \(event) \(kv)\n"
-        guard let data = line.data(using: .utf8) else { return }
-        let path = NSString(string: "~/.cmuxterm/auto-name-debug.log").expandingTildeInPath
-        if let handle = FileHandle(forWritingAtPath: path) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: URL(fileURLWithPath: path))
-        }
+        autoNameLogger.debug("\(event, privacy: .public) \(String(describing: fields), privacy: .private)")
     }
 
     /// Drives one auto-naming pass for a Claude session. Registered on Stop
@@ -153,7 +141,7 @@ extension CMUXCLI {
             telemetryKey: "claude-hook.auto-name",
             telemetry: telemetry
         )
-        autoNameDebugLog("applied", ["title": confirmedTitle ?? "<nil>"])
+        autoNameDebugLog("applied", ["titleBytes": "\(confirmedTitle?.utf8.count ?? 0)"])
         // Re-report a missing override only after the fallback apply, so the
         // app's clear-on-apply doesn't immediately wipe the Settings note.
         if confirmedTitle != nil, let missing = resolution.missingOverride {
@@ -267,7 +255,7 @@ extension CMUXCLI {
         guard let transcriptPath,
               let lines = readRecentTextFileLines(path: transcriptPath, maxBytes: 512 * 1024),
               !lines.isEmpty else {
-            autoNameDebugLog("codex.no-transcript", ["path": transcriptPath ?? "nil"])
+            autoNameDebugLog("codex.no-transcript", ["hasPath": transcriptPath == nil ? "0" : "1"])
             return
         }
         autoNameDebugLog("codex.reached-pass", ["lines": "\(lines.count)"])

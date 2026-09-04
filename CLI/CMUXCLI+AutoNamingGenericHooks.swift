@@ -235,7 +235,7 @@ extension CMUXCLI {
                 baselineLineCount: confirmedTitle != nil ? baseline : nil,
                 now: Date()
             )
-            autoNameDebugLog("pass.finished", ["key": telemetryKey, "title": confirmedTitle ?? "<nil>"])
+            autoNameDebugLog("pass.finished", ["key": telemetryKey, "titleBytes": "\(confirmedTitle?.utf8.count ?? 0)"])
         }
         guard let rawResponse = rawResponse(engine, outcome) else {
             autoNameDebugLog("pass.llm-failed", ["key": telemetryKey])
@@ -243,7 +243,7 @@ extension CMUXCLI {
             return
         }
         guard let sanitized = engine.sanitizeResponse(rawResponse, currentTitle: nil) else {
-            autoNameDebugLog("pass.unusable", ["key": telemetryKey, "raw": String(rawResponse.prefix(40))])
+            autoNameDebugLog("pass.unusable", ["key": telemetryKey, "rawBytes": "\(rawResponse.utf8.count)"])
             return
         }
         confirmedTitle = applyAutoNamingTitle(
