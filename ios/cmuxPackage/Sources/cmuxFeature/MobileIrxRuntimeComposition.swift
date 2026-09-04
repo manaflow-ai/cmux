@@ -964,16 +964,19 @@ public actor MobileIrxRuntimeComposition {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         )
-        let peers = deviceListBox.current?.entries.compactMap { pair in
-            let peerHex = pair.key
-            let entry = pair.value
-            guard let deviceID = entry.deviceID else { return nil }
-            let candidate = CmxMacAppInstanceIdentity(
-                macDeviceID: deviceID,
-                instanceTag: entry.tag
-            )
-            return candidate.id == requested.id ? peerHex : nil
-        } ?? []
+        var peers: [String] = []
+        if let snapshot = deviceListBox.current {
+            for (peerHex, entry) in snapshot.entries {
+                guard let deviceID = entry.deviceID else { continue }
+                let candidate = CmxMacAppInstanceIdentity(
+                    macDeviceID: deviceID,
+                    instanceTag: entry.tag
+                )
+                if candidate.id == requested.id {
+                    peers.append(peerHex)
+                }
+            }
+        }
         for peerHex in peers {
             if let route = routesByPeer[peerHex] {
                 routesByPeer[peerHex] = (route.relayURL, [])
