@@ -6,7 +6,7 @@
 
 ```bash
 cmux auth status                       # signed in?
-cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
+cmux vm ls                             # NAME / LABEL / STATE / KIND / IMAGE + plan meter (+ free-window countdown)
 cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
 cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
 cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
@@ -27,7 +27,7 @@ cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + r
 cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
-cmux vm status <id>                    # provider, status, image
+cmux vm status <id>                    # kind, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
@@ -76,7 +76,7 @@ cmux vm route --cwd ~/src/app --json   # {machine, created, reason, would_provis
 cmux vm route --new --provision        # actually create the fresh pool machine the router would use
 ```
 
-Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted. New cmux-created machines clear the provider idle timeout; a sleeping entry is an older/provider-managed or explicitly paused machine and is woken before an open operation.
+Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted. New cmux-created machines have no automatic idle timeout; a sleeping entry is an older or explicitly paused machine and is woken before an open operation.
 
 ## Lifecycle
 
@@ -85,11 +85,38 @@ cmux vm new --detach                   # new Desktop machine (screen + shell), h
 cmux vm new --base --detach            # shell-only machine
 cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|24g|32g or raw MB (disk follows memory, 16 GB max)
 cmux vm new --name "build box" --detach # display label; the id stays the address
+cmux vm new --no-wait --detach         # return the cold-create operation without waiting
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
 cmux vm rename <id> <label>            # display label; the id stays the address
 cmux vm rename <id> --clear
 cmux vm rm <id>                        # PERMANENT delete of machine + data (aliases: destroy, delete)
 ```
+
+Create claims a scrubbed warm machine when one matches the requested kind,
+size, region, image family, and persistence profile. The target is p50 under 3
+seconds and p95 under 10 seconds to daemon readiness. If no warm slot exists,
+the Rust client follows the tracked operation by default. `--no-wait` returns
+that operation immediately. `--detach` only controls whether cmux opens a local
+pane after readiness.
+
+## Domains and publication
+
+Preserve the shipped domain verbs and flow:
+
+```bash
+cmux cloud domains list
+cmux cloud domains zones
+cmux cloud domains verify example.com
+cmux cloud domains publish <vm> <port> --domain app.example.com --access team --team <team-id>
+cmux cloud domains access app.example.com public
+cmux cloud domains rm app.example.com
+```
+
+`verify` prints labelled DNS records on the first call. Change DNS, then run
+the same command again. Generated `cmux.sh` names need no customer DNS proof.
+Human output starts with the URL. Protected viewers see sign-in or denial;
+`rm` remains one no-prompt command during migration. A domain is a publication,
+not a port-open alias.
 
 Without `--detach`, `vm new`, `vm fork`, and `vm restore` also open the machine as a workspace in the user's app.
 
@@ -160,11 +187,12 @@ cmux vm restore <snapshot-id> [--detach]       # snapshot -> new tracked machine
 cmux vm promote-template <id>          # template-named snapshot for reuse
 ```
 
-## SSH (provider-dependent)
+## SSH (when available)
 
 ```bash
-cmux vm ssh <id>                       # cmux-managed SSH workspace (not on every provider)
+cmux vm ssh <id>                       # cmux-managed SSH workspace when the machine exposes it
 cmux vm ssh-info <id>                  # raw SSH endpoint details when available
 ```
 
-The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH — when `ssh` errors, use `exec`, `agent`, or `open` instead.
+The default Cloud path attaches through the cmux-tui remote daemon, not SSH. If
+`ssh` errors, use `exec`, `agent`, or `open` instead.

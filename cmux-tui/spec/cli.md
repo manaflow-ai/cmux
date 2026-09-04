@@ -1,7 +1,7 @@
 # Public CLI
 
 `cmux` exposes `cmux.protocol/2` as a noun-first CLI. The public command
-tree uses the same resource hierarchy and operation catalog as the handwritten
+tree uses the same resource hierarchy and action definitions as the handwritten
 SDKs. The private protocol-v12 command set is available only through the
 explicit `raw command` escape.
 
@@ -12,8 +12,8 @@ Cloud lifecycle and account operations use the versioned Cloud contract in
 [docs/cloud-rust-system-design.md](../../docs/cloud-rust-system-design.md)
 and the staged implementation plan in
 [plans/feat-cloud-rust-cli/DESIGN.md](../../plans/feat-cloud-rust-cli/DESIGN.md).
-They share opaque resource IDs, revisions, capabilities, errors, operations,
-and receipts with this local contract, but they do not require a local socket
+They share opaque resource IDs, revisions, action preconditions, errors,
+operations, and receipts with this local contract, but they do not require a local socket
 or a desktop app.
 
 The target Rust command grammar is:
@@ -21,13 +21,21 @@ The target Rust command grammar is:
 ~~~text
 cmux cloud <resource> <action>
 cmux vm <action>                 # compatibility alias
+cmux coderouter <action>         # model-plane actions, same action IDs as coderouter
 ~~~
 
 The current public scope list is not a claim that Cloud control-plane
 commands are implemented. Add a scope only with its schema fixture, backend
-mapping, capability gate, JSON output, exit behavior, and a headless
+mapping, action check, JSON output, exit behavior, and a headless
 acceptance test. The remote daemon remains the data-plane owner for live
 terminal, workspace, process, and event traffic.
+
+`cmux coderouter` uses the public CodeRouter contract and Rust client. It shares
+action IDs, error envelopes, retry rules, and secure handoff fixtures with the
+standalone `coderouter` binary, while keeping cmux profile, team, TTY, and
+session context local to this frontend. Protocol negotiation is automatic. Do
+not add a user-facing capability catalog or require a discovery request before
+an action.
 
 The domain scope is an intentional compatibility exception to generic
 resource nesting. Use cloud domains with the verbs list, zones, verify,
@@ -182,8 +190,9 @@ socket from a different session.
 
 One endpoint describes exactly one local mux session. `machine list`,
 `machine get`, `session list`, `session get`, and `session open` expose that
-local route. Cross-machine discovery and provider lifecycle require a later
-broker protocol.
+local route. Cloud cross-machine discovery and lifecycle use the versioned
+Cloud contract above; the local machine-provider protocol remains for local
+socket and connector targets.
 
 ## Output
 
@@ -391,7 +400,7 @@ never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
 
 `provider authority install` is a local Linux host-administration action. It
-installs the credential for an already running provider-managed session and is
+installs the credential for an already running externally managed session and is
 not a transported resource operation or cross-machine discovery API.
 
 ## Raw access

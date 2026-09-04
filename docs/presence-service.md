@@ -4,7 +4,7 @@ Realtime device presence for cmux: every team member sees which of the team's
 devices (Macs, iPhones, and their tagged cmux app instances) are online or
 offline, live. Source: `workers/presence/`. Deploy: `.github/workflows/presence.yml`.
 
-## Backend decision: Cloudflare Durable Objects (not RivetKit)
+## Backend decision: Cloudflare Durable Objects (not a new actor runtime)
 
 Presence needs a tiny per-team actor with serialized state, a timer for
 missed-heartbeat expiry, and realtime fan-out. Both Cloudflare Durable Objects
@@ -14,16 +14,14 @@ operational cost.
 
 DO wins on boring: the team already runs a Workers + DO service in production
 (the regatta subrouter), so the account, tooling, billing, dashboards, and
-failure modes are all known quantities, while RivetKit would introduce a new
-runtime platform (Rivet Cloud or self-hosted runners) to operate for one small
-service. The hard requirements are first-class with wrangler: one GitHub
-Actions job runs `wrangler deploy` on push to main, and that deploy applies
-the Durable Object migrations declared in `wrangler.toml` atomically with the
-code upload, which is exactly the property the Aurora migration-lag incident
-taught us to demand. RivetKit's actor model (alarms, sleep/wake, KV state) is
-equivalent for this workload, so it offers no capability we need that DO
-lacks, and "equivalent but new to operate" loses to "equivalent and already
-operated".
+failure modes are known quantities. A second actor runtime would add another
+system to operate for one small service. The hard requirements are first-class
+with wrangler: one GitHub Actions job runs `wrangler deploy` on push to main,
+and that deploy applies the Durable Object migrations declared in
+`wrangler.toml` atomically with the code upload, which is exactly the property
+the Aurora migration-lag incident taught us to demand. Other actor models have
+the same alarms, sleep/wake, and key-value state primitives for this workload,
+so they add no required behavior.
 
 ## Architecture
 

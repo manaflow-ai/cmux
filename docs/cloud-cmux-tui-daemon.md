@@ -12,7 +12,7 @@ dragging it out of the right pane.
 The daemon is the Cloud data-plane component. It owns authenticated remote
 links, workspaces, terminals, processes, event lanes, replay cursors, and
 terminal snapshots. It does not own account login, team policy, billing,
-provider lifecycle, DNS, TLS, or CodeRouter account management.
+machine lifecycle, DNS, TLS, or CodeRouter account management.
 
 Those control-plane responsibilities belong to the Rust Cloud client and the
 versioned contract in
@@ -20,10 +20,16 @@ versioned contract in
 app may project the same resources into panes, but a Cloud CLI or agent can
 use the control and data planes without opening the app. Every attach token
 or route is scoped by the control plane to a stable machine, session, and
-capability generation before the daemon accepts it.
+machine-generation fence before the daemon accepts it.
 
 The implementation sequence and compatibility obligations are in
 [plans/feat-cloud-rust-cli/DESIGN.md](../plans/feat-cloud-rust-cli/DESIGN.md).
+
+Machine creation is optimized outside the daemon protocol. The control plane
+claims a scrubbed warm image, starts one daemon-ready probe, and returns the
+machine route without a discovery round trip. A cold image returns an operation
+immediately. The daemon only reports readiness and transport state;
+it does not decide billing, placement, or account policy.
 
 ## Why replace cmuxd-remote
 
@@ -33,8 +39,8 @@ scrollback replay (1 MiB cap) that can begin mid-escape-sequence and corrupt
 the client grid. Auth is a lease file the web tier writes into the VM before
 every attach. When the daemon restarts, `pty.attach` with
 `require_existing=false` silently respawns a fresh shell, which users read as
-losing their session. Each provider driver carries its own copy of the
-injection and repair logic.
+losing their session. Duplicated deployment drivers used to carry their own
+copy of the injection and repair logic; the new boundary centralizes it.
 
 The cmux-tui stack already solves each of these on `main`:
 
@@ -56,25 +62,24 @@ The cmux-tui stack already solves each of these on `main`:
 
 ## What the spike proved (2026-08-26)
 
-Historical record. The spike ran against a live Blaxel sandbox; Blaxel has
-since been removed as a provider (its driver, images, and build scripts are
-gone) and Freestyle on the public platform is the default. The transport
-conclusions below still describe how every cmux Cloud machine works, but the
-Blaxel-specific mechanics are history, not current code:
+Historical record. The spike ran against a temporary sandbox and a
+deployment-specific image. Those mechanics are retired. The transport
+conclusions below still describe how every cmux Cloud machine works, while the
+image and gateway details are intentionally implementation-neutral:
 
 1. A static musl `cmux-tui` (55 MB stripped, built on a Blacksmith testbox in
-   1m47s warm) runs unmodified in a `blaxel/base-image` microVM.
-2. Injection works through the same channel `blaxel.ts` uses for
-   `cmuxd-remote`: gzip+base64 through the sandbox filesystem API, then a
-   decode exec. The encoded payload (~30 MB) exceeds the API body cap, so the
+   1m47s warm) runs unmodified in a Cloud microVM.
+2. Injection works through the sandbox filesystem API: gzip+base64, followed by
+   a decode exec. The encoded payload (~30 MB) exceeds the API body cap, so the
    script uploads 8 MB chunks and concatenates in the VM.
 3. `cmux-tui server start --session cloud --remote-ws 0.0.0.0:1337
    --remote-ws-insecure-bind` under the sandbox process supervisor
-   (`keepAlive`, `restartOnFailure`) serves `/v1/link` behind Blaxel's TLS.
+   (`keepAlive`, `restartOnFailure`) serves `/v1/link` behind the managed TLS
+   edge.
 4. The single exposed HTTPS port works as-is: a private preview for port 1337
-   plus a preview token passed as `?bl_preview_token=...`. The Blaxel gateway
-   accepts the token as a query parameter, and the Rust dialer
-   (`DirectWebSocketProvider`, plain `tokio-tungstenite` connect) passes the
+   plus a short-lived query token. The managed gateway accepts the token, and
+   the Rust dialer
+   (`DirectWebSocket`, plain `tokio-tungstenite` connect) passes the
    URL through verbatim, so no header-injection change was needed. Requests
    without the token get 401 from the gateway; requests with it reach the
    daemon.
@@ -89,7 +94,7 @@ Blaxel-specific mechanics are history, not current code:
 An Aug-20 client binary interoperated with a daemon built from `main` tip,
 consistent with the protocol-version gate doing its job (both protocol 5).
 
-## Local repro without provider credentials
+## Local repro without deployment credentials
 
 `scripts/spike-cmux-tui-local.sh` runs the same protocol loop with a local
 `server start --remote-ws 127.0.0.1:<port>` process standing in for the VM:
@@ -107,22 +112,20 @@ which is exactly the drop the spike (and any cloud client) must survive.
 Cloud-owned terminals live in the daemon's cmux-tui session (or detached),
 never on a connection-scoped lease.
 
-## Per-provider replacement
+## Deployment image and daemon rollout
 
 One artifact replaces `cmuxd-remote-linux-amd64` everywhere:
 `cmux-tui-x86_64-unknown-linux-musl` from the existing package lane, pinned by
-sha256, from the artifacts manifest. Freestyle's delivery mechanism is a
-systemd unit in the VM snapshot running the `cmux-devbox-boot` supervisor, with
-the pinned binary baked at `/root/.cmux/bin/cmux-tui`. A Freestyle snapshot is
-a memory image, so the supervisor binds the daemon identity to the platform
-instance id (Firecracker MMDS `instance-id`) and mints a fresh identity on a
-clone; the bake parks the daemon before snapshotting so no live identity is
-ever shared. Create therefore runs no guest bootstrap. (Other providers had
-their own rows here — a template-baked binary and a snapshot entrypoint —
-until they were removed.)
+sha256, from the artifacts manifest. The managed image uses a systemd unit in
+the VM snapshot running the `cmux-devbox-boot` supervisor, with the pinned
+binary baked at `/root/.cmux/bin/cmux-tui`. If the image is a memory image, the
+supervisor binds daemon identity to the instance identity and mints a fresh
+identity on a clone. The bake parks the daemon before snapshotting so no live
+identity is shared. Create therefore runs no guest bootstrap. Older image
+paths used their own template entrypoints; they are not part of the contract.
 
 The daemon's remote state dir must live on the persistent volume (the machine's
-home; Freestyle runs the daemon as root with `HOME=/root`, so the
+home; the managed image runs the daemon as root with `HOME=/root`, so the
 HOME-derived default `~/.local/state/cmux/remote` already qualifies. The
 non-root layout described below (`CMUX_CLOUD_LAYOUT`) is retained as a seam
 but no driver selects it today.)
@@ -133,12 +136,12 @@ restart, and clients see the generation change instead of a silent new shell.
 
 On a layout machine, the daemon watches the bindfs home view for mount events.
 If the view disappears, the supervisor stops the user daemon and exits with a
-restartable failure code. The provider starts the command again, which reruns
+restartable failure code. The supervisor starts the command again, which reruns
 the idempotent user setup and repairs the view before selecting the non-root
 daemon. If repair fails, it detects the still-mounted `/cmux/home` backing path
 and runs the daemon there as root. Active terminals therefore do not continue
-writing into the disposable rootfs directory. No provider selects this layout
-today; it is kept for a future non-root cloud home.
+writing into the disposable rootfs directory. The layout is kept for a future
+non-root cloud home.
 
 ## Lease/auth integration with the attach-endpoint flow
 
@@ -196,7 +199,7 @@ resync) and exposes the standard local control socket; the pump's `attach
 --pipe-io` targets that socket. The app never re-implements the remote
 protocol, and `cmux-terminal-client` (today iroh-only, C-ABI) can later
 subsume the sidecar by adding `ws`/`wss` to its accepted schemes; the
-provider machinery it needs is already shared in `cmux-remote`.
+transport machinery it needs is already shared in `cmux-remote`.
 
 ## Drag-from-right-pane UX
 
@@ -211,7 +214,7 @@ headless link to that daemon exists, then starts a pump on `attach
 --terminal <id> --pipe-io`. Because the payload names a daemon and terminal
 rather than a VM, the same drag works for a cloud VM, an ssh box, and another
 local cmux-tui session; "arbitrary cmux TUI terminals" falls out of the
-shared catalog rather than a cloud-specific feature. Multi-attach is safe:
+shared resource catalog rather than a cloud-specific action. Multi-attach is safe:
 daemon-side terminals accept multiple attachments and size to the minimum
 grid, matching current cmuxd-remote semantics.
 
@@ -219,9 +222,9 @@ grid, matching current cmuxd-remote semantics.
 
 Phase 1: ship the cmux-tui daemon alongside cmuxd-remote (second port),
 attach-endpoint returns both
-transports, macOS opts in behind a feature flag. Phase 2: default new
+transports, macOS opts in behind an explicit rollout flag. Phase 2: default new
 attaches to `cmux-remote`, keep `websocket` as fallback for one release.
-Phase 3: delete the Go daemon path per provider, then the `daemon/remote`
+Phase 3: delete the Go daemon path per deployment path, then the `daemon/remote`
 tree. Each phase is revertible by flipping the transport default; the two
 daemons share nothing in the VM but the process supervisor.
 
@@ -267,7 +270,7 @@ The app keeps one headless `cmux-tui remote connect --headless` link per
 awake machine and reads `session current snapshot --json` plus the
 `session current events --jsonl` stream over that link's local socket; the
 tree is push-updated, never polled. VNC display and forwarded-port rows are
-provider-backed catalog resources outside a workspace's terminal layout; their
+backend catalog resources outside a workspace's terminal layout; their
 open verbs use the shared `surface.project` path (with `vm.desktop_open` /
 `vm.port_open` as the CLI equivalents) and the same tokened browser-pane flow.
 
@@ -294,23 +297,25 @@ provision) without running anything; `cmux vm agent --agent <claude|codex|openco
 -- <prompt>` starts the agent as a detached terminal in the chosen machine's
 session (so it survives the pane and reattaches from any device); `cmux vm run`,
 `exec`, `push`/`pull`, and `wait` stay the headless verbs. CodeRouter is
-orthogonal: it routes model credentials, not compute, and is configured inside
-the machine the same way as locally. The `skills/cmux-cloud-vm` skill teaches
-this policy to Claude Code, Codex, OpenCode, and Pi.
+orthogonal: it routes model credentials, not compute. The control plane issues
+a short-lived route authority for each agent action; the guest stores only an
+endpoint and placeholders, and the handoff library injects the authority for
+the process lifetime. The `skills/cmux-cloud-vm` skill teaches this policy to
+Claude Code, Codex, OpenCode, and Pi.
 
 ## Surface catalog
 
 Terminals, VNC screens and browsers are *resources*; panes and workspaces are
 *projections* of them. On the Mac, `SurfaceCatalog` (`Sources/Surfaces/`) is the
 one owner of resource identities (`<machine>/<kind>/<key>`, machine = `local` or
-a cloud machine id) and projections (resource, workspace, panel). Providers push
+a cloud machine id) and projections (resource, workspace, panel). Adapters push
 resources in: `LocalSurfaceProvider` (this Mac's terminals and browsers) and one
 `CmuxTuiSurfaceProvider` per cloud machine (its cmux-tui workspaces/terminals
 from the headless link, its noVNC screen `display:1`, its forwarded ports).
 `catalog.project(resource, into:)` is the single open path — the sidebar tree,
 drag and drop, the CLI and agents all go through it — so an already-open
 resource is focused instead of duplicated, a closed pane never destroys a
-remote resource, and restored panes re-project when their provider reports the
+remote resource, and restored panes re-project when their adapter reports the
 resource again.
 
 Socket (worker lane, like `vm.*`):

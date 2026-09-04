@@ -46,7 +46,9 @@ cmux vm tree "$(echo "$term" | jq -r '.machine')"                 # [agent claud
 
 The agent runs as a detached terminal in the machine's cmux-tui session: it keeps going if the pane closes, and `cmux vm open <reattach address>` brings it back (reusing the pane if one already shows it). Fan out by calling `vm agent` once per task with `--machine` pinned to different machines (or forks, §4) and watch them all in `cmux vm tree`.
 
-Inside the machine the agent authenticates like it would locally (its own login, or CodeRouter's env/config under `/root`, set once with `vm exec`). Never copy the user's tokens onto a machine unless they ask.
+Inside the machine, `vm agent` receives a short-lived, machine-scoped
+CodeRouter route authority. It is injected for the action and is not written
+under `/root` or into the image. Never copy the user's tokens onto a machine.
 
 ## 3. Repo with history (private repos, no credentials on the machine)
 
@@ -107,7 +109,7 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
 ## 8. Cleanup etiquette
 
 - New cmux machines have no idle timeout and remain available until explicitly paused or
-  stopped. Older/provider-managed machines may still be asleep; opening or running a command
-  wakes them, so leaving one for the user to inspect is fine (say so in your handoff).
+  stopped. Older machines may still be asleep; opening or running a command wakes them, so
+  leaving one for the user to inspect is fine (say so in your handoff).
 - Delete forks and scratch machines you created once their purpose is served.
 - Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.

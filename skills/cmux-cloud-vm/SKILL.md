@@ -11,14 +11,14 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 
 | Term | Meaning |
 |------|---------|
-| **Machine** | A persistent cloud VM (`cmux vm ls`). cmux-created machines have no provider idle timeout, so they stay available until the user pauses/stops or destroys them; an already-sleeping machine wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
+| **Machine** | A persistent cloud VM (`cmux vm ls`). cmux-created machines have no automatic idle timeout, so they stay available until the user pauses/stops or destroys them; an already-sleeping machine wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
 | **Contents** | Ubuntu 24.04 (shared devbox image): node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, `cua-driver`. **Claude Code, Codex, OpenCode, and Pi are preinstalled**. Desktop-kind machines (the default; `vm new --base` makes a shell-only machine with no screen) boot a desktop: TigerVNC on `:1` with an openbox session, a dock (Chrome, Files, Ghostty) and noVNC on 6901 — the **Desktop** row in the sidebar / `vm open <m>:desktop` shows it. Shells on the machine get `DISPLAY=:1` (and the accessibility bus) while the desktop is up, so `agent-browser`, `xdotool` and `cua-driver mcp` act on that screen. |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces → terminals, visible in `cmux vm tree`. A terminal you start there keeps running when the Mac disconnects. |
 | **Workspaces** | One machine hosts **many** cmux-tui workspaces: the machine is the big box, workspaces are the desks in it. Make a workspace per task *inside* a machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) — not a machine per task. The Cloud sidebar shows them grouped under the machine's Workspaces group. |
 | **Surface** | A terminal, VNC screen or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
-| **Plan meter** | `cmux vm ls` prints `N of M machines`. Free plans get **1 machine and a 7-day cloud window**; `vm ls --json` carries `limits.freeAccessExpiresAt`. At the cap, creates fail with an upgrade action — never delete machines to make room without asking. |
+| **Plan meter** | `cmux vm ls` prints `N of M machines`. Free plans get **1 machine and a 7-day cloud window**; `vm ls --json` carries `limits.freeAccessExpiresAt`. At the cap, creates fail with an upgrade action. Never delete machines to make room without asking. |
 | **Checkpoint / fork** | `snapshot` mints a restorable checkpoint; `fork` clones a machine for a parallel experiment. |
 
 ## Decide: cloud or local?
@@ -49,7 +49,7 @@ Repeat runs from the same directory hit the same machine (sticky binding), so sy
 
 1. `cmux vm route` — the router's answer for this directory; `--json` for scripts. If it says it *would provision*, that costs a machine slot: check `cmux vm ls` first.
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
-3. Isolation → `cmux vm new --detach --json` (desktop machine) or `--base` (shell-only); add `--size 8g`/`--name <label>` as needed. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`.
+3. Isolation → `cmux vm new --detach --json` (desktop machine) or `--base` (shell-only); add `--size 8g`/`--name <label>` as needed. Creation waits for daemon readiness by default and uses the warm pool first. Use `--no-wait` only when you want the operation receipt instead. The CLI requests a machine *kind*; never pass `--image` unless you have a specific image id. Then `--machine <id>`.
 4. Never draft the user's own named machines without `--machine`, and respect the plan meter.
 
 ## Running work
@@ -88,13 +88,40 @@ cmux surface new-terminal --machine <id> --cwd /root/work/app -- bun test       
 cmux notify --title "Cloud build done" --body "…"
 ```
 
-The user cannot see inside the machine: print URLs, pull artifacts, or open a pane when there is something to look at, and `cmux notify` for long work. Only share URLs minted by `cmux vm open` — never guess raw provider URLs.
+The user cannot see inside the machine: print URLs, pull artifacts, or open a pane when there is something to look at, and `cmux notify` for long work. Only share URLs minted by `cmux vm open`. Never guess raw deployment URLs.
 
 A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs (`../cmux/SKILL.md`) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. Rearranging the machine's own cmux-tui topology from inside is what `cmux vm tui <id>` is for.
 
+## Domains and publication
+
+Use the shipped domain verbs and order. The first `verify` prints a labelled
+DNS checklist. After the user changes DNS, run the same command again. Then
+publish a port, set its access mode, and remove it by hostname:
+
+```bash
+cmux cloud domains list
+cmux cloud domains zones
+cmux cloud domains verify example.com
+cmux cloud domains publish <vm> <port> --domain app.example.com --access team --team <team-id>
+cmux cloud domains access app.example.com public
+cmux cloud domains rm app.example.com
+```
+
+Generated `cmux.sh` names skip customer DNS proof. Human output starts with
+the URL. Protected viewers see sign-in or denial only. `rm` remains a single,
+no-prompt command during migration. A public domain is a publication resource,
+not a port-open alias.
+
 ## CodeRouter and model credentials
 
-CodeRouter routes **model credentials**, not compute. An agent started with `vm agent` inside a machine authenticates the same way it would locally (its own login, or CodeRouter's env/config in the machine's `/root`); set that up once on the machine (`vm exec <id> -- …`) and it persists on the volume. Do not put the user's tokens on a machine unless they ask.
+CodeRouter routes **model credentials**, not compute. `vm agent` receives a
+short-lived, machine-scoped route authority for the selected action. The route
+is injected at the edge and is not written to the image or a persistent guest
+config. Do not copy user tokens to a machine.
+
+There is no Cloud feature-catalog command. Use `--help --json` for one action;
+an unavailable action returns a typed error with a replacement or upgrade
+hint.
 
 ## Agent policy
 

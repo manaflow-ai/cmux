@@ -16,7 +16,8 @@ Goal: ship the iOS path from current cmux main with Swift-owned app, session, tr
 - The Mac host publishes a `CmxAttachTicket` with one or more `CmxAttachRoute` values. iOS chooses the first supported route.
 - Tailscale ships first as a Swift `Network` transport over the tailnet host and port.
 - Iroh is added as another `CmxByteTransport` implementation. The shell and terminal session do not change. A minimal Rust edge is acceptable for the Iroh endpoint/dialer if the Swift code keeps owning route selection, attach-ticket decoding, framing, auth, and app state.
-- Rivet can store workspace/device presence and issue attach tickets. It should not carry hot PTY bytes in the first production design.
+- The presence service can store workspace/device presence and issue attach
+  tickets. It should not carry hot PTY bytes in the first production design.
 
 ## Iroh Experiment
 

@@ -33,7 +33,7 @@ sequenced in
 
 Swift Cloud commands must call the same typed API and render the same response
 and error envelopes. They must not create a second Cloud state store, infer a
-team from a previous response, or keep provider credentials. During the
+team from a previous response, or keep infrastructure credentials. During the
 compatibility window, existing vm, cloud, auth, coderouter, VPN, and domain
 names remain valid. A command is not migrated when Swift only starts a Rust
 subprocess; it is migrated when Rust owns its model, authorization, retry,
@@ -101,11 +101,13 @@ Environment:
 | `hooks` | Install, uninstall, and run agent hook integrations under one namespace. |
 | `codex` | Compatibility alias for installing or uninstalling Codex hooks. |
 | `ping` | Check socket connectivity. |
-| `capabilities` | Print server capabilities as JSON. |
+| `capabilities` | Legacy local socket diagnostic. Print the server's protocol
+  fields as JSON; it is not part of Cloud machine discovery or normal Cloud
+  action flow. |
 | `events` | Stream reconnectable cmux events as newline-delimited JSON. |
 | `sessions [list]` | List saved agent session records without requiring a running cmux socket. Filters: `--agent <name>`, `--session <id>`, `--workspace <id>`, `--surface <id>`, `--cwd <text>`. Overrides: `--state-dir <path>`, `--codex-home <path>`. Text output defaults to 100 results; `--limit <n>` takes a positive integer and `--all` removes the limit. Supports `--json`. |
 | `auth` | Manage auth status, login, and logout through the app. |
-| `coderouter`, `cr` | `cmux coderouter <status|machines|claude>` manages the team's coderouter model plane through the app (sign-in state, per-machine usage, the team's Claude upstream accounts). Every other `cmux coderouter ...` verb and all of `cmux cr ...` exec the installed CodeRouter CLI (`coderouter` or `cr` on PATH) unchanged, exit 127 when it is missing. |
+| `coderouter`, `cr` | Rust owns the documented `cmux coderouter` model-plane actions and `cr` is an alias. During migration, an explicit legacy flag may delegate an undocumented action to an installed binary; there is no silent `PATH` fallback. |
 | `vm`, `cloud` | Manage cloud VMs. `cloud` is an alias for `vm`. |
 | `remotes`, `remote` | Manage remote Macs in the team device registry so they appear in the iOS app's device list. `remote` is an alias for `remotes`. |
 | `rpc` | Call a raw v2 socket method with optional JSON params. |
@@ -206,7 +208,8 @@ Environment:
 ## Surface Selection Contract
 
 `surface.read_selection` is a v2 worker-lane socket method advertised by
-`system.capabilities` and printed by `cmux capabilities`. It accepts the usual
+`system.capabilities` and printed by the legacy `cmux capabilities` diagnostic.
+It accepts the usual
 surface routing selectors (`window_id`, `workspace_id`, `surface_id`,
 `terminal_id`, `tab_id`, and `pane_id`) without focusing a window, workspace,
 pane, or surface.
@@ -303,7 +306,7 @@ VM subcommands:
 | Command | Contract |
 | --- | --- |
 | `vm ls`, `vm list` | List VMs. |
-| `vm tree [<machine>\|local] [--refresh] [--json]` | The surface catalog (`surface.catalog`), rendered Finder-style: **This Mac** first (its terminals grouped by the local workspace showing them, then its browsers), then every cloud machine — Workspaces, Ports, VNC Displays (one row per screen), and a final Terminals section containing every machine-owned terminal. Every line carries an address `vm open` or `surface open` accepts. `--refresh` re-syncs every provider first. `--json` prints the catalog payload `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail, lifecycle, agent, remote_workspace, remote_views, port, url, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. Same as `surface ls`. |
+| `vm tree [<machine>\|local] [--refresh] [--json]` | The surface catalog (`surface.catalog`), rendered Finder-style: **This Mac** first (its terminals grouped by the local workspace showing them, then its browsers), then every cloud machine, with Workspaces, Ports, VNC Displays (one row per screen), and a final Terminals section containing every machine-owned terminal. Every line carries an address `vm open` or `surface open` accepts. `--refresh` re-syncs every backend first. `--json` prints the catalog payload `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail, lifecycle, agent, remote_workspace, remote_views, port, url, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. Same as `surface ls`. |
 | `vm workspace new <machine> [--name <name>] [--json]` | `vm.workspace_new`: creates a cmux-tui workspace on the machine (its ⌘N, with a first terminal) and opens it as a new local workspace. Prints `OK workspace=<local id> remote_workspace=<ws id> machine=<id>`. |
 | `vm workspace open <machine> <workspace> [--here] [--tabs] [--workspace <local>] [--pane <id\|ref> [--left\|--right\|--up\|--down]] [--json]` | `vm.workspace_open`: the machine workspace's terminals, browsers and pinned displays as a new local workspace, one pane each (what clicking the sidebar row does). `<workspace>` is the `ws_…` id or an unambiguous workspace name, resolved exactly like the sidebar row (every view of every terminal counts); the payload's `remote_workspace_id` is the resolved id. An existing workspace with nothing in it opens nothing and answers `Nothing to open: … cmux vm open <machine>/<ws> starts a terminal there`. `--here`/`--tabs`/`--pane`+side instead project the group into an existing local workspace (`here: true` + the `surface open` destination params; one pane at the destination, the rest as tabs) — the sidebar's "Open All Here" / "Open All in New Tabs" / drop on a pane edge. |
 | `vm prompt [--json]` / `vm prompt --open <agent>` (alias `skill`) | `vm.cloud_prompt` / `vm.cloud_agent_open`: installs the bundled cmux-cloud skill file at `~/.config/cmux/skills/cmux-cloud.md` and prints the kickoff prompt for any agent (the Machines panel's "Copy Cloud Prompt"), or opens a local terminal running claude\|codex\|opencode with it ("Open Cloud Agent"). |
@@ -314,9 +317,9 @@ VM subcommands:
 | `vm terminal send <machine> <terminal-id> [text] [--keys <k1,k2,…>] [--json]` (alias `write`) | `vm.terminal_write {id, terminal_id, text?, keys?}`: types `text` into the machine terminal exactly as given (no newline), then presses the named keys (`enter`, `tab`, `escape`, `up`, …; chords join with `+`: `ctrl+c`) — cmux-tui `terminal <id> write --text` / `keys`. Headless: no pane is attached or focused. |
 | `vm terminal read <machine> <terminal-id> [--json]` (alias `screen`) | `vm.terminal_read {id, terminal_id}`: the terminal's visible screen (`text`; `--json` adds `rows`, `cols`, `cursor_row`, `cursor_col`, `cursor_visible`) — cmux-tui `terminal <id> screen read`. |
 | `vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>] [--json]` | `vm.terminal_wait {id, terminal_id, pattern, timeout_ms?}`: blocks until the screen text matches (default 30 s) — cmux-tui `terminal <id> screen wait`. Prints `OK matched …`; exits 1 with the screen tail on timeout. |
-| `vm new`, `vm create` | Create a VM. The default kind is `desktop` (a screen: TigerVNC + openbox + noVNC on 6901); `--base`/`--no-desktop` ask for a shell-only machine. The CLI sends the machine **kind** (`desktop`/`base`) and the backend maps it to the image its deployment supports (today one devbox snapshot serves both kinds); `--image <id>` is the explicit override and is the only way an image id leaves the client. Supports `--size <2g\|4g\|8g\|16g\|24g\|32g>`, `--name <label>` (display label, applied via `vm.rename` after create), `--provider`, `--workspace`, `--detach`, and `-d`. Without `--detach`, opens a plain terminal on the machine through the shared open path (see `vm shell`). The Machines panel's ＋ opens the New Machine sheet (name, kind, size, plan meter) whose Create runs this same command. |
+| `vm new`, `vm create` | Create a VM. The default kind is `desktop` (a screen: TigerVNC + openbox + noVNC on 6901); `--base`/`--no-desktop` ask for a shell-only machine. The CLI sends the machine **kind** (`desktop`/`base`) and the backend claims a scrubbed warm machine for the requested size and image family before using a cold operation. `--image <id>` is the explicit override and is the only way an image id leaves the client. Supports `--size <2g\|4g\|8g\|16g\|24g\|32g>`, `--name <label>` (sent in the create request; a legacy backend may report a fenced rename step), the deprecated Swift-only `--provider` compatibility selector (Rust does not expose or serialize it; the bridge maps legacy values to image families), `--workspace`, `--detach`, `--no-wait`, `--timeout <seconds>`, and `-d`. The command waits for daemon readiness by default. Warm creation targets p50 under 3 seconds and p95 under 10 seconds. A cold create returns an operation to the Rust client, which follows it with progress and a bounded 10-minute default deadline; `--timeout` changes that deadline and `--no-wait` returns the operation immediately. `--no-wait` implies `--detach`; `--detach` suppresses local pane projection after readiness. A ready create without `--detach` opens a plain terminal on the machine through the shared open path (see `vm shell`). The Machines panel's ＋ opens the New Machine sheet (name, kind, size, plan meter) whose Create runs this same command. |
 | `vm base open`, `vm base reset` | Open (creating on first use) or reset the persistent Base machine. `--base` / `--desktop` choose the kind for the create; an existing Base keeps its image. The app's Cloud VM button shows the Set Up Base sheet only when no Base exists yet. |
-| `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses one path and lands a PLAIN terminal on the machine (like an ssh session, not the cmux-tui client): `vm.cmux_remote_info` (availability and protocol check; the local client's `client_capabilities` when one is installed), then `workspace.create` or, for `--workspace`, `workspace.cloud_vm_terminal_ready` (a placeholder pane), then `workspace.cloud_vm_bind`, then `surface.new_terminal {machine, open: true, workspace_id, focus: true, name: "shell"}` — the machine's provider creates a `bash -l` terminal in its cmux-tui session (a catalog resource `<machine>/terminal/<term_…>`) and the catalog projects it into the workspace as a pane running `attach --terminal`; the placeholder is closed with `surface.close`. The `OK` line carries `terminal=<term_…>` and a `Reattach: cmux vm open <m>/<ws>/<term>` hint; `--json` adds `terminal_id`, `remote_workspace_id`, `surface_id`. `cmux vm tui <id>` is the only open that runs the full client. The websocket/SSH transports remain only for deployments whose control plane reports no cmux-tui daemon; a machine that answers `vm_attach_transport_unsupported` is cmux-tui only and never falls back. |
+| `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses one path and lands a PLAIN terminal on the machine (like an ssh session, not the cmux-tui client): `vm.cmux_remote_info` (availability and protocol check; the local client's `client_capabilities` when one is installed), then `workspace.create` or, for `--workspace`, `workspace.cloud_vm_terminal_ready` (a placeholder pane), then `workspace.cloud_vm_bind`, then `surface.new_terminal {machine, open: true, workspace_id, focus: true, name: "shell"}`; the machine daemon creates a `bash -l` terminal in its cmux-tui session (a catalog resource `<machine>/terminal/<term_…>`) and the catalog projects it into the workspace as a pane running `attach --terminal`; the placeholder is closed with `surface.close`. The `OK` line carries `terminal=<term_…>` and a `Reattach: cmux vm open <m>/<ws>/<term>` hint; `--json` adds `terminal_id`, `remote_workspace_id`, `surface_id`. `cmux vm tui <id>` is the only open that runs the full client. The websocket/SSH transports remain only for deployments whose control plane reports no cmux-tui daemon; a machine that answers `vm_attach_transport_unsupported` is cmux-tui only and never falls back. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
 | `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the machine's open workspace, else the workspace you are in (or `--workspace <id\|ref\|index>`); desktop-kind machines only (`--base` machines have no screen). The pane opens the machine's private address on 6901 over the owner's private network (`POST /api/vm/<id>/open-port`). One path with `vm open <id>:desktop`, the split beside `vm shell`, and the sidebar tree: `vm.desktop_open {id, workspace_id?, focus}` (focus defaults to false so the pane never steals typing from the shell). |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
@@ -336,7 +339,7 @@ VM subcommands:
 | `vm agent --agent <claude\|codex\|opencode\|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>` | Start a coding agent on a cloud machine chosen like `vm run` (or pinned with `--machine`), as a detached terminal in the machine's cmux-tui session (`surface.new_terminal {machine, command, cwd, name, open}`; the command is a login shell that puts `/root/.npm-global/bin` first). A bare prompt uses the agent's one-shot form (`claude -p`, `codex exec`, `opencode run`, `pi -p`); flag- or subcommand-led args pass through. `--sync` pushes the directory to `work/<basename>` first and starts the agent there. Prints the terminal, the workspace, and the `vm open <machine>/<ws>/<term>` reattach address; exits as soon as the terminal starts. |
 | `surface ls [<machine>\|local] [--refresh] [--json]` | The surface catalog, exactly `vm tree` (This Mac and every cloud machine). |
 | `surface open <resource> [--workspace <id\|ref\|index>] [--pane <id\|ref>] [--left\|--right\|--up\|--down\|--tab] [--new] [--focus <true\|false>] [--json]` | Put one surface in a pane through the single open path (`surface.project {resource, workspace_id?, pane_id?, direction?, placement?, reuse?, focus?}` → `{surface_id, workspace_id, reused, resource}`). `<resource>` is `<machine>/<kind>/<key>` from `surface ls --json` (`local/terminal/<uuid>`, `<m>/terminal/<term_…>`, `<m>/display/display:1`, `<m>/browser/port:<n>`). Reuses the pane already showing the resource unless `--new`; `--pane` + a side splits that pane on that side, `--tab` adds a tab to it, otherwise the workspace's focused pane; a local terminal moves to the destination (it is shown once). Prints `OK surface=… workspace=… resource=… [reused=true]`. |
-| `surface new-terminal --machine <id\|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id\|ref\|index>] [--no-open] [--json] [-- <command...>]` | Create a terminal on a machine through its provider (`surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_id?, open?, workspace_id?, …}` → `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}`) and open it as a pane unless `--no-open`. Cloud terminals land in the machine's cmux-tui session (`--remote-workspace` picks the workspace); local ones are a new shell on This Mac. |
+| `surface new-terminal --machine <id\|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id\|ref\|index>] [--no-open] [--json] [-- <command...>]` | Create a terminal on a machine through its surface adapter (`surface.new_terminal {machine, command?, cwd?, name?, remote_workspace_id?, open?, workspace_id?, …}` → `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}`) and open it as a pane unless `--no-open`. Cloud terminals land in the machine's cmux-tui session (`--remote-workspace` picks the workspace); local ones are a new shell on This Mac. |
 | `vm tools <id>`, `vm tool-inspector <id>` | Inspect installed tools inside the VM. |
 | `vm ports <id>` | Show listening TCP ports inside the VM. |
 | `vm handoff <id>` | Print a short attach handoff block. |
@@ -380,12 +383,70 @@ Remotes subcommands:
 | `remotes add <name>` | Register or update a remote with one or more `--route <host:port>`. Supports `--tag` and `--json`. Idempotent on `<name>` (re-adding updates routes). The host must be a Tailscale address the phone can authenticate to (CGNAT `100.64.x.x`-`100.127.x.x` or `*.ts.net`); loopback, plain LAN IPs, and bare hostnames are rejected. |
 | `remotes remove <name-or-deviceId>` | Remove a remote you registered. Aliases `rm`, `delete`. Supports `--json`. |
 
-CodeRouter subcommands (cmux-owned; anything else passes through to the installed CodeRouter CLI):
+### CodeRouter reuse and namespace ownership
+
+`coderouter` and `cmux coderouter` are separate frontends over one public,
+versioned model-plane contract. The shared `coderouter-core` artifacts contain
+the schema, generated Rust protocol, async client, secure handoff, action IDs,
+error codes, retry rules, and redaction metadata. They contain no TTY, keyring,
+filesystem, or process-launch code.
+
+The standalone npm and PyPI packages are native-binary launchers. They are not
+SDKs, and cmux does not import them or search for them on `PATH`. The standalone
+frontend keeps its own keyring, config, login presentation, TTY, and local
+process handling. Rust cmux owns its cmux profile and team context, Cloud
+session selection, and output renderer. Both clients consume released public
+core artifacts, so the public cmux build stays reproducible.
+
+The command mapping is:
+
+| Standalone | cmux | Shared action |
+| --- | --- | --- |
+| `coderouter accounts` | `cmux coderouter account list` | `coderouter.account.list` |
+| `coderouter add|remove|enable|disable` | `cmux coderouter account add|remove|enable|disable` | `coderouter.account.mutate` |
+| `coderouter usage` | `cmux coderouter usage team|machine|agent` | `coderouter.usage.get` |
+| `coderouter <agent>` | `cmux cloud agent run --agent <agent>` | `coderouter.session.open` plus `cloud.agent.run` |
+| `coderouter login` | `cmux auth login` | `auth.session.get` |
+
+Existing `machines` and `claude` verbs remain aliases during the migration.
+Every documented action is implemented by the Rust client and emits the same
+JSON or JSONL envelope. Human text is a frontend projection. A one-release
+legacy delegation is allowed only behind an explicit flag, with the delegated
+binary, exit code, and contract version shown in the result.
+
+Authentication uses separate namespaced stores and injected traits. cmux never
+copies a refresh token into the standalone config, and standalone CodeRouter
+never writes into the cmux profile. A service-side one-time exchange may issue
+a model-only token when the user links accounts. Team ID is explicit on every
+team-scoped action.
+
+Request validation is automatic and bounded to version, identity,
+authorization, machine generation, and the requested action. There is no
+required `cloud capabilities` command. `--help --json` describes one action;
+an unsupported action returns `action_unsupported` with a valid replacement or
+upgrade hint.
+
+CodeRouter does not own machine creation, snapshots, networking, or terminal
+processes. `cmux cloud agent run` composes those compute actions with a model
+route and a secure handoff plan.
+
+CodeRouter subcommands:
+
+The current no-socket probe remains the compatibility shape during migration.
+When Rust owns the namespace, its target help shape is:
+
+~~~text
+Usage: cmux coderouter <status|session|usage|account|agent|machines|claude> [options]
+~~~
 
 | Command | Contract |
 | --- | --- |
-| `coderouter status` | Sign-in state (`auth.status`), selected team, and the team's Claude upstream accounts. Supports `--team <id>` and `--json`. |
-| `coderouter machines` | 30-day coderouter usage per Cloud machine from `GET /api/coderouter/vm-usage/team`: vmId, display name, total tokens, API-equivalent USD, plus a total line. Alias `machine`. Supports `--team <id>` and `--json` (raw team-usage payload). |
+| `coderouter status` | Sign-in state (`auth.status`), selected team, and model-plane health. Supports `--team <id>` and `--json`. |
+| `coderouter session open|close|status` | Create, close, or inspect a model route session. The session ID and selected team are always returned. Supports `--json`. |
+| `coderouter usage team|machine|agent` | Return usage for the selected team, machine, or agent. Supports `--team <id>` and `--json`. |
+| `coderouter account list|add|enable|disable|remove|clear` | Manage model accounts through the shared client. Secrets are read from a keyring, named environment variable, hidden prompt, or stdin, never argv. Supports `--team <id>` and `--json`. |
+| `coderouter agent list|configure` | Inspect or configure declarative agent adapters. Process launch remains a `cmux cloud agent` action. Supports `--json`. |
+| `coderouter machines` | Compatibility alias for `coderouter usage machine`. It returns 30-day usage per Cloud machine from `GET /api/coderouter/vm-usage/team`: vmId, display name, total tokens, API-equivalent USD, plus a total line. Alias `machine`. Supports `--team <id>` and `--json` (raw team-usage payload). |
 | `coderouter claude list` | Every Claude upstream account of the team: id, kind, masked identifier, label, health (`active`, `disabled`, `cooling down Ns <failure code>`), last use. Aliases `ls`, `show`, `get`, `status`. Supports `--team <id>` and `--json`. |
 | `coderouter claude add oauth-token` | Add a Claude Code OAuth token (`sk-ant-oat01-...`, from `claude setup-token`) as one more account. The token is read from `CLAUDE_CODE_OAUTH_TOKEN`, from stdin with `--stdin` or a non-TTY stdin, or from a hidden terminal prompt; never from argv. `--label <s>` names it. A non-`sk-ant-oat01-` value is rejected before the socket is used. Prints the masked identifier and account id only. `set` is an alias of `add`. Supports `--team <id>` and `--json`. |
 | `coderouter claude add api-key` | Same intake (`ANTHROPIC_API_KEY`, `--stdin`, hidden prompt) for an Anthropic API key (`sk-ant-...`, not `sk-ant-oat`). |
@@ -394,7 +455,7 @@ CodeRouter subcommands (cmux-owned; anything else passes through to the installe
 | `coderouter claude disable <account>`, `coderouter claude enable <account>` | Take an account out of routing, or put it back, via `coderouter.claude_upstream.update`. Same selector rules as `remove`. |
 | `coderouter claude clear` | Remove every Claude upstream account of the team (`No Claude upstream accounts were set.` when none). Aliases `remove-all`, `unset`. Supports `--team <id>` and `--json`. |
 
-Socket methods: `coderouter.claude_upstream.get|add|update|remove|clear` (`set` is an alias of `add`), `coderouter.machines`. Sign-in failures surface as the `auth_required` code, like `vm`.
+Socket methods remain compatibility methods: `coderouter.claude_upstream.get|add|update|remove|clear` (`set` is an alias of `add`), `coderouter.machines`. New Rust commands use the shared model-plane action IDs. Sign-in failures surface as the `auth_required` code, like `vm`.
 
 Theme subcommands:
 
@@ -646,8 +707,8 @@ Events command:
 | `--no-ack` | Suppress the initial ack frame in stdout. |
 | `--no-heartbeat`, `--no-heartbeats` | Suppress heartbeat frames in stdout. |
 
-`events.stream` is a v2 socket method advertised by `capabilities`. The first
-response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
+`events.stream` is a v2 socket method described by the legacy local diagnostic
+payload. The first response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
 `after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
 carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
 should persist `seq` after processing each event and reconnect with that value.
@@ -722,7 +783,8 @@ the expected text without connecting to a cmux socket.
 - `cmux help` -> `cmux - control cmux via Unix socket`
 - `cmux sessions --help` -> `Usage: cmux sessions list [options]`
 - `cmux ping --help` -> `Usage: cmux ping`
-- `cmux capabilities --help` -> `Usage: cmux capabilities`
+- `cmux capabilities --help` -> `Usage: cmux capabilities` (legacy local
+  socket diagnostic, not Cloud discovery)
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
 - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|workspace|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`

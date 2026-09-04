@@ -24,15 +24,15 @@ required for Cloud control or a headless agent run.
 An agent must be able to:
 
 1. discover account, team, project, machine, session, network, and agent
-   capabilities without reading prose;
+   actions and constraints from local command help and typed responses;
 2. choose a safe action from typed preconditions, permissions, cost, and
    side-effect metadata;
 3. invoke it with stable IDs and idempotent retries;
 4. observe progress, events, logs, and a durable result after disconnecting;
 5. verify the result with a bounded, machine-readable check.
 
-The product primitive is a capability and lifecycle contract. The TUI, sidebar,
-Swift app, npm launcher, PyPI launcher, and third-party adapters are clients of
+The product primitive is an action and lifecycle contract. The TUI, sidebar,
+Swift app, npm launcher, PyPI launcher, and external adapters are clients of
 that contract.
 
 ## Decisions
@@ -40,22 +40,37 @@ that contract.
 | Decision | Choice | Expert objection and response |
 | --- | --- | --- |
 | Cloud implementation owner | Rust owns the Cloud client, command behavior, models, errors, auth, and retries. Swift becomes a desktop projection layer and temporary compatibility bridge. | A fast wrapper that launches Swift or launches Rust from Swift leaves two parsers and two error contracts. That is cheaper for one release and expensive for every later feature, so it is not the final architecture. |
-| Public namespace | cloud resource action is canonical. vm and cloud vm are compatibility and ergonomic aliases for the machine resource. | One short vm namespace is easier to type, but it hides domains, teams, networks, and operations. The full namespace keeps discovery coherent while preserving existing scripts. |
+| Public namespace | `cloud <resource> <action>` is canonical. `vm` is the compatibility and ergonomic alias for `cloud vm`; established `vm agent` and `vm domains` spellings resolve to their canonical cloud actions. | One short vm namespace is easier to type, but it hides domains, teams, networks, and operations. The full namespace keeps discovery coherent while preserving existing scripts. |
 | Cloud object name | The server object is a machine; vm is its user-facing alias. | Renaming existing IDs would break scripts. IDs stay unchanged, and only the noun has a canonical spelling. |
-| Control plane | Rust calls a versioned cmux Cloud API directly over HTTPS. The API remains backed by Vercel routes, Effect services, Postgres, and provider adapters. | Making the app socket the only API blocks npm, PyPI, Linux, Windows, and guest workflows. Making clients call Freestyle directly leaks provider policy and credentials. |
+| Control plane | Rust calls a versioned cmux Cloud API directly over HTTPS. The API remains backed by hosted web routes, Effect services, Postgres, and managed infrastructure adapters. | Making the app socket the only API blocks npm, PyPI, Linux, Windows, and guest workflows. Making clients call infrastructure directly leaks policy and credentials. |
 | Data plane | Live terminals, workspaces, processes, events, and computer-use traffic use cmux-remote and its negotiated transports. | Rebuilding the data protocol in the HTTP client creates a second session implementation and loses replay and reconnect guarantees. |
-| Network access | System WireGuard, userspace WireGuard, public port publication, and machine-to-machine grants are separate capabilities. | Calling all of them VPN or treating a public URL as a tunnel makes security and failure states ambiguous. |
+| Network access | System WireGuard, userspace WireGuard, public port publication, and machine-to-machine grants are separate paths. | Calling all of them VPN or treating a public URL as a tunnel makes security and failure states ambiguous. |
 | OS integration | Rust owns tunnel protocol, route policy, grants, and userspace WireGuard. Small native adapters call macOS NetworkExtension and platform keyring APIs. | Forcing privileged OS APIs into Rust would add unsafe FFI or a root helper. Keeping broad Cloud behavior in Swift would preserve the split. The native boundary is limited to OS facilities and has no Cloud policy. |
 | Team scope | Login identifies a person. A selected team is explicit, persisted, and shown in every team-scoped mutation. | Inferring a team from the last response is convenient until a user has two teams. Silent cross-team mutations are unacceptable. |
-| Long work | Mutations return an operation receipt when they can outlive one HTTP request. wait, watch, and cancel operate on that receipt. | A synchronous create endpoint is simple until a provider resumes a sleeping machine or Vercel reaches its duration limit. Hidden background work is harder to recover than an explicit operation. |
-| Extensibility | Adapters and action manifests extend the capability catalog. They cannot add unaudited control-plane authority. | A marketplace of arbitrary scripts is not a contract. It makes permissions and replay impossible to reason about. |
+| Long work | Mutations return an operation receipt when they can outlive one HTTP request. wait, watch, and cancel operate on that receipt. | A synchronous create endpoint is simple until the backend must resume a sleeping machine or reaches its request limit. Hidden background work is harder to recover than an explicit operation. |
+| Machine creation latency | `cloud vm create` first claims a scrubbed warm machine for the requested region, size, image family, and persistence profile. The warm path targets p50 under 3 seconds to daemon-ready and p95 under 10 seconds. A cold path returns an operation immediately; the Rust client follows it by default so the command still returns a ready machine. `--no-wait` returns the operation for callers that want asynchronous control. | Always booting a new machine gives a clean mental model but makes every agent wait on image startup. A warm pool adds quota and scrubbing work, so the service must measure claim latency, discard unhealthy machines, and never reuse state across owners. Making cold waits implicit can surprise an interactive user, so progress, a bounded default deadline, and `--no-wait` are required. |
+| Action validation | The client performs a small protocol, identity, and authorization check for each action. Action-specific state appears in the action response; there is no generic feature list and no required `cloud capabilities` discovery command. Unsupported actions return a typed error with the next valid action. | Removing validation entirely makes version skew fail as confusing transport errors. Keeping a large action-list command makes agents spend a round trip on information they do not need. Bounded checks preserve safety without a ceremony step. |
+| CodeRouter reuse | A public versioned contract, generated protocol types, transport-neutral Rust client, and secure handoff library are shared by standalone `coderouter` and `cmux coderouter`. Each product keeps its own command, TTY, keyring, config, and process frontend. | Linking the standalone package into cmux is not reproducible because its source is private and its npm package is a binary launcher. Shelling the executable or copying its control plane creates version, auth, and error drift. |
 | Distribution | The desktop app reuses the already bundled Rust binary. npm and PyPI launch the same versioned binaries. | Shipping a second Cloud binary increases size and creates version skew. The current universal client is about 56 MB arm64 plus 59 MB x86_64, about 115 MB before Cloud code is measured. |
-| First Cloud release | Public custom-domain publication is included, behind verified zones, TLS state, access policy, health checks, and cleanup. | Deferring domains leaves the main production workflow dependent on provider-specific URLs and leaves the public/private boundary untested. Shipping an unverified or policy-free URL would be worse, so the gate is the complete publication lifecycle, not a port alias. |
-| Established domain deletion UX | Keep domains rm hostname as a single command with the existing aliases and output. Enforce exact owner, hostname, revision, idempotency, and provider cleanup in the backend. | A confirmation prompt would reduce accidental deletion, but it would break the shipped Ben Swerdlow flow and scripts. The exact-host and owner fences contain that risk; a new prompt needs a versioned UX decision, not a silent Rust change. |
+| First Cloud release | Public custom-domain publication is included, behind verified zones, TLS state, access policy, health checks, and cleanup. | Deferring domains leaves the main production workflow dependent on opaque deployment URLs and leaves the public/private boundary untested. Shipping an unverified or policy-free URL would be worse, so the gate is the complete publication lifecycle, not a port alias. |
+| Established domain deletion UX | Keep domains rm hostname as a single command with the existing aliases and output. Enforce exact owner, hostname, revision, idempotency, and edge cleanup in the backend. | A confirmation prompt would reduce accidental deletion, but it would break the shipped Ben Swerdlow flow and scripts. The exact-host and owner fences contain that risk; a new prompt needs a versioned UX decision, not a silent Rust change. |
 
 These choices trade a larger first contract for one source of truth. The
 residual risk is migration complexity while Swift and Rust coexist. The plan
 limits that period and makes the compatibility boundary observable.
+
+### Public vocabulary boundary
+
+Public CLI help, API schemas, package metadata, and Cloud design documents use
+role names such as machine, image family, managed edge, and backend. They do
+not expose deployment or vendor names. Internal adapter identifiers and
+historical migration records may retain existing names until the implementation
+migration removes them; those identifiers must never appear in user output,
+logs, or new public contracts. A vocabulary check is a required CI gate over
+public Cloud documents and generated help. Private operational runbooks may keep
+exact deployment selectors and secret names until their corresponding runtime
+migration lands; they are excluded from the public contract check and must not
+be copied into agent-facing help.
 
 ## System model
 
@@ -85,8 +100,8 @@ Stable resources and lifecycle:
 
 | Resource | Identity and owner | Important lifecycle |
 | --- | --- | --- |
-| Account | Stack user identity | signed out, signed in, revoked |
-| Team | Stack team ID | selected, membership changed |
+| Account | cmux account identity | signed out, signed in, revoked |
+| Team | cmux team ID | selected, membership changed |
 | Project | server project ID with a repository binding | discovered, configured, archived |
 | Machine | opaque server machine ID; display name is not identity | provisioning, ready, sleeping, waking, failed, destroyed |
 | Workspace | opaque daemon workspace ID, scoped to a machine | open, closed, recoverable |
@@ -116,7 +131,7 @@ include it.
 ~~~text
 CLI / SDK / Swift projection
           │
-          ├── cmux-cloud-client ── HTTPS cmux Cloud API ── Postgres + providers
+          ├── cmux-cloud-client ── HTTPS cmux Cloud API ── Postgres + managed edge
           │                              │
           │                              └── operations, auth, billing, policy
           │
@@ -125,8 +140,8 @@ CLI / SDK / Swift projection
                                           └── workspaces, PTYs, agents, events
 ~~~
 
-The control plane decides who may act, which machine is selected, what a
-provider can do, and how a mutation is billed. The data plane carries live
+The control plane decides who may act, which machine is selected, what the
+managed infrastructure can do, and how a mutation is billed. The data plane carries live
 terminal and event traffic after the control plane has issued a scoped route.
 The planes share resource IDs and request tracing, but neither substitutes for
 the other.
@@ -135,14 +150,18 @@ Rust crate ownership:
 
 | Layer | Initial owner | Boundary |
 | --- | --- | --- |
-| Wire models and schema | cmux-cloud-protocol, new | serde models, JSON Schema, capability and error enums; no I/O |
-| Cloud API client | cmux-cloud-client, new | HTTPS, auth provider, team context, retries, idempotency, operation polling |
+| Wire models and schema | cmux-cloud-protocol, new | serde models, JSON Schema, action and error enums; no I/O |
+| Cloud API client | cmux-cloud-client, new | HTTPS, auth adapter, team context, retries, idempotency, operation polling |
+| CodeRouter contract | coderouter-contract, new public schema package | model-plane action IDs, request and response envelopes, errors, usage, and route-authority metadata; no secrets or I/O |
+| CodeRouter protocol | coderouter-protocol, generated Rust crate | Rust types and action metadata generated from coderouter-contract; no global state |
+| CodeRouter client | coderouter-client, new transport-neutral library | async model-plane requests, auth traits, session/account/usage operations, retries, redaction, and deadlines; no TTY, filesystem, or process spawning |
+| Agent handoff | coderouter-handoff, new shared library | secure handoff v2, short-lived route authority, environment scrubbing, and invocation plans; no process ownership |
 | Public command frontend | cmux-tui Cloud command module | argv, help, output, exit codes, stdin and terminal policy |
 | Live remote transport | cmux-remote | enrollment, Noise identity, replay, sessions, terminal and event streams |
 | Private link | cmux-wg | userspace WireGuard and dialer; no Cloud policy |
 | Embedded terminal view | cmux-terminal-client | small FFI surface for iOS and future embedded clients |
 | Desktop composition | Swift app | construct clients, project resources into panes, human approval, local OS integration |
-| Backend | web/app/api, web/services/vms, CodeRouter services | auth, policy, billing, provider calls, DNS, TLS, durable state |
+| Backend | web/app/api, web/services/vms, CodeRouter services | auth, policy, billing, managed-edge calls, DNS, TLS, durable state |
 | Guest | baked cmux-tui daemon and signed adapters | terminal ownership, local process execution, bounded event production |
 
 The executable app remains the composition root for Swift objects. Rust
@@ -162,13 +181,13 @@ The contract source is a checked-in, versioned schema package owned jointly by
 the Rust and web teams. Backend route definitions implement that package;
 they are not an implicit contract generator. CI must:
 
-1. generate Rust and TypeScript models and the capability catalog;
+1. generate Rust and TypeScript models and action metadata;
 2. compile the Rust client against the generated models;
-3. run fixture conformance for every request, response, capability, and error;
+3. run fixture conformance for every request, response, action precondition, and error;
 4. reject a breaking change unless the API version changes or an explicit
    compatibility record exists.
 
-Hand-written Swift dictionaries and provider response types are not a
+Hand-written Swift dictionaries and backend response types are not a
 contract. The Swift bridge decodes the generated wire shape during migration.
 
 ### Request envelope
@@ -178,17 +197,22 @@ Every Cloud request carries:
 | Field or header | Purpose |
 | --- | --- |
 | API version | Rejects unsupported clients before a mutation |
-| authenticated principal | Stack user token, or a narrower machine principal |
+| authenticated principal | cmux account token, or a narrower machine principal |
 | team ID | Explicit team context when the resource is team-scoped |
 | client ID and version | Package, desktop, guest, or embedded client identity |
 | client request ID | UUID allocated before network work, used in logs and support |
-| trace context | Joins Vercel, provider, CodeRouter, and client timing |
+| trace context | Joins web routes, managed edge, CodeRouter, and client timing |
 | idempotency key | Required for every mutation and stable across safe retries |
 | expected revision | Optional optimistic concurrency fence |
 | deadline | Absolute deadline, never an unbounded phase timeout |
 
 Tokens, credentials, request bodies, and terminal bytes are never put in a
 client request ID, trace attribute, URL query, or diagnostic message.
+
+When a caller omits an idempotency key, Rust allocates one before the first
+network request and echoes it in every operation receipt. Callers that need to
+resume after a process exit persist that key with the operation ID; they never
+retry a timed-out mutation with a new key just to see whether it worked.
 
 ### Response and errors
 
@@ -200,10 +224,14 @@ Successful responses have a common outer shape:
   "request_id": "req_01...",
   "trace_id": "trace_01...",
   "revision": 42,
-  "capabilities": ["machine.exec.v1", "machine.remote.v1"],
   "data": {}
 }
 ~~~
+
+The new facade does not emit a generic capability or feature array. A
+compatibility route may still send `capabilities` or `features`; the client
+accepts and ignores those legacy fields at the boundary. Command behavior uses
+typed action data and typed errors, not an action-list response.
 
 Long mutations additionally return an operation:
 
@@ -238,9 +266,9 @@ Errors have stable fields:
 ~~~
 
 message is safe for a human. code, retryable, action, and details are for
-agents. Provider error text is retained only in redacted operator telemetry.
+agents. Backend error text is retained only in redacted operator telemetry.
 The client maps transport failures, auth expiry, rate limits, revision
-conflicts, capability gaps, provider failures, and indeterminate effects to
+conflicts, unsupported actions, backend failures, and indeterminate effects to
 stable codes.
 
 ### Operations and cancellation
@@ -268,28 +296,38 @@ cmux cloud operation cancel <id>
 ~~~
 
 Cancellation is cooperative. A canceled request receives a durable tombstone,
-and a late provider callback cannot resurrect the resource or overwrite a
-newer revision. Cleanup is idempotent and runs after the caller exits.
+and a late backend callback cannot resurrect the resource or overwrite a newer
+revision. Cleanup is idempotent and runs after the caller exits.
 
-### Capabilities
+A local deadline does not cancel backend work. The client returns the operation
+receipt with an indeterminate or running state, the generated idempotency key,
+and `cloud operation wait <id>` as the next action. Cancellation requires an
+explicit command and its own receipt.
 
-Capabilities are returned at account, team, machine, daemon, and transport
-boundaries. A capability has a version, requirements, permissions, limits,
-and an optional fallback. Unknown capabilities are ignored. A client never
-sends a gated request unless the matching capability was accepted for the
-current generation.
+### Action checks
 
-The CLI presents the same catalog through:
+The protocol validates a small version, identity, and authorization envelope at
+the start of each request. It also checks the selected machine's generation and
+image family when an action needs them. This protects against version skew
+without making an agent request a large action list first.
 
-~~~text
-cmux cloud capabilities [--json]
-cmux cloud describe <resource-or-action> [--json]
-~~~
+There is no required `cloud capabilities` command. Local help is the primary
+discovery surface, and `--help --json` returns the inputs, permissions,
+side-effects, limits, and output shape for one command. An attempted action
+returns `action_unsupported` with the supported replacement or the required
+upgrade when the current machine cannot perform it. `cloud doctor` is an
+exceptional diagnostic for a human or an incident runbook; normal workflows do
+not call it.
 
-Negotiation covers provider image shape, desktop availability, snapshot and
-fork support, private networking, userspace WireGuard, public publication,
-CodeRouter agent families, PTY and browser support, file limits, and protocol
-versions. It replaces brittle client version checks.
+Capabilities are not a Cloud product primitive. The only capability fields that
+remain are private cmux-tui transport handshake fields, where independently
+updated peers need a bounded compatibility bit. Cloud requests use a version,
+an action ID, and explicit preconditions. They do not fetch or persist a Cloud
+capability catalog.
+
+The request check is deliberately bounded to protocol version, client identity,
+machine generation, and the requested action. It does not enumerate backend
+implementation details or expose infrastructure names.
 
 ## Authentication and trust
 
@@ -315,7 +353,7 @@ prints account and expiry metadata, never token values. token-stdin is allowed
 for automation; token on argv is rejected.
 
 Profiles are named. A profile contains account and team context, API origin,
-and device identity, but never a provider secret. The active profile is
+and device identity, but never an infrastructure secret. The active profile is
 explicit in JSON and can be selected with profile. Commands fail rather than
 silently switching profiles.
 
@@ -325,9 +363,9 @@ cmux team list, cmux team use <id>, and cmux team current manage the selected
 team. Every team mutation includes the selected team ID in its request and
 response. A missing selection is an error for a team-only action.
 
-A Cloud VM never receives a user's Stack access or refresh token. At create,
+A Cloud VM never receives a user's cmux account access or refresh token. At create,
 the backend may mint a short-lived machine-scoped principal and store only its
-hash. A provider edge injects the principal only to the named cmux API origin.
+hash. The managed edge injects the principal only to the named cmux API origin.
 Scopes are deny-by-default:
 
 - read the machine's own status and allowed peers;
@@ -342,7 +380,7 @@ enrollment are implementation details.
 
 - No token or credential in argv, environment snapshots, logs, journal
   records, URLs, package metadata, or VM images.
-- Provider, CodeRouter, DNS, and certificate credentials stay in backend
+- Infrastructure, CodeRouter, DNS, and certificate credentials stay in backend
   services or edge rules.
 - Agent configuration in a guest contains endpoints and placeholders, not
   bearer secrets. Edge injection supplies short-lived route authority.
@@ -366,6 +404,19 @@ Aliases are resolved before resource parsing:
 cmux cloud vm list          # canonical, explicit
 cmux vm ls                  # short compatibility alias
 ~~~
+
+Alias resolution is deterministic and happens before option parsing:
+
+| Existing spelling | Canonical action |
+| --- | --- |
+| `cmux vm <action>` | `cmux cloud vm <action>` |
+| `cmux vm agent <action>` | `cmux cloud agent <action>` |
+| `cmux vm domains <action>` | `cmux cloud domains <action>` |
+| `cmux vm route|run` | `cmux cloud vm route|run` |
+
+The result envelope records both the canonical action ID and the spelling the
+caller used. This preserves scripts without making help or telemetry maintain
+two implementations.
 
 Global options accepted by Cloud commands:
 
@@ -391,7 +442,7 @@ Help is local and does not require login, a desktop app, or a socket:
 ~~~text
 cmux cloud --help
 cmux cloud vm --help
-cmux cloud capabilities --help
+cmux cloud vm create --help --json
 ~~~
 
 Help marks each command as headless, desktop, guest, or interactive. An agent
@@ -399,7 +450,7 @@ can reject a command that would require a human window.
 
 ### Frontend implementation
 
-The Rust CLI is a thin typed frontend over the capability contract. Its
+The Rust CLI is a thin typed frontend over the action contract. Its
 execution pipeline is fixed:
 
 ~~~text
@@ -408,7 +459,7 @@ argv
 → resolve canonical noun and compatibility alias
 → parse a typed action and exact selectors
 → load profile, team, deadline, and output policy
-→ preflight capabilities, permission, cost, and confirmation
+→ preflight permission, cost, and confirmation
 → execute through Cloud or remote transport
 → collect operations, events, and verification
 → render one human or machine-readable result
@@ -420,7 +471,7 @@ CommandContext supplies profile, team, clock, cancellation, transport, and
 renderer dependencies. No command reads a singleton, mutates global output
 state, or calls the Swift parser.
 
-The schema generates action IDs, option metadata, capability requirements, and
+The schema generates action IDs, option metadata, action preconditions, and
 JSON shapes. Human wording and the Ben Swerdlow domain flow remain reviewed
 handwritten projections over those generated shapes. This avoids a giant
 match statement while also avoiding a generator that invents unsafe UX.
@@ -442,7 +493,7 @@ the API boundary. quiet suppresses successful output but keeps errors.
 | Code | Meaning |
 | --- | --- |
 | 0 | Success or clean stream completion |
-| 1 | Cloud operation rejected, remote command failed, or provider failure |
+| 1 | Cloud operation rejected, remote command failed, or managed-service failure |
 | 2 | Local syntax, selector, profile, or configuration error |
 | 3 | Transport, framing, deadline, or protocol failure |
 | 4 | Authentication required or refresh failed |
@@ -460,8 +511,8 @@ auth status|login|logout
 team list|current|use
 project list|show|dev|env set|env list|env rm|sync
 
-cloud capabilities|describe
 cloud operation get|wait|watch|cancel
+cloud doctor [--json]
 
 cloud vm list|get|create|status|stats|wait|wake|sleep|rename|destroy
 cloud vm base open|reset
@@ -501,7 +552,8 @@ vpn status|up|down|revoke|hosts
 
 Top-level coderouter and vpn remain because they can serve local and Cloud
 clients. cloud network reports the Cloud route used by a command. vpn controls
-the local machine's system tunnel. They are not aliases.
+the local machine's system tunnel. They are not aliases. Action checks are
+automatic; `cloud doctor` is for diagnosis after a failure, not a setup step.
 
 ### Domain command compatibility
 
@@ -539,7 +591,7 @@ The user flow is fixed:
    The first call creates the ownership challenge and prints labelled
    ownership, routing, and certificate records. The user changes DNS and runs
    the same command again. Verification is attributed by the stored challenge
-   ID and base zone, not by a provider domain lookup.
+   ID and base zone, not by an infrastructure domain lookup.
 4. publish accepts a VM and port. Without domain it mints a friendly generated
    hostname in the reserved cmux.sh zone and needs no customer DNS proof. The
    generated name is friendly and one label; users cannot choose a label under
@@ -555,12 +607,12 @@ The user flow is fixed:
    membership is checked on every protected request.
 6. rm unpublishes by hostname as the user-facing selector. The existing
    publication ID remains accepted for compatibility. It disables
-   authorization, removes the exact provider rule, and then removes the local
+   authorization, removes the exact edge rule, and then removes the local
    record. It is safe to retry.
 
 The DNS checklist labels why each record exists. It includes the ownership TXT
 record, apex and wildcard routing records, and the _acme-challenge delegation.
-When a DNS provider lacks ALIAS, ANAME, or flattening, the output gives the
+When a DNS service lacks ALIAS, ANAME, or flattening, the output gives the
 same www redirect fallback. The access page has only sign-in and denial
 states; it does not add request-access or viewer-grant flows. These details
 are part of the contract, not presentation-only choices.
@@ -580,7 +632,7 @@ billing gates, or publication cleanup.
 The established cloud domains rm hostname command is the compatibility
 exception: it keeps its current one-command behavior and does not add a
 surprise prompt. It still requires ownership, an exact hostname or publication
-ID, revision and idempotency checks, and complete provider cleanup. A future
+ID, revision and idempotency checks, and complete edge cleanup. A future
 breaking CLI version may add an explicit confirmation mode after migration
 metrics show that callers can handle it.
 
@@ -588,7 +640,7 @@ metrics show that callers can handle it.
 
 | Verb | Contract |
 | --- | --- |
-| cloud vm ssh <id> | Interactive shell. Prefer cmux-remote; use OpenSSH only when transport openssh is explicit or the daemon capability is absent. |
+| cloud vm ssh <id> | Interactive shell. Prefer cmux-remote; use OpenSSH only when transport openssh is explicit or the daemon is unavailable. |
 | cloud vm exec <id> -- <argv> | One noninteractive direct process, bounded output, structured exit result, no stdin. |
 | cloud vm run [--machine <id>] -- <argv> | Route a fresh command by project or work key, optionally sync and pull, then return the remote exit code. |
 | cloud terminal send/read/wait | Drive an existing PTY without creating a pane or taking focus. |
@@ -598,7 +650,7 @@ metrics show that callers can handle it.
 ssh is an experience and compatibility verb, not the security model. Machine
 identity, remote enrollment, and grants decide authority.
 
-## Capability areas
+## Cloud action areas
 
 ### Machine lifecycle, bases, snapshots, and forks
 
@@ -607,13 +659,62 @@ machines are router-owned and may be drafted by cloud vm run or cloud agent.
 A user-created machine is never drafted because its label says agent-pool;
 membership uses a durable server or local binding ID.
 
-Create is asynchronous when a provider may sleep, resume, or provision. It
-accepts a caller idempotency key and returns an operation. wait --wake proves
-that the daemon and requested image are ready, not only that a provider object
-exists.
+Create is a fast claim operation. The backend keeps scrubbed warm machines by
+region, size, and image family. A create request atomically claims one, binds a
+new machine identity, resets its daemon state, and returns as soon as the
+daemon-ready probe succeeds. The warm path targets p50 under 3 seconds and p95
+under 10 seconds. The command waits for a ready machine by default. If the warm
+pool is empty, the API returns an operation immediately and the Rust client
+follows it to readiness with progress and a bounded deadline. `--no-wait`
+returns the operation instead. The response always includes the machine ID,
+state, operation ID when present, and the next safe command.
+
+Warm machines contain no user files, credentials, routes, or publication state.
+The claim transaction invalidates stale leases before assigning ownership. A
+failed readiness probe discards the machine from the warm pool and retries only
+with a bounded budget. Create does not perform a separate action-list
+round-trip; the requested kind, size, region, and image family are validated in
+the same action.
+
+The warm-pool key includes the persistence profile. A persistent machine claims
+an unused encrypted home-volume lease from the warm storage pool before the
+daemon-ready probe; a volume that is not clean or cannot mount is not a warm
+slot. Readiness therefore covers the home mount, daemon, private route, and
+requested machine kind, not only the host boot state.
+
+Warm-pool refill is asynchronous and never sits on the create request. The
+claim transaction locks one slot, invalidates stale leases, and cannot return
+the same slot to two callers. Refill scrubs the slot before it becomes
+claimable. Concurrent claims either receive distinct slots or take the same
+cold-operation path; they never queue behind a generic catalog or capability
+request.
+
+The create request carries the display label, when supplied, in the same
+idempotent transaction. It does not create the machine and then issue a second
+rename request on the fast path. A legacy backend may apply the label through
+one fenced compatibility update, but the Rust facade reports that extra step
+in the receipt.
+
+The result is ready-or-operation, with one stable shape:
+
+~~~json
+{
+  "machine": {"id": "vm_01...", "state": "ready"},
+  "operation": null,
+  "ready": true,
+  "next_actions": ["cloud vm ssh vm_01..."]
+}
+~~~
+
+For a cold claim, `operation` identifies the durable create and `ready` is
+false. The Rust client follows it by default, writes progress to stderr, and
+prints one final receipt to stdout. `--no-wait` returns the same operation
+without opening a local terminal. `--timeout` changes the default ten-minute
+follow deadline. `--detach` only controls the local terminal projection after
+readiness; it never changes machine ownership or lifecycle.
 
 Snapshots are immutable checkpoints. A fork records the source snapshot and a
-new machine ID. Restore checks image and daemon capabilities, freezes
+new machine ID. Restore checks image and daemon requirements, freezes
 dependent publications and sessions, and returns a receipt describing what was
 preserved and what was intentionally not preserved. Running processes are not
 promised to survive a daemon restart; their durable exit or interruption
@@ -663,17 +764,17 @@ There are three network paths:
 2. Userspace link: cloud session attach can use cmux-wg without root or a VPN
    prompt. It carries only cmux's authenticated link. The Mac hub shares one
    app tunnel across sidecars; iOS holds one in-process tunnel.
-3. Public publication: a port is exposed through the provider TLS edge with a
+3. Public publication: a port is exposed through the managed TLS edge with a
    generated or verified custom hostname and an explicit access policy.
 
-Public custom-domain publication is currently a Freestyle capability. The
-Rust client asks the machine capability catalog before starting it. An E2B or
-future provider without the TLS publication contract returns a typed
-capability-unavailable result; it must not silently switch providers or expose
-a provider URL as if it were a cmux domain.
+Public custom-domain publication is a managed-edge action. The Rust client
+validates the requested zone, access mode, and machine route in the publish
+action. An environment without the TLS publication contract returns a typed
+`action_unsupported` result; it must not silently switch infrastructure or
+expose an opaque deployment URL as if it were a cmux domain.
 
 cloud vm port open returns a private, tokened endpoint and records protocol,
-bind, owner, and capability state. It does not create an arbitrary public
+bind, owner, and reachability state. It does not create an arbitrary public
 proxy. Loopback listeners are not advertised as reachable until a probe proves
 the selected bind is valid.
 
@@ -687,7 +788,7 @@ cloud domains access app.example.com public
 cloud domains rm app.example.com
 ~~~
 
-The backend owns DNS challenges, TLS certificates, provider rules, and private
+The backend owns DNS challenges, TLS certificates, edge rules, and private
 keys. A publication has exactly one access mode: personal, team, or public.
 Changing the mode is an ordered state transition, and deleting a VM first
 disables and sweeps every dependent publication.
@@ -725,7 +826,7 @@ rejected.
 
 Agent adapters are declarative manifests. Each declares stable agent ID and
 binary detection, launch/resume/stop/session-ID extraction, hook installation,
-native-event mapping, required capabilities and permissions, and safe
+native-event mapping, required runtime conditions and permissions, and safe
 transcript sources. Claude, Codex, OpenCode, and Pi are first-party adapter
 fixtures, not hardcoded branches in the Cloud transport.
 
@@ -745,36 +846,111 @@ agent.state.changed
 blocked is derived from unresolved approval, question, plan review, or explicit
 needs_input. It is not the primary event.
 
+### CodeRouter package and namespace reuse
+
+`coderouter` and `cmux coderouter` are two command frontends over one model-plane
+contract. They do not share a binary, a config file, or a TTY. They share action
+IDs, wire models, error codes, retry rules, route-authority rules, and usage
+fixtures.
+
+The reusable public layers are:
+
+| Layer | Responsibility | Must not own |
+| --- | --- | --- |
+| `coderouter-contract` | Versioned JSON Schema, action definitions, redaction annotations, and generated TypeScript package | credentials, transport, or process state |
+| `coderouter-protocol` | Generated Rust request, response, error, usage, and session types | HTTP, filesystem, or global state |
+| `coderouter-client` | Async transport-neutral client, auth traits, team scope, account/session/usage actions, deadlines, retries, idempotency, and redaction | TTY rendering, keyrings, config files, or process spawning |
+| `coderouter-handoff` | Secure handoff v2, short-lived route authority, environment scrubbing, and agent invocation plans | VM lifecycle, PTYs, or agent process ownership |
+
+These layers should live in a small public `coderouter-core` repository and be
+released as independently versioned artifacts. A public repository is required
+because the cmux source and build must remain reproducible. The standalone
+CodeRouter npm package is a native-binary launcher, not a JavaScript library;
+cmux must not import it or download it at runtime. The standalone source may
+remain private because the shared contract and client contain the reusable
+surface without product secrets.
+
+The dependency graph is:
+
+~~~text
+coderouter-contract
+        ↓
+coderouter-protocol
+        ↓
+coderouter-client  ── coderouter-handoff
+      ↙       ↘
+coderouter   cmux coderouter
+~~
+
+The standalone frontend keeps its existing grammar and owns local keyring,
+device login, config, TTY, local process launch, and terminal UI. The cmux
+frontend owns cmux profile and team context, Cloud session selectors, and the
+human or JSON renderer. Both map their verbs to the same action IDs:
+
+| Standalone | cmux | Action ID |
+| --- | --- | --- |
+| `coderouter login` | `cmux auth login` followed by `cmux coderouter status` | `auth.session.get` and `coderouter.status` |
+| `coderouter accounts` | `cmux coderouter account list` | `coderouter.account.list` |
+| `coderouter add|remove|enable|disable` | `cmux coderouter account add|remove|enable|disable` | `coderouter.account.mutate` |
+| `coderouter usage` | `cmux coderouter usage team|machine|agent` | `coderouter.usage.get` |
+| `coderouter <agent>` | `cmux cloud agent run --agent <agent>` | `coderouter.session.open` plus `cloud.agent.run` |
+
+Existing `cmux coderouter machines` and `cmux coderouter claude ...` verbs stay
+as aliases while callers migrate. The final Rust namespace does not search
+`PATH` or silently spawn a second executable. A one-release compatibility flag
+may invoke the installed binary only when explicitly requested, and it must
+label the result, preserve the exit code, and report the contract mismatch.
+
+Authentication uses injected traits. cmux stores its Cloud profile in the cmux
+keyring; standalone CodeRouter stores its own profile in a namespaced entry.
+Neither product copies refresh tokens into the other config. If a user links
+the accounts, the service performs a one-time scoped exchange and returns a
+new token with only model-plane permissions. Team selection is explicit in
+every team-scoped request.
+
+The shared client is asynchronous. The standalone binary uses a small blocking
+adapter, while cmux uses its existing async runtime. This costs two adapters
+and prevents a blocking model client from stalling remote terminal or event
+work. Human text, JSON, and JSONL are separate renderers over the same result
+envelope, which includes `contract_version`, `action_id`, `request_id`, and
+redaction metadata.
+
+CodeRouter never owns machine creation, snapshots, networking, or terminal
+processes. `cmux cloud agent run` composes a machine action, a remote session,
+the handoff plan, and a model route. This boundary prevents a model credential
+from gaining compute authority and lets either frontend reuse the model plane.
+
 ### Desktop, browser, notifications, and mobile
 
 Desktop machines expose a VNC/noVNC display as a resource outside a terminal
 workspace. Browser surfaces and forwarded ports use the same surface.project
 operation as terminals. The CLI can inspect and control them headlessly when
-the provider advertises computer-use capabilities.
+the machine response reports `desktop_ready` or `browser_ready` for that
+specific action.
 
 Notifications are durable machine events. An agent can emit cmux notify inside
 a VM without a Mac attached. A reconnecting client drains by cursor and
 acknowledges after rendering. Later, the control plane may fan out the same
 ledger to iOS push; push is a delivery adapter, not a second event source.
 
-Mobile and desktop clients use the same Cloud resource IDs and capability
-responses. The iOS FFI client is a data-plane client; VM lifecycle and billing
+Mobile and desktop clients use the same Cloud resource IDs and action-specific
+state responses. The iOS FFI client is a data-plane client; VM lifecycle and billing
 remain in the Rust Cloud client and backend.
 
 ### Usage, billing, and policy
 
 Every billable or quota-relevant action returns a usage reference and request
-ID. The usage ledger records resource IDs, provider, image, agent, model
+ID. The usage ledger records resource IDs, deployment image, agent, model
 category, status, and token or machine-time counts. It never records prompts,
 outputs, raw commands, credentials, or terminal bytes.
 
-Plan limits, free windows, machine counts, provider budgets, and team
+Plan limits, free windows, machine counts, service budgets, and team
 membership are server decisions. The CLI may display a preflight estimate, but
 it cannot enforce policy by deleting a machine or guessing a plan.
 
 ## Agent-accretive extension contract
 
-### Capability catalog
+### Action metadata and extensions
 
 An action descriptor is data:
 
@@ -787,7 +963,7 @@ An action descriptor is data:
     {"name": "machine", "type": "machine.selector", "required": true},
     {"name": "argv", "type": "argv", "required": true}
   ],
-  "preconditions": ["machine.exec.v1"],
+  "preconditions": ["machine.ready", "permission.machine.exec"],
   "permissions": ["machine.exec"],
   "effects": ["process.created", "usage.recorded"],
   "observes": ["operation.progress", "process.exit"],
@@ -796,16 +972,18 @@ An action descriptor is data:
 }
 ~~~
 
-An agent can list, filter, and explain actions before invoking them. A human
-can inspect and approve the same descriptor in the sidebar or command palette.
-Third-party additions are valid only when they use this schema and declare
-their permissions.
+An agent normally receives this descriptor with command help or an action
+failure. It does not need a discovery request before invoking a known action. A
+human can inspect and approve the same descriptor in the sidebar or
+command palette. External additions are valid only when they use this schema
+and declare their permissions.
 
 ### Project and adapter manifests
 
 .cmux/cloud.json is a project-owned recipe, not an executable hook. It may
 name commands and secret references, but cannot contain a token, arbitrary
-provider API call, or local surface ID. Agent manifests follow the same rule.
+infrastructure API call, or local surface ID. Agent manifests follow the same
+rule.
 
 Initial extension points:
 
@@ -818,7 +996,7 @@ Initial extension points:
 
 The core does not accept arbitrary plugin code in the remote daemon. A trusted
 adapter may request a declared action; the server still checks principal,
-capability, revision, and resource ownership.
+action preconditions, revision, and resource ownership.
 
 ### Verification receipts
 
@@ -842,18 +1020,23 @@ agent continue without reconstructing hidden state.
 | --- | --- | --- |
 | npm cmux | platform launcher plus matching Rust binary | clean install, checksum and executable-bit verification |
 | PyPI cmux | platform wheel plus matching Rust binary | uvx cmux works without Bun or a desktop app |
+| npm/PyPI coderouter | standalone native launcher plus matching binary | independent release stream, checksum verification, and no cmux dependency |
+| CodeRouter core artifacts | public schema, generated Rust protocol, async client, and handoff library | both frontends use the same action IDs and fixture suite |
 | Desktop app | existing bundled Rust binary and Swift projection | one binary version for local, Cloud, and remote commands |
-| VM image | pinned Linux binary, daemon supervisor, common tools, adapters | readiness and capability report before attach |
+| VM image | pinned Linux binary, daemon supervisor, common tools, adapters | readiness and action-specific state before attach |
 | SDK/FFI | generated models and narrow data-plane bindings | version negotiation and no hidden singleton state |
 
 Cloud code is measured from a release build after the client lands. The
 desktop app must not carry a second copy of the binary. npm and PyPI launchers
-must reject a binary with a mismatched protocol or capability manifest.
-Release artifacts include checksums, provenance, SBOM, and a rollback channel.
+must reject a binary with a mismatched protocol or image manifest.
+CodeRouter and cmux may release on different schedules, but their shared
+contract version must be supported by both before either frontend publishes a
+new action. Release artifacts include checksums, provenance, SBOM, and a
+rollback channel.
 
 The clean-install matrix covers Linux x64 and arm64, macOS arm64 and x64,
 Windows x64, no desktop app, no Bun, offline help, login, VM list, create,
-attach, exec, reconnect, and logout.
+attach, exec, reconnect, CodeRouter status, and logout.
 
 ## Delivery principles
 
@@ -870,7 +1053,6 @@ clean npm/PyPI install
 → team use
 → cloud vm list
 → cloud vm create
-→ cloud vm wait --wake
 → cloud vm ssh or exec
 → cloud session attach
 → cloud agent run through CodeRouter
@@ -883,11 +1065,11 @@ clean npm/PyPI install
 ~~~
 
 Project manifests, desktop surfaces, machine-to-machine links, and fan-out are
-separate capability slices after this path has a reliable receipt and replay
-story. Public custom-domain publication is part of the first release, not a
-later parity promise. A server may capability-gate a provider or access mode,
-but it must expose the typed zone, TLS, publication, health, and cleanup
-workflow from the first release.
+separate action slices after this path has a reliable receipt and replay story.
+Public custom-domain publication is part of the first release, not a later
+parity promise. An environment may gate an access mode, but it must expose the
+typed zone, TLS, publication, health, and cleanup workflow from the first
+release.
 
 The automated clean-install path uses a generated cmux.sh hostname. A separate
 live smoke uses a customer zone and exercises the DNS checklist, repeated
@@ -901,10 +1083,10 @@ making custom domains a release requirement.
   model and keeps headless packages dependent on a Mac.
 - Rust shelling Swift preserves the duplicate contract and makes Linux and
   Windows impossible.
-- Provider SDKs in Rust clients leak provider semantics and credentials;
-  backend adapters are the single provider boundary.
-- SSH as the only transport loses structured replay, process catalogs,
-  capability negotiation, and userspace mobile links.
+- Infrastructure SDKs in Rust clients leak deployment semantics and
+  credentials; backend adapters are the single infrastructure boundary.
+- SSH as the only transport loses structured replay, process catalogs, bounded
+  action checks, and userspace mobile links.
 - One VM per agent task wastes warm state. Use many workspaces in one machine,
   then fork for isolation.
 - Polling as the event model burns resources and loses durable ordering. Use
@@ -913,12 +1095,12 @@ making custom domains a release requirement.
   publication have different access and cleanup rules.
 - Credentials in the image create account-wide compromise from one guest. Use
   scoped edge injection and short-lived machine principals.
-- A marketplace before a capability schema produces scripts, not composable
+- A marketplace before an action schema produces scripts, not composable
   agent actions.
 
 The main residual risk is contract breadth. The implementation plan keeps the
-first release narrow while freezing resource, error, capability, and receipt
-shapes early enough for later clients to accumulate value.
+first release narrow while freezing resource, error, action, and receipt shapes
+early enough for later clients to accumulate value.
 
 ## Acceptance and evidence
 
@@ -927,18 +1109,23 @@ The design is complete only when these behavior-level checks pass:
 1. clean npm and PyPI installs run offline help without the desktop app;
 2. one authenticated profile cannot read or mutate another team's machine;
 3. retried create, restore, publish, and destroy do not duplicate effects;
-4. a sleeping machine reports progress and reaches verified daemon readiness;
+4. a warm machine reaches daemon readiness within the creation latency target;
+   a cold machine returns an operation immediately and can be followed with
+   `--wait`;
 5. exec, interactive ssh, and existing-terminal control have distinct output
    and exit contracts;
 6. a dropped link resumes from a cursor or returns a typed replay gap followed
    by a snapshot, without spawning a replacement shell;
 7. CodeRouter requests from Claude, Codex, OpenCode, and Pi are attributed to
    the correct machine and team without a guest-held route token;
-8. a verified custom domain can publish a selected machine port, report TLS
+8. standalone `coderouter` and `cmux coderouter` produce the same action IDs,
+   JSON envelopes, error codes, and usage fixtures, while retaining separate
+   keyring and TTY frontends;
+9. a verified custom domain can publish a selected machine port, report TLS
    and health state, enforce personal, team, or public access, and be removed
    without leaving a route;
-9. private internal access, userspace links, and public TLS domains cannot
+10. private internal access, userspace links, and public TLS domains cannot
    cross their declared policy boundaries;
-10. a closed laptop can receive a durable event and a later client can drain and
+11. a closed laptop can receive a durable event and a later client can drain and
    acknowledge it;
-11. the final JSON receipt explains what happened without exposing secrets.
+12. the final JSON receipt explains what happened without exposing secrets.

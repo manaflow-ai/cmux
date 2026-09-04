@@ -2,7 +2,7 @@
 
 This is the private-beta runbook for billing convergence, webhook replay,
 latency evidence, and privacy-safe observability. Never paste route tokens,
-OAuth credentials, request bodies, email addresses, or provider-account IDs
+OAuth credentials, request bodies, email addresses, or upstream-account IDs
 into tickets, logs, Sentry, PostHog, or ClickHouse.
 
 ## Rust Cloud client boundary
@@ -10,6 +10,34 @@ into tickets, logs, Sentry, PostHog, or ClickHouse.
 CodeRouter is the model plane. The machine, workspace, and agent adapter are
 the compute plane. Rust must expose both through stable IDs and receipts, but
 must not combine their credentials or failure states.
+
+## Shared client and package boundary
+
+The standalone `coderouter` binary and `cmux coderouter` use the same public
+`coderouter-core` artifacts: a versioned schema, generated Rust protocol,
+transport-neutral async client, and secure handoff library. The shared layers
+own action IDs, envelopes, auth traits, retries, deadlines, redaction, and
+usage fixtures. They do not own a TTY, keyring, config file, or process.
+
+The npm and PyPI CodeRouter packages are native-binary launchers, not SDKs.
+cmux links released core artifacts and never imports an npm package, searches
+`PATH`, or depends on a private source repository. The standalone frontend
+keeps local keyring and TTY behavior. cmux keeps Cloud profile, team, session,
+and renderer behavior. A one-release legacy delegation requires an explicit
+flag and reports the delegated binary and contract version.
+
+Both frontends map to the same actions:
+
+~~~text
+coderouter accounts       = cmux coderouter account list
+coderouter usage          = cmux coderouter usage team|machine|agent
+coderouter <agent>        = cmux cloud agent run --agent <agent>
+coderouter login          = cmux auth login
+~~~
+
+CodeRouter cannot create machines, change network policy, or own terminal
+processes. `cmux cloud agent run` composes those compute actions with a model
+route and a handoff plan.
 
 The Rust command contract is defined in
 [docs/cloud-rust-system-design.md](cloud-rust-system-design.md) and staged in
@@ -26,7 +54,7 @@ cmux cloud agent run|get|wait|logs|stop|resume
 The existing Swift commands remain compatibility entrypoints until these Rust
 commands produce equivalent JSON, authorization, retry, and usage behavior.
 The guest receives only edge-injected, short-lived route authority. It never
-receives a user's Stack or provider refresh token. A model route cannot grant
+receives a user's Stack or infrastructure refresh token. A model route cannot grant
 machine creation, destruction, snapshot, billing, or team-account authority.
 
 ## Access
@@ -34,7 +62,7 @@ machine creation, destruction, snapshot, billing, or team-account authority.
 Hosted coderouter and Subrouter are open to every signed-in user in every
 team they belong to, including the personal team. Membership is the only
 requirement: there is no Stack permission, team allow-list, or paid-plan
-gate, and no connected-account cap. Route sessions and provider accounts are
+gate, and no connected-account cap. Route sessions and upstream accounts are
 scoped to the team the caller selects; a non-member gets `team_not_found`.
 
 ## Stripe webhook replay
@@ -101,20 +129,20 @@ the authenticated output if it contains a principal identifier.
 ## Observability
 
 - Sentry project: `coderouter-web`; alert on new coderouter errors,
-  reconciliation failure, refresh failure, and sustained provider failure.
+  reconciliation failure, refresh failure, and sustained backend failure.
 - PostHog project: a dedicated CodeRouter-only project with AI Observability
   enabled and its project timezone pinned to UTC. Do not ingest ordinary cmux
   product analytics into it.
 - CodeRouter model-usage events use PostHog's standard `$ai_generation`
   schema in content-free privacy mode. They contain token counts, the
-  model/provider category required for pricing, and a pre-calculated
+  model-route category required for pricing, and a pre-calculated
   API-equivalent estimate. They do not include a prompt, output, trace,
   request body, member identity, or raw Stack team ID.
 - The stable team scope is HMAC-SHA256 with the independent
   `CODEROUTER_ANALYTICS_SCOPE_SECRET`; plain hashing is not sufficient because
   known team IDs would be guessable. Person-profile processing is disabled.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
-  tokens, email, payment-method details, or provider-account identifiers.
+  tokens, email, payment-method details, or upstream-account identifiers.
 
 ### Usage ledger (ClickHouse)
 
@@ -123,7 +151,7 @@ one `route_events` row to our own ClickHouse Cloud database, from the same
 deferred `after()` path as the PostHog capture. Schema:
 `web/db/clickhouse/001_coderouter_events.sql`. Rows hold token counts, the
 rate-card estimate (`api_equivalent_usd`, `priced`, `rate_card_version`), the
-raw team and Stack user IDs, the optional `vm_id`, provider, agent, model,
+raw team and Stack user IDs, the optional `vm_id`, route kind, agent, model,
 status, and a per-request `request_id` shared by the usage and route rows.
 No prompt, output, header, or credential is ever written.
 
@@ -166,11 +194,11 @@ No prompt, output, header, or credential is ever written.
 - Results are aggregate daily token totals and API-equivalent dollars only.
   Model identifiers are used at write time to derive the estimate from the
   versioned rate card in
-  `web/services/coderouter/apiEquivalentPricing.ts`; neither model nor provider
+  `web/services/coderouter/apiEquivalentPricing.ts`; neither model nor route kind
   is returned to the customer.
 - The estimate is not actual spend. Unknown models are excluded and surfaced
   through pricing coverage (`priced_tokens` / `unpriced_tokens`).
-  Subscription-routed traffic remains `$0` incremental provider API spend.
+  Subscription-routed traffic remains `$0` incremental upstream API spend.
 - Responses are cached by team ID for five minutes. A disabled ledger,
   malformed rows, more than 30 day rows, timeouts, and query failures fail
   closed to an unavailable panel and never fall back to a cross-team or
@@ -194,7 +222,7 @@ No prompt, output, header, or credential is ever written.
   `404 vm_not_found` for machines outside the team),
   `GET /api/coderouter/vm-usage/team` (same auth, one row per owned machine
   joined with `cloud_vms.display_name`), and
-  `GET /api/coderouter/vm-usage/self` (VM-bound route token via the Freestyle
+  `GET /api/coderouter/vm-usage/self` (VM-bound route token via the managed
   edge, `403 vm_bound_token_required` for CLI tokens) serve the same
   30-day totals and daily series as the team dashboard. The dashboard
   Machines card reads the per-machine query through the same service.
@@ -246,7 +274,7 @@ add, enable/disable, and remove. Rows migrated from the single-upstream table ke
 
 ## Verifying the edge model plane locally
 
-`web/scripts/coderouter/local-edge.mjs` stands in for the Freestyle TLS egress edge: a
+`web/scripts/coderouter/local-edge.mjs` stands in for the managed TLS egress edge: a
 private CA, TLS termination on `127.0.0.1:8443`, the two edge headers overwritten on every
 request (the real edge does the same), and re-origination to any coderouter origin. Real
 agent CLIs then run with placeholder keys exactly as a Cloud machine does, against a local
@@ -268,4 +296,4 @@ client is overwritten and logged by the edge, `usage_events` rows in ClickHouse 
 `vm_id`, `agent`, `upstream_kind`, and cost, and `vm-usage/self` reflects them. For the real
 edge against local code, expose the dev server through a quick tunnel, set
 `CMUX_CODEROUTER_EDGE_ORIGIN` to it, and run `scripts/cloud-vm/smoke-vm-api.mjs --create
---paid --edge-check`, which creates a Freestyle VM whose inline rule points at the tunnel.
+--paid --edge-check`, which creates a Cloud VM whose inline rule points at the tunnel.
