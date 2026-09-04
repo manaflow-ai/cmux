@@ -417,7 +417,7 @@ private struct NativePricingPlansView: View {
                 isProminent: true,
                 features: [
                     String(localized: "pricing.native.pro.feature.vms", defaultValue: "Cloud agents on isolated Cloud VMs"),
-                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"),
+                    String(localized: "pricing.native.pro.feature.hours", defaultValue: "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 32 GB disk"),
                     String(localized: "pricing.native.pro.feature.gateway", defaultValue: "Unlimited workspaces"),
                     String(localized: "pricing.native.pro.feature.ios", defaultValue: "cmux iOS app and email support"),
                 ]
@@ -767,7 +767,7 @@ private struct NativePricingSizeSection: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
+                defaultValue: "Every Cloud VM is 5 vCPU, 20 GB RAM, and 32 GB disk. Disk can grow to 256 GiB. Pro and Team include up to 50 machines with no metering or overages."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)
