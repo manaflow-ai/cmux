@@ -1,12 +1,19 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
-import { TEAM_PLAN_ID, isPaidPlanId } from "../billing/pro";
+import {
+  isDevelopmentProAccessEnabled,
+  PRO_PLAN_ID,
+  TEAM_PLAN_ID,
+  isPaidPlanId,
+} from "../billing/pro";
 import { PAID_MAX_ACTIVE_VMS_DEFAULT, PLAN_MACHINE_MEMORY_MB } from "./machineSpec";
 
 export {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   PLAN_MACHINE_MEMORY_MB,
   VM_DISK_MB_DEFAULT,
+  VM_DISK_MB_MAX,
+  VM_DISK_MB_STEP,
   VM_MEMORY_MB_PER_VCPU,
   vcpusForMemoryMb,
   vmDiskMb,
@@ -50,6 +57,14 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(env)) {
+    return {
+      planId: PRO_PLAN_ID,
+      billingCustomerType: billing.billingCustomerType,
+      billingTeamId: billing.billingTeamId,
+      maxActiveVms: maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats }),
+    };
+  }
   const configuredDefaultPlan = env.CMUX_VM_DEFAULT_PLAN;
   // A deployment-wide default is useful for local/demo fixtures, but it must
   // never grant a paid entitlement to an account with no billing metadata in
@@ -130,11 +145,11 @@ function resolveBillingContext(
 
 /**
  * Machine sizes a person can pick, as memory in MB. The provider currently
- * accepts one per-VM sizing profile (5 vCPU / 20 GB / 200 GB); pricing
- * describes those resources as shared across the plan's VMs. Aggregate
- * provider resource quotas are outside this module. vCPUs follow memory
- * (vcpusForMemoryMb). Kept as a list so a future size tier is one entry, not a
- * new concept.
+ * accepts one per-VM profile: 5 vCPU, 20 GB memory, and a 32 GB starting disk.
+ * Pricing separately advertises 5 vCPU, 20 GB memory, and 200 GB disk as one
+ * pool shared across the plan's VMs. Aggregate resource quotas are outside
+ * this module. vCPUs follow memory (vcpusForMemoryMb). Kept as a list so a
+ * future size tier is one entry, not a new concept.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [PLAN_MACHINE_MEMORY_MB];
 

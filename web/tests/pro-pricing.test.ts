@@ -10,9 +10,7 @@ import {
 } from "../services/billing/plans";
 import {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
-  PLAN_MACHINE_MEMORY_MB,
   VM_DISK_MB_DEFAULT,
-  vcpusForMemoryMb,
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
@@ -92,17 +90,22 @@ describe("pricing plans", () => {
 
 describe("pricing copy matches the plan policy", () => {
   // The public pricing copy states the VM allowance and shared capacity as
-  // prose. Pin the numbers to the policy constants and pin the sharing
-  // language so the page cannot accidentally sell these resources per VM.
-  const vcpus = vcpusForMemoryMb(PLAN_MACHINE_MEMORY_MB);
-  const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
-  const diskGb = VM_DISK_MB_DEFAULT / 1024;
+  // prose. Pin the shared pool to its product contract and pin the provider
+  // starting disk to its runtime constant so the two policies stay distinct.
+  const sharedVcpus = 5;
+  const sharedMemoryGb = 20;
+  const sharedDiskGb = 200;
+  const startingDiskGb = VM_DISK_MB_DEFAULT / 1024;
 
   test("the shared Cloud VM capacity is 5 vCPU, 20 GB RAM, 200 GB disk, up to 50 machines", () => {
-    expect(vcpus).toBe(5);
-    expect(memoryGb).toBe(20);
-    expect(diskGb).toBe(200);
+    expect(sharedVcpus).toBe(5);
+    expect(sharedMemoryGb).toBe(20);
+    expect(sharedDiskGb).toBe(200);
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
+  });
+
+  test("new Cloud VM disks start at 32 GB", () => {
+    expect(startingDiskGb).toBe(32);
   });
 
   for (const [
@@ -113,6 +116,7 @@ describe("pricing copy matches the plan policy", () => {
     capacityLabel,
     faqSharedPhrase,
     faqPerUserPhrase,
+    startingDiskPhrase,
   ] of [
     [
       "en",
@@ -122,6 +126,7 @@ describe("pricing copy matches the plan policy", () => {
       "Resources shared across Cloud VMs",
       "Each user's VMs share a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk",
       "up to 50 Cloud VMs per user",
+      "New VM disks start at 32 GB",
     ],
     [
       "ja",
@@ -131,15 +136,16 @@ describe("pricing copy matches the plan policy", () => {
       "Cloud VM 間で共有するリソース",
       "各ユーザーの VM は合計 5 vCPU、20 GB の RAM、200 GB のディスクを共有",
       "ユーザーごとに最大 50 台の Cloud VM",
+      "新しい VM のディスクは 32 GB で開始",
     ],
   ] as const) {
     test(`${locale} pricing copy states the current prices and shared capacity`, () => {
       const pricing = messages.pricing;
       const proFeatures = pricing.pro.features.join("\n");
       expect(proFeatures).toContain(`${PAID_MAX_ACTIVE_VMS_DEFAULT} `);
-      expect(proFeatures).toContain(`${vcpus} vCPU`);
-      expect(proFeatures).toContain(`${memoryGb} GB`);
-      expect(proFeatures).toContain(`${diskGb} GB`);
+      expect(proFeatures).toContain(`${sharedVcpus} vCPU`);
+      expect(proFeatures).toContain(`${sharedMemoryGb} GB`);
+      expect(proFeatures).toContain(`${sharedDiskGb} GB`);
       expect(proFeatures).toContain(sharedPhrase);
       expect(proFeatures).not.toContain(stalePerVmPhrase);
 
@@ -148,12 +154,12 @@ describe("pricing copy matches the plan policy", () => {
       );
       expect(vmRow).toBeDefined();
       const capacityRow = pricing.compare.rows.find((row) => row.label === capacityLabel);
-      expect(capacityRow?.pro).toContain(`${vcpus} vCPU`);
-      expect(capacityRow?.pro).toContain(`${memoryGb} GB`);
-      expect(capacityRow?.pro).toContain(`${diskGb} GB`);
-      expect(capacityRow?.team).toContain(`${vcpus} vCPU`);
-      expect(capacityRow?.team).toContain(`${memoryGb} GB`);
-      expect(capacityRow?.team).toContain(`${diskGb} GB`);
+      expect(capacityRow?.pro).toContain(`${sharedVcpus} vCPU`);
+      expect(capacityRow?.pro).toContain(`${sharedMemoryGb} GB`);
+      expect(capacityRow?.pro).toContain(`${sharedDiskGb} GB`);
+      expect(capacityRow?.team).toContain(`${sharedVcpus} vCPU`);
+      expect(capacityRow?.team).toContain(`${sharedMemoryGb} GB`);
+      expect(capacityRow?.team).toContain(`${sharedDiskGb} GB`);
       const teamCapacity = capacityRow?.team ?? "";
       expect(locale === "en" ? teamCapacity.toLowerCase() : teamCapacity).toContain(
         locale === "en" ? "per user" : "ユーザーごとに",
@@ -172,6 +178,7 @@ describe("pricing copy matches the plan policy", () => {
       expect(faq).not.toContain(stalePerVmPhrase);
       expect(faq).toContain(faqSharedPhrase);
       expect(faq).toContain(faqPerUserPhrase);
+      expect(faq).toContain(startingDiskPhrase);
       if (locale === "en") {
         expect(faq).toContain("Team includes up to 50 machines per user");
       } else {

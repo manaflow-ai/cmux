@@ -36,9 +36,9 @@ final class NewMachineModel {
     /// Memory sizes the backend accepts (`VM_MEMORY_OPTIONS_MB` in
     /// `web/services/vms/entitlements.ts`); the plan ceiling trims the tail.
     static let memoryOptionsMb: [Int] = [planMachineMemoryMb]
-    /// The provider sizing profile (`PLAN_MACHINE_MEMORY_MB`): 20 GB, 5 vCPU,
-    /// 200 GB disk, and the only size currently offered. Pricing describes
-    /// these resources as shared across the plan's Cloud VMs.
+    /// The per-VM memory profile (`PLAN_MACHINE_MEMORY_MB`): 20 GB, which maps
+    /// to 5 vCPU. New disks start at 32 GB. Pricing separately describes a
+    /// 5 vCPU / 20 GB / 200 GB pool shared across the plan's Cloud VMs.
     static let planMachineMemoryMb = 20480
     /// Mirrors `maxMemoryMbForPlan`: the free machine is a full-size computer;
     /// paid plans unlock the largest size.

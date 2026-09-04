@@ -8,8 +8,16 @@ import Observation
 protocol SurfaceProvider: AnyObject {
     var machine: SurfaceMachineID { get }
     var info: SurfaceMachineInfo { get }
+    /// Whether this provider can materialize a machine port as a browser preview.
+    /// Providers with a direct private-network URL may report true even when no
+    /// control-plane `openPort` call is needed.
+    var supportsPortPreviews: Bool { get }
     /// Re-sync from the source of truth (machine list, link snapshot, local panels).
     func refresh() async
+    /// Re-sync this provider, optionally bypassing provider-side caches. The
+    /// default preserves the legacy provider contract; cloud providers use the
+    /// force bit for an explicit `--refresh` request.
+    func refresh(force: Bool) async
     /// Create the pane that shows `resource` at `destination` and return the panel it created
     /// (or reused). The catalog records the projection.
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
@@ -41,6 +49,14 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    /// Legacy providers predate the capability bit and are assumed to support
+    /// previews until their concrete implementation says otherwise.
+    var supportsPortPreviews: Bool { true }
+
+    func refresh(force: Bool) async {
+        await refresh()
+    }
+
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
     }
@@ -214,9 +230,17 @@ final class SurfaceCatalog {
         return true
     }
 
-    func refreshAll() async {
+    /// Refreshes one machine without waiting on unrelated cloud links. A
+    /// machine-scoped CLI request must not be held hostage by another VM's
+    /// reconnect timeout.
+    func refresh(machine: SurfaceMachineID, force: Bool = false) async {
+        guard let provider = providers[machine] else { return }
+        await provider.refresh(force: force)
+    }
+
+    func refreshAll(force: Bool = false) async {
         for provider in providers.values {
-            await provider.refresh()
+            await provider.refresh(force: force)
         }
     }
 

@@ -20,6 +20,12 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 ## Dev workflow
 
 - Use `web/scripts/stripe/dev-stack.sh`.
+- Local `bun dev` accounts use the development Stack project and receive a
+  non-persistent Pro entitlement automatically. This applies only when
+  `CMUX_LOCAL_DEV_PRO=1`, `NODE_ENV=development`, `VERCEL_ENV` is unset, and
+  `NEXT_PUBLIC_STACK_PROJECT_ID` is the development project. Release and
+  preview deployments remain billing-backed. Use `dev-grant.sh` only when
+  testing an explicit manual grant or a non-local deployment.
 - The tagged app bakes `CMUX_PORT` into `Info.plist`; run the dev server on the tag's printed port, never a hardcoded one.
 - Per-branch Docker Postgres ports collide with other agents' containers. Use `--db-port` and never stop containers you did not create.
 - `/app-pricing` requires `cmux_app=1`. `cmux_scheme` threads the native deeplink return scheme; `cmux-dev-*` schemes are honored only for localhost requests.
@@ -31,7 +37,7 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 
 Prices live in `web/services/billing/plans.ts` and are provisioned by `web/scripts/stripe/provision-catalog.sh`. Current checkout keys: `cmux-pro-monthly-50` ($50/mo), `cmux-pro-yearly-480` ($480/yr, $40/mo equivalent), `cmux-team-monthly-60` ($60/user/mo), `cmux-team-yearly-576` ($576/user/yr, $48/mo equivalent). Stripe amounts are immutable, so a price change mints a new lookup key carrying the amount and adds the old key to `LEGACY_PRICE_LOOKUP_KEYS`; grandfathered Prices (`cmux-pro-monthly` $30, `cmux-pro-yearly` $240, `cmux-pro-yearly-288` $288, `cmux-team-monthly` $35, `cmux-team-yearly-336` $336) stay active for the subscriptions on them and `/dashboard/billing` prices every row from its own Stripe amount. Env price-id overrides carry the amount in their name (`STRIPE_PRO_MONTHLY_50_PRICE_ID` and friends); a retired name fails env validation, so delete it from Vercel before deploying a price change. Test-mode Pro product `prod_UyHgRPpmCzrkLJ`, live `prod_Uq4a28vk0fP3E6`. Staging webhook endpoint `we_1Tq1SZGhInAdn3JbWJReKNEN` forwards to `cmux-staging.vercel.app`; its secrets are already in the `cmux-staging` Vercel project.
 
-The paid Cloud VM allowance and shared resource pool live in `web/services/vms/machineSpec.ts`: Pro allows up to 50 machines per billing team, and Team multiplies that allowance by each paid seat. Each allowance has 20 GB / 5 vCPU / 200 GB disk shared across its machines. `web/tests/pro-pricing.test.ts` pins the pricing copy to those constants.
+The paid Cloud VM allowance lives in `web/services/vms/machineSpec.ts`: Pro allows up to 50 machines per billing team, and Team multiplies that allowance by each paid seat. Pricing describes a 20 GB / 5 vCPU / 200 GB pool shared across each allowance. New provider machines start with a 32 GB disk and can grow. Aggregate provider accounting is outside the entitlement module. `web/tests/pro-pricing.test.ts` pins the pricing copy and the provider starting disk.
 
 ## Feature flags
 

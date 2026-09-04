@@ -767,7 +767,7 @@ private struct NativePricingSizeSection: View {
                 .foregroundStyle(.secondary)
             Text(String(
                 localized: "pricing.native.sizes.body",
-                defaultValue: "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. There is no metering or overage billing."
+                defaultValue: "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing."
             ))
             .font(.system(size: 13))
             .foregroundStyle(.secondary)
