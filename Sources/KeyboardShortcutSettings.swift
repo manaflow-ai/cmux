@@ -1654,9 +1654,29 @@ struct ShortcutStroke: Equatable, Hashable {
         return matches(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
             modifierFlags: event.modifierFlags,
-            eventCharacter: event.charactersIgnoringModifiers,
+            eventCharacter: Self.eventCharacterForMatching(event),
             layoutCharacterProvider: layoutCharacterProvider
         )
+    }
+
+    /// Selects the character plane AppKit resolved for this shortcut event.
+    ///
+    /// The Command-aware layouts shipped by macOS (for example Dvorak – QWERTY
+    /// Command) put their QWERTY command character in `characters` while
+    /// `charactersIgnoringModifiers` still describes the unmodified layout.
+    /// Plain Dvorak and ordinary text input keep using the unmodified character
+    /// plane. Option/Control are excluded because their text characters are
+    /// consumed by the responder/input system rather than by app shortcuts.
+    private static func eventCharacterForMatching(_ event: NSEvent) -> String? {
+        let flags = normalizedModifierFlags(from: event.modifierFlags)
+        if flags.contains(.command),
+           !flags.contains(.option),
+           !flags.contains(.control),
+           let commandCharacters = event.characters,
+           !commandCharacters.isEmpty {
+            return commandCharacters
+        }
+        return event.charactersIgnoringModifiers
     }
 
     func matches(
@@ -1684,15 +1704,6 @@ struct ShortcutStroke: Equatable, Hashable {
             return keyCode == 36 || keyCode == 76
         }
 
-        if Self.shortcutCharacterMatches(
-            eventCharacter: eventCharacter,
-            shortcutKey: shortcutKey,
-            applyShiftSymbolNormalization: flags.contains(.shift),
-            eventKeyCode: keyCode
-        ) {
-            return true
-        }
-
         let hasEventChars = !(eventCharacter?.isEmpty ?? true)
         let eventCharsAreASCII = eventCharacter?.allSatisfy(\.isASCII) ?? true
         let eventCharsArePrintableASCII = eventCharacter?.unicodeScalars.allSatisfy { scalar in
@@ -1702,11 +1713,31 @@ struct ShortcutStroke: Equatable, Hashable {
         let shortcutKeyIsLetter = shortcutKey.count == 1 && shortcutKey.first?.isLetter == true
         let eventCharacterIsLetterOrNumber = eventCharacter?.count == 1 &&
             (eventCharacter?.first?.isLetter == true || eventCharacter?.first?.isNumber == true)
+        let eventCharacterIsPrintablePunctuation = Self.isPrintableASCIIPunctuation(eventCharacter)
+        let isPhysicalLetterKey = Self.isPhysicalLetterKeyCode(keyCode)
+        let commandPunctuationLayoutCollision = flags.contains(.command) &&
+            !flags.contains(.control) &&
+            !shortcutKeyIsLetter &&
+            !shortcutKeyIsDigit &&
+            isPhysicalLetterKey &&
+            eventCharacterIsPrintablePunctuation
+
+        if !commandPunctuationLayoutCollision,
+           Self.shortcutCharacterMatches(
+               eventCharacter: eventCharacter,
+               shortcutKey: shortcutKey,
+               applyShiftSymbolNormalization: flags.contains(.shift),
+               eventKeyCode: keyCode
+           ) {
+            return true
+        }
+
         let commandPrintableCharacterShouldBlockFallback = flags.contains(.command) &&
             hasEventChars &&
             eventCharsArePrintableASCII &&
             (!flags.contains(.control) || !shortcutKeyIsLetter) &&
-            (shortcutKeyIsLetter || eventCharacterIsLetterOrNumber)
+            (shortcutKeyIsLetter || eventCharacterIsLetterOrNumber) &&
+            !(shortcutKeyIsLetter && eventCharacterIsPrintablePunctuation && isPhysicalLetterKey)
         if shortcutKeyIsDigit,
            hasEventChars,
            eventCharsAreASCII,
@@ -1718,22 +1749,70 @@ struct ShortcutStroke: Equatable, Hashable {
         }
 
         let layoutCharacter = layoutCharacterProvider(keyCode, modifierFlags)
-        if Self.shortcutCharacterMatches(
-            eventCharacter: layoutCharacter,
-            shortcutKey: shortcutKey,
-            applyShiftSymbolNormalization: false,
-            eventKeyCode: keyCode
-        ) {
-            return true
+        if !commandPunctuationLayoutCollision {
+            if Self.shortcutCharacterMatches(
+                eventCharacter: layoutCharacter,
+                shortcutKey: shortcutKey,
+                applyShiftSymbolNormalization: false,
+                eventKeyCode: keyCode
+            ) {
+                return true
+            }
         }
 
+        // A layout-aware glyph that is itself another known shortcut key is a
+        // stronger signal than an ANSI fallback. This keeps dedicated symbols
+        // (for example Swedish "+" at the US "]" position) from being claimed
+        // by an unrelated physical binding, while unknown/dead glyphs can still
+        // use the fallback below. Letter shortcuts are handled separately: a
+        // letter-position key may legitimately emit punctuation (Dvorak W).
+        if !shortcutKeyIsLetter,
+           !flags.contains(.control),
+           Self.eventResolvesToDifferentBaseShortcutKey(
+               eventCharacter: eventCharacter,
+               layoutCharacter: layoutCharacter,
+               shortcutKey: shortcutKey,
+               applyShiftSymbolNormalization: flags.contains(.shift),
+               eventKeyCode: keyCode
+           ) {
+            return false
+        }
+
+        let commandLetterPhysicalFallback = flags.contains(.command) &&
+            !flags.contains(.control) &&
+            shortcutKeyIsLetter &&
+            (
+                (hasEventChars && !eventCharsAreASCII) ||
+                (!hasEventChars && (layoutCharacter?.isEmpty ?? true)) ||
+                (eventCharacterIsPrintablePunctuation && isPhysicalLetterKey)
+            )
+        let commandPunctuationPhysicalFallback = flags.contains(.command) &&
+            !flags.contains(.control) &&
+            !shortcutKeyIsLetter &&
+            !shortcutKeyIsDigit &&
+            !isPhysicalLetterKey &&
+            (
+                !hasEventChars ||
+                !eventCharsAreASCII ||
+                eventCharacterIsPrintablePunctuation ||
+                flags.contains(.shift)
+            )
+        let commandDigitPhysicalFallback = flags.contains(.command) &&
+            !flags.contains(.control) &&
+            shortcutKeyIsDigit &&
+            Self.digitForNumberKeyCode(keyCode) != nil &&
+            (
+                !hasEventChars ||
+                !eventCharsAreASCII ||
+                eventCharacterIsPrintablePunctuation
+            )
         let allowANSIKeyCodeFallback = flags.contains(.control)
             || (flags.contains(.command)
                 && !flags.contains(.control)
                 && (
-                    !Self.shouldRequireCharacterMatchForCommandShortcut(shortcutKey: shortcutKey)
-                        || (hasEventChars && !eventCharsAreASCII)
-                        || (!hasEventChars && (layoutCharacter?.isEmpty ?? true))
+                    commandPunctuationPhysicalFallback
+                        || commandDigitPhysicalFallback
+                        || commandLetterPhysicalFallback
                 ))
         if allowANSIKeyCodeFallback,
            let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
@@ -1880,13 +1959,6 @@ struct ShortcutStroke: Equatable, Hashable {
         }
     }
 
-    private static func shouldRequireCharacterMatchForCommandShortcut(shortcutKey: String) -> Bool {
-        guard shortcutKey.count == 1, let scalar = shortcutKey.unicodeScalars.first else {
-            return false
-        }
-        return CharacterSet.letters.contains(scalar)
-    }
-
     private static func shortcutCharacterMatches(
         eventCharacter: String?,
         shortcutKey: String,
@@ -1899,6 +1971,56 @@ struct ShortcutStroke: Equatable, Hashable {
             applyShiftSymbolNormalization: applyShiftSymbolNormalization,
             eventKeyCode: eventKeyCode
         ) == shortcutKey
+    }
+
+    private static func isPrintableASCIIPunctuation(_ eventCharacter: String?) -> Bool {
+        guard let eventCharacter,
+              eventCharacter.unicodeScalars.count == 1,
+              let scalar = eventCharacter.unicodeScalars.first else {
+            return false
+        }
+        let value = scalar.value
+        guard scalar.isASCII, value > 0x20, value < 0x7F else { return false }
+        return !(0x30...0x39).contains(value)
+            && !(0x41...0x5A).contains(value)
+            && !(0x61...0x7A).contains(value)
+    }
+
+    /// Returns true when a produced glyph identifies a different known base
+    /// shortcut key. In that case character intent must beat physical rescue.
+    private static func eventResolvesToDifferentBaseShortcutKey(
+        eventCharacter: String?,
+        layoutCharacter: String?,
+        shortcutKey: String,
+        applyShiftSymbolNormalization: Bool,
+        eventKeyCode: UInt16
+    ) -> Bool {
+        let candidates: [(String?, Bool)] = [
+            (eventCharacter, applyShiftSymbolNormalization),
+            (layoutCharacter, false),
+        ]
+        for (glyph, applyShift) in candidates {
+            guard let glyph, !glyph.isEmpty else { continue }
+            let normalized = normalizedShortcutEventCharacter(
+                glyph,
+                applyShiftSymbolNormalization: applyShift,
+                eventKeyCode: eventKeyCode
+            )
+            if normalized != shortcutKey, keyCodeForShortcutKey(normalized) != nil {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static let physicalLetterKeyCodes: Set<UInt16> = Set([
+        "a", "s", "d", "f", "h", "g", "z", "x", "c", "v", "b",
+        "q", "w", "e", "r", "y", "t", "o", "u", "i", "p", "l",
+        "j", "k", "n", "m",
+    ].compactMap { keyCodeForShortcutKey($0) })
+
+    private static func isPhysicalLetterKeyCode(_ keyCode: UInt16) -> Bool {
+        physicalLetterKeyCodes.contains(keyCode)
     }
 
     private static func keyCodeForShortcutKey(_ key: String) -> UInt16? {

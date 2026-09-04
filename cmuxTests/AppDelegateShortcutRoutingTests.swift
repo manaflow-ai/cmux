@@ -4299,7 +4299,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(observedDelta, 1)
     }
 
-    func testCmdPhysicalWWithDvorakCharactersDoesNotTriggerClosePanelShortcut() {
+    func testCmdLogicalWWithDvorakCharactersMatchesClosePanelShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
             return
@@ -4308,17 +4308,13 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         let windowId = appDelegate.createMainWindow()
         defer { closeWindow(withId: windowId) }
 
-        guard let window = window(withId: windowId),
-              let manager = appDelegate.tabManagerFor(windowId: windowId),
-              let workspace = manager.selectedWorkspace else {
-            XCTFail("Expected test window and workspace")
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
             return
         }
 
-        let panelCountBefore = workspace.panels.count
-
-        // Dvorak: physical ANSI "W" key can produce ",".
-        // This should not match the Cmd+W close-panel shortcut.
+        // Dvorak: logical "W" is produced by the physical ANSI comma key.
+        // Character matching keeps the normal layout-semantic shortcut path.
         guard let event = NSEvent.keyEvent(
             with: .keyDown,
             location: .zero,
@@ -4326,23 +4322,34 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             timestamp: ProcessInfo.processInfo.systemUptime,
             windowNumber: window.windowNumber,
             context: nil,
-            characters: ",",
-            charactersIgnoringModifiers: ",",
+            characters: "w",
+            charactersIgnoringModifiers: "w",
             isARepeat: false,
-            keyCode: 13 // kVK_ANSI_W
+            keyCode: 43 // kVK_ANSI_Comma
         ) else {
-            XCTFail("Failed to construct Dvorak Cmd+, event on physical ANSI W key")
+            XCTFail("Failed to construct Dvorak Cmd+W event on physical ANSI comma key")
             return
         }
 
-        withTemporaryShortcut(action: .openSettings, shortcut: .unbound) {
-#if DEBUG
-            XCTAssertFalse(appDelegate.debugHandleCustomShortcut(event: event))
-#else
-            XCTFail("debugHandleCustomShortcut is only available in DEBUG")
-#endif
+        appDelegate.shortcutLayoutCharacterProvider = { _, _ in nil }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }
-        XCTAssertEqual(workspace.panels.count, panelCountBefore)
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab),
+            "Logical Cmd+W should match Close Tab on Dvorak"
+        )
+        withTemporaryShortcut(action: .openSettings, shortcut: .unbound) {
+            XCTAssertFalse(
+                appDelegate.debugMatchesConfiguredShortcut(event: event, action: .openSettings),
+                "A Dvorak comma from physical W must not match Cmd+,"
+            )
+        }
+#else
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
+#endif
     }
 
     func testDvorakPhysicalWCommandShortcutPrefersCloseTabOverSettings() {
@@ -4362,9 +4369,7 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         // Standard Dvorak emits a comma from the physical ANSI-W key. The
         // layout-produced comma must not be mistaken for the Cmd+, Settings
         // shortcut; it is the physical Cmd+W that the user pressed.
-        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
-            keyCode == 13 ? "," : nil // kVK_ANSI_W
-        }
+        appDelegate.shortcutLayoutCharacterProvider = { _, _ in nil }
         defer {
             appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
         }

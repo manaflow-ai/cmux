@@ -2549,6 +2549,111 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
+    func testCommandPunctuationDoesNotMatchAnUnshiftedLayoutSymbolFromALetterKey() {
+        // On Dvorak, the physical ANSI-W key produces a comma. A command
+        // punctuation binding must not claim that layout-produced symbol by
+        // physical fallback; the physical Cmd+W binding owns the key.
+        let settingsShortcut = StoredShortcut(
+            key: ",",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        XCTAssertFalse(
+            settingsShortcut.matches(
+                keyCode: 13,
+                modifierFlags: [.command],
+                eventCharacter: ",",
+                layoutCharacterProvider: { _, _ in "," }
+            ),
+            "Cmd+, must not match a comma emitted by the physical W key"
+        )
+    }
+
+    func testCommandDigitFallbackUsesPhysicalDigitForSymbolFirstLayout() {
+        let shortcut = StoredShortcut(
+            key: "1",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        XCTAssertTrue(
+            shortcut.matches(
+                keyCode: 18,
+                modifierFlags: [.command],
+                eventCharacter: "&",
+                layoutCharacterProvider: { _, _ in "&" }
+            ),
+            "A symbol-first layout must retain Cmd+1 on the physical digit key"
+        )
+    }
+
+    func testCommandPunctuationFallbackRejectsRecognizedDifferentLayoutKey() {
+        let shortcut = StoredShortcut(
+            key: "]",
+            command: true,
+            shift: false,
+            option: false,
+            control: false
+        )
+
+        XCTAssertFalse(
+            shortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "+",
+                layoutCharacterProvider: { _, _ in "+" }
+            ),
+            "A dedicated + key must not be claimed by Cmd+]"
+        )
+
+        XCTAssertTrue(
+            shortcut.matches(
+                keyCode: 30,
+                modifierFlags: [.command],
+                eventCharacter: "$",
+                layoutCharacterProvider: { _, _ in "$" }
+            ),
+            "An unrecognized layout glyph must retain the Cmd+] physical fallback"
+        )
+    }
+
+    func testCommandPlaneCharacterIsUsedWhenItDiffersFromUnmodifiedLayout() {
+        // Dvorak – QWERTY Command reports the QWERTY command character in
+        // `characters` while the unmodified Dvorak character remains in
+        // `charactersIgnoringModifiers`.
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            characters: "c",
+            charactersIgnoringModifiers: "j",
+            isARepeat: false,
+            keyCode: 8 // kVK_ANSI_C
+        ) else {
+            XCTFail("Failed to construct command-plane event")
+            return
+        }
+
+        XCTAssertTrue(
+            StoredShortcut(key: "c", command: true, shift: false, option: false, control: false)
+                .matches(event: event, layoutCharacterProvider: { _, _ in "j" }),
+            "The OS-resolved Command plane should match Cmd+C"
+        )
+        XCTAssertFalse(
+            StoredShortcut(key: "j", command: true, shift: false, option: false, control: false)
+                .matches(event: event, layoutCharacterProvider: { _, _ in "j" }),
+            "The unmodified Dvorak character must not replace the Command plane"
+        )
+    }
+
     func testMatchingTreatsKeypadEnterAsReturn() {
         let shortcut = StoredShortcut(key: "\r", command: true, shift: false, option: false, control: false)
 
