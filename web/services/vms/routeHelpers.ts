@@ -38,6 +38,9 @@ import {
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
+  isVmResizeInvalidError,
+  isVmResizeInProgressError,
+  isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
@@ -48,15 +51,24 @@ import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import {
   captureVmRequestOutcome,
+  isPolledVmOperation,
   reportVmErrorResponse,
   VM_ERROR_CODE_HEADER,
 } from "./observability";
 import {
+  annotateVmRequestBilling,
   runWithVmRequestContext,
   vmClientIdentityFromRequest,
+  vmIdFromRequestPath,
   type VmRequestContext,
 } from "./requestContext";
-import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy, vmUnsupportedOperationKey } from "./vmErrorMessages";
+import {
+  vmRequestLocale,
+  vmRequiresProCopy,
+  vmSharedResourceCopy,
+  vmUnsupportedCopy,
+  vmUnsupportedOperationKey,
+} from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -91,6 +103,7 @@ export async function withAuthedVmApiRoute(
     startedAtMs: performance.now(),
     client: vmClientIdentityFromRequest(request),
     vercelRequestId: request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+    vmId: vmIdFromRequestPath(request, route),
   };
   return runWithVmRequestContext(requestContext, () => withApiRouteSpan(
     request,
@@ -149,6 +162,14 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        // The caller's default billing scope. Routes that resolve entitlements
+        // refine it (a requested team, the normalized plan) through
+        // resolveVmAccountScope below.
+        annotateVmRequestBilling({
+          billingTeamId: user.billingTeamId,
+          billingCustomerType: user.billingCustomerType,
+          planId: user.billingPlanId ?? user.userBillingPlanId,
+        });
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
@@ -167,12 +188,6 @@ export async function withAuthedVmApiRoute(
       }
     },
   ));
-}
-
-const POLLED_OPERATIONS: ReadonlySet<string> = new Set(["list", "status", "stats", "list_sessions", "get_tunnel"]);
-
-function isPolledVmOperation(operation: string): boolean {
-  return POLLED_OPERATIONS.has(operation);
 }
 
 function scheduleTraceFlush(): void {
@@ -247,6 +262,7 @@ export type VmLifecyclePhase =
   | "fork"
   | "snapshot"
   | "resume"
+  | "resize"
   | "attach"
   | "ssh"
   | "network"
@@ -397,12 +413,14 @@ function resolveVmAccountScope(
 ): VmRouteAccountScope {
   const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
+    const entitlements = resolveVmEntitlements(user, process.env, {
+      requestedBillingTeamId,
+    });
+    annotateVmRequestBilling(entitlements);
     return {
       ok: true,
       requestedBillingTeamId,
-      entitlements: resolveVmEntitlements(user, process.env, {
-        requestedBillingTeamId,
-      }),
+      entitlements,
     };
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) {
@@ -498,6 +516,50 @@ export function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/** Translate a plan-wide resource pool rejection into a stable client error. */
+export async function vmSharedResourceLimitExceededResponse(
+  err: {
+    readonly resource: "vcpus" | "memoryMb" | "diskMb";
+    readonly used: number;
+    readonly requested: number;
+    readonly limit: number;
+    readonly phase?: VmLifecyclePhase;
+  },
+  phase: VmLifecyclePhase = err.phase ?? "create",
+  locale: Locale = "en",
+): Promise<Response> {
+  const resource = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "memory"
+      : "disk";
+  const unit = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "MB of memory"
+      : "MB of disk";
+  const copy = await vmSharedResourceCopy(locale, {
+    resource,
+    oversized: err.requested > err.limit,
+  });
+  return vmErrorResponse({
+    error: "vm_shared_resource_limit_exceeded",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase,
+    retryable: false,
+    details: {
+      resource: err.resource,
+      used: err.used,
+      requested: err.requested,
+      limit: err.limit,
+      unit,
+      shared: true,
+    },
+  });
+}
+
 export type VmCreateLikeOperation = "fork" | "restore";
 
 /**
@@ -505,14 +567,15 @@ export type VmCreateLikeOperation = "fork" | "restore";
  * Operation-specific retry guidance stays at the route boundary, while the response
  * shape and billing errors remain centralized here.
  */
-export function vmCreateLikeErrorResponse(
+export async function vmCreateLikeErrorResponse(
   err: unknown,
   input: {
     readonly operation: VmCreateLikeOperation;
     readonly planId: string;
     readonly retryAction: string;
+    readonly locale?: Locale;
   },
-): Response | null {
+): Promise<Response | null> {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -537,6 +600,9 @@ export function vmCreateLikeErrorResponse(
       planId: input.planId,
       retryAction: input.retryAction,
     });
+  }
+  if (isVmSharedResourceLimitExceededError(err)) {
+    return vmSharedResourceLimitExceededResponse(err, input.operation, input.locale ?? "en");
   }
   if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
@@ -588,6 +654,7 @@ export function vmModelPlaneErrorResponse(
 }
 
 /** Translate a normalized workflow failure into the public VM error contract. */
+// oxlint-disable-next-line complexity -- Centralized dispatch preserves the public error precedence contract.
 export async function vmWorkflowErrorResponse(
   err: unknown,
   options: { readonly locale?: Locale } = {},
@@ -633,6 +700,39 @@ export async function vmWorkflowErrorResponse(
 
   if (isVmModelPlaneError(workflowError)) {
     return vmModelPlaneErrorResponse(workflowError);
+  }
+
+  if (isVmSharedResourceLimitExceededError(workflowError)) {
+    return vmSharedResourceLimitExceededResponse(workflowError, workflowError.phase ?? "create", options.locale ?? "en");
+  }
+
+  if (isVmResizeInvalidError(workflowError)) {
+    const requested = Math.round(workflowError.requestedMb / 1024);
+    const current = Math.round(workflowError.currentMb / 1024);
+    const max = Math.round(workflowError.maxMb / 1024);
+    return vmErrorResponse({
+      error: "vm_resize_invalid",
+      status: 400,
+      message: workflowError.reason === "below_current"
+        ? `Cloud VM disk can only grow. It is already ${current} GiB.`
+        : `Cloud VM disk cannot exceed ${max} GiB.`,
+      action: `Request a disk size between ${current} GiB and ${max} GiB.`,
+      phase: "resize",
+      retryable: false,
+      details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
+    });
+  }
+
+  if (isVmResizeInProgressError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_resize_in_progress",
+      status: 409,
+      message: "A disk resize is already running for this Cloud VM.",
+      action: "Wait for the current resize to finish, then retry.",
+      phase: "resize",
+      retryable: true,
+      retryAfterSeconds: 5,
+    });
   }
 
   if (isVmPrivateNetworkUnavailableError(workflowError)) {
@@ -891,6 +991,7 @@ function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("fork")) return "fork";
   if (operation.includes("snapshot")) return "snapshot";
   if (operation.includes("resume")) return "resume";
+  if (operation.includes("resize")) return "resize";
   if (operation.includes("exec")) return "exec";
   if (operation.includes("destroy")) return "destroy";
   if (operation.includes("getStatus")) return "status";

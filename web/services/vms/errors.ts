@@ -25,6 +25,19 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError")<{
+  readonly vmId: string;
+  readonly requestedMb: number;
+  readonly currentMb: number;
+  readonly maxMb: number;
+  readonly reason: "below_current" | "above_max";
+}> {}
+
+/** A grow-only disk resize is already running for this machine. */
+export class VmResizeInProgressError extends Data.TaggedError("VmResizeInProgressError")<{
+  readonly vmId: string;
+}> {}
+
 /**
  * A private-network or tunnel operation on a deployment that does not serve
  * one — the provider has no `privateNetworking`, or
@@ -99,6 +112,17 @@ export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError
   readonly limit: number;
 }> {}
 
+/** A create or resize would exceed the plan's aggregate Cloud VM pool. */
+export class VmSharedResourceLimitExceededError extends Data.TaggedError("VmSharedResourceLimitExceededError")<{
+  readonly kind: "shared_resources";
+  readonly billingTeamId: string;
+  readonly phase?: "create" | "resize";
+  readonly resource: "vcpus" | "memoryMb" | "diskMb";
+  readonly used: number;
+  readonly requested: number;
+  readonly limit: number;
+}> {}
+
 export class VmCreateCreditsInsufficientError extends Data.TaggedError("VmCreateCreditsInsufficientError")<{
   readonly itemId: string;
   readonly billingCustomerId: string;
@@ -160,6 +184,8 @@ export type VmWorkflowError =
   | VmProviderOperationError
   | VmOperationUnsupportedError
   | VmNotFoundError
+  | VmResizeInvalidError
+  | VmResizeInProgressError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
@@ -168,6 +194,7 @@ export type VmWorkflowError =
   | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
+  | VmSharedResourceLimitExceededError
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
@@ -188,6 +215,14 @@ export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundEr
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
+}
+
+export function isVmResizeInvalidError(err: unknown): err is VmResizeInvalidError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInvalidError";
+}
+
+export function isVmResizeInProgressError(err: unknown): err is VmResizeInProgressError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInProgressError";
 }
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
@@ -222,6 +257,12 @@ export function isVmImageConfigError(err: unknown): err is VmImageConfigError {
 
 export function isVmLimitExceededError(err: unknown): err is VmLimitExceededError {
   return (err as { _tag?: string } | null)?._tag === "VmLimitExceededError";
+}
+
+export function isVmSharedResourceLimitExceededError(
+  err: unknown,
+): err is VmSharedResourceLimitExceededError {
+  return (err as { _tag?: string } | null)?._tag === "VmSharedResourceLimitExceededError";
 }
 
 export function isVmCreateCreditsInsufficientError(err: unknown): err is VmCreateCreditsInsufficientError {
@@ -268,6 +309,8 @@ const vmWorkflowErrorTagRecord = {
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,
   VmNotFoundError: true,
+  VmResizeInvalidError: true,
+  VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
@@ -276,6 +319,7 @@ const vmWorkflowErrorTagRecord = {
   VmAccountDeletionInProgressError: true,
   VmImageConfigError: true,
   VmLimitExceededError: true,
+  VmSharedResourceLimitExceededError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,

@@ -9024,6 +9024,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Sends one notification reply to an explicitly captured terminal as a
+    /// bracketed paste followed by a single Return key event. Inline replies
+    /// must use this path instead of ``sendTerminalInput(_:workspaceID:terminalID:)``:
+    /// appending ``\r`` to terminal input is interpreted as a raw byte by the
+    /// socket grammar, which inserts a newline in full-screen agent editors
+    /// instead of submitting the prompt.
+    ///
+    /// This does not change selection or composer state. The target workspace
+    /// and terminal are validated before the request is sent, and the existing
+    /// paste helper supplies the same viewport and hibernation handling as the
+    /// on-device composer.
+    @discardableResult
+    public func sendTerminalPaste(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard !text.isEmpty,
+              workspace(workspaceID, containsSurfaceID: terminalID.rawValue) else {
+            return false
+        }
+        return await sendRemoteTerminalPaste(
+            text,
+            submitKey: "return",
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
     /// Submit the composer's text to an explicitly captured terminal. Used by
     /// ``submitComposer()`` so a terminal switch mid-send cannot reroute the text
     /// to whatever is selected when the (awaited) image sends return: the target
@@ -10668,8 +10697,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionAttemptGeneration = UUID()
         // Capture the tagged foreground key BEFORE the identity clears below:
         // `foregroundMacKey` derives from `activeMacInstanceTag`, which
-        // `clearActiveConnectionContext()` nils, and the offline retention
-        // filter must keep the exact tagged entry.
+        // `clearActiveConnectionContext()` nils, and the offline status
+        // downgrade must hit the exact tagged entry.
         let offlineForegroundKey = foregroundMacKey
         focusedHandoffPreparedGenerations.removeAll()
         cancelRemoteOperationTasks()
@@ -10691,35 +10720,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
         foregroundMacDeviceID = nil
         if !preservingOtherMacWorkspaceState {
-            // Cancel the live secondary subscriptions (slice 3) and keep only the
-            // now-offline foreground Mac's last-known workspaces for the offline
-            // view; the derived list recomputes to just the offline Mac's rows.
-            // The demonstration Mac's entry is also retained: it has no
-            // subscription or transport, so unlike a real secondary nothing
-            // re-establishes it, and dropping it here made every failed dial
-            // of an unreachable real Mac erase the demo workspaces. Demo state
-            // is invariant to real-connection teardown by design.
+            // Cancel the live secondary subscriptions, but retain their rows.
+            // Teardown is a transport event, not an authoritative workspace
+            // deletion. Removing rows here changes aggregate identities and
+            // can pop a mounted detail during both foreground recovery and a
+            // second cleanup after a failed redial. The next healthy list
+            // reconcile, hide/unpair, sign-out, or team change owns removal.
             teardownSecondaryMacSubscriptions()
-            workspacesByMac = workspacesByMac.filter {
-                $0.key == offlineForegroundKey
-                    || $0.key == Self.demonstrationPairingKey
-            }
         }
-        // The retained foreground entry still carries its last-known
-        // `status: .connected`; `macConnectionStatuses` (the Computers screen's
-        // per-Mac dots) derives from these per-Mac states, so without this the
-        // just-disconnected Mac would keep showing a green connected dot. Downgrade
-        // it to `.unavailable` to match the global connection state.
-        let offlineDeviceID = offlineForegroundKey.canonicalMacDeviceID
+        // Retained entries still carry their last-known `.connected` status;
+        // downgrade the foreground entry, and every secondary whose live
+        // subscription was cancelled, so the list chrome stays truthful while
+        // the last-known rows remain mounted.
         let keysToDowngrade = workspacesByMac.keys.filter { key in
             // The demonstration entry keeps its connected presentation: it is
             // served locally and its liveness is unrelated to the torn-down
             // real connection.
             guard key != Self.demonstrationPairingKey else { return false }
-            return key == offlineForegroundKey
-                || (!preservingOtherMacWorkspaceState
-                    && offlineForegroundKey != .anonymousForeground
-                    && key.canonicalMacDeviceID == offlineDeviceID)
+            return key == offlineForegroundKey || !preservingOtherMacWorkspaceState
         }
         var updatedWorkspacesByMac = workspacesByMac
         for key in keysToDowngrade {

@@ -1,69 +1,44 @@
 import { expect, test } from "@playwright/test";
 
-// This route only redirects to the current CodeRouter URL. It gives the test
-// a dashboard segment without requiring a Stack session or database state.
-const currentDashboardRouteTree = encodeURIComponent(
-  JSON.stringify([
-    "",
-    {
-      children: [
-        ["locale", "en", "d", null],
-        {
-          children: [
-            "dashboard",
-            {
-              children: [
-                "coderouter",
-                { children: ["__PAGE__", {}, null, null] },
-                null,
-                null,
-              ],
-            },
-            null,
-            null,
-          ],
-        },
-        null,
-        null,
-      ],
-    },
-    null,
-    null,
-  ]),
-);
+const shellSeenKey = "cmux-dashboard-shell-seen-before-auth";
 
-test("dashboard keeps its cold fallback out of sibling navigation", async ({
-  request,
-}) => {
-  const appShellResponse = await request.get(
-    "/dashboard/subrouter?_rsc=dashboard-prefetch-test",
-    {
-      headers: {
-        RSC: "1",
-        "Next-Router-Prefetch": "3",
-        "Next-Url": "/dashboard/coderouter",
-      },
-    },
-  );
+for (const destination of [
+  "/dashboard/coderouter",
+  "/dashboard/testflight",
+] as const) {
+  test(`${destination} authenticates before mounting the dashboard shell`, async ({
+    page,
+    request,
+  }) => {
+    const serverResponse = await request.get(destination, {
+      maxRedirects: 0,
+    });
+    const serverBody = await serverResponse.text();
+    const redirectEvidence = [
+      serverResponse.headers().location ?? "",
+      serverBody,
+    ].join("\n");
+    expect(redirectEvidence).toContain("/handler/sign-in?");
+    expect(serverBody).not.toContain("dashboard-shell");
 
-  expect(appShellResponse.ok()).toBe(true);
-  expect(appShellResponse.headers()["content-type"]).toContain("text/x-component");
-  const appShellPayload = await appShellResponse.text();
-  expect(appShellPayload).not.toContain('"loading":');
-  expect(appShellPayload).toContain("animate-pulse");
+    await page.addInitScript(({ key }) => {
+      const markDashboardShell = () => {
+        if (document.querySelector('[data-testid="dashboard-shell"]')) {
+          window.sessionStorage.setItem(key, "true");
+        }
+      };
+      const observer = new MutationObserver(markDashboardShell);
+      observer.observe(document, { childList: true, subtree: true });
+      window.addEventListener("DOMContentLoaded", markDashboardShell, {
+        once: true,
+      });
+    }, { key: shellSeenKey });
 
-  const response = await request.get("/dashboard/subrouter?_rsc=dashboard-test", {
-    headers: {
-      RSC: "1",
-      "Next-Router-Prefetch": "3",
-      "Next-Url": "/dashboard/coderouter",
-      "Next-Router-State-Tree": currentDashboardRouteTree,
-    },
+    await page.goto(destination);
+    await page.waitForURL((url) => url.pathname.startsWith("/handler/sign-in"));
+
+    expect(
+      await page.evaluate((key) => window.sessionStorage.getItem(key), shellSeenKey),
+    ).toBeNull();
   });
-
-  expect(response.ok()).toBe(true);
-  expect(response.headers()["content-type"]).toContain("text/x-component");
-  const payload = await response.text();
-  expect(payload).not.toContain('"loading":');
-  expect(payload).not.toContain("animate-pulse");
-});
+}

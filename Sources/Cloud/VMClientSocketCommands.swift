@@ -21,6 +21,7 @@ extension TerminalController {
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
+                        "memoryOptionsMb": limits.memoryOptionsMb,
                     ]
                 }
                 return payload
@@ -232,6 +233,24 @@ extension TerminalController {
                 payload["disk_total_mb"] = stats.diskTotalMb
                 payload["disk_used_mb"] = stats.diskUsedMb
                 return payload.compactMapValues { $0 }
+            }
+        case "vm.resize":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.resize requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let diskMb = Self.socketWorkerInt(params["storage_mb"]) ?? Self.socketWorkerInt(params["disk_mb"]), diskMb > 0 else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.resize requires a positive `storage_mb` value.")
+            }
+            return v2VmCall(id: id) {
+                let stats = try await VMClient.shared.resizeDisk(id: vmId, diskMb: diskMb)
+                var payload: [String: Any] = [
+                    "id": vmId,
+                    "state": stats.state.rawValue,
+                    "sampled_at_unix": Int(stats.sampledAt.timeIntervalSince1970),
+                ]
+                if let diskTotalMb = stats.diskTotalMb { payload["disk_total_mb"] = diskTotalMb }
+                if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
+                return payload
             }
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
@@ -653,6 +672,9 @@ extension TerminalController {
         ]
         if let displayName = vm.displayName, !displayName.isEmpty {
             payload["displayName"] = displayName
+        }
+        if let slug = vm.slug, !slug.isEmpty {
+            payload["slug"] = slug
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt

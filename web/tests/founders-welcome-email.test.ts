@@ -142,6 +142,16 @@ describe("foundersThreadRef", () => {
 });
 
 describe("buildFoundersWelcomeEmail", () => {
+  test("explains how to connect a purchase to a cmux account", () => {
+    const email = buildFoundersWelcomeEmail({
+      ...baseParams,
+      to: "customer@example.com",
+      sessionRef: "cs_recovery",
+    });
+    expect(email.text).toContain("https://cmux.com/billing/recover");
+    expect(email.text).toContain("reply to this message");
+  });
+
   test("X-Entity-Ref-ID differs across subscriptions but is stable per session", () => {
     const first = buildFoundersWelcomeEmail({
       ...baseParams,
@@ -272,7 +282,7 @@ describe("buildFoundersWelcomeEmail", () => {
     expect(anonymous.text.startsWith("Hi there!")).toBe(true);
   });
 
-  test("announces the iOS beta and asks for a corrected TestFlight email", () => {
+  test("announces the iOS beta and explains how to connect the purchase", () => {
     const email = buildFoundersWelcomeEmail({
       ...baseParams,
       to: "customer@example.com",
@@ -280,12 +290,14 @@ describe("buildFoundersWelcomeEmail", () => {
     });
 
     const iosBetaParagraph =
-      "cmux iOS Beta is out for cmux Founder's Edition! If you have a different " +
-      "TestFlight email, please reply to this email with the new email address. " +
-      "Otherwise, we'll send it to the one on file.";
+      "cmux iOS Beta is out for cmux Founder's Edition! To connect this purchase " +
+      "to your cmux account, use the email from this purchase at " +
+      "https://cmux.com/billing/recover. We will send a secure sign-in link. " +
+      "If you already use cmux with another email, reply to this message so we " +
+      "can verify both addresses and move access safely.";
 
-    // The new paragraph must be present verbatim (lowercase "cmux", "cmux
-    // Founder's Edition", and one-word "TestFlight" are intentional brand/style).
+    // Keep the recovery URL and support handoff in the same paragraph as the
+    // beta announcement so a founder has one clear next action.
     expect(email.text).toContain(iosBetaParagraph);
 
     // It must be its own block — separated by blank lines from the surrounding

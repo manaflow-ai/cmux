@@ -40,6 +40,7 @@ const EDGE_RULE: VmEdgeRule = {
 // platform. `probeExit` is what the edge readiness probe returns.
 function fakeFreestyle(input: { readonly probeExit: number }) {
   const creates: unknown[] = [];
+  const resizes: unknown[] = [];
   const execs: string[] = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
@@ -60,7 +61,9 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
     data: async () => ({ publicIpv6: "2602:f75c:0:1::2a" }),
     // Every VM boots at its snapshot's resources; create grows it to the plan
     // machine before bootstrap (see growToRequestedSize).
-    resize: async () => {},
+    resize: async (options: unknown) => {
+      resizes.push(options);
+    },
   };
   const client = {
     vms: {
@@ -72,7 +75,7 @@ function fakeFreestyle(input: { readonly probeExit: number }) {
       ref: () => vm,
     },
   } as unknown as Freestyle;
-  return { client, creates, execs, writes, deletes };
+  return { client, creates, resizes, execs, writes, deletes };
 }
 
 function providerWith(fake: ReturnType<typeof fakeFreestyle>): FreestyleProvider {
@@ -327,6 +330,16 @@ describe("FreestyleProvider create with edge rules", () => {
     expect(fake.writes).toEqual([]);
   });
 
+  test("grows a 4 GB image to the documented 32 GB starting disk", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await providerWith(fake).create({
+      image: "sh-devbox-4gb",
+      imageSize: { name: "sm", cpu: 1, memoryMb: 4096, storageMb: 16384 },
+    });
+
+    expect(fake.resizes).toEqual([{ storage: 32768 }]);
+  });
+
 
 
   test("restore passes the rule inline and writes nothing into the guest", async () => {
@@ -431,9 +444,8 @@ describe("Freestyle client configuration", () => {
 });
 
 describe("Freestyle machine sizing", () => {
-  test("the plan machine is 5 vCPU / 20 GB / 200 GB, vCPUs following memory", () => {
-    expect(freestyleTargetResources(20480, {})).toEqual({ cpu: 5, memory: 20480, storage: 204800 });
-    expect(freestyleTargetResources(8192, {})).toEqual({ cpu: 2, memory: 8192, storage: 204800 });
+  test("the default plan machine is 2 vCPU / 8 GB / 32 GB, vCPUs following memory", () => {
+    expect(freestyleTargetResources(8192, {})).toEqual({ cpu: 2, memory: 8192, storage: 32768 });
     expect(freestyleTargetResources(4096, { CMUX_VM_DISK_MB: "65536" })).toEqual({
       cpu: 1,
       memory: 4096,
@@ -446,25 +458,25 @@ describe("Freestyle machine sizing", () => {
     // 2 vCPU / 4 GB / 16 GB, so a fresh create must grow all three.
     expect(freestyleResizeRequest(
       { cpu: 2, memory: 4096, storage: 16384 },
-      { cpu: 5, memory: 20480, storage: 204800 },
-    )).toEqual({ cpu: 5, memory: 20480, storage: 204800 });
+      { cpu: 5, memory: 20480, storage: 32768 },
+    )).toEqual({ cpu: 5, memory: 20480, storage: 32768 });
   });
 
   test("resize is grow-only and sends only the dimensions that grow", () => {
     // A snapshot taken from an already-sized machine restores at that size:
     // nothing to do. A snapshot larger than the request is never shrunk.
     expect(freestyleResizeRequest(
-      { cpu: 5, memory: 20480, storage: 204800 },
-      { cpu: 5, memory: 20480, storage: 204800 },
+      { cpu: 5, memory: 20480, storage: 32768 },
+      { cpu: 5, memory: 20480, storage: 32768 },
     )).toBeNull();
     expect(freestyleResizeRequest(
       { cpu: 8, memory: 32768, storage: 262144 },
-      { cpu: 5, memory: 20480, storage: 204800 },
+      { cpu: 5, memory: 20480, storage: 32768 },
     )).toBeNull();
     expect(freestyleResizeRequest(
       { cpu: 5, memory: 20480, storage: 16384 },
-      { cpu: 5, memory: 20480, storage: 204800 },
-    )).toEqual({ storage: 204800 });
+      { cpu: 5, memory: 20480, storage: 32768 },
+    )).toEqual({ storage: 32768 });
   });
 });
 
