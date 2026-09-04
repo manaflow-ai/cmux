@@ -347,6 +347,12 @@ for expected in '--expected-commit' '--require-capability' 'required cmux-tui ca
   fi
 done
 
+if ! grep -A4 -F 'install-cmux-tui-client.sh" \' "$ROOT_DIR/scripts/reload.sh" |
+   grep -Fq -- '--require-capability wireguard-hub'; then
+  echo "FAIL: tagged reloads must reject a cmux-tui client without WireGuard hub support"
+  exit 1
+fi
+
 if ! awk '
   /^      - name: Codesign app/ { sign_line=NR }
   /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }

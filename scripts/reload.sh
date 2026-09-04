@@ -1742,7 +1742,9 @@ fi
 if [[ "${CMUX_SKIP_CMUX_TUI_CLIENT:-}" == "1" && -x "$APP_PATH/Contents/Resources/bin/cmux-tui" ]]; then
   echo "Preserving bundled cmux-tui client (CMUX_SKIP_CMUX_TUI_CLIENT=1)"
 else
-  "$PWD/scripts/install-cmux-tui-client.sh" "$APP_PATH"
+  "$PWD/scripts/install-cmux-tui-client.sh" \
+    "$APP_PATH" \
+    --require-capability wireguard-hub
 fi
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP_PATH" || true
