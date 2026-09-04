@@ -15,6 +15,17 @@ export {
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
   VM_MEMORY_MB_PER_VCPU,
+  PLAN_SHARED_VCPU,
+  PLAN_SHARED_MEMORY_MB,
+  PLAN_SHARED_DISK_MB,
+  PLAN_SHARED_RESOURCE_CAPACITY,
+  DEFAULT_VM_RESOURCE_RESERVATION,
+  VM_RESOURCE_RESERVATION_METADATA_KEY,
+  sharedResourceCapacityForMaxActiveVms,
+  firstExceededSharedResource,
+  vmResourceReservationForCreate,
+  vmResourceReservationFromMetadata,
+  withVmResourceReservationMetadata,
   vcpusForMemoryMb,
   vmDiskMb,
 } from "./machineSpec";
@@ -147,9 +158,10 @@ function resolveBillingContext(
  * Machine sizes a person can pick, as memory in MB. The provider currently
  * accepts one per-VM profile: 5 vCPU, 20 GB memory, and a 32 GB starting disk.
  * Pricing separately advertises 5 vCPU, 20 GB memory, and 200 GB disk as one
- * pool shared across the plan's VMs. Aggregate resource quotas are outside
- * this module. vCPUs follow memory (vcpusForMemoryMb). Kept as a list so a
- * future size tier is one entry, not a new concept.
+ * pool shared across the plan's VMs. The repository enforces that aggregate
+ * pool; this module only resolves the plan allowance and profile. vCPUs follow
+ * memory (vcpusForMemoryMb). Kept as a list so a future size tier is one entry,
+ * not a new concept.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [PLAN_MACHINE_MEMORY_MB];
 

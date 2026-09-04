@@ -107,6 +107,17 @@ export class VmLimitExceededError extends Data.TaggedError("VmLimitExceededError
   readonly limit: number;
 }> {}
 
+/** A create or resize would exceed the plan's aggregate Cloud VM pool. */
+export class VmSharedResourceLimitExceededError extends Data.TaggedError("VmSharedResourceLimitExceededError")<{
+  readonly kind: "shared_resources";
+  readonly billingTeamId: string;
+  readonly phase?: "create" | "resize";
+  readonly resource: "vcpus" | "memoryMb" | "diskMb";
+  readonly used: number;
+  readonly requested: number;
+  readonly limit: number;
+}> {}
+
 export class VmCreateCreditsInsufficientError extends Data.TaggedError("VmCreateCreditsInsufficientError")<{
   readonly itemId: string;
   readonly billingCustomerId: string;
@@ -177,6 +188,7 @@ export type VmWorkflowError =
   | VmAccountDeletionInProgressError
   | VmImageConfigError
   | VmLimitExceededError
+  | VmSharedResourceLimitExceededError
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
@@ -237,6 +249,12 @@ export function isVmLimitExceededError(err: unknown): err is VmLimitExceededErro
   return (err as { _tag?: string } | null)?._tag === "VmLimitExceededError";
 }
 
+export function isVmSharedResourceLimitExceededError(
+  err: unknown,
+): err is VmSharedResourceLimitExceededError {
+  return (err as { _tag?: string } | null)?._tag === "VmSharedResourceLimitExceededError";
+}
+
 export function isVmCreateCreditsInsufficientError(err: unknown): err is VmCreateCreditsInsufficientError {
   return (err as { _tag?: string } | null)?._tag === "VmCreateCreditsInsufficientError";
 }
@@ -290,6 +308,7 @@ const vmWorkflowErrorTagRecord = {
   VmAccountDeletionInProgressError: true,
   VmImageConfigError: true,
   VmLimitExceededError: true,
+  VmSharedResourceLimitExceededError: true,
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,

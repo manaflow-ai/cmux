@@ -10,10 +10,16 @@ import {
   providerField,
   stringField,
 } from "../services/vms/routeInput";
-import { VmFreeAccessExpiredError, VmNotFoundError } from "../services/vms/errors";
+import {
+  VmFreeAccessExpiredError,
+  VmNotFoundError,
+  VmSharedResourceLimitExceededError,
+} from "../services/vms/errors";
 import {
   vmCreateLikeErrorResponse,
   vmResourceErrorResponse,
+  vmSharedResourceLimitExceededResponse,
+  vmWorkflowErrorResponse,
 } from "../services/vms/routeHelpers";
 
 async function responseBody(response: Response): Promise<Record<string, unknown>> {
@@ -121,6 +127,36 @@ describe("Cloud VM route error adapters", () => {
     );
     expect(expired?.status).toBe(402);
     expect((await responseBody(expired!)).error).toBe("vm_access_requires_pro");
+  });
+
+  test("maps shared pool exhaustion to a non-retryable conflict", async () => {
+    const error = new VmSharedResourceLimitExceededError({
+      kind: "shared_resources",
+      billingTeamId: "team-1",
+      resource: "diskMb",
+      used: 196608,
+      requested: 32768,
+      limit: 204800,
+    });
+    const direct = vmSharedResourceLimitExceededResponse(error, "resize");
+    expect(direct.status).toBe(409);
+    const directPayload = await responseBody(direct);
+    expect(directPayload.error).toBe("vm_shared_resource_limit_exceeded");
+    expect(directPayload.phase).toBe("resize");
+    expect(directPayload.retryable).toBe(false);
+    expect((directPayload.details as Record<string, unknown>).shared).toBe(true);
+
+    const workflow = await vmWorkflowErrorResponse(error);
+    expect(workflow?.status).toBe(409);
+    expect((await responseBody(workflow!)).error).toBe("vm_shared_resource_limit_exceeded");
+
+    const fork = vmCreateLikeErrorResponse(error, {
+      operation: "fork",
+      planId: "pro",
+      retryAction: "fork retry",
+    });
+    expect(fork?.status).toBe(409);
+    expect((await responseBody(fork!)).error).toBe("vm_shared_resource_limit_exceeded");
   });
 
   test("keeps fork and restore provisioning guidance distinct", async () => {

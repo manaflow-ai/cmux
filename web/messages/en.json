@@ -16,7 +16,7 @@
         "snapshot": "This Cloud VM does not support saved VM state.",
         "restore": "This Cloud VM kind does not support restoring saved VM state.",
         "fork": "This Cloud VM does not support copying to a new VM.",
-        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
+        "openPort": "This Cloud VM cannot expose machine ports as preview URLs.",
         "default": "This Cloud VM does not support the requested operation."
       },
       "action": {

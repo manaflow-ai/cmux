@@ -39,6 +39,7 @@ import {
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
   isVmResizeInvalidError,
+  isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
@@ -508,6 +509,45 @@ export function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/** Translate a plan-wide resource pool rejection into a stable client error. */
+export function vmSharedResourceLimitExceededResponse(
+  err: {
+    readonly resource: "vcpus" | "memoryMb" | "diskMb";
+    readonly used: number;
+    readonly requested: number;
+    readonly limit: number;
+    readonly phase?: VmLifecyclePhase;
+  },
+  phase: VmLifecyclePhase = err.phase ?? "create",
+): Response {
+  const resource = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "memory"
+      : "disk";
+  const unit = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "MB of memory"
+      : "MB of disk";
+  return vmErrorResponse({
+    error: "vm_shared_resource_limit_exceeded",
+    status: 409,
+    message: `The shared Cloud VM ${resource} pool is full.`,
+    action: "Delete an unused Cloud VM, then retry.",
+    phase,
+    retryable: false,
+    details: {
+      resource: err.resource,
+      used: err.used,
+      requested: err.requested,
+      limit: err.limit,
+      unit,
+      shared: true,
+    },
+  });
+}
+
 export type VmCreateLikeOperation = "fork" | "restore";
 
 /**
@@ -547,6 +587,9 @@ export function vmCreateLikeErrorResponse(
       planId: input.planId,
       retryAction: input.retryAction,
     });
+  }
+  if (isVmSharedResourceLimitExceededError(err)) {
+    return vmSharedResourceLimitExceededResponse(err, "create");
   }
   if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
@@ -643,6 +686,10 @@ export async function vmWorkflowErrorResponse(
 
   if (isVmModelPlaneError(workflowError)) {
     return vmModelPlaneErrorResponse(workflowError);
+  }
+
+  if (isVmSharedResourceLimitExceededError(workflowError)) {
+    return vmSharedResourceLimitExceededResponse(workflowError);
   }
 
   if (isVmResizeInvalidError(workflowError)) {

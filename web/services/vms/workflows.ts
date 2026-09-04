@@ -23,7 +23,14 @@ import {
   type VmBillingGatewayShape,
 } from "./billingGateway";
 import { vmCreateDisabledReason } from "./config";
-import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "./machineSpec";
+import {
+  VM_DISK_MB_MAX,
+  VM_DISK_MB_STEP,
+  sharedResourceCapacityForMaxActiveVms,
+  vmResourceReservationForCreate,
+  vmResourceReservationFromMetadata,
+  type VmResourceReservation,
+} from "./machineSpec";
 import {
   VmBillingError,
   VmAccountDeletionIdentityRevocationError,
@@ -41,12 +48,18 @@ import {
   VM_MODEL_PLANE_FAILURE_CODES,
   isVmCreateCreditsInsufficientError,
   isVmLimitExceededError,
+  isVmSharedResourceLimitExceededError,
   isVmModelPlaneError,
   vmWorkflowErrorCause,
   type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
-import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } from "./entitlements";
+import {
+  isPaidVmPlan,
+  isVmFreeAccessExpired,
+  maxActiveVmsForPlan,
+  vmFreeAccessWindowDays,
+} from "./entitlements";
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
@@ -65,6 +78,7 @@ import {
   type CloudVmLeaseKind,
   type CloudVmRow,
   type VmRepositoryShape,
+  type VmResizeReservation,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
 
@@ -407,6 +421,8 @@ export function createVm(input: {
   readonly memoryMb?: number;
   /** See CreateOptions.imageSize: CPU and memory are baked; disk can grow later. */
   readonly imageSize?: CreateOptions["imageSize"];
+  /** Override the reservation when cloning an existing machine shape. */
+  readonly resourceReservation?: VmResourceReservation;
   /** How the machine came to exist; analytics only. Defaults to `create`. */
   readonly origin?: VmCreateOrigin;
   /**
@@ -422,6 +438,19 @@ export function createVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+    // The advertised shared pool is a paid-plan entitlement. Free provisioning
+    // is an operator-only demo escape hatch and has no pricing resource promise.
+    const beginInput = isPaidVmPlan(input.billingPlanId)
+      ? {
+        ...input,
+        // Reserve the logical plan profile, not a provider snapshot's often
+        // larger baked shape. The provider may overprovision that snapshot.
+        resourceReservation: input.resourceReservation ?? vmResourceReservationForCreate({
+          memoryMb: input.memoryMb,
+        }),
+        sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
+      }
+      : input;
 
     // The owner's network row and the create row do not depend on each other,
     // so the request pays the slower of the two reads, not their sum. A network
@@ -437,7 +466,7 @@ export function createVm(input: {
             resolveOwnerNetwork({ userId: input.userId, provider: input.provider }),
           ),
         ),
-        beginCreateWithLazyProviderRefresh(repo, providers, input),
+        beginCreateWithLazyProviderRefresh(repo, providers, beginInput),
       ],
       { concurrency: 2 },
     );
@@ -640,10 +669,17 @@ export function openBaseVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+    const beginInput = isPaidVmPlan(input.billingPlanId)
+      ? {
+        ...input,
+        resourceReservation: vmResourceReservationForCreate(),
+        sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
+      }
+      : input;
     const create = yield* measureVmEffect(
       input.timing,
       "begin_base_open",
-      repo.beginBaseOpen(input),
+      repo.beginBaseOpen(beginInput),
     );
     return yield* finishBaseCreate(repo, providers, billing, input, create);
   });
@@ -666,10 +702,17 @@ export function resetBaseVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const billing = yield* VmBillingGateway;
+    const beginInput = isPaidVmPlan(input.billingPlanId)
+      ? {
+        ...input,
+        resourceReservation: vmResourceReservationForCreate(),
+        sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
+      }
+      : input;
     const create = yield* measureVmEffect(
       input.timing,
       "begin_base_reset",
-      repo.beginBaseReset(input),
+      repo.beginBaseReset(beginInput),
     );
     return yield* finishBaseCreate(repo, providers, billing, input, create);
   });
@@ -893,7 +936,15 @@ function reopenBaseIfProviderDeleted(
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
-            repo.beginBaseOpen(input),
+            repo.beginBaseOpen(
+              isPaidVmPlan(input.billingPlanId)
+                ? {
+                  ...input,
+                  resourceReservation: vmResourceReservationForCreate(),
+                  sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
+                }
+                : input,
+            ),
           );
         })
         : Effect.succeed(null)
@@ -1019,6 +1070,12 @@ export function forkVm(input: {
         image: source.imageId,
         imageVersion: source.imageVersion,
         maxActiveVms: input.maxActiveVms,
+        ...(isPaidVmPlan(input.billingPlanId)
+          ? {
+            resourceReservation: vmResourceReservationFromMetadata(source.providerMetadata),
+            sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
+          }
+          : {}),
         idempotencyKey: input.idempotencyKey,
         timing: input.timing,
       });
@@ -1165,6 +1222,7 @@ export function forkVm(input: {
       provider: source.provider,
       image: snapshot.id,
       imageVersion: null,
+      resourceReservation: vmResourceReservationFromMetadata(source.providerMetadata),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       timing: input.timing,
@@ -1199,7 +1257,7 @@ function beginCreateWithLazyProviderRefresh(
 ): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
   return measureVmEffect(input.timing, "begin_create", repo.beginCreate(input)).pipe(
     Effect.catchAll((err) => {
-      if (!isVmLimitExceededError(err)) return Effect.fail(err);
+      if (!isVmLimitExceededError(err) && !isVmSharedResourceLimitExceededError(err)) return Effect.fail(err);
       return Effect.gen(function* () {
         yield* measureVmEffect(
           input.timing,
@@ -1212,7 +1270,7 @@ function beginCreateWithLazyProviderRefresh(
   );
 }
 
-/** Refresh live provider state before retrying an active-VM limit conflict. */
+/** Refresh live provider state before retrying a count or shared-resource limit conflict. */
 function refreshActiveLimitProviderStatuses(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
@@ -1937,6 +1995,10 @@ export function resizeVm(input: {
   readonly teamIds?: readonly string[];
   readonly providerVmId: string;
   readonly storageMb: number;
+  /** Current caller/VM plan. Shared capacity applies to paid plans only. */
+  readonly billingPlanId?: string | null;
+  /** Team allowance used to scale the shared resource pool. */
+  readonly maxActiveVms?: number | null;
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
@@ -1971,8 +2033,40 @@ export function resizeVm(input: {
         reason: "above_max",
       }));
     }
+    // Claim the new disk size under the same billing-team lock used by create.
+    // The live repository always provides this method; test doubles from
+    // before shared-pool accounting may omit it and exercise provider behavior
+    // without a database.
+    let reservation: VmResizeReservation | null = null;
+    if (repo.reserveVmResize && isPaidVmPlan(input.billingPlanId ?? vm.billingPlanId ?? "")) {
+      reservation = yield* repo.reserveVmResize({
+        id: vm.id,
+        userId: input.userId,
+        billingTeamId: vm.billingTeamId ?? input.billingTeamId,
+        providerVmId: input.providerVmId,
+        storageMb: input.storageMb,
+        maxActiveVms: input.maxActiveVms ?? maxActiveVmsForPlan(vm.billingPlanId),
+        sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(
+          input.maxActiveVms ?? maxActiveVmsForPlan(vm.billingPlanId),
+        ),
+      });
+      if (!reservation) {
+        return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+      }
+    }
+    // A no-op request still backfills the durable reservation for legacy rows
+    // whose provider metadata predates the shared-pool policy.
     if (input.storageMb === currentMb) return current;
-    yield* providers.resize(vm.provider, input.providerVmId, { storageMb: input.storageMb });
+    const rollbackReservation = () => reservation && repo.restoreVmResize
+      ? repo.restoreVmResize({
+        id: vm.id,
+        expectedDiskMb: reservation.reservedDiskMb,
+        previousDiskMb: reservation.previousDiskMb,
+      }).pipe(Effect.catchAll(() => Effect.void))
+      : Effect.void;
+    yield* providers.resize(vm.provider, input.providerVmId, { storageMb: input.storageMb }).pipe(
+      Effect.tapError(() => rollbackReservation()),
+    );
     const updated = yield* providers.getStats(vm.provider, input.providerVmId);
     yield* repo.recordUsageEvent({
       userId: input.userId,

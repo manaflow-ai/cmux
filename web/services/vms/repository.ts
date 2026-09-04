@@ -28,12 +28,23 @@ import {
   VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  VmSharedResourceLimitExceededError,
   LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
   VM_MODEL_PLANE_FAILURE_CODES,
   isVmAccountDeletionInProgressError,
   isVmCreateDisabledError,
   isVmLimitExceededError,
+  isVmSharedResourceLimitExceededError,
 } from "./errors";
+import {
+  DEFAULT_VM_RESOURCE_RESERVATION,
+  VM_RESOURCE_RESERVATION_METADATA_KEY,
+  firstExceededSharedResource,
+  sharedResourceCapacityForMaxActiveVms,
+  vmResourceReservationFromMetadata,
+  withVmResourceReservationMetadata,
+  type VmResourceReservation,
+} from "./machineSpec";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -51,11 +62,17 @@ export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
+export type VmResourceReservationInput = VmResourceReservation;
+export type VmResizeReservation = {
+  readonly previousDiskMb: number;
+  readonly reservedDiskMb: number;
+};
 export type CloudVmStatus = CloudVmRow["status"];
 export type CloudVmSessionStatus = CloudVmSessionRow["status"];
 // Reaper batches are capped at 100. Keep repository calls bounded even if a
 // future caller passes a malformed or oversized name list.
 const VM_REAPER_REFERENCE_NAME_LIMIT = 100;
+const LIVE_VM_RESOURCE_STATUSES = ["provisioning", "running", "paused"] as const;
 
 export type BeginCreateResult =
   | { readonly inserted: true; readonly vm: CloudVmRow }
@@ -163,7 +180,10 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly idempotencyKey?: string;
-  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError>;
+    /** Provider resources reserved against the plan-wide pool. */
+    readonly resourceReservation?: VmResourceReservation;
+    readonly sharedResourceCapacity?: VmResourceReservation;
+  }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmSharedResourceLimitExceededError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -174,7 +194,9 @@ export type VmRepositoryShape = {
     readonly imageVersion?: string | null;
     readonly maxActiveVms: number | null;
     readonly baseName?: string;
-  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError>;
+    readonly resourceReservation?: VmResourceReservation;
+    readonly sharedResourceCapacity?: VmResourceReservation;
+  }) => Effect.Effect<BeginBaseCreateResult, VmCreateDisabledError | VmAccountDeletionInProgressError | VmDatabaseError | VmLimitExceededError | VmSharedResourceLimitExceededError>;
   readonly beginBaseReset: (input: {
     readonly userId: string;
     readonly billingTeamId: string;
@@ -186,7 +208,9 @@ export type VmRepositoryShape = {
     readonly maxActiveVms: number | null;
     readonly baseName?: string;
     readonly reason?: string | null;
-  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError>;
+    readonly resourceReservation?: VmResourceReservation;
+    readonly sharedResourceCapacity?: VmResourceReservation;
+  }) => Effect.Effect<Extract<BeginBaseCreateResult, { readonly kind: "create" }>, VmCreateDisabledError | VmAccountDeletionInProgressError | VmCreateInProgressError | VmDatabaseError | VmLimitExceededError | VmSharedResourceLimitExceededError>;
   readonly markBaseCreateRunning: (input: {
     readonly baseId: string;
     readonly generation: number;
@@ -218,6 +242,22 @@ export type VmRepositoryShape = {
     readonly providerVmId: string;
     readonly maxActiveVms: number | null;
   }) => Effect.Effect<CloudVmRow | null, VmDatabaseError | VmLimitExceededError>;
+  /** Reserve a grow-only disk change before provider I/O. Live shape always provides this. */
+  readonly reserveVmResize?: (input: {
+    readonly id: string;
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly providerVmId: string;
+    readonly storageMb: number;
+    readonly maxActiveVms?: number | null;
+    readonly sharedResourceCapacity?: VmResourceReservation;
+  }) => Effect.Effect<VmResizeReservation | null, VmDatabaseError | VmSharedResourceLimitExceededError>;
+  /** Restore a reservation when the provider rejected the resize. */
+  readonly restoreVmResize?: (input: {
+    readonly id: string;
+    readonly expectedDiskMb: number;
+    readonly previousDiskMb: number;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
@@ -460,6 +500,107 @@ function accountScopeWhere(input: {
   return eq(cloudVms.billingTeamId, billingTeamId);
 }
 
+/** A safe SQL expression for one reservation field, including legacy rows. */
+function reservedResourceField(
+  key: "vcpus" | "memoryMb" | "diskMb",
+  fallback: number,
+) {
+  const keySql = sql.raw(`'${key}'`);
+  const reservationKeySql = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
+  const value = sql<string | null>`${cloudVms.providerMetadata}->${reservationKeySql}->>${keySql}`;
+  // Provider metadata is not trusted input. Keep malformed or out-of-range
+  // legacy values from turning a quota read into a database cast failure.
+  return sql<number>`case
+    when coalesce(${value}, '') ~ '^[0-9]+$'
+      and length(${value}) <= 10
+      and (${value})::numeric between 1 and 2147483647
+    then (${value})::integer
+    else ${fallback}
+  end`;
+}
+
+function reservedResourceFields() {
+  return {
+    vcpus: reservedResourceField("vcpus", DEFAULT_VM_RESOURCE_RESERVATION.vcpus),
+    memoryMb: reservedResourceField("memoryMb", DEFAULT_VM_RESOURCE_RESERVATION.memoryMb),
+    diskMb: reservedResourceField("diskMb", DEFAULT_VM_RESOURCE_RESERVATION.diskMb),
+  };
+}
+
+async function reservedResourceTotals(
+  tx: CloudDbTransaction,
+  billingTeamId: string,
+  excludeVmId?: string,
+): Promise<VmResourceReservation> {
+  const fields = reservedResourceFields();
+  const predicates = [
+    inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+    eq(cloudVms.billingTeamId, billingTeamId),
+  ];
+  if (excludeVmId) predicates.push(ne(cloudVms.id, excludeVmId));
+  const [row] = await tx
+    .select({
+      vcpus: sql<number>`coalesce(sum(${fields.vcpus}), 0)`,
+      memoryMb: sql<number>`coalesce(sum(${fields.memoryMb}), 0)`,
+      diskMb: sql<number>`coalesce(sum(${fields.diskMb}), 0)`,
+    })
+    .from(cloudVms)
+    .where(and(...predicates));
+  return {
+    vcpus: Number(row?.vcpus ?? 0),
+    memoryMb: Number(row?.memoryMb ?? 0),
+    diskMb: Number(row?.diskMb ?? 0),
+  };
+}
+
+function resourceReservationForInput(
+  reservation: VmResourceReservation | undefined,
+): VmResourceReservation {
+  return reservation ?? DEFAULT_VM_RESOURCE_RESERVATION;
+}
+
+function sharedResourceCapacityForInput(
+  maxActiveVms: number | null,
+  capacity: VmResourceReservation | undefined,
+): VmResourceReservation {
+  return capacity ?? sharedResourceCapacityForMaxActiveVms(maxActiveVms);
+}
+
+async function assertSharedResourceCapacity(
+  tx: CloudDbTransaction,
+  input: {
+    readonly billingTeamId: string;
+    readonly maxActiveVms: number | null;
+    readonly resourceReservation?: VmResourceReservation;
+    readonly sharedResourceCapacity?: VmResourceReservation;
+    readonly excludeVmId?: string;
+    readonly phase?: "create" | "resize";
+  },
+): Promise<void> {
+  // The shared pool is supplied explicitly by paid-plan workflows. Keep the
+  // repository compatible with the controlled free-provisioning escape hatch
+  // and with legacy callers that only use the active-count entitlement.
+  if (input.resourceReservation === undefined && input.sharedResourceCapacity === undefined) return;
+  const reservation = resourceReservationForInput(input.resourceReservation);
+  const capacity = sharedResourceCapacityForInput(input.maxActiveVms, input.sharedResourceCapacity);
+  const used = await reservedResourceTotals(tx, input.billingTeamId, input.excludeVmId);
+  const exceeded = firstExceededSharedResource({ used, requested: reservation, capacity });
+  if (!exceeded) return;
+  throw new VmSharedResourceLimitExceededError({
+    kind: "shared_resources",
+    billingTeamId: input.billingTeamId,
+    phase: input.phase,
+    resource: exceeded.resource,
+    used: exceeded.used,
+    requested: exceeded.requested,
+    limit: exceeded.limit,
+  });
+}
+
+function reservationMetadata(reservation: VmResourceReservation): Record<string, unknown> {
+  return withVmResourceReservationMetadata({}, reservation);
+}
+
 function accountUsageScopeWhere(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -634,11 +775,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   mergeProviderMetadata: (input) =>
     dbEffect("mergeProviderMetadata", async () => {
       const db = cloudDb();
+      // The reservation is control-plane state. Provider metadata patches may
+      // add addresses and network ids, but cannot overwrite the quota claim.
+      const patch = Object.fromEntries(
+        Object.entries(input.patch).filter(([key]) => key !== VM_RESOURCE_RESERVATION_METADATA_KEY),
+      );
       await db
         .update(cloudVms)
         .set({
           // jsonb || jsonb merges at the top level: patch keys win, others stay.
-          providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(input.patch)}::jsonb`,
+          providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(patch)}::jsonb`,
           updatedAt: new Date(),
         })
         .where(eq(cloudVms.id, input.id));
@@ -777,6 +923,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 limit,
               });
             }
+            await assertSharedResourceCapacity(tx, {
+              billingTeamId: input.billingTeamId,
+              maxActiveVms: input.maxActiveVms,
+              resourceReservation: input.resourceReservation,
+              sharedResourceCapacity: input.sharedResourceCapacity,
+              phase: "create",
+            });
 
             const [vm] = await tx
               .insert(cloudVms)
@@ -789,6 +942,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
+                providerMetadata: reservationMetadata(resourceReservationForInput(input.resourceReservation)),
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
@@ -802,7 +956,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmSharedResourceLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginCreate", cause }),
     }),
@@ -820,6 +974,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               userId: input.userId,
               provider: input.provider,
             });
+            await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.billingTeamId}, 0))`);
 
             const [existing] = await tx
               .select({
@@ -878,6 +1033,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 limit,
               });
             }
+            await assertSharedResourceCapacity(tx, {
+              billingTeamId: input.billingTeamId,
+              maxActiveVms: input.maxActiveVms,
+              resourceReservation: input.resourceReservation,
+              sharedResourceCapacity: input.sharedResourceCapacity,
+              phase: "create",
+            });
 
             const now = new Date();
             const previousGeneration = existing?.generation ?? null;
@@ -895,6 +1057,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
+                providerMetadata: reservationMetadata(resourceReservationForInput(input.resourceReservation)),
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
@@ -1008,7 +1171,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           throw err;
         }
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmSharedResourceLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseOpen", cause }),
     }),
@@ -1025,6 +1188,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             userId: input.userId,
             provider: input.provider,
           });
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.billingTeamId}, 0))`);
           const [existing] = await tx
             .select({
               base: cloudVmBases,
@@ -1082,6 +1246,13 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               limit,
             });
           }
+          await assertSharedResourceCapacity(tx, {
+            billingTeamId: input.billingTeamId,
+            maxActiveVms: input.maxActiveVms,
+            resourceReservation: input.resourceReservation,
+            sharedResourceCapacity: input.sharedResourceCapacity,
+            phase: "create",
+          });
 
           const [vm] = await tx
             .insert(cloudVms)
@@ -1094,6 +1265,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               imageVersion: input.imageVersion ?? null,
               status: "provisioning",
               idempotencyKey,
+              providerMetadata: reservationMetadata(resourceReservationForInput(input.resourceReservation)),
             })
             .returning();
           if (!vm) throw new Error("insert returned no VM row");
@@ -1174,7 +1346,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           };
         });
       },
-      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause)
+      catch: (cause) => isVmCreateDisabledError(cause) || isVmAccountDeletionInProgressError(cause) || isVmLimitExceededError(cause) || isVmSharedResourceLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "beginBaseReset", cause }),
     }),
@@ -1190,7 +1362,15 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             providerVmId: input.providerVmId,
             imageId: input.image,
             imageVersion: input.imageVersion ?? null,
-            providerMetadata: input.providerMetadata ?? {},
+            // Provider metadata is additive. Keep the reservation written by
+            // beginBaseOpen/reset even if a driver omits it or returns a stale
+            // copy in its handle.
+            providerMetadata: sql`(
+              coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(input.providerMetadata ?? {})}::jsonb
+            ) || case
+              when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
+              else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
+            end`,
             status: "running",
             failureCode: null,
             failureMessage: null,
@@ -1402,6 +1582,106 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           : new VmDatabaseError({ operation: "reservePausedResume", cause }),
     }),
 
+  reserveVmResize: (input) =>
+    Effect.tryPromise({
+      try: async () => {
+        const db = cloudDb();
+        return await db.transaction(async (tx) => {
+          const requestedTeamId = input.billingTeamId?.trim();
+          const lockKey = requestedTeamId || `user:${input.userId}`;
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+
+          const [current] = await tx
+            .select()
+            .from(cloudVms)
+            .where(and(
+              eq(cloudVms.id, input.id),
+              accountScopeWhere({ userId: input.userId, billingTeamId: requestedTeamId }),
+              eq(cloudVms.providerVmId, input.providerVmId),
+            ))
+            .limit(1);
+          if (!current || current.status === "destroyed") return null;
+
+          const previous = vmResourceReservationFromMetadata(current.providerMetadata);
+          const reserved = {
+            ...previous,
+            // A stale provider read must never make the durable reservation
+            // shrink. The workflow already validates grow-only semantics.
+            diskMb: Math.max(previous.diskMb, input.storageMb),
+          };
+          const billingTeamId = current.billingTeamId ?? requestedTeamId ?? input.userId;
+          const capacity = sharedResourceCapacityForInput(
+            input.maxActiveVms ?? null,
+            input.sharedResourceCapacity,
+          );
+          const used = await reservedResourceTotals(tx, billingTeamId, current.id);
+          const exceeded = firstExceededSharedResource({
+            used,
+            requested: reserved,
+            capacity,
+          });
+          if (exceeded) {
+            throw new VmSharedResourceLimitExceededError({
+              kind: "shared_resources",
+              billingTeamId,
+              phase: "resize",
+              resource: exceeded.resource,
+              used: exceeded.used,
+              requested: exceeded.requested,
+              limit: exceeded.limit,
+            });
+          }
+
+          await tx
+            .update(cloudVms)
+            .set({
+              providerMetadata: withVmResourceReservationMetadata(current.providerMetadata, reserved),
+              updatedAt: new Date(),
+            })
+            .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")));
+          return {
+            previousDiskMb: previous.diskMb,
+            reservedDiskMb: reserved.diskMb,
+          };
+        });
+      },
+      catch: (cause) => isVmSharedResourceLimitExceededError(cause)
+        ? cause
+        : new VmDatabaseError({ operation: "reserveVmResize", cause }),
+    }),
+
+  restoreVmResize: (input) =>
+    dbEffect("restoreVmResize", async () => {
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        const [initial] = await tx
+          .select()
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!initial || initial.status === "destroyed") return;
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${initial.billingTeamId ?? initial.userId}, 0))`);
+        const [current] = await tx
+          .select()
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!current || current.status === "destroyed") return;
+        const reservation = vmResourceReservationFromMetadata(current.providerMetadata);
+        if (reservation.diskMb !== input.expectedDiskMb) return;
+        await tx
+          .update(cloudVms)
+          .set({
+            providerMetadata: withVmResourceReservationMetadata(current.providerMetadata, {
+              ...reservation,
+              diskMb: input.previousDiskMb,
+            }),
+            updatedAt: new Date(),
+          })
+          .where(and(eq(cloudVms.id, input.id), ne(cloudVms.status, "destroyed")));
+      });
+    }),
+
   reconciliationCandidates: (input) =>
     dbEffect("reconciliationCandidates", async () => {
       const db = cloudDb();
@@ -1517,7 +1797,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           providerVmId: input.providerVmId,
           imageId: input.image,
           imageVersion: input.imageVersion ?? null,
-          providerMetadata: input.providerMetadata ?? {},
+          // Keep the reservation from the transactional create claim. It is
+          // the control-plane accounting record, not provider metadata.
+          providerMetadata: sql`(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(input.providerMetadata ?? {})}::jsonb
+          ) || case
+            when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
+            else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
+          end`,
           status: "running",
           failureCode: null,
           failureMessage: null,

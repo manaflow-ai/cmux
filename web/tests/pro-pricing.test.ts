@@ -9,7 +9,13 @@ import {
   proBillingInterval,
 } from "../services/billing/plans";
 import {
+  PLAN_SHARED_DISK_MB,
+  PLAN_SHARED_MEMORY_MB,
+  PLAN_SHARED_VCPU,
   PAID_MAX_ACTIVE_VMS_DEFAULT,
+  firstExceededSharedResource,
+  sharedResourceCapacityForMaxActiveVms,
+  vmResourceReservationForCreate,
   VM_DISK_MB_DEFAULT,
 } from "../services/vms/entitlements";
 
@@ -92,9 +98,9 @@ describe("pricing copy matches the plan policy", () => {
   // The public pricing copy states the VM allowance and shared capacity as
   // prose. Pin the shared pool to its product contract and pin the provider
   // starting disk to its runtime constant so the two policies stay distinct.
-  const sharedVcpus = 5;
-  const sharedMemoryGb = 20;
-  const sharedDiskGb = 200;
+  const sharedVcpus = PLAN_SHARED_VCPU;
+  const sharedMemoryGb = PLAN_SHARED_MEMORY_MB / 1024;
+  const sharedDiskGb = PLAN_SHARED_DISK_MB / 1024;
   const startingDiskGb = VM_DISK_MB_DEFAULT / 1024;
 
   test("the shared Cloud VM capacity is 5 vCPU, 20 GB RAM, 200 GB disk, up to 50 machines", () => {
@@ -106,6 +112,44 @@ describe("pricing copy matches the plan policy", () => {
 
   test("new Cloud VM disks start at 32 GB", () => {
     expect(startingDiskGb).toBe(32);
+  });
+
+  test("the shared pool scales with the VM allowance and rejects an overage", () => {
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT)).toEqual({
+      vcpus: PLAN_SHARED_VCPU,
+      memoryMb: PLAN_SHARED_MEMORY_MB,
+      diskMb: PLAN_SHARED_DISK_MB,
+    });
+    expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT * 2)).toEqual({
+      vcpus: PLAN_SHARED_VCPU * 2,
+      memoryMb: PLAN_SHARED_MEMORY_MB * 2,
+      diskMb: PLAN_SHARED_DISK_MB * 2,
+    });
+    expect(firstExceededSharedResource({
+      used: { vcpus: 0, memoryMb: PLAN_SHARED_MEMORY_MB, diskMb: 0 },
+      requested: { vcpus: 1, memoryMb: 1, diskMb: 1 },
+      capacity: {
+        vcpus: PLAN_SHARED_VCPU,
+        memoryMb: PLAN_SHARED_MEMORY_MB,
+        diskMb: PLAN_SHARED_DISK_MB,
+      },
+    })).toEqual({
+      resource: "memoryMb",
+      used: PLAN_SHARED_MEMORY_MB,
+      requested: 1,
+      limit: PLAN_SHARED_MEMORY_MB,
+    });
+  });
+
+  test("a size-less plan reservation follows requested memory", () => {
+    expect(vmResourceReservationForCreate({
+      memoryMb: PLAN_SHARED_MEMORY_MB,
+      env: {},
+    })).toEqual({
+      vcpus: PLAN_SHARED_VCPU,
+      memoryMb: PLAN_SHARED_MEMORY_MB,
+      diskMb: VM_DISK_MB_DEFAULT,
+    });
   });
 
   for (const [

@@ -16,7 +16,7 @@
         "snapshot": "この Cloud VM は保存済み状態に対応していません。",
         "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
         "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
-        "openPort": "この Cloud VM のプロバイダーはマシンのポートをプレビュー URL として公開できません。",
+        "openPort": "この Cloud VM ではマシンのポートをプレビュー URL として公開できません。",
         "default": "この Cloud VM は要求された操作に対応していません。"
       },
       "action": {
