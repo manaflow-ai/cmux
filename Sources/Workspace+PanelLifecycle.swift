@@ -461,6 +461,10 @@ extension Workspace {
             )
         }
         if closePanel {
+            if let browserPanel = panel as? BrowserPanel,
+               let shutdownTask = browserPanel.prepareChromiumShutdownForClose() {
+                retainChromiumShutdownTask(shutdownTask, for: browserPanel.chromiumStorageID)
+            }
             panel?.close()
         }
 

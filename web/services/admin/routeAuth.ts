@@ -4,6 +4,7 @@ import { getStackServerApp, isStackConfigured } from "../../app/lib/stack";
 import { authProviderErrorResponse } from "../vms/authErrors";
 import { jsonResponse, parseBearer } from "../vms/routeHelpers";
 import { isAdminUser } from "./access";
+import { withStackAuthSpan } from "../auth/stackTelemetry";
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
 
@@ -47,7 +48,9 @@ export async function requireAdmin(request: NextRequest): Promise<AdminGate> {
       });
   let user: Awaited<ReturnType<typeof loadUser>>;
   try {
-    user = await loadUser();
+    user = await withStackAuthSpan("get_user", loadUser, {
+      "cmux.auth.flow": "admin_route",
+    });
   } catch (error) {
     return { ok: false, response: authProviderErrorResponse(error, "admin.auth") };
   }

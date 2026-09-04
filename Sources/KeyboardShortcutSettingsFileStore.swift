@@ -1,4 +1,5 @@
 import Combine
+import CmuxBrowser
 import CmuxFoundation
 import CmuxSettings
 import Foundation
@@ -930,6 +931,41 @@ final class CmuxSettingsFileStore {
         snapshot: inout ResolvedSettingsSnapshot
     ) {
         let browserSearchSettings = BrowserSearchSettingsStore()
+
+        if let raw = jsonString(section["defaultEngine"] ?? section["engine"]) {
+            guard let engine = BrowserEngineOption(rawValue: raw) else {
+                logInvalid("browser.defaultEngine", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[SettingCatalog().browser.defaultEngine.userDefaultsKey] = .string(engine.rawValue)
+        }
+
+        if section.keys.contains("chromiumExtensionDirectories") {
+            // Accept either a JSON array of paths or one newline-separated
+            // string; both normalize to the newline-separated stored form.
+            let rawValue = section["chromiumExtensionDirectories"]
+            let joined: String
+            if let paths = rawValue as? [Any], paths.allSatisfy({ $0 is String }) {
+                joined = paths.compactMap { $0 as? String }.joined(separator: "\n")
+            } else if let text = jsonString(rawValue) {
+                joined = text
+            } else {
+                logInvalid("browser.chromiumExtensionDirectories", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults[
+                SettingCatalog().browser.chromiumExtensionDirectories.userDefaultsKey
+            ] = .string(joined)
+        }
+
+        if section.keys.contains("remoteDebuggingPort") {
+            guard let port = jsonInt(section["remoteDebuggingPort"]),
+                  ChromiumRemoteDebuggingPort(rawValue: port) != nil else {
+                logInvalid("browser.remoteDebuggingPort", sourcePath: sourcePath)
+                return
+            }
+            snapshot.managedUserDefaults["browser.remoteDebuggingPort"] = .int(port)
+        }
 
         if section.keys.contains("defaultZoomLevel") {
             if let rawZoom = jsonDouble(section["defaultZoomLevel"]), rawZoom.isFinite {
