@@ -68,6 +68,13 @@ final class CmuxTuiSurfaceProviderRegistry {
         // both start a task — the second one sees the first one's task here and waits.
         while let inFlight = refreshInFlight {
             let listed = await inFlight.value
+            // `refreshInFlight` is cleared by the waiter that owns the task, not by the
+            // task itself. Clear a completed flight before looping so a forced refresh
+            // can start its own pass; leaving the completed task installed makes this
+            // loop spin forever on the main actor.
+            if refreshInFlight == inFlight {
+                refreshInFlight = nil
+            }
             if !force { return listed }
         }
         let task = Task<Bool, Never> { [weak self] in
