@@ -768,7 +768,7 @@ jobs:
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
       target_set: ${{ inputs.mode == 'full' && 'all' || 'macos-arm64' }}
-      build_cloudflare_relay: false
+      build_cloudflare_relay: ${{ inputs.mode == 'full' }}
       verify_linux_arm64: ${{ inputs.mode == 'full' }}
       macos_runner: blacksmith-6vcpu-macos-15
       linux_runner: blacksmith-4vcpu-ubuntu-2404
