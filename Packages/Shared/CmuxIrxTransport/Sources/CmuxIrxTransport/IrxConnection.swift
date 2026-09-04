@@ -375,6 +375,12 @@ public actor IrxConnection {
         )
     }
 
+    /// Returns a close reason that the underlying QUIC connection has already
+    /// published, without waiting for the connection to finish closing.
+    public func closeReason() -> String? {
+        connection.closeReason()
+    }
+
     /// Resolves once the connection has ended, returning the attributed
     /// termination. "connection-lost" (no parsable cause) is itself a signal
     /// the soak analyzer treats as a failure.
