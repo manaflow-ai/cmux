@@ -4,9 +4,16 @@ import Foundation
 extension TerminalController {
     /// Adds one explicitly authorized URL, file, HTML, or text value.
     nonisolated func v2ArtifactsAdd(params: [String: Any]) async -> V2CallResult {
-        let workspaceID = (params["workspace_id"] as? String).flatMap(UUID.init(uuidString:))
+        guard v2UUID(params, "workspace_id") != nil else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "artifacts.cli.noWorkspace", defaultValue: "No workspace is available for Artifacts"),
+                data: nil
+            )
+        }
         let workspace: Workspace? = await MainActor.run {
-            workspaceID.flatMap { AppDelegate.shared?.workspaceFor(tabId: $0) }
+            guard let tabManager = self.v2ResolveTabManager(params: params) else { return nil }
+            return self.v2ResolveWorkspace(params: params, tabManager: tabManager)
         }
         guard let workspace else {
             return .err(
@@ -106,12 +113,9 @@ extension TerminalController {
     /// Opens the workspace-owned Artifacts surface through the shared UI action path.
     @MainActor
     func v2ArtifactsOpen(params: [String: Any]) -> V2CallResult {
-        let requestedWorkspace = (params["workspace_id"] as? String).flatMap(UUID.init(uuidString:))
-        let manager = AppDelegate.shared?.tabManager
-        let workspace = requestedWorkspace.flatMap { AppDelegate.shared?.workspaceFor(tabId: $0) }
-            ?? manager?.selectedWorkspace
-        guard let workspace,
-              let owner = workspace.owningTabManager,
+        guard let tabManager = v2ResolveTabManager(params: params),
+              let workspace = v2ResolveWorkspace(params: params, tabManager: tabManager),
+              workspace.owningTabManager != nil,
               let pane = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first,
               workspace.openOrFocusWorkspaceArtifactsSurface(inPane: pane, focus: true) != nil else {
@@ -121,7 +125,6 @@ extension TerminalController {
                 data: nil
             )
         }
-        _ = owner
         return .ok(["workspace_id": workspace.id.uuidString, "surface": "artifacts"])
     }
 

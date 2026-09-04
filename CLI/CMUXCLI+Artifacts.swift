@@ -14,9 +14,11 @@ extension CMUXCLI {
         var params: [String: Any] = ["scope": scopeRaw]
         if let workspaceRaw {
             let window = try normalizeWindowHandle(optionValue(commandArgs, name: "--window"), client: client)
-            if let workspace = try normalizeWorkspaceHandle(workspaceRaw, client: client, windowHandle: window) {
-                params["workspace_id"] = workspace
-            }
+            params["workspace_id"] = try resolveWorkspaceId(
+                workspaceRaw,
+                client: client,
+                windowHandle: window
+            )
         }
         if let project = optionValue(commandArgs, name: "--project") { params["project_id"] = project }
 
