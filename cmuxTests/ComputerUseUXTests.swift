@@ -1240,6 +1240,40 @@ struct ComputerUseUXTests {
         }
     }
 
+    /// Regression: a compact logo block rendered by the onboarding root must
+    /// use the visible content area of a titled window, not the full-size
+    /// content view that extends underneath the traffic-light title bar.
+    @Test @MainActor
+    func titledOnboardingCentersCompactLogoInTheVisibleContentArea() {
+        let window = ComputerUseOnboardingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 440),
+            styleMask: [.titled, .closable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.close() }
+
+        let contentBounds = window.contentView?.bounds ?? .zero
+        let layoutRect = window.contentLayoutRect
+        let visibleContentRect = CGRect(
+            x: layoutRect.minX,
+            y: contentBounds.height - layoutRect.maxY,
+            width: layoutRect.width,
+            height: layoutRect.height
+        )
+        let compactLogoFrame = CGRect(
+            x: (contentBounds.width - ComputerUsePermissionCompanionLayout.size.width) / 2,
+            y: (contentBounds.height - ComputerUsePermissionCompanionLayout.size.height) / 2,
+            width: ComputerUsePermissionCompanionLayout.size.width,
+            height: ComputerUsePermissionCompanionLayout.size.height
+        )
+
+        #expect(
+            abs(compactLogoFrame.midY - visibleContentRect.midY) <= 0.5,
+            "compact logo must be centered below the title bar"
+        )
+    }
+
     @Test func permissionCompanionStartsSmallAndCenteredOverMainWindow() {
         let mainFrame = NSRect(x: 100, y: 200, width: 600, height: 440)
 
