@@ -4138,6 +4138,8 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
     }
 
     const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+    const ACL_FIRST_ENTRY: libc::c_int = 0;
+    const ACL_NEXT_ENTRY: libc::c_int = -1;
     let acl = unsafe { acl_get_fd_np(directory.as_raw_fd(), ACL_TYPE_EXTENDED) };
     if acl.is_null() {
         let error = io::Error::last_os_error();
@@ -4155,7 +4157,7 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
     }
     let acl = Acl(acl);
     let mut entry = std::ptr::null_mut();
-    let mut entry_id = 0;
+    let mut entry_id = ACL_FIRST_ENTRY;
     loop {
         let status = unsafe { acl_get_entry(acl.0, entry_id, &mut entry) };
         if status != 0 {
@@ -4175,13 +4177,13 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
                 "dump directory ACL grants access; remove allow entries or choose another directory",
             ));
         }
-        entry_id = 1;
+        entry_id = ACL_NEXT_ENTRY;
     }
 }
 
 #[cfg(target_os = "macos")]
 fn macos_dump_acl_tag_is_safe(tag: libc::c_int) -> bool {
-    const ACL_EXTENDED_DENY: libc::c_int = 0x0000_0200;
+    const ACL_EXTENDED_DENY: libc::c_int = 2;
     tag == ACL_EXTENDED_DENY
 }
 
