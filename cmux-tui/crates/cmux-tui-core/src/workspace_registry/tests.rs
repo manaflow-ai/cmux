@@ -4565,8 +4565,6 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_before =
-        formatted.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)).unwrap();
     drop(formatted);
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4579,16 +4577,22 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_normalization = reopened
-        .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
-        .unwrap();
     assert_ne!(canonical_definition, definition_before);
     assert_eq!(
         canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
         "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
     );
-    assert!(schema_version_after_normalization > schema_version_before);
+    assert!(
+        !resource_tabs_needs_multiview_normalization(&reopened.connection).unwrap()
+    );
+    reopened
+        .connection
+        .execute(
+            "CREATE INDEX browser_view_normalization_sentinel
+             ON resource_tabs(created_revision)",
+            [],
+        )
+        .unwrap();
     drop(reopened);
 
     let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4601,12 +4605,23 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_second_open = reopened_again
+    let sentinel_count = reopened_again
         .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'browser_view_normalization_sentinel'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
         .unwrap();
     assert_eq!(definition_after_second_open, canonical_definition);
-    assert_eq!(schema_version_after_second_open, schema_version_after_normalization);
+    assert_eq!(
+        sentinel_count, 1,
+        "resource_tabs was normalized more than once"
+    );
+    assert!(
+        !resource_tabs_needs_multiview_normalization(&reopened_again.connection).unwrap()
+    );
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
