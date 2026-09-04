@@ -2444,8 +2444,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Relayed phone replies type through the SAME paste-and-submit
         // entrypoint as the phone's direct RPC sends, so both lanes share claim
         // resolution and key-event submission semantics.
-        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { params in
-            switch TerminalController.shared.v2MobileTerminalPaste(params: params) {
+        PhoneReplyInboxCoordinator.shared.injectTerminalInput = { [weak self] params, retargetsToLiveSurfaceOwner in
+            guard let self else { return .permanentlyUndeliverable }
+            let routedParams: [String: Any]
+            if retargetsToLiveSurfaceOwner {
+                guard let surfaceID = TerminalController.shared.v2UUID(params, "surface_id"),
+                      let target = self.agentNotificationDeliveryTarget(
+                          claimedTabId: TerminalController.shared.v2UUID(params, "workspace_id"),
+                          surfaceId: surfaceID
+                      ) else {
+                    return .retryable
+                }
+                var resolved = params
+                resolved["workspace_id"] = target.tabId.uuidString
+                resolved["surface_id"] = (target.surfaceId ?? surfaceID).uuidString
+                routedParams = resolved
+            } else {
+                routedParams = params
+            }
+            switch TerminalController.shared.v2MobileTerminalPaste(params: routedParams) {
             case .ok(let result):
                 // The host's paste result includes whether the named submit
                 // key was accepted. Older hosts may omit it while still

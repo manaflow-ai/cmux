@@ -34,7 +34,9 @@ final class PhoneReplyInboxCoordinator {
 
     /// Seam to the shared terminal.paste entrypoint; wired to
     /// ``TerminalController/v2MobileTerminalPaste(params:)`` at composition.
-    var injectTerminalInput: (@MainActor ([String: Any]) -> InjectionOutcome)?
+    /// The retarget policy is carried separately so a confined notification
+    /// can never be mistaken for a retargetable one after it is parked.
+    var injectTerminalInput: (@MainActor ([String: Any], Bool) -> InjectionOutcome)?
 
     private var client: PhoneReplyInboxClient?
     private var sweepTask: Task<Void, Never>?
@@ -125,14 +127,15 @@ final class PhoneReplyInboxCoordinator {
                 // Keep the reply text separate from its submit key. Appending a
                 // carriage return to terminal.input is a raw byte write and
                 // inserts a newline in full-screen agent editors instead of
-                // submitting the prompt.
+                // submitting the prompt. The Mac applies the retarget policy
+                // from the parked record before invoking terminal.paste.
                 "text": reply.text,
                 "submit_key": "return",
             ]
             if !reply.workspaceId.isEmpty {
                 params["workspace_id"] = reply.workspaceId
             }
-            let outcome = inject(params)
+            let outcome = inject(params, reply.retargetsToLiveSurfaceOwner)
             #if DEBUG
             cmuxDebugLog("phoneReply.inject outcome=\(outcome) surface=\(reply.surfaceId.prefix(8))")
             #endif
