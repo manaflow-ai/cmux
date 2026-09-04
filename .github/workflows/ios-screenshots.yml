@@ -199,7 +199,7 @@ jobs:
           # This runs before framing/localization propagation, so it contains
           # only the untouched simulator captures reviewers need for fidelity.
           if [ -d ios/fastlane/screenshots ]; then
-            rsync -a --include '*/' --include '*.png' --exclude '*' \
+            rsync -a --include '*/' --include '*.png' --exclude '*_framed.png' --exclude '*' \
               ios/fastlane/screenshots/ ios/fastlane/raw-screenshot-captures/
           else
             echo "No raw screenshots were produced before capture failed." >&2

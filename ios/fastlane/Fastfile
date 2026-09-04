@@ -1,4 +1,5 @@
 require "json"
+require "fileutils"
 
 default_platform(:ios)
 
@@ -54,6 +55,12 @@ platform :ios do
     languages = (ENV["SNAPSHOT_LANGUAGES"] ||
                  "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja")
                 .split(",").map(&:strip).reject(&:empty?)
+    # Snapshot's `clear_previous_screenshots` option is useful for one capture,
+    # but this lane invokes Snapshot once per locale. Clear the root exactly
+    # once, then preserve each locale directory across serial invocations.
+    screenshot_root = File.expand_path("screenshots", __dir__)
+    FileUtils.rm_rf(screenshot_root)
+    FileUtils.mkdir_p(screenshot_root)
     languages.each do |language|
       reset_screenshot_simulators(devices)
       capture_screenshots(
@@ -67,6 +74,8 @@ platform :ios do
         # Keep AppleLanguages valid while retaining the App Store locale as
         # the screenshot directory name.
         languages: [[snapshot_language_code(language), language]],
+        output_directory: screenshot_root,
+        clear_previous_screenshots: false,
         # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
         override_status_bar: true,
         # Capture in dark mode.

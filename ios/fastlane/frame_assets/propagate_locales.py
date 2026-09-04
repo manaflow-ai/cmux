@@ -69,6 +69,23 @@ SOURCE_LOCALE = {
     "zh-Hant": "zh-Hant",
 }
 
+# Fastlane Snapshot names its output directory with the Apple language code
+# supplied as the first element of `languages: [[language, locale]]` (for
+# example `en`), while older/local runs may already use the App Store slot
+# name (`en-US`). Accept both forms, preferring the language-code directory so
+# a fresh capture wins over a stale propagated destination from an earlier run.
+CAPTURE_DIRS = {
+    "en-US": ("en", "en-US"),
+    "de-DE": ("de", "de-DE"),
+    "fr-FR": ("fr", "fr-FR"),
+    "ar-SA": ("ar", "ar-SA"),
+    "es-ES": ("es", "es-ES"),
+    "zh-Hans": ("zh-Hans",),
+    "zh-Hant": ("zh-Hant",),
+    "ko": ("ko",),
+    "ja": ("ja",),
+}
+
 
 def raws(d):
     return sorted(f for f in os.listdir(d)
@@ -97,10 +114,15 @@ def main():
     with tempfile.TemporaryDirectory(prefix="cmux-locale-raws-") as staged:
         available = {}
         for source in source_dirs:
-            src = os.path.join(ss, source)
-            files = raws(src)
-            if not files:
+            capture_dir = next(
+                (candidate for candidate in CAPTURE_DIRS[source]
+                 if raws(os.path.join(ss, candidate))),
+                None,
+            )
+            if capture_dir is None:
                 continue
+            src = os.path.join(ss, capture_dir)
+            files = raws(src)
             dst = os.path.join(staged, source)
             os.makedirs(dst)
             for f in files:
