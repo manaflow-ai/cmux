@@ -37,6 +37,30 @@ export type VmResourceReservation = {
 
 export type VmSharedResourceName = keyof VmResourceReservation;
 
+/**
+ * Bounds for provider-reported machine dimensions. CPU and memory match the
+ * supported image ladder; disk also permits the grow-only resize ceiling.
+ * Callers must use their conservative fallback when a provider value is
+ * outside these bounds instead of treating it as a real machine shape.
+ */
+export const VM_PROVIDER_RESOURCE_BOUNDS = {
+  vcpus: { min: 2, max: 32 },
+  memoryMb: { min: 4 * 1024, max: 64 * 1024 },
+  diskMb: { min: 16 * 1024, max: VM_DISK_MB_MAX },
+} as const satisfies Record<VmSharedResourceName, { min: number; max: number }>;
+
+/** Read one provider dimension only when it is a supported machine shape. */
+export function vmProviderResourceSize(
+  resource: VmSharedResourceName,
+  value: unknown,
+): number | null {
+  const bounds = VM_PROVIDER_RESOURCE_BOUNDS[resource];
+  return typeof value === "number" && Number.isSafeInteger(value) &&
+      value >= bounds.min && value <= bounds.max
+    ? value
+    : null;
+}
+
 export type VmImageResourceShape = {
   readonly cpu: number;
   readonly memoryMb: number;

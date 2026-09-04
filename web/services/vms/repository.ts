@@ -1969,6 +1969,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     Effect.tryPromise({
       try: async () => {
         const db = cloudDb();
+        // oxlint-disable-next-line complexity -- The transaction keeps resize generations, headroom, and pool checks atomic.
         return await db.transaction(async (tx) => {
           const requestedTeamId = input.billingTeamId?.trim();
           const lockKey = requestedTeamId || `user:${input.userId}`;

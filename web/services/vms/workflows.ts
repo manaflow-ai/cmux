@@ -40,6 +40,7 @@ import {
   vmResourceReservationFromMetadata,
   vmResourceResizePendingFromMetadata,
   vmResourceResizeUnconfirmedFromMetadata,
+  vmProviderResourceSize,
   type VmResourceReservation,
   type VmResourceResizePending,
 } from "./machineSpec";
@@ -1001,9 +1002,9 @@ export function snapshotVm(input: {
     const snapshotStats = providers.getStats
       ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
         Effect.map((stats) => ({
-          vcpus: positiveResourceSize(stats.cpus),
-          memoryMb: positiveResourceSize(stats.memoryTotalMb),
-          diskMb: positiveResourceSize(stats.diskTotalMb),
+          vcpus: vmProviderResourceSize("vcpus", stats.cpus),
+          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb),
+          diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb),
         })),
         Effect.catchAll(() => Effect.succeed(null)),
       )
@@ -1154,20 +1155,13 @@ function resourceReservationForFork(
   return providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
     Effect.map((stats) => {
       return {
-        vcpus: positiveResourceSize(stats.cpus) ?? unknownShape.vcpus,
-        memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? unknownShape.memoryMb,
-        diskMb: positiveResourceSize(stats.diskTotalMb) ?? unknownShape.diskMb,
+        vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? unknownShape.vcpus,
+        memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? unknownShape.memoryMb,
+        diskMb: vmProviderResourceSize("diskMb", stats.diskTotalMb) ?? unknownShape.diskMb,
       } satisfies VmResourceReservation;
     }),
     Effect.catchAll(() => Effect.succeed(unknownShape)),
   );
-}
-
-/** Accept only a provider-reported positive resource size. */
-function positiveResourceSize(value: unknown): number | null {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-    ? value
-    : null;
 }
 
 export function forkVm(input: {
@@ -1533,7 +1527,7 @@ function reconcileLegacyResourceCandidate(
   );
   return readStats.pipe(
     Effect.flatMap((stats) => {
-      const diskMb = positiveResourceSize(stats.diskTotalMb);
+      const diskMb = vmProviderResourceSize("diskMb", stats.diskTotalMb);
       if (diskMb === null) return deferLegacyResourceCandidate(repo, vm);
       const existing = vmResourceReservationFromMetadata(metadata);
       if (pending && diskMb < pending.requestedDiskMb) {
@@ -1569,8 +1563,8 @@ function reconcileLegacyResourceCandidate(
           // so the provider's current size is the only trustworthy fallback.
           const reservation = {
             ...existing,
-            vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
-            memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+            vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
+            memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
             diskMb: Math.max(
               DEFAULT_VM_RESOURCE_RESERVATION.diskMb,
               unconfirmed.previousDiskMb ?? 0,
@@ -1585,8 +1579,8 @@ function reconcileLegacyResourceCandidate(
         }
         const reservation = {
           ...existing,
-          vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
-          memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+          vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
+          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
           diskMb: Math.max(unconfirmed.requestedDiskMb, diskMb),
         };
         return setReservation({
@@ -1598,14 +1592,14 @@ function reconcileLegacyResourceCandidate(
       const reservation = pending
         ? {
           ...existing,
-          vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
-          memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+          vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
+          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
           diskMb: Math.max(pending.requestedDiskMb, diskMb),
         }
         : {
           ...DEFAULT_VM_RESOURCE_RESERVATION,
-          vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
-          memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+          vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? existing.vcpus,
+          memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? existing.memoryMb,
           // Never replace the logical starting profile with a smaller
           // provider report. A larger report remains visible and fails closed.
           diskMb: Math.max(DEFAULT_VM_RESOURCE_RESERVATION.diskMb, diskMb),
@@ -2382,8 +2376,8 @@ export function resizeVm(input: {
       forceProviderProbe: true,
     });
     const current = yield* providers.getStats(vm.provider, input.providerVmId);
-    const currentMb = current.diskTotalMb;
-    if (currentMb === undefined || currentMb === null || currentMb <= 0) {
+    const currentMb = vmProviderResourceSize("diskMb", current.diskTotalMb);
+    if (currentMb === null) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
     }
     if (input.storageMb < currentMb) {
@@ -2446,11 +2440,12 @@ export function resizeVm(input: {
       // read proves that the disk is still at its pre-resize size. If the read
       // fails or reports growth, keep the larger claim as a safe upper bound.
       return providers.getStats!(vm.provider, input.providerVmId).pipe(
-        Effect.flatMap((stats) =>
-          typeof stats.diskTotalMb === "number" && stats.diskTotalMb <= currentMb
+        Effect.flatMap((stats) => {
+          const observedDiskMb = vmProviderResourceSize("diskMb", stats.diskTotalMb);
+          return observedDiskMb !== null && observedDiskMb <= currentMb
             ? rollbackReservation()
-            : Effect.void,
-        ),
+            : Effect.void;
+        }),
         Effect.catchAll(() => Effect.void),
       );
     };
@@ -2463,7 +2458,7 @@ export function resizeVm(input: {
     // The provider can round a requested disk up. Persist the observed claim
     // before returning so the next shared-pool check cannot undercount it.
     // Missing or malformed stats fail closed at the per-VM maximum.
-    const confirmedDiskMb = positiveResourceSize(updated.diskTotalMb) ?? VM_DISK_MB_MAX;
+    const confirmedDiskMb = vmProviderResourceSize("diskMb", updated.diskTotalMb) ?? VM_DISK_MB_MAX;
     if (reservation && repo.confirmVmResize) {
       const confirmed = yield* repo.confirmVmResize({
         id: vm.id,
