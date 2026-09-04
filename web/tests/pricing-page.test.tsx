@@ -136,7 +136,7 @@ describe("localized pricing page", () => {
     }
   });
 
-  test("defaults public pricing to annual billing with compact paid-plan CTAs", async () => {
+  test("defaults public pricing to annual billing with full-size paid-plan CTAs", async () => {
     const element = await PricingPage({ params: Promise.resolve({ locale: "en" }) });
     const html = renderToStaticMarkup(element);
 
@@ -153,10 +153,10 @@ describe("localized pricing page", () => {
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Pro/,
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-5 py-2\.5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-3 py-1\.5 text-xs[^"]*"[^>]*><span>Get Teams/,
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-5 py-2\.5 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');

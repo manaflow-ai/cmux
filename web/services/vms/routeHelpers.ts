@@ -56,7 +56,7 @@ import {
   vmClientIdentityFromRequest,
   type VmRequestContext,
 } from "./requestContext";
-import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
+import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy, vmUnsupportedOperationKey } from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -776,10 +776,7 @@ async function vmUnsupportedOperationResponse(
   locale: Locale,
 ): Promise<Response> {
   const phase = vmPhaseForOperation(error.operation);
-  const copy = await vmUnsupportedCopy(
-    phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
-    locale,
-  );
+  const copy = await vmUnsupportedCopy(vmUnsupportedOperationKey(error.operation), locale);
   return vmErrorResponse({
     error: "vm_operation_unsupported",
     status: 501,
