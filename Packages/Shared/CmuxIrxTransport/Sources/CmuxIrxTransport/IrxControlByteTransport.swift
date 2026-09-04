@@ -19,6 +19,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     private let establish: Establish
     private let onClose: OnClose?
     private var pair: (IrxConnection, IrxLaneStream)?
+    private var lastConnection: IrxConnection?
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
     private var isClosed = false
 
@@ -83,10 +84,12 @@ public actor IrxControlByteTransport: CmxByteTransport {
         defer { connectInFlight = nil }
         let established = try await task.value
         guard !isClosed else {
+            lastConnection = established.0
             await established.1.close()
             await onClose?()
             throw IrxConnectionError.closed(nil)
         }
+        lastConnection = established.0
         pair = established
         return established
     }
@@ -106,9 +109,12 @@ extension IrxControlByteTransport: CmxByteTransportClosureObserving {
     /// death immediately instead of discovering it on the next failed write.
     public func transportClosureObservation() async -> CmxTransportClosureObservation? {
         guard let (connection, _) = pair else { return nil }
-        return CmxTransportClosureObservation {
-            _ = await connection.termination()
-        }
+        let observationID = await connection.makeClosureObservationID()
+        return CmxTransportClosureObservation(waitUntilClosed: {
+            await connection.waitForClosure(observationID: observationID)
+        }, cancel: {
+            Task { await connection.cancelClosureObservation(observationID: observationID) }
+        })
     }
 }
 
@@ -117,8 +123,7 @@ extension IrxControlByteTransport: CmxByteTransportLivenessObserving {
     /// Read the session snapshot directly so application-level liveness can
     /// repair this lane without redialing every other lane.
     public func isTransportClosed() async -> Bool {
-        guard !isClosed else { return true }
-        guard let (connection, _) = pair else { return false }
+        guard let connection = pair?.0 ?? lastConnection else { return false }
         return await connection.isClosed
     }
 }

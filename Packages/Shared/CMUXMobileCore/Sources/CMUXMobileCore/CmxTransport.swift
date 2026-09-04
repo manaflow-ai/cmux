@@ -438,13 +438,30 @@ public protocol CmxByteTransportDiagnosticSessionIdentifying: CmxByteTransport {
 /// replacement connection.
 public struct CmxTransportClosureObservation: Sendable {
     private let waitUntilClosedOperation: @Sendable () async -> Void
+    private let cancelOperation: @Sendable () -> Void
 
-    public init(waitUntilClosed: @escaping @Sendable () async -> Void) {
+    /// Creates a cancellable observation of one exact transport generation.
+    /// `cancel` must release the observation's waiter without closing a
+    /// shared transport that may still be used by another lane.
+    public init(
+        waitUntilClosed: @escaping @Sendable () async -> Void,
+        cancel: @escaping @Sendable () -> Void
+    ) {
         self.waitUntilClosedOperation = waitUntilClosed
+        self.cancelOperation = cancel
     }
 
     public func waitUntilClosed() async {
-        await waitUntilClosedOperation()
+        await withTaskCancellationHandler(operation: {
+            await waitUntilClosedOperation()
+        }, onCancel: {
+            cancelOperation()
+        })
+    }
+
+    /// Releases the observation waiter while leaving the shared transport open.
+    public func cancel() {
+        cancelOperation()
     }
 }
 

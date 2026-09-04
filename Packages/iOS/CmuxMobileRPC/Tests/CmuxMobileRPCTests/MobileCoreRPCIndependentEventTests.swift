@@ -511,9 +511,11 @@ private actor SubscribeRoundTripTransport: CmxByteTransport, CmxByteTransportClo
     }
 
     func transportClosureObservation() async -> CmxTransportClosureObservation? {
-        CmxTransportClosureObservation { [weak self] in
+        CmxTransportClosureObservation(waitUntilClosed: { [weak self] in
             await self?.waitUntilClosed()
-        }
+        }, cancel: { [weak self] in
+            Task { await self?.closeExternally() }
+        })
     }
 
     private func waitUntilClosed() async {

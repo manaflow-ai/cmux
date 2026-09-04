@@ -147,6 +147,9 @@ public actor IrxConnection {
     private var localTermination: IrxTermination?
     private var keepaliveTask: Task<Void, Never>?
     private var pingSeq: UInt64 = 0
+    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var cancelledClosureWaiters = Set<UUID>()
+    private var closureWatcher: Task<Void, Never>?
 
     public init(connection: Connection, role: Role, journal: IrxJournal) {
         self.connection = connection
@@ -160,6 +163,58 @@ public actor IrxConnection {
 
     public var isClosed: Bool {
         closedFlag || connection.closeReason() != nil
+    }
+
+    /// Registers a cancellation-aware waiter for the complete QUIC
+    /// connection, shared by all RPC lanes on this session.
+    public func makeClosureObservationID() -> UUID {
+        let observationID = UUID()
+        if closureWatcher == nil {
+            let driver = connection
+            closureWatcher = Task { [weak self] in
+                _ = await driver.closed()
+                await self?.finishClosureWaiters()
+            }
+        }
+        return observationID
+    }
+
+    /// Waits for a registered complete-connection observation to fire.
+    public func waitForClosure(observationID: UUID) async {
+        if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
+            return
+        }
+        await withTaskCancellationHandler(operation: {
+            await withCheckedContinuation { continuation in
+                if isClosed || cancelledClosureWaiters.remove(observationID) != nil {
+                    continuation.resume()
+                } else {
+                    closureWaiters[observationID] = continuation
+                }
+            }
+        }, onCancel: {
+            Task { await self.cancelClosureObservation(observationID: observationID) }
+        })
+    }
+
+    /// Cancels one complete-connection observation without closing the
+    /// connection itself.
+    public func cancelClosureObservation(observationID: UUID) {
+        if let continuation = closureWaiters.removeValue(forKey: observationID) {
+            continuation.resume()
+        } else {
+            cancelledClosureWaiters.insert(observationID)
+        }
+    }
+
+    private func finishClosureWaiters() {
+        let waiters = closureWaiters
+        closureWaiters.removeAll(keepingCapacity: false)
+        cancelledClosureWaiters.removeAll(keepingCapacity: false)
+        for continuation in waiters.values {
+            continuation.resume()
+        }
+        closureWatcher = nil
     }
 
     /// Raises the number of streams the REMOTE side may open, called by the
@@ -367,6 +422,9 @@ public actor IrxConnection {
     public func close(code: IrxCloseCode, origin: IrxTermination.Origin) async {
         guard !closedFlag else { return }
         closedFlag = true
+        finishClosureWaiters()
+        closureWatcher?.cancel()
+        closureWatcher = nil
         localTermination = IrxTermination(origin: origin, code: code.rawValue)
         keepaliveTask?.cancel()
         keepaliveTask = nil
