@@ -261,11 +261,6 @@ struct SessionIndexView: View {
         VStack(spacing: 0) {
             controlBar
             VaultAllSessionsBar(
-                store: store,
-                // Search stays intentionally quiet: the category buttons and
-                // search field remain, while secondary sort/filter chrome is
-                // hidden until the query is cleared.
-                showsSortAndFilter: store.grouping == .recency && !isShowingSearchResults,
                 searchText: $searchText,
                 isCompactView: $isCompactView,
                 onPeekTopResult: { peekTopSearchResult() },

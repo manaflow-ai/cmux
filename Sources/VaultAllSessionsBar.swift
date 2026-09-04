@@ -1,14 +1,10 @@
 import SwiftUI
 
-/// Chrome row shown for every Vault grouping: session search, view density,
-/// and the recency-only sort/filter menus. Mounted directly by
+/// Chrome row shown for every Vault grouping: session search and view density.
+/// Mounted directly by
 /// `SessionIndexView` above the table boundary, mirroring the existing control
 /// bar (safe to observe the store here — never inside table rows).
 struct VaultAllSessionsBar: View {
-    @ObservedObject var store: SessionIndexStore
-    /// Sort and filters act on the recency ("All") sections; other groupings
-    /// keep only the search field.
-    let showsSortAndFilter: Bool
     @Binding var searchText: String
     /// Shared row-density preference. Default view shows repository/branch
     /// details; compact view hides that second line in every Vault grouping.
@@ -34,7 +30,7 @@ struct VaultAllSessionsBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             searchField
             overflowMenu
         }
@@ -43,7 +39,7 @@ struct VaultAllSessionsBar: View {
         // second separator line. The field itself is two points taller than
         // the compact icon controls, so use three-point vertical insets here.
         .padding(.leading, 4)
-        .padding(.trailing, 2)
+        .padding(.trailing, 0)
         .padding(.vertical, 3)
         .frame(height: searchBarHeight)
     }
@@ -107,67 +103,6 @@ struct VaultAllSessionsBar: View {
 
     private var overflowMenu: some View {
         Menu {
-            if showsSortAndFilter {
-                Picker(
-                    String(localized: "sessionIndex.allSessions.sortBy", defaultValue: "Sort by"),
-                    selection: $store.recencySort
-                ) {
-                    ForEach(VaultSessionSort.allCases) { sort in
-                        Text(sort.label).tag(sort)
-                    }
-                }
-                .pickerStyle(.inline)
-                Divider()
-                Picker(
-                    String(localized: "sessionIndex.filter.agent", defaultValue: "Agent"),
-                    selection: $store.recencyFilter.agentID
-                ) {
-                    Text(String(localized: "sessionIndex.filter.agent.all", defaultValue: "All agents"))
-                        .tag(String?.none)
-                    ForEach(store.agentFilterOptions) { option in
-                        Text(option.label).tag(String?.some(option.id))
-                    }
-                }
-                .pickerStyle(.inline)
-                Picker(
-                    String(localized: "sessionIndex.filter.status", defaultValue: "Status"),
-                    selection: $store.recencyFilter.liveness
-                ) {
-                    ForEach(VaultSessionFilter.Liveness.allCases) { liveness in
-                        Text(liveness.label).tag(liveness)
-                    }
-                }
-                .pickerStyle(.inline)
-                Picker(
-                    String(localized: "sessionIndex.filter.folder", defaultValue: "Folder"),
-                    selection: $store.recencyFilter.folder
-                ) {
-                    Text(String(localized: "sessionIndex.filter.folder.all", defaultValue: "All folders"))
-                        .tag(String?.none)
-                    ForEach(store.folderFilterOptions) { option in
-                        Text(option.label).tag(String?.some(option.id))
-                    }
-                }
-                .pickerStyle(.inline)
-                Picker(
-                    String(localized: "sessionIndex.filter.date", defaultValue: "Date"),
-                    selection: $store.recencyFilter.datePreset
-                ) {
-                    ForEach(VaultSessionFilter.DatePreset.allCases) { preset in
-                        Text(preset.label).tag(preset)
-                    }
-                }
-                .pickerStyle(.inline)
-                if store.recencyFilter.isActive {
-                    Divider()
-                    Button {
-                        store.recencyFilter = VaultSessionFilter()
-                    } label: {
-                        Text(String(localized: "sessionIndex.filter.reset", defaultValue: "Reset Filters"))
-                    }
-                }
-                Divider()
-            }
             Picker(
                 String(localized: "sessionIndex.view.title", defaultValue: "Session view"),
                 selection: $isCompactView
