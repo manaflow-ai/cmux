@@ -93,8 +93,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             guard index != pinnedCount else { return }
             let tab = model.tabs[index]
             guard !tab.isPinned else { return }
-            model.tabs.remove(at: index)
-            model.tabs.insert(tab, at: pinnedCount)
+            model.replaceTabs { currentTabs in
+                var reordered = currentTabs
+                let movedTab = reordered.remove(at: index)
+                reordered.insert(movedTab, at: pinnedCount)
+                return reordered
+            }
         }
         if model.tabs.map(\.id) != previousOrder {
             host?.workspaceOrderDidChange(movedWorkspaceIds: [tabId])
@@ -152,8 +156,12 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
             return true
         }
 
-        let workspace = model.tabs.remove(at: plan.fromIndex)
-        model.tabs.insert(workspace, at: plan.toIndex)
+        model.replaceTabs { currentTabs in
+            var reordered = currentTabs
+            let workspace = reordered.remove(at: plan.fromIndex)
+            reordered.insert(workspace, at: plan.toIndex)
+            return reordered
+        }
         if isDragOperation {
             applyDragInferredGroupMembership(workspaceId: tabId, explicitGroupId: explicitGroupId)
         } else if !model.workspaceGroups.isEmpty {
@@ -895,14 +903,21 @@ public final class WorkspaceReorderCoordinator<Tab: WorkspaceTabRepresenting> {
     }
 
     private func reorderTabForPinnedState(_ tab: Tab) {
-        guard let index = model.tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        guard model.tabs.contains(where: { $0.id == tab.id }) else { return }
         if tab.groupId != nil {
             model.normalizeWorkspaceGroupContiguity()
             return
         }
-        model.tabs.remove(at: index)
-        let pinnedCount = model.leadingGlobalPinnedRowCount()
-        let insertIndex = min(pinnedCount, model.tabs.count)
-        model.tabs.insert(tab, at: insertIndex)
+        model.replaceTabs { currentTabs in
+            var reordered = currentTabs
+            guard let currentIndex = reordered.firstIndex(where: { $0.id == tab.id }) else {
+                return currentTabs
+            }
+            let movedTab = reordered.remove(at: currentIndex)
+            let pinnedCount = reordered.prefix { model.isGlobalPinnedRow($0) }.count
+            let insertIndex = min(pinnedCount, reordered.count)
+            reordered.insert(movedTab, at: insertIndex)
+            return reordered
+        }
     }
 }

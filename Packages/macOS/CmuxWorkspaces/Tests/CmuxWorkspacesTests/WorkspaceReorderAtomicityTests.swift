@@ -33,13 +33,22 @@ private final class ReorderPublicationHost: WorkspacesHosting, WorkspaceOrderHos
 
 @MainActor
 struct WorkspaceReorderAtomicityTests {
-    @Test
-    func notificationReorderPublishesOnlyCoherentWorkspaceSnapshots() {
+    private func makeWorld() -> (
+        model: WorkspacesModel<CoordinatorStubTab>,
+        host: ReorderPublicationHost,
+        reorder: WorkspaceReorderCoordinator<CoordinatorStubTab>
+    ) {
         let model = WorkspacesModel<CoordinatorStubTab>()
         let host = ReorderPublicationHost()
         model.attach(host: host)
         let reorder = WorkspaceReorderCoordinator(model: model)
         reorder.attach(host: host)
+        return (model, host, reorder)
+    }
+
+    @Test
+    func notificationReorderPublishesOnlyCoherentWorkspaceSnapshots() {
+        let (model, host, reorder) = makeWorld()
 
         let first = CoordinatorStubTab()
         let selected = CoordinatorStubTab()
@@ -53,5 +62,38 @@ struct WorkspaceReorderAtomicityTests {
         #expect(host.tabSnapshots == [[selected.id, first.id, last.id]])
         #expect(host.tabSnapshots.allSatisfy { $0.contains(selected.id) })
         #expect(host.orderChanges == [[selected.id]])
+    }
+
+    @Test
+    func explicitReorderPublishesOnlyCoherentWorkspaceSnapshots() {
+        let (model, host, reorder) = makeWorld()
+        let first = CoordinatorStubTab()
+        let selected = CoordinatorStubTab()
+        let last = CoordinatorStubTab()
+        model.tabs = [first, selected, last]
+        model.selectedTabId = selected.id
+        host.resetSnapshots()
+
+        #expect(reorder.reorderWorkspace(tabId: selected.id, toIndex: 0))
+
+        #expect(host.tabSnapshots == [[selected.id, first.id, last.id]])
+        #expect(host.tabSnapshots.allSatisfy { $0.contains(selected.id) })
+    }
+
+    @Test
+    func pinTransitionPublishesOnlyCoherentWorkspaceSnapshots() {
+        let (model, host, reorder) = makeWorld()
+        let pinned = CoordinatorStubTab(isPinned: true)
+        let selected = CoordinatorStubTab()
+        let last = CoordinatorStubTab()
+        model.tabs = [pinned, selected, last]
+        model.selectedTabId = selected.id
+        host.resetSnapshots()
+
+        reorder.setPinned(selected, pinned: true)
+
+        #expect(host.tabSnapshots.count == 1)
+        #expect(host.tabSnapshots.allSatisfy { $0.contains(selected.id) })
+        #expect(model.tabs.map(\.id) == [pinned.id, selected.id, last.id])
     }
 }
