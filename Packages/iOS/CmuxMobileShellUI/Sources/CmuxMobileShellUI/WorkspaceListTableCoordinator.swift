@@ -318,6 +318,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if structureChanged {
             dataSource.replaceItems(next.items, in: tableView)
             appliedItems = next.items
+            #if DEBUG
+            recordPayloadApplyRoute(.tableReload)
+            #endif
         } else if !changedRowHeightsStable {
             // Keep the existing cells when a response adds or removes a
             // description line. Replacing rows at high update rates can leave
@@ -344,10 +347,10 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             if !changedIndexPaths.isEmpty {
                 tableView.reloadRows(at: changedIndexPaths, with: .none)
             }
+            #if DEBUG
+            recordPayloadApplyRoute(.tableReload)
+            #endif
         }
-        #if DEBUG
-        recordPayloadApplyRoute(.tableReload)
-        #endif
     }
 
     private func setDragSessionActive(_ active: Bool, in tableView: UITableView) {
