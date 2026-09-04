@@ -5,6 +5,7 @@ import Foundation
 actor CmxConnectivityByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
+    CmxByteTransportLivenessObserving,
     CmxByteTransportContinuityIdentifying,
     CmxByteTransportDiagnosticSessionIdentifying,
     CmxByteTransportSessionPurposeUpdating
@@ -89,6 +90,12 @@ actor CmxConnectivityByteTransport:
         return CmxTransportClosureObservation {
             await session.waitUntilClosed()
         }
+    }
+
+    func isTransportClosed() async -> Bool {
+        if closed { return true }
+        guard let session else { return false }
+        return await session.isClosed()
     }
 
     func updateSessionPurpose(_ purpose: CmxTransportSessionPurpose) async {

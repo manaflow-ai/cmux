@@ -107,3 +107,14 @@ extension IrxControlByteTransport: CmxByteTransportClosureObserving {
         }
     }
 }
+
+extension IrxControlByteTransport: CmxByteTransportLivenessObserving {
+    /// A control-lane failure is not proof that the shared QUIC session died.
+    /// Read the session snapshot directly so application-level liveness can
+    /// repair this lane without redialing every other lane.
+    public func isTransportClosed() async -> Bool {
+        guard !isClosed else { return true }
+        guard let (connection, _) = pair else { return false }
+        return await connection.isClosed
+    }
+}

@@ -5,7 +5,8 @@ import Foundation
 actor CmxIrohDeferredByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
-    CmxByteTransportContinuityIdentifying
+    CmxByteTransportContinuityIdentifying,
+    CmxByteTransportLivenessObserving
 {
     private let request: CmxByteTransportRequest
     private let provider: any CmxIrohDeferredTransportProviding
@@ -96,5 +97,14 @@ actor CmxIrohDeferredByteTransport:
             return nil
         }
         return await observing.transportClosureObservation()
+    }
+
+    func isTransportClosed() async -> Bool {
+        if closed { return true }
+        guard let transport else { return false }
+        guard let observing = transport as? any CmxByteTransportLivenessObserving else {
+            return false
+        }
+        return await observing.isTransportClosed()
     }
 }

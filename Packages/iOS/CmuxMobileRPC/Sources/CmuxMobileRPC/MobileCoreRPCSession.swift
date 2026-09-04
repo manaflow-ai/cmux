@@ -339,6 +339,17 @@ actor MobileCoreRPCSession {
         listeners.removeValue(forKey: id)
     }
 
+    /// Snapshot whether the complete native transport has closed. A control
+    /// request can stall while an Iroh session and its terminal lane continue
+    /// to carry traffic, so application stream failures must consult this
+    /// before replacing the shared session.
+    public func isTransportClosed() async -> Bool? {
+        guard let transport = transport as? any CmxByteTransportLivenessObserving else {
+            return nil
+        }
+        return await transport.isTransportClosed()
+    }
+
     func updateTransportSessionPurpose(
         _ purpose: CmxTransportSessionPurpose
     ) async {
