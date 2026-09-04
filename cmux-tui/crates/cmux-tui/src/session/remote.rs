@@ -3916,6 +3916,9 @@ fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     let stream = DirectoryStream(stream);
+    // `dup` shares the directory cursor. Reset each scan so a prior pass on
+    // this descriptor cannot hide entries that were created later.
+    unsafe { libc::rewinddir(stream.0) };
     loop {
         let entry = unsafe { libc::readdir(stream.0) };
         if entry.is_null() {
@@ -4022,6 +4025,9 @@ fn prune_dump_files_with_limits(
         return Err(io::Error::last_os_error());
     }
     let stream = DirectoryStream(stream);
+    // `dup` shares the directory cursor. Reset each scan so a prior pass on
+    // this descriptor cannot hide entries that were created later.
+    unsafe { libc::rewinddir(stream.0) };
     let mut dumps = Vec::new();
     loop {
         let entry = unsafe { libc::readdir(stream.0) };
