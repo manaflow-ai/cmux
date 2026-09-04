@@ -32,8 +32,8 @@ struct VaultPaneTransferLifecycleTests {
         .browser,
     ]
 
-    @Test("An accepted surface pane transfer defers native completion to endedAt")
-    func acceptedSurfaceTransferDefersNativeCompletionToEndedAt() async throws {
+    @Test("An accepted surface pane transfer revokes routing before source teardown")
+    func acceptedSurfaceTransferRevokesRoutingBeforeSourceTeardown() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
             let fixture = try VaultPaneAppFixture()
             defer { fixture.tearDown() }
@@ -91,9 +91,12 @@ struct VaultPaneTransferLifecycleTests {
             #expect(plan.source == .surface)
             #expect(registry.resolve(from: pasteboard) != nil)
             #expect(router.perform(plan, pasteboard: pasteboard))
-            // Destination acceptance revokes routing, but the native source
-            // remains live until AppKit invokes its `endedAt` callback.
-            #expect(controller.internalController.tabDragSession != nil)
+            // Accepted-drop cleanup is versioned by the Bonsplit submodule:
+            // newer revisions defer the model teardown to `endedAt`, while
+            // older revisions complete it from the registry callback. The
+            // invariant exposed to cmux is stable: routing is revoked before
+            // the source's explicit completion, and that completion is safe
+            // to call in either order.
             #expect(registry.resolve(from: pasteboard) == nil)
             source.finishDrag()
             #expect(controller.internalController.tabDragSession == nil)
