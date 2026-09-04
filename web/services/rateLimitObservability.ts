@@ -1,33 +1,92 @@
 import { sql } from "drizzle-orm";
+import { after } from "next/server";
 
 import { cloudDb } from "../db/client";
 import { reportError } from "./observability/report";
 
 const ALERT_COOLDOWN_MS = 5 * 60 * 1_000;
-const lastAlertAt = new Map<string, number>();
+const MAX_LOCAL_KEYS = 128;
 
-/**
- * Report a Vercel firewall rule that is absent in production.
- *
- * An unset rule is a supported local and preview configuration. In production
- * it removes an abuse-control boundary, so keep the request fail-open for
- * compatibility while making the operator fault visible in Sentry and logs.
- */
-export async function reportMissingRateLimitRule(input: {
+type AlertInput = {
   readonly route: string;
   readonly reason: "unset" | "not-found";
-}): Promise<void> {
-  if (process.env.VERCEL_ENV !== "production") return;
+};
 
-  const key = `${input.route}:${input.reason}`;
-  const now = Date.now();
-  const previous = lastAlertAt.get(key);
-  if (previous !== undefined && now - previous < ALERT_COOLDOWN_MS) return;
-  lastAlertAt.set(key, now);
+type ReporterDependencies = {
+  readonly now?: () => number;
+  readonly claim?: (key: string) => Promise<"claimed" | "duplicate" | "unavailable">;
+  readonly report?: typeof reportError;
+};
 
-  // The durable ledger deduplicates across all Vercel instances. Keep the
-  // statement timeout inside the transaction so an Aurora outage cannot retain
-  // a pooled connection after this best-effort report.
+/** Fleet-wide, bounded reporting for a missing Vercel firewall rule. */
+export class RateLimitRuleReporter {
+  private readonly now: () => number;
+  private readonly claim: (key: string) => Promise<"claimed" | "duplicate" | "unavailable">;
+  private readonly report: typeof reportError;
+  private readonly lastAlertAt = new Map<string, number>();
+
+  constructor(dependencies: ReporterDependencies = {}) {
+    this.now = dependencies.now ?? Date.now;
+    this.claim = dependencies.claim ?? claimAlert;
+    this.report = dependencies.report ?? reportError;
+  }
+
+  reportMissing(input: AlertInput): void {
+    if (process.env.VERCEL_ENV !== "production") return;
+
+    const key = `${input.route}:${input.reason}`;
+    const now = this.now();
+    const previous = this.lastAlertAt.get(key);
+    if (previous !== undefined && now - previous < ALERT_COOLDOWN_MS) return;
+    this.lastAlertAt.set(key, now);
+    this.trimLocalState();
+
+    const work = async () => {
+      const result = await this.claim(key);
+      if (result === "unavailable") {
+        console.error("cmux.rate_limit.alert_dedupe_unavailable", {
+          route: input.route,
+          reason: input.reason,
+        });
+        return;
+      }
+      if (result === "duplicate") return;
+      this.report(
+        new Error("Vercel firewall rate-limit rule is missing"),
+        { subsystem: "rate_limit", route: input.route, reason: input.reason },
+        {
+          level: "warning",
+          fingerprint: ["cmux-rate-limit-rule-missing", input.route],
+          tags: { subsystem: "rate_limit", route: input.route, reason: input.reason },
+        },
+      );
+    };
+
+    try {
+      after(work);
+    } catch {
+      void work();
+    }
+  }
+
+  private trimLocalState(): void {
+    while (this.lastAlertAt.size > MAX_LOCAL_KEYS) {
+      const oldest = this.lastAlertAt.keys().next().value;
+      if (oldest === undefined) return;
+      this.lastAlertAt.delete(oldest);
+    }
+  }
+}
+
+const defaultReporter = new RateLimitRuleReporter();
+
+export function reportMissingRateLimitRule(input: AlertInput): void {
+  defaultReporter.reportMissing(input);
+}
+
+async function claimAlert(
+  key: string,
+): Promise<"claimed" | "duplicate" | "unavailable"> {
   try {
     const rows = await cloudDb().transaction(async (tx) => {
       await tx.execute(sql`set local statement_timeout = '1000ms'`);
@@ -40,28 +99,8 @@ export async function reportMissingRateLimitRule(input: {
         returning alert_key
       `);
     });
-    if (!rows[0]) return;
+    return rows[0] ? "claimed" : "duplicate";
   } catch {
-    // Reporting must not make a public endpoint depend on the database. The
-    // local cooldown still prevents a hot process from generating a loop.
-    return;
+    return "unavailable";
   }
-
-  reportError(
-    new Error("Vercel firewall rate-limit rule is missing"),
-    {
-      subsystem: "rate_limit",
-      route: input.route,
-      reason: input.reason,
-    },
-    {
-      level: "warning",
-      fingerprint: ["cmux-rate-limit-rule-missing", input.route],
-      tags: {
-        subsystem: "rate_limit",
-        route: input.route,
-        reason: input.reason,
-      },
-    },
-  );
 }

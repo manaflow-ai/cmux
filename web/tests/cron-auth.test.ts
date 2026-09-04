@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-
-const { authorizeCronRequest } = await import("../services/cronAuth");
+import { authorizeCronRequest } from "../services/cronAuth";
 
 const originalCronSecret = process.env.CRON_SECRET;
 
