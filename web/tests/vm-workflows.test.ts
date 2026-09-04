@@ -211,7 +211,7 @@ describe("VM Effect workflows", () => {
         state: "awake" as const,
         sampledAt: Date.now(),
         // Freestyle can round a requested disk up to its allocation step.
-        diskTotalMb: ++statsCalls === 1 ? 65536 : 73728,
+        diskTotalMb: ++statsCalls === 1 ? 32768 : 73728,
       })),
       resize: () => Effect.void,
     };

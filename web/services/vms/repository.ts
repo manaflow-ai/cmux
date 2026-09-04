@@ -269,6 +269,13 @@ export type VmRepositoryShape = {
     readonly maxActiveVms?: number | null;
     readonly sharedResourceCapacity?: VmResourceReservation;
   }) => Effect.Effect<VmResizeReservation | null, VmDatabaseError | VmSharedResourceLimitExceededError>;
+  /** Persist the provider-confirmed disk claim after a successful resize. */
+  readonly confirmVmResize?: (input: {
+    readonly id: string;
+    /** The claim written before provider I/O. A newer claim wins the race. */
+    readonly expectedDiskMb: number;
+    readonly confirmedDiskMb: number;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
   /** Restore a reservation when the provider rejected the resize. */
   readonly restoreVmResize?: (input: {
     readonly id: string;
@@ -1789,6 +1796,37 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       catch: (cause) => isVmSharedResourceLimitExceededError(cause)
         ? cause
         : new VmDatabaseError({ operation: "reserveVmResize", cause }),
+    }),
+
+  confirmVmResize: (input) =>
+    dbEffect("confirmVmResize", async () => {
+      const confirmedDiskMb = positiveReservationInteger(input.confirmedDiskMb);
+      const expectedDiskMb = positiveReservationInteger(input.expectedDiskMb);
+      if (confirmedDiskMb === null || expectedDiskMb === null) {
+        throw new Error("resize disk claims must be positive integers");
+      }
+      // Keep a larger pre-resize claim when a provider returns a stale or
+      // rounded-down stat. The compare-and-set predicate prevents a late
+      // response from overwriting a newer concurrent resize reservation.
+      const diskMb = Math.max(expectedDiskMb, confirmedDiskMb);
+      const rows = await cloudDb()
+        .update(cloudVms)
+        .set({
+          providerMetadata: sql`jsonb_set(
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb),
+            '{cmuxResourceReservation,diskMb}',
+            to_jsonb(${diskMb}),
+            true
+          )`,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+          sql`${cloudVms.providerMetadata}->'cmuxResourceReservation'->>'diskMb' = ${String(expectedDiskMb)}`,
+        ))
+        .returning({ id: cloudVms.id });
+      return rows.length > 0;
     }),
 
   restoreVmResize: (input) =>

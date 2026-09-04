@@ -950,10 +950,16 @@ function reopenBaseIfProviderDeleted(
               generation: create.generation.generation,
             },
           }).pipe(Effect.catchAll(() => Effect.void));
+          if (isPaidVmPlan(input.billingPlanId)) {
+            // The initial Base lookup may have found a legacy VM row. Reconcile
+            // it again after marking the provider row destroyed, before the
+            // replacement reservation is checked under the billing lock.
+            yield* reconcileLegacyResourceReservations(repo, providers, input);
+          }
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
-            repo.beginBaseOpen(
+            Effect.suspend(() => repo.beginBaseOpen(
               isPaidVmPlan(input.billingPlanId)
                 ? {
                   ...input,
@@ -961,7 +967,7 @@ function reopenBaseIfProviderDeleted(
                   sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
                 }
                 : input,
-            ),
+            )),
           );
         })
         : Effect.succeed(null)
@@ -2253,6 +2259,17 @@ export function resizeVm(input: {
       Effect.onExit(rollbackIfProviderDidNotGrow),
     );
     const updated = yield* providers.getStats(vm.provider, input.providerVmId);
+    // The provider can round a requested disk up. Persist the observed claim
+    // before returning so the next shared-pool check cannot undercount it.
+    // Missing or malformed stats fail closed at the per-VM maximum.
+    const confirmedDiskMb = positiveDiskSize(updated.diskTotalMb) ?? VM_DISK_MB_MAX;
+    if (reservation && repo.confirmVmResize) {
+      yield* repo.confirmVmResize({
+        id: vm.id,
+        expectedDiskMb: reservation.reservedDiskMb,
+        confirmedDiskMb,
+      });
+    }
     yield* repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
@@ -2261,7 +2278,11 @@ export function resizeVm(input: {
       eventType: "vm.resize",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { storageMb: input.storageMb, previousStorageMb: currentMb },
+      metadata: {
+        storageMb: input.storageMb,
+        confirmedStorageMb: confirmedDiskMb,
+        previousStorageMb: currentMb,
+      },
     }).pipe(Effect.catchAll(() => Effect.void));
     return updated;
   });
