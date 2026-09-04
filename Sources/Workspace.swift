@@ -2246,13 +2246,7 @@ extension Workspace {
         // above never reach it (`setPanelCustomTitle` skips the sync when there is no
         // custom title), so push the restored title to the tab now, mirroring
         // `updatePanelTitle`, instead of waiting for the next OSC title update.
-        if let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) {
-            bonsplitController.updateTab(
-                tabId,
-                title: resolvedPanelTitle(panelId: panelId, fallback: panelTitles[panelId] ?? panel.displayTitle),
-                hasCustomTitle: panelCustomTitles[panelId] != nil
-            )
-        }
+        _ = reconcileTabTitlePresentation(panelId: panelId)
 
         if snapshot.isManuallyUnread {
             markPanelUnread(panelId)
@@ -4327,6 +4321,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// Registers a bonsplit surface as the active owner for a panel.
     func bindSurface(_ surfaceId: TabID, toPanelId panelId: UUID) {
         paneTree.bindSurface(surfaceId, toPanelId: panelId)
+        _ = reconcileTabTitlePresentation(panelId: panelId)
     }
 
     /// Removes one bonsplit surface mapping.
@@ -5372,13 +5367,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // the daemon, because the earlier request may have failed or been lost.
         if sameText, source != .user { return true }
 
-        guard let panel = panels[panelId], let tabId = surfaceIdFromPanelId(panelId) else { return true }
+        guard let panel = panels[panelId], surfaceIdFromPanelId(panelId) != nil else { return true }
         let baseTitle = panelTitles[panelId] ?? panel.displayTitle
-        bonsplitController.updateTab(
-            tabId,
-            title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
-            hasCustomTitle: panelCustomTitles[panelId] != nil
-        )
+        _ = reconcileTabTitlePresentation(panelId: panelId, fallback: baseTitle)
         // A remote tmux mirror tab rename propagates to `rename-window`.
         if propagateToRemoteTmux, isRemoteTmuxMirror {
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
@@ -11031,6 +11022,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             }
         }
         adoptDetachedAgentRuntimeState(detached.agentRuntime)
+        _ = reconcileTabTitlePresentation(panelId: detached.panelId)
         if let markdownPanel = detached.panel as? MarkdownPanel,
            panelSubscriptions[markdownPanel.id] == nil {
             installMarkdownPanelSubscription(markdownPanel)
