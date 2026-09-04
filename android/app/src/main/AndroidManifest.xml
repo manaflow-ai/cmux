@@ -14,17 +14,18 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.CmuxAndroid">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Auth callback deep link -->
-            <intent-filter android:autoVerify="true">
+            <!-- Auth callback — same scheme Stack Auth whitelists for mobile OAuth -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="dev.cmux.android" android:host="auth-callback" />
+                <data android:scheme="stack-auth-mobile-oauth-url" />
             </intent-filter>
         </activity>
 

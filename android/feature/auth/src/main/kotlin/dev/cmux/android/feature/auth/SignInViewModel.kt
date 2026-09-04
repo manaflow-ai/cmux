@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.cmux.android.core.auth.StackAuthTokenStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -37,13 +38,23 @@ class SignInViewModel @Inject constructor(
     // Development project credentials (from AuthEnvironment.swift)
     private val stackProjectId = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
     private val stackPublishableKey = "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g"
-    private val redirectUri = "dev.cmux.android://auth-callback"
+    // Same scheme Stack Auth whitelists for mobile OAuth (matches iOS SDK)
+    private val redirectUri = "stack-auth-mobile-oauth-url://success"
 
     private var pendingCodeVerifier: String? = null
     private var pendingState: String? = null
 
     init {
         checkExistingSession()
+        // Receive auth codes delivered by MainActivity via the shared channel
+        viewModelScope.launch {
+            authCallbackChannel.collect { code -> handleAuthCallback(code) }
+        }
+    }
+
+    companion object {
+        /** MainActivity emits auth codes here; the active ViewModel consumes them. */
+        val authCallbackChannel = MutableSharedFlow<String>(extraBufferCapacity = 1)
     }
 
     private fun checkExistingSession() {
