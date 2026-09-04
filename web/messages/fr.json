@@ -7,12 +7,14 @@
         "snapshot": "Cette Cloud VM ne prend pas en charge l’état enregistré de la VM.",
         "restore": "Ce type de Cloud VM ne prend pas en charge la restauration de l’état enregistré de la VM.",
         "fork": "Cette Cloud VM ne prend pas en charge la copie vers une nouvelle VM.",
+        "openPort": "Le fournisseur de cette Cloud VM ne peut pas exposer les ports de la machine sous forme d’URL de prévisualisation.",
         "default": "Cette Cloud VM ne prend pas en charge l’opération demandée."
       },
       "action": {
         "snapshot": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
         "restore": "Ne réessayez pas. Le travail sur ce type de machine est conservé sur son volume personnel persistant.",
         "fork": "Ne réessayez pas. Créez une nouvelle VM avec `cmux vm new`.",
+        "openPort": "Ne réessayez pas. Accédez au service depuis la machine avec `cmux vm exec`, ou utilisez un type de machine capable d’ouvrir des ports.",
         "default": "Ne réessayez pas. Exécutez `cmux vm ls` ou contactez le support si cela vous semble incorrect."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro requis",
       "message": "Les Cloud VM nécessitent un abonnement cmux Pro.",
       "action": "Passez à cmux Pro sur {upgradeUrl} pour créer des Cloud VM."
+    },
+    "sharedResource": {
+      "message": "Le pool partagé de ressources {resource} des Cloud VM est plein.",
+      "action": "Supprimez une Cloud VM inutilisée, puis réessayez.",
+      "oversizedAction": "Demandez une taille {resource} de Cloud VM plus petite, compatible avec le pool partagé."
     }
   },
   "billingRecovery": {
