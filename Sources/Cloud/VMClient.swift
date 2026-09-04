@@ -1534,7 +1534,10 @@ actor VMClient {
         }
         let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
         try ensureOK(http, data: data)
-        return try Self.decodeTunnelEndpoint(decodeJSONObject(data))
+        return try Self.decodeTunnelEndpoint(
+            decodeJSONObject(data),
+            fallbackPurpose: tunnelPurpose
+        )
     }
 
     /// Unenroll this Mac. The server deletes the provider-side tunnel, so any
@@ -1564,11 +1567,9 @@ actor VMClient {
         _ obj: [String: Any],
         fallbackPurpose: String = "browser"
     ) throws -> VMTunnelEndpoint {
-        guard let accessGrantId = obj["accessGrantId"] as? String,
-              let tunnelId = obj["tunnelId"] as? String,
+        guard let tunnelId = obj["tunnelId"] as? String,
               let provider = obj["provider"] as? String,
               let deviceFingerprint = obj["deviceFingerprint"] as? String,
-              let tunnelPurpose = obj["tunnelPurpose"] as? String,
               let clientConfig = obj["clientConfig"] as? String,
               let clientPublicKey = obj["clientPublicKey"] as? String,
               let serverPublicKey = obj["serverPublicKey"] as? String,
@@ -1576,6 +1577,12 @@ actor VMClient {
         else {
             throw VMClientError.malformedResponse("Cloud VM tunnel response was missing required fields.")
         }
+        // The access-grant API is additive. During rollout, production may
+        // still return the older tunnel shape. The provider tunnel id is a
+        // safe local stand-in for the new grant id, and the requested role is
+        // already bound to this request. Neither value grants access.
+        let accessGrantId = (obj["accessGrantId"] as? String) ?? tunnelId
+        let tunnelPurpose = (obj["tunnelPurpose"] as? String) ?? fallbackPurpose
         let address = obj["address"] as? [String: Any]
         let network = obj["network"] as? [String: Any]
         return VMTunnelEndpoint(
