@@ -77,6 +77,35 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         self.maximumIndexedContentBytes = maximumIndexedContentBytes
     }
 
+    /// Decodes a configuration written by any earlier catalog revision.
+    /// Missing newer limits use the same conservative defaults as a fresh
+    /// configuration instead of making an otherwise readable settings file
+    /// fail closed as malformed.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true,
+            includeFilePaths: try container.decodeIfPresent(Bool.self, forKey: .includeFilePaths) ?? false,
+            fetchTitles: try container.decodeIfPresent(Bool.self, forKey: .fetchTitles) ?? false,
+            ignoreHosts: try container.decodeIfPresent([String].self, forKey: .ignoreHosts) ?? ["localhost:31034"],
+            retentionLimit: try container.decodeIfPresent(Int.self, forKey: .retentionLimit) ?? 500,
+            retentionAge: try container.decodeIfPresent(TimeInterval.self, forKey: .retentionAge) ?? 90 * 24 * 60 * 60,
+            maximumFileBytes: try container.decodeIfPresent(Int64.self, forKey: .maximumFileBytes) ?? 50 * 1024 * 1024,
+            maximumInlineBytes: try container.decodeIfPresent(Int.self, forKey: .maximumInlineBytes) ?? 1 * 1024 * 1024,
+            maximumPayloadBytes: try container.decodeIfPresent(Int64.self, forKey: .maximumPayloadBytes) ?? 512 * 1024 * 1024,
+            maximumCatalogBytes: try container.decodeIfPresent(Int.self, forKey: .maximumCatalogBytes) ?? 16 * 1024 * 1024,
+            maximumSearchResults: try container.decodeIfPresent(Int.self, forKey: .maximumSearchResults) ?? 500,
+            maximumBatchCount: try container.decodeIfPresent(Int.self, forKey: .maximumBatchCount) ?? 64,
+            maximumIndexedContentBytes: try container.decodeIfPresent(Int.self, forKey: .maximumIndexedContentBytes) ?? 64 * 1024
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case enabled, includeFilePaths, fetchTitles, ignoreHosts, retentionLimit, retentionAge
+        case maximumFileBytes, maximumInlineBytes, maximumPayloadBytes, maximumCatalogBytes
+        case maximumSearchResults, maximumBatchCount, maximumIndexedContentBytes
+    }
+
     /// Returns values clamped to safe resource bounds.
     public var normalized: ArtifactCaptureConfiguration {
         var value = self

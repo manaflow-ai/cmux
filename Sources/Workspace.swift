@@ -4141,6 +4141,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+        // The initial directory is assigned during initialization, so the
+        // property observer cannot update the artifact projection for us.
+        // Seed the same canonical capture context before the first artifact
+        // can be emitted.
+        linksState.updateWorkingDirectory(currentDirectory)
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
         // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates

@@ -127,18 +127,47 @@ extension Workspace {
         panelIDMap: [UUID: UUID] = [:]
     ) {
         guard !snapshot.restoredArtifacts.isEmpty else { return }
+        let identity = ArtifactIdentity()
         let restored = snapshot.restoredArtifacts.map { record -> ArtifactRecord in
-            guard let oldPanelID = record.metadata["sourcePanelID"].flatMap(UUID.init(uuidString:)),
-                  let newPanelID = panelIDMap[oldPanelID] else {
-                return record
-            }
             var metadata = record.metadata
-            metadata["sourcePanelID"] = newPanelID.uuidString
+            if let oldPanelID = metadata["sourcePanelID"].flatMap(UUID.init(uuidString:)),
+               let newPanelID = panelIDMap[oldPanelID] {
+                metadata["sourcePanelID"] = newPanelID.uuidString
+            }
+
+            // A restored Workspace may receive a fresh runtime UUID when the
+            // old identity is already occupied. Rebind ownership and the
+            // scoped dedupe key before projecting the record; otherwise a
+            // global result can point at a closed/other workspace after a
+            // restart.
+            let ownership = ArtifactOwnership(
+                workspaceID: id.uuidString,
+                projectID: record.ownership.projectID
+                    ?? linksState.ownership.projectID,
+                projectRoot: record.ownership.projectRoot
+                    ?? linksState.ownership.projectRoot
+                    ?? currentDirectory,
+                workspaceTitle: record.ownership.workspaceTitle ?? title
+            )
+            let identityKey: String = {
+                switch record.representation {
+                case .url(let value):
+                    return identity.key(kind: .url, value: value, ownership: ownership)
+                case .directory(let path):
+                    return identity.key(kind: .directory, value: path, ownership: ownership)
+                case .managedFile(let relativePath, _):
+                    let digest = relativePath.split(separator: ".", maxSplits: 1).first.map(String.init)
+                    guard let digest, !digest.isEmpty else { return record.identityKey }
+                    return identity.contentKey(kind: record.kind, digest: digest, ownership: ownership)
+                case .inlineText(let value), .inlineHTML(let value):
+                    return identity.key(kind: record.kind, value: value, ownership: ownership)
+                }
+            }()
             return ArtifactRecord(
                 id: record.id,
                 kind: record.kind,
-                identityKey: record.identityKey,
-                ownership: record.ownership,
+                identityKey: identityKey,
+                ownership: ownership,
                 source: record.source,
                 createdAt: record.createdAt,
                 lastSeenAt: record.lastSeenAt,

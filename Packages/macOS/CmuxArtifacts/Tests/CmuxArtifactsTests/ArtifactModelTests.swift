@@ -74,4 +74,13 @@ struct ArtifactModelTests {
         )
         #expect(result.map(\.record.id) == [url.id])
     }
+
+    @Test("capture configuration decodes older documents with new limits absent")
+    func captureConfigurationBackwardsDecode() throws {
+        let data = Data(#"{"enabled":true,"retentionLimit":42}"#.utf8)
+        let decoded = try JSONDecoder().decode(ArtifactCaptureConfiguration.self, from: data)
+        #expect(decoded.retentionLimit == 42)
+        #expect(decoded.maximumIndexedContentBytes == 64 * 1024)
+        #expect(decoded.maximumCatalogBytes == 16 * 1024 * 1024)
+    }
 }

@@ -6,10 +6,11 @@ import Foundation
 /// owner small while preserving one mutation path.
 extension WorkspaceArtifactsState {
     var ownership: ArtifactOwnership {
+        let projectRoot = workingDirectory.map(identity.canonicalPath)
         ArtifactOwnership(
             workspaceID: workspaceID?.uuidString,
-            projectID: workingDirectory.map { identity.stableTextDigest($0) },
-            projectRoot: workingDirectory,
+            projectID: projectRoot.map(identity.stableTextDigest),
+            projectRoot: projectRoot,
             workspaceTitle: nil
         )
     }
