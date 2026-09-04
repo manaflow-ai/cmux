@@ -304,7 +304,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts[
             "Use the same cmux account on both devices. Your Mac connects automatically."
         ].exists)
-        XCTAssertTrue(app.staticTexts["Looking for your Mac…"].exists)
+        let connectionSearching = element("MobileOnboardingConnectionSearching")
+        XCTAssertTrue(connectionSearching.waitForExistence(timeout: 4))
         XCTAssertFalse(element("MobileOnboardingSignInBridge").exists)
         XCTAssertFalse(app.buttons["signin.apple"].exists)
         XCTAssertFalse(app.buttons["Scan Mac QR"].exists)
@@ -392,9 +393,12 @@ final class cmuxUITests: XCTestCase {
         capture("onboarding-05-scanner-fallback")
 
         scannerCancel.tap()
-        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
+        XCTAssertTrue(app.descendants(matching: .any)["MobilePairingView"].waitForExistence(timeout: 4))
+        XCTAssertFalse(connectScene.exists)
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 2))
         capture("onboarding-06-scanner-cancelled")
+        app.buttons["MobilePairingCancelButton"].tap()
+        XCTAssertTrue(connectScene.waitForExistence(timeout: 4))
         tap(automaticMethod, in: app)
         XCTAssertTrue(app.staticTexts["Your Mac connects automatically"].waitForExistence(timeout: 4))
 
@@ -658,6 +662,7 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scannerCancel.waitForExistence(timeout: 4))
         scannerCancel.tap()
         XCTAssertTrue(scannerPreview.waitForNonExistence(timeout: 4))
+        app.buttons["MobilePairingCancelButton"].tap()
 
         let tailscaleDescription = app.descendants(matching: .any)[
             "MobileDisconnectedEmptyDescription"

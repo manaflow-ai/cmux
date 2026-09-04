@@ -11,7 +11,9 @@ struct OnboardingSceneCopy: View {
             OnboardingBalancedText(
                 title,
                 role: .title,
-                alignment: alignment
+                alignment: alignment,
+                maximumNumberOfLines: 2,
+                reservesMaximumLines: true
             )
 
             // The body reserves its full two-line cap so pages with one-line
