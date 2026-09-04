@@ -682,28 +682,28 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
- - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
- - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
- - `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
- - `cmux vm domains --help` -> `cmux cloud domains [list]`
- - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
- - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
- - `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
- - `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]`
- - `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>`
- - `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
- - `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
- - `cmux vm pull --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
- - `cmux vm download --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
- - `cmux vm wait --help` -> `Usage: cmux vm wait <id> [--timeout <seconds>] [--wake]`
- - `cmux vm open --help` -> `Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]`
- - `cmux vm tree --help` -> `Usage: cmux vm tree [<machine>|local] [--refresh] [--json]`
- - `cmux vm workspace --help` -> `cmux vm workspace open <machine> <workspace-id>`
- - `cmux vm terminal --help` -> `cmux vm terminal close <machine> <terminal-id>`
- - `cmux vm tui --help` -> `Usage: cmux vm tui <id> [--window <id|ref|index>]`
- - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
- - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
- - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
+- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+- `cmux vm domains --help` -> `cmux cloud domains [list]`
+- `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+- `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]`
+- `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>`
+- `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
+- `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
+- `cmux vm pull --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
+- `cmux vm download --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
+- `cmux vm wait --help` -> `Usage: cmux vm wait <id> [--timeout <seconds>] [--wake]`
+- `cmux vm open --help` -> `Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]`
+- `cmux vm tree --help` -> `Usage: cmux vm tree [<machine>|local] [--refresh] [--json]`
+- `cmux vm workspace --help` -> `cmux vm workspace open <machine> <workspace-id>`
+- `cmux vm terminal --help` -> `cmux vm terminal close <machine> <terminal-id>`
+- `cmux vm tui --help` -> `Usage: cmux vm tui <id> [--window <id|ref|index>]`
+- `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
+- `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
+- `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude> [options]`

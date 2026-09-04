@@ -6,7 +6,7 @@ Every verb the cmux CLI exposes for cmux Cloud, as it exists on this branch. `cm
 
 - **Requires** the cmux app running on the Mac, a signed-in account (`cmux auth status`), and the WireGuard tunnel up (`cmux vpn up`) — machines live on a private per-user network with no public ports, so attach/exec/port verbs need it. Every verb talks to the app over its Unix socket (`CMUX_SOCKET_PATH` when set; the app's default socket otherwise) — the app, not the CLI, holds the cloud credentials.
 - **`--json`** is a global flag: it may appear before or after the subcommand and prints the socket payload (or the CLI's own summary object, noted per verb) instead of text. Parse JSON, never the human tables.
-- **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, `base`, and `domains` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
+- **`--help` / `-h`** works offline (no app needed). `cmux vm --help` is the overview; `cmux vm run --help`, `route`, `agent`, `push`, `pull`, `wait`, `open`, `tree`, `workspace`, `terminal`, `tui`, `prompt`, `base`, and `domains` print that verb's own options (`cmux vm terminal --help` covers close, send, read, and wait). `resize` is documented in the overview because its compact validation usage is emitted inline. Anything after `--` is never treated as a help flag (`cmux vm exec <id> -- --help` runs `--help` on the machine).
 - **Exit codes:** `0` success; `1` any error (socket missing, backend error, usage error, unknown `vm` verb); `2` missing or unknown top-level command. `cmux vm run` exits with the **remote command's exit code**; `cmux vm exec` prints `exit <n>` to stderr and exits `1` when the remote command fails; `cmux vm wait` and `cmux vm terminal wait` exit `1` on timeout (or a failed machine).
 - **Ids:** a machine's generated name (`brave-otter`) is its id everywhere; the display label from `vm rename` is cosmetic. Workspace ids are `ws_…`, terminal ids `term_…` (both from `cmux vm tree`). `--window <id|ref|index>` on the opening verbs picks the local window; `--workspace <id|ref|index>` the local workspace.
 - **Env:** `CMUX_VM_API_BASE_URL` overrides the backend origin (dev stacks). `HOME` is honored for the router's state files (`~/.cmuxterm/vm-run-pool.json`, `~/.cmuxterm/vm-run-bindings.json`).
@@ -42,6 +42,7 @@ cmux vm tree --json                    # {machines: [{id, local, name, status, l
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
 cmux vm status <id>                    # provider, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
+cmux vm resize <id> --disk 40G         # grow persistent disk in 4 GiB steps (never shrinks)
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
 cmux vm handoff <id>                   # short attach block to paste to a human or another agent
@@ -110,6 +111,21 @@ cmux vm stats <id> [--json]            # alias: cmux vm top
 ```
 
 Socket `vm.stats`. CPU, memory, and disk right now; a sleeping machine reports `asleep` and is not woken. `--json`: `{id, state: awake|asleep, cpu_percent, cpus, memory_used_mb, memory_total_mb, disk_used_mb, disk_total_mb}`. The router uses this to pick the least-loaded pool machine.
+
+### `cmux vm resize`
+
+```bash
+cmux vm resize <id> --disk <4|8|…|256>G [--json]
+```
+
+Grows the machine's persistent disk; it never shrinks or recreates the VM. The
+value is GiB in 4 GiB steps, from 4 GiB through 256 GiB. The client validates
+that range before sending `vm.resize {id, storage_mb}`; the provider returns the
+post-resize `VMStats` payload. Text is `OK <id> disk=<n> GiB`; `--json` returns
+that stats object. A resize can take a provider minute and consumes plan
+storage, so confirm the target machine and desired size before running it; use
+`cmux vm stats <id>` afterward to verify the mounted capacity. Sidebar: machine
+row › Resize Disk… (the same action invokes this verb).
 
 ### `cmux vm rename`
 
@@ -594,6 +610,7 @@ cmux rpc <method> [json-params]        # call any v2 method directly, e.g. cmux 
 | `vm.base_open`, `vm.base_reset` | `vm base open`, `vm base reset` |
 | `vm.status` | `vm status`, `vm handoff`, `vm wait` |
 | `vm.stats` | `vm stats`; the router's load scoring |
+| `vm.resize` | `vm resize <id> --disk <GiB>`; machine row › Resize Disk… |
 | `vm.rename` | `vm rename`, `vm new --name`, the router's `agent-pool` label |
 | `vm.snapshot` | `vm snapshot`, `vm promote-template` |
 | `vm.fork`, `vm.restore` | `vm fork`, `vm restore` |

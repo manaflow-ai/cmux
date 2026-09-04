@@ -55,6 +55,7 @@ cmux vm tree                                             # the surface catalog: 
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
 cmux surface open vivid-newt/terminal/term_2f9c --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
 cmux cloud domains publish vivid-newt 3000                # public HTTPS hostname, personal access by default
+cmux vm resize vivid-newt --disk 40G                      # grow persistent disk (4 GiB steps; never shrinks)
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding, 14 days), so synced checkouts and dependencies stay warm. `--new` forces a fresh pool machine; `--machine <id>` pins one; `--size 20g` sizes a machine the run creates (20g, the plan machine, is the only preset; raw MB also parses).
@@ -65,7 +66,8 @@ Repeat runs from the same directory hit the same machine (sticky binding, 14 day
 2. Ongoing user work → Base (`cmux vm base open`, or `--machine <base-id>`).
 3. A new task on a machine you already use → a new **workspace**, not a new machine (`cmux vm workspace new <id> --name <task>`): one machine hosts many workspaces, and that is the intended unit of scale.
 4. Hard isolation (a different environment, a risky experiment) → `cmux vm fork <id>` of a warm machine, or `cmux vm new --detach --json` (shell-only; `--desktop` for a machine with a screen); add `--name <label>` (`--size` accepts `20g` — the plan machine, the only preset — or raw MB). Never pass `--image` unless you have a specific image id. Then `--machine <id>`, and `cmux vm wait <id> --wake` before the first command.
-5. Never draft the user's own machines without `--machine`, and respect the plan meter.
+5. Persistent disk growth → `cmux vm resize <id> --disk <GiB>` after confirming the target and requested capacity. Values are 4–256 GiB in 4 GiB steps; the operation is grow-only, keeps `/root` and the machine identity intact, and can take a provider minute. Run `cmux vm stats <id>` afterward to verify `disk_total_mb`.
+6. Never draft the user's own machines without `--machine`, and respect the plan meter.
 
 ## Publish a VM port safely
 
