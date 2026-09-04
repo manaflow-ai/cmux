@@ -1211,10 +1211,7 @@ impl HookFence {
         is_session_start && self.ended
     }
 
-    fn direct_transition(
-        &self,
-        session_id: Option<&str>,
-    ) -> anyhow::Result<DirectHookTransition> {
+    fn direct_transition(&self, session_id: Option<&str>) -> anyhow::Result<DirectHookTransition> {
         let session_id = session_id.filter(|session_id| {
             !session_id.is_empty()
                 && !session_id.starts_with("cmux-hook-sequence:")
@@ -9331,8 +9328,7 @@ impl Mux {
                 anyhow::bail!("agent_session_ended");
             }
         } else if hook_state.is_none()
-            && let Some(fence) =
-                sequence_guard.as_ref().and_then(|guard| guard.get(&terminal_id))
+            && let Some(fence) = sequence_guard.as_ref().and_then(|guard| guard.get(&terminal_id))
         {
             match fence.direct_transition(source_session.as_deref())? {
                 DirectHookTransition::Continue => {}
@@ -23193,21 +23189,11 @@ mod tests {
         mux.apply_agent_hook_record(&hook("UserPromptSubmit", "new"), 2).unwrap();
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id, "new");
         assert_eq!(mux.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
-        mux.report_agent(
-            surface.id,
-            AgentState::Blocked,
-            AgentSource::Hook,
-            Some("new".into()),
-        )
-        .expect("the active hook identity must remain writable");
+        mux.report_agent(surface.id, AgentState::Blocked, AgentSource::Hook, Some("new".into()))
+            .expect("the active hook identity must remain writable");
 
         let error = mux
-            .report_agent(
-                surface.id,
-                AgentState::Working,
-                AgentSource::Hook,
-                Some("old".into()),
-            )
+            .report_agent(surface.id, AgentState::Working, AgentSource::Hook, Some("old".into()))
             .unwrap_err();
         assert!(error.to_string().contains("agent_session_conflict"));
         let record = &mux.list_agents(Some(surface.id), None)[0];
