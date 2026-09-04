@@ -176,6 +176,48 @@ public actor IrxEndpointSupervisor {
         }
     }
 
+    /// Rotates relay credentials only while the caller still owns the current
+    /// autopilot lifecycle. The ownership check is deliberately inside this
+    /// actor, after any broker await in the caller, so an older refresh task
+    /// cannot mutate a newer endpoint lifecycle.
+    func rotateCredentialsIfCurrent(
+        _ credentials: [IrxRelayCredential],
+        rotationGeneration: UInt64,
+        gate: IrxRelayCredentialRotationGate
+    ) async {
+        guard gate.isCurrent(rotationGeneration) else { return }
+        guard !deactivated else { return }
+        guard let driver, !driver.isClosed() else { return }
+        for credential in credentials {
+            guard gate.isCurrent(rotationGeneration) else { return }
+            do {
+                try await driver.insertRelay(
+                    config: RelayConfig(
+                        url: credential.relayURL,
+                        quicPort: nil,
+                        authToken: credential.token
+                    )
+                )
+                guard gate.isCurrent(rotationGeneration) else { return }
+                installedRelayURLs.insert(credential.relayURL)
+                journal.record(
+                    "endpoint", "relay-credential-rotated",
+                    [
+                        "relay": credential.relayURL,
+                        "expires_at": ISO8601DateFormatter().string(from: credential.expiresAt),
+                        "generation": String(generation),
+                    ]
+                )
+            } catch {
+                guard gate.isCurrent(rotationGeneration) else { return }
+                journal.record(
+                    "endpoint", "relay-credential-rotation-failed",
+                    ["relay": credential.relayURL, "error": String(describing: error)]
+                )
+            }
+        }
+    }
+
     /// Health check after suspension/resume: a closed driver is replaced on
     /// the next `readyEndpoint` call.
     public func isHealthy() -> Bool {

@@ -442,10 +442,11 @@ public struct CmxTransportClosureObservation: Sendable {
 
     /// Creates a cancellable observation of one exact transport generation.
     /// `cancel` must release the observation's waiter without closing a
-    /// shared transport that may still be used by another lane.
+    /// shared transport that may still be used by another lane. It defaults
+    /// to a no-op for source compatibility with the original initializer.
     public init(
         waitUntilClosed: @escaping @Sendable () async -> Void,
-        cancel: @escaping @Sendable () -> Void
+        cancel: @escaping @Sendable () -> Void = {}
     ) {
         self.waitUntilClosedOperation = waitUntilClosed
         self.cancelOperation = cancel

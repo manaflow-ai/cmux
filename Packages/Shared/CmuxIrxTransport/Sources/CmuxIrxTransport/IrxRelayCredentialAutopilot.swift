@@ -1,5 +1,33 @@
 public import Foundation
 
+/// Synchronously invalidates credential-rotation ownership when an autopilot
+/// loop is stopped or replaced. The endpoint checks this gate inside its own
+/// actor immediately before mutating the live endpoint, closing the race
+/// between a completed broker request and that mutation.
+final class IrxRelayCredentialRotationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var generation: UInt64 = 0
+
+    func begin() -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        generation &+= 1
+        return generation
+    }
+
+    func invalidate() {
+        lock.lock()
+        generation &+= 1
+        lock.unlock()
+    }
+
+    func isCurrent(_ expectedGeneration: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return generation == expectedGeneration
+    }
+}
+
 /// Keeps the endpoint's relay credentials perpetually fresh: mints early
 /// (min(refreshAfter, expiry-120s) minus jitter), rotates with insertRelay
 /// alone (make-before-break), and on mint failure retries at half the
@@ -11,6 +39,7 @@ public actor IrxRelayCredentialAutopilot {
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
     private var loop: Task<Void, Never>?
+    private let rotationGate = IrxRelayCredentialRotationGate()
     /// A cancelled refresh task can still return from an in-flight broker
     /// request. The generation prevents that old task from rotating relay
     /// credentials or invoking registration after a newer foreground loop
@@ -50,12 +79,19 @@ public actor IrxRelayCredentialAutopilot {
         guard loop == nil else { return }
         loopGeneration &+= 1
         let generation = loopGeneration
-        loop = Task { await self.run(generation: generation) }
+        let rotationGeneration = rotationGate.begin()
+        loop = Task {
+            await self.run(
+                generation: generation,
+                rotationGeneration: rotationGeneration
+            )
+        }
         journal.record("credential-autopilot", "started")
     }
 
     public func stop() {
         loopGeneration &+= 1
+        rotationGate.invalidate()
         loop?.cancel()
         loop = nil
         journal.record("credential-autopilot", "stopped")
@@ -66,12 +102,19 @@ public actor IrxRelayCredentialAutopilot {
     public func kick() {
         loopGeneration &+= 1
         let generation = loopGeneration
+        rotationGate.invalidate()
+        let rotationGeneration = rotationGate.begin()
         loop?.cancel()
-        loop = Task { await self.run(generation: generation) }
+        loop = Task {
+            await self.run(
+                generation: generation,
+                rotationGeneration: rotationGeneration
+            )
+        }
         journal.record("credential-autopilot", "kicked")
     }
 
-    private func run(generation: UInt64) async {
+    private func run(generation: UInt64, rotationGeneration: UInt64) async {
         while !Task.isCancelled && generation == loopGeneration {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
@@ -91,7 +134,15 @@ public actor IrxRelayCredentialAutopilot {
             do {
                 let minted = try await broker.mintRelayCredentials()
                 guard generation == loopGeneration, !Task.isCancelled else { return }
-                await endpoint.rotateCredentials(minted)
+                // This check must live inside the endpoint-side mutation too:
+                // the actor can re-enter while the broker request above is
+                // suspended, after which an old loop must be unable to rotate
+                // the endpoint owned by a newer loop.
+                await endpoint.rotateCredentialsIfCurrent(
+                    minted,
+                    rotationGeneration: rotationGeneration,
+                    gate: rotationGate
+                )
                 guard generation == loopGeneration, !Task.isCancelled else { return }
                 await onRotation?()
             } catch {
