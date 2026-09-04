@@ -114,6 +114,19 @@ def main() -> int:
             got_ws in {x for x in [base_workspace_id, base_workspace_ref] if x},
             f"identify --workspace <ref> did not resolve target workspace; got={got_ws} expected one of {[x for x in [base_workspace_id, base_workspace_ref] if x]}",
         )
+        caller_null_fields = [
+            "surface_id",
+            "surface_ref",
+            "tab_id",
+            "tab_ref",
+            "pane_id",
+            "pane_ref",
+        ]
+        _must(
+            all(field in caller_ws and caller_ws[field] is None for field in caller_null_fields),
+            "identify --workspace without --surface must not infer a focused surface; "
+            f"got caller fields={caller_ws!r} payload={identify_ws_ref}",
+        )
 
         workspace_for_list = base_workspace_id or base_workspace_ref
         list_payload = client._call("surface.list", {"workspace_id": workspace_for_list}) or {}
@@ -153,7 +166,7 @@ def main() -> int:
         except Exception:
             pass
 
-    print("PASS: identify caller accepts workspace/surface ref handles and resolves target context")
+    print("PASS: identify caller selectors resolve workspace-only and workspace+surface contexts")
     return 0
 
 

@@ -252,6 +252,29 @@ cmux rpc surface.read_selection '{"surface_id":"83F4E6A4-5246-4DB8-A412-9CE7B059
 
 ## Command Families
 
+### `identify` caller contract
+
+`cmux identify` reports two different views of the session:
+
+- `focused` is the workspace and surface currently selected by the cmux server.
+- `caller` is the caller context resolved by the CLI, or supplied by an explicit
+  selector on the command.
+
+When no explicit routing selector (or ambient window route) is active, the CLI
+resolves the calling terminal using its live TTY and injected environment when
+available. An explicit selector overrides that ambient caller resolution. In
+particular, `--workspace <handle>` supplies a workspace-only caller context:
+`caller.workspace_id`/`caller.workspace_ref` identifies that workspace, while
+`caller.surface_*`, `caller.tab_*`, and `caller.pane_*` are intentionally `null`
+because a workspace can contain more than one surface. The command must not infer a
+surface from the focused workspace; the selector also does not change `focused`.
+
+Use `--surface <handle>` when the caller context needs a surface identity; pair it
+with `--workspace <handle>` when the workspace should also be explicit. Scripts that
+need the shell's own location should use unflagged `cmux identify --json` and read
+`caller`, rather than reusing the `caller` block from an identify call aimed at a
+different workspace.
+
 Sessions output:
 
 `cmux sessions [list]` reads saved hook state from disk and never connects to a
