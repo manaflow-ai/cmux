@@ -638,6 +638,41 @@ import Testing
     #expect(store.connectionState == .connected)
 }
 
+/// A transient subscription acknowledgement failure can outlive the probe
+/// timeout during an Iroh path transition. A bounded second repair attempt
+/// must get the existing session back before the watchdog redials it.
+@MainActor
+@Test func watchdogRetriesSubscriptionRepairBeforeReplacingSession() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 1
+    })
+    let originalClient = try #require(store.remoteClient)
+    let originalGeneration = store.connectionGeneration
+
+    // The probe times out. The first repair acknowledgement is transiently
+    // rejected, while the bounded follow-up succeeds on the same client.
+    await router.failSubscribeRequest(number: 2, code: "temporarily_unavailable")
+    await router.holdProbeRequest(number: 1)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+    #expect(try await pollUntil {
+        await router.count(of: "mobile.events.subscribe") >= 3
+    })
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.connectionState == .connected)
+}
+
 /// A successful probe that REPAIRED a lost registration (the host reports
 /// `already_subscribed: false`) must replay mounted surfaces: render-grid
 /// deltas emitted while the registration was absent were never delivered, so
