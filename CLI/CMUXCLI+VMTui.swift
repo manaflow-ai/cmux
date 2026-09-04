@@ -1539,7 +1539,10 @@ extension CMUXCLI {
             // accidental unquoted words from being silently reassembled into a different
             // name and keeps the command grammar positional and unambiguous.
             guard args.count == 3, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
-            let name = CloudRemoteRenameName(rawValue: args[2]).wireValue
+            // The socket is the canonical app boundary for rename semantics.
+            // Trim here only so CLI output and the wire value match; an empty
+            // string remains the explicit daemon clear value.
+            let name = args[2].trimmingCharacters(in: .whitespacesAndNewlines)
             let response = try client.sendV2(
                 method: "vm.terminal_rename",
                 params: ["id": machine, "terminal_id": terminalID, "name": name],
@@ -1570,7 +1573,9 @@ extension CMUXCLI {
         }
         let machine = args[1]
         let tabID = args[2]
-        let name = CloudRemoteRenameName(rawValue: args[3]).wireValue
+        // The socket owns the shared rename policy. CLI trims for a stable
+        // display and preserves an empty string as the explicit clear value.
+        let name = args[3].trimmingCharacters(in: .whitespacesAndNewlines)
         guard !machine.isEmpty, !tabID.isEmpty else {
             throw CLIError(message: Self.vmTabUsage)
         }
