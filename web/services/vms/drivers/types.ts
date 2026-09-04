@@ -77,17 +77,24 @@ export type CreateOptions = {
   homeVolume?: string;
   /**
    * Machine size as memory in MB (vCPUs scale with memory on providers that size
-   * this way). Providers without sizing ignore it.
+   * this way). Providers without sizing ignore it. Storage is resized separately
+   * through the grow-only resize operation.
    */
   memoryMb?: number;
   /**
-   * Machine-level environment injected at create time (e.g. the coderouter
-   * model-plane env: OPENAI_BASE_URL + a per-machine route token). Values may
-   * be secrets: drivers must pass them to the provider's create call only and
-   * never echo them into VMHandle.providerMetadata, which is persisted.
-   * Providers without machine-level env support ignore it.
+   * The snapshot's own CPU and memory shape when the image is a sized ladder
+   * entry (services/vms/images/sizes.ts). Disk remains grow-only after create.
+   * Absent for size-less images, which are grown to `memoryMb`.
    */
-  envs?: Readonly<Record<string, string>>;
+  imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
+  /**
+   * Per-domain request headers the provider's TLS edge injects into every
+   * request the guest makes to `domain` (the coderouter route token and the
+   * VM id). Header values are secrets: drivers pass them to the provider's
+   * create call only, never persist them, and never write them into the guest.
+   * Providers without an injecting edge must refuse them rather than drop them.
+   */
+  edgeRules?: readonly VmEdgeRule[];
   /**
    * The owner's private network to attach the machine to. When present the
    * machine takes an address on it and its session daemon is reachable only
@@ -103,7 +110,22 @@ export type ProviderNetworkRef = {
   readonly id: string;
 };
 
-export type RestoreOptions = {
+/** One edge header-injection rule; see CreateOptions.edgeRules. */
+export type VmEdgeRule = {
+  /** Exact host name the guest dials (no port, no scheme). */
+  readonly domain: string;
+  /** Headers the edge sets on every request to `domain`, overwriting the guest's. */
+  readonly headers: Readonly<Record<string, string>>;
+  /**
+   * Where the edge connects for `domain` (port 443). Lets the guest dial one
+   * fixed alias while each deployment routes it to its own API host. Absent:
+   * the edge connects to `domain` itself.
+   */
+  readonly destinationHost?: string;
+};
+
+/** Create-time inputs a restore-from-snapshot shares with a fresh create. */
+export type RestoreOptions = Pick<CreateOptions, "edgeRules" | "providerMetadata"> & {
   /** The owner's private network; see {@link CreateOptions.network}. */
   network?: ProviderNetworkRef;
 };
@@ -189,6 +211,13 @@ export type CmuxRemoteEndpoint = {
     invitationId: string;
     expiresAtUnix: number;
   };
+  /**
+   * The machine's addresses on its owner's private network, when the driver
+   * read them while resolving the route. The workflow backfills them into the
+   * VM row so machines created before address recording still get a copyable
+   * IP after their first attach.
+   */
+  networkAddresses?: { ipv4?: string; ipv6?: string };
 };
 
 export type CmuxRemoteAttachOptions = {
@@ -254,6 +283,13 @@ export type ExecOptions = {
   readonly providerMetadata?: Record<string, unknown>;
 };
 
+/** Grow-only resources accepted by a provider resize operation. */
+export type VMResizeOptions = {
+  readonly cpu?: number;
+  readonly memoryMb?: number;
+  readonly storageMb?: number;
+};
+
 export type SnapshotRef = {
   id: string;
   createdAt: number;
@@ -265,6 +301,8 @@ export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
+  /** The provider can mint a browser preview URL for a machine port. */
+  readonly ports: boolean;
 }
 
 /** A private network that every machine belonging to one user shares. */
@@ -321,7 +359,7 @@ export interface VMPrivateNetworking {
    * under concurrent calls with the same slug: two machines created at once
    * must land on one network, not two.
    */
-  ensureNetwork(options: { slug: string; displayName?: string }): Promise<ProviderNetwork>;
+  ensureNetwork(options: { slug: string; displayName?: string; heal?: boolean }): Promise<ProviderNetwork>;
   /** Read a network back, or null when it no longer exists at the provider. */
   getNetwork(networkId: string): Promise<ProviderNetwork | null>;
   /** Delete a network. Must succeed when it is already gone. */
@@ -354,8 +392,9 @@ export interface VMProvider {
   readonly privateNetworking?: VMPrivateNetworking;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
-   * throw NotImplementedError declares that here; `fork` defaults to whether the method
-   * exists. Everything omitted defaults to supported.
+   * throw NotImplementedError declares that here; `fork` and `ports` default
+   * to whether their methods exist. Everything omitted defaults to supported where a
+   * legacy client needs that compatibility behavior.
    */
   readonly capabilities?: Partial<VmCapabilities>;
 
@@ -378,6 +417,8 @@ export interface VMProvider {
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;
+  /** Grow one or more VM resources. Freestyle currently uses storage only. */
+  resize?(vmId: string, options: VMResizeOptions): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;

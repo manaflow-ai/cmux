@@ -11,6 +11,7 @@
 mod agent_hooks;
 mod browser;
 mod browser_provider;
+pub mod diagnostics;
 mod event_bus;
 mod journal_checkpoint;
 mod journal_hooks;
@@ -56,8 +57,8 @@ pub use model::{Node, Pane, Screen, State, ViewportColumn, Workspace};
 pub use mux::{
     AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane, CellPixelUpdate,
     CellPixelUpdateFailure, ConfigReloadError, DiagnosticReporter, Direction, GraphicsStatus,
-    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, Mux, MuxEvent,
-    NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
+    LayoutLeafSpec, LayoutRatioError, LayoutSpec, LayoutUndoError, LayoutUndoResult, MachineUsage,
+    Mux, MuxEvent, NotificationEvent, NotificationLevel, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RunPlacement, SidebarPluginOptions, SidebarPluginStatus, SurfaceNotification,
     SurfaceResizeReporter, TreeDelta, TreeDeltaKind, ViewportWidthError, WorkspaceMutationResult,

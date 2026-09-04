@@ -25,6 +25,14 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError")<{
+  readonly vmId: string;
+  readonly requestedMb: number;
+  readonly currentMb: number;
+  readonly maxMb: number;
+  readonly reason: "below_current" | "above_max";
+}> {}
+
 /**
  * A private-network or tunnel operation on a deployment that does not serve
  * one — the provider has no `privateNetworking`, or
@@ -128,11 +136,39 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+/**
+ * Why the machine's coderouter model plane could not be provisioned.
+ * `unavailable`: coderouter itself failed (503, retry). There is no plan or
+ * entitlement gate on the model plane.
+ */
+export type VmModelPlaneFailureKind = "unavailable";
+
+/** Failure codes stored on the VM row for each {@link VmModelPlaneFailureKind}. */
+export const VM_MODEL_PLANE_FAILURE_CODES = {
+  unavailable: "model_plane_unavailable",
+} as const satisfies Record<VmModelPlaneFailureKind, string>;
+
+/**
+ * Failure code written by the retired coderouter entitlement gate. Rows that
+ * carry it still exist; a same-key create retry must reach provisioning again.
+ */
+export const LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE = "model_plane_entitlement";
+
+/**
+ * The create was refused before any provider call because the machine could
+ * not be wired to coderouter. The row is marked failed and any credit refunded.
+ */
+export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
+  readonly kind: VmModelPlaneFailureKind;
+  readonly cause: unknown;
+}> {}
+
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
   | VmOperationUnsupportedError
   | VmNotFoundError
+  | VmResizeInvalidError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
@@ -146,7 +182,8 @@ export type VmWorkflowError =
   | VmAttachTransportUnsupportedError
   | VmPrivateNetworkUnavailableError
   | VmTunnelNotFoundError
-  | VmAccountDeletionIdentityRevocationError;
+  | VmAccountDeletionIdentityRevocationError
+  | VmModelPlaneError;
 
 export function isVmPrivateNetworkUnavailableError(
   err: unknown,
@@ -160,6 +197,10 @@ export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundEr
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
+}
+
+export function isVmResizeInvalidError(err: unknown): err is VmResizeInvalidError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInvalidError";
 }
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
@@ -214,6 +255,10 @@ export function isVmAccountDeletionIdentityRevocationError(
   return (err as { _tag?: string } | null)?._tag === "VmAccountDeletionIdentityRevocationError";
 }
 
+export function isVmModelPlaneError(err: unknown): err is VmModelPlaneError {
+  return (err as { _tag?: string } | null)?._tag === "VmModelPlaneError";
+}
+
 export function isVmDatabaseError(err: unknown): err is VmDatabaseError {
   return (err as { _tag?: string } | null)?._tag === "VmDatabaseError";
 }
@@ -236,6 +281,7 @@ const vmWorkflowErrorTagRecord = {
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,
   VmNotFoundError: true,
+  VmResizeInvalidError: true,
   VmSnapshotNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,
@@ -250,6 +296,7 @@ const vmWorkflowErrorTagRecord = {
   VmPrivateNetworkUnavailableError: true,
   VmTunnelNotFoundError: true,
   VmAccountDeletionIdentityRevocationError: true,
+  VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 
 const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));

@@ -74,28 +74,6 @@ struct NewMachineSheet: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            if model.supportsSize {
-                GridRow {
-                    label(String(localized: "machines.new.size.label", defaultValue: "Size"))
-                    VStack(alignment: .leading, spacing: 4) {
-                        Picker("", selection: $model.memoryMb) {
-                            ForEach(model.memoryOptions, id: \.self) { mb in
-                                Text(NewMachineModel.memoryLabel(mb: mb)).tag(mb)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .labelsHidden()
-                        .frame(maxWidth: 140, alignment: .leading)
-                        .accessibilityIdentifier("NewMachineSheet.size")
-                        Text(String(
-                            localized: "machines.new.size.summary",
-                            defaultValue: "Memory. CPU scales with it."
-                        ))
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                    }
-                }
-            }
             if let image = model.selectedImage {
                 GridRow {
                     label(String(localized: "machines.new.image.label", defaultValue: "Image"))

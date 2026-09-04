@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Darwin
 import Foundation
 
@@ -37,8 +38,10 @@ extension CMUXCLI {
             try runVPNStatus(client: client, jsonOutput: jsonOutput)
         case "revoke":
             try runVPNRevoke(client: client, jsonOutput: jsonOutput)
+        case "hosts":
+            try runVPNHostsSync(client: client, jsonOutput: jsonOutput)
         default:
-            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke>")
+            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke|hosts>")
         }
     }
 
@@ -51,8 +54,12 @@ extension CMUXCLI {
             throw CLIError(message: "The cmux app did not return a tunnel config. Update cmux and retry.")
         }
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
+        // Up, but with another enrollment's config (a different account on the
+        // same Mac, or keys the server rotated): "already up" would leave every
+        // private route dead, so the stale interface is replaced instead.
+        let stale = (response["stale"] as? Bool) ?? false
 
-        if interfaceUp {
+        if interfaceUp, !stale {
             if jsonOutput {
                 print(jsonString(["status": "up", "config_path": configPath, "changed": false]))
             } else {
@@ -78,7 +85,26 @@ extension CMUXCLI {
             } else if (response["rotated"] as? Bool) == true {
                 print(String(localized: "cli.vpn.rotated", defaultValue: "Refreshed this Mac's tunnel keys."))
             }
-            print(String(localized: "cli.vpn.bringingUp", defaultValue: "Bringing the tunnel up (sudo will prompt for your password)…"))
+            if interfaceUp {
+                print(String(
+                    localized: "cli.vpn.switching",
+                    defaultValue: "The tunnel that is up was brought up for another enrollment (a different account, or older keys). Replacing it with this one (sudo will prompt for your password)…"
+                ))
+            } else {
+                print(String(localized: "cli.vpn.bringingUp", defaultValue: "Bringing the tunnel up (sudo will prompt for your password)…"))
+            }
+        }
+        if interfaceUp {
+            let downStatus = runInteractiveProcess(
+                executablePath: "/usr/bin/sudo",
+                arguments: [wgQuick, "down", configPath]
+            )
+            guard downStatus == 0 else {
+                throw CLIError(message: String(
+                    localized: "cli.vpn.switchFailed",
+                    defaultValue: "Could not switch the tunnel. Check the command output above, run `cmux vpn down`, then retry `cmux vpn up`."
+                ))
+            }
         }
         let status = runInteractiveProcess(
             executablePath: "/usr/bin/sudo",
@@ -92,12 +118,23 @@ extension CMUXCLI {
                   Check the output above. If the interface half-started, run `cmux vpn down` first, then retry.
                 """)
         }
+        // Tell the app which config is up now, so a later enrollment (another
+        // account, rotated keys) is detected as stale instead of read as "up".
+        // Best effort: the tunnel works either way; without the record the next
+        // `vpn up` simply re-applies once.
+        var appliedParams: [String: Any] = ["applied": true]
+        if let digest = response["config_digest"] as? String { appliedParams["config_digest"] = digest }
+        _ = try? client.sendV2(method: "vm.tunnel_applied", params: appliedParams, responseTimeout: 30)
         if jsonOutput {
-            print(jsonString(["status": "up", "config_path": configPath, "changed": true]))
+            print(jsonString(["status": "up", "config_path": configPath, "changed": true, "switched": interfaceUp]))
         } else {
             print(String(localized: "cli.vpn.up", defaultValue: "Tunnel is up."))
             printVPNAddresses(response)
         }
+        // Best-effort: the tunnel is already up and useful without this. sudo
+        // caches the credential this process just used, so this rarely
+        // reprompts.
+        try? runVPNHostsSync(client: client, jsonOutput: jsonOutput, quiet: !jsonOutput, scope: response["interface_name"] as? String)
     }
 
     private func runVPNDown(client: SocketClient, jsonOutput: Bool) throws {
@@ -125,10 +162,84 @@ extension CMUXCLI {
         guard status == 0 else {
             throw CLIError(message: "wg-quick down failed (exit \(status)). Check the output above.")
         }
+        // Nothing is up now: clear the applied-config record (best effort).
+        _ = try? client.sendV2(method: "vm.tunnel_applied", params: ["applied": false], responseTimeout: 30)
         if jsonOutput {
             print(jsonString(["status": "down", "changed": true]))
         } else {
             print(String(localized: "cli.vpn.down", defaultValue: "Tunnel is down."))
+        }
+    }
+
+    /// `<machine>.internal` names for every machine this account owns, written
+    /// into a cmux-managed block in `/etc/hosts` so they resolve system-wide
+    /// (browser, curl, anything) whenever the tunnel is up. Idempotent: run it
+    /// as often as you like, including right after `cmux vm new`.
+    private func runVPNHostsSync(
+        client: SocketClient,
+        jsonOutput: Bool,
+        quiet: Bool = false,
+        clear: Bool = false,
+        scope: String? = nil
+    ) throws {
+        // Each environment's tunnel publishes its own block: a dev build's
+        // machines must never overwrite (or clear) the production block.
+        let scope = try scope ?? (client.sendV2(method: "vm.tunnel_status", responseTimeout: 30)["interface_name"] as? String)
+        var entries: [CmuxInternalHostnames.Entry] = []
+        if !clear {
+            let response = try client.sendV2(method: "vm.list", responseTimeout: 30)
+            let vms = (response["vms"] as? [[String: Any]]) ?? []
+            for vm in vms {
+                guard let id = vm["id"] as? String, !id.isEmpty else { continue }
+                guard let address = vm["address"] as? [String: Any] else { continue }
+                guard let ip = (address["ipv4"] as? String) ?? (address["ipv6"] as? String), !ip.isEmpty else { continue }
+                let label = (vm["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+                var hostnames = [CmuxInternalHostnames.hostname(id: id, label: nil)]
+                if let label, !label.isEmpty {
+                    let labeled = CmuxInternalHostnames.hostname(id: id, label: label)
+                    if labeled != hostnames[0] { hostnames.append(labeled) }
+                }
+                entries.append(CmuxInternalHostnames.Entry(address: ip, hostnames: hostnames))
+            }
+        }
+
+        let hostsPath = "/etc/hosts"
+        let current = (try? String(contentsOfFile: hostsPath, encoding: .utf8)) ?? ""
+        let body = CmuxInternalHostnames.renderBlockBody(entries)
+        let updated = CmuxInternalHostnames.mergedHostsFile(current: current, body: body, scope: scope)
+        guard updated != current else {
+            if jsonOutput {
+                print(jsonString(["hosts_changed": false, "machine_count": entries.count]))
+            } else if !quiet {
+                print(String(localized: "cli.vpn.hosts.upToDate", defaultValue: "Internal hostnames are already up to date."))
+            }
+            return
+        }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-hosts-\(UUID().uuidString)", isDirectory: false)
+        try updated.write(to: tempURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        if !quiet {
+            print(String(
+                localized: "cli.vpn.hosts.updating",
+                defaultValue: "Updating /etc/hosts with your machines' internal names (sudo may prompt)…"
+            ))
+        }
+        // One sudo invocation does the copy, ownership/mode, and cache flush,
+        // so a cached credential from `vpn up`'s wg-quick call covers this too
+        // instead of prompting a second time.
+        let script = "cp '\(tempURL.path)' '\(hostsPath)' && chown root:wheel '\(hostsPath)' && chmod 644 '\(hostsPath)' && dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"
+        let status = runInteractiveProcess(executablePath: "/usr/bin/sudo", arguments: ["/bin/sh", "-c", script])
+        guard status == 0 else {
+            throw CLIError(message: "Updating /etc/hosts failed (exit \(status)). Check the output above.")
+        }
+        if jsonOutput {
+            print(jsonString(["hosts_changed": true, "machine_count": entries.count]))
+        } else if !quiet {
+            let format = String(localized: "cli.vpn.hosts.updated", defaultValue: "Updated /etc/hosts for %d machine(s).")
+            print(String(format: format, entries.count))
         }
     }
 
@@ -139,14 +250,25 @@ extension CMUXCLI {
             return
         }
         let interfaceUp = (response["interface_up"] as? Bool) ?? false
+        let stale = (response["stale"] as? Bool) ?? false
         let configPresent = (response["config_present"] as? Bool) ?? false
         let neAvailable = (response["network_extension_available"] as? Bool) ?? false
-        if interfaceUp {
+        if interfaceUp, stale {
+            print(String(
+                localized: "cli.vpn.status.stale",
+                defaultValue: "Tunnel: up, but for a different enrollment (run `cmux vpn up` to switch it)"
+            ))
+        } else if interfaceUp {
             print(String(localized: "cli.vpn.status.up", defaultValue: "Tunnel: up"))
         } else if configPresent {
             print(String(localized: "cli.vpn.status.down", defaultValue: "Tunnel: down (enrolled; run `cmux vpn up`)"))
         } else {
             print(String(localized: "cli.vpn.status.notSetUp", defaultValue: "Tunnel: not set up (run `cmux vpn up`)"))
+        }
+        if let name = response["interface_name"] as? String, !name.isEmpty {
+            // One tunnel per deployment: says which one this build owns.
+            let format = String(localized: "cli.vpn.status.interface", defaultValue: "Interface: %@")
+            print(String(format: format, name))
         }
         if let path = response["config_path"] as? String, configPresent {
             let format = String(localized: "cli.vpn.status.config", defaultValue: "Config: %@")
@@ -175,6 +297,12 @@ extension CMUXCLI {
             )
         }
         let response = try client.sendV2(method: "vm.tunnel_revoke", responseTimeout: 60)
+        // This Mac can no longer reach anything on the network — every
+        // `.internal` name it published is now unreachable regardless of
+        // whether the machines behind them still exist — so clear the whole
+        // block rather than leave dead entries. Best-effort — a failure here
+        // must not turn a successful revoke into an error.
+        try? runVPNHostsSync(client: client, jsonOutput: false, quiet: true, clear: true, scope: status?["interface_name"] as? String)
         if jsonOutput {
             print(jsonString(response))
         } else {

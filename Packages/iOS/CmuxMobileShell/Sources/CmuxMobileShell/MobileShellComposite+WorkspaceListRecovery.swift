@@ -55,6 +55,18 @@ extension MobileShellComposite {
             || !terminalLaneOutputReadySurfaceIDs.isEmpty
     }
 
+    /// Whether the current workspace list is backed by a healthy connection.
+    /// Transport teardown retains the last-known rows, but those rows must not
+    /// be treated as an authoritative deletion snapshot while recovery is in
+    /// flight. The navigation shell uses this to keep a mounted detail alive
+    /// until a healthy list can confirm that it changed.
+    public var workspaceListIsAuthoritative: Bool {
+        connectionState == .connected
+            && !isRecoveringConnection
+            && !connectionRecoveryFailed
+            && workspaceListConnectionStatus == .connected
+    }
+
     /// UI reconnect entry for a specific workspace's Mac (status pill, toast
     /// Reconnect action). Unlike ``reconnectOrRefresh()``, which gates on the
     /// AGGREGATE ``workspaceListConnectionStatus`` (a healthy secondary Mac
@@ -123,10 +135,9 @@ extension MobileShellComposite {
             return
         }
         // Failed dials run their own cleanup with the default non-preserving
-        // teardown, dropping the secondary subscriptions preserved above (the
-        // foreground id is already nil, so that filter keeps only the
-        // anonymous key). Rebuild them so a failed foreground redial cannot
-        // strand healthy secondary Macs.
+        // teardown, cancelling the secondary subscriptions preserved above.
+        // Their last-known rows remain visible and are re-subscribed here so a
+        // failed foreground redial cannot strand healthy secondary Macs.
         await refreshSecondaryMacWorkspaces()
     }
 

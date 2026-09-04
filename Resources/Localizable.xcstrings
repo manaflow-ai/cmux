@@ -1,6 +1,146 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.help.readScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux read-screen [flags]\n\nRead terminal text from a surface as plain text.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n  --scrollback                 Include scrollback (not just visible viewport)\n  --lines <n>                  Limit to the last n lines (implies --scrollback)\n  --selection                  Read only the active selection; cannot be combined with --scrollback or --lines\n\nExample:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux read-screen [flags]\n\nサーフェスのターミナルテキストをプレーンテキストとして読み取ります。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n  --scrollback                 表示中のビューポートだけでなくスクロールバックも含める\n  --lines <n>                  末尾 n 行に制限する（--scrollback を含意）\n  --selection                  アクティブな選択範囲だけを読み取る（--scrollback、--lines との併用不可）\n\n例:\n  cmux read-screen\n  cmux read-screen --surface surface:2 --scrollback --lines 200\n  cmux read-screen --surface surface:2 --selection" } }
+      }
+    },
+    "cli.help.readSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux read-selection [flags]\n\nRead the active selection from any selectable surface. Plain output includes source context; --json returns the complete response.\n\nFlags:\n  --workspace <id|ref|index>   Target workspace (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Target surface (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace/surface refs and indexes\n\nExample:\n  cmux read-selection --surface surface:2\n  cmux read-selection --surface surface:2 --json" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux read-selection [flags]\n\n選択可能なサーフェスからアクティブな選択範囲を読み取ります。通常出力にはソースコンテキストが含まれ、--json は完全なレスポンスを返します。\n\nフラグ:\n  --workspace <id|ref|index>   対象ワークスペース（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     対象サーフェス（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペース／サーフェスの参照とインデックスに使うウィンドウコンテキスト\n\n例:\n  cmux read-selection --surface surface:2\n  cmux read-selection --surface surface:2 --json" } }
+      }
+    },
+    "cli.readSelection.output.noActiveSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Has selection: false" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "選択範囲あり: false" } }
+      }
+    },
+    "cli.readSelection.error.readScreenConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-screen: --selection cannot be combined with --scrollback or --lines" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-screen: --selection は --scrollback または --lines と併用できません" } }
+      }
+    },
+    "cli.readSelection.error.unexpectedArguments": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@: unexpected arguments: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@: 予期しない引数: %@" } }
+      }
+    },
+    "cli.readSelection.output.file": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "File: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル: %@" } }
+      }
+    },
+    "cli.readSelection.output.kind": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Kind: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "種類: %@" } }
+      }
+    },
+    "cli.readSelection.output.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Line: %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "行: %lld" } }
+      }
+    },
+    "cli.readSelection.output.lines": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Lines: %lld-%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "行: %lld-%lld" } }
+      }
+    },
+    "cli.readSelection.output.url": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "URL: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL: %@" } }
+      }
+    },
+    "cli.usage.readScreen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-screen [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--scrollback] [--lines <n>] [--selection]" } }
+      }
+    },
+    "cli.usage.readSelection": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "read-selection [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>]" } }
+      }
+    },
+    "socket.surfaceSelection.noFocusedSurface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No surface is focused." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーカスされているサーフェスがありません。" } }
+      }
+    },
+    "socket.surfaceSelection.invalidSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid selector for `%@`." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "`%@` のセレクターが無効です。" } }
+      }
+    },
+    "socket.surfaceSelection.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Surface not found for the given surface selector." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "指定したサーフェスセレクターに一致するサーフェスが見つかりません。" } }
+      }
+    },
+    "socket.surfaceSelection.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
+      }
+    },
+    "socket.surfaceSelection.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Selection reading is currently unavailable." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "現在、選択範囲を読み取れません。" } }
+      }
+    },
+    "socket.surfaceSelection.timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Request timed out after 5 seconds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リクエストは5秒後にタイムアウトしました。" } }
+      }
+    },
+    "socket.surfaceSelection.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This surface does not support selection reads." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサーフェスは選択範囲の読み取りに対応していません。" } }
+      }
+    },
+    "socket.surfaceSelection.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workspace not found." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースが見つかりません。" } }
+      }
+    },
     "socket.error.unknownMethod": {
       "extractionState": "manual",
       "localizations": {
@@ -258,6 +398,111 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "--reply                允許自由文字內嵌回覆" } }
       }
     },
+    "cli.vault.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux vault <subcommand> [options]\n\nBrowse, search, checkpoint, and fork agent sessions from the Vault index.\n\nSubcommands:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      List indexed agent sessions, newest first.\n  search <query> [--limit <n>]\n      Search sessions. Supports agent:, repo:, ws:, before:/after:\n      operators and quoted phrases, ranked by recency.\n  checkpoints --agent <id> --session <id>\n      List a session's checkpoint timeline (derived turns + manual).\n  checkpoint --agent <id> --session <id> [--name <text>]\n      Create a manual named checkpoint at the session's current tip.\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      Fork a new session from a checkpoint. Prints the new session id\n      and its resume command; --open also opens it in a new workspace.\n\nAll subcommands support --json for machine-readable output." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux vault <subcommand> [options]\n\nVaultインデックスからエージェントセッションを閲覧・検索・チェックポイント作成・フォークします。\n\nサブコマンド:\n  sessions [--agent <id>] [--folder <path>] [--limit <n>]\n      インデックス済みセッションを新しい順に一覧表示します。\n  search <query> [--limit <n>]\n      セッションを検索します。agent:、repo:、ws:、before:/after: 演算子と\n      引用句をサポートし、新しい順にランク付けされます。\n  checkpoints --agent <id> --session <id>\n      セッションのチェックポイントタイムラインを一覧表示します。\n  checkpoint --agent <id> --session <id> [--name <text>]\n      現在の先端に手動チェックポイントを作成します。\n  fork --agent <id> --session <id> (--checkpoint <id> | --turn <n>) [--open]\n      チェックポイントから新しいセッションをフォークします。--open で\n      新しいワークスペースで開きます。\n\nすべてのサブコマンドは --json をサポートします。" } }
+      }
+    },
+    "cli.vault.sessions.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No sessions." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションがありません。" } }
+      }
+    },
+    "cli.vault.fork.resumeHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resume with: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "再開コマンド: %@" } }
+      }
+    },
+    "cli.vault.fork.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Opened in a new workspace." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいワークスペースで開きました。" } }
+      }
+    },
+    "cli.vault.fork.created": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Forked session %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション %@ をフォークしました" } }
+      }
+    },
+    "cli.vault.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown vault subcommand '%@'. Try: sessions, search, checkpoints, checkpoint, fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な vault サブコマンド '%@' です。sessions、search、checkpoints、checkpoint、fork を試してください" } }
+      }
+    },
+    "cli.vault.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unexpected argument '%@' for cmux vault %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux vault %2$@ に予期しない引数 '%1$@' が指定されました" } }
+      }
+    },
+    "cli.vault.error.subcommandRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "vault requires a subcommand. Try: sessions, search, checkpoints, checkpoint, fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "vault にはサブコマンドが必要です。sessions、search、checkpoints、checkpoint、fork を試してください" } }
+      }
+    },
+    "cli.vault.error.sessionSelectorRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This subcommand requires --agent <id> --session <id> (see cmux vault sessions)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサブコマンドには --agent <id> --session <id> が必要です（cmux vault sessions を参照）" } }
+      }
+    },
+    "cli.vault.error.queryRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "vault search requires a query. Operators: agent:, repo:, ws:, before:/after:" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "vault search にはクエリが必要です。演算子: agent:、repo:、ws:、before:/after:" } }
+      }
+    },
+    "cli.vault.error.invalidTurn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--turn requires a positive number" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--turn には正の数が必要です" } }
+      }
+    },
+    "cli.vault.error.invalidLimit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "--limit requires a positive number" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "--limit には正の数が必要です" } }
+      }
+    },
+    "cli.vault.error.checkpointRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "vault fork requires --checkpoint <id> or --turn <n> (see cmux vault checkpoints)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "vault fork には --checkpoint <id> または --turn <n> が必要です（cmux vault checkpoints を参照）" } }
+      }
+    },
+    "cli.vault.checkpoints.viewOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "note: this agent's checkpoints are view-only (fork not supported yet)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "注: このエージェントのチェックポイントは表示専用です（フォーク未対応）" } }
+      }
+    },
+    "cli.vault.checkpoints.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No checkpoints." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントがありません。" } }
+      }
+    },
     "debug.menu.notification.all": {
       "extractionState": "manual",
       "localizations": {
@@ -452,6 +697,503 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Other…" } },
         "ja": { "stringUnit": { "state": "translated", "value": "その他…" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.unsupportedHarness": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork from checkpoint isn't available for this agent yet" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このエージェントではチェックポイントからのフォークはまだ利用できません" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.writeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't write the forked transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォークしたトランスクリプトを書き込めませんでした" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "An unexpected error occurred" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "予期しないエラーが発生しました" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.readFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't read the original transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "元のトランスクリプトを読み込めませんでした" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.parentMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The original transcript file is missing" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "元のトランスクリプトファイルが見つかりません" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.invalidSessionID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The new session id is invalid" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "新しいセッションIDが無効です" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.emptyFork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "There is nothing before this checkpoint to fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このチェックポイントより前にフォークできる内容がありません" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.byteCapExceeded": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The transcript is too large to fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプトが大きすぎてフォークできません" } }
+      }
+    },
+    "sessionIndex.checkpoints.error.anchorNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This checkpoint no longer matches the transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このチェックポイントはトランスクリプトと一致しなくなりました" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork from checkpoint isn't available for this agent yet — the timeline is view-only" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このエージェントではチェックポイントからのフォークはまだ利用できません。タイムラインは表示専用です" } }
+      }
+    },
+    "sessionIndex.checkpoints.turnLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Turn %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ターン%lld" } }
+      }
+    },
+    "sessionIndex.checkpoints.truncated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Long transcript — earliest turns not shown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプトが長いため、最初期のターンは表示されません" } }
+      }
+    },
+    "sessionIndex.checkpoints.tab.transcript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプト" } }
+      }
+    },
+    "sessionIndex.checkpoints.tab.checkpoints": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checkpoints" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイント" } }
+      }
+    },
+    "sessionIndex.checkpoints.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't save checkpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントを保存できませんでした" } }
+      }
+    },
+    "sessionIndex.checkpoints.truncatedSaveUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checkpoint Now is unavailable until the full transcript is read" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプト全体を読み込むまで「今すぐチェックポイント」は利用できません" } }
+      }
+    },
+    "sessionIndex.checkpoints.nowHelp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Save a checkpoint at the current end of the transcript" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "トランスクリプトの現在の末尾にチェックポイントを保存" } }
+      }
+    },
+    "sessionIndex.checkpoints.restoreHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Restore rewinds by forking a new session — the original session is never modified" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "復元は新しいセッションをフォークして巻き戻します。元のセッションは変更されません" } }
+      }
+    },
+    "sessionIndex.checkpoints.now": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Checkpoint Now" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今すぐチェックポイント" } }
+      }
+    },
+    "sessionIndex.checkpoints.namePlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Name (optional)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "名前（任意）" } }
+      }
+    },
+    "sessionIndex.checkpoints.manualLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Manual checkpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "手動チェックポイント" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ (fork)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@（フォーク）" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkFromHere": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork from Here" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ここからフォーク" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't fork: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォークできませんでした: %@" } }
+      }
+    },
+    "sessionIndex.checkpoints.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No checkpoints yet" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントはまだありません" } }
+      }
+    },
+    "sessionIndex.checkpoints.emptyHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Name a point above to make it easy to return here." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "上で名前を付けると、ここへ簡単に戻れます。" } }
+      }
+    },
+    "sessionIndex.checkpoints.forkShort": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Fork" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォーク" } }
+      }
+    },
+    "sessionIndex.checkpoints.copySha": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy commit SHA" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コミットSHAをコピー" } }
+      }
+    },
+    "sessionIndex.status.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "sessionIndex.status.idle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Idle" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アイドル" } }
+      }
+    },
+    "sessionIndex.status.exited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "sessionIndex.status.activeInPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active in pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペインでアクティブ" } }
+      }
+    },
+    "sessionIndex.sort.lastActivity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last activity" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最終アクティビティ" } }
+      }
+    },
+    "sessionIndex.sort.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Folder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダ" } }
+      }
+    },
+    "sessionIndex.sort.duration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Duration" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "継続時間" } }
+      }
+    },
+    "sessionIndex.sort.created": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "作成日時" } }
+      }
+    },
+    "sessionIndex.search.searching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Searching…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索中…" } }
+      }
+    },
+    "sessionIndex.search.noResults": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No matching sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一致するセッションはありません" } }
+      }
+    },
+    "sessionIndex.search.providerFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Some session history could not be searched" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一部のセッション履歴を検索できませんでした" } }
+      }
+    },
+    "sessionIndex.search.results": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Results" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "結果" } }
+      }
+    },
+    "sessionIndex.row.messageCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "variations": { "plural": { "one": { "stringUnit": { "state": "translated", "value": "%lld msg" } }, "other": { "stringUnit": { "state": "translated", "value": "%lld msgs" } } } } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
+      }
+    },
+    "sessionIndex.row.messageCount.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 msg" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1件" } }
+      }
+    },
+    "sessionIndex.row.messageCount.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld msgs" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
+      }
+    },
+    "sessionIndex.group.recency": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Recent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "最近" } }
+      }
+    },
+    "sessionIndex.filter.status.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中" } }
+      }
+    },
+    "sessionIndex.filter.status.ended": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Ended" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "終了" } }
+      }
+    },
+    "sessionIndex.filter.status.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All statuses" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのステータス" } }
+      }
+    },
+    "sessionIndex.filter.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ステータス" } }
+      }
+    },
+    "sessionIndex.filter.reset": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reset Filters" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フィルタをリセット" } }
+      }
+    },
+    "sessionIndex.filter.folder.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All folders" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのフォルダ" } }
+      }
+    },
+    "sessionIndex.filter.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Folder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "フォルダ" } }
+      }
+    },
+    "sessionIndex.filter.date.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日" } }
+      }
+    },
+    "sessionIndex.filter.date.last7Days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last 7 days" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "過去7日間" } }
+      }
+    },
+    "sessionIndex.filter.date.last30Days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Last 30 days" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "過去30日間" } }
+      }
+    },
+    "sessionIndex.filter.date.anyTime": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Any time" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "全期間" } }
+      }
+    },
+    "sessionIndex.filter.date": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Date" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "期間" } }
+      }
+    },
+    "sessionIndex.filter.agent.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All agents" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのエージェント" } }
+      }
+    },
+    "sessionIndex.filter.agent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Agent" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エージェント" } }
+      }
+    },
+    "sessionIndex.day.yesterday": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Yesterday" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "昨日" } }
+      }
+    },
+    "sessionIndex.day.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日" } }
+      }
+    },
+    "sessionIndex.allSessions.sortTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sort sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを並べ替え" } }
+      }
+    },
+    "sessionIndex.allSessions.sortBy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Sort by" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "並べ替え" } }
+      }
+    },
+    "sessionIndex.allSessions.searchPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search sessions…" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを検索…" } }
+      }
+    },
+    "sessionIndex.allSessions.filterTooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Filter sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッションを絞り込む" } }
+      }
+    },
+    "sessionIndex.allSessions.clearSearch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear search" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索をクリア" } }
+      }
+    },
+    "socket.vault.unknownAgent": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown agent." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なエージェントです。" } }
+      }
+    },
+    "socket.vault.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Vault session matched." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一致するVaultセッションがありません。" } }
+      }
+    },
+    "socket.vault.noTranscript": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This session has no readable transcript." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このセッションには読み取り可能なトランスクリプトがありません。" } }
+      }
+    },
+    "socket.vault.missingSessionSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "agent and session are required." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "agent と session は必須です。" } }
+      }
+    },
+    "socket.vault.missingQuery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "query is required." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "query は必須です。" } }
+      }
+    },
+    "socket.vault.checkpointNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No checkpoint matched. Pass checkpoint <id> or turn <n> from vault checkpoints." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一致するチェックポイントがありません。vault checkpoints の checkpoint <id> または turn <n> を指定してください。" } }
       }
     },
     "terminal.notification.action.reply": {
@@ -34812,40 +35554,6 @@
         }
       }
     },
-    "caffeine.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass enabled=true or enabled=false."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "enabled=true または enabled=false を指定してください。"
-          }
-        }
-      }
-    },
-    "caffeine.error.unavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Keep Mac Awake isn't available yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "「Macをスリープさせない」はまだ利用できません。"
-          }
-        }
-      }
-    },
     "canvas.commandScrollHint": {
       "extractionState": "manual",
       "localizations": {
@@ -36313,6 +37021,31 @@
         }
       }
     },
+    "cli.cloud.domains.custom.details": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"id: %1$@\nverification: %2$@\ncertificate: %3$@"}},"ja":{"stringUnit":{"state":"translated","value":"ID: %1$@\n検証: %2$@\n証明書: %3$@"}}}},
+    "cli.cloud.domains.custom.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No custom Cloud VM domains. Start one with `cmux cloud domains verify <domain>`."}},"ja":{"stringUnit":{"state":"translated","value":"カスタム Cloud VM ドメインはありません。`cmux cloud domains verify <domain>` で開始してください。"}}}},
+    "cli.cloud.domains.custom.noPublications": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"publications: none"}},"ja":{"stringUnit":{"state":"translated","value":"公開: なし"}}}},
+    "cli.cloud.domains.custom.publications": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"publications: %@"}},"ja":{"stringUnit":{"state":"translated","value":"公開: %@"}}}},
+    "cli.cloud.domains.details": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"id: %1$@\nvm: %2$@:%3$@\naccess: %4$@\nstate: %5$@\nrouting revision: %6$@\ndomain: %7$@"}},"ja":{"stringUnit":{"state":"translated","value":"ID: %1$@\nVM: %2$@:%3$@\nアクセス: %4$@\n状態: %5$@\nルーティングリビジョン: %6$@\nドメイン: %7$@"}}}},
+    "cli.cloud.domains.dns.apexFallback": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No ALIAS/ANAME/flattening record at your DNS provider? Publish www.%@ and redirect the apex to it."}},"ja":{"stringUnit":{"state":"translated","value":"DNS プロバイダーに ALIAS/ANAME/フラット化レコードがない場合は、www.%@ を公開して apex からリダイレクトしてください。"}}}},
+    "cli.cloud.domains.dns.certificate": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"certificate"}},"ja":{"stringUnit":{"state":"translated","value":"証明書"}}}},
+    "cli.cloud.domains.dns.header": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Add these DNS records for %@:"}},"ja":{"stringUnit":{"state":"translated","value":"%@ に次の DNS レコードを追加してください:"}}}},
+    "cli.cloud.domains.dns.ownership": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"ownership"}},"ja":{"stringUnit":{"state":"translated","value":"所有権"}}}},
+    "cli.cloud.domains.dns.routing": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"routing"}},"ja":{"stringUnit":{"state":"translated","value":"ルーティング"}}}},
+    "cli.cloud.domains.dns.routingNote": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Routing: the apex record serves %@ itself; the * record serves every subdomain."}},"ja":{"stringUnit":{"state":"translated","value":"ルーティング: apex レコードは %@ 自体を、* レコードはすべてのサブドメインを配信します。"}}}},
+    "cli.cloud.domains.empty": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"No published Cloud VM domains."}},"ja":{"stringUnit":{"state":"translated","value":"公開済みの Cloud VM ドメインはありません。"}}}},
+    "cli.cloud.domains.helpDescription": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Publish VM ports on generated or custom domains."}},"ja":{"stringUnit":{"state":"translated","value":"生成ドメインまたはカスタムドメインで VM ポートを公開します。"}}}},
+    "cli.cloud.domains.invalidAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Access must be personal, team, or public."}},"ja":{"stringUnit":{"state":"translated","value":"アクセスは personal、team、または public で指定してください。"}}}},
+    "cli.cloud.domains.malformedDomainResponse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux app returned a domain response this CLI could not read."}},"ja":{"stringUnit":{"state":"translated","value":"cmux アプリから、この CLI では読み取れないドメインレスポンスが返されました。"}}}},
+    "cli.cloud.domains.malformedResponse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"The cmux app returned a publication response this CLI could not read."}},"ja":{"stringUnit":{"state":"translated","value":"cmux アプリから、この CLI では読み取れない公開レスポンスが返されました。"}}}},
+    "cli.cloud.domains.removed": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Removed publication %@."}},"ja":{"stringUnit":{"state":"translated","value":"公開 %@ を削除しました。"}}}},
+    "cli.cloud.domains.teamAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%1$@ (team %2$@)"}},"ja":{"stringUnit":{"state":"translated","value":"%1$@（チーム %2$@）"}}}},
+    "cli.cloud.domains.teamOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"`--team` can only be used with team access."}},"ja":{"stringUnit":{"state":"translated","value":"`--team` は team アクセスでのみ使用できます。"}}}},
+    "cli.cloud.domains.teamRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Team access requires `--team <id>`."}},"ja":{"stringUnit":{"state":"translated","value":"team アクセスには `--team <id>` が必要です。"}}}},
+    "cli.cloud.domains.unknown": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"unknown"}},"ja":{"stringUnit":{"state":"translated","value":"不明"}}}},
+    "cli.cloud.domains.usage": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Usage:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <hostname>\n\nVerify a domain you own first: `verify` prints the DNS records to add, then run it\nagain to complete. `publish --domain` then accepts that domain or any one-label child.\nGenerated names need no verification. Add `--json` to any command for stable JSON output."}},"ja":{"stringUnit":{"state":"translated","value":"使用方法:\n  cmux cloud domains [list]\n  cmux cloud domains zones\n  cmux cloud domains verify <domain>\n  cmux cloud domains publish <vm> <port> [--domain <hostname>] [--access personal|team|public] [--team <id>]\n  cmux cloud domains access <hostname> <personal|team|public> [--team <id>]\n  cmux cloud domains rm <hostname>\n\nまず所有するドメインを検証します。`verify` は追加する DNS レコードを表示し、再実行すると検証が完了します。\nその後 `publish --domain` でそのドメインまたは 1 ラベル下のサブドメインを使用できます。\n生成ドメインには検証は不要です。安定した JSON 出力を得るには、各コマンドに `--json` を追加します。"}}}},
+    "cli.cloud.domains.verification.generated": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"verification: not required (cmux domain)"}},"ja":{"stringUnit":{"state":"translated","value":"検証: 不要（cmux ドメイン）"}}}},
+    "cli.cloud.domains.verificationState": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"verification: %@"}},"ja":{"stringUnit":{"state":"translated","value":"検証: %@"}}}},
+    "cli.cloud.domains.verifyHint": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"After updating DNS: cmux cloud domains verify %@"}},"ja":{"stringUnit":{"state":"translated","value":"DNS の更新後: cmux cloud domains verify %@"}}}},
     "cli.cloud.managedDisplayTarget": {
       "extractionState": "manual",
       "localizations": {
@@ -36561,6 +37294,31 @@
             "value": "coderouter|cr [coderouter-args...]                 (已安裝 CodeRouter CLI 的別名)"
           }
         }
+      }
+    },
+    "cli.coderouter.commands": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (إعدادات مستوى النماذج للفريق؛ تُمرَّر الأوامر الأخرى كما هي)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (postavke modelne ravni tima; ostale komande se prosljeđuju)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (teamets modelplan-indstillinger; andre kommandoer sendes videre)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (Team-Einstellungen der Modellebene; andere Befehle werden durchgereicht)" } },
+        "en": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (team model-plane settings; other verbs pass through)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ajustes del plano de modelos del equipo; los demás verbos se pasan sin cambios)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (réglages du plan de modèles de l'équipe ; les autres verbes sont transmis tels quels)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (impostazioni del piano modelli del team; gli altri comandi passano inalterati)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (チームのモデルプレーン設定。その他のサブコマンドはそのまま渡されます)" } },
+        "km": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ការកំណត់ model plane របស់ក្រុម; ពាក្យបញ្ជាផ្សេងទៀតត្រូវបានបញ្ជូនបន្ត)" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (팀 모델 플레인 설정; 다른 하위 명령은 그대로 전달됩니다)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (teamets modellplan-innstillinger; andre kommandoer sendes videre)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ustawienia płaszczyzny modeli zespołu; pozostałe polecenia są przekazywane dalej)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (configurações do plano de modelos da equipe; outros verbos são repassados)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (настройки модельного плана команды; остальные команды передаются как есть)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (การตั้งค่า model plane ของทีม; คำสั่งอื่นส่งผ่านตามเดิม)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (ekibin model düzlemi ayarları; diğer komutlar olduğu gibi iletilir)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (налаштування модельного плану команди; інші команди передаються без змін)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (团队模型平面设置；其他子命令原样透传)" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter <status|machines|claude> [--team <id>] [--json]    (團隊模型平面設定；其他子命令原樣透傳)" } }
       }
     },
     "cli.coderouter.error.launchFailed": {
@@ -39838,23 +40596,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "用法: cmux mosh-tmux <destination> [--session <name>] [flags]\n\n建立 Mosh 工作區，用來建立或附加具名 tmux 工作階段（預設：main）。tmux 設定會在重新連線與 App 工作階段還原後保留。這是可漫遊的 tmux 終端，而不是 cmux ssh-tmux 的原生鏡像。--session <name> 選擇工作階段；其他選項與 cmux mosh 相同。沒有 Mosh 時，同一設定會透過 SSH 執行。\n\n範例:\n  cmux mosh-tmux dev@my-host\n  cmux mosh-tmux dev@my-host --session agent-main"
-          }
-        }
-      }
-    },
-    "cli.help.notify.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--reply                Allow a free-text inline reply"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "--reply                自由入力のインライン返信を許可"
           }
         }
       }
@@ -54944,6 +55685,131 @@
         }
       }
     },
+    "cli.ssh.error.mixedTTYOptionCluster": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: مجموعة خيارات قصيرة مختلطة '%@' غير مدعومة بعد الوجهة؛ استخدم --ssh-option لخيارات SSH أو -- لوسائط الأمر البعيد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: miješani klaster kratkih opcija '%@' nije podržan nakon odredišta; koristite --ssh-option za SSH zastavice ili -- za argumente udaljene naredbe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: blandet kort indstillingsklynge '%@' understøttes ikke efter destinationen; brug --ssh-option til SSH-flag eller -- til argumenter til fjernkommandoen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: Gemischter Kurzoptions-Cluster „%@“ wird nach dem Ziel nicht unterstützt; verwenden Sie --ssh-option für SSH-Optionen oder -- für Argumente des Remote-Befehls"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: mixed short-option cluster '%@' is not supported after the destination; use --ssh-option for SSH flags or -- for remote command arguments"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: el grupo de opciones cortas mixtas '%@' no se admite después del destino; usa --ssh-option para las opciones de SSH o -- para los argumentos del comando remoto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh : le groupe d’options courtes mixtes « %@ » n’est pas pris en charge après la destination ; utilisez --ssh-option pour les options SSH ou -- pour les arguments de commande distante"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: il gruppo di opzioni brevi miste \"%@\" non è supportato dopo la destinazione; usa --ssh-option per le opzioni SSH o -- per gli argomenti del comando remoto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 宛先の後の混在した短いオプションクラスター「%@」はサポートされていません。SSH フラグには --ssh-option、リモートコマンド引数には -- を使用してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ក្រុមជម្រើសខ្លីចម្រុះ '%@' មិនត្រូវបានគាំទ្របន្ទាប់ពីទិសដៅទេ; ប្រើ --ssh-option សម្រាប់ជម្រើស SSH ឬ -- សម្រាប់អាគុយម៉ង់ពាក្យបញ្ជាពីចម្ងាយ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: 대상 뒤의 혼합 짧은 옵션 클러스터 '%@'는 지원되지 않습니다. SSH 플래그에는 --ssh-option을, 원격 명령 인수에는 --를 사용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: blandet kortalternativklynge '%@' støttes ikke etter målet; bruk --ssh-option for SSH-flagg eller -- for argumenter til fjernkommandoen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: mieszany klaster krótkich opcji „%@” nie jest obsługiwany po miejscu docelowym; użyj --ssh-option dla flag SSH lub -- dla argumentów zdalnego polecenia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: o agrupamento misto de opções curtas \"%@\" não é compatível após o destino; use --ssh-option para opções SSH ou -- para argumentos do comando remoto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: смешанная группа коротких параметров «%@» после адресата не поддерживается; используйте --ssh-option для параметров SSH или -- для аргументов удалённой команды"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: ไม่รองรับกลุ่มตัวเลือกแบบสั้นที่ผสมกัน '%@' หลังปลายทาง โปรดใช้ --ssh-option สำหรับแฟล็ก SSH หรือ -- สำหรับอาร์กิวเมนต์คำสั่งระยะไกล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: hedefin ardından gelen karma kısa seçenek kümesi '%@' desteklenmiyor; SSH seçenekleri için --ssh-option, uzak komut bağımsız değişkenleri için -- kullanın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh: змішаний кластер коротких параметрів «%@» після призначення не підтримується; використовуйте --ssh-option для параметрів SSH або -- для аргументів віддаленої команди"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：目标之后不支持混合短选项集“%@”；SSH 选项请使用 --ssh-option，远程命令参数请使用 --"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ssh：目的地後不支援混合短選項叢集「%@」；SSH 選項請使用 --ssh-option，遠端命令引數請使用 --"
+          }
+        }
+      }
+    },
     "cli.ssh.autoReconnect.status": {
       "extractionState": "manual",
       "localizations": {
@@ -56512,23 +57378,6 @@
         }
       }
     },
-    "cli.ssh.terminalExitPrompt.prompt": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] press Enter to close this pane."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "[cmux] 閉じるには Enter を押してください。"
-          }
-        }
-      }
-    },
     "cli.sshPtyAttach.bridgeClosedReattaching": {
       "extractionState": "manual",
       "localizations": {
@@ -56989,23 +57838,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "[cmux] リモートセッションが失われました。新しいシェルを開始します。"
-          }
-        }
-      }
-    },
-    "cli.sshPtyAttach.terminalInputTransitionFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SSH reattach stopped because queued terminal input could not be discarded safely."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キューに入ったターミナル入力を安全に破棄できなかったため、SSH の再接続を停止しました。"
           }
         }
       }
@@ -57665,6 +58497,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "找不到表面參照: %@"
+          }
+        }
+      }
+    },
+    "cli.surface.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
           }
         }
       }
@@ -58995,6 +59844,23 @@
         }
       }
     },
+    "cli.vpn.status.interface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interface: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インターフェース: %@"
+          }
+        }
+      }
+    },
     "cli.vpn.status.notSetUp": {
       "extractionState": "manual",
       "localizations": {
@@ -59008,6 +59874,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トンネル: 未設定（`cmux vpn up` を実行してください）"
+          }
+        }
+      }
+    },
+    "cli.vpn.status.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tunnel: up, but for a different enrollment (run `cmux vpn up` to switch it)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネル: 接続中ですが別の登録のものです（`cmux vpn up` で切り替えてください）"
           }
         }
       }
@@ -59046,6 +59929,23 @@
         }
       }
     },
+    "cli.vpn.switching": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tunnel that is up was brought up for another enrollment (a different account, or older keys). Replacing it with this one (sudo will prompt for your password)…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続中のトンネルは別の登録（別のアカウント、または古い鍵）で立ち上げられたものです。このトンネルに置き換えます（sudo がパスワードを求めます）…"
+          }
+        }
+      }
+    },
     "cli.vpn.up": {
       "extractionState": "manual",
       "localizations": {
@@ -59059,6 +59959,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "トンネルが接続されました。"
+          }
+        }
+      }
+    },
+    "cli.vpn.switchFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not switch the tunnel. Check the command output above, run `cmux vpn down`, then retry `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トンネルを切り替えられませんでした。上のコマンド出力を確認し、`cmux vpn down` を実行してから `cmux vpn up` を再試行してください。"
           }
         }
       }
@@ -59420,6 +60337,23 @@
         }
       }
     },
+    "cli.vm.tree.displays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC Displays/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC ディスプレイ/"
+          }
+        }
+      }
+    },
     "cli.vm.tree.ports": {
       "extractionState": "manual",
       "localizations": {
@@ -59433,6 +60367,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nThe Finder-style view of every surface: This Mac first (its terminals grouped by\nworkspace, and its browsers), then each cloud machine — Workspaces, Ports, VNC\nDisplays (one row per screen), and a final Terminals section containing every\nmachine-owned terminal. Every line carries an address `cmux vm open` or\n`cmux surface open` accepts.\n\nOptions:\n  <machine>   Only this machine (`local` for This Mac).\n  --refresh   Re-read every provider (machine list, links, local panes) first.\n  --json      Print the catalog payload ({machines, resources, projections})."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、VNC Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
+          }
+        }
+      }
+    },
+    "cli.vm.open.workspaceAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ has several workspaces named '%2$@' (%3$@). Use the ws_… id: cmux vm open %1$@/<ws-id>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ には '%2$@' という名前のワークスペースが複数あります（%3$@）。ws_… ID を使ってください: cmux vm open %1$@/<ws-id>"
           }
         }
       }
@@ -60155,6 +61123,23 @@
         }
       }
     },
+    "cli.workspaceGroup.help.anchorCleanup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use --remove-generated-anchor only for an anchor-only group whose anchor was created by cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--remove-generated-anchor は、cmux が作成したアンカーだけのグループに対してのみ使用してください。"
+          }
+        }
+      }
+    },
     "cli.workspaceGroup.help.deleteSafety": {
       "extractionState": "manual",
       "localizations": {
@@ -60185,6 +61170,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "グループを削除し、すべてのメンバーワークスペースを閉じます。明示的な破壊操作です。"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.help.identitySafety": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --idempotency-key (or --external-id) to make retries and concurrent creates return one group."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行や同時作成で同じグループを返すには、--idempotency-key（または --external-id）を渡してください。"
           }
         }
       }
@@ -60418,13 +61420,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Displays"
+            "value": "VNC Displays"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ディスプレイ"
+            "value": "VNC ディスプレイ"
           }
         }
       }
@@ -60510,6 +61512,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "ブラウザ %d"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelDown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel to your Cloud VM network is down — run `cmux vpn up`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac から Cloud VM ネットワークへのトンネルが切断されています — `cmux vpn up` を実行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.link.tunnelStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This Mac's tunnel is up for a different enrollment — run `cmux vpn up` to switch it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac のトンネルは別の登録で接続されています — `cmux vpn up` で切り替えてください。"
           }
         }
       }
@@ -61160,6 +62196,23 @@
         }
       }
     },
+    "cloudTree.node.desktop.detail.screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "cloudTree.pane.connecting": {
       "extractionState": "manual",
       "localizations": {
@@ -61207,6 +62260,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "このペインを閉じて、サイドバーからもう一度開いてください。"
+          }
+        }
+      }
+    },
+    "cloudTree.pane.unsupportedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This provider cannot open port previews. Do not retry; use `cmux vm exec` inside the machine or choose another machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロバイダーはポートのプレビューを開けません。再試行せず、マシン内で `cmux vm exec` を使うか、別のマシンを選択してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@’s provider cannot open machine ports as previews; reach the service from inside the machine with `cmux vm exec %@ -- …`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のプロバイダーはマシンポートをプレビューとして開けません。`cmux vm exec %@ -- …` でマシン内からアクセスしてください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.noLocalWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No local workspace is showing %@; select a workspace and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を表示しているローカルワークスペースがありません。ワークスペースを選択して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.invalidMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ports can only be opened on a cloud machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートを開けるのは Cloud マシンのみです。"
           }
         }
       }
@@ -61343,6 +62464,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "開いているターミナルはありません"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.noTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminals yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはまだありません"
           }
         }
       }
@@ -61513,6 +62651,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "×%d"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "detached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デタッチ済み"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.detached.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上でまだ実行中ですが、表示しているタブはありません。クリックでペインに開き、右クリックで強制終了できます。"
           }
         }
       }
@@ -66160,19 +67332,70 @@
         }
       }
     },
+    "command.cloudVM.failed.action.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh the Machines list and retry. A machine that no longer exists is removed from the list automatically. To see the full output, run `cmux vm rm <id>` in a terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン一覧を更新して再試行してください。存在しないマシンは一覧から自動的に削除されます。完全な出力はターミナルで `cmux vm rm <id>` を実行して確認できます。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry, or run the Cloud VM command in a terminal to see the full output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行するか、ターミナルで Cloud VM コマンドを実行して完全な出力を確認してください。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A label is printable text of at most 64 characters. Retry, or run `cmux vm rename <id> <label>` in a terminal to see the full output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベルは 64 文字以内の印刷可能なテキストにしてください。再試行するか、ターミナルで `cmux vm rename <id> <label>` を実行して完全な出力を確認してください。"
+          }
+        }
+      }
+    },
     "command.cloudVM.failed.action.launch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm base open` in a terminal and send us the output."
+            "value": "Reload cmux so its command-line tools are available, then retry. If it still fails, run the Cloud VM command in a terminal and send us the output."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バンドルされた CLI を使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで `cmux vm base open` を実行して出力を送ってください。"
+            "value": "コマンドラインツールを使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで Cloud VM コマンドを実行して出力を送ってください。"
           }
         }
       }
@@ -66183,13 +67406,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm base open` in a terminal to see the full error."
+            "value": "Install or reload a fresh cmux build, then retry. You can also run the Cloud VM command in a terminal to see the full error."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから、Start Cloud VM をもう一度試してください。ターミナルで `cmux vm base open` を実行すると完全なエラーも確認できます。"
+            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから再試行してください。ターミナルで Cloud VM コマンドを実行すると完全なエラーも確認できます。"
           }
         }
       }
@@ -66234,13 +67457,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open exited with status %d."
+            "value": "The Cloud VM command exited with status %d."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open がステータス %d で終了しました。"
+            "value": "Cloud VM コマンドがステータス %d で終了しました。"
           }
         }
       }
@@ -66251,13 +67474,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open could not be launched."
+            "value": "The Cloud VM command could not be launched."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open を起動できませんでした。"
+            "value": "Cloud VM コマンドを起動できませんでした。"
           }
         }
       }
@@ -66294,6 +67517,62 @@
             "value": "Cloud VMを開始できませんでした"
           }
         }
+      }
+    },
+    "command.cloudVM.failed.title.checkpoint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Checkpoint Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンをチェックポイントできませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Delete Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンを削除できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Fork Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンをフォークできませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud VM Command Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud VM コマンドに失敗しました" } }
+      }
+    },
+    "command.cloudVM.failed.title.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Open Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンを開けませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Rename Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの名前を変更できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Restore Checkpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントを復元できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Read Machine Status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの状態を読み取れませんでした" } }
       }
     },
     "command.cloudVM.failed.whatToTry": {
@@ -66411,23 +67690,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "新しいクラウドマシン…"
-          }
-        }
-      }
-    },
-    "command.cloudVM.open.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM を開く"
           }
         }
       }
@@ -88660,312 +89922,6 @@
         }
       }
     },
-    "debug.menu.notification.all": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Emit All"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "すべて送信"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.cli": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.cliReply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI Reply"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "CLI 返信"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.emit": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Emit Notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知を送信"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.error": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Error"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エラー"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedExitPlan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Exit Plan"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード終了プラン"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Permission"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード権限"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestion": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestion4": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (4 Options)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（4つの選択肢）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestionMany": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (Many Options)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（多数の選択肢）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiSelect": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (Multi-select)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（複数選択）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.feedQuestionMultiple": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Feed Question (Multiple)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィード質問（複数質問）"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.hookFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hook Failed"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フック失敗"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.idle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Idle Reminder"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "アイドル通知"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.mode": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notification Debug Mode"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知デバッグモード"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.needsPermission": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Needs Permission"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "権限が必要"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.osc": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OSC"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "OSC"
-          }
-        }
-      }
-    },
-    "debug.menu.notification.turnComplete": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Turn Complete"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターン完了"
-          }
-        }
-      }
-    },
     "debug.menu.openAgentGuiReact": {
       "extractionState": "manual",
       "localizations": {
@@ -89416,23 +90372,6 @@
         }
       }
     },
-    "debug.menu.splitButtonLayoutDebug": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Button Layout Debug…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "分割ボタンレイアウトのデバッグ…"
-          }
-        }
-      }
-    },
     "debug.menu.startupAppearanceDebug": {
       "extractionState": "manual",
       "localizations": {
@@ -89582,142 +90521,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Titlebar Layout Debug..."
-          }
-        }
-      }
-    },
-    "debug.notification.error.invalidKindOrTarget": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Unknown kind or no notification target"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "不明な種類、または通知対象がありません"
-          }
-        }
-      }
-    },
-    "debug.notification.error.missingEnabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass enabled=true or enabled=false to turn notification debug mode on or off."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "enabled=true または enabled=false を指定して、通知デバッグモードのオン/オフを切り替えてください。"
-          }
-        }
-      }
-    },
-    "debug.notification.error.missingKind": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pass kind=<notification kind> to choose which debug notification to emit."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "kind=<通知の種類> を指定して、発行するデバッグ通知を選んでください。"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Synthetic %@ notification"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "合成 %@ 通知"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.option": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Option %d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択肢 %d"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.plan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inspect the notification and verify the actions."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知を確認し、アクションを検証します。"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.question": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Choose a notification debug answer"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知デバッグの回答を選択"
-          }
-        }
-      }
-    },
-    "debug.notification.synthetic.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Notification Debug"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "通知デバッグ"
           }
         }
       }
@@ -90109,533 +90912,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "セミボールド"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.alwaysHover": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Always Show Hover State"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ホバー状態を常に表示"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.backdropOptions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Backdrop Options"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "背景オプション"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.caretSegment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caret Segment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャレットセグメント"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.cloudPreview": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud Split Button"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "クラウド分割ボタン"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forced Hover Segment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "強制ホバーセグメント"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment.both": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Both"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "両方"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment.caret": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caret"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャレット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.hoverSegment.plus": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラス"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.inUse": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In Use"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用中"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.innerPadding": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Inner Padding and Width"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "内側の余白と幅"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.liveNote": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Changes apply live."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変更はライブで反映されます。"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.controlBackground": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "controlBackgroundColor"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "controlBackgroundColor"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.hidden": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Hidden"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "非表示"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.precompositedBar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pre-composited barBackground"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "合成済み barBackground"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.precompositedPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pre-composited paneBackground"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "合成済み paneBackground"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.rawBar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "barBackground (tab chrome)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "barBackground（タブクローム）"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.rawPane": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Raw paneBackground (opaque)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "未加工 paneBackground（不透明）"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.translucentChrome": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Translucent chrome"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "半透明クローム"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.option.windowBackground": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "windowBackgroundColor"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "windowBackgroundColor"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.bottom": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bottom"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "下"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.leading": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Leading"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "前"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.top": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Top"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.padding.trailing": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Trailing"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "後"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.plusClicks": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus clicks: %d"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラスのクリック数: %d"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.plusSegment": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus Segment"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラスセグメント"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.resetPadding": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset Padding and Widths"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "余白と幅をリセット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.sectionWidth": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Section Width"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "セクション幅"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Button Backdrop Color"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ボタン背景色"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.width.caretOffset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Caret Width Offset"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "キャレット幅オフセット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.width.plusOffset": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plus Width Offset"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "プラス幅オフセット"
-          }
-        }
-      }
-    },
-    "debug.splitButtonLayout.windowTitle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Split Button Layout"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "分割ボタンレイアウト"
           }
         }
       }
@@ -122305,23 +122581,6 @@
         }
       }
     },
-    "feed.notification.exitPlan.revise": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revise…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "修正…"
-          }
-        }
-      }
-    },
     "feed.notification.exitPlan.title": {
       "extractionState": "manual",
       "localizations": {
@@ -122471,23 +122730,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "エージェントが質問しています"
-          }
-        }
-      }
-    },
-    "feed.notification.question.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Other…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "その他…"
           }
         }
       }
@@ -127306,6 +127548,30 @@
         }
       }
     },
+    "cloudVM.error.reference": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reference: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "参照番号: %@"
+          }
+        }
+      }
+    },
+    "cloudVM.publication.error.invalidDNS": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication response contained an invalid DNS instruction."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開レスポンスに無効な DNS 指示が含まれています。"}}}},
+    "cloudVM.publication.error.missingDNS": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication verification response was missing DNS instructions."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開の検証レスポンスに DNS 指示がありません。"}}}},
+    "cloudVM.publication.error.missingDomain": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM domain verification response was missing `domain`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM ドメイン検証レスポンスに `domain` がありません。"}}}},
+    "cloudVM.publication.error.missingDomainFields": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM domain response was missing required fields."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM ドメインレスポンスに必須フィールドがありません。"}}}},
+    "cloudVM.publication.error.missingDomainList": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM domain list response was missing `domains`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM ドメイン一覧レスポンスに `domains` がありません。"}}}},
+    "cloudVM.publication.error.missingFields": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication response was missing required fields."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開レスポンスに必須フィールドがありません。"}}}},
+    "cloudVM.publication.error.missingList": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"Cloud VM publication list response was missing `publications`."}},"ja":{"stringUnit":{"state":"translated","value":"Cloud VM 公開一覧レスポンスに `publications` がありません。"}}}},
     "cloudVM.error.requiresPro.action": {
       "extractionState": "manual",
       "localizations": {
@@ -127346,13 +127612,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Subscribe to cmux Pro for unlimited machines"
+            "value": "Subscribe to cmux Pro to create Cloud machines"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Pro に登録するとマシンを無制限に利用できます"
+            "value": "cmux Pro に登録すると Cloud マシンを作成できます"
           }
         }
       }
@@ -127574,6 +127840,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "チェックポイント"
+          }
+        }
+      }
+    },
+    "machines.menu.copyIPAddress": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy IP Address"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "IPアドレスをコピー"
           }
         }
       }
@@ -128186,6 +128469,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "スリープ中 · スリープ中は無料"
+          }
+        }
+      }
+    },
+    "machines.usage.line": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ tokens · %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@ トークン · %3$@"
+          }
+        }
+      }
+    },
+    "machines.usage.period.days": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%dd"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d日"
           }
         }
       }
@@ -129468,6 +129785,57 @@
           "stringUnit": {
             "state": "translated",
             "value": " 來自工作區 %@"
+          }
+        }
+      }
+    },
+    "memoryPressure.aggregate.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS reports memory pressure across cmux and its child processes. Only hidden, idle agent surfaces are considered after a confirmation window; active or visible work is left alone."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS が cmux と子プロセス全体のメモリプレッシャーを報告しています。確認時間の後、非表示でアイドル状態のエージェントサーフェスだけを対象にします。アクティブまたは表示中の作業はそのままです。"
+          }
+        }
+      }
+    },
+    "memoryPressure.aggregate.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Idle agent surfaces may be hibernated"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイドル状態のエージェントサーフェスを休止する場合があります"
+          }
+        }
+      }
+    },
+    "memoryPressure.aggregate.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux is using substantial aggregate memory"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 全体のメモリ使用量が大きくなっています"
           }
         }
       }
@@ -146532,91 +146900,6 @@
         }
       }
     },
-    "mobile.panel.artifact.error.forbidden": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "That file is not currently shown in this panel."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのファイルは現在このパネルに表示されていません。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.internal": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't complete the panel file request."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パネルのファイル要求を完了できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.invalidParams": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux couldn't tell which panel or file was requested."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "どのパネルのどのファイルが要求されたか判別できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.methodNotFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cmux doesn't recognize that panel file request."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのパネルのファイル要求を認識できませんでした。"
-          }
-        }
-      }
-    },
-    "mobile.panel.artifact.error.panelNotFound": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "That file panel is no longer available."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "そのファイルパネルは利用できなくなりました。"
-          }
-        }
-      }
-    },
     "mobile.taskComposer.error.capabilityDisabled": {
       "extractionState": "manual",
       "localizations": {
@@ -146681,193 +146964,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "そのターミナルは利用できなくなりました。"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.capabilityDisabled": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace changes are not enabled on this Mac"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このMacではワークスペースの変更機能が有効になっていません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidContentRequest": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace, path, or revision is missing or invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペース、パス、またはリビジョンの指定が無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidPath": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Missing or invalid path"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスが指定されていないか、無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidWorkspaceID": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "The workspace identifier is missing or invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの識別子が指定されていないか無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.invalidWorkspaceIDs": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A selected workspace identifier is invalid"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "選択したワークスペースの識別子が無効です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.notRepository": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace directory is not a Git repository"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースのディレクトリはGitリポジトリではありません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.pathNotChanged": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Path is not in the workspace changes"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスはワークスペースの変更に含まれていません"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.pathOutsideRepository": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Path must stay inside the repository"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "パスはリポジトリ内に収まっている必要があります"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.readFailed": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Failed to read workspace diff"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースの差分を読み込めませんでした"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.workspaceIDsCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Between 1 and 64 workspaces can be requested at once"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "一度にリクエストできるワークスペースは1〜64件です"
-          }
-        }
-      }
-    },
-    "mobile.workspaceChanges.error.workspaceUnavailable": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Workspace or effective directory not found"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ワークスペースまたは有効なディレクトリが見つかりません"
           }
         }
       }
@@ -147171,6 +147267,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "清除全部"
+          }
+        }
+      }
+    },
+    "notifications.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー"
           }
         }
       }
@@ -149466,13 +149579,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 hrs/mo, then usage-based"
+            "value": "Included"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "月 20 時間、その後は従量課金"
+            "value": "含まれます"
           }
         }
       }
@@ -149483,13 +149596,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pooled, usage-based"
+            "value": "Included"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "共有、従量課金"
+            "value": "含まれます"
           }
         }
       }
@@ -149524,6 +149637,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "1"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.concurrent.paid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50"
+          }
+        }
+      }
+    },
+    "pricing.native.compare.concurrent.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "50 per user"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ユーザーごとに 50"
           }
         }
       }
@@ -150248,13 +150395,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Model gateway with usage and cost analytics"
+            "value": "Unlimited workspaces"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用量とコスト分析付きのモデルゲートウェイ"
+            "value": "ワークスペースは無制限"
           }
         }
       }
@@ -150265,13 +150412,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "20 active compute-hours per month, then usage-based"
+            "value": "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "月20時間のアクティブ計算時間、その後は従量課金"
+            "value": "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク"
           }
         }
       }
@@ -150316,13 +150463,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "$30"
+            "value": "$50"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "$30"
+            "value": "$50"
           }
         }
       }
@@ -150486,13 +150633,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pick a VM size per agent. You are billed per active compute-hour, and idle VMs suspend automatically. Pro includes 20 hours per month on the 4 vCPU / 16 GB size."
+            "value": "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントごとに VM サイズを選びます。課金はアクティブなコンピュート時間単位で、アイドル状態の VM は自動停止します。Pro には 4 vCPU / 16 GB サイズで月 20 時間が含まれます。"
+            "value": "すべての Cloud VM は 5 vCPU / 20 GB RAM / 200 GB ディスクです。Pro と Team には最大 50 台のマシンが含まれ、従量課金や超過料金はありません。"
           }
         }
       }
@@ -150673,13 +150820,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pooled Cloud VM compute hours"
+            "value": "Up to 50 Cloud VMs per user"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "共有 Cloud VM コンピュート時間"
+            "value": "ユーザーごとに最大 50 台の Cloud VM"
           }
         }
       }
@@ -150741,13 +150888,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "$35"
+            "value": "$60"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "$35"
+            "value": "$60"
           }
         }
       }
@@ -157781,13 +157928,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "By agent"
+            "value": "Agent"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェント別"
+            "value": "エージェント"
           }
         }
       }
@@ -157798,13 +157945,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "By folder"
+            "value": "Folder"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォルダ別"
+            "value": "フォルダ"
           }
         }
       }
@@ -158150,6 +158297,23 @@
         }
       }
     },
+    "sessionIndex.more.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "More Vault actions"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その他のボールト操作"
+          }
+        }
+      }
+    },
     "sessionIndex.row.copyPath": {
       "extractionState": "manual",
       "localizations": {
@@ -158184,6 +158348,23 @@
         }
       }
     },
+    "sessionIndex.row.focusSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションにフォーカス"
+          }
+        }
+      }
+    },
     "sessionIndex.row.open": {
       "extractionState": "manual",
       "localizations": {
@@ -158197,6 +158378,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "開く"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.openSession": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Session"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "セッションを開く"
           }
         }
       }
@@ -158241,13 +158439,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resume in New Tab"
+            "value": "Resume in New Workspace"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいタブで再開"
+            "value": "新しいワークスペースで再開"
           }
         }
       }
@@ -158578,13 +158776,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $288/year."
+            "value": "Cloud dev boxes, the iOS app, and cmux AI. $50/month, or $480/year."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$30、または年額$288。"
+            "value": "クラウド開発マシン、iOSアプリ、cmux AI。月額$50、または年額$480。"
           }
         }
       }
@@ -244311,6 +244509,30 @@
         }
       }
     },
+    "socket.cloudVM.domain.nameRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.domain_verify requires `name` (a domain)."}},"ja":{"stringUnit":{"state":"translated","value":"vm.domain_verify には `name`（ドメイン）が必要です。"}}}},
+    "socket.cloudVM.publication.create.invalidPort": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.publication_create requires `port` between 1 and 65535."}},"ja":{"stringUnit":{"state":"translated","value":"vm.publication_create には 1 から 65535 の `port` が必要です。"}}}},
+    "socket.cloudVM.publication.create.missingVM": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"vm.publication_create requires `vmId`."}},"ja":{"stringUnit":{"state":"translated","value":"vm.publication_create には `vmId` が必要です。"}}}},
+    "socket.cloudVM.publication.idRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"A publication id is required."}},"ja":{"stringUnit":{"state":"translated","value":"公開 ID が必要です。"}}}},
+    "socket.cloudVM.publication.invalidAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `accessMode` to be personal, team, or public."}},"ja":{"stringUnit":{"state":"translated","value":"%@ の `accessMode` は personal、team、または public で指定してください。"}}}},
+    "socket.cloudVM.publication.teamOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ accepts `teamId` only when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `teamId` を指定できるのは、`accessMode` が team の場合のみです。"}}}},
+    "socket.cloudVM.publication.teamRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `teamId` when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `accessMode` が team の場合は `teamId` が必要です。"}}}},
+    "socket.vm.portOpen.invalidTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.port_open: invalid explicit target `%@`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.port_open: 明示的なターゲット `%@` が無効です。"
+          }
+        }
+      }
+    },
     "socket.cloudVM.sessionRejected": {
       "extractionState": "manual",
       "localizations": {
@@ -253124,57 +253346,6 @@
         }
       }
     },
-    "terminal.notification.action.reply": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reply"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "返信"
-          }
-        }
-      }
-    },
-    "terminal.notification.action.replyPlaceholder": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Message the agent…"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントにメッセージ…"
-          }
-        }
-      }
-    },
-    "terminal.notification.action.replySend": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Send"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "送信"
-          }
-        }
-      }
-    },
     "terminal.notification.action.show": {
       "extractionState": "manual",
       "localizations": {
@@ -256296,506 +256467,6 @@
         }
       }
     },
-    "titlebar.cloudVM.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cloud-VM"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud-VM"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "cloud VM"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM"
-          }
-        }
-      }
-    },
-    "titlebar.cloudVM.menu.accessibilityLabel": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM メニュー"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM Menu"
-          }
-        }
-      }
-    },
-    "titlebar.cloudVM.menu.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM アクション"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM actions"
-          }
-        }
-      }
-    },
-    "titlebar.cloudVM.tooltip": {
-      "extractionState": "manual",
-      "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cloud VM を開く"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Open Cloud VM"
-          }
-        }
-      }
-    },
     "titlebar.fileExplorer.accessibilityLabel": {
       "extractionState": "manual",
       "localizations": {
@@ -256957,6 +256628,244 @@
           "stringUnit": {
             "state": "translated",
             "value": "新增工作區"
+          }
+        }
+      }
+    },
+    "titlebar.newWorkspace.menu.accessibilityLabel": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قائمة مساحة العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meni novog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu for nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menü „Neuer Arbeitsbereich“"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Workspace Menu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menú de nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu Nuova area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースメニュー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 공간 메뉴"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meny for nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu nowej przestrzeni roboczej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menu de Nova Área de Trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню нового рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมนูเวิร์กสเปซใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni Çalışma Alanı Menüsü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Меню нової робочої області"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建工作区菜单"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增工作區選單"
+          }
+        }
+      }
+    },
+    "titlebar.newWorkspace.menu.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خيارات مساحة العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcije novog radnog prostora"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indstillinger for nyt arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Optionen für neuen Arbeitsbereich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New workspace options"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opciones de nuevo espacio de trabajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Options du nouvel espace de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opzioni nuova area di lavoro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ワークスペースのオプション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 작업 공간 옵션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alternativer for nytt arbeidsområde"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opcje nowej przestrzeni roboczej"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opções de nova área de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметры нового рабочего пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวเลือกเวิร์กสเปซใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeni çalışma alanı seçenekleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Параметри нової робочої області"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建工作区选项"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增工作區選項"
           }
         }
       }
@@ -270538,6 +270447,48 @@
         }
       }
     },
+    "workspaceGroup.error.generatedAnchorNotOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The group anchor was not generated by cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グループのアンカーは cmux が生成したものではありません" } }
+      }
+    },
+    "workspaceGroup.error.generatedAnchorRemovalFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The generated group anchor could not be removed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "生成されたグループアンカーを削除できませんでした" } }
+      }
+    },
+    "workspaceGroup.error.generatedAnchorRequiresAnchorOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Generated-anchor cleanup requires an anchor-only group" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "生成アンカーのクリーンアップにはアンカーのみのグループが必要です" } }
+      }
+    },
+    "workspaceGroup.error.idempotencyKeyMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "external_id and idempotency_key must be strings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "external_id と idempotency_key は文字列である必要があります" } }
+      }
+    },
+    "workspaceGroup.error.idempotencyKeyMustNotBeEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The group identity must not be empty" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グループ識別子を空にすることはできません" } }
+      }
+    },
+    "workspaceGroup.error.idempotencyKeysMustMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "external_id and idempotency_key must match" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "external_id と idempotency_key は一致する必要があります" } }
+      }
+    },
     "workspaceGroup.error.noWorkspacesToClose": {
       "extractionState": "manual",
       "localizations": {
@@ -270553,6 +270504,13 @@
             "value": "グループに閉じるワークスペースがありません"
           }
         }
+      }
+    },
+    "workspaceGroup.error.removeGeneratedAnchorMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "remove_generated_anchor must be a boolean" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "remove_generated_anchor はブール値である必要があります" } }
       }
     },
     "workspaceGroup.error.invalidReferenceWorkspace": {
@@ -273408,6 +273366,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Base を設定できませんでした"
+          }
+        }
+      }
+    },
+    "machines.pending.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成をキャンセル"
           }
         }
       }

@@ -719,7 +719,7 @@ mod tests {
             _cmux_tui: &CmuxTui,
             _session: &str,
             _socket_dir: &Path,
-            _cwd: &Path,
+            _cwd: &crate::pty::ResolvedCwd,
             _env: &HashMap<String, String>,
         ) -> Result<EnsureDaemon, String> {
             Err("no daemon in tunnel tests".to_owned())

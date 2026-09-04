@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 65aa592727bc414fe3e66ac125c9b8541a1926bbe9eaa572acc66b4681bf6589.
+// cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -582,6 +582,11 @@ pub struct ListWorkspacesRequest {
 pub type ListWorkspacesResult = T::Tree;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MachineUsageRequest {
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MarkWorkspacesProviderManagedRequest {
     pub authority: String,
@@ -1076,6 +1081,11 @@ pub struct SendKeyRequest {
 pub type SendKeyResult = T::EmptyResult;
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ServerStatsRequest {
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetCellPixelsRequest {
     pub height_px: u16,
@@ -1518,6 +1528,10 @@ impl CmuxClient {
         self.execute(&LIST_WORKSPACES_METADATA, &request)
     }
 
+    pub fn machine_usage(&mut self, request: MachineUsageRequest) -> Result<T::MachineUsageResult> {
+        self.execute(&MACHINE_USAGE_METADATA, &request)
+    }
+
     pub fn mark_workspaces_provider_managed(&mut self, request: MarkWorkspacesProviderManagedRequest) -> Result<MarkWorkspacesProviderManagedResult> {
         self.execute(&MARK_WORKSPACES_PROVIDER_MANAGED_METADATA, &request)
     }
@@ -1718,6 +1732,10 @@ impl CmuxClient {
 
     pub fn send_key(&mut self, request: SendKeyRequest) -> Result<SendKeyResult> {
         self.execute(&SEND_KEY_METADATA, &request)
+    }
+
+    pub fn server_stats(&mut self, request: ServerStatsRequest) -> Result<T::ServerStatsResult> {
+        self.execute(&SERVER_STATS_METADATA, &request)
     }
 
     pub fn set_cell_pixels(&mut self, request: SetCellPixelsRequest) -> Result<T::SetCellPixelsResult> {
