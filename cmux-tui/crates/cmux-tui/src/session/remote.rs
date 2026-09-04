@@ -1428,7 +1428,7 @@ struct ReaperState {
     worker: Option<std::thread::JoinHandle<()>>,
     pending: Vec<ReapRequest>,
     #[cfg(test)]
-    fail_next_spawn: bool,
+    fail_spawns_remaining: usize,
 }
 
 // A wake token only prompts the reaper to inspect its pending list. Keep a
@@ -1449,7 +1449,7 @@ fn new_reaper_state() -> Arc<Mutex<ReaperState>> {
         worker: None,
         pending: Vec::new(),
         #[cfg(test)]
-        fail_next_spawn: false,
+        fail_spawns_remaining: 0,
     }))
 }
 
@@ -1516,8 +1516,8 @@ fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
     let (sender, receiver) = std::sync::mpsc::sync_channel::<()>(REMOTE_REAPER_WAKE_CAPACITY);
     let worker_state = state.clone();
     #[cfg(test)]
-    if current.fail_next_spawn {
-        current.fail_next_spawn = false;
+    if current.fail_spawns_remaining > 0 {
+        current.fail_spawns_remaining -= 1;
         drop(current);
         reap_completed_workers(state);
         return;
@@ -7223,7 +7223,7 @@ mod tests {
             worker_completion.mark_done();
         });
 
-        state.lock().unwrap().fail_next_spawn = true;
+        state.lock().unwrap().fail_spawns_remaining = 1;
         enqueue_worker_reap_in_state(&state, handle, completion.clone());
         assert!(!completion.was_joined(), "failed reaper spawn must retain the handle");
 
@@ -7258,6 +7258,57 @@ mod tests {
             .expect("worker completion must not block on a full wake queue");
         worker.join().unwrap();
         drop(receiver);
+    }
+
+    #[test]
+    fn repeated_reaper_spawn_failure_retains_handle_and_recovers_worker_slot() {
+        let _reaper_guard = reaper_test_guard();
+        let runtime = Arc::new(WorkerRuntime {
+            admission: Arc::new(WorkerAdmission { available: AtomicUsize::new(1) }),
+            reaper: new_reaper_state(),
+        });
+        let state = runtime.reaper.clone();
+        let slot = runtime.reserve_slot().expect("the worker slot should be available");
+        let completion = Arc::new(WorkerCompletion::with_slot(runtime.clone(), Some(slot)));
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let worker_release = release.clone();
+        let worker_completion = completion.clone();
+        let (finished_tx, finished_rx) = channel();
+        let handle = std::thread::spawn(move || {
+            let (released, changed) = &*worker_release;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            drop(released);
+            worker_completion.mark_done();
+            finished_tx.send(()).unwrap();
+        });
+        completion.install_handle(handle);
+        state.lock().unwrap().fail_spawns_remaining = 2;
+
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        finished_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("worker completion should return after reaper spawn failure");
+
+        assert_eq!(
+            state.lock().unwrap().pending.len(),
+            1,
+            "failed reaper startup must retain the handle in the retry queue"
+        );
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let recovered_slot = loop {
+            if let Some(slot) = runtime.reserve_slot() {
+                break slot;
+            }
+            assert!(Instant::now() < deadline, "worker slot did not recover after retry");
+            std::thread::yield_now();
+        };
+        wait_for_worker_join(&completion);
+        drop(recovered_slot);
     }
 
     #[test]
