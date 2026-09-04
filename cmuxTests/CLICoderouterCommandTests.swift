@@ -632,6 +632,59 @@ extension CLINotifyProcessIntegrationRegressionTests {
         XCTAssertFalse(state.commands.contains { $0.contains("claude_upstream.update") })
     }
 
+    func testCoderouterAccountsRemoveSanitizesServerControlledSummary() throws {
+        let hostileLabel = "work\u{1B}[31m\nINJECTED"
+        let (result, _) = try runCoderouterCLI(
+            ["coderouter", "accounts", "remove", "1111"],
+            socketName: "coderouter-accounts-remove-sanitize"
+        ) { method, _ in
+            switch method {
+            case "coderouter.claude_upstream.get":
+                return self.okResponse(Self.listPayload([
+                    Self.account(id: Self.accountA, kind: "anthropic_oauth", identifier: "sk-ant-oat01-...HIJ", label: hostileLabel),
+                ]))
+            case "coderouter.accounts.list":
+                return self.okResponse(["teamId": "team_local", "accounts": []])
+            case "coderouter.claude_upstream.remove":
+                return self.okResponse(["removed": true, "count": 1])
+            default:
+                return nil
+            }
+        }
+        XCTAssertEqual(result.status, 0, result.stderr)
+        XCTAssertFalse(result.stdout.contains("\u{1B}"), result.stdout)
+        XCTAssertTrue(result.stdout.contains("work\u{FFFD}[31m\u{FFFD}INJECTED"), result.stdout)
+        XCTAssertFalse(result.stdout.contains("\nINJECTED"), result.stdout)
+    }
+
+    func testCoderouterUnknownAccountSubcommandSanitizesInput() throws {
+        let hostileSubcommand = "bad\u{1B}[31m\nINJECTED"
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "accounts", hostileSubcommand],
+            socketName: "coderouter-accounts-unknown-sanitize",
+            waitForSocket: false
+        ) { _, _ in nil }
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertFalse(result.stderr.contains("\u{1B}"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("bad\u{FFFD}[31m\u{FFFD}injected"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("\nINJECTED"), result.stderr)
+        XCTAssertTrue(state.commands.isEmpty)
+    }
+
+    func testCoderouterUnknownSubscriptionSubcommandSanitizesInput() throws {
+        let hostileSubcommand = "bad\u{1B}[31m\nINJECTED"
+        let (result, state) = try runCoderouterCLI(
+            ["coderouter", "subscriptions", hostileSubcommand],
+            socketName: "coderouter-subscriptions-unknown-sanitize",
+            waitForSocket: false
+        ) { _, _ in nil }
+        XCTAssertNotEqual(result.status, 0)
+        XCTAssertFalse(result.stderr.contains("\u{1B}"), result.stderr)
+        XCTAssertTrue(result.stderr.contains("bad\u{FFFD}[31m\u{FFFD}injected"), result.stderr)
+        XCTAssertFalse(result.stderr.contains("\nINJECTED"), result.stderr)
+        XCTAssertTrue(state.commands.isEmpty)
+    }
+
     func testCoderouterAccountsAddPassesNoValidateAndReportsVerification() throws {
         nonisolated(unsafe) var receivedParams: [String: Any] = [:]
         let apiKey = "sk-ant-api03-0123456789abcdefghijklmnopqrstuvwxyz"

@@ -3,6 +3,7 @@ import {
   buildAccountHealthEmail,
   noticeSection,
   runAccountHealthNotifications,
+  selectAccountHealthNotices,
   type AccountHealthDependencies,
   type AccountHealthEmail,
   type BrokenAccountNotice,
@@ -78,13 +79,14 @@ describe("account health email copy", () => {
     expect(email.text).toContain("ChatGPT Codex subscription a@x.dev in manaflow, id 66666666");
     expect(email.text).toContain("could not be renewed (invalid_grant)");
     // Exact commands.
-    expect(email.text).toContain("claude setup-token && cmux coderouter accounts add claude");
+    expect(email.text).toContain("cmux coderouter accounts add claude");
+    expect(email.text).not.toContain("claude setup-token &&");
     expect(email.text).toContain("cmux coderouter accounts add codex");
     expect(email.text).toContain("cmux coderouter accounts remove 11111111");
     expect(email.text).toContain("https://cmux.com/dashboard/coderouter?team=team-1");
     // The no-spam promise.
     expect(email.text).toContain("exactly one email per account");
-    expect(email.html).toContain("<code>claude setup-token</code>");
+    expect(email.html).toContain("<code>cmux coderouter accounts add claude");
     expect(email.html).not.toContain("sk-ant-oat01-abc");
   });
 
@@ -92,7 +94,7 @@ describe("account health email copy", () => {
     expect(noticeSection(notice({ kind: "anthropic-key", identifier: "sk-ant-...wxyz" }), null).fix[0]).toBe("cmux coderouter accounts add anthropic-key --label work");
     expect(noticeSection(notice({ kind: "bedrock", identifier: "AKIA...MNOP", label: "" }), null).fix[0]).toContain("accounts add bedrock --region <region>");
     expect(noticeSection(notice({ kind: "opencode", source: "subscription", identifier: "" }), "team").headline).toContain("OpenCode Go subscription work in team");
-    expect(noticeSection(notice({ label: "with space" }), null).fix[1]).toBe("cmux coderouter accounts add claude --label 'with space'");
+    expect(noticeSection(notice({ label: "with space" }), null).fix[0]).toBe("cmux coderouter accounts add claude --label 'with space'");
   });
 
   test("uses a singular subject for one account and counts teams when several are involved", async () => {
@@ -148,6 +150,15 @@ describe("account health notification run", () => {
     expect(sent.map((email) => email.to).sort()).toEqual(["a@x.dev", "b@x.dev"]);
   });
 
+  test("keeps a subscription in the run when Claude has a full batch", () => {
+    const claude = Array.from({ length: 200 }, (_, index) => notice({ accountId: `claude-${index}` }));
+    const subscription = notice({ source: "subscription", kind: "codex", createdBy: null, accountId: "subscription-1" });
+    const selected = selectAccountHealthNotices(claude, [subscription], 200);
+    expect(selected).toHaveLength(200);
+    expect(selected.some((item) => item.source === "subscription")).toBe(true);
+    expect(selected.filter((item) => item.source === "subscription")).toHaveLength(1);
+  });
+
   test("caches team recipient lookup for several subscription notices", async () => {
     let lookups = 0;
     const first = notice({ source: "subscription", kind: "codex", createdBy: null });
@@ -189,6 +200,19 @@ describe("account health notification run", () => {
     expect(result).toMatchObject({ emails: 1, failures: 1 });
     expect(sent.map((email) => email.to)).toEqual(["ok@example.com"]);
     expect(notified).toEqual([{ ids: [a.accountId], at: T0 }]);
+  });
+
+  test("keeps a team account pending when one member delivery fails", async () => {
+    const sub = notice({ source: "subscription", kind: "codex", createdBy: null });
+    const { dependencies, sent, notified } = harness({
+      subscriptions: [sub],
+      recipients: () => [{ email: "ok@example.com", name: null }, { email: "down@example.com", name: null }],
+      failSendTo: "down@example.com",
+    });
+    const result = await runAccountHealthNotifications(dependencies);
+    expect(result).toMatchObject({ accounts: 1, emails: 1, recipients: 2, failures: 1 });
+    expect(sent.map((email) => email.to)).toEqual(["ok@example.com"]);
+    expect(notified).toEqual([]);
   });
 
   test("accounts with nobody to tell are marked so they are not re-queried forever", async () => {
