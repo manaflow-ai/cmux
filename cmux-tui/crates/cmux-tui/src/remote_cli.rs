@@ -214,6 +214,9 @@ struct ConnectFlags {
     iroh_path: IrohPathMode,
     wireguard_config: Option<PathBuf>,
     wireguard_hub: Option<PathBuf>,
+    /// Internal app ownership fence. The helper exits when its direct parent exits,
+    /// including an abort or forced app replacement that cannot run Swift cleanup.
+    exit_with_parent: bool,
     headless: bool,
     json: bool,
     ssh_session: String,
@@ -449,6 +452,7 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--wireguard-hub")));
                 }
             }
+            "--exit-with-parent" => flags.exit_with_parent = true,
             "--headless" => flags.headless = true,
             "--json" => flags.json = true,
             "--session" => flags.ssh_session = value("--session")?,
@@ -540,6 +544,7 @@ fn connect_with_flags(
 ) -> anyhow::Result<()> {
     let headless = flags.headless;
     let json = flags.json;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let connected = start_connected(flags)?;
     if headless {
         if json {
@@ -547,7 +552,10 @@ fn connect_with_flags(
             runtime.block_on(async {
                 let mut previous = None;
                 let mut finished = connected.runtime.subscribe_finished();
-                while !crate::shutdown_requested() && !connected.runtime.is_finished() {
+                while !crate::shutdown_requested()
+                    && !connected.runtime.is_finished()
+                    && owner.is_none_or(parent_process_is)
+                {
                     let snapshot = connected.runtime.connection_snapshot().await;
                     let mut topology = snapshot.clone();
                     if let Some(path) = topology.transport.selected_path.as_mut() {
@@ -574,7 +582,10 @@ fn connect_with_flags(
             })?;
         } else {
             println!("{}", connected.runtime.info().local_socket.display());
-            while !crate::shutdown_requested() && !connected.runtime.is_finished() {
+            while !crate::shutdown_requested()
+                && !connected.runtime.is_finished()
+                && owner.is_none_or(parent_process_is)
+            {
                 thread::sleep(Duration::from_millis(100));
             }
         }
@@ -1658,11 +1669,13 @@ fn read_invitation_ticket_file(path: &Path) -> anyhow::Result<String> {
 struct WgHubFlags {
     config: PathBuf,
     socket: PathBuf,
+    exit_with_parent: bool,
 }
 
 fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
     let mut config = None;
     let mut socket = None;
+    let mut exit_with_parent = false;
     let mut index = 0;
     while index < args.len() {
         let argument = args[index].as_str();
@@ -1686,6 +1699,7 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
                     return Err(anyhow!(catalog().remote_client.option_once("--socket")));
                 }
             }
+            "--exit-with-parent" => exit_with_parent = true,
             "-h" | "--help" => return Err(anyhow!(catalog().remote_client.help_invalid_options)),
             other => return Err(anyhow!(catalog().remote_client.unknown_option(other))),
         }
@@ -1695,15 +1709,16 @@ fn parse_wg_hub_flags(args: &[String]) -> anyhow::Result<WgHubFlags> {
             .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--config")))?,
         socket: socket
             .ok_or_else(|| anyhow!(catalog().remote_client.wg_hub_option_required("--socket")))?,
+        exit_with_parent,
     })
 }
 
 /// `cmux-tui wg hub --config <wg-quick> --socket <unix path>`: own one
 /// WireGuard tunnel and serve SOCKS5 CONNECT for sidecars on a Unix socket.
 ///
-/// Prints one JSON readiness line, then runs until SIGTERM or SIGINT, and
-/// removes the socket on the way out. Every error before readiness exits
-/// non-zero through the caller.
+/// Prints one JSON readiness line, then runs until SIGTERM, SIGINT, or the
+/// opted-in parent lifecycle ends. It removes the socket on the way out.
+/// Every error before readiness exits non-zero through the caller.
 fn run_wg(args: &[String]) -> anyhow::Result<()> {
     match args.first().map(String::as_str) {
         Some("hub") => {}
@@ -1711,6 +1726,7 @@ fn run_wg(args: &[String]) -> anyhow::Result<()> {
         None => return Err(anyhow!(catalog().remote_client.wg_hub_help)),
     }
     let flags = parse_wg_hub_flags(&args[1..])?;
+    let owner = flags.exit_with_parent.then(current_parent_process_id);
     let async_runtime = tokio_runtime()?;
     let net = start_wireguard(&async_runtime, &flags.config)?;
     let hub = async_runtime
@@ -1725,13 +1741,50 @@ fn run_wg(args: &[String]) -> anyhow::Result<()> {
     });
     println!("{}", serde_json::to_string(&ready)?);
     let _ = io::stdout().flush();
-    async_runtime.block_on(crate::wait_for_shutdown_signal_async()).map_err(|error| {
-        anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string()))
-    })?;
+    async_runtime
+        .block_on(async {
+            if let Some(owner) = owner {
+                tokio::select! {
+                    result = crate::wait_for_shutdown_signal_async() => result,
+                    _ = wait_for_parent_exit(owner) => Ok(()),
+                }
+            } else {
+                crate::wait_for_shutdown_signal_async().await
+            }
+        })
+        .map_err(|error| {
+            anyhow!(catalog().remote_client.wireguard_hub_signal_failed(&error.to_string()))
+        })?;
     async_runtime.block_on(hub.shutdown()).map_err(|error| {
         anyhow!(catalog().remote_client.wireguard_hub_serve_failed(&error.to_string()))
     })?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn current_parent_process_id() -> u32 {
+    unsafe { libc::getppid() }.try_into().unwrap_or_default()
+}
+
+#[cfg(not(unix))]
+fn current_parent_process_id() -> u32 {
+    0
+}
+
+#[cfg(unix)]
+fn parent_process_is(expected: u32) -> bool {
+    current_parent_process_id() == expected
+}
+
+#[cfg(not(unix))]
+fn parent_process_is(_: u32) -> bool {
+    true
+}
+
+async fn wait_for_parent_exit(expected: u32) {
+    while parent_process_is(expected) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 /// A wg-quick file is small; anything larger is not one.
@@ -2755,14 +2808,8 @@ mod tests {
         assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
         assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
         assert!(!flags.exit_with_parent);
-        let owned = [
-            "--config",
-            "/tmp/wg.conf",
-            "--socket",
-            "/tmp/wg.sock",
-            "--exit-with-parent",
-        ]
-        .map(str::to_string);
+        let owned = ["--config", "/tmp/wg.conf", "--socket", "/tmp/wg.sock", "--exit-with-parent"]
+            .map(str::to_string);
         assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
         let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
         assert!(parse_wg_hub_flags(&missing).is_err());
@@ -2771,6 +2818,14 @@ mod tests {
         assert!(parse_wg_hub_flags(&unknown).is_err());
         let not_hub = ["frobnicate"].map(str::to_string);
         assert!(run_wg(&not_hub).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_lifecycle_fence_tracks_the_direct_parent() {
+        let parent = current_parent_process_id();
+        assert!(parent_process_is(parent));
+        assert!(!parent_process_is(parent.wrapping_add(1)));
     }
 
     use super::*;

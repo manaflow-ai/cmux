@@ -13,7 +13,12 @@ struct CloudTuiCommandLine: Sendable {
     /// in-process WireGuard hub (``CloudWireGuardHub``) instead of the OS network stack;
     /// it is added only for routes inside the private Cloud VM network.
     static func linkArguments(route: String, deviceName: String, stateDir: String, inviteFilePath: String?, wireguardHubSocket: String? = nil) -> [String] {
-        var arguments = ["remote", "connect", route, "--device-name", deviceName, "--state-dir", stateDir, "--headless", "--json"]
+        var arguments = [
+            "remote", "connect", route,
+            "--device-name", deviceName,
+            "--state-dir", stateDir,
+            "--headless", "--json", "--exit-with-parent",
+        ]
         if let inviteFilePath, !inviteFilePath.isEmpty {
             arguments += ["--invite-file", inviteFilePath]
         }
@@ -26,7 +31,7 @@ struct CloudTuiCommandLine: Sendable {
     /// `wg hub --config <wg-quick file> --socket <unix path>`: the one process that owns the
     /// app's WireGuard tunnel and serves SOCKS5 to every link on this Mac.
     static func wireGuardHubArguments(configPath: String, socketPath: String) -> [String] {
-        ["wg", "hub", "--config", configPath, "--socket", socketPath]
+        ["wg", "hub", "--config", configPath, "--socket", socketPath, "--exit-with-parent"]
     }
 
     /// The probe capability a client advertises when it understands `--wireguard-hub`.

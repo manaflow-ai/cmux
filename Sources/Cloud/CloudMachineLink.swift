@@ -226,21 +226,44 @@ actor CloudMachineLink {
         try process.run()
         async let outData = CloudLinkPipe.readToEnd(stdout.fileHandleForReading)
         async let errData = CloudLinkPipe.readToEnd(stderr.fileHandleForReading)
-        let deadline = Task<Bool, Never> {
-            do {
-                try await Task.sleep(for: timeout)
-            } catch {
-                return false
+        // `CloudLinkFirstValue.result` is cancellation-aware. Wait for it from a detached
+        // task so cancellation cannot release a still-running Foundation `Process`.
+        // `NSConcreteTask` aborts the whole app when that happens. Every return path below
+        // first terminates, then observes the real child exit.
+        let exitTask = Task.detached { await exit.result }
+        let outcome = await withTaskCancellationHandler {
+            await withTaskGroup(of: CloudLinkCommandOutcome.self) { group in
+                group.addTask {
+                    .exited(await exitTask.value ?? -1)
+                }
+                group.addTask {
+                    do {
+                        try await Task.sleep(for: timeout)
+                        return .timedOut
+                    } catch {
+                        return .cancelled
+                    }
+                }
+                let first = await group.next() ?? .cancelled
+                switch first {
+                case .exited:
+                    break
+                case .timedOut, .cancelled:
+                    if process.isRunning { process.terminate() }
+                }
+                group.cancelAll()
+                return first
             }
-            process.terminate()
-            return true
+        } onCancel: {
+            if process.isRunning { process.terminate() }
         }
-        let status = await exit.result ?? process.terminationStatus
-        deadline.cancel()
-        let timedOut = await deadline.value
+        // The task group does not return until its exit waiter observes termination.
+        // Reading terminationStatus is now safe on every path.
+        let status = process.terminationStatus
         let out = await outData
         let err = await errData
-        if timedOut { throw LinkError.timedOut }
+        if Task.isCancelled || outcome == .cancelled { throw CancellationError() }
+        if outcome == .timedOut { throw LinkError.timedOut }
         guard status == 0 else {
             let text = String(data: err, encoding: .utf8) ?? ""
             let fallback = String(data: out, encoding: .utf8) ?? ""
@@ -316,6 +339,12 @@ actor CloudMachineLink {
             self.inviteFileURL = nil
         }
     }
+}
+
+private enum CloudLinkCommandOutcome: Sendable, Equatable {
+    case exited(Int32)
+    case timedOut
+    case cancelled
 }
 
 /// GCD-driven reading of the link's child-process pipes. `FileHandle.bytes.lines` and
