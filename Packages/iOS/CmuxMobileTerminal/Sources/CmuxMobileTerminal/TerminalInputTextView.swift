@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxMobileSupport
 import CmuxMobileTerminalKit
 import Foundation
 import UIKit
@@ -263,7 +264,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     }
     private var themeBarColor: UIColor { terminalTheme.terminalBackgroundUIColor }
     private var themeChromeColor: UIColor { themeBarColor.terminalReadableForeground }
-    private static let accessoryHorizontalInset: CGFloat = 16
+    /// Match the leading margin used by the terminal composer attachment
+    /// controls so the keyboard toggle sits on the same vertical guide.
+    private static let accessoryHorizontalInset = MobileComposerLayout().horizontalInset
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
     /// arrows, settings, keyboard toggle) so all glyphs render at one size.

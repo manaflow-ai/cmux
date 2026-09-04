@@ -68,6 +68,12 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /**
+   * The machine's generated three-word name, shown in the provider's own
+   * console so it matches what cmux shows. Cosmetic: providers that name
+   * machines uniquely must not fail the create over it.
+   */
+  displayName?: string;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
@@ -188,7 +194,11 @@ export type AttachTransport = "ssh" | "websocket" | "cmux-remote";
  */
 export type CmuxRemoteEndpoint = {
   transport: "cmux-remote";
-  /** `wss://<host>/v1/link?<provider-token>` — carries the ingress token, so it is never embedded in an invitation. */
+  /**
+   * Provider-reachable daemon route, normally `ws://[ipv6]:1337/v1/link` for Freestyle.
+   * A provider may return a token-bearing gateway URL, but the client must treat `route`
+   * as opaque and never construct or append credentials to it.
+   */
   route: string;
   /** Ingress token (hashed into the lease ledger, never persisted raw). */
   token: string;
@@ -337,6 +347,18 @@ export type ProviderTunnel = {
   readonly addressV6: string | null;
 };
 
+/**
+ * Result of enrolling a client tunnel. `created` describes the provider
+ * resource, not the database row: a provider slug conflict can recover an
+ * orphaned tunnel that already exists. `rotated` says that its client key was
+ * replaced during that recovery.
+ */
+export type ProviderTunnelCreateResult = {
+  readonly tunnel: ProviderTunnel;
+  readonly created: boolean;
+  readonly rotated: boolean;
+};
+
 export type CreateProviderTunnelOptions = {
   readonly slug: string;
   readonly displayName?: string;
@@ -365,7 +387,7 @@ export interface VMPrivateNetworking {
   /** Delete a network. Must succeed when it is already gone. */
   deleteNetwork(networkId: string): Promise<void>;
   /** Create a tunnel with the network already attached. */
-  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel>;
+  createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnelCreateResult>;
   /**
    * Read a tunnel back with its address inside `networkId`, re-attaching the
    * network if the attachment is missing. Null when the tunnel is gone at the
@@ -446,9 +468,10 @@ export interface VMProvider {
   // VmAttachTransportUnsupportedError before reaching the provider.
   readonly attachTransports?: readonly AttachTransport[];
 
-  // Returns a live attach endpoint the client can dial into: cmuxd-remote WebSocket PTY
-  // with a short-lived one-use lease, or SSH. Every current driver is cmux-remote only
-  // and throws here; the seam stays for a provider that serves a raw PTY again.
+  // Returns a live legacy attach endpoint the client can dial into: a raw WebSocket
+  // PTY with a short-lived one-use lease, or SSH. The current Freestyle driver is
+  // cmux-remote only and throws here; the seam remains for a future provider that
+  // explicitly supports a legacy raw transport.
   openAttach(vmId: string, options?: AttachOptions): Promise<AttachEndpoint>;
 
   // Optional: attach through the cmux-tui remote daemon in the VM (see CmuxRemoteEndpoint).

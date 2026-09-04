@@ -175,7 +175,7 @@ impl std::fmt::Debug for TerminalHostRecord {
 
 impl TerminalHostRecord {
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.json", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.json", self.terminal_id)))
     }
 }
 
@@ -204,7 +204,7 @@ impl TerminalHostExitRecord {
     }
 
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.exit", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.exit", self.terminal_id)))
     }
 }
 
@@ -1780,7 +1780,9 @@ mod unix {
     }
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-        state_root.join(format!("terminal-hosts-{}", stable_token(session)))
+        crate::platform::normalize_filesystem_path(
+            state_root.join(format!("terminal-hosts-{}", stable_token(session))),
+        )
     }
 
     /// Strip every descriptor except the private bootstrap stdio before the
@@ -1870,7 +1872,8 @@ mod unix {
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
         prepare_private_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
-        let record_path = root.join(format!("{terminal_hex}.json"));
+        let record_path =
+            crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
@@ -4683,7 +4686,7 @@ mod unix {
     }
 
     fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
-        root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+        crate::platform::normalize_filesystem_path(root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE))
     }
 
     fn validate_terminal_host_publication_lock(
@@ -9387,7 +9390,7 @@ pub(crate) use unix::{
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-    state_root.join(format!("{session}.terminal-hosts"))
+    crate::platform::normalize_filesystem_path(state_root.join(format!("{session}.terminal-hosts")))
 }
 
 #[cfg(not(unix))]

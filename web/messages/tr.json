@@ -22,6 +22,11 @@
       "title": "cmux Pro gerekli",
       "message": "Cloud VM'ler için cmux Pro planı gerekir.",
       "action": "Cloud VM oluşturmak için {upgradeUrl} adresinden cmux Pro'ya yükseltin."
+    },
+    "sharedResource": {
+      "message": "Cloud VM için paylaşılan {resource} kaynak havuzu dolu.",
+      "action": "Kullanılmayan bir Cloud VM'yi silip tekrar deneyin.",
+      "oversizedAction": "Paylaşılan havuza sığan daha küçük bir Cloud VM {resource} boyutu isteyin."
     }
   },
   "billingRecovery": {
