@@ -24,6 +24,7 @@ extension TerminalController {
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
+                        "memoryOptionsMb": limits.memoryOptionsMb,
                     ]
                 }
                 return payload
@@ -637,6 +638,9 @@ extension TerminalController {
         ]
         if let displayName = vm.displayName, !displayName.isEmpty {
             payload["displayName"] = displayName
+        }
+        if let slug = vm.slug, !slug.isEmpty {
+            payload["slug"] = slug
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt

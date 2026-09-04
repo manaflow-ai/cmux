@@ -1,6 +1,7 @@
 import { getTranslations } from "next-intl/server";
 import { Suspense } from "react";
 import { SiteHeader } from "../components/site-header";
+import { Link } from "../../../i18n/navigation";
 import { ProCtaLink } from "../components/pro-cta-link";
 import { ProWelcomeBanner } from "../components/pro-welcome-banner";
 import {
@@ -159,6 +160,14 @@ export default async function PricingPage({
         <PricingIntervalProvider initialInterval={interval}>
           {/* Title */}
           <h1 className="text-2xl font-medium tracking-tight">{t("title")}</h1>
+          <p className="mt-3 text-sm text-muted">
+            <Link
+              href="/billing/recover"
+              className="underline underline-offset-2 decoration-link-underline hover:text-foreground"
+            >
+              {t("alreadyPaid")}
+            </Link>
+          </p>
           <PricingIntervalSelector
             billingPeriodLabel={t("billingPeriod")}
             monthlyLabel={t("monthly")}

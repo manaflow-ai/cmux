@@ -18,7 +18,6 @@ iroh-transport = ["dep:iroh", "dep:socket2"]
 wireguard-transport = ["dep:cmux-wg"]
 
 [dependencies]
-anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true
 base64.workspace = true
@@ -41,7 +40,6 @@ libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-socket2 = { workspace = true, optional = true }
 snow.workspace = true
 subtle.workspace = true
 tokio.workspace = true

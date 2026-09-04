@@ -106,6 +106,8 @@ export type VmEntry = {
   readonly status: CloudVmStatus;
   readonly createdAt: number;
   readonly displayName: string | null;
+  /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
+  readonly slug: string | null;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -514,6 +516,7 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        displayName: create.vm.slug ?? undefined,
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
@@ -757,6 +760,7 @@ function finishBaseCreate(
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        displayName: create.vm.slug ?? undefined,
         providerMetadata: create.vm.providerMetadata,
         network: { id: network.providerNetworkId },
       }),
@@ -2878,6 +2882,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     status: row.status,
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
+    slug: row.slug ?? null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
   };

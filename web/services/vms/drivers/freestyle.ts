@@ -876,7 +876,7 @@ export class FreestyleProvider implements VMProvider {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
-            displayName: "cmux Cloud VM",
+            displayName: options.displayName ?? "cmux Cloud VM",
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,

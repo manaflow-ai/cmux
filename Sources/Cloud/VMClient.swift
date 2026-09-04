@@ -314,6 +314,10 @@ struct VMSummary {
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
+    /// Server-generated three-word name (`sleepy-teal-otter`), fixed for the
+    /// machine's life and unique among the owner's live machines. Nil on
+    /// machines created before the backend assigned names.
+    var slug: String?
     /// When the free plan's access window closes for this machine (epoch ms);
     /// nil on paid plans or when the window is disabled server-side.
     var freeAccessExpiresAt: Int64?
@@ -322,8 +326,13 @@ struct VMSummary {
     var addressIPv4: String?
     var addressIPv6: String?
 
-    /// The name to show people: the label when set, otherwise the machine id.
-    var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+    /// The name to show people: the label when set, else the generated slug,
+    /// else the machine id.
+    var preferredName: String {
+        if let displayName, !displayName.isEmpty { return displayName }
+        if let slug, !slug.isEmpty { return slug }
+        return id
+    }
 
     /// The address to hand a person who asked for "the IP": v4 when the network
     /// allocated one (shorter, pasteable anywhere), else v6.
@@ -344,8 +353,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Which image each kind provisions on the caller's provider, for the New
-    /// Machine sheet's summary line. Empty on control planes that predate it.
+    /// Memory sizes the server accepts for new base machines, in MB.
+    var memoryOptionsMb: [Int] = []
+    /// Legacy compatibility data for older clients. The current New Machine
+    /// sheet always creates one base kind and does not display this field.
     var imageKinds: [VMImageKindOption] = []
 }
 
@@ -781,6 +792,7 @@ actor VMClient {
                 planId: planId,
                 freeAccessWindowDays: freeAccessWindowDays,
                 freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
                 imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
             )
         }
@@ -804,6 +816,7 @@ actor VMClient {
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
+            summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
             if let address = dict["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1104,6 +1117,20 @@ actor VMClient {
         }
     }
 
+    /// `limits.memoryOptionsMb: [number]`; malformed or non-positive entries are skipped.
+    private static func decodeIntArray(_ raw: Any?) -> [Int] {
+        guard let items = raw as? [Any] else { return [] }
+        return items.compactMap { item in
+            let value: Int?
+            if let item = item as? Int { value = item }
+            else if let item = item as? NSNumber, item.doubleValue.isFinite { value = Int(exactly: item.doubleValue) }
+            else if let item = item as? Double, item.isFinite { value = Int(exactly: item) }
+            else { value = nil }
+            guard let value, value > 0 else { return nil }
+            return value
+        }
+    }
+
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
     private static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
@@ -1153,6 +1180,8 @@ actor VMClient {
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 
@@ -1221,6 +1250,7 @@ actor VMClient {
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
         }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 
