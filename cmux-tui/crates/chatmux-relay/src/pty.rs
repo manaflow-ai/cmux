@@ -2222,6 +2222,8 @@ mod tests {
     struct FakeDeps {
         env: HashMap<String, String>,
         recorded: Arc<StdMutex<Recorded>>,
+        spawn_started: Option<Arc<Notify>>,
+        spawn_gate: Option<Arc<Notify>>,
         resolve: Option<CmuxTui>,
         socket_dir: PathBuf,
         read_dir: Option<Vec<String>>,
@@ -2232,6 +2234,12 @@ mod tests {
     #[async_trait]
     impl PtyDeps for FakeDeps {
         async fn spawn_pty(&self, spec: SpawnSpec) -> PtyHandle {
+            if let Some(started) = &self.spawn_started {
+                started.notify_one();
+            }
+            if let Some(gate) = &self.spawn_gate {
+                gate.notified().await;
+            }
             let pty = FakePty {
                 state: Arc::new(StdMutex::new(FakeState::default())),
                 spawn_file: spec.file.clone(),
@@ -2330,11 +2338,48 @@ mod tests {
         let deps = Arc::new(FakeDeps {
             env: env.clone(),
             recorded: Arc::clone(&recorded),
+            spawn_started: None,
+            spawn_gate: None,
             resolve,
             socket_dir,
             read_dir,
             ensure_socket_path,
             control,
+        });
+        let manager = PtyManager::with_limits(
+            deps,
+            home_path.clone(),
+            env,
+            MAX_PTYS,
+            SCROLLBACK_LIMIT,
+            OUTPUT_BUFFER_CAP,
+        );
+        Harness {
+            manager,
+            recorded,
+            sent: Arc::new(StdMutex::new(Vec::new())),
+            buffered: Arc::new(AtomicU64::new(0)),
+            owner: Some("user_owner".to_owned()),
+            home: home_path,
+            _home: home,
+        }
+    }
+
+    fn harness_with_spawn_gate(spawn_started: Arc<Notify>, spawn_gate: Arc<Notify>) -> Harness {
+        let home = TestDirectory::new("harness-spawn-gate");
+        let home_path = home.path.clone();
+        let env = env_map(&home_path);
+        let recorded = Arc::new(StdMutex::new(Recorded::default()));
+        let deps = Arc::new(FakeDeps {
+            env: env.clone(),
+            recorded: Arc::clone(&recorded),
+            spawn_started: Some(spawn_started),
+            spawn_gate: Some(spawn_gate),
+            resolve: None,
+            socket_dir: PathBuf::from("/run/cmux-tui-501"),
+            read_dir: None,
+            ensure_socket_path: None,
+            control: None,
         });
         let manager = PtyManager::with_limits(
             deps,
@@ -2670,6 +2715,8 @@ mod tests {
         let deps = Arc::new(FakeDeps {
             env: env.clone(),
             recorded: Arc::clone(&recorded),
+            spawn_started: None,
+            spawn_gate: None,
             resolve: None,
             socket_dir: PathBuf::from("/run/cmux-tui-501"),
             read_dir: None,
@@ -2928,6 +2975,41 @@ mod tests {
         assert!(h.manager.has_attachment("p-tunnel"), "the tunnel viewer must survive");
         h.manager.detach_all();
         assert!(!h.manager.has_attachment("p-tunnel"));
+    }
+
+    #[tokio::test]
+    async fn cancelled_shell_open_does_not_publish_session_after_spawn_returns() {
+        let spawn_started = Arc::new(Notify::new());
+        let spawn_gate = Arc::new(Notify::new());
+        let h = harness_with_spawn_gate(Arc::clone(&spawn_started), Arc::clone(&spawn_gate));
+        let frame = serde_json::json!({
+            "version": 4,
+            "type": "pty_open",
+            "ptyId": "p-cancelled",
+            "session": "main",
+            "cols": 80,
+            "rows": 24,
+            "actorId": "user_owner",
+            "trust": "supervised",
+            "allowedRoots": Value::Null,
+        });
+        let context = h.context_with_transport("supervised", h.owner.clone(), Some("transport"));
+        let cancellation = context.cancellation.clone();
+        let open = h.manager.handle_frame(&frame, &context);
+        tokio::pin!(open);
+        tokio::select! {
+            _ = spawn_started.notified() => {}
+            _ = &mut open => panic!("open must remain pending while PTY spawn is gated"),
+        }
+
+        cancellation.cancel();
+        h.manager.detach_transport("transport");
+        spawn_gate.notify_one();
+        open.await;
+
+        assert_eq!(h.manager.attachment_count(), 0);
+        assert!(h.manager.inner.shell_sessions.lock().unwrap().is_empty());
+        assert!(h.spawned()[0].state.lock().unwrap().killed);
     }
 
     #[test]
