@@ -190,6 +190,8 @@ struct VaultAllSessionsBar: View {
         .accessibilityHint(Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view")))
         .accessibilityValue(viewSelectionLabel)
         .accessibilityIdentifier("VaultSessionOptionsMenu")
+        .frame(width: 28, height: 28)
+        .layoutPriority(2)
         .titlebarInteractiveControl()
     }
 
@@ -214,8 +216,13 @@ private struct VaultToolbarIcon: View {
     var body: some View {
         Group {
             if isEmphasized {
-                Image(systemName: systemName)
-                    .font(.system(size: 15, weight: .semibold))
+                VStack(spacing: 2.5) {
+                    ForEach(0..<3, id: \.self) { _ in
+                        Circle()
+                            .fill(Color.primary)
+                            .frame(width: 3.5, height: 3.5)
+                    }
+                }
             } else {
                 HeaderChromeIconStyle.symbol(systemName)
             }
