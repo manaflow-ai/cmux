@@ -694,7 +694,7 @@ mod tests {
         );
         state.reconcile_selection(&reordered);
         assert_eq!(state.selected, 2);
-        assert_eq!(reordered[state.selected].target, initial[1].target);
+        assert!(reordered[state.selected].target.same_resource(initial[1].target));
     }
 
     #[test]
