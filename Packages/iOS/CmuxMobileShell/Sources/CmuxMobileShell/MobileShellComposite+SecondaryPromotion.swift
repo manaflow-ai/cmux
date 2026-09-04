@@ -674,6 +674,7 @@ extension MobileShellComposite {
         let liveConnectionGeneration = adoptPooledRemoteClient(sub.client)
         activeTicket = sub.ticket
         activeMacInstanceTag = sub.authenticatedInstanceTag ?? sub.storedInstanceTag
+        authenticatedMacAppVersion = sub.ticket.macAppVersion
         // The foreground refetches this feed under the bare device key; the
         // pairing-keyed source would otherwise linger as stale offline rows,
         // and a sibling switch must not reuse the old build's device-keyed

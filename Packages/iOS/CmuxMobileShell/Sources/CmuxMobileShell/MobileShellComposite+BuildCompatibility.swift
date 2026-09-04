@@ -46,8 +46,12 @@ extension MobileShellComposite {
     /// Startup remains non-blocking, but a newly stricter remote policy cannot
     /// leave an already-connected older Mac admitted indefinitely.
     func revalidateActiveMacCompatibilityPolicy() {
-        guard connectionState == .connected,
-              let channel = versionGateChannel(
+        guard connectionState == .connected else {
+            pendingMacCompatibilityPolicyRevalidation = true
+            return
+        }
+        pendingMacCompatibilityPolicyRevalidation = false
+        guard let channel = versionGateChannel(
                   instanceTag: activeMacInstanceTag,
                   macAppVersion: authenticatedMacAppVersion
               ),

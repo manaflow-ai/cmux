@@ -1057,6 +1057,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// background compatibility refresh uses this to revalidate an already
     /// connected session if the remote policy becomes stricter.
     var authenticatedMacAppVersion: String?
+    /// Set when a background policy refresh completes while a Mac is still
+    /// connecting. The first healthy-state transition consumes it so the
+    /// connection cannot finish under the previous policy.
+    var pendingMacCompatibilityPolicyRevalidation = false
     /// Version-gate details captured when a connect route is rejected, so
     /// the end-of-attempt classification names the exact versions instead of
     /// a generic code. Cleared with the pairing error at attempt start.
@@ -10014,6 +10018,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         client: client
                     ) {
                     case .allowed:
+                        authenticatedMacAppVersion = status.macAppVersion
                         clearMacVersionUpdateRequired(
                             for: status.macDeviceID ?? ticket.macDeviceID
                         )
@@ -10654,6 +10659,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeRoute = nil
         activeMacInstanceTag = nil
         authenticatedMacAppVersion = nil
+        pendingMacCompatibilityPolicyRevalidation = false
         connectedHostName = ""
     }
 
@@ -11567,6 +11573,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
+        }
+        if pendingMacCompatibilityPolicyRevalidation {
+            revalidateActiveMacCompatibilityPolicy()
+            guard connectionState == .connected else { return }
         }
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in
