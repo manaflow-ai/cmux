@@ -540,7 +540,9 @@ def test_ghosttykit_checksum_pr_uses_release_guard_only() -> None:
     ]
 
 
-def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
+def test_ghosttykit_guard_wiring_router_precedence_runs_all_areas() -> None:
+    # A provenance file combined with a router edit must fail open to the full
+    # suite; the router guard takes precedence over the cheap release path.
     result, outputs = run_detect_step_for_paths(
         [
             "ghostty",
@@ -548,16 +550,17 @@ def test_ghosttykit_guard_wiring_pr_stays_on_release_guard() -> None:
             "scripts/validate-xcframework-archive.py",
             "scripts/ghosttykit-checksums.txt",
             "tests/test_ci_ghosttykit_release_check.sh",
+            "docs/ghostty-fork.md",
             "tests/test_ci_change_areas.py",
             ".github/workflows/ci.yml",
         ]
     )
 
-    assert "GhosttyKit provenance-only PR; running the release guard." in result.stdout
+    assert "CI router changed; running all CI areas." in result.stdout
     assert outputs == [
-        "macos=false",
-        "web=false",
-        "agent_session_web=false",
+        "macos=true",
+        "web=true",
+        "agent_session_web=true",
     ]
 
 

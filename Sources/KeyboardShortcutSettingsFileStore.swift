@@ -667,6 +667,8 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.rendererRealization", sourcePath: sourcePath)
         }
 
+        parseTerminalVideoBackground(section, sourcePath: sourcePath, snapshot: &snapshot)
+
         if let value = jsonInt(section["textBoxMaxLines"]) {
             if value >= TerminalTextBoxInputSettings.minimumMaxLines,
                value <= TerminalTextBoxInputSettings.maximumMaxLines {
@@ -1870,7 +1872,7 @@ final class CmuxSettingsFileStore {
         return number.doubleValue
     }
 
-    private func jsonStringArray(_ rawValue: Any?) -> [String]? {
+    func jsonStringArray(_ rawValue: Any?) -> [String]? {
         guard let values = rawValue as? [Any] else { return nil }
         var strings: [String] = []
         strings.reserveCapacity(values.count)

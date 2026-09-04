@@ -5325,6 +5325,21 @@ struct CMUXCLI {
             cliWriteStderr(rerouteNotice + "\n")
         }
 
+        // Video-background configuration is a local file mutation with an
+        // optional live refresh. Keep it out of the socket connection path so
+        // users can configure the feature before launching cmux; when a tagged
+        // app is already running, the command sends the ordinary non-focus
+        // reload request after the write.
+        if command == "video-background" {
+            try runVideoBackgroundCommand(
+                commandArgs: commandArgs,
+                socketPath: socketResolution.hasLiveSocket ? resolvedSocketPath : nil,
+                explicitPassword: socketPasswordArg,
+                jsonOutput: jsonOutput
+            )
+            return
+        }
+
         if shouldOpenAsPathArgument(command) {
             try openPathViaExplicitSocket(command, socketPath: resolvedSocketPath, explicitPassword: socketPasswordArg)
             return
@@ -8421,7 +8436,7 @@ struct CMUXCLI {
         }
 
         switch command {
-        case "themes", "setup-hooks", "uninstall-hooks":
+        case "themes", "setup-hooks", "uninstall-hooks", "video-background":
             return true
         case "codex":
             let subcommand = commandArgs.first?.lowercased()
@@ -18968,6 +18983,8 @@ struct CMUXCLI {
             return settingsUsage()
         case "config":
             return configUsage()
+        case "video-background":
+            return videoBackgroundUsage()
         case "welcome":
             return """
             Usage: cmux welcome
@@ -26816,7 +26833,7 @@ struct CMUXCLI {
 
             // Track the newly created pane for main-vertical layout.
             if !isOMXHud {
-                try withLockedTmuxCompatStore { store in
+                _ = try withLockedTmuxCompatStore { store in
                     store.lastSplitSurface[target.workspaceId] = surfaceId
                     if store.mainVerticalLayouts[target.workspaceId] != nil {
                         store.mainVerticalLayouts[target.workspaceId]?.lastColumnSurfaceId = surfaceId
@@ -41221,6 +41238,7 @@ export default CMUXSessionRestore;
           docs [settings|shortcuts|api|browser|agents|dock|sidebars]
           settings [open [target]|path|docs|<target>]
           config <doctor|check|validate|path|paths|docs|documentation|reload>
+          video-background <status|on|off|set|add|remove|list|next|clear|quality|opacity|audio|volume|setup-ghostty>
           shortcuts
           disable-browser | enable-browser | browser-status
           agent-hibernation <on|off>

@@ -911,6 +911,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var browserWebViewFirstResponderObserver: NSObjectProtocol?
     let updateLog = UpdateLogStore()
     let focusLog = FocusLogStore()
+    /// Composition-root owner for video-background audio and shared playback
+    /// state; each main-window ContentView receives these collaborators.
+    let videoBackgroundRuntime = VideoBackgroundRuntime(
+        audioArbiter: VideoBackgroundAudioArbiter(),
+        playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+    )
     /// Process-wide identity of the workspace currently being sidebar-dragged in
     /// any window. Owned here (the composition root) and injected into every
     /// window's `SidebarDragState` so cross-window drops resolve a single drag.
@@ -10185,7 +10191,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let root = ContentView(
             updateViewModel: updateViewModel,
             windowId: windowId,
-            titlebarControlsLayoutModel: titlebarControlsLayoutModel
+            titlebarControlsLayoutModel: titlebarControlsLayoutModel,
+            videoBackgroundRuntime: videoBackgroundRuntime
         )
             .environmentObject(tabManager)
             .environmentObject(notificationStore)

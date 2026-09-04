@@ -851,6 +851,7 @@ struct ContentView: View {
     let featureFlags: CmuxFeatureFlags
     let sidebarUnread: SidebarUnreadModel
     let titlebarControlsLayoutModel: TitlebarControlsLayoutModel
+    let videoBackgroundRuntime: VideoBackgroundRuntime
 
     @MainActor
     init(
@@ -858,7 +859,8 @@ struct ContentView: View {
         windowId: UUID,
         featureFlags: CmuxFeatureFlags? = nil,
         sidebarUnread: SidebarUnreadModel? = nil,
-        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil
+        titlebarControlsLayoutModel: TitlebarControlsLayoutModel? = nil,
+        videoBackgroundRuntime: VideoBackgroundRuntime? = nil
     ) {
         self.updateViewModel = updateViewModel
         self.windowId = windowId
@@ -866,6 +868,10 @@ struct ContentView: View {
         self.sidebarUnread = sidebarUnread ?? TerminalNotificationStore.shared.sidebarUnread
         self.titlebarControlsLayoutModel = titlebarControlsLayoutModel
             ?? TitlebarControlsLayoutModel()
+        self.videoBackgroundRuntime = videoBackgroundRuntime ?? VideoBackgroundRuntime(
+            audioArbiter: VideoBackgroundAudioArbiter(),
+            playbackCoordinator: VideoBackgroundPlaybackCoordinator()
+        )
     }
 
     @EnvironmentObject var tabManager: TabManager
@@ -905,6 +911,7 @@ struct ContentView: View {
         width: CGFloat(SessionPersistencePolicy.defaultSidebarWidth)
     )
     @State private var sidebarFocusBoundary = SidebarFocusBoundaryReference()
+    @State private var videoBackgroundPresentation: VideoBackgroundPresentation?
     private var sidebarWidth: CGFloat {
         get { sidebarLayout.width }
         nonmutating set { sidebarLayout.width = newValue }
@@ -2686,7 +2693,7 @@ struct ContentView: View {
         let appearance = windowAppearanceSnapshot
         var view = AnyView(
             ZStack(alignment: .topLeading) {
-                WindowBackdropLayer(role: .windowRoot, snapshot: appearance)
+                VideoAwareWindowRootBackdrop(snapshot: appearance, presentation: videoBackgroundPresentation)
                     .ignoresSafeArea()
                     .allowsHitTesting(false)
 
@@ -3490,6 +3497,19 @@ struct ContentView: View {
             cmuxConfigStore: cmuxConfigStore
         )
         installFileDropOverlayWhenReady(on: window, tabManager: tabManager)
+        let videoPresentation = WindowVideoBackgroundController.ensure(
+            on: window,
+            audioArbiter: videoBackgroundRuntime.audioArbiter,
+            playbackCoordinator: videoBackgroundRuntime.playbackCoordinator
+        ).presentation
+        if videoBackgroundPresentation !== videoPresentation {
+            // WindowAccessor invokes this during SwiftUI's update pass. Hop
+            // to the next main-actor turn before mutating @State so the
+            // backdrop presentation change is not published re-entrantly.
+            Task { @MainActor in
+                videoBackgroundPresentation = videoPresentation
+            }
+        }
     }
 
     private func reconcileMountedWorkspaceIds(tabs: [Workspace]? = nil, selectedId: UUID? = nil) {
