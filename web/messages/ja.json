@@ -6,6 +6,7 @@
     "eyebrow": "404 / ルートが見つかりません",
     "title": "このページはワークスペースにありません。",
     "description": "リンクが古いか、アドレスが間違っている可能性があります。",
+    "downloadAction": "Mac版cmuxをダウンロード",
     "homeAction": "ホームページへ",
     "docsAction": "ドキュメントを読む",
     "supportAction": "サポートに連絡",

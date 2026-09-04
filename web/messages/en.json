@@ -6,6 +6,7 @@
     "eyebrow": "404 / route not found",
     "title": "This page is not in this workspace.",
     "description": "The link may be old, or the address may be wrong.",
+    "downloadAction": "Download cmux for Mac",
     "homeAction": "Go to homepage",
     "docsAction": "Read the docs",
     "supportAction": "Contact support",

@@ -3,6 +3,8 @@ import Image from "next/image";
 import type { Metadata } from "next";
 import { routing, type Locale } from "@/i18n/routing";
 import { ThemeBootstrapScript } from "./[locale]/theme-bootstrap-script";
+import { NotFoundDownloadLink } from "./[locale]/components/not-found-download-link";
+import { NotFoundLink } from "./[locale]/components/not-found-link";
 
 const themeBootstrapScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark")}catch(e){}})()`;
 
@@ -67,19 +69,25 @@ export default async function NotFound() {
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
-                <a
+                <NotFoundDownloadLink className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground">
+                  {t("downloadAction")}
+                  <DownloadIcon />
+                </NotFoundDownloadLink>
+                <NotFoundLink
                   href={homeHref}
+                  action="home"
                   className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-foreground px-5 text-sm font-medium text-background transition-opacity hover:opacity-85 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground"
                 >
                   {t("homeAction")}
                   <ArrowIcon />
-                </a>
-                <a
+                </NotFoundLink>
+                <NotFoundLink
                   href={docsHref}
+                  action="docs"
                   className="inline-flex min-h-11 items-center justify-center rounded-lg border border-border bg-background px-5 text-sm font-medium transition-colors hover:bg-code-bg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground"
                 >
                   {t("docsAction")}
-                </a>
+                </NotFoundLink>
               </div>
             </div>
 
@@ -117,12 +125,13 @@ export default async function NotFound() {
 
           <footer className="flex items-center justify-between border-t border-border pt-5 text-xs text-muted">
             <span>{t("footer")}</span>
-            <a
+            <NotFoundLink
               href={supportHref}
+              action="support"
               className="underline decoration-link-underline underline-offset-4 transition-colors hover:text-foreground hover:decoration-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-foreground"
             >
               {t("supportAction")}
-            </a>
+            </NotFoundLink>
           </footer>
         </div>
       </main>
@@ -141,6 +150,26 @@ function ArrowIcon() {
     >
       <path
         d="M3.25 7.5h8.5m-3.5-3.5 3.5 3.5-3.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 15 15"
+      fill="none"
+      aria-hidden="true"
+    >
+      <path
+        d="M7.5 2.5v6m0 0 2.5-2.5M7.5 8.5 5 6M3 11.5h9"
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
