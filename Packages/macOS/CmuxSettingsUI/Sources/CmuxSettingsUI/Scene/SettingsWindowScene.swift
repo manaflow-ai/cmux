@@ -182,7 +182,7 @@ public struct SettingsWindowRoot: View {
     @ViewBuilder
     private var sidebar: some View {
         List(selection: sidebarSelectionBinding) {
-            let matches = sidebarEntries(matching: searchText).filter(isEntryVisible)
+            let matches = sidebarEntries(matching: searchText).filter { isEntryVisible($0) }
             if matches.isEmpty {
                 Text(String(localized: "settings.search.noResults", defaultValue: "No Results"))
                     .foregroundStyle(.secondary)

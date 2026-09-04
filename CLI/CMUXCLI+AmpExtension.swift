@@ -308,7 +308,7 @@ function wsLog(message: string, level: string = "info"): void {
 // Falls back to the bare tool name if helpers aren't present (older Amp).
 function detailedToolStatus(
   event: ToolCallEvent,
-  helpers: unknown,
+  helpers: unknown
 ): { label: string; icon: string } {
   const baseLabel = toolLabel(event.tool);
   const icon = toolIcon(event.tool);

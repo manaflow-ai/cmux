@@ -1,7 +1,7 @@
 import Foundation
 
 /// Identifies the source used for an aggregate process-memory sample.
-nonisolated enum MemoryPressureAggregateSource: String, Equatable, Sendable {
+enum MemoryPressureAggregateSource: String, Equatable, Sendable {
     /// macOS reported the resource coalition's instantaneous physical footprint.
     case coalition
     /// The process tree was enumerated and summed without a coalition API.
@@ -11,13 +11,13 @@ nonisolated enum MemoryPressureAggregateSource: String, Equatable, Sendable {
 }
 
 /// A single process contribution used by the aggregate accounting reducer.
-nonisolated struct MemoryPressureAggregateProcessFootprint: Equatable, Sendable {
+struct MemoryPressureAggregateProcessFootprint: Equatable, Sendable {
     let pid: Int
     let bytes: UInt64
 }
 
 /// The deduplicated result of summing process footprints.
-nonisolated struct MemoryPressureAggregateAccountingResult: Equatable, Sendable {
+struct MemoryPressureAggregateAccountingResult: Equatable, Sendable {
     let aggregateBytes: UInt64
     let uniquePIDs: [Int]
     let duplicatePIDs: [Int]
@@ -28,7 +28,7 @@ nonisolated struct MemoryPressureAggregateAccountingResult: Equatable, Sendable 
 /// The returned PID arrays preserve first-seen order. The sampler does not need
 /// sorted diagnostics, and retaining encounter order keeps each pressure sample
 /// linear in the number of process records.
-nonisolated struct MemoryPressureAggregateAccounting: Sendable {
+struct MemoryPressureAggregateAccounting: Sendable {
     func summarize(
         _ processes: [MemoryPressureAggregateProcessFootprint]
     ) -> MemoryPressureAggregateAccountingResult {
@@ -61,7 +61,7 @@ nonisolated struct MemoryPressureAggregateAccounting: Sendable {
 }
 
 /// Raw metrics collected before aggregate-pressure policy is applied.
-nonisolated struct MemoryPressureAggregateSample: Equatable, Sendable {
+struct MemoryPressureAggregateSample: Equatable, Sendable {
     let source: MemoryPressureAggregateSource
     let aggregateBytes: UInt64?
     let physicalMemoryBytes: UInt64?
@@ -150,7 +150,7 @@ nonisolated struct MemoryPressureAggregateSample: Equatable, Sendable {
 }
 
 /// Policy result attached to each central memory-pressure snapshot.
-nonisolated struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
+struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
     let severity: MemoryPressureSeverity
     let source: MemoryPressureAggregateSource
     let aggregateBytes: UInt64?
@@ -186,7 +186,7 @@ nonisolated struct MemoryPressureAggregateSnapshot: Equatable, Sendable {
 /// value. A coalition/tree sample must cross the warning fraction before the
 /// optional available-memory signal can raise its severity. This prevents an
 /// unrelated low-memory application from causing cmux to hibernate agent work.
-nonisolated struct MemoryPressureAggregatePolicy: Equatable, Sendable {
+struct MemoryPressureAggregatePolicy: Equatable, Sendable {
     let warningCoalitionFraction: Double
     let criticalCoalitionFraction: Double
     let warningAvailableFraction: Double

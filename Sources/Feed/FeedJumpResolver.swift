@@ -6,7 +6,7 @@ import Foundation
 ///
 /// The compatibility helpers are nonisolated and value-only; production Feed
 /// ingress uses ``FeedSessionStoreLookup`` so filesystem work stays actor-owned.
-nonisolated enum FeedJumpResolver {
+enum FeedJumpResolver {
     private static let hookSessionFileSuffix = "-hook-sessions.json"
 
     struct Target: Equatable, Hashable, Sendable {
