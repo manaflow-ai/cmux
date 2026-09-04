@@ -74,7 +74,7 @@ jobs:
   plan-build:
     name: select binary targets
     runs-on: ${{ inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
+    timeout-minutes: 15
     outputs:
       matrix: ${{ steps.targets.outputs.matrix }}
       linux_package_matrix: ${{ steps.targets.outputs.linux_package_matrix }}
