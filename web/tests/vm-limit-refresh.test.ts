@@ -99,6 +99,18 @@ describe("lazy active-limit provider refresh", () => {
       markCreateFailed: () => Effect.void,
       recordUsageEvent: () => Effect.void,
       recordUsageEvents: () => Effect.void,
+      findNetwork: () => Effect.succeed(null),
+      upsertNetwork: (network: Parameters<NonNullable<VmRepositoryShape["upsertNetwork"]>>[0]) => Effect.succeed({
+        id: "00000000-0000-4000-8000-00000000c10d",
+        userId: network.userId,
+        provider: network.provider,
+        providerNetworkId: network.providerNetworkId,
+        slug: network.slug ?? null,
+        cidr: network.cidr ?? null,
+        cidrV6: network.cidrV6 ?? null,
+        createdAt: FIXTURE_NOW,
+        updatedAt: FIXTURE_NOW,
+      }),
     } as unknown as VmRepositoryShape;
 
     const providers = {
@@ -118,6 +130,13 @@ describe("lazy active-limit provider refresh", () => {
       openAttach: () => Effect.fail(new Error("unused") as never),
       openSSH: () => Effect.fail(new Error("unused") as never),
       revokeSSHIdentity: () => Effect.void,
+      supportsPrivateNetworking: () => true,
+      ensureNetwork: (_provider: string, options: { slug: string }) => Effect.succeed({
+        id: `network-${options.slug}`,
+        slug: options.slug,
+        cidr: "10.40.0.0/24",
+        cidrV6: "fd00:40::/64",
+      }),
     } as unknown as VmProviderGatewayShape;
 
     const layer = Layer.mergeAll(
