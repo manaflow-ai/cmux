@@ -192,6 +192,7 @@ extension TerminalController {
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = await SurfaceCatalog.shared
+            let provider = await CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId)
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
                 // not have been seen yet. Register it now and open it — a port pane is an
@@ -199,18 +200,18 @@ extension TerminalController {
                 // here (which does) held `vm open <id> <port>` for the link timeout on a
                 // machine whose link was still connecting. The re-sync runs behind it and
                 // reconciles the row.
-                await catalog.upsert(SurfaceResource(
-                    id: resource,
-                    title: ":\(port)",
-                    detail: nil,
-                    lifecycle: .running,
-                    agent: nil,
-                    remoteWorkspace: nil,
-                    port: port,
-                    url: nil
-                ))
-                Task { @MainActor in
-                    if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
+                if let provider {
+                    await catalog.upsert(SurfaceResource(
+                        id: resource,
+                        title: ":\(port)",
+                        detail: nil,
+                        lifecycle: .running,
+                        agent: nil,
+                        remoteWorkspace: nil,
+                        port: port,
+                        url: nil
+                    ), from: provider)
+                    Task { @MainActor in
                         await provider.refresh(force: true)
                     }
                 }
