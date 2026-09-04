@@ -50,8 +50,8 @@ struct TerminalPointerFocusActivationPolicyTests {
         let policy = TerminalPointerFocusActivationPolicy()
 
         #expect(!policy.shouldForwardToTerminal(
-            currentPanelId: UUID(),
-            focusedPanelId: UUID()
+            currentPanelId: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!,
+            focusedPanelId: UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
         ))
     }
 
