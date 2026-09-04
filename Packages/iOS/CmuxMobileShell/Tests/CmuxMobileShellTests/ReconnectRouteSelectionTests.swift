@@ -797,7 +797,11 @@ import Testing
         // live session before the method change replaces it.
         let originalTransport = await liveTransportBox.get()
 
-        methodStore.method = .tailscale
+        await store.setConnectionMethod(
+            .tailscale,
+            macDeviceID: "test-mac",
+            instanceTag: "default"
+        )
 
         // The reconnected route only proves the store's logical state; the
         // replaced live Iroh transport must also finish closing so no
@@ -873,7 +877,11 @@ import Testing
         #expect(store.activeRoute?.kind == .iroh)
         let originalTransport = await liveTransportBox.get()
 
-        methodStore.method = .tailscale
+        await store.setConnectionMethod(
+            .tailscale,
+            macDeviceID: "test-mac",
+            instanceTag: "default"
+        )
 
         let failed = try await pollUntil {
             let originalTransportClosed =
