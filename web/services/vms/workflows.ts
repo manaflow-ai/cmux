@@ -1005,9 +1005,15 @@ export function snapshotVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    // Snapshot resources are the source VM's provider-confirmed shape, not
-    // merely the logical starting profile. A failed or partial stats read
-    // falls back to the conservative shared-pool claim for each unknown field.
+    const snapshot = yield* (providers.snapshot
+      ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
+      : Effect.fail(new VmOperationUnsupportedError({
+        provider: vm.provider,
+        operation: "snapshot",
+      })));
+    // Read after the provider confirms the snapshot. Grow-only resizes that
+    // finish during snapshot creation are then included in the captured claim;
+    // a later resize can only make this conservative.
     const snapshotStats = providers.getStats
       ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
         Effect.timeoutFail({
@@ -1023,12 +1029,6 @@ export function snapshotVm(input: {
       )
       : null;
     const snapshotReservation = snapshotResourceReservation(vm.providerMetadata, snapshotStats);
-    const snapshot = yield* (providers.snapshot
-      ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmOperationUnsupportedError({
-        provider: vm.provider,
-        operation: "snapshot",
-      })));
     yield* repo.recordUsageEvent({
       userId: vm.userId,
       billingTeamId: vm.billingTeamId,
@@ -1563,18 +1563,7 @@ function beginCreateWithLazyProviderRefresh(
       if (!isVmLimitExceededError(err) && !isVmSharedResourceLimitExceededError(err)) return Effect.fail(err);
       if (isVmSharedResourceLimitExceededError(err) && err.requested > err.limit) return Effect.fail(err);
       const reconcile = isVmSharedResourceLimitExceededError(err)
-        ? reconcileLegacyResourceReservations(repo, providers, {
-          userId: input.userId,
-          billingTeamId: input.billingTeamId,
-          // Keep request-path provider work small. Remaining rows stay for the
-          // bounded background reconciler.
-          limit: LEGACY_RESOURCE_RECONCILE_REQUEST_LIMIT,
-        }).pipe(
-          Effect.timeoutFail({
-            duration: LEGACY_RESOURCE_RECONCILE_REQUEST_TIMEOUT,
-            onTimeout: () => new Error("legacy resource repair timed out before create retry"),
-          }),
-        )
+        ? reconcileSharedResourceLimit(repo, providers, input)
         : refreshActiveLimitProviderStatuses(repo, providers, input);
       const retryInput = input.refreshResourceReservation
         ? Effect.suspend(() => input.refreshResourceReservation!()).pipe(
@@ -1627,6 +1616,35 @@ function reconcileLegacyResourceReservations(
       { concurrency: LEGACY_RESOURCE_RECONCILE_CONCURRENCY, discard: true },
     );
   });
+}
+
+/** Refresh lifecycle state and legacy claims before retrying a full pool. */
+function reconcileSharedResourceLimit(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+  },
+): Effect.Effect<void, never> {
+  return Effect.gen(function*() {
+    // A deleted provider VM can retain a valid reservation marker. Refresh a
+    // small status set first, then repair rows whose marker is missing.
+    yield* refreshActiveLimitProviderStatuses(repo, providers, {
+      ...input,
+      limit: LEGACY_RESOURCE_RECONCILE_REQUEST_LIMIT,
+    }).pipe(Effect.catchAll(() => Effect.void));
+    yield* reconcileLegacyResourceReservations(repo, providers, {
+      ...input,
+      limit: LEGACY_RESOURCE_RECONCILE_REQUEST_LIMIT,
+    });
+  }).pipe(
+    Effect.timeoutFail({
+      duration: LEGACY_RESOURCE_RECONCILE_REQUEST_TIMEOUT,
+      onTimeout: () => new Error("shared resource repair timed out before create retry"),
+    }),
+    Effect.catchAll(() => Effect.void),
+  );
 }
 
 /** Defer one candidate with durable backoff when the provider cannot be read. */
@@ -1916,11 +1934,13 @@ function refreshActiveLimitProviderStatuses(
     readonly userId: string;
     readonly billingTeamId: string;
     readonly modelPlane?: VmModelPlaneRevoker;
+    readonly limit?: number;
   },
 ): Effect.Effect<void, VmDatabaseError, never> {
   return Effect.gen(function* () {
     const getStatus = providers.getStatus;
-    if (!getStatus) return;
+    if (!getStatus || !repo.activeLimitCandidates) return;
+    const limit = input.limit ?? VM_STATUS_RECONCILE_BATCH_LIMIT;
 
     const candidates = yield* repo.activeLimitCandidates({
       userId: input.userId,
@@ -1928,12 +1948,12 @@ function refreshActiveLimitProviderStatuses(
       // Keep the synchronous retry bounded. If an account has more rows than
       // this, the database remains conservative until the background reconcile
       // catches up; we never create above the recorded active limit.
-      limit: VM_STATUS_RECONCILE_BATCH_LIMIT,
+      limit,
     });
     // The repository applies the limit in SQL. Keep a second boundary here so
     // alternate repository implementations cannot turn this request path into
     // an unbounded provider sweep.
-    yield* Effect.forEach(candidates.slice(0, VM_STATUS_RECONCILE_BATCH_LIMIT), (vm) => {
+    yield* Effect.forEach(candidates.slice(0, limit), (vm) => {
       const providerVmId = vm.providerVmId;
       if (!providerVmId) return Effect.void;
       // Provider-agnostic on purpose: the cron reconcile path already refreshes
