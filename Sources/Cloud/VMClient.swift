@@ -1044,8 +1044,8 @@ actor VMClient {
         return items.compactMap { item in
             let value: Int?
             if let item = item as? Int { value = item }
-            else if let item = item as? NSNumber { value = item.intValue }
-            else if let item = item as? Double, item.isFinite { value = Int(item) }
+            else if let item = item as? NSNumber, item.doubleValue.isFinite { value = Int(exactly: item.doubleValue) }
+            else if let item = item as? Double, item.isFinite { value = Int(exactly: item) }
             else { value = nil }
             guard let value, value > 0 else { return nil }
             return value
