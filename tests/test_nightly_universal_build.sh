@@ -298,6 +298,30 @@ if ! awk '
   exit 1
 fi
 
+REPORT_JOB="$(awk '
+  /^  report-nightly-failure:/ { in_report=1; print; next }
+  in_report && /^  [a-zA-Z0-9_-]+:/ { exit }
+  in_report { print }
+' "$WORKFLOW_FILE")"
+if ! grep -Fq "const publishFailed = failed.some((name) => name !== 'refresh-compilation-cache');" <<<"$REPORT_JOB"; then
+  echo "FAIL: cache-only failures must be classified separately from publish failures"
+  exit 1
+fi
+if ! grep -Fq "NIGHTLY installs stop receiving updates until a run on main succeeds." <<<"$REPORT_JOB"; then
+  echo "FAIL: a publish-pipeline failure must tell operators that NIGHTLY updates have stopped"
+  exit 1
+fi
+if ! grep -Fq "The cache refresh failed; no publish was attempted and the previous NIGHTLY remains available." <<<"$REPORT_JOB"; then
+  echo "FAIL: a cache-only failure must not be labeled as a stalled NIGHTLY publish"
+  exit 1
+fi
+if ! grep -Fq "'refresh-compilation-cache': 'cache refresh'" <<<"$REPORT_JOB" \
+  || ! grep -Fq "'build-nightly-app': 'app compile'" <<<"$REPORT_JOB" \
+  || ! grep -Fq "'build-sign-notarize-nightly': 'sign and notarize'" <<<"$REPORT_JOB"; then
+  echo "FAIL: nightly failure issues must use allowlisted labels instead of raw job identifiers"
+  exit 1
+fi
+
 if ! grep -Fq "core.setOutput('should_publish', isMainRef ? 'true' : 'false');" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly decide step must expose should_publish based on whether the ref is main"
   exit 1

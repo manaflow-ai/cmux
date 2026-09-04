@@ -957,11 +957,20 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
             const failed = Object.entries(results).filter(([, v]) => v.result === 'failure').map(([k]) => k);
+            const jobLabels = {
+              'refresh-compilation-cache': 'cache refresh',
+              'build-nightly-ghostty-cli-helper': 'Ghostty CLI helper',
+              'build-nightly-app': 'app compile',
+              'build-sign-notarize-nightly': 'sign and notarize',
+              'publish-nightly': 'publish',
+            };
+            const failedLabels = failed.map((name) => jobLabels[name]).filter(Boolean);
             const publishFailed = failed.some((name) => name !== 'refresh-compilation-cache');
             const impact = publishFailed
               ? 'NIGHTLY installs stop receiving updates until a run on main succeeds.'
               : 'The cache refresh failed; no publish was attempted and the previous NIGHTLY remains available.';
-            const body = `Nightly run ${runUrl} failed on ${process.env.HEAD_SHA} in: ${failed.join(', ')}.\n\n${impact} This issue closes itself on the next successful publish.`;
+            const where = failedLabels.length > 0 ? failedLabels.join(', ') : (publishFailed ? 'publish pipeline' : 'cache refresh');
+            const body = `Nightly run ${runUrl} failed on ${process.env.HEAD_SHA} in: ${where}.\n\n${impact} This issue closes itself on the next successful publish.`;
             try {
               await github.rest.issues.getLabel({ owner, repo, name: label });
             } catch (error) {

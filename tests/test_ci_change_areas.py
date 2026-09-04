@@ -131,14 +131,11 @@ def test_nightly_workspace_group_sources_run_macos() -> None:
     # These are the exact files that produced the nightly Swift 6 compile
     # failure.  Keep the classifier's app-source behavior explicit so a future
     # routing refactor cannot silently classify them as a cheap-only change.
-    assert_areas(
-        [
-            "Sources/TerminalController+ControlWorkspaceGroupContext.swift",
-            "Sources/TerminalController+WorkspaceGroupAction.swift",
-        ],
-        macos=True,
-        web=False,
-    )
+    for path in [
+        "Sources/TerminalController+ControlWorkspaceGroupContext.swift",
+        "Sources/TerminalController+WorkspaceGroupAction.swift",
+    ]:
+        assert_areas([path], macos=True, web=False)
 
 
 def test_pull_request_router_runs_for_every_pr() -> None:
