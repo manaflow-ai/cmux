@@ -19,13 +19,15 @@ struct SidebarAppKitRowCellTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                customColorHex: nil
             ),
             title: title,
             customDescription: customDescription,
             isPinned: isPinned,
             isMuted: false,
             customColorHex: nil,
+            hasManualCustomColor: false,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",
