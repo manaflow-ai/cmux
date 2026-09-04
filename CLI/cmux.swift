@@ -39791,9 +39791,12 @@ export default CMUXSessionRestore;
             ?? firstString(in: stdinObj, keys: ["request_id", "tool_use_id", "toolUseID"])
             ?? "\(source)-\(sessionId)-\(rawEvent)-\(toolName)-\(Int(Date().timeIntervalSince1970 * 1000))"
         eventDict["_opencode_request_id"] = requestId
-        for key in ["turn_id", "turnId", "tool_use_id", "toolUseId", "tool_call_id", "request_id", "event_id", "agent_id", "occurred_at_ms", "timestamp_ms"] {
-            if let value = stdinObj[key] { eventDict[key] = value }
-        }
+        let causalEvidence = Self.semanticAttentionContext(stdinObj)
+        if let value = causalEvidence.eventIdentity { eventDict["event_id"] = value }
+        if let value = causalEvidence.turnIdentity { eventDict["turn_id"] = value }
+        if let value = causalEvidence.requestIdentity { eventDict["request_id"] = value }
+        if let value = Self.semanticOccurredAtMs(stdinObj) { eventDict["occurred_at_ms"] = value }
+        if let value = firstString(in: stdinObj, keys: ["agent_id", "agentId"]) { eventDict["agent_id"] = value }
 
         // Sync. For actionable events we wait for the user's Feed click;
         // the hook's stdout is then a
