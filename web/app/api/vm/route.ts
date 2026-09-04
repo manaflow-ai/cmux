@@ -1,6 +1,7 @@
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
 
+import { preconnectFreestyle } from "../../../services/vms/drivers/freestyle";
 import {
   unauthorized,
   verifyRequest,
@@ -173,6 +174,8 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  // Warm the Freestyle connection while the caller is being verified.
+  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm",
@@ -488,7 +491,6 @@ export async function POST(request: Request): Promise<Response> {
             perMachineHome: candidate.perMachineHome === true,
             memoryMb,
             imageSize: imageSelection.size ?? undefined,
-            afterResponse: runAfterResponse,
             modelPlane,
             timing,
           }));

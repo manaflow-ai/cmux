@@ -23,7 +23,7 @@ enum CloudVMPanelAuthState: Equatable {
 }
 
 /// Right-sidebar Machines tab: the user's cloud machine fleet as a Finder-like
-/// tree (machine → cmux-tui workspaces → terminals, desktop, ports). Matches the
+/// tree (machine → Workspaces → terminals, Ports, VNC Displays, Terminals). Matches the
 /// Vault/Feed visual language — compact 13pt rows, full-width hover
 /// backgrounds, chrome-pill control bar. Outline rows receive immutable
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
@@ -794,6 +794,7 @@ struct MachineRowActions {
     /// so the sheet can show them inline instead of a detached alert.
     static func openNewMachine(
         arguments: [String] = ["vm", "new"],
+        onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((CloudVMActionLauncher.Completion) -> Void)? = nil
     ) -> Bool {
         // `vm new` mints a fresh machine with its own persistent home and
@@ -806,6 +807,7 @@ struct MachineRowActions {
             preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow,
             arguments: arguments,
             presentsFailureAlert: false,
+            onOutput: onOutput,
             onCompletion: onCompletion
         )
     }

@@ -6,7 +6,7 @@ import SwiftUI
 
 /// The Finder-like Cloud tree over the surface catalog: This Mac (local
 /// workspaces → terminals; Browsers) then every machine (Workspaces → cmux-tui
-/// workspace → terminals; Desktop; Ports), as an `NSOutlineView`. Rows are pure
+/// workspace → terminals; Ports; VNC Displays; Terminals), as an `NSOutlineView`. Rows are pure
 /// display (`CloudTreeRowContentView`); the coordinator owns selection,
 /// expansion, clicks, context menus, keyboard navigation, and the native
 /// drag whose drop projects the row as a pane in the main view.
@@ -336,7 +336,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             switch node.kind {
             case .machine(let machine, _):
                 let hasStats = machine.stats.flatMap(CloudTreeMachineRowContent.statsLine) != nil
-                let hasUsage = machine.usage.flatMap(CloudTreeMachineRowContent.usageLine) != nil
+                // Same rule as usageLine (nil for empty totals), without formatting text per row.
+                let hasUsage = machine.usage.map { !$0.totals.isEmpty } ?? false
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: hasStats, hasUsage: hasUsage))
             case .localMachine, .pendingMachine:
                 return GlobalFontMagnification.scaledSize(style.machineRowHeight(hasStats: false))

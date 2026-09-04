@@ -1,4 +1,5 @@
 import type { Span } from "@opentelemetry/api";
+import { trace } from "@opentelemetry/api";
 import { after } from "next/server";
 import {
   activeTraceIds,
@@ -191,10 +192,14 @@ function scheduleTraceFlush(): void {
  * promise settles but turbopack reports "No response is returned from route handler").
  * Use `new Response(JSON.stringify(...), { ... })` explicitly instead.
  */
-export function jsonResponse(data: unknown, status = 200): Response {
+export function jsonResponse(
+  data: unknown,
+  status = 200,
+  headers: Readonly<Record<string, string>> = {},
+): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
   });
 }
 
@@ -1069,9 +1074,16 @@ function normalizedOptionalString(value: string | null | undefined): string | nu
  */
 export function runAfterResponse(work: () => Promise<void>): void {
   const guarded = () => work().catch((err) => console.error("[VM] deferred work failed", err));
+  let mode: "after" | "detached" = "after";
   try {
     after(guarded);
-  } catch {
+  } catch (err) {
+    // Next throws E91 when the platform gave it no `waitUntil`. Detached work
+    // then dies the moment the function is frozen, so say so where it can be
+    // seen: a log line before the response and an attribute on the request span.
+    mode = "detached";
+    console.warn(`[VM] after() unavailable, running deferred work detached: ${err instanceof Error ? err.message : String(err)}`);
     void guarded();
   }
+  trace.getActiveSpan()?.setAttribute("cmux.after_response.mode", mode);
 }

@@ -54,6 +54,7 @@ final class CloudVMActionLauncher {
         presentOutputOnSuccess: Bool = false,
         presentsFailureAlert: Bool = true,
         environmentOverrides: [String: String] = [:],
+        onOutput: (@MainActor (String) -> Void)? = nil,
         onCompletion: ((Completion) -> Void)? = nil
     ) -> Bool {
         let accountFlow = AppDelegate.shared?.auth?.accountFlow
@@ -107,7 +108,12 @@ final class CloudVMActionLauncher {
         let errorPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = errorPipe
-        let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe)
+        let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe) { chunk in
+            guard let chunk = String(data: chunk, encoding: .utf8), !chunk.isEmpty else { return }
+            Task { @MainActor in
+                onOutput?(chunk)
+            }
+        }
         outputCollector.start()
         let launchWindow = preferredWindow
         process.terminationHandler = { terminatedProcess in
@@ -384,9 +390,12 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private var stderr = Data()
     private var isFinished = false
 
-    init(stdout: Pipe, stderr: Pipe) {
+    private let onOutput: ((Data) -> Void)?
+
+    init(stdout: Pipe, stderr: Pipe, onOutput: ((Data) -> Void)? = nil) {
         stdoutHandle = stdout.fileHandleForReading
         stderrHandle = stderr.fileHandleForReading
+        self.onOutput = onOutput
     }
 
     func start() {
@@ -453,6 +462,7 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     private func append(_ data: Data, to stream: Stream) {
         guard !data.isEmpty else { return }
+        onOutput?(data)
         lock.lock()
         defer { lock.unlock() }
 

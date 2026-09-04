@@ -12,6 +12,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { coderouterClaudeAccounts } from "../../db/schema";
 import {
   decryptSecretEnvelope,
@@ -133,7 +134,7 @@ export type ClaudeAccountInsert = Omit<ClaudeAccountRow, "createdAt" | "updatedA
 
 export type ClaudeAccountStore = {
   /** Every account of the team, oldest first. */
-  list(teamId: string): Promise<readonly ClaudeAccountRow[]>;
+  list(teamId: string, signal?: AbortSignal): Promise<readonly ClaudeAccountRow[]>;
   insert(row: ClaudeAccountInsert): Promise<ClaudeAccountRow>;
   update(
     teamId: string,
@@ -148,11 +149,17 @@ export type ClaudeAccountStore = {
    * (credential rejections); other failures leave the counter alone. Returns
    * the counter after the write.
    */
-  markCooldown(accountId: string, until: Date, failureCode: string, countTowardBroken: boolean): Promise<number>;
-  markBroken(accountId: string, at: Date): Promise<void>;
-  setCooldownUntil(accountId: string, until: Date): Promise<void>;
+  markCooldown(
+    accountId: string,
+    until: Date,
+    failureCode: string,
+    countTowardBroken: boolean,
+    signal?: AbortSignal,
+  ): Promise<number>;
+  markBroken(accountId: string, at: Date, signal?: AbortSignal): Promise<void>;
+  setCooldownUntil(accountId: string, until: Date, signal?: AbortSignal): Promise<void>;
   /** Success: bumps `lastUsedAt` and resets `consecutiveFailures`. */
-  touchUsed(accountId: string, at: Date): Promise<void>;
+  touchUsed(accountId: string, at: Date, signal?: AbortSignal): Promise<void>;
   /** Broken accounts nobody has been emailed about yet, across all teams. */
   listBrokenUnnotified(): Promise<readonly ClaudeAccountRow[]>;
   markNotified(accountIds: readonly string[], at: Date): Promise<void>;
@@ -174,6 +181,8 @@ export type ClaudeSelectionInput = {
   readonly stickyKey: string | null;
   /** Accounts already tried for this request. */
   readonly excludedAccountIds?: readonly string[];
+  /** Request-scoped cancellation for database and credential selection work. */
+  readonly signal?: AbortSignal;
 };
 
 export type ClaudeSelection =
@@ -287,7 +296,7 @@ function parseLabel(value: unknown): string | null {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") return null;
   const label = value.trim();
-  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[ -]/.test(label)) return null;
+  if (label.length > MAX_ACCOUNT_LABEL_CHARS || /[\x00-\x1f\x7f]/.test(label)) return null;
   return label;
 }
 
@@ -312,11 +321,12 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
   const now = dependencies.now ?? (() => new Date());
   const newId = dependencies.newId ?? randomUUID;
 
-  async function decrypt(row: ClaudeAccountRow): Promise<ClaudeUpstream> {
+  async function decrypt(row: ClaudeAccountRow, signal?: AbortSignal): Promise<ClaudeUpstream> {
     const value = await decryptSecretEnvelope(row, {
       aad: accountAad(row),
       encryptionContext: accountEncryptionContext(row),
       keys: dependencies.keys,
+      signal,
     });
     const secret = parseSecret(value, row.kind);
     if (!secret) throw new Error("decrypted coderouter claude account is invalid");
@@ -422,7 +432,9 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
    * clients. Without a key the least recently used account is chosen.
    */
   async function select(teamId: string, input: ClaudeSelectionInput): Promise<ClaudeSelection> {
-    const rows = await store.list(teamId);
+    throwIfAborted(input.signal);
+    const rows = await store.list(teamId, input.signal);
+    throwIfAborted(input.signal);
     if (rows.length === 0) return { kind: "none" };
     const at = now();
     const excluded = new Set(input.excludedAccountIds ?? []);
@@ -434,7 +446,9 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
     const chosen = input.stickyKey
       ? rendezvousPick(input.stickyKey, healthy)
       : leastRecentlyUsed(healthy);
-    return { kind: "selected", upstream: await decrypt(chosen), total: rows.length, healthy: healthy.length };
+    const upstream = await decrypt(chosen, input.signal);
+    throwIfAborted(input.signal);
+    return { kind: "selected", upstream, total: rows.length, healthy: healthy.length };
   }
 
   /**
@@ -442,22 +456,33 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
    * counts toward `BROKEN_AFTER_FAILURES`; at the threshold the account is
    * marked broken and stays out of rotation until replaced.
    */
-  async function cooldown(accountId: string, durationMs: number, failureCode: string): Promise<void> {
+  async function cooldown(
+    accountId: string,
+    durationMs: number,
+    failureCode: string,
+    signal?: AbortSignal,
+  ): Promise<void> {
     const clamped = Math.min(MAX_COOLDOWN_MS, Math.max(MIN_COOLDOWN_MS, Math.floor(durationMs)));
     const at = now();
     const credentialFailure = failureCode === INVALID_CREDENTIAL_FAILURE_CODE;
-    const failures = await store.markCooldown(accountId, new Date(at.getTime() + clamped), failureCode, credentialFailure);
+    const failures = await store.markCooldown(
+      accountId,
+      new Date(at.getTime() + clamped),
+      failureCode,
+      credentialFailure,
+      signal,
+    );
     if (!credentialFailure) return;
     if (failures >= BROKEN_AFTER_FAILURES) {
-      await store.markBroken(accountId, at);
+      await store.markBroken(accountId, at, signal);
       return;
     }
     const backoff = INVALID_CREDENTIAL_BACKOFF_MS[Math.min(failures, INVALID_CREDENTIAL_BACKOFF_MS.length) - 1]!;
-    await store.setCooldownUntil(accountId, new Date(at.getTime() + backoff));
+    await store.setCooldownUntil(accountId, new Date(at.getTime() + backoff), signal);
   }
 
-  async function touchUsed(accountId: string): Promise<void> {
-    await store.touchUsed(accountId, now());
+  async function touchUsed(accountId: string, signal?: AbortSignal): Promise<void> {
+    await store.touchUsed(accountId, now(), signal);
   }
 
   /** For the health notifier: broken accounts whose owner has not been emailed. */
@@ -488,7 +513,7 @@ export function rendezvousPick<T extends { readonly id: string }>(key: string, c
   let best: T | null = null;
   let bestScore = "";
   for (const candidate of candidates) {
-    const score = createHash("sha256").update(`${key} ${candidate.id}`).digest("hex");
+    const score = createHash("sha256").update(`${key}\x00${candidate.id}`).digest("hex");
     if (best === null || score > bestScore) {
       best = candidate;
       bestScore = score;
@@ -644,17 +669,22 @@ function nonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.length > 0;
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 const drizzleStore: ClaudeAccountStore = {
-  async list(teamId) {
-    const rows = await cloudDb()
+  async list(teamId, signal) {
+    const rows = await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .select()
       .from(coderouterClaudeAccounts)
       .where(eq(coderouterClaudeAccounts.teamId, teamId))
-      .orderBy(asc(coderouterClaudeAccounts.createdAt), asc(coderouterClaudeAccounts.id));
+      .orderBy(asc(coderouterClaudeAccounts.createdAt), asc(coderouterClaudeAccounts.id)));
     return rows.map(rowFromDb);
   },
   async insert(row) {
@@ -702,8 +732,8 @@ const drizzleStore: ClaudeAccountStore = {
       .limit(1);
     return row ? rowFromDb(row) : null;
   },
-  async markCooldown(accountId, until, failureCode, countTowardBroken) {
-    const [written] = await cloudDb()
+  async markCooldown(accountId, until, failureCode, countTowardBroken, signal) {
+    const [written] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
       .set({
         cooldownUntil: until,
@@ -714,26 +744,26 @@ const drizzleStore: ClaudeAccountStore = {
           : {}),
       })
       .where(eq(coderouterClaudeAccounts.id, accountId))
-      .returning({ consecutiveFailures: coderouterClaudeAccounts.consecutiveFailures });
+      .returning({ consecutiveFailures: coderouterClaudeAccounts.consecutiveFailures }));
     return written?.consecutiveFailures ?? 0;
   },
-  async markBroken(accountId, at) {
-    await cloudDb()
+  async markBroken(accountId, at, signal) {
+    await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
       .set({ state: "broken", brokenAt: at, updatedAt: at })
-      .where(and(eq(coderouterClaudeAccounts.id, accountId), eq(coderouterClaudeAccounts.state, "active")));
+      .where(and(eq(coderouterClaudeAccounts.id, accountId), eq(coderouterClaudeAccounts.state, "active"))));
   },
-  async setCooldownUntil(accountId, until) {
-    await cloudDb()
+  async setCooldownUntil(accountId, until, signal) {
+    await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
       .set({ cooldownUntil: until })
-      .where(eq(coderouterClaudeAccounts.id, accountId));
+      .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
-  async touchUsed(accountId, at) {
-    await cloudDb()
+  async touchUsed(accountId, at, signal) {
+    await runWithCloudDbQuerySignal(signal, () => cloudDb()
       .update(coderouterClaudeAccounts)
       .set({ lastUsedAt: at, consecutiveFailures: 0 })
-      .where(eq(coderouterClaudeAccounts.id, accountId));
+      .where(eq(coderouterClaudeAccounts.id, accountId)));
   },
   async listBrokenUnnotified() {
     const rows = await cloudDb()

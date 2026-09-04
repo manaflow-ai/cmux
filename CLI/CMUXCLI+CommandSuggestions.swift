@@ -210,6 +210,7 @@ extension CMUXCLI {
         "trigger-flash",
         "unbind-key",
         "uninstall-hooks",
+        "vault",
         "version",
         "vm",
         "vm-pty-attach",

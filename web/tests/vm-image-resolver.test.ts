@@ -22,20 +22,21 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
-// The committed manifest default: the `freestyle-cmux-devbox-20260903b` ladder
-// (baked, instance-bound cmux-tui daemon plus the coderouter edge changes),
-// one snapshot per Freestyle size, listed under both kinds (a desktop image is
-// a superset of a base one, so the same snapshot id serves both; the base
-// listing's version carries a `-base` suffix). The manifest is the only source
-// of truth for images; no env var selects or overrides one, and the plan's
-// memory picks the size.
-const ladderVersion = "freestyle-cmux-devbox-20260903b";
+// The committed manifest default: the `freestyle-cmux-devbox-20260903d` ladder
+// (the desktop session with owner-signalled readiness, the accessibility bus,
+// clipboard helper and published DISPLAY; epoch 2026-09-02-r4), one snapshot per Freestyle size,
+// listed under both kinds (a desktop image is a superset of a base one, so
+// the same snapshot id serves both; the base listing's version carries a
+// `-base` suffix). The manifest is the only source of truth for images; no env
+// var selects or overrides one, and the plan's memory picks the size.
+const ladderVersion = "freestyle-cmux-devbox-20260903d";
 const ladder = {
-  sm: "sh-36ede74d2c1845d2a9fd3453b0bff404",
-  md: "sh-3d0d4f89f55b4c749377121f4ec1426c",
-  lg: "sh-e66dfcdab7c0410ba8de295cee199bff",
-  xl: "sh-e11d652875604b25b5832d4943d893a7",
-  "2xl": "sh-dedf3965adfd46a6954744f4d0163b5c",
+  sm: "sh-d55e96298e684433a3122202c75ea739",
+  md: "sh-8d8f8e08eed644a9abff43d7341b1a71",
+  lg: "sh-6305a62d30144be28cda18c37802bd5e",
+  lgx: "sh-0f83079d624b4662b80e7ec632060f38",
+  xl: "sh-2f9c609b052d48eeac91552a71822481",
+  "2xl": "sh-20ead099d8e448f58e395aeefdd35f8d",
 } as const;
 // cmux's validated pre-ladder public-platform devbox: still listed (base only,
 // size-less) so stored rows and explicit requests keep resolving, no longer a
@@ -122,9 +123,11 @@ describe("VM image resolver: request by kind", () => {
       [4097, "md"],
       [8192, "md"],
       [16384, "lg"],
-      // cmux's paid plan machine (20 GiB) is between lg and xl: it boots xl.
-      [20480, "xl"],
-      [24576, "xl"],
+      // cmux's paid plan machine (20 GiB) lands on lgx (12 vCPU / 24 GB), the
+      // step added for it; anything above boots xl.
+      [20480, "lgx"],
+      [24576, "lgx"],
+      [24577, "xl"],
       [32768, "xl"],
       [65536, "2xl"],
     ];
@@ -150,11 +153,11 @@ describe("VM image resolver: request by kind", () => {
     // Both kinds offer the whole ladder, smallest first.
     for (const kind of ["desktop", "base"] as const) {
       expect(listVmImageSizes("freestyle", kind).map((size) => size.name)).toEqual([...VM_IMAGE_SIZE_NAMES]);
-      expect(findVmImageKindDefault("freestyle", kind, 20480)?.size?.name).toBe("xl");
+      expect(findVmImageKindDefault("freestyle", kind, 20480)?.size?.name).toBe("lgx");
     }
     expect(listVmImageKinds("freestyle", deployed, { memoryMb: 20480 })).toEqual([
-      { kind: "desktop", image: ladder.xl, size: vmImageSize("xl") },
-      { kind: "base", image: ladder.xl, size: vmImageSize("xl") },
+      { kind: "desktop", image: ladder.lgx, size: vmImageSize("lgx") },
+      { kind: "base", image: ladder.lgx, size: vmImageSize("lgx") },
     ]);
   });
 
@@ -166,7 +169,7 @@ describe("VM image resolver: request by kind", () => {
     );
     expect(err).toMatchObject({ provider: "freestyle", kind: "desktop", source: "default" });
     expect(err.reason).toBe(
-      "no desktop image size fits 131072 MiB for freestyle: the manifest offers sm (4096 MiB), md (8192 MiB), lg (16384 MiB), xl (32768 MiB), 2xl (65536 MiB)",
+      "no desktop image size fits 131072 MiB for freestyle: the manifest offers sm (4096 MiB), md (8192 MiB), lg (16384 MiB), lgx (24576 MiB), xl (32768 MiB), 2xl (65536 MiB)",
     );
     expect(findVmImageKindDefault("freestyle", "base", 65537)).toBeNull();
 
@@ -283,8 +286,8 @@ describe("VM image resolver", () => {
     });
     expect(resolveVmImage("freestyle", undefined, {}, { memoryMb: 20480 })).toMatchObject({
       provider: "freestyle",
-      image: ladder.xl,
-      imageVersion: `${ladderVersion}-xl-base`,
+      image: ladder.lgx,
+      imageVersion: `${ladderVersion}-lgx-base`,
     });
   });
 

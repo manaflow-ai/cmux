@@ -95,19 +95,31 @@ Image policy:
   `expectNoCloudVmImplementationLeaks` in `tests/vm-route-auth.test.ts`).
 - Local development and every deployed runtime serve the same `defaultForKind` entry; there is no
   separate local default and nothing to copy into `.env`.
-- Today's base default is `freestyle-cmux-devbox-20260902e`, image
-  `sh-e4dc9393a82e4dfaaa8f90b01b0d247c`, baked and verified on cmux's Freestyle account from
-  https://github.com/manaflow-ai/cmux/pull/11666 (`6a1243bfd7`, baked cmux-tui daemon, `freestyle/ubuntu-sm` base). The retired beta entry stays listed for the record and is never a default; earlier
-  public entries stay for rollback.
+- Today's default (both kinds, every size) is the `freestyle-cmux-devbox-11761b` ladder, baked and
+  verified on cmux's Freestyle account from https://github.com/manaflow-ai/cmux/pull/11776
+  (`090e3daddd`, epoch `2026-09-02-r4`: the desktop session with owner-signalled readiness
+  (`Type=notify`), the accessibility bus, clipboard helper and published `DISPLAY`, baked cmux-tui
+  daemon, `freestyle/ubuntu-sm` base): `sm` `sh-60effaffd5404e5ab8dbdb08bd5f5eed`, `md`
+  `sh-1ce6c11f5d6e4f8e98c19454e9a38751`, `lg` `sh-bda89603f1ab41a2902ac5d781e2c6ce`, `xl`
+  `sh-95b526e17c234593a45edfb572e49396`, `2xl` `sh-236a1866dd244082ba0f06829df2358d`. The retired
+  beta entry stays listed for the record and is never a default; earlier public entries (the
+  `11761a`, `20260903b` and `edge1` ladders before it) stay for rollback.
 - Snapshots are account-scoped: a manifest id is only bootable by the Freestyle account whose
-  `FREESTYLE_API_KEY` the deployment uses. `freestyle-cmux-devbox-20260902h` (the desktop devbox,
-  `ubuntu` work user, cmux login banner) is validated but listed as a non-default reference bake
-  for that reason; re-promote it under cmux's key to make it the default.
+  `FREESTYLE_API_KEY` the deployment uses; promote under cmux's key.
 - Promotion is `bun run devbox:promote -- freestyle` (bake → verify → manifest write), then a PR
   with the manifest diff; merging promotes. See
   `services/vms/images/devbox/README.md`. `tests/vm-image-manifest.test.ts` holds the invariants:
   one `defaultForKind` per provider and kind, unique versions, every default
   `validationStatus: "passed"`.
+- Every devbox default is a **desktop** image (one snapshot serves both kinds): TigerVNC on
+  `:1` with an openbox session, the tint2 dock (Chrome, Files, Ghostty), the CC0 wallpaper, the
+  accessibility bus for computer-use, and noVNC on 6901; the contract lives in
+  `services/vms/images/desktop.ts`. `POST /api/vm/[id]/open-port` (the app's Displays row, `cmux
+  vm open <m>:desktop`, port rows) returns the machine's **private VPC address**
+  (`http://10.x.x.x:6901/vnc.html?…`), reachable only over the owner's WireGuard tunnel, the same
+  path the daemon route takes; the driver (re)starts the `cmux-desktop` unit first when noVNC is
+  not listening. noVNC has no auth of its own, so a machine outside a private network (created
+  before private networking) gets an error rather than a public URL.
 - Baked agent tools are installed at image-build time. They are not auto-updated on VM startup, so
   startup latency stays bounded and the manifest remains the source of truth.
 - To update tool versions, bump the Dockerfile ARG pins and `CMUX_IMAGE_EPOCH`, then promote a new
@@ -302,6 +314,21 @@ Every `/api/vm*` request runs inside `withAuthedVmApiRoute` (`routeHelpers.ts`),
 
 Client side, `VMClientTelemetry` (`Sources/Cloud/VMClientTelemetry.swift`) measures every request: `os.log` category `CloudVM` for all of them, a Sentry breadcrumb for all, PostHog `cmux_cloud_vm_request` for failures plus non-polled successes, and a Sentry event for failures (5xx and transport failures `error`, 4xx `warning`). Client failures are throttled per operation and code (60 s PostHog, 300 s Sentry) so a polling loop during an outage produces one event per window.
 
+Every outbound call (Freestyle, Stack Auth, Stripe, PostHog, Slack, Postgres, ...) is a client span inside the request trace, so the Axiom trace view shows the waterfall of third-party calls under each route span. `DependencySpanProcessor` (`services/observability/dependencies.ts`) stamps `cmux.dep.name` (third party) and `cmux.dep.route` (method plus id-templated path, `POST /v5/vms/{id}/exec-await`) on each of them at start. Failure rate and latency per dependency and endpoint, VM traces at 100%, everything else sampled at the base ratio:
+
+```
+['cmux-prod-otel-traces']
+| where _time > ago(1h) and isnotempty(['attributes.custom']['cmux.dep.name'])
+| extend status = toint(coalesce(['attributes.custom']['http.status_code'], ['attributes.custom']['http.response.status_code']))
+| summarize calls = count(), failures = countif(status >= 400 or isnotempty(error)),
+            p50_ms = round(percentile(duration, 50) / 1000000, 0), p95_ms = round(percentile(duration, 95) / 1000000, 0)
+  by dep = tostring(['attributes.custom']['cmux.dep.name']), route = tostring(['attributes.custom']['cmux.dep.route'])
+| extend failure_rate = round(100.0 * failures / calls, 2)
+| order by failures desc, calls desc
+```
+
+Freestyle only, per endpoint over time: add `| where dep == 'freestyle'` and `bin(_time, 5m)` to the `by` clause. Sentry's NodeFetch integration is disabled in `instrumentation.ts` because it duplicated every fetch span as a bare `GET`/`POST` client span without a URL.
+
 To investigate one failure: take the reference id, query Axiom `['cmux-prod-otel-traces'] | where trace_id == '<id>'`, open the PostHog `$exception` or `cloud_vm_request` row with `trace_id = <id>`, and search Sentry for `trace_id:<id>`.
 
 ## GitHub operations
@@ -363,8 +390,10 @@ the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/p
 uv, gh, devtools, pinned coding agents, ble.sh, half-life prompt, seeded history). Machines
 run no cmuxd-remote: the **cmux-tui remote daemon is the machine's only session daemon**,
 and the bake installs the pinned static-musl build at `/root/.cmux/bin/cmux-tui` with
-`sha256sum -c` verification. A create is `vms.create`, the grow-only resize, and one
-model-plane env file write; the baked supervisor starts the daemon with a fresh identity
+`sha256sum -c` verification. A create is one `vms.create` (firewall, VPC, and the coderouter
+TLS rule inline); a size-less image also gets the grow-only resize. Nothing is written into
+the guest: the model-plane env is baked (see "Model plane"). The baked supervisor starts the
+daemon with a fresh identity
 within a second of resume (the snapshot is a memory image, so the identity is keyed on
 the platform instance id). Attach heals a daemon that is not listening, reinstalling only
 when the binary is missing or behind the manifest pin. The daemon runs as root with
@@ -375,6 +404,12 @@ reaches new machines through a rebake. Config: `FREESTYLE_API_KEY` (or `FREESTYL
 at a non-default edge and `CMUX_VM_CMUX_TUI_MANIFEST_URL` to pin a deployment to one
 commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the rolling
 `latest`.
+
+Cloud-created Freestyle machines explicitly set `idleTimeoutSeconds: -1`, making them
+persistent boxes rather than provider-idle workers. A user-open operation probes the live
+provider state even when the control-plane row still says `running`, resumes a paused/stopped
+machine, and only then mints its attach or port endpoint. Machines created before this policy
+are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
 
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
 needs a customer-verified domain), so the daemon is reached directly at a VM address.
@@ -391,15 +426,15 @@ route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`), re-a
 every attach-time heal, which is also what makes the VPC address reachable.
 The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
 required; the route token exists only for the lease ledger. Creates take no ports field and
-no create-time env, so the coderouter model-plane vars are delivered by writing the persisted
-`/root/.config/cmux/model-plane.env` (0600) that `/etc/cmux/agent-config.sh` already sources.
-That file carries base URLs, a placeholder key, and the VM id only; the credential is
+no create-time env; the guest's model-plane env is the same for every machine and baked at
+`/etc/cmux/model-plane.env`, which `/etc/cmux/agent-config.sh` sources when no boot env and no
+per-home file exist. It carries alias base URLs and a placeholder key only; the credential is
 edge-injected (see "Model plane" below).
 
 Every guest command is run with `linuxUser: "root"`. The 0.2 API's default is *not* root but
 "the account holding uid 1000, or root in an image with no such account", and the devbox image
-ships a uid-1000 user — leaving it unset would silently move the daemon, its install, and the
-model-plane write off the root layout they are baked around.
+ships a uid-1000 user — leaving it unset would silently move the daemon and its install off
+the root layout they are baked around.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
@@ -434,20 +469,22 @@ No coderouter secret ever lands in a guest. `createVm`/`restoreVm` take a `model
 provisioner (`services/vms/modelPlaneGateway.ts` adapting
 `services/coderouter/vmModelPlane.ts`). After the `cloud_vms` row exists and before the
 provider call, it mints one route token bound to the row id (`coderouter_route_tokens.vm_id`)
-and returns guest env (`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `CMUX_CODEROUTER_URL`,
-placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`, `CMUX_VM_ID`) plus one edge rule for the
-coderouter host with headers `x-coderouter-route-token` and `x-cmux-vm-id`. The Freestyle
-driver passes the rule inline as `tls.rules` on the create; the platform steers the host to
-its edge and installs its CA in the guest at boot, and the edge injects (and overwrites) those
-headers on every request. coderouter rejects a bound token whose request carries a different
-VM id. Rules created after boot never reach a running guest, so the rule is never added later.
+and returns one edge rule: domain `coderouter.cmux.internal` (the alias every guest dials;
+`CMUX_VM_EDGE_ALIAS_DOMAIN` overrides it per deployment, never per machine), destination host
+this deployment's API host, and headers `x-coderouter-route-token` and `x-cmux-vm-id`. The
+Freestyle driver passes the rule inline as `tls.rules` on the create; the platform resolves the
+alias to its edge, installs its CA in the guest at boot, terminates TLS for the alias, forwards
+to the destination host, and injects (and overwrites) those headers on every request.
+coderouter rejects a bound token whose request carries a different VM id. Rules created after
+boot never reach a running guest, so the rule is never added later.
 
-The guest dials the real name, `https://coderouter.dev` by default;
-`CMUX_CODEROUTER_EDGE_ORIGIN` (a bare https origin) points guests at a preview deployment.
-Injection activates 20-30 s after boot, so the driver ends bootstrap with a guest-side probe of
-`https://<host>/v1/models` (one exec, bounded loop) and rolls the machine back if it never
-succeeds. Node harnesses (Claude Code, pi) need `NODE_EXTRA_CA_CERTS`, which
-`agent-config.sh` exports when the platform CA file exists.
+Because the guest always dials the alias, its env is identical everywhere and is baked
+(`services/coderouter/vmGuestEnv.ts`, written by the bake to `/etc/cmux/model-plane.env`):
+`OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL`, `CMUX_CODEROUTER_URL` on the alias origin and the
+placeholder `OPENAI_API_KEY`/`ANTHROPIC_API_KEY`. `CMUX_CODEROUTER_EDGE_ORIGIN` (a bare https
+origin) only moves the rule's destination, for a preview deployment. Injection activates a few
+seconds after boot; nothing waits for it. Node harnesses (Claude Code, pi) need
+`NODE_EXTRA_CA_CERTS`, which `agent-config.sh` exports when the platform CA file exists.
 
 Provisioning is mandatory: a coderouter outage fails the create with
 `vm_model_plane_unavailable` (503, retryable), refunds the create credit, marks the row failed

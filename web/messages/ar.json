@@ -60,6 +60,15 @@
     "genericBody": "يرجى المحاولة مرة أخرى. إذا استمرت المشكلة، فتواصل مع الدعم.",
     "backToSignIn": "العودة إلى تسجيل الدخول"
   },
+  "cloudPublicationAccess": {
+    "title": "ليس لديك حق الوصول",
+    "signIn": "تسجيل الدخول إلى cmux",
+    "signedInAs": "تم تسجيل الدخول باسم {identity}",
+    "switchAccount": "تبديل الحساب",
+    "invalidTitle": "رابط الوصول هذا غير صالح",
+    "invalidBody": "ارجع إلى الموقع وحاول مرة أخرى.",
+    "footer": "تتم إدارة الوصول بواسطة cmux."
+  },
   "common": {
     "downloadForMac": "تحميل لنظام Mac",
     "viewOnGitHub": "عرض على GitHub",
@@ -1862,8 +1871,6 @@
     "metaDescription": "حمّل cmux NIGHTLY، تطبيق مستقل يُبنى تلقائياً من أحدث commit على main. يعمل بجانب النسخة المستقرة مع تحديثات تلقائية خاصة به.",
     "description": "يُبنى cmux NIGHTLY تلقائياً من أحدث commit على main. يمتلك معرّف حزمة خاص به، لذا يعمل بجانب النسخة المستقرة دون تعارض. استخدمه لاختبار الميزات الجديدة قبل إصدارها.",
     "download": "تحميل NIGHTLY لنظام Mac",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "قد تحتوي الإصدارات الليلية على أخطاء أو ميزات غير مكتملة. إذا حدثت مشكلة، أبلغ عنها على <githubLink>GitHub</githubLink> أو في <discordLink>#nightly-bugs على Discord</discordLink> وارجع إلى النسخة المستقرة."
   },
   "languageSwitcher": {
