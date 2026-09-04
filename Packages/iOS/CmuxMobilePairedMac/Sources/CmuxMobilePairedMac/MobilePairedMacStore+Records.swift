@@ -291,16 +291,18 @@ extension MobilePairedMacStore {
 
     func fetchLegacyTailscaleRoutes(
         macDeviceID: String,
-        ownerKey: String
+        ownerKey: String,
+        origin: String? = nil
     ) throws -> [CmxAttachRoute] {
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
+        let originClause = origin == nil ? "" : " AND origin = ?"
         let result = sqlite3_prepare_v2(
             db,
             """
             SELECT endpoint_json
             FROM legacy_tailscale_route_grants
-            WHERE mac_device_id = ? AND owner_key = ?
+            WHERE mac_device_id = ? AND owner_key = ?\(originClause)
             ORDER BY id ASC;
             """,
             -1,
@@ -310,7 +312,11 @@ extension MobilePairedMacStore {
         guard result == SQLITE_OK else {
             throw MobilePairedMacStoreError.prepareFailed(result, lastErrorMessage())
         }
-        try bind(statement: statement, parameters: [.text(macDeviceID), .text(ownerKey)])
+        var bindings: [BindValue] = [.text(macDeviceID), .text(ownerKey)]
+        if let origin {
+            bindings.append(.text(origin))
+        }
+        try bind(statement: statement, parameters: bindings)
         let decoder = JSONDecoder()
         var routes: [CmxAttachRoute] = []
         while sqlite3_step(statement) == SQLITE_ROW {

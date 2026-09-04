@@ -3176,10 +3176,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            // Tailscale Only blocks the Iroh lane only for legacy pairings
-            // without an Iroh identity; an identified pairing rides Iroh
-            // pinned to its Tailscale addresses (same lane the terminal
-            // lanes ride, same admission authority).
+            // Tailscale Only never uses the Iroh lane. It can reconnect only
+            // through a route carrying this phone's exact user authorization;
+            // the route selector below rejects Iroh and ungranted Tailscale
+            // entries before a client is created.
             let irohReconnectIsBlocked = (connectionMethod(for: mac) == .tailscale
                 && !mac.routes.contains { $0.kind == .iroh })
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
@@ -10454,6 +10454,26 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     ) != nil
             }
             return authorizedTailscale
+        }
+        // An Automatic pairing created before Iroh shipped may still carry the
+        // one device-local migration grant that makes its exact raw Tailscale
+        // endpoint usable. Preserve that compatibility route through this
+        // second policy gate, but only while the ticket has no Iroh identity;
+        // once Iroh is present Automatic must stay on the authenticated lane.
+        if ticketMethod == .automatic,
+           !supportedRoutes.contains(where: { $0.kind == .iroh }),
+           let pairedMacDeviceID,
+           !legacyTailscaleRoutes.isEmpty {
+            let authorizedLegacyTailscale = supportedRoutes.filter { route in
+                Self.legacyTailscaleAuthorizationEvidence(
+                    for: route,
+                    macDeviceID: pairedMacDeviceID,
+                    persistedRoutes: legacyTailscaleRoutes
+                ) != nil
+            }
+            if !authorizedLegacyTailscale.isEmpty {
+                return authorizedLegacyTailscale
+            }
         }
         // The Iroh method is just as strict as Tailscale Only: no raw
         // host/port fallback, ever. Debug loopback rides alongside Iroh as

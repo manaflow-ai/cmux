@@ -741,16 +741,11 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: instanceTagExpectation.expectedTag
             )
-        // Direct and Tailscale Only ride the Iroh lane below: identity-checked
-        // and encrypted, with transport admission as the single auth
-        // authority. The method's addresses (user-enabled Direct entries, or
-        // the pairing's numeric Tailscale addresses) are the COMPLETE per-dial
-        // path allowlist (no relay, no advertised or discovered paths), so
-        // resolve them from the caller's fresh row first for the same
-        // startup-restore reason as the method above, and fail closed when
-        // nothing is dialable. Raw host/port dialing cannot carry the account
-        // credential (plaintext TCP), so it stays reserved for legacy
-        // pairings without an Iroh identity (nil candidates below).
+        // Direct pins the identity-checked Iroh dial to the user's enabled
+        // addresses. Tailscale Only stays on its exact authorized raw route
+        // set, so the fresh row is still the authority for that route and a
+        // missing grant fails closed. Raw host/port dialing is intentionally
+        // limited to the compatibility route carrying that user authorization.
         let methodPinnedCandidates = irohMethodPinnedDialCandidates(
             forMacDeviceID: pairedMacDeviceID,
             instanceTag: instanceTagExpectation.expectedTag,
@@ -760,11 +755,18 @@ extension MobileShellComposite {
             return .failed(.unsupportedRoute)
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
+        let hasIrohRoute = routes.contains { $0.kind == .iroh }
+        let hasTailscaleRoute = routes.contains { $0.kind == .tailscale }
+        let shouldUseAuthorizedTailscaleRoute = resolvedMethod == .tailscale
+            || (resolvedMethod == .automatic
+                && !hasIrohRoute
+                && hasTailscaleRoute
+                && !legacyTailscaleRoutes.isEmpty)
         var pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
             preferNonLoopback: Self.prefersNonLoopbackRoutes,
-            tailscaleRequirement: resolvedMethod == .tailscale
+            tailscaleRequirement: shouldUseAuthorizedTailscaleRoute
                 && methodPinnedCandidates == nil
                 ? Self.TailscaleRouteRequirement(
                     macDeviceID: pairedMacDeviceID,

@@ -1000,14 +1000,39 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             }
             let incomingHasIroh = routes.contains { $0.kind == .iroh }
             let pinnedIrohRoutes = existingRoutes.filter { $0.kind == .iroh }
+            let userAuthorizedTailscaleRoutes = try fetchLegacyTailscaleRoutes(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey,
+                origin: "user"
+            )
+            // A presence or backup refresh can publish only Iroh and Debug
+            // routes after the user explicitly paired over Tailscale. Keep the
+            // exact user-authorized endpoint in the visible route set while it
+            // is still present in the prior route snapshot. This does not
+            // resurrect a route the user removed: removeRoute writes a tombstone
+            // and therefore removes it from existingRoutes before this merge.
+            let retainedUserAuthorizedTailscaleRoutes = existingRoutes.filter { route in
+                route.kind == .tailscale
+                    && userAuthorizedTailscaleRoutes.contains {
+                        $0.endpoint == route.endpoint
+                    }
+            }
             // Iroh capability is sticky for one paired Mac. Presence, backup, or
             // an older host build may temporarily publish only raw private-network
             // routes; replacing the stored Iroh identity in that case would allow
             // a later admission failure to downgrade into Stack-bearer RPC. A new
             // Iroh route replaces the old identity normally.
-            let routesToPersist = incomingHasIroh || pinnedIrohRoutes.isEmpty
-                ? routes
-                : routes + pinnedIrohRoutes
+            var routesToPersist = routes
+            if !pinnedIrohRoutes.isEmpty, !incomingHasIroh {
+                routesToPersist.append(contentsOf: pinnedIrohRoutes)
+            }
+            for retainedRoute in retainedUserAuthorizedTailscaleRoutes
+                where !routesToPersist.contains(where: {
+                    $0.kind == retainedRoute.kind
+                        && $0.endpoint == retainedRoute.endpoint
+                }) {
+                routesToPersist.append(retainedRoute)
+            }
             let createdAt = existing?.createdAt ?? claimable?.createdAt ?? now
             let persistedInstanceTag = routeWriteCondition == nil
                 ? instanceTag
