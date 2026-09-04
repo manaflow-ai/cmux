@@ -363,10 +363,13 @@ final class MobileHostIrxRuntime {
             // and announce it over the socket so phones hear about relay
             // moves in milliseconds instead of at the next registry read.
             await pilot.setOnRotation { [weak self, weak broker, weak supervisor] in
+                guard !Task.isCancelled else { return }
                 guard let broker, let supervisor else { return }
                 let relay = await supervisor.homeRelayURL()
+                guard !Task.isCancelled else { return }
                 try? await broker.registerHintIfNeeded(
                     pairingEnabled: true, relayURLHint: relay)
+                guard !Task.isCancelled else { return }
                 if let relay, let control {
                     await control.publishHint(homeRelayURL: relay)
                 }

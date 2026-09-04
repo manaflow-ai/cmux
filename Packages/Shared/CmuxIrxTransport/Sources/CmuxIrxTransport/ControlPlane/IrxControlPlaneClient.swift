@@ -332,6 +332,10 @@ public actor IrxControlPlaneClient {
         while !Task.isCancelled && generation == loopGeneration {
             let message = try await receive(from: task)
             guard generation == loopGeneration, socket === task else { return }
+            // Record transport activity before consumer handlers run. The
+            // exact generation/socket guard prevents an old receive loop from
+            // refreshing the replacement's liveness.
+            lastActivityAt = .now
             let data: Data
             switch message {
             case .string(let text): data = Data(text.utf8)
@@ -339,10 +343,6 @@ public actor IrxControlPlaneClient {
             @unknown default: continue
             }
             await route(data, generation: generation, socket: task)
-            // A superseded receive loop may finish routing after a kick. Do
-            // not let that old frame make the replacement look healthy.
-            guard generation == loopGeneration, socket === task else { return }
-            lastActivityAt = .now
         }
     }
 
