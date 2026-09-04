@@ -19,11 +19,25 @@ extension TerminalController {
             let machine = Self.surfaceMachineFilter(params["machine"])
             let refresh = Self.surfaceBool(params["refresh"]) ?? false
             return v2VmCall(id: id, timeoutSeconds: 120) {
+                let catalog = await SurfaceCatalog.shared
                 if refresh {
-                    await SurfaceCatalog.shared.refreshAll()
+                    // The sidebar's Refresh: fleet list + every provider (a machine created
+                    // since the last poll shows up now, not at the next 45 s tick).
+                    await CmuxTuiSurfaceProviderRegistry.shared.refreshEverything(catalog: catalog)
+                } else if case .cloud(let machineID)? = machine {
+                    // Asking about one machine the catalog has not met yet (just created)
+                    // re-reads the fleet once instead of answering "no machines".
+                    _ = try await Self.surfaceProvider(for: .cloud(machineID), catalog: catalog)
                 }
-                let snapshot = await SurfaceCatalog.shared.snapshot
-                return Self.surfaceCatalogPayload(snapshot, machine: machine)
+                let snapshot = await catalog.snapshot
+                var payload = Self.surfaceCatalogPayload(snapshot, machine: machine)
+                // This Mac's workspaces ride along (id, title, ref, selected) so a
+                // reader can label local terminals by workspace without a second
+                // `workspace.list` round trip. Cloud-only requests leave it out.
+                if machine == nil || machine?.isLocal == true {
+                    payload["workspaces"] = await self.surfaceLocalWorkspacePayloads()
+                }
+                return payload
             }
 
         case "surface.project":
@@ -32,6 +46,7 @@ extension TerminalController {
             }
             let focus = Self.surfaceBool(params["focus"]) ?? true
             let reuse = Self.surfaceBool(params["reuse"]) ?? true
+            if let unresolvable = surfaceUnresolvableTargetError(params, id: id, method: "surface.project") { return unresolvable }
             guard let workspaceID = surfaceTargetWorkspaceID(params) else {
                 return v2Error(id: id, code: "invalid_params", message: "surface.project: no target workspace (pass `workspace_id`, or select one).")
             }
@@ -52,6 +67,7 @@ extension TerminalController {
             let remoteWorkspaceID = Self.surfaceString(params["remote_workspace_id"])
             let open = Self.surfaceBool(params["open"]) ?? true
             let focus = Self.surfaceBool(params["focus"]) ?? true
+            if open, let unresolvable = surfaceUnresolvableTargetError(params, id: id, method: "surface.new_terminal") { return unresolvable }
             let workspaceID = open ? surfaceTargetWorkspaceID(params) : nil
             if open, workspaceID == nil {
                 return v2Error(id: id, code: "invalid_params", message: "surface.new_terminal: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`).")
@@ -81,10 +97,13 @@ extension TerminalController {
         let vmId = Self.surfaceString(params["id"]) ?? Self.surfaceString(params["machine"])
         let refresh = Self.surfaceBool(params["refresh"]) ?? false
         return v2VmCall(id: id, timeoutSeconds: 120) {
+            let catalog = await SurfaceCatalog.shared
             if refresh {
-                await SurfaceCatalog.shared.refreshAll()
+                await CmuxTuiSurfaceProviderRegistry.shared.refreshEverything(catalog: catalog)
+            } else if let vmId {
+                _ = try await Self.surfaceProvider(for: .cloud(vmId), catalog: catalog)
             }
-            let snapshot = await SurfaceCatalog.shared.snapshot
+            let snapshot = await catalog.snapshot
             return Self.surfaceCatalogPayload(snapshot, machine: vmId.map { .cloud($0) }, cloudOnly: true)
         }
     }
@@ -100,6 +119,7 @@ extension TerminalController {
         }
         let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .terminal, key: terminalId)
         let focus = Self.surfaceBool(params["focus"]) ?? true
+        if let unresolvable = surfaceUnresolvableTargetError(params, id: id, method: "vm.terminal_open") { return unresolvable }
         guard let workspaceID = surfaceTargetWorkspaceID(params) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_open: no target workspace (pass `workspace_id`, or select one).")
         }
@@ -126,6 +146,7 @@ extension TerminalController {
         // uses `workspace_id` for it. Map before resolving.
         var targetParams = params
         targetParams["workspace_id"] = params["local_workspace_id"]
+        if open, let unresolvable = surfaceUnresolvableTargetError(targetParams, id: id, method: "vm.terminal_new") { return unresolvable }
         let workspaceID = open ? surfaceTargetWorkspaceID(targetParams) : nil
         if open, workspaceID == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_new: no local workspace to open into (pass `local_workspace_id`, select one, or send `open: false`).")
@@ -156,6 +177,7 @@ extension TerminalController {
         }
         let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .display, key: SurfaceResourceID.desktopDisplayKey)
         let focus = Self.surfaceBool(params["focus"]) ?? false
+        if let unresolvable = surfaceUnresolvableTargetError(params, id: id, method: "vm.desktop_open") { return unresolvable }
         guard let workspaceID = surfaceTargetWorkspaceID(params) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.desktop_open: no target workspace (pass `workspace_id`, or select one).")
         }
@@ -186,6 +208,7 @@ extension TerminalController {
         }
         let resource = SurfaceResourceID(machine: .cloud(vmId), kind: .browser, key: SurfaceResourceID.portKey(port))
         let focus = Self.surfaceBool(params["focus"]) ?? false
+        if let unresolvable = surfaceUnresolvableTargetError(params, id: id, method: "vm.port_open") { return unresolvable }
         guard let workspaceID = surfaceTargetWorkspaceID(params) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.port_open: no target workspace (pass `workspace_id`, or select one).")
         }
@@ -255,16 +278,20 @@ extension TerminalController {
                 provider: provider,
                 catalog: catalog,
                 name: name,
-                focus: Self.surfaceBool(params["focus"]) ?? true
+                focus: Self.surfaceBool(params["focus"]) ?? true,
+                // `open: false` stages the workspace headlessly: it exists on the
+                // machine (with its starter terminal) but nothing opens locally.
+                openLocally: Self.surfaceBool(params["open"]) ?? true
             )
-            return [
+            var payload: [String: Any] = [
                 "machine": machine.rawValue,
                 "remote_workspace_id": created.workspace.id,
                 "remote_workspace_name": created.workspace.name,
                 "terminal_id": created.terminal.id.key,
-                "workspace_id": created.opened.workspaceID.uuidString,
-                "surface_id": created.opened.projections.first?.panelID.uuidString ?? NSNull(),
             ]
+            payload["workspace_id"] = created.opened?.workspaceID.uuidString ?? NSNull()
+            payload["surface_id"] = created.opened?.projections.first?.panelID.uuidString ?? NSNull()
+            return payload
         }
     }
 
@@ -285,6 +312,7 @@ extension TerminalController {
         // `workspace_id` is the REMOTE workspace here; the local target rides as `target_workspace_id`.
         var destinationParams = params
         destinationParams["workspace_id"] = params["target_workspace_id"]
+        if here, let unresolvable = surfaceUnresolvableTargetError(destinationParams, id: id, method: "vm.workspace_open") { return unresolvable }
         let localWorkspaceID: UUID? = here ? surfaceTargetWorkspaceID(destinationParams) : nil
         if here, localWorkspaceID == nil {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_open: no target workspace for `here` (pass `target_workspace_id`, or select one).")
@@ -302,6 +330,20 @@ extension TerminalController {
             let focus = Self.surfaceBool(params["focus"]) ?? true
             let workspaceID: UUID
             let projections: [SurfaceProjection]
+            if members.isEmpty {
+                // D9: open never creates. An empty workspace opens nothing — the sidebar
+                // row does the same — and says so instead of failing as "not found".
+                return [
+                    "machine": machine.rawValue,
+                    "remote_workspace_id": workspace.id,
+                    "remote_workspace_name": workspace.name,
+                    "workspace_id": NSNull(),
+                    "surface_ids": [],
+                    "opened": 0,
+                    "empty": true,
+                    "here": destination != nil,
+                ]
+            }
             if let destination {
                 projections = try await catalog.projectGroup(group.resources, into: destination, focus: focus)
                 workspaceID = destination.workspaceID
@@ -323,9 +365,19 @@ extension TerminalController {
                 "workspace_id": workspaceID.uuidString,
                 "surface_ids": projections.map { $0.panelID.uuidString },
                 "opened": projections.count,
+                "empty": false,
                 "here": destination != nil,
             ]
         }
+    }
+
+    /// A machine's cmux-tui workspace by `ws_…` id or by name: the machine info's list
+    /// first (it includes empty workspaces), else the workspaces its resources point at.
+    nonisolated static func surfaceRemoteWorkspace(_ reference: String, on machine: SurfaceMachineID, in snapshot: SurfaceCatalogSnapshot) -> SurfaceRemoteWorkspace? {
+        let listed = snapshot.machines.first { $0.id == machine }?.remoteWorkspaces ?? []
+        let pointed = snapshot.resources(on: machine).flatMap(\.remoteWorkspaces)
+        let candidates = listed + pointed
+        return candidates.first { $0.id == reference } ?? candidates.first { $0.name == reference }
     }
 
     /// `vm.workspace_close {id, workspace_id}` → closes the cmux-tui workspace; its
@@ -501,9 +553,9 @@ extension TerminalController {
     /// `vm.workspace_open`'s workspace resolution — the sidebar row's own
     /// (`CloudTreeNodeBuilder.lookupRemoteWorkspace`), so `cmux vm workspace open`
     /// and a click on the row open the same set. A `ws_…` id or an unambiguous
-    /// name; an existing workspace with nothing in it is an error that says so
-    /// (the row opens nothing for it either, D9) and names the verb that starts
-    /// a terminal there.
+    /// name; an existing workspace with nothing in it returns empty members so
+    /// the caller can surface the D9 "nothing to open" result without treating
+    /// the workspace as missing.
     nonisolated static func resolveRemoteWorkspaceForOpen(
         _ selector: String,
         machine: SurfaceMachineID,
@@ -513,11 +565,6 @@ extension TerminalController {
         let machineID = machine.rawValue
         switch CloudTreeNodeBuilder.lookupRemoteWorkspace(selector, on: machine, snapshot: snapshot) {
         case .found(let workspace, let members):
-            guard !members.isEmpty else {
-                throw SurfaceCatalogError.nothingToOpen(
-                    "workspace \(workspace.name) (\(workspace.id)) on \(machineID) is empty; `cmux vm open \(machineID)/\(workspace.id)` starts a terminal there"
-                )
-            }
             return (workspace, members)
         case .ambiguous(let matches):
             throw SurfaceCatalogError.destinationNotFound(
@@ -559,6 +606,80 @@ extension TerminalController {
         return payload
     }
 
+    /// An explicit target that names nothing is an error, never a silent fall-through
+    /// to the selected workspace: an agent's `--workspace bogus` / `--pane pane:99` must
+    /// not land a pane where the person happens to be working. A target must resolve
+    /// (UUID or handle ref) AND exist right now — a well-formed UUID of a closed pane is
+    /// just as unresolvable. Nil when every given target checks out (or none was given);
+    /// otherwise the `invalid_params` response.
+    nonisolated func surfaceUnresolvableTargetError(_ params: [String: Any], id: Any?, method: String) -> String? {
+        for key in ["workspace_id", "pane_id", "surface_id"] {
+            guard let raw = Self.surfaceString(params[key]) else { continue }
+            let exists: Bool
+            if let uuid = v2UUID(params, key) {
+                exists = v2MainSync { self.surfaceTargetExists(key: key, uuid: uuid) }
+            } else {
+                exists = false
+            }
+            if !exists {
+                return v2Error(
+                    id: id,
+                    code: "invalid_params",
+                    message: "\(method): no \(key.dropLast(3)) matches `\(raw)` (pass a UUID or a ref from `cmux tree`)."
+                )
+            }
+        }
+        return nil
+    }
+
+    /// Whether a resolved target id names a live local workspace, pane, or surface.
+    @MainActor
+    private func surfaceTargetExists(key: String, uuid: UUID) -> Bool {
+        switch key {
+        case "workspace_id":
+            if let app = AppDelegate.shared, app.tabManagerFor(tabId: uuid)?.tabs.contains(where: { $0.id == uuid }) == true { return true }
+            return tabManager?.tabs.contains { $0.id == uuid } == true
+        case "pane_id":
+            if v2LocatePane(uuid) != nil { return true }
+            return tabManager?.tabs.contains { $0.bonsplitController.allPaneIds.contains { $0.id == uuid } } == true
+        default:
+            if AppDelegate.shared?.workspace(containingSurfaceID: uuid) != nil { return true }
+            return tabManager?.tabs.contains { $0.panels[uuid] != nil } == true
+        }
+    }
+
+    /// This Mac's workspaces for the catalog payload — the active window first, then
+    /// every other main window, each in sidebar order: `{id, title, ref, selected,
+    /// window_id}`. `selected` is the workspace its window shows.
+    @MainActor
+    func surfaceLocalWorkspacePayloads() -> [[String: Any]] {
+        var managers: [(windowID: UUID?, tabManager: TabManager)] = []
+        if let manager = tabManager {
+            managers.append((AppDelegate.shared?.windowId(for: manager), manager))
+        }
+        if let app = AppDelegate.shared {
+            for summary in app.listMainWindowSummaries() {
+                guard let manager = app.tabManagerFor(windowId: summary.windowId),
+                      !managers.contains(where: { $0.tabManager === manager }) else { continue }
+                managers.append((summary.windowId, manager))
+            }
+        }
+        var payloads: [[String: Any]] = []
+        var seenWorkspaces: Set<UUID> = []
+        for entry in managers {
+            for workspace in entry.tabManager.tabs where seenWorkspaces.insert(workspace.id).inserted {
+                payloads.append([
+                    "id": workspace.id.uuidString,
+                    "title": workspace.title,
+                    "ref": v2Ref(kind: .workspace, uuid: workspace.id),
+                    "selected": workspace.id == entry.tabManager.selectedTabId,
+                    "window_id": entry.windowID?.uuidString ?? NSNull(),
+                ])
+            }
+        }
+        return payloads
+    }
+
     /// The local workspace an open lands in: `workspace_id` (UUID or `workspace:N` ref), else
     /// the workspace of a given `pane_id`/`surface_id`, else the selected workspace.
     nonisolated func surfaceTargetWorkspaceID(_ params: [String: Any]) -> UUID? {
@@ -569,9 +690,11 @@ extension TerminalController {
             return located.workspace.id
         }
         if let surfaceID = v2UUID(params, "surface_id") {
+            // App-wide (any main window) first, like the existence check; the active
+            // manager covers a workspace the app has not registered in a window.
             let owner = v2MainSync { () -> UUID? in
-                guard let tabManager = self.tabManager else { return nil }
-                return tabManager.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
+                if let workspace = AppDelegate.shared?.workspace(containingSurfaceID: surfaceID) { return workspace.id }
+                return self.tabManager?.tabs.first(where: { $0.panels[surfaceID] != nil })?.id
             }
             if let owner { return owner }
         }
@@ -588,9 +711,10 @@ extension TerminalController {
         }
         if resolved["pane_id"] == nil, let surfaceID = v2UUID(params, "surface_id") {
             let paneID = v2MainSync { () -> String? in
-                guard let tabManager = self.tabManager,
-                      let workspace = tabManager.tabs.first(where: { $0.panels[surfaceID] != nil }) else { return nil }
-                return SurfacePaneFactory.paneID(ofPanel: surfaceID, in: workspace.id)
+                let workspace = AppDelegate.shared?.workspace(containingSurfaceID: surfaceID)
+                    ?? self.tabManager?.tabs.first(where: { $0.panels[surfaceID] != nil })
+                guard let workspace else { return nil }
+                return workspace.paneId(forPanelId: surfaceID)?.id.uuidString
             }
             if let paneID {
                 resolved["pane_id"] = paneID

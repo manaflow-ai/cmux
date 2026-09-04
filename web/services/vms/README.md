@@ -384,6 +384,52 @@ The dev Postgres port is `CMUX_PORT + 10000`, so `CMUX_PORT=10180` maps to `loca
 as `cmux vm attach <id>`. No provider serves an SSH gateway any more, so `cmux vm ssh-info <id>`
 has nothing to print and `POST /api/vm/:id/ssh-endpoint` is gone.
 
+## Capabilities: the client-visible provider contract
+
+Every VM API response (`GET /api/vm` entries, `GET /api/vm/:id`, create, restore, fork, base
+open/reset) carries a `capabilities` object — `{snapshot, restore, fork, exec, stats, ports,
+desktop, sizing, persistentHome, attachTransports}` — derived in
+`services/vms/drivers/index.ts` (`vmCapabilitiesOf`) from driver method presence, with the
+driver's declared `capabilities` overriding. Flags with no structural signal (`desktop`,
+`sizing`, `persistentHome`) default to false: a driver opts in to what it honors, and
+`POST /api/vm` rejects `memoryMb`/`persistentHome` requests the resolved provider would
+silently drop. Clients (the Mac app and CLI) gate verbs on this object and never on a
+provider name, so a new provider registered in `drivers/index.ts` works end to end with no
+client update. `openAttach`/`openSSH`/`revokeSSHIdentity` are optional interface members;
+the gateway maps an absent method to `VmOperationUnsupportedError` (an honest 501).
+`MockVMProvider` (`drivers/mock.ts`) is the interface's second implementer and the test
+double for provider-contract tests.
+
+## TLS edge: port previews and credential injection
+
+Freestyle's TLS rules (`freestyle.tls.rules`, docs at freestyle.sh/docs) carry two cmux
+features:
+
+- **Port previews (`openPort`, capability `ports: true`)** — `{ public } → { vmId, port }`
+  on an unguessable free `style.dev` subdomain (certificate-ready, no verification). The
+  subdomain's 96-bit random suffix is the preview token: possession of the URL is the
+  grant, the same trust model as the old tokened proxy URLs. Rules are reused per
+  (vm, port), cascade-delete with the VM, and are deleted on sign-out by
+  `revokeEndpointLeases` (the next openPort mints a fresh subdomain).
+- **Model-plane edge injection (`CMUX_VM_MODEL_PLANE_EDGE_INJECTION=1`, default off)** —
+  an egress rule `{ vmId } → { public }` on the coderouter origin with a headers
+  transform: the edge injects `authorization` + `x-coderouter-route-token` into the
+  guest's calls in flight, the persisted env file carries only a placeholder key, and a
+  compromised guest holds no credential to exfiltrate. Header values are write-only at
+  the provider (read back as `***`). Opt-in until validated against the live edge; when
+  the rule create fails the driver falls back to env-file delivery rather than shipping
+  an unwired machine.
+
+## In-VM cmux CLI and machine-to-machine links
+
+The driver installs `/usr/local/bin/cmux` (`services/vms/guestCli.ts`) at create and heal: a
+POSIX shim over the machine's own cmux-tui binary. Local verbs use cmux-tui's grammar against
+the machine's daemon session; `cmux vm …` verbs talk to peer machines through cmux-remote
+links granted from the Mac with `cmux vm link <src> <dst>` (route + single-use enrollment
+invitation pushed into `~/.cmux/peers/<dst>.json` on `<src>`, enrollment approved by the Mac
+through the control plane). No control-plane credential enters a VM; a machine reaches only
+the peers the user linked.
+
 Freestyle machines boot the shared devbox snapshot (definition in
 `services/vms/images/devbox/`, baked with `web/scripts/build-devbox-freestyle.ts` against
 the public platform `api.freestyle.sh`): chatmux-devbox tool parity (mise node/python/bun,

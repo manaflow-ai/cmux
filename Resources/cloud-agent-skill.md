@@ -59,7 +59,7 @@ Machine workspaces, terminals, and panes (everything the Cloud sidebar does):
 
 ```
 cmux vm workspace new <id> [--name <n>]     # create a workspace on the machine (its ⌘N) and open it here
-cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]
+cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left|--right|--up|--down]   # an empty workspace opens nothing (opened=0); --tabs and a side are exclusive
 cmux vm workspace rename <id> <ws> <name>
 cmux vm workspace rm <id> <ws>              # close the workspace AND kill every terminal in it (the sidebar's Close Workspace…)
 cmux vm workspace close <id> <ws>           # CLI-only: close the workspace but keep its terminals running in the Terminals pool
@@ -72,7 +72,7 @@ cmux surface open <machine>/<kind>/<key> [--new] [--pane <p> --left|--right|--up
 cmux surface new-terminal --machine <id> [--remote-workspace <ws>] [--cwd <dir>] [-- <cmd...>]
 ```
 
-A pane showing a machine surface is an ordinary local cmux pane: move, split, reorder, or close it with the local workspace/pane commands (`cmux --help`), and closing a pane never kills the machine's terminal. Workspace (`ws_…`) and terminal (`term_…`) ids come from `cmux vm tree`.
+A pane showing a machine surface is an ordinary local cmux pane: move, split, reorder, or close it with the local workspace/pane commands (`cmux --help`), and closing a pane never kills the machine's terminal. Workspace (`ws_…`) and terminal (`term_…`) ids come from `cmux vm tree`; `cmux vm tree --refresh` re-reads the fleet and every machine (a machine you just created shows up at once). A `--workspace`/`--pane` that names nothing is an error, never a silent open somewhere else.
 
 `terminal send/wait/read` is how you drive an interactive program on a machine (a REPL, a TUI, a long test run, another agent's session) without attaching a pane or taking the user's focus: start it with `surface new-terminal --machine <id> --no-open -- <cmd>`, then send input, wait for the prompt or result pattern, and read the screen. Open a pane for the person only when there is something to show.
 
@@ -120,11 +120,22 @@ cmux vm rm <id>          # irreversible and unprompted
 
 ## Inside a machine
 
-The guest `cmux` binary is the machine's relay CLI: commands go to the connected cmux app on the user's Mac; they do not act inside the VM. The most useful verb for agents running on a machine:
+Every machine has its own in-VM `cmux` CLI (a shim over the machine's cmux-tui daemon). Local verbs use cmux-tui's grammar (`cmux <resource> <action>`) against the machine's own session — workspaces, terminals, panes:
 
 ```
-cmux notify --title "Build done" --subtitle "myrepo" --body "Tests green"
+cmux workspace current run -- bun test        # run a command in a durable terminal here
+cmux session current snapshot --json          # this machine's workspace/terminal tree
 ```
+
+`cmux vm …` inside a machine talks to OTHER machines the Mac linked to this one (`cmux vm link <this-machine> <peer>` on the Mac grants access):
+
+```
+cmux vm ls                          # linked peers and their link state
+cmux vm exec <peer> -- <command>    # run on the peer (durable terminal there)
+cmux vm tree <peer>                 # the peer's workspace/terminal snapshot
+```
+
+Machine-to-machine access is grant-based: no control-plane credential lives in any VM, and a machine can only reach peers the user's Mac explicitly linked.
 
 ## Rules
 

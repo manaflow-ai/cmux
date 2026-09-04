@@ -357,23 +357,62 @@ struct VMExecResult {
     let stderr: String
 }
 
-/// What a machine's provider can do; the app offers only verbs that can succeed
-/// (Checkpoint/Fork disappear from menus when false — a verb that answers 502
-/// "not implemented" is not a verb).
+/// What a machine's provider can do; the app and CLI offer only verbs that can
+/// succeed (Checkpoint/Fork disappear from menus when false — a verb that
+/// answers 502 "not implemented" is not a verb). This mirrors the server's
+/// VmCapabilities: the client never assumes a provider name, only its
+/// capability set, so any provider the server registers works unchanged.
 struct VMCapabilities: Equatable, Sendable {
     var snapshot: Bool
     var restore: Bool
     var fork: Bool
+    /// One-shot non-interactive command execution (`vm exec`, push/pull transport).
+    var exec: Bool
+    /// Live CPU/memory/disk readings (`vm stats`).
+    var stats: Bool
+    /// Token-gated preview URLs for arbitrary VM ports (`vm open <m>:port/<n>`).
+    var ports: Bool
+    /// A desktop (VNC) surface exists for this provider's machines.
+    var desktop: Bool
+    /// Create honors `memoryMb` (as a floor on grow-only providers).
+    var sizing: Bool
+    /// Create honors a named persistent home volume request.
+    var persistentHome: Bool
+    /// Session transports the provider can hand out (e.g. "cmux-remote", "ssh").
+    /// nil means the server predates transport reporting: attempt, don't gate.
+    var attachTransports: [String]?
 
-    static let all = VMCapabilities(snapshot: true, restore: true, fork: true)
+    var ssh: Bool { attachTransports?.contains("ssh") ?? true }
+    var cmuxRemote: Bool { attachTransports?.contains("cmux-remote") ?? true }
 
-    init(snapshot: Bool, restore: Bool, fork: Bool) {
+    static let all = VMCapabilities(
+        snapshot: true, restore: true, fork: true,
+        exec: true, stats: true, ports: true, desktop: true,
+        sizing: true, persistentHome: true,
+        attachTransports: nil)
+
+    init(
+        snapshot: Bool, restore: Bool, fork: Bool,
+        exec: Bool = true, stats: Bool = true, ports: Bool = true, desktop: Bool = true,
+        sizing: Bool = true, persistentHome: Bool = true,
+        attachTransports: [String]? = nil
+    ) {
         self.snapshot = snapshot
         self.restore = restore
         self.fork = fork
+        self.exec = exec
+        self.stats = stats
+        self.ports = ports
+        self.desktop = desktop
+        self.sizing = sizing
+        self.persistentHome = persistentHome
+        self.attachTransports = attachTransports
     }
 
-    /// `{snapshot, restore, fork}`; a missing object or flag reads as supported.
+    /// Decodes the server's capability object. A missing object or flag reads as
+    /// supported, so an older server (which only gated snapshot/restore/fork)
+    /// keeps its historical behavior: the client attempts the verb and surfaces
+    /// the server's answer.
     init(json: Any?) {
         let dict = json as? [String: Any]
         func flag(_ key: String) -> Bool {
@@ -381,7 +420,33 @@ struct VMCapabilities: Equatable, Sendable {
             if let number = dict?[key] as? NSNumber { return number.boolValue }
             return true
         }
-        self.init(snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"))
+        // HTTP responses use camelCase while the v2 socket payload uses the
+        // CLI-friendly snake_case spelling. Accept both so capability gating
+        // remains stable across the two client entrypoints.
+        let transports = (dict?["attachTransports"] as? [Any] ?? dict?["attach_transports"] as? [Any])?
+            .compactMap { $0 as? String }
+        self.init(
+            snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"),
+            exec: flag("exec"), stats: flag("stats"), ports: flag("ports"), desktop: flag("desktop"),
+            sizing: flag("sizing"), persistentHome: flag("persistentHome"),
+            attachTransports: transports)
+    }
+
+    /// The wire shape echoed to CLI/socket clients (`vm ls --json` → `capabilities`).
+    var jsonObject: [String: Any] {
+        var object: [String: Any] = [
+            "snapshot": snapshot,
+            "restore": restore,
+            "fork": fork,
+            "exec": exec,
+            "stats": stats,
+            "ports": ports,
+            "desktop": desktop,
+            "sizing": sizing,
+            "persistentHome": persistentHome,
+        ]
+        if let attachTransports { object["attach_transports"] = attachTransports }
+        return object
     }
 }
 
@@ -1075,6 +1140,14 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
         summary.kind = Self.decodeKind(obj["kind"])
+        if obj["capabilities"] != nil {
+            summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
+        summary.freeAccessExpiresAt = Self.epochMilliseconds(obj["freeAccessExpiresAt"])
+        if let address = obj["address"] as? [String: Any] {
+            summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            summary.addressIPv6 = (address["ipv6"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        }
         return summary
     }
 
@@ -1118,6 +1191,9 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        if obj["capabilities"] != nil {
+            summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
         return summary
     }
 
@@ -1140,6 +1216,9 @@ actor VMClient {
         summary.kind = Self.decodeKind(obj["kind"])
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
+        }
+        if obj["capabilities"] != nil {
+            summary.capabilities = VMCapabilities(json: obj["capabilities"])
         }
         return summary
     }
@@ -1216,9 +1295,13 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshotID = obj["snapshotId"] as? String
+        var forked = VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        if obj["capabilities"] != nil {
+            forked.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+            vm: forked
         )
     }
 
@@ -1243,7 +1326,11 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        if obj["capabilities"] != nil {
+            restored.capabilities = VMCapabilities(json: obj["capabilities"])
+        }
+        return restored
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {

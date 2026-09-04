@@ -848,7 +848,9 @@ extension CMUXCLI {
         Options:
           --workspace <ws>   Put the pane in this local workspace (default: the machine's
                              open workspace, else where you are).
-          --focus <bool>     Focus the opened pane (default: false — panes open beside you).
+          --focus <bool>     Focus the opened pane. Default: true for a machine's shell and
+                             for terminals (like `vm shell` / `surface open`), false for
+                             desktop and port panes (they open beside you).
           --print            Ports only: print the URL, do not open a pane.
 
         Examples:
@@ -862,7 +864,10 @@ extension CMUXCLI {
 
     static let vmWorkspaceUsage = """
         Usage:
-          cmux vm workspace new <machine> [--name <name>]      Create a workspace on the machine (its ⌘N) and open it here.
+          cmux vm workspace new <machine> [--name <name>] [--no-open]
+                                                              Create a workspace on the machine (its ⌘N) and open it here;
+                                                              --no-open stages it headlessly (shows in `vm tree`, nothing
+                                                              opens locally — open later with `vm workspace open`).
           cmux vm workspace open <machine> <workspace-id>     Open a machine workspace as a new local workspace, one pane per terminal.
               [--here] [--tabs] [--workspace <local>] [--pane <id|ref> [--left|--right|--up|--down]]
                                                               --here: into the current (or --workspace) local workspace instead — one pane
@@ -922,11 +927,17 @@ extension CMUXCLI {
         case "new":
             var params: [String: Any] = ["id": machine]
             if let nameOpt, !nameOpt.isEmpty { params["name"] = nameOpt }
+            // --no-open: stage the workspace on the machine headlessly (it shows in
+            // `vm tree` and the sidebar; nothing opens or focuses locally).
+            if hasFlag(tail, name: "--no-open") { params["open"] = false }
             let response = try client.sendV2(method: "vm.workspace_new", params: params, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
             let remote = (response["remote_workspace_id"] as? String) ?? "?"
-            let local = (response["workspace_id"] as? String) ?? "?"
-            print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
+            if let local = response["workspace_id"] as? String, !local.isEmpty {
+                print("OK workspace=\(local) remote_workspace=\(remote) machine=\(machine)")
+            } else {
+                print("OK remote_workspace=\(remote) machine=\(machine) (staged; open with: cmux vm workspace open \(machine) \(remote))")
+            }
         case "open":
             guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
             var params: [String: Any] = ["id": machine, "workspace_id": positional[1]]
@@ -945,6 +956,9 @@ extension CMUXCLI {
             if direction != nil, pane == nil {
                 throw CLIError(message: "vm workspace open: --left/--right/--up/--down need --pane <id|ref>\n\n\(Self.vmWorkspaceUsage)")
             }
+            if tabs, direction != nil {
+                throw CLIError(message: String(localized: "cli.vm.workspace.open.tabsAndSide", defaultValue: "vm workspace open: --tabs and a pane side (--left/--right/--up/--down) are two different placements; pass one") + "\n\n\(Self.vmWorkspaceUsage)")
+            }
             if here {
                 params["here"] = true
                 if let localWorkspace { params["target_workspace_id"] = localWorkspace }
@@ -954,8 +968,19 @@ extension CMUXCLI {
             }
             let response = try client.sendV2(method: "vm.workspace_open", params: params, responseTimeout: 240)
             if jsonOutput { print(jsonString(response)); return }
-            let local = (response["workspace_id"] as? String) ?? "?"
             let opened = (response["opened"] as? Int) ?? 0
+            if (response["empty"] as? Bool) == true {
+                // Same as clicking the row: an empty workspace opens nothing (D9).
+                // The hint names the workspace by id (that is what --remote-workspace takes),
+                // even when the caller opened it by name.
+                let remoteID = (response["remote_workspace_id"] as? String) ?? positional[1]
+                print(String(
+                    format: String(localized: "cli.vm.workspace.open.empty", defaultValue: "OK opened=0 machine=%1$@ (workspace %2$@ is empty — nothing to open; `cmux surface new-terminal --machine %1$@ --remote-workspace %3$@` starts a terminal in it)"),
+                    machine, positional[1], remoteID
+                ))
+                return
+            }
+            let local = (response["workspace_id"] as? String) ?? "?"
             print("OK workspace=\(local) opened=\(opened) machine=\(machine)\(here ? " here" : "")")
         case "close":
             guard positional.count >= 2 else { throw CLIError(message: Self.vmWorkspaceUsage) }
@@ -1090,12 +1115,15 @@ extension CMUXCLI {
             print(String(localized: "cli.vm.tree.empty", defaultValue: "No cloud machines. Try: cmux vm new"))
             return
         }
-        // Local terminals group by the workspace that shows them; titles come from the
-        // workspace list (best effort — an id stands in when the list is unavailable).
+        // Local terminals group by the workspace that shows them. The catalog carries
+        // this Mac's workspace titles itself (`workspaces`); an older app without them
+        // costs one `workspace.list` round trip (best effort — an id stands in when
+        // neither is available).
         var workspaceTitles: [String: String] = [:]
-        if machines.contains(where: { ($0["local"] as? Bool) == true }),
-           let list = try? client.sendV2(method: "workspace.list"),
-           let workspaces = list["workspaces"] as? [[String: Any]] {
+        if machines.contains(where: { ($0["local"] as? Bool) == true }) {
+            let workspaces = (response["workspaces"] as? [[String: Any]])
+                ?? ((try? client.sendV2(method: "workspace.list"))?["workspaces"] as? [[String: Any]])
+                ?? []
             for workspace in workspaces {
                 guard let id = workspace["id"] as? String else { continue }
                 let title = (workspace["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1297,8 +1325,12 @@ extension CMUXCLI {
             lines.append("  " + String(localized: "cli.vm.tree.ports", defaultValue: "ports/"))
             for (port, browser) in ports {
                 let label = (browser["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                // The direct private-network link the sidebar's port row shows and copies
+                // (`http://<private-ip>:<port>`); absent until `cmux vpn up` gave the machine
+                // a private address.
+                let link = (browser["url"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let open = (browser["open"] as? Bool) == true
-                var cell = "    \(port)\(label.map { "  \($0)" } ?? "")  (cmux vm open \(id):port/\(port))"
+                var cell = "    \(port)\(label.map { "  \($0)" } ?? "")\(link.map { "  \($0)" } ?? "")  (cmux vm open \(id):port/\(port))"
                 if open { cell += "  " + String(localized: "cli.vm.tree.openMarker", defaultValue: "(open)") }
                 lines.append(cell)
             }
@@ -1459,11 +1491,16 @@ extension CMUXCLI {
                 ))
             }
             let live = inWorkspace.filter { ($0["lifecycle"] as? String) != "exited" }
-            let focusedFirst = live.sorted { lhs, rhs in
-                let l = ((lhs["remote_workspace"] as? [String: Any])?["focused"] as? Bool) == true
-                let r = ((rhs["remote_workspace"] as? [String: Any])?["focused"] as? Bool) == true
-                return l && !r
+            // "Focused" is judged in the REQUESTED workspace's view of the terminal, not
+            // its first workspace: a terminal focused elsewhere must not outrank this
+            // workspace's own focused terminal.
+            func focusedHere(_ terminal: [String: Any]) -> Bool {
+                let views = ((terminal["remote_views"] as? [[String: Any]]) ?? []).compactMap { $0["workspace"] as? [String: Any] }
+                let member = views.first { ($0["id"] as? String) == remoteWorkspaceId }
+                    ?? (terminal["remote_workspace"] as? [String: Any])
+                return (member?["focused"] as? Bool) == true
             }
+            let focusedFirst = live.sorted { lhs, rhs in focusedHere(lhs) && !focusedHere(rhs) }
             if let pick = focusedFirst.first, let terminalId = pick["key"] as? String {
                 try openVMTerminal(machine: machine, terminalId: terminalId, workspaceRaw: workspaceRaw, focus: focus, client: client, jsonOutput: jsonOutput)
                 return
@@ -1573,6 +1610,9 @@ extension CMUXCLI {
             if (direction != nil || tab) && paneOpt == nil {
                 throw CLIError(message: "surface open: --left/--right/--up/--down/--tab need --pane <id|ref>\n\n\(Self.surfaceUsage)")
             }
+            if tab, direction != nil {
+                throw CLIError(message: String(localized: "cli.surface.open.tabAndSide", defaultValue: "surface open: --tab and a pane side (--left/--right/--up/--down) are two different placements; pass one") + "\n\n\(Self.surfaceUsage)")
+            }
             var params: [String: Any] = ["resource": resource]
             if let workspaceOpt { params["workspace_id"] = workspaceOpt }
             if let paneOpt { params["pane_id"] = paneOpt }
@@ -1642,6 +1682,131 @@ extension CMUXCLI {
 
         default:
             throw CLIError(message: "Unsupported surface subcommand: \(subcommand)\n\n\(Self.surfaceUsage)")
+        }
+    }
+}
+
+// MARK: - cmux vm link <src> <dst>  (grant one machine a cmux-remote link to another)
+
+extension CMUXCLI {
+    /// Machine-to-machine access: after `cmux vm link <src> <dst>`, the in-VM
+    /// `cmux vm …` verbs on <src> can drive <dst> (exec, tree, terminals) over
+    /// the same cmux-remote transport the Mac uses. The Mac brokers the grant —
+    /// it mints <dst>'s route plus a single-use enrollment invitation, pushes
+    /// the peer file into <src>, kicks the in-VM connect, and approves the
+    /// pending enrollment — so no control-plane credential ever enters a VM.
+    func runVMLinkCommand(rest: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let ids = rest.filter { !$0.hasPrefix("-") }
+        guard ids.count == 2 else {
+            throw CLIError(message: """
+                Usage: cmux vm link <src-machine> <dst-machine>
+
+                Grants <src-machine> access to <dst-machine>: inside <src-machine>,
+                `cmux vm exec <dst-machine> -- <cmd>` (and vm tree/terminal/…) then work.
+
+                Examples:
+                  cmux vm ls
+                  cmux vm link vivid-newt quiet-otter
+                """)
+        }
+        let src = ids[0], dst = ids[1]
+        for id in [src, dst] {
+            guard id.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+                throw CLIError(message: "vm link: `\(id)` is not a machine id. Run `cmux vm ls`.")
+            }
+        }
+        guard src != dst else {
+            throw CLIError(message: "vm link: source and destination are the same machine.")
+        }
+
+        // 1. Mint dst's route + invitation. No device fingerprint: src's in-VM
+        //    client is a brand-new device, so an invitation is always wanted.
+        let info = try client.sendV2(
+            method: "vm.cmux_remote_info",
+            params: ["id": dst],
+            responseTimeout: 180
+        )
+        guard let route = info["route"] as? String, !route.isEmpty else {
+            throw CLIError(message: "vm link: \(dst) returned no cmux-remote route. Is the machine running? Try `cmux vm wait \(dst) --wake`.")
+        }
+        let session = (info["session"] as? String) ?? "cloud"
+        let invitation = info["invitation"] as? [String: Any]
+        let invitationId = invitation?["invitation_id"] as? String
+
+        // 2. Push the peer file into src (base64 through exec: no quoting games).
+        var peer: [String: Any] = ["machine": dst, "route": route, "session": session]
+        if let uri = invitation?["uri"] as? String { peer["invite"] = uri }
+        let peerB64 = Data(jsonString(peer).utf8).base64EncodedString()
+        let peerPath = "$HOME/.cmux/peers/\(dst).json"
+        let write = "umask 077 && mkdir -p \"$HOME/.cmux/peers\" && printf '%s' '\(peerB64)' | base64 -d > \"\(peerPath)\""
+        let writeResult = try client.sendV2(
+            method: "vm.exec",
+            params: ["id": src, "command": write, "timeout_ms": 30_000],
+            responseTimeout: 60
+        )
+        if let code = writeResult["exit_code"] as? Int, code != 0 {
+            let stderr = (writeResult["stderr"] as? String) ?? ""
+            throw CLIError(message: "vm link: writing the peer file on \(src) failed (exit \(code)). \(stderr)")
+        }
+
+        // 3. Kick the in-VM connect in the background — it must run while the
+        //    approve loop below answers its pending enrollment.
+        let kick = "nohup cmux vm connect \(shellQuote(dst)) >/tmp/cmux-vm-link-\(dst).log 2>&1 & printf started"
+        _ = try client.sendV2(
+            method: "vm.exec",
+            params: ["id": src, "command": kick, "timeout_ms": 15_000],
+            responseTimeout: 60
+        )
+
+        // 4. Approve the pending enrollment src's connect just minted.
+        if let invitationId {
+            var approved = false
+            let deadline = Date().addingTimeInterval(120)
+            while Date() < deadline {
+                Thread.sleep(forTimeInterval: 2)
+                guard let result = try? client.sendV2(
+                    method: "vm.cmux_remote_approve",
+                    params: ["id": dst, "invitation_id": invitationId],
+                    responseTimeout: 60
+                ) else { continue }
+                let state = result["state"] as? String
+                if state == "approved" || state == "already_enrolled" {
+                    approved = true
+                    break
+                }
+            }
+            guard approved else {
+                throw CLIError(message: """
+                    vm link: \(src) never claimed the enrollment invitation for \(dst).
+                    Check /tmp/cmux-vm-link-\(dst).log on \(src):
+                      cmux vm exec \(src) -- cat /tmp/cmux-vm-link-\(dst).log
+                    """)
+            }
+        }
+
+        // 5. Verify end to end: the in-VM connect is idempotent and exits 0
+        //    once the peer's local mux socket answers.
+        let verify = try client.sendV2(
+            method: "vm.exec",
+            params: ["id": src, "command": "cmux vm connect \(shellQuote(dst))", "timeout_ms": 60_000],
+            responseTimeout: 90
+        )
+        let verifyCode = (verify["exit_code"] as? Int) ?? -1
+        guard verifyCode == 0 else {
+            let stderr = (verify["stderr"] as? String) ?? ""
+            throw CLIError(message: "vm link: \(src) could not reach \(dst) after enrollment (exit \(verifyCode)). \(stderr)")
+        }
+
+        if jsonOutput {
+            print(jsonString([
+                "ok": true,
+                "src": src,
+                "dst": dst,
+                "route": route,
+                "enrolled": invitationId != nil,
+            ]))
+        } else {
+            print("OK linked \(src) -> \(dst). Inside \(src): cmux vm exec \(dst) -- <command>")
         }
     }
 }

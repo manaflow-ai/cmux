@@ -48,3 +48,8 @@ Rules that keep it 1:1:
 - Placement flags mean the same everywhere: `--pane <p>` + side = split that pane on that side; `--tab` / `--tabs` = tabs in that pane; nothing = the focused pane of the current (or `--workspace`) local workspace; `--new` = never reuse a pane that already shows the surface.
 - Ports are a first-class group in the tree when a machine exposes listening ports; the CLI and sidebar use the same port-open path.
 - Agent-only primitives (`cmux vm terminal send|read|wait` → `vm.terminal_write|read|wait`, plus `exec`, `push`, `pull`, `route`, `run`, `agent`) have no sidebar verb by design: a person does those things by typing into a pane. They still go through the machine's `CmuxTuiSurfaceProvider`, so what an agent types headlessly shows up in every pane projecting that terminal.
+
+Machine-to-machine links are intentionally agent-only: `cmux vm link <src> <dst>`
+grants a scoped peer route and enrollment invitation, and the source machine's
+in-VM `cmux vm` shim uses the same remote-daemon verbs without exposing a
+control-plane credential.

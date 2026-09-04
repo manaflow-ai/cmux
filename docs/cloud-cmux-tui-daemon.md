@@ -299,7 +299,7 @@ Socket (worker lane, like `vm.*`):
 
 | Method | Params | Result |
 | --- | --- | --- |
-| `surface.catalog` | `{machine?: "local"\|<id>, refresh?}` | `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent?, remote_workspace?, port?, url?, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}` |
+| `surface.catalog` | `{machine?: "local"\|<id>, refresh?}` | `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb, remote_workspaces}], workspaces: [{id, title, ref, selected, window_id}] (this Mac's workspaces; absent for a cloud-only request), resources: [{id, machine, kind: terminal\|display\|browser, key, title, detail, lifecycle, agent?, remote_workspace?, port?, url?, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}`. `refresh: true` is the sidebar's Refresh: fleet list + every provider. |
 | `surface.project` | `{resource, workspace_id?, pane_id?, direction?: left\|right\|up\|down, tab_index?, placement?: split\|tab, focus? (true), reuse? (true)}` | `{surface_id, workspace_id, reused, resource}` — `pane_id` + `direction` splits that pane on that side; `pane_id` + `tab_index`/`placement: tab` tabs into it; else the workspace's focused pane |
 | `surface.new_terminal` | `{machine, command?: [string], cwd?, name?, remote_workspace_id?, open? (true), + the destination params}` | `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}` |
 
@@ -309,3 +309,48 @@ over the same catalog (`vm.tree` is the catalog restricted to cloud machines;
 `vm.desktop_open` projects `<id>/display/display:1`; `vm.port_open` projects
 `<id>/browser/port:<n>`, registering the port first when the probe has not
 seen it). CLI: `cmux surface ls|open|new-terminal` and `cmux vm tree|open`.
+
+## Notifications from a machine
+
+`cmux notify` inside a machine is the guest shim (`web/services/vms/guestCli.ts`)
+translating to `notification create --title … --body … [--level …] --terminal
+$CMUX_TUI_TERMINAL_ID` on the machine's own session. The daemon appends it to
+its durable notification ledger and the v2 `session.events` stream carries it
+as a delta:
+
+```
+{"protocol":"cmux.protocol/2","type":"stream_item",…,"item":{"kind":"delta",…,
+ "changes":[{"kind":"upsert","resource":"notification","id":"notification_<32hex>",
+   "value":{"id":…,"session_id":…,"title":…,"body":…,"level":…,"created_at_ms":…,
+            "unread":…,"terminal_id":"term_<32hex>"}}]}}
+```
+
+The Mac already follows that stream over the headless link (`CloudMachineLink`,
+`CloudTuiCommandLine.eventsArguments`). `CloudMachineNotificationEvent` parses
+exactly that one resource kind out of it — the first `kind:"snapshot"` item
+replays the whole ledger on every (re)connect and is never interpreted — and
+`CmuxTuiSurfaceProvider` attributes it through the surface catalog: the link that
+produced the line names the machine, the event may only name one of that
+machine's `term_…` ids, and the catalog projection of that resource names the
+local pane. No pane showing the terminal → a workspace-level notification in a
+workspace showing the machine; nothing of the machine on screen → dropped.
+
+### Trust boundary
+
+The Mac never executes anything on behalf of the machine. Control flows one way
+(Mac → daemon); everything on the event stream is data, parsed by a strict,
+bounded parser (64 KiB per line before JSON, 4 MiB line cap on the pipe, 128 B
+titles, 1 KiB bodies, escape/control/bidi characters stripped, 16 notification
+changes per delta, 5-burst/1-per-second per machine plus a fleet bucket,
+notification-id and identical-content de-duplication). The event's session id,
+timestamps, unread flag, `extra`, and any UUID-looking field are ignored, so a
+machine can neither address another machine's panes nor a local surface. The
+notification enters `TerminalNotificationStore` with origin `cloud-vm:<machine>`:
+display, sound, badge, global `cmux.json` hooks, `notifications.command` (both
+with `CMUX_NOTIFICATION_ORIGIN`), and phone forwarding — never a reply shape,
+click action, agent context, sound override, or project hooks from a local
+directory. There is no reverse RPC, no listener on the Mac, and no
+`CMUX_SOCKET*` / workspace / surface identity in the machine's environment; the
+`cmux ssh` reverse relay stays gated off for machines. This is the `cmux ssh`
+*policy* (notification-only, host-attributed, no remote selectors) without its
+*transport* (a request channel into the Mac).

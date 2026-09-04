@@ -242,6 +242,80 @@ import Testing
             == ["--socket", "/tmp/s.sock", "--json", "workspace", "ws_1", "close"])
     }
 
+    @Test func newTerminalJoinsTheFocusedElseFirstWorkspace() {
+        // Without `--remote-workspace`, a terminal lands in the daemon's focused workspace,
+        // else the first in daemon order; an empty workspace list means the provider has
+        // to ask the daemon (and only then create `main` — never a workspace named after
+        // the terminal).
+        let main = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: false)
+        let api = SurfaceRemoteWorkspace(id: "ws_api", name: "api", index: 1, focused: true)
+        let docs = SurfaceRemoteWorkspace(id: "ws_docs", name: "docs", index: 2, focused: false)
+        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([docs, api, main])?.id == "ws_api")
+        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([docs, main])?.id == "ws_main")
+        #expect(CmuxTuiSurfaceProvider.preferredWorkspace([]) == nil)
+        #expect(CmuxTuiSurfaceProvider.firstWorkspaceName == "main")
+    }
+
+    @Test @MainActor func snapshotRereadsCoalesceWithoutTimersAndAreNeverStarved() async {
+        // One pass in flight, at most one queued behind it, no delay anywhere: a burst
+        // of deltas costs two passes, and a burst that arrives DURING a pass still gets
+        // exactly one follow-up (the tree is never starved by a restarted window).
+        final class Gate: @unchecked Sendable {
+            let lock = NSLock()
+            var waiters: [CheckedContinuation<Void, Never>] = []
+            var entered = 0
+            func enter() async { await withCheckedContinuation { c in lock.withLock { entered += 1; waiters.append(c) } } }
+            func release() { let w = lock.withLock { let w = waiters; waiters.removeAll(); return w }; w.forEach { $0.resume() } }
+            func enteredCount() -> Int { lock.withLock { entered } }
+        }
+        let gate = Gate()
+        let coalescer = SurfaceRefreshCoalescer { await gate.enter() }
+        coalescer.request()
+        coalescer.request()
+        coalescer.request()
+        // Let the loop start its first pass.
+        while gate.enteredCount() < 1 { await Task.yield() }
+        #expect(coalescer.passes == 1, "a burst before the first pass starts is one pass")
+        #expect(coalescer.isRunning)
+        // Deltas during the pass queue exactly one follow-up.
+        coalescer.request()
+        coalescer.request()
+        gate.release()
+        while gate.enteredCount() < 2 { await Task.yield() }
+        #expect(coalescer.passes == 2)
+        gate.release()
+        while coalescer.isRunning { await Task.yield() }
+        #expect(coalescer.passes == 2, "a quiet coalescer stops; nothing runs on a timer")
+        // A cancelled coalescer drops its queued follow-up.
+        coalescer.request()
+        while gate.enteredCount() < 3 { await Task.yield() }
+        coalescer.request()
+        coalescer.cancel()
+        // A request that lands before the cancelled pass unwinds owns a fresh loop; the
+        // old pass unwinding must not clear it (that would let two passes overlap later).
+        coalescer.request()
+        while gate.enteredCount() < 4 { await Task.yield() }
+        #expect(coalescer.passes == 4)
+        #expect(coalescer.isRunning)
+        gate.release()
+        while coalescer.isRunning { await Task.yield() }
+        #expect(coalescer.passes == 4)
+    }
+
+    @Test(.timeLimit(.seconds(2))) @MainActor
+    func forcedRegistryRefreshCompletesAfterAnEmptyPass() async {
+        // A registry without a catalog/client makes performRefresh return immediately.
+        // A forced caller must still clear that completed flight; otherwise the old
+        // implementation re-entered its `while let refreshInFlight` loop forever and
+        // pinned the main actor at 100% CPU (the live `vm tree --refresh` repro).
+        let links = CloudMachineLinkManager(
+            clientURL: nil,
+            hostThemeColors: { nil }
+        )
+        let registry = CmuxTuiSurfaceProviderRegistry(links: links)
+        #expect(await registry.refresh(force: true) == false)
+    }
+
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
@@ -416,6 +490,24 @@ import Testing
         try whole.fileHandleForWriting.close()
         let data = await CloudLinkPipe.readToEnd(whole.fileHandleForReading)
         #expect(String(decoding: data, as: UTF8.self) == "all of it")
+    }
+
+    @Test func linkPipeDropsAnOversizedLineInsteadOfBufferingIt() async throws {
+        // The daemon caps a message at 4 MiB; a peer that withholds the newline must not
+        // pin Mac memory, and the line after the oversized one still arrives intact.
+        let pipe = Pipe()
+        let lines = CloudLinkPipe.lines(from: pipe.fileHandleForReading)
+        let writer = pipe.fileHandleForWriting
+        let chunk = Data(repeating: 0x41, count: 1024 * 1024)
+        let writeTask = Task.detached {
+            for _ in 0..<5 { writer.write(chunk) }
+            writer.write(Data("\nok\n".utf8))
+            try writer.close()
+        }
+        var received: [String] = []
+        for await line in lines { received.append(line) }
+        try await writeTask.value
+        #expect(received == ["ok"])
     }
 
     @Test func linkFirstValueResolvesOnce() async {

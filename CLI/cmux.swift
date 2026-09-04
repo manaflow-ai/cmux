@@ -4350,7 +4350,7 @@ struct CMUXCLI {
         return nil
     }
     /// `--base` / `--no-desktop` → shell-only; anything else (including `--desktop`
-    /// and no flag) → a machine with a screen.
+    /// and no flag) → a machine with a screen, the same default as `vm new`.
     static func parseCloudVMKindFlags(_ args: [String]) -> VMMachineKind {
         args.contains("--base") || args.contains("--no-desktop") ? .base : .desktop
     }
@@ -4369,6 +4369,7 @@ struct CMUXCLI {
         vmId: String,
         windowRaw: String?,
         targetWorkspaceId: String?,
+        focus: Bool = true,
         client: SocketClient,
         jsonOutput: Bool,
         idFormat: CLIIDFormat
@@ -4380,6 +4381,7 @@ struct CMUXCLI {
             targetWorkspaceId: targetWorkspaceId,
             forceSSH: false,
             shouldPinWorkspaceToTop: false,
+            focus: focus,
             client: client,
             jsonOutput: jsonOutput,
             idFormat: idFormat
@@ -4636,10 +4638,15 @@ struct CMUXCLI {
               !trimmed.isEmpty else {
             return nil
         }
+        // The CLI never enumerates providers: the server's registry is the
+        // authority and answers 400 vm_invalid_provider for unknown ids, so a
+        // provider added server-side works here with no client update. Only the
+        // token shape is validated (it travels in a JSON body).
         let normalized = trimmed.lowercased()
-        guard normalized == "freestyle" else {
+        let validShape = normalized.range(of: "^[a-z0-9][a-z0-9-]{0,63}$", options: .regularExpression) != nil
+        guard validShape else {
             throw CLIError(message: """
-                vm new: unsupported Cloud VM service override.
+                vm new: `--provider` must be a lowercase provider id (letters, digits, dashes).
 
                 Try:
                   cmux vm new
@@ -4721,13 +4728,6 @@ struct CMUXCLI {
         guard store.records[active.signature]?.key == active.key else { return }
         store.records.removeValue(forKey: active.signature)
         try? saveVMCreateIdempotencyStore(store, to: url)
-    }
-
-    private static func usesPersistentDefaultCloud(image: String?, providerOption: String?) -> Bool {
-        let normalizedImage = image?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard normalizedImage?.isEmpty != false else { return false }
-        let normalizedProvider = providerOption?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalizedProvider == nil || normalizedProvider == ""
     }
 
     private static let browserDisabledDefaultsKey = "browserDisabledOverride"
@@ -5675,13 +5675,17 @@ struct CMUXCLI {
             let sub = commandArgs.first?.lowercased() ?? "ls"
             let rest = Array(commandArgs.dropFirst())
             switch sub {
+            case "help":
+                // `cmux vm help`, the same text as `cmux help vm` / `cmux vm --help` (and
+                // what the in-machine `cmux vm help` prints for its own verbs).
+                print(subcommandUsage(command) ?? usage())
+                return
             case "domains":
                 try runCloudDomainsCommand(
                     commandArgs: rest,
                     client: client,
                     jsonOutput: jsonOutput
                 )
-
             case "ls", "list":
                 let response = try client.sendV2(method: "vm.list")
                 if jsonOutput {
@@ -5819,6 +5823,7 @@ struct CMUXCLI {
                         vmId: vmId,
                         windowRaw: windowOpt ?? windowId,
                         targetWorkspaceId: workspaceOpt,
+                        focus: focus ?? true,
                         client: client,
                         jsonOutput: jsonOutput,
                         idFormat: idFormat
@@ -5847,6 +5852,10 @@ struct CMUXCLI {
                 let status = (response["status"] as? String) ?? "unknown"
                 print("\(id)  [\(provider)] \(status)")
                 print("image: \(image)")
+                if let address = response["address"] as? [String: Any],
+                   let ip = ((address["ipv4"] as? String) ?? (address["ipv6"] as? String)), !ip.isEmpty {
+                    print("address: \(ip)")
+                }
 
             case "prompt", "skill":
                 // The Machines panel's "Copy Cloud Prompt" / "Open Cloud Agent", as CLI.
@@ -5951,13 +5960,10 @@ struct CMUXCLI {
                 let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
                 // No provider ships a desktop image right now, so a bare `vm new`
                 // asks for a shell-only machine; requesting `--desktop` anyway fails
-                // closed with a server-side image config error rather than silently
-                // handing back a screenless box. Flip this back to desktop-by-default
-                // once a desktop image lands in the manifest.
-                // `--base`/`--no-desktop` stay accepted for scripts written against
-                // the old desktop default.
-                _ = hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop")
-                let desktop = hasFlag(rem2, name: "--desktop")
+                // The devbox bakes the TigerVNC desktop, so a screen is the default
+                // again (what the New Machine sheet's Kind picker starts on); `--base` /
+                // `--no-desktop` ask for a shell-only machine.
+                let desktop = !(hasFlag(rem2, name: "--base") || hasFlag(rem2, name: "--no-desktop"))
                 let (sizeOpt, rem3) = parseOption(rem2, name: "--size")
                 let memoryMb: Int?
                 if let sizeOpt {
@@ -5965,8 +5971,9 @@ struct CMUXCLI {
                         throw CLIError(message: """
                             vm new: unknown size '\(sizeOpt)'.
 
-                            Sizes: 2g, 4g, 8g, 16g, 24g, 32g (or memory in MB).
-                            Plans cap the largest size; `cmux vm ls` shows your plan.
+                            Sizes: 20g (the plan machine) or memory in MB (at least 512).
+                            Every plan sells the plan machine; the backend resolves any
+                            other size to it. `cmux vm ls` shows your plan.
                             """)
                     }
                     memoryMb = parsed
@@ -5983,9 +5990,9 @@ struct CMUXCLI {
                         vm new: unknown flag '\(unknown)'.
 
                         Known flags:
-                          --base            shell-only machine (no desktop, the default)
-                          --desktop         machine with a screen (no image available yet)
-                          --size <2g|4g|8g|16g|24g|32g>
+                          --base            shell-only machine (no screen)
+                          --desktop         machine with a screen (the default)
+                          --size <20g|<mb>>   memory preset (20g is the plan machine) or MB
                           --name <label>    display label (the id stays the address)
                           --image <image-id>  explicit image override (normally omit)
                           --provider <provider>
@@ -6026,26 +6033,13 @@ struct CMUXCLI {
                 // not expose sizing ignore this optional field; providers that do use it
                 // for runtime memory get it, and the backend applies the plan ceiling.
                 if let memoryMb { params["memory_mb"] = memoryMb }
-                // The persistent per-machine home is keyed off whether the *person*
-                // overrode the image/provider (`imageOptRaw`), not the CLI-injected
-                // default. Otherwise the desktop default would look like a custom
-                // image and silently drop `persistent_home`, making every new machine
-                // ephemeral. A bare `vm new` — desktop or `--base` — stays persistent.
-                let usesPersistentDefaultCloud = Self.usesPersistentDefaultCloud(
-                    image: imageOptRaw,
-                    providerOption: providerOpt
-                )
-                // The persistent-default create sends no provider override: the backend's
-                // CMUX_VM_DEFAULT_PROVIDER decides, with Freestyle as the default. An
-                // explicit provider remains available for deliberate rollback/experiments.
-                if usesPersistentDefaultCloud {
-                    // Every new machine is its own persistent computer: the backend mounts a
-                    // volume derived from the machine's generated name, so `vm new` mints a
-                    // fresh durable machine each time (up to the plan limit) instead of
-                    // reattaching the single shared slot. `vm base open` still owns the slot.
-                    params["persistent_home"] = true
-                    params["per_machine_home"] = true
-                }
+                // No `persistent_home` request by default. The field means "mount a
+                // named persistent volume as the home" — an optional provider
+                // feature the server now rejects rather than silently drops when
+                // the resolved provider cannot honor it (capabilities.persistentHome).
+                // The current default provider's machines keep a persistent /root
+                // natively, so a bare `vm new` is already a durable computer; a
+                // future provider with detachable volumes earns explicit flags here.
                 let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
                 // Store-based idempotency: retries of a failed create reuse the key; a
                 // successful create clears it, so the next `vm new` makes a new machine.
@@ -6511,6 +6505,9 @@ struct CMUXCLI {
                 }
                 print((response["stdout"] as? String) ?? "")
 
+            case "link":
+                try runVMLinkCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "handoff":
                 guard let vmId = rest.first else {
                     throw CLIError(message: "Usage: cmux vm handoff <id>")
@@ -6526,7 +6523,7 @@ struct CMUXCLI {
                 print("id:       \(vmId)")
                 print("provider: \(provider)")
                 print("status:   \(status)")
-                print("attach:   cmux vm ssh \(vmId)")
+                print("attach:   cmux vm shell \(vmId)")
                 print("inspect:  cmux vm tools \(vmId)")
 
             case "promote-template":
@@ -6544,19 +6541,22 @@ struct CMUXCLI {
 
             default:
                 throw CLIError(message: """
-                    Usage: cmux \(command) <ls|new|domains|status|snapshot|fork|restore|shell|tui|rm|run|exec|push|pull|wait|open|ports|tools|handoff|promote-template|ssh> [args...]
+                    Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|workspace|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
                     Common commands:
                       cmux vm ls
                       cmux vm new
+                      cmux vm tree
+                      cmux vm open <id>[/<ws>[/<term>]]
                       cmux cloud domains
                       cmux vm status <id>
                       cmux vm snapshot <id>
                       cmux vm fork <id>
                       cmux vm exec <id> -- <command...>
                       cmux vm push <id> <local-path>
-                      cmux vm ssh <id>
                       cmux vm rm <id>
+
+                    `cmux help vm` lists every subcommand.
                     """)
             }
 
@@ -18652,7 +18652,7 @@ struct CMUXCLI {
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|link|workspace|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports; run `cmux vpn up`
@@ -18684,6 +18684,10 @@ struct CMUXCLI {
                                         Print the terminal's visible screen.
               terminal wait <machine> <term-id> --pattern <regex> [--timeout <s>]
                                         Block until the screen matches; exit 1 on timeout.
+              link <src> <dst>          Grant machine <src> access to machine <dst>:
+                                        inside <src>, `cmux vm exec <dst> -- <cmd>`,
+                                        `cmux vm tree <dst>`, and the other in-VM
+                                        `cmux vm` verbs then drive <dst> directly.
               prompt [--open <agent>]   Install the cmux-cloud skill file and print the
                                         kickoff prompt for any agent; --open starts a
                                         local claude|codex|opencode|pi terminal with it.
@@ -18698,14 +18702,15 @@ struct CMUXCLI {
               base open [--desktop|--base] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
-                                        open picks the kind (desktop by default).
+                                        open picks the kind (desktop by default;
+                                        --base for shell-only).
                                         --focus false opens it without switching
                                         to its workspace.
               base reset [--desktop|--base] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
-              new [--desktop|--base] [--size <2g|4g|8g|16g|24g|32g>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
+              new [--desktop|--base] [--size <20g|<mb>>] [--name <label>] [--provider <provider>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Create a new machine by kind (desktop by
                                         default; --base for shell-only). The server
                                         picks the image for the kind; --image <id>

@@ -24,6 +24,7 @@ import {
   normalizeFreestyleExecTimeout,
   freestylePinCheckCommand,
 } from "../services/vms/drivers/freestyle";
+import type { VMProvider } from "../services/vms/drivers/types";
 import { cmuxTuiPinCheckCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { ProviderError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
@@ -95,21 +96,14 @@ describe("FreestyleProvider transport contract", () => {
     expect(typeof provider.approveCmuxRemoteEnrollment).toBe("function");
   });
 
-  test("openAttach refuses and names cmux-remote", async () => {
-    const provider = new FreestyleProvider();
-    await expect(provider.openAttach(VM_ID)).rejects.toThrow(ProviderError);
-    await expect(provider.openAttach(VM_ID)).rejects.toThrow("cmux-remote");
-  });
-
-  test("openSSH refuses: the public platform has no SSH gateway", async () => {
-    const provider = new FreestyleProvider();
-    await expect(provider.openSSH(VM_ID)).rejects.toThrow(ProviderError);
-    await expect(provider.openSSH(VM_ID)).rejects.toThrow("cmux-remote");
-  });
-
-  test("revokeSSHIdentity is a no-op, so destroy/cleanup paths stay safe", async () => {
-    const provider = new FreestyleProvider();
-    await expect(provider.revokeSSHIdentity("identity-1")).resolves.toBeUndefined();
+  test("openAttach/openSSH are structurally absent, not throwing stubs", () => {
+    // Capability derivation reads method presence; the gateway maps an absent
+    // method to VmOperationUnsupportedError (501), so a throwing stub would
+    // only turn an honest 501 into a retryable-looking 502.
+    const provider: VMProvider = new FreestyleProvider();
+    expect(provider.openAttach).toBeUndefined();
+    expect(provider.openSSH).toBeUndefined();
+    expect(provider.revokeSSHIdentity).toBeUndefined();
   });
 
   test("fork is not implemented, so the capability resolves false", () => {

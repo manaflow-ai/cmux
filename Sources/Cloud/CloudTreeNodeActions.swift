@@ -230,11 +230,12 @@ struct CloudTreeNodeActions {
         provider: any SurfaceProvider,
         catalog: SurfaceCatalog,
         name: String?,
-        focus: Bool
+        focus: Bool,
+        openLocally: Bool = true
     ) async throws -> (
         workspace: SurfaceRemoteWorkspace,
         terminal: SurfaceResource,
-        opened: (workspaceID: UUID, projections: [SurfaceProjection])
+        opened: (workspaceID: UUID, projections: [SurfaceProjection])?
     ) {
         let workspace = try await provider.createRemoteWorkspace(name: name)
         await provider.refresh()
@@ -247,6 +248,9 @@ struct CloudTreeNodeActions {
         } else {
             terminal = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: workspace.id)
         }
+        // Headless staging (`--no-open`): an agent composes machine workspaces for
+        // the user to open later; nothing local is created or focused.
+        guard openLocally else { return (workspace, terminal, nil) }
         let group = SurfaceResourceGroup(title: workspace.name, resources: [terminal.id])
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
             group.resources,

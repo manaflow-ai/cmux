@@ -7,6 +7,8 @@ import {
 import { setSpanAttributes } from "../../../../services/telemetry";
 import { isVmNotFoundError } from "../../../../services/vms/errors";
 import { destroyVm, getVm, renameVm, runVmWorkflow } from "../../../../services/vms/workflows";
+import { vmCapabilitiesFor } from "../../../../services/vms/drivers";
+import { vmImageKindFor } from "../../../../services/vms/images/resolver";
 import { PublicationNotFoundError } from "../../../../services/vm-publications/repository";
 import { deleteVmPublicationsForVmDeletion } from "../../../../services/vm-publications/vmDeletion";
 import { publicationErrorResponse } from "../publications/routeShared";
@@ -42,6 +44,15 @@ export async function GET(
           status: vm.status,
           createdAt: vm.createdAt,
           displayName: vm.displayName,
+          // Keep the single-machine response equivalent to the fleet list. Native
+          // callers use this endpoint for a direct status/attach refresh; omitting
+          // kind made desktop images fall back to `base`, and omitting the private
+          // address forced port rows onto the less reliable provider endpoint.
+          kind: vmImageKindFor(vm.provider, vm.image),
+          capabilities: vmCapabilitiesFor(vm.provider),
+          ...(vm.addressIpv4 || vm.addressIpv6
+            ? { address: { ipv4: vm.addressIpv4, ipv6: vm.addressIpv6 } }
+            : {}),
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

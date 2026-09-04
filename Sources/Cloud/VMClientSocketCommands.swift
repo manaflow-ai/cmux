@@ -425,6 +425,10 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.ssh_info requires `id`. Run `cmux vm ls` to find one.")
             }
             return v2VmCall(id: id) {
+                // Refuse an unsupported transport before asking the gateway for
+                // an endpoint; this keeps the CLI error actionable and avoids a
+                // provider-specific 404/502.
+                try await Self.socketWorkerRequireTransport("ssh", vmId: vmId, verb: "vm ssh")
                 let endpoint = try await VMClient.shared.openSSH(id: vmId)
                 return Self.socketWorkerSSHInfoPayload(endpoint)
             }
@@ -436,6 +440,7 @@ extension TerminalController {
                 ?? Self.socketWorkerBool(params["requireDaemon"])
                 ?? false
             return v2VmCall(id: id) {
+                try await Self.socketWorkerRequireTransport("websocket", vmId: vmId, verb: "vm shell")
                 let endpoint = try await VMClient.shared.openAttach(id: vmId, requireDaemon: requireDaemon)
                 return Self.socketWorkerAttachInfoPayload(endpoint)
             }
@@ -625,8 +630,9 @@ extension TerminalController {
             "provider": vm.provider,
             "image": vm.image,
             "kind": vm.resolvedKind.rawValue,
-            // What the provider can honor; agents skip Checkpoint/Fork the way the menus do.
-            "capabilities": ["snapshot": vm.capabilities.snapshot, "restore": vm.capabilities.restore, "fork": vm.capabilities.fork],
+            // What the provider can honor; agents gate every optional verb on
+            // this same object as the menus do.
+            "capabilities": vm.capabilities.jsonObject,
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
@@ -656,6 +662,35 @@ extension TerminalController {
     private nonisolated static func socketWorkerStringArray(_ raw: Any?) -> [String] {
         guard let array = raw as? [Any] else { return [] }
         return array.compactMap { socketWorkerString($0) }
+    }
+
+    /// Fails a transport-specific command before dialing when the provider's
+    /// capability contract explicitly excludes that transport. A missing list
+    /// preserves skew compatibility with older servers: the attempt is the
+    /// authority in that case.
+    private nonisolated static func socketWorkerRequireTransport(
+        _ transport: String,
+        vmId: String,
+        verb: String
+    ) async throws {
+        let summary = try await VMClient.shared.status(id: vmId)
+        guard let transports = summary.capabilities.attachTransports else { return }
+        guard transports.contains(transport) == false else { return }
+        let alternative = transports.contains("cmux-remote")
+            ? String(
+                localized: "socket.cloudVM.transportUnsupported.useShell",
+                defaultValue: "Use `cmux vm shell \(vmId)` or `cmux vm exec \(vmId) -- <command>` instead."
+            )
+            : String(
+                localized: "socket.cloudVM.transportUnsupported.noAlternative",
+                defaultValue: "This machine offers no interactive transport."
+            )
+        throw SocketWorkerTransportUnsupportedError(
+            message: String(
+                localized: "socket.cloudVM.transportUnsupported",
+                defaultValue: "`cmux \(verb)` needs the `\(transport)` transport, which \(summary.provider) machines do not offer. \(alternative)"
+            )
+        )
     }
 
     /// Handles `aiAccounts.*` socket methods backing `cmux ai-accounts`.
@@ -857,6 +892,11 @@ extension TerminalController {
 /// A rejected `kind` parameter on a machine-creating socket command.
 private struct SocketWorkerKindError: Error {
     let message: String
+}
+
+private struct SocketWorkerTransportUnsupportedError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }
 
 private struct SocketWorkerPublicationAccess {

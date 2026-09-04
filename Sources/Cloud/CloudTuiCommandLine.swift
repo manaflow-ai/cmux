@@ -22,9 +22,17 @@ struct CloudTuiCommandLine: Sendable {
         ["--socket", socketPath, "--json", "session", "current", "snapshot"]
     }
 
-    /// Live delta stream (`session current events`, `--jsonl`): one JSON line per
-    /// session transaction. The app only uses it as a change signal and re-reads the
-    /// snapshot, so the delta body is never interpreted.
+    /// Live delta stream (`session current events`, `--jsonl`): the v2 `session.events`
+    /// resource stream, one `{"protocol":"cmux.protocol/2","type":"stream_item",…,"item":…}`
+    /// envelope per line. The first item is `kind:"snapshot"` (the whole session, including
+    /// the daemon's durable notification ledger); later items are `kind:"delta"` with
+    /// `changes:[{"kind":"upsert"|"delete","resource":…,"id":…,"value":…}]`.
+    ///
+    /// The app treats every line as a change tick and re-reads the snapshot for the tree.
+    /// The only delta body it interprets is `resource:"notification"` upserts
+    /// (`CloudMachineNotificationEvent`), which raise local notifications for the pane
+    /// showing that terminal — as data only: nothing on this stream can name a local
+    /// workspace or surface, run a socket command, or make the app execute anything.
     static func eventsArguments(socketPath: String) -> [String] {
         ["--socket", socketPath, "--jsonl", "session", "current", "events"]
     }

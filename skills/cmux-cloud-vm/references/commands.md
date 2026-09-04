@@ -12,7 +12,7 @@ cmux vpn status                        # this build's WireGuard tunnel to its pr
 cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
 cmux vpn down                          # take this build's tunnel down (sudo)
 cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
-cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
+cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first (fleet + provider refresh)
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
 cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
 cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs (drop a workspace row onto a pane)
@@ -159,6 +159,18 @@ cmux vm fork <id> [--name <n>] [--detach]      # clone for a parallel experiment
 cmux vm restore <snapshot-id> [--detach]       # snapshot -> new tracked machine
 cmux vm promote-template <id>          # template-named snapshot for reuse
 ```
+
+## Machine-to-machine links (`vm link`)
+
+```bash
+cmux vm link <src> <dst>               # grant <src> a cmux-remote link to <dst>
+```
+
+The Mac brokers the destination route and a single-use enrollment invitation,
+then writes only that scoped peer grant into `<src>`. From inside the source
+machine, the installed `cmux` shim can run `cmux vm exec <dst> -- <command>`,
+`cmux vm tree <dst>`, and other peer verbs; no control-plane credential enters a
+machine.
 
 ## SSH (provider-dependent)
 

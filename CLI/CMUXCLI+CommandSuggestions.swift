@@ -216,6 +216,8 @@ extension CMUXCLI {
         "vm-pty-attach",
         "vm-pty-connect",
         "vm-ssh-attach",
+        "vm-tui-approve",
+        "vm-tui-connect",
         "vpn",
         "wait-for",
         "welcome",

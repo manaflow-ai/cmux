@@ -16,6 +16,8 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
     let body: String
     let createdAt: Date
     var isRead: Bool
+    /// Optional so history written before origins existed still decodes (`nil` = local).
+    var origin: TerminalNotificationOrigin?
 
     init(
         id: UUID,
@@ -27,7 +29,8 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
         subtitle: String,
         body: String,
         createdAt: Date,
-        isRead: Bool
+        isRead: Bool,
+        origin: TerminalNotificationOrigin? = nil
     ) {
         self.id = id
         self.tabId = tabId
@@ -39,6 +42,7 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
         self.body = body
         self.createdAt = createdAt
         self.isRead = isRead
+        self.origin = origin
     }
 
     init(notification: TerminalNotification) {
@@ -52,6 +56,7 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
         body = notification.body
         createdAt = notification.createdAt
         isRead = notification.isRead
+        origin = notification.origin.isRemote ? notification.origin : nil
     }
 
     func matches(tabId targetTabId: UUID, surfaceId targetSurfaceId: UUID?) -> Bool {
@@ -73,7 +78,8 @@ struct NotificationFeedHistoryRecord: Codable, Equatable, Identifiable, Sendable
             subtitle: Self.string(subtitle, limitedToUTF8Bytes: Self.historySubtitleByteLimit),
             body: Self.string(body, limitedToUTF8Bytes: Self.historyBodyByteLimit),
             createdAt: createdAt,
-            isRead: isRead
+            isRead: isRead,
+            origin: origin
         )
     }
 

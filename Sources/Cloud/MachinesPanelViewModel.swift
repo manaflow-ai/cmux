@@ -553,7 +553,8 @@ final class MachinesPanelViewModel: ObservableObject {
         treeTask?.cancel()
         treeTask = Task { [weak self] in
             if force {
-                await SurfaceCatalog.shared.refreshAll()
+                // Same path as `cmux vm tree --refresh`: fleet list + every provider.
+                await CmuxTuiSurfaceProviderRegistry.shared.refreshEverything(catalog: SurfaceCatalog.shared)
             }
             guard !Task.isCancelled, let self else { return }
             self.readCatalog()
@@ -572,7 +573,9 @@ final class MachinesPanelViewModel: ObservableObject {
     /// `asleep` without being woken, so polling never costs the user anything.
     func refreshStats() {
         statsTask?.cancel()
-        let ids = machines.map(\.id)
+        // Poll only machines whose provider reports stats; asking anyway would
+        // burn a request per machine per tick to collect guaranteed 501s.
+        let ids = machines.filter(\.capabilities.stats).map(\.id)
         guard !ids.isEmpty else { return }
         statsTask = Task { [weak self] in
             await withTaskGroup(of: (String, VMStats?).self) { group in

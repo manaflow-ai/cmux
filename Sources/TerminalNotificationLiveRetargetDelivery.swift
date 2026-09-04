@@ -144,7 +144,8 @@ extension TerminalNotificationStore {
             isAppFocused: request.isAppFocused,
             isFocusedPanel: request.isFocusedPanel,
             agent: request.agent,
-            soundContext: request.soundContext
+            soundContext: request.soundContext,
+            origin: request.origin
         )
     }
 }

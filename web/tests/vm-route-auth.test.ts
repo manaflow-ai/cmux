@@ -436,12 +436,13 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({
+    expect(await response.json()).toMatchObject({
       id: "provider-vm-1",
       provider: "freestyle",
       image: "snapshot-test",
       kind: "base",
       createdAt: 1_777_000_000_000,
+      capabilities: { attachTransports: ["cmux-remote"] },
     });
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       userId: "user-1",
@@ -1713,15 +1714,27 @@ describe("VM REST auth", () => {
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-team-1",
       provider: "freestyle",
-      image: "snapshot-test",
+      image: "xfce-devbox-test",
       imageVersion: null,
       status: "running",
       createdAt: 1_777_000_000_000,
+      addressIpv4: "10.16.170.6",
+      addressIpv6: "fd98:deb9:4c94::6",
     });
-    await vmIdRoute.GET(
+    const statusResponse = await vmIdRoute.GET(
       new Request("https://cmux.test/api/vm/provider-vm-team-1"),
       context,
     );
+    expect(statusResponse.status).toBe(200);
+    expect(await statusResponse.json()).toMatchObject({
+      id: "provider-vm-team-1",
+      kind: "desktop",
+      address: {
+        ipv4: "10.16.170.6",
+        ipv6: "fd98:deb9:4c94::6",
+      },
+      capabilities: { attachTransports: ["cmux-remote"] },
+    });
     expect(getVm).toHaveBeenCalledWith({
       userId: "user-1",
       billingTeamId: "team-1",

@@ -431,6 +431,17 @@ final class MachinesPanelModelTests: XCTestCase {
             "resource:vivid-newt/terminal/term_1",
             "resource:vivid-newt/terminal/term_2",
         ])
+        // Port rows: the sidebar side of `cmux vm open <m>:port/<n>` — the same
+        // `<m>/browser/port:<n>` resource, so click and CLI open one catalog entry.
+        let portRows = Dictionary(CloudTreeNodeBuilder.flattened(nodes).map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        if case .port(let resource) = portRows["resource:vivid-newt/browser/port:3000"]!.kind {
+            XCTAssertEqual(resource.port, 3000)
+            XCTAssertEqual(resource.id, port.id)
+        } else { XCTFail("expected a port row") }
+        XCTAssertFalse(portRows["resource:vivid-newt/browser/port:3000"]!.isDragSource, "ports open in place; they do not leave the tree by drag")
+        // A daemon browser at a localhost URL is a browser, never a port row.
+        let localhostBrowser = SurfaceResource(id: SurfaceResourceID(machine: .cloud("vivid-newt"), kind: .browser, key: "browser_9"), title: "app", detail: "http://localhost:3000", lifecycle: .running, agent: nil, remoteWorkspace: nil, port: 3000, url: "http://localhost:3000")
+        XCTAssertEqual(CloudTreeNodeBuilder.portResources([localhostBrowser, port]).map(\.id), [port.id])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
         let openSnapshot = SurfaceCatalogSnapshot(
@@ -1012,6 +1023,74 @@ struct MachinesPanelPaidPlanTests {
         let error = VMClientError.httpStatus(402, #"{"error":"vm_requires_pro"}"#)
         #expect(error.description.contains("https://cmux.com/pricing"))
         #expect(error.description.contains("Upgrade to cmux Pro"))
+    }
+}
+
+// MARK: - VMCapabilities decoding (the client half of the provider contract)
+
+/// The client gates verbs on the server's capability object and must stay
+/// skew-safe in both directions: a missing flag reads as supported (an older
+/// server keeps its historical attempt-and-surface behavior), and unknown
+/// providers are described entirely by their capability set — no provider
+/// name appears in any gate.
+struct VMCapabilitiesDecodingTests {
+    @Test func fullServerObjectDecodes() {
+        let caps = VMCapabilities(json: [
+            "snapshot": true, "restore": true, "fork": false,
+            "exec": true, "stats": false, "ports": false, "desktop": false,
+            "sizing": true, "persistentHome": false,
+            "attachTransports": ["cmux-remote"],
+        ])
+        #expect(caps.snapshot)
+        #expect(!caps.fork)
+        #expect(caps.exec)
+        #expect(!caps.stats)
+        #expect(!caps.ports)
+        #expect(!caps.desktop)
+        #expect(caps.sizing)
+        #expect(!caps.persistentHome)
+        #expect(caps.attachTransports == ["cmux-remote"])
+        #expect(caps.cmuxRemote)
+        #expect(!caps.ssh)
+
+        let socketCaps = VMCapabilities(json: ["attach_transports": ["cmux-remote"]])
+        #expect(socketCaps.attachTransports == ["cmux-remote"])
+    }
+
+    @Test func missingFlagsReadAsSupported() {
+        // An older server sends only {snapshot, restore, fork}: the new flags
+        // default to true and the transport list to nil (attempt, don't gate).
+        let caps = VMCapabilities(json: ["snapshot": true, "restore": true, "fork": true])
+        #expect(caps.stats)
+        #expect(caps.ports)
+        #expect(caps.desktop)
+        #expect(caps.sizing)
+        #expect(caps.persistentHome)
+        #expect(caps.attachTransports == nil)
+        #expect(caps.ssh)
+        #expect(caps.cmuxRemote)
+    }
+
+    @Test func absentObjectIsAll() {
+        let caps = VMCapabilities(json: nil)
+        #expect(caps == .all)
+    }
+
+    @Test func socketEchoRoundTrips() {
+        // The socket worker's `vm ls --json` payload is rebuilt from the same
+        // struct; the wire object must carry every gate an agent needs.
+        let caps = VMCapabilities(
+            snapshot: true, restore: true, fork: false,
+            exec: true, stats: false, ports: false, desktop: false,
+            sizing: true, persistentHome: false,
+            attachTransports: ["cmux-remote"])
+        let object = caps.jsonObject
+        #expect(object["fork"] as? Bool == false)
+        #expect(object["stats"] as? Bool == false)
+        #expect(object["ports"] as? Bool == false)
+        #expect(object["sizing"] as? Bool == true)
+        #expect(object["persistentHome"] as? Bool == false)
+        #expect(object["attach_transports"] as? [String] == ["cmux-remote"])
     }
 }
 

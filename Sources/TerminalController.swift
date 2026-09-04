@@ -2934,6 +2934,9 @@ class TerminalController {
             "vm.link_socket",
             "vm.cloud_agent_open",
             "vm.cloud_prompt",
+            "vm.tunnel_config",
+            "vm.tunnel_status",
+            "vm.tunnel_revoke",
             "surface.catalog",
             "surface.project",
             "surface.new_terminal",
@@ -3991,10 +3994,13 @@ class TerminalController {
                     message: message
                 )
             }
+            // Human wording first: the catalog and pane factory throw LocalizedErrors
+            // ("Unknown surface …", "Destination not found: …"); a raw enum dump
+            // ("unknownResource(…)") is what the CLI would otherwise print verbatim.
             return v2Error(
                 id: id,
                 code: "vm_error",
-                message: String(describing: error),
+                message: (error as? LocalizedError)?.errorDescription ?? String(describing: error),
                 data: Self.cloudVMBackendErrorData(error)
             )
         case nil:
