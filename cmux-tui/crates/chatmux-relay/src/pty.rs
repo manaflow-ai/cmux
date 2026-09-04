@@ -1332,6 +1332,10 @@ impl Inner {
                         (viewer.on_exit)(code);
                     }
                 });
+                if context.cancellation.is_cancelled() {
+                    shell_session.control.kill();
+                    return Err("PTY open cancelled".to_owned());
+                }
                 output.subscribe(on_session_data, on_session_exit);
                 self.shell_sessions
                     .lock()
