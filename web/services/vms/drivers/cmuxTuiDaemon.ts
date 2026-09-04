@@ -705,7 +705,10 @@ export function cmuxTuiAttachBundleCommand(options: {
     ? `case "$D" in *${shellQuote(needle)}*) ;; *) ${mint};; esac`
     : mint;
   return [
-    ...(options.readyGate ? [`{ ${options.readyGate}; } || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
+    // Run the readiness probe in a subshell. The Freestyle gate uses `exit` for
+    // its success and failure branches; without a subshell those exits terminate
+    // the entire attach bundle before the probe, device, and invitation sections.
+    ...(options.readyGate ? [`( ${options.readyGate}; ) || exit ${CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT}`] : []),
     `echo ${BUNDLE_MARKERS.probe}`,
     `${run} remote-probe --json; echo`,
     `echo ${BUNDLE_MARKERS.devices}`,
