@@ -24,6 +24,8 @@ pub(super) enum CommandPlan {
     Plugin(PluginPlan),
     ProviderAuthority(ProviderAuthorityPlan),
     RawCommand(super::raw::RawCommandPlan),
+    Diag(super::diag::DiagPlan),
+    Bench(super::bench::BenchPlan),
 }
 
 #[derive(Clone, Debug)]
@@ -171,6 +173,8 @@ pub(super) fn parse(args: &[String]) -> Result<CommandPlan, UsageError> {
         "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
         "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "diag" => parse_diag(&tokens.words[1..])?,
+        "bench" => parse_bench(&tokens.words[1..], &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value)),
     };
     tokens.flags.reject_remaining()?;
@@ -1653,6 +1657,84 @@ fn parse_provider(
     }
 }
 
+fn parse_bench(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["interact"] => {
+            let creates = parse_count(flags, "creates", 20)?;
+            if creates == 0 {
+                return Err(UsageError::new("--creates must be at least 1"));
+            }
+            let clients = parse_count(flags, "clients", 1)?;
+            if clients == 0 {
+                return Err(UsageError::new("--clients must be at least 1"));
+            }
+            let typing_probes = parse_count(flags, "typing-probes", 0)?;
+            const MAX_BENCH_CLIENTS: usize = 256;
+            const MAX_BENCH_REQUESTS: usize = 100_000;
+            if clients > MAX_BENCH_CLIENTS {
+                return Err(UsageError::new(format!(
+                    "--clients must be at most {MAX_BENCH_CLIENTS}"
+                )));
+            }
+            let creates_total = creates
+                .checked_mul(clients)
+                .ok_or_else(|| UsageError::new("benchmark request count exceeds safety limit"))?;
+            const MAX_BENCH_CREATES: usize = 256;
+            if creates_total > MAX_BENCH_CREATES {
+                return Err(UsageError::new(format!(
+                    "total benchmark creates must be at most {MAX_BENCH_CREATES}"
+                )));
+            }
+            let total_requests = creates_total
+                .saturating_mul(4)
+                .saturating_add(if typing_probes > 0 { creates } else { 0 })
+                .saturating_add(typing_probes.saturating_mul(2));
+            if total_requests > MAX_BENCH_REQUESTS {
+                return Err(UsageError::new(format!(
+                    "total benchmark requests must be at most {MAX_BENCH_REQUESTS}"
+                )));
+            }
+            Ok(CommandPlan::Bench(super::bench::BenchPlan {
+                creates_per_client: creates,
+                clients,
+                typing_probes,
+            }))
+        }
+        [action] => {
+            Err(UsageError::new(format!("unknown bench action {action:?}; expected interact")))
+        }
+        _ => Err(UsageError::new(
+            "usage: cmux bench interact --creates <K> --clients <N> [--typing-probes <M>]",
+        )),
+    }
+}
+
+fn parse_count(flags: &mut Flags, name: &str, default: usize) -> Result<usize, UsageError> {
+    match flags.take(name) {
+        None => Ok(default),
+        Some(value) => {
+            let count = value
+                .parse::<usize>()
+                .map_err(|_| UsageError::new(format!("--{name} must be a non-negative integer")))?;
+            const MAX_BENCH_COUNT: usize = 100_000;
+            if count > MAX_BENCH_COUNT {
+                return Err(UsageError::new(format!("--{name} must be at most {MAX_BENCH_COUNT}")));
+            }
+            Ok(count)
+        }
+    }
+}
+
+fn parse_diag(words: &[String]) -> Result<CommandPlan, UsageError> {
+    match strs(words).as_slice() {
+        ["budgets"] => Ok(CommandPlan::Diag(super::diag::DiagPlan::Budgets)),
+        [action] => {
+            Err(UsageError::new(format!("unknown diag action {action:?}; expected budgets")))
+        }
+        _ => Err(UsageError::new("usage: cmux diag budgets [--json]")),
+    }
+}
+
 fn parse_raw(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     let refs = strs(words);
     if refs.as_slice() == ["command"] {
@@ -2948,6 +3030,38 @@ mod tests {
     }
 
     #[test]
+    fn bench_rejects_unbounded_client_workload() {
+        let mut flags = Flags::default();
+        flags.values.insert("creates".into(), Some("100000".into()));
+        flags.values.insert("clients".into(), Some("100000".into()));
+        let error = match parse_bench(&strings(&["interact"]), &mut flags) {
+            Ok(_) => panic!("unbounded clients must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("--clients must be at most"));
+
+        let mut flags = Flags::default();
+        flags.values.insert("creates".into(), Some("100000".into()));
+        flags.values.insert("clients".into(), Some("2".into()));
+        let error = match parse_bench(&strings(&["interact"]), &mut flags) {
+            Ok(_) => panic!("unbounded request count must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("total benchmark creates"));
+    }
+
+    #[test]
+    fn bench_rejects_zero_clients() {
+        let mut flags = Flags::default();
+        flags.values.insert("clients".into(), Some("0".into()));
+        let error = match parse_bench(&strings(&["interact"]), &mut flags) {
+            Ok(_) => panic!("zero clients must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("--clients must be at least 1"));
+    }
+
+    #[test]
     fn server_stats_typo_suggests_stats_action() {
         let error = match parse(&strings(&["server", "stat"])) {
             Err(error) => error,
@@ -2969,6 +3083,16 @@ mod tests {
             CommandPlan::Protocol(plan) => plan,
             _ => panic!("expected protocol plan"),
         }
+    }
+
+    #[test]
+    fn diag_budgets_is_a_local_plan() {
+        assert!(matches!(
+            parse(&strings(&["diag", "budgets"])).unwrap(),
+            CommandPlan::Diag(super::super::diag::DiagPlan::Budgets)
+        ));
+        assert!(parse(&strings(&["diag", "locks"])).is_err());
+        assert!(parse(&strings(&["diag"])).is_err());
     }
 
     #[test]

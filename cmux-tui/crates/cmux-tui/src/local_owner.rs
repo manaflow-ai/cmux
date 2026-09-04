@@ -22,13 +22,13 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::{self, transport};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// Total time an ensure may spend probing, spawning, and waiting for the
 /// owner to accept clients. Matches the lifecycle CLI exchange deadline.
-pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
+pub(crate) const ENSURE_DEADLINE: Duration = cmux_tui_core::budgets::OWNER_ENSURE;
 
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
+const POLL_INTERVAL: Duration = cmux_tui_core::budgets::OWNER_POLL;
 
 /// The reaper's only job is clearing a zombie when the owner exits early
 /// (a lost bind race or a crash), and `terminate` reaps synchronously
@@ -60,6 +60,7 @@ pub(crate) enum Ensured {
     Started(ReadyOwner),
 }
 
+#[derive(Debug)]
 pub(crate) enum EnsureError {
     /// The owner process could not be spawned (or the spawn lock failed).
     Spawn(io::Error),
@@ -82,6 +83,205 @@ enum Attempt {
     /// A cmux-tui server answered but is not lifecycle-ready yet.
     Starting,
     Ready(ReadyOwner),
+}
+
+/// A throwaway bench-owned session: a spawned owner and the temporary state
+/// root to clean up when the bench stops.
+pub(crate) struct EnsuredOwnerHandle {
+    pid: u64,
+    generation: String,
+    state_root: Option<PathBuf>,
+    owned: bool,
+    start_marker: Option<String>,
+    session: Option<String>,
+}
+
+impl EnsuredOwnerHandle {
+    /// Process id of the owner; terminal hosts it spawned are its children
+    /// while it runs, which is how the bench audits for leaked hosts.
+    pub(crate) fn pid(&self) -> u64 {
+        self.pid
+    }
+
+    pub(crate) fn should_stop(&self) -> bool {
+        self.owned
+    }
+
+    /// Ask the owner to shut down (best effort) and remove the temp state root.
+    pub(crate) fn stop(self, socket: &Path) {
+        if !self.owned {
+            return;
+        }
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut exited = false;
+        if let Ok(stream) = transport::connect(socket) {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+            let mut connection = BufReader::new(stream);
+            let request = json!({
+                "id": 1,
+                "cmd": "shutdown-daemon",
+                "pid": self.pid,
+                "generation": self.generation,
+            });
+            if writeln!(connection.get_mut(), "{request}")
+                .and_then(|()| connection.get_mut().flush())
+                .is_ok()
+            {
+                // Drain until the socket closes or the deadline passes.
+                loop {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    let mut bytes = Vec::new();
+                    match connection.read_until(b'\n', &mut bytes) {
+                        Ok(0) => {
+                            exited = true;
+                            break;
+                        }
+                        Ok(_) if bytes.len() > 4096 => {
+                            exited = true;
+                            break;
+                        }
+                        Err(error) if error.kind() != io::ErrorKind::TimedOut => {
+                            exited = true;
+                            break;
+                        }
+                        Err(_) => break,
+                        Ok(_) => {}
+                    }
+                }
+            }
+        }
+        if !exited
+            && owner_process_matches(
+                self.pid,
+                self.start_marker.as_deref(),
+                self.session.as_deref(),
+            )
+        {
+            let pid = self.pid.to_string();
+            let _ = Command::new("kill").args(["-TERM", &pid]).status();
+            let kill_deadline = Instant::now() + Duration::from_millis(250);
+            while Instant::now() < kill_deadline
+                && owner_process_matches(
+                    self.pid,
+                    self.start_marker.as_deref(),
+                    self.session.as_deref(),
+                )
+            {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            if owner_process_matches(
+                self.pid,
+                self.start_marker.as_deref(),
+                self.session.as_deref(),
+            ) {
+                let _ = Command::new("kill").args(["-KILL", &pid]).status();
+            }
+            exited = !owner_process_is_alive(self.pid);
+        }
+        if (exited || !owner_process_is_alive(self.pid))
+            && let Some(root) = self.state_root
+        {
+            let _ = std::fs::remove_dir_all(root);
+            // `SocketStartLock` deliberately leaves `<socket>.spawn-lock` in
+            // place for durable sessions, because unlinking it reopens the
+            // stale-socket start race for that session name. A bench session
+            // name is random and never started again, so removing its lock
+            // after the owner we spawned has been asked to exit leaves nothing
+            // behind under the runtime directory.
+            let mut name = socket.file_name().unwrap_or_default().to_os_string();
+            name.push(".spawn-lock");
+            let _ = std::fs::remove_file(socket.with_file_name(name));
+        }
+    }
+}
+
+fn owner_process_is_alive(pid: u64) -> bool {
+    Command::new("ps")
+        .args(["-p", &pid.to_string()])
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(true)
+}
+
+fn owner_process_matches(pid: u64, start_marker: Option<&str>, session: Option<&str>) -> bool {
+    Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "lstart=,command="])
+        .output()
+        .map(|output| {
+            let output = String::from_utf8_lossy(&output.stdout);
+            let Some(marker) = start_marker else { return false };
+            let Some(session) = session else { return false };
+            output.contains(marker)
+                && output.contains("cmux-tui")
+                && output.contains("--headless")
+                && output.contains(&format!("--session {session}"))
+        })
+        .unwrap_or(false)
+}
+
+fn process_start_marker(pid: u64) -> Option<String> {
+    Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "lstart="])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .filter(|marker| !marker.is_empty())
+}
+
+/// Spawn (or adopt) a headless owner for a bench session and return a handle
+/// that can stop it. Uses a private temporary state root so a throwaway
+/// session never touches the default durable state.
+pub(crate) fn ensure_owner_for_bench(
+    session: &str,
+    socket: &Path,
+) -> Result<EnsuredOwnerHandle, String> {
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|error| format!("state dir: {error}"))?
+        .as_nanos();
+    let state_root =
+        std::env::temp_dir().join(format!("cmux-bench-state-{}-{nonce}", std::process::id()));
+    std::fs::create_dir(&state_root).map_err(|error| format!("state dir: {error}"))?;
+    let spec = OwnerSpec {
+        session: session.to_string(),
+        socket: socket.to_path_buf(),
+        socket_is_derived: true,
+        state: Some(state_root.clone()),
+        term: None,
+    };
+    let deadline = Instant::now() + ENSURE_DEADLINE;
+    match ensure_owner(&spec, Some(session), deadline) {
+        Ok(Ensured::Running(ready)) => {
+            // This call created the temporary root before probing, but an
+            // adopted owner already has its own state. Remove our unused
+            // directory so repeated benches do not leave empty roots behind.
+            let _ = std::fs::remove_dir(&state_root);
+            Ok(EnsuredOwnerHandle {
+                pid: ready.pid,
+                generation: ready.generation,
+                state_root: None,
+                owned: false,
+                start_marker: None,
+                session: None,
+            })
+        }
+        Ok(Ensured::Started(ready)) => Ok(EnsuredOwnerHandle {
+            pid: ready.pid,
+            generation: ready.generation,
+            state_root: Some(state_root),
+            owned: true,
+            start_marker: process_start_marker(ready.pid),
+            session: Some(session.to_string()),
+        }),
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&state_root);
+            Err(format!("ensure bench owner: {error:?}"))
+        }
+    }
 }
 
 /// Connect to a ready owner for `spec.session` on `spec.socket`, spawning a
@@ -369,4 +569,55 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         return Err(io::Error::other("local owner reaper unavailable"));
     }
     Ok(SpawnedOwner { state })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::thread;
+
+    #[test]
+    fn adopting_running_bench_owner_removes_unused_state_root() {
+        let session = format!("bench-adopt-state-cleanup-{}", std::process::id());
+        let socket = cmux_tui_core::server::try_default_socket_path(&session).unwrap();
+        let state_root = std::env::temp_dir().join(format!("cmux-bench-{session}"));
+        let _ = std::fs::remove_file(&socket);
+        let _ = std::fs::remove_dir_all(&state_root);
+        cmux_tui_core::server::prepare_socket_parent(&socket, true).unwrap();
+        let listener = transport::listen(&socket).unwrap();
+        let server_session = session.clone();
+        let server = thread::spawn(move || {
+            let mut stream = listener.accept().unwrap();
+            let mut request = Vec::new();
+            BufReader::new(&mut stream).read_until(b'\n', &mut request).unwrap();
+            let request: Value = serde_json::from_slice(&request).unwrap();
+            let response = json!({
+                "id": request["id"],
+                "ok": true,
+                "data": {
+                    "app": "cmux-tui",
+                    "protocol": cmux_tui_core::server::PROTOCOL_VERSION,
+                    "lifecycle_ready": true,
+                    "session": server_session,
+                    "pid": 4242,
+                    "generation": "test-generation"
+                }
+            });
+            writeln!(stream, "{response}").unwrap();
+            stream.flush().unwrap();
+        });
+
+        let owner = ensure_owner_for_bench(&session, &socket).unwrap();
+        assert_eq!(owner.pid(), 4242);
+        assert!(!owner.should_stop(), "adopted owners must remain running after the bench");
+        assert!(
+            !state_root.exists(),
+            "adopting an owner must remove its unused temporary state root"
+        );
+
+        server.join().unwrap();
+        let _ = std::fs::remove_file(&socket);
+        let _ = std::fs::remove_file(socket.with_file_name(format!("{session}.sock.spawn-lock")));
+    }
 }
