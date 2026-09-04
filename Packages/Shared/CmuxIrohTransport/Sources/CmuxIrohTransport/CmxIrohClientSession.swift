@@ -252,6 +252,10 @@ public actor CmxIrohClientSession {
     }
 
     private func finishClosureWaiters() {
+        // Mark the terminal state before resuming waiters. A waiter can be
+        // registered after the underlying connection finished, and must see
+        // this state instead of being stranded behind an exited watcher.
+        closed = true
         let waiters = closureWaiters
         closureWaiters.removeAll(keepingCapacity: false)
         cancelledClosureWaiters.removeAll(keepingCapacity: false)

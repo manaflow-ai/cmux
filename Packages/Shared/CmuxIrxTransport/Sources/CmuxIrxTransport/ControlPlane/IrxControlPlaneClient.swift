@@ -331,15 +331,18 @@ public actor IrxControlPlaneClient {
 
         while !Task.isCancelled && generation == loopGeneration {
             let message = try await receive(from: task)
-            guard generation == loopGeneration else { return }
+            guard generation == loopGeneration, socket === task else { return }
             let data: Data
             switch message {
             case .string(let text): data = Data(text.utf8)
             case .data(let raw): data = raw
             @unknown default: continue
             }
-            lastActivityAt = .now
             await route(data, generation: generation, socket: task)
+            // A superseded receive loop may finish routing after a kick. Do
+            // not let that old frame make the replacement look healthy.
+            guard generation == loopGeneration, socket === task else { return }
+            lastActivityAt = .now
         }
     }
 
