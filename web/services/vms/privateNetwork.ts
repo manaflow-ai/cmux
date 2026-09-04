@@ -77,8 +77,13 @@ export type VmTunnelDescriptor = {
 export function isWireGuardPublicKey(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const trimmed = value.trim();
-  if (!/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw]=$/.test(trimmed)) return false;
-  return Buffer.from(trimmed, "base64").length === 32;
+  // The final Base64 sextet may be a digit. For a 32-byte value it is one of
+  // the 16 characters whose low four bits are zero, including 0, 4, and 8.
+  // Decode and re-encode as the canonical check instead of duplicating that
+  // alphabet subset in a fragile regular expression.
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(trimmed)) return false;
+  const decoded = Buffer.from(trimmed, "base64");
+  return decoded.length === 32 && decoded.toString("base64") === trimmed;
 }
 
 /**
