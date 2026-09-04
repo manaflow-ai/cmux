@@ -141,11 +141,13 @@ public struct TransportIncidentPolicy: Sendable {
     private var captureWindow: [UInt64] = []
     private var droppedByBudget = 0
 
-    /// Event codes that mark the transport as healthy and reset the streak.
+    /// Event codes that prove a user-usable connection and reset the streak.
+    ///
+    /// Intermediate progress such as discovery, endpoint startup, or a socket
+    /// connect does not reset the streak: those phases can succeed on every
+    /// retry while authentication or RPC readiness keeps failing for the user.
     public static let successCodes: Set<DiagnosticEventCode> = [
-        .pairOk, .transportDialConnected, .hostAuthenticated, .rpcReady,
-        .recoverySucceeded, .endpointActive, .relayPolicyRefreshSucceeded,
-        .discoverySucceeded, .admissionSucceeded,
+        .pairOk, .rpcReady, .recoverySucceeded,
     ]
 
     /// Event codes that are failure candidates (subject to suppression rules).

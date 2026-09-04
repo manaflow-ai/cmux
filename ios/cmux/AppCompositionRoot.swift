@@ -84,6 +84,11 @@ final class AppCompositionRoot {
     /// (consent revoked or crash reporting disabled for the build).
     private let transportSentryReporter: TransportSentryReporter
 
+    /// Sends the important subset of the same diagnostic stream through the
+    /// authenticated web bridge into Axiom. Held separately from product
+    /// analytics so network outcomes never enter PostHog.
+    private let networkOutcomeReporter: MobileNetworkOutcomeReporter
+
     init(
         runtime: CMUXMobileRuntime,
         auth: MobileAuthComposition,
@@ -135,9 +140,19 @@ final class AppCompositionRoot {
             buildStamp: MobileDebugLog.buildStamp
         )
         self.appLog = appLog
+        let analytics = MobileAnalyticsComposition(
+            apiBaseURL: auth.config.apiBaseURL,
+            tokenProvider: auth.coordinator,
+            consent: telemetryConsent,
+            diagnosticLog: diagnosticLog
+        )
+        self.analytics = analytics
+        let networkOutcomeReporter = analytics.networkOutcomeReporter
+        self.networkOutcomeReporter = networkOutcomeReporter
         diagnosticLog.setEventTap { event in
             appLog.ingest(event)
             transportSentryReporter.ingest(event)
+            networkOutcomeReporter.ingest(event)
         }
         self.appLifecycleDiagnostics = MobileAppLifecycleDiagnostics(
             diagnosticLog: diagnosticLog
@@ -154,13 +169,6 @@ final class AppCompositionRoot {
                 appLog.mirrorAppLine(line)
             }
         }
-        let analytics = MobileAnalyticsComposition(
-            apiBaseURL: auth.config.apiBaseURL,
-            tokenProvider: auth.coordinator,
-            consent: telemetryConsent,
-            diagnosticLog: diagnosticLog
-        )
-        self.analytics = analytics
         self.featureFlags = MobileFeatureFlags(
             loader: analytics.clientConfig,
             request: analytics.anonymousClientConfigRequest
@@ -438,7 +446,11 @@ final class AppCompositionRoot {
                 emitter.capture("ios_session_ended", props)
             }
             // Force a flush before the OS may suspend us, so queued events survive.
-            Task { await emitter.flush() }
+            let networkOutcomeReporter = networkOutcomeReporter
+            Task {
+                await emitter.flush()
+                await networkOutcomeReporter.flush()
+            }
         @unknown default:
             break
         }
