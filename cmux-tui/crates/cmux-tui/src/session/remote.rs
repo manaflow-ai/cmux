@@ -6420,6 +6420,38 @@ mod tests {
     }
 
     #[test]
+    fn daemon_shutdown_event_cancels_an_inflight_request_as_expected() {
+        let session = test_session(Box::new(SilentWriter));
+        let request_session = session.clone();
+        let worker = std::thread::spawn(move || {
+            request_session.request_with_deadline(
+                json!({"cmd": "identify"}),
+                RequestDeadline::Fixed(Duration::from_secs(2)),
+            )
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while session.pending.lock().unwrap().is_empty() {
+            assert!(Instant::now() < deadline, "request did not become pending");
+            std::thread::yield_now();
+        }
+        session.handle_line(json!({
+            "event": cmux_tui_core::server::DAEMON_SHUTDOWN_EVENT,
+        }));
+
+        let error = worker
+            .join()
+            .expect("request worker panicked")
+            .expect_err("in-flight request unexpectedly succeeded");
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::DaemonShutdown)
+        ));
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
     fn guarded_pointer_timeout_uses_transport_disconnect_lifecycle() {
         let closed = Arc::new(AtomicBool::new(false));
         let session = test_session(Box::new(CloseTrackingWriter { closed: closed.clone() }));

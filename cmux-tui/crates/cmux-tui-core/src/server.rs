@@ -20137,6 +20137,8 @@ mod tests {
         assert_eq!(response["data"]["generation"], generation);
         assert!(accepted.control_clients.contains(local));
         assert!(!accepted.control_clients.contains(interactive));
+        let requester_shutdown = pop_json(&accepted_outbound);
+        assert_eq!(requester_shutdown["event"], DAEMON_SHUTDOWN_EVENT);
         let shutdown = pop_json(&interactive_outbound);
         assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
     }
@@ -20170,12 +20172,18 @@ mod tests {
         ));
 
         release_flush.send(()).unwrap();
+        flush_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("shutdown did not flush the requester shutdown notice");
+        release_flush.send(()).unwrap();
         assert!(worker.join().unwrap());
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.control_clients.contains(requester));
         assert!(!mux.control_clients.contains(interactive));
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
+        let shutdown = pop_json(&outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
         assert_eq!(response["data"]["accepted"], true);
     }
 
@@ -20206,6 +20214,8 @@ mod tests {
         assert!(writer.is_open());
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
+        let shutdown = pop_json(&outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
 
         let workspace_count = mux.with_state(|state| state.workspaces.len());
         let pipelined = json!({
