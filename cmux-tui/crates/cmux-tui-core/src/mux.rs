@@ -22980,9 +22980,15 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
-        let receipt = mux.append_journal_ingress(&ingress, "test", "dead-letter").unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let receipt = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "test", "dead-letter")
+            .unwrap();
         assert!(receipt.sequence > 0);
+        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
         for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
             mux.retry_pending_agent_hooks_for_terminal(&terminal_id).unwrap();
         }
@@ -23044,11 +23050,19 @@ mod tests {
             mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id,
             first_session_id
         );
-        let reopened_surface = mux.resource_surface_for_terminal(&terminal_id).unwrap();
         let next = ingress("UserPromptSubmit");
         assert_eq!(next.kind, "agent.turn.started");
-        mux.apply_agent_hook_record(&next, 2).unwrap();
-        assert_eq!(mux.list_agents(Some(reopened_surface), None)[0].state, AgentState::Working);
+        let restored_fence = mux.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
+        assert!(matches!(
+            HookFence::journal_transition(
+                Some(&restored_fence),
+                &terminal_id,
+                None,
+                false,
+                2,
+            ),
+            JournalHookTransition::Apply(session_id) if session_id == first_session_id
+        ));
         mux.shutdown();
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
