@@ -170,25 +170,25 @@ fn request_receipted_creation(
 
 pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
     error
-        .downcast_ref::<remote::RemoteRequestError>()
-        .is_some_and(remote::RemoteRequestError::is_transport_failure)
+        .downcast_ref::<RemoteRequestError>()
+        .is_some_and(RemoteRequestError::is_transport_failure)
 }
 
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
     error
-        .downcast_ref::<remote::RemoteRequestError>()
-        .is_some_and(remote::RemoteRequestError::is_timeout)
+        .downcast_ref::<RemoteRequestError>()
+        .is_some_and(RemoteRequestError::is_timeout)
 }
 
 pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
     let expected = format!("unknown surface {surface}");
     error
-        .downcast_ref::<remote::RemoteRequestError>()
+        .downcast_ref::<RemoteRequestError>()
         .is_some_and(|error| error.rejection_message() == Some(expected.as_str()))
 }
 
 fn normalize_remote_layout_undo_error(error: anyhow::Error) -> anyhow::Error {
-    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+    let Some(remote) = error.downcast_ref::<RemoteRequestError>() else {
         return error;
     };
     match remote.rejection_code() {
@@ -221,7 +221,7 @@ fn normalize_remote_split_ratio_error(
     split: SplitId,
     ratio: f32,
 ) -> anyhow::Error {
-    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+    let Some(remote) = error.downcast_ref::<RemoteRequestError>() else {
         return error;
     };
     let messages = &crate::localization::catalog().layout;
@@ -259,7 +259,7 @@ fn localized_viewport_width_error(error: ViewportWidthError) -> anyhow::Error {
 }
 
 fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> anyhow::Error {
-    let Some(remote) = error.downcast_ref::<remote::RemoteRequestError>() else {
+    let Some(remote) = error.downcast_ref::<RemoteRequestError>() else {
         return error;
     };
     let messages = &crate::localization::catalog().layout;
@@ -276,12 +276,12 @@ fn normalize_remote_viewport_width_error(error: anyhow::Error, pane: PaneId) -> 
 
 #[cfg(test)]
 pub(crate) fn test_remote_timeout_error() -> anyhow::Error {
-    remote::RemoteRequestError::Timeout.into()
+    RemoteRequestError::Timeout.into()
 }
 
 #[cfg(test)]
 pub(crate) fn test_remote_transport_error() -> anyhow::Error {
-    remote::RemoteRequestError::Transport(std::io::Error::new(
+    RemoteRequestError::Transport(std::io::Error::new(
         std::io::ErrorKind::BrokenPipe,
         "socket closed",
     ))
@@ -295,13 +295,13 @@ pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
+    RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
         .into()
 }
 
 #[cfg(test)]
 fn test_remote_rejected_error_with_code(message: &str, code: &str) -> anyhow::Error {
-    remote::RemoteRequestError::Rejected {
+    RemoteRequestError::Rejected {
         error: message.to_string(),
         code: Some(code.to_string()),
         delivery: None,

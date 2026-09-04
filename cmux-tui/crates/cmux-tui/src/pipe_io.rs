@@ -1441,7 +1441,7 @@ impl PipeIoClaimOwner {
         let lifecycle_sender = self.lifecycle_sender.clone();
         let stderr_gate = self.stderr_gate.clone();
         let surface = self.surface;
-        let worker_remote = remote.clone();
+        let worker_remote = remote;
         let worker =
             match std::thread::Builder::new().name("pipe-io-claim".into()).spawn(move || {
                 let result = worker_remote.await_claim_terminal_geometry(ticket);
@@ -1498,13 +1498,11 @@ impl PipeIoClaimOwner {
             state.closed = true;
             (state.worker.take(), state.active)
         };
-        if had_active {
-            if let Some(remote) = self.remote.upgrade() {
-                // Wake a response waiter before joining. `begin_shutdown` also
-                // preserves the writer's FIFO barrier for commands accepted before
-                // stdin reached EOF.
-                remote.begin_shutdown();
-            }
+        if had_active && let Some(remote) = self.remote.upgrade() {
+            // Wake a response waiter before joining. `begin_shutdown` also
+            // preserves the writer's FIFO barrier for commands accepted before
+            // stdin reached EOF.
+            remote.begin_shutdown();
         }
         if let Some(join) = join {
             let _ = join.join();
@@ -2383,7 +2381,7 @@ mod tests {
         let stderr_gate = Arc::new(StderrGate::default());
         let input = b"{\"claim\":{\"geometry\":true}}\n{\"claim\":{\"geometry\":true}}\n{\"input\":\"aGk=\"}\n".to_vec();
         let pump_remote = Arc::downgrade(&remote);
-        let pump_stderr = stderr_gate.clone();
+        let pump_stderr = stderr_gate;
         let pump = std::thread::spawn(move || {
             let mut input = Cursor::new(input);
             run_stdin_pump(&mut input, &pump_remote, 9, &lifecycle_sender, pump_stderr);
