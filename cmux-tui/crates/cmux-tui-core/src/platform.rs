@@ -231,6 +231,244 @@ pub fn workspace_state_dir() -> Option<PathBuf> {
     }
 }
 
+/// Return a path that every state-file owner can use without hitting the
+/// legacy Windows MAX_PATH boundary. Windows' verbatim namespace is applied
+/// only to long, absolute drive or UNC paths. Short paths keep their existing
+/// spelling so callers and persisted diagnostics remain compatible. Long paths
+/// with names that Win32 would reinterpret also keep their original spelling.
+pub fn normalize_filesystem_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        use std::ffi::OsString;
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+        const WINDOWS_PATH_HEADROOM: usize = 240;
+        let has_path_prefix = path
+            .components()
+            .next()
+            .is_some_and(|component| matches!(component, std::path::Component::Prefix(_)));
+        let path = if path.is_absolute() || has_path_prefix {
+            path
+        } else {
+            match std::env::current_dir() {
+                Ok(current) => {
+                    let resolved = current.join(&path);
+                    if resolved.as_os_str().encode_wide().count() < WINDOWS_PATH_HEADROOM {
+                        return path;
+                    }
+                    resolved
+                }
+                Err(_) => return path,
+            }
+        };
+        let mut wide = path.as_os_str().encode_wide().collect::<Vec<_>>();
+        if wide.len() < WINDOWS_PATH_HEADROOM {
+            return path;
+        }
+        for unit in &mut wide {
+            if *unit == b'/' as u16 {
+                *unit = b'\\' as u16;
+            }
+        }
+        if has_windows_device_prefix(&wide) {
+            return path;
+        }
+        // A verbatim path disables Win32's component parsing. Removing a
+        // parent component here would therefore change the meaning of a path
+        // that traverses a junction or symbolic link. Keep the original path
+        // spelling until a handle-aware canonicalization path is available.
+        // This is a deliberate fail-closed choice for the uncommon long path
+        // case, and preserves the pre-upgrade filesystem target.
+        if has_windows_parent_component(&wide) {
+            return path;
+        }
+        let Some(normalized) = normalize_windows_absolute_path(&wide) else {
+            return path;
+        };
+        // `\\?\` disables Win32 string parsing. Prefix only components that
+        // already have ordinary Win32 file-name semantics, or the same input
+        // could select a different filesystem object after normalization.
+        if !windows_absolute_path_is_verbatim_safe(&normalized) {
+            return path;
+        }
+        let is_unc = normalized.starts_with(&[b'\\' as u16, b'\\' as u16]);
+        let mut prefixed = if is_unc {
+            // `\\server\\share` becomes `\\?\\UNC\\server\\share`.
+            vec![
+                b'\\' as u16,
+                b'\\' as u16,
+                b'?' as u16,
+                b'\\' as u16,
+                b'U' as u16,
+                b'N' as u16,
+                b'C' as u16,
+                b'\\' as u16,
+            ]
+        } else {
+            vec![b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16]
+        };
+        prefixed.extend_from_slice(if is_unc { &normalized[2..] } else { &normalized });
+        PathBuf::from(OsString::from_wide(&prefixed))
+    }
+    #[cfg(not(windows))]
+    {
+        path
+    }
+}
+
+#[cfg(windows)]
+fn has_windows_device_prefix(path: &[u16]) -> bool {
+    path.starts_with(&[b'\\' as u16, b'\\' as u16, b'?' as u16, b'\\' as u16])
+        || path.starts_with(&[b'\\' as u16, b'\\' as u16, b'.' as u16, b'\\' as u16])
+        || path.starts_with(&[b'\\' as u16, b'?' as u16, b'?' as u16, b'\\' as u16])
+}
+
+#[cfg(windows)]
+fn has_windows_parent_component(path: &[u16]) -> bool {
+    path.split(|unit| *unit == b'\\' as u16).any(|segment| segment == [b'.' as u16, b'.' as u16])
+}
+
+#[cfg(any(windows, test))]
+fn windows_absolute_path_is_verbatim_safe(path: &[u16]) -> bool {
+    let components = if path.len() >= 3
+        && path[0] <= 0x7f
+        && (path[0] as u8).is_ascii_alphabetic()
+        && path[1] == b':' as u16
+        && path[2] == b'\\' as u16
+    {
+        &path[3..]
+    } else if path.starts_with(&[b'\\' as u16, b'\\' as u16]) {
+        // Include the server and share. Keeping their spelling in the same
+        // conservative component contract avoids changing UNC lookup rules.
+        &path[2..]
+    } else {
+        return false;
+    };
+
+    components
+        .split(|unit| *unit == b'\\' as u16)
+        .filter(|component| !component.is_empty())
+        .all(windows_component_is_verbatim_safe)
+}
+
+#[cfg(any(windows, test))]
+fn windows_component_is_verbatim_safe(component: &[u16]) -> bool {
+    if component.is_empty()
+        || component.last().is_some_and(|unit| *unit == b'.' as u16 || *unit == b' ' as u16)
+    {
+        return false;
+    }
+    if component.iter().any(|unit| {
+        *unit < 32
+            || *unit == b'<' as u16
+            || *unit == b'>' as u16
+            || *unit == b':' as u16
+            || *unit == b'"' as u16
+            || *unit == b'/' as u16
+            || *unit == b'|' as u16
+            || *unit == b'?' as u16
+            || *unit == b'*' as u16
+    }) {
+        return false;
+    }
+
+    let stem_end =
+        component.iter().position(|unit| *unit == b'.' as u16).unwrap_or(component.len());
+    let mut stem = &component[..stem_end];
+    while stem.last().is_some_and(|unit| *unit == b'.' as u16 || *unit == b' ' as u16) {
+        stem = &stem[..stem.len() - 1];
+    }
+    !windows_component_is_reserved_device_name(stem)
+}
+
+#[cfg(any(windows, test))]
+fn windows_component_is_reserved_device_name(stem: &[u16]) -> bool {
+    fn ascii_eq_ignore_case(actual: &[u16], expected: &[u8]) -> bool {
+        actual.len() == expected.len()
+            && actual.iter().zip(expected).all(|(actual, expected)| {
+                *actual <= 0x7f && (*actual as u8).eq_ignore_ascii_case(expected)
+            })
+    }
+
+    if [b"CON".as_slice(), b"PRN", b"AUX", b"NUL", b"CONIN$", b"CONOUT$"]
+        .iter()
+        .any(|name| ascii_eq_ignore_case(stem, name))
+    {
+        return true;
+    }
+    if stem.len() != 4
+        || !(ascii_eq_ignore_case(&stem[..3], b"COM") || ascii_eq_ignore_case(&stem[..3], b"LPT"))
+    {
+        return false;
+    }
+    matches!(stem[3], unit if (b'1' as u16..=b'9' as u16).contains(&unit))
+        || matches!(stem[3], 0x00b9 | 0x00b2 | 0x00b3)
+}
+
+#[cfg(windows)]
+fn normalize_windows_absolute_path(path: &[u16]) -> Option<Vec<u16>> {
+    let is_drive = path.len() >= 3
+        && path[0] <= 0x7f
+        && (path[0] as u8).is_ascii_alphabetic()
+        && path[1] == b':' as u16
+        && path[2] == b'\\' as u16;
+    let (root, rest, root_has_separator) = if is_drive {
+        (&path[..3], &path[3..], true)
+    } else if path.starts_with(&[b'\\' as u16, b'\\' as u16]) {
+        let mut index = 2;
+        let server_start = index;
+        while index < path.len() && path[index] != b'\\' as u16 {
+            index += 1;
+        }
+        if index == server_start {
+            return None;
+        }
+        while index < path.len() && path[index] == b'\\' as u16 {
+            index += 1;
+        }
+        let share_start = index;
+        while index < path.len() && path[index] != b'\\' as u16 {
+            index += 1;
+        }
+        if index == share_start {
+            return None;
+        }
+        let root_end = index;
+        let rest_start = (index < path.len()).then_some(index + 1).unwrap_or(index);
+        (&path[..root_end], &path[rest_start..], false)
+    } else {
+        return None;
+    };
+
+    let mut segments = Vec::<Vec<u16>>::new();
+    let mut segment_start = 0;
+    for index in 0..=rest.len() {
+        if index != rest.len() && rest[index] != b'\\' as u16 {
+            continue;
+        }
+        let segment = &rest[segment_start..index];
+        if segment.is_empty() || segment == [b'.' as u16] {
+            // Repeated separators and current-directory components do not
+            // change the path and must not survive the verbatim prefix.
+        } else if segment == [b'.' as u16, b'.' as u16] {
+            // An absolute path cannot walk above its root.
+            let _ = segments.pop();
+        } else {
+            segments.push(segment.to_vec());
+        }
+        segment_start = index.saturating_add(1);
+    }
+
+    let mut output = root.to_vec();
+    for segment in segments {
+        if !root_has_separator || output.last() != Some(&(b'\\' as u16)) {
+            output.push(b'\\' as u16);
+        }
+        output.extend_from_slice(&segment);
+    }
+    Some(output)
+}
+
 /// Path of the client's bounded rolling log file: the `cmux-tui` state root
 /// (the parent of the sessions directory), so it survives session cleanup and
 /// sits where users already look for state. `CMUX_TUI_LOG_FILE` overrides it.
@@ -1245,6 +1483,97 @@ mod tests {
         sync_directory(&root).unwrap();
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_parent_paths_preserve_component_semantics() {
+        let path = PathBuf::from(format!(r"C:\{}\..\state", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path.clone());
+        let text = normalized.to_string_lossy();
+        assert_eq!(normalized, path, "{text}");
+    }
+
+    #[test]
+    fn normalize_windows_paths_preserves_drive_relative_and_rooted_controls() {
+        let drive_relative = PathBuf::from(r"C:state");
+        assert_eq!(normalize_filesystem_path(drive_relative.clone()), drive_relative);
+
+        let relative = PathBuf::from("state");
+        assert_eq!(normalize_filesystem_path(relative.clone()), relative);
+
+        for rooted in [PathBuf::from(r"C:\state"), PathBuf::from(r"\\server\share\state")] {
+            assert_eq!(normalize_filesystem_path(rooted.clone()), rooted);
+        }
+    }
+
+    #[test]
+    fn windows_verbatim_component_guard_rejects_win32_semantic_changes() {
+        for component in [
+            "state.",
+            "state ",
+            "CON",
+            "nul.txt",
+            "Com9.log",
+            "LPT¹",
+            "CONIN$",
+            "CONOUT$",
+            "conin$.log",
+            "ConOut$.log",
+        ] {
+            let wide = component.encode_utf16().collect::<Vec<_>>();
+            assert!(!windows_component_is_verbatim_safe(&wide), "{component}");
+        }
+    }
+
+    #[test]
+    fn windows_verbatim_component_guard_accepts_ordinary_names() {
+        for component in ["state", "state data.v1", ".state", "COM10", "日本語"] {
+            let wide = component.encode_utf16().collect::<Vec<_>>();
+            assert!(windows_component_is_verbatim_safe(&wide), "{component}");
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_trailing_dot_or_space_paths_preserve_component_semantics() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for child in ["state.", "state "] {
+            let path = PathBuf::from(format!(r"C:\{parent}\{child}"));
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_reserved_device_paths_preserve_component_semantics() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for child in ["CON", "nul.txt", "Com9.log", "LPT¹"] {
+            let path = PathBuf::from(format!(r"C:\{parent}\{child}"));
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_valid_components_use_the_verbatim_namespace() {
+        let parent = vec!["segment"; 36].join(r"\");
+        let path = PathBuf::from(format!(r"C:\{parent}\state data.v1"));
+        let normalized = normalize_filesystem_path(path);
+        let text = normalized.to_string_lossy();
+        assert!(text.starts_with(r"\\?\C:\"), "{text}");
+        assert!(text.ends_with(r"\state data.v1"), "{text}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_unc_paths_preserves_the_share_boundary() {
+        let path = PathBuf::from(format!(r"\\server\share\{}", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path);
+        let text = normalized.to_string_lossy();
+        assert!(text.starts_with(r"\\?\UNC\server\share\"), "{text}");
     }
 
     #[test]
