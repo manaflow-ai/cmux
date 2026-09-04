@@ -817,7 +817,7 @@ impl RemoteDaemon {
                 drop(approval);
                 accepted
             }
-            AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
+            AuthKind::Grant | AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
                 AUTHORIZATION_TIMEOUT,
                 authorize_secure_link(verified, &*self.auth),
             )

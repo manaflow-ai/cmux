@@ -957,9 +957,9 @@ async fn establish_physical_links(
     let daemon_key = first.remote_static();
     let mut routes = vec![LinkRoute { lanes: first_lanes, link: Arc::new(first) }];
 
-    let subsequent_auth = match config.auth {
+    let subsequent_auth = match &config.auth {
         ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
-        ClientAuthMode::Grant { token } => ClientAuthMode::Grant { token },
+        ClientAuthMode::Grant { token } => ClientAuthMode::Grant { token: token.clone() },
         ref other => other.clone(),
     };
     let mut pending = FuturesUnordered::new();

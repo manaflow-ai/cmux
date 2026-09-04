@@ -1085,7 +1085,6 @@ impl AuthDatabase {
             state_dir.into(),
             daemon_name.into(),
             allow_carrier,
-            cloud_grant_verifier: CloudGrantVerifier::from_environment(),
             AuthStateLoadMode::CurrentOnly,
         )
     }
@@ -1128,6 +1127,7 @@ impl AuthDatabase {
             daemon_name,
             identity,
             allow_carrier,
+            cloud_grant_verifier: CloudGrantVerifier::from_environment(),
             state: Arc::new(Mutex::new(AuthState::from_persisted(persisted))),
             persistence,
             pending_changed: Notify::new(),
