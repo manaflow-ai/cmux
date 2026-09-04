@@ -289,7 +289,22 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
             return v2VmCall(id: id) {
-                try await VMClient.shared.destroy(id: vmId)
+                do {
+                    try await VMClient.shared.destroy(id: vmId)
+                } catch let error as VMClientError {
+                    // Delete is idempotent from the person's perspective. A
+                    // stale sidebar row can point at a machine the backend has
+                    // already forgotten; treat that 404 as success so the
+                    // normal CLI completion path dismisses the operation and
+                    // never traps the person in an error sheet.
+                    if case .httpStatus(404, _) = error {
+                        await MainActor.run {
+                            AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
+                        }
+                        return ["ok": true, "already_gone": true]
+                    }
+                    throw error
+                }
                 // Same cleanup as the Machines panel's delete confirm. Every
                 // entrypoint (panel, tree, CLI, socket) funnels through this
                 // handler, so this is the one place the app learns a machine

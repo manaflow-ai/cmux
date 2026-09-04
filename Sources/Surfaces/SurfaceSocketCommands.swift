@@ -214,6 +214,12 @@ extension TerminalController {
         let resolvedParams = surfaceResolvedParams(params)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = await SurfaceCatalog.shared
+            // Resolve a just-created machine through the registry before opening
+            // so this command does not race the next fleet-list refresh. The
+            // catalog method below owns synthetic port insertion.
+            guard try await Self.surfaceProvider(for: resource.machine, catalog: catalog) != nil else {
+                throw SurfaceCatalogError.noProvider(resource.machine)
+            }
             let workspaceID: UUID
             if let explicitWorkspaceID {
                 workspaceID = explicitWorkspaceID
