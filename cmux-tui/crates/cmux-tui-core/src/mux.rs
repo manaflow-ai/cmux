@@ -9673,6 +9673,10 @@ impl Mux {
         self.control_clients.commit_daemon_handoff_after_ack(requesting_client, acknowledge)
     }
 
+    pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
+        self.control_clients.daemon_handoff_in_progress()
+    }
+
     pub fn cancel_daemon_handoff(&self, requesting_client: u64) {
         self.control_clients.cancel_daemon_handoff(requesting_client);
     }

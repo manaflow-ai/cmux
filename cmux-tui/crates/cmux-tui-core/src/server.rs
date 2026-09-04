@@ -3828,6 +3828,10 @@ impl ClientRegistry {
         self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
+    fn daemon_handoff_in_progress(&self) -> bool {
+        self.state.lock().unwrap().daemon_handoff.is_some()
+    }
+
     fn is_unix(&self, client: u64) -> bool {
         self.state
             .lock()
@@ -5520,20 +5524,20 @@ fn complete_daemon_shutdown_after_ack(
         mux.cancel_daemon_handoff(requesting_client);
         return false;
     }
-    mux.request_daemon_shutdown();
-    if writer
+    let requester_notice_sent = writer
         .send_control(&json!({"event": DAEMON_SHUTDOWN_EVENT}))
         .and_then(|()| writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT))
-        .is_err()
-    {
-        return false;
-    }
+        .is_ok();
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
             disconnect_client_with_notice(mux, peer, true, Some(DAEMON_SHUTDOWN_EVENT));
         }
     }
-    true
+    // Keep the owner alive until every detached client has received the
+    // shutdown notice. The committed handoff reservation fences new work
+    // while these notices are being flushed.
+    mux.request_daemon_shutdown();
+    requester_notice_sent
 }
 
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
@@ -9048,7 +9052,7 @@ fn handle_connection_message(
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
     // dispatch; returning false makes the connection loop close that client.
-    if mux.daemon_shutdown_requested() {
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_in_progress() {
         return false;
     }
     if crate::resource_router::is_resource_protocol_message(message) {
