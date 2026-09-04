@@ -515,6 +515,11 @@ final class SurfaceCatalog {
             resources[id] = resource
             changed.insert(id)
         }
+        // This patch intentionally touches only an impact set. Rebuild the
+        // reverse index from the committed rows so a prior replacement or a
+        // partial delta can never leave `hasResources` out of sync with the
+        // canonical resource map.
+        rebuildResourceIndex(for: state.machine)
 
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
@@ -552,6 +557,7 @@ final class SurfaceCatalog {
                 changed.insert(id)
             }
         }
+        rebuildResourceIndex(for: state.machine)
         cloudStates[state.machine] = state
         cloudStateObservations[state.machine] = observation
         machines[state.machine] = info
@@ -597,9 +603,18 @@ final class SurfaceCatalog {
             precondition(resource.machine == machine, "resource \(resource.id) reported by the wrong machine")
             resources[resource.id] = resource
         }
+        rebuildResourceIndex(for: machine)
         machines[machine] = info
         resolvePendingRestoredProjections(on: machine)
         notifyChange()
+    }
+
+    /// Rebuilds the machine reverse index after a cloud transaction. Cloud
+    /// deltas can replace only a subset of rows, so deriving this set from the
+    /// committed map is the invariant-preserving operation.
+    private func rebuildResourceIndex(for machine: SurfaceMachineID) {
+        let ids = Set(resources.keys.filter { $0.machine == machine })
+        resourceIDsByMachine[machine] = ids.isEmpty ? nil : ids
     }
 
     // MARK: Projections

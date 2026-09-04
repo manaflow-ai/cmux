@@ -1496,6 +1496,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
+    /// Appends preserved resources without repeatedly scanning the growing
+    /// snapshot array. Refresh fallback paths run on the main actor, so keeping
+    /// this linear is important for machines with many remote views.
+    private func appendMissingResources(
+        _ preserved: [SurfaceResource],
+        to resources: inout [SurfaceResource]
+    ) {
+        var knownIDs = Set(resources.map(\.id))
+        for resource in preserved where knownIDs.insert(resource.id).inserted {
+            resources.append(resource)
+        }
+    }
+
     /// Compatibility fallback for callers that only have a terminal identity. A terminal with
     /// several views has no safe implicit placement. Returning nil keeps the projection
     /// placement-neutral until a caller supplies an exact tab id.
@@ -1537,6 +1550,26 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let url = URL(string: raw) else { throw ProviderError.badURL(raw) }
         endpoints.store(openURL: minted.openUrl, port: port)
         return url
+    }
+
+    /// A 501 `vm_operation_unsupported` response is a provider capability gap,
+    /// not a transient endpoint failure. The pane must not tell the person to
+    /// retry it; capability metadata normally prevents reaching this fallback,
+    /// but the check also covers an older client or a provider that changes
+    /// capabilities between catalog refreshes.
+    private nonisolated static func isUnsupportedPortError(_ error: Error) -> Bool {
+        if case let VMClientError.httpStatus(status, body) = error, status == 501,
+           let data = body.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           (object["error"] as? String) == "vm_operation_unsupported" {
+            if let details = object["details"] as? [String: Any],
+               let operation = details["operation"] as? String {
+                return operation.lowercased() == "openport" || operation.lowercased() == "open_port"
+            }
+            return true
+        }
+        let text = CloudMachineLink.errorText(error).lowercased()
+        return text.contains("vm_operation_unsupported") && (text.contains("openport") || text.contains("open_port"))
     }
 
     /// Mints the desktop's endpoint ahead of the first drop, one flight at a time. A
