@@ -370,8 +370,8 @@ private enum ArtifactPaneKindFilter: String, CaseIterable, Hashable {
     var kindGroup: ArtifactKindGroup? {
         switch self {
         case .all: nil
-        case .links: nil
-        case .html: nil
+        case .links: .links
+        case .html: .html
         case .files: .files
         }
     }
