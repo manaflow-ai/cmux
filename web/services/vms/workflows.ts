@@ -32,12 +32,15 @@ import {
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+  VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
   hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
   vmResourceResizePendingFromMetadata,
+  vmResourceResizeUnconfirmedFromMetadata,
   type VmResourceReservation,
+  type VmResourceResizePending,
 } from "./machineSpec";
 import {
   VmBillingError,
@@ -182,6 +185,7 @@ const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
+const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type ExistingVmAccessInput = {
@@ -1440,6 +1444,7 @@ function reconcileLegacyResourceReservations(
 ): Effect.Effect<void, never> {
   const findCandidates = repo.legacyResourceReservationCandidates;
   const setReservation = repo.setResourceReservation;
+  const markUnconfirmed = repo.markVmResizeUnconfirmed;
   const getStats = providers.getStats;
   if (!findCandidates || !setReservation || !getStats) return Effect.void;
 
@@ -1458,15 +1463,50 @@ function reconcileLegacyResourceReservations(
         VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
       );
       const pending = vmResourceResizePendingFromMetadata(metadata);
-      // A malformed pending marker is deliberately left in place. Clearing
-      // it without a request generation could release a newer resize claim.
+      const hasUnconfirmedMarker = Object.prototype.hasOwnProperty.call(
+        metadata,
+        VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
+      );
+      const unconfirmed = vmResourceResizeUnconfirmedFromMetadata(metadata);
+      // A malformed control marker is deliberately left in place. Clearing it
+      // without a request generation could release a newer resize claim.
       if (hasPendingMarker && !pending) return Effect.void;
+      if (hasUnconfirmedMarker && !unconfirmed) return Effect.void;
       return getStats(vm.provider, providerVmId).pipe(
         Effect.flatMap((stats) => {
           const diskMb = positiveResourceSize(stats.diskTotalMb);
           if (diskMb === null) return Effect.void;
           const existing = vmResourceReservationFromMetadata(metadata);
-          if (pending && diskMb < pending.requestedDiskMb) return Effect.void;
+          if (pending && diskMb < pending.requestedDiskMb) {
+            // A worker can die after reserving headroom but before provider
+            // I/O. After the recovery window, release the in-progress marker
+            // into a conservative unconfirmed claim instead of blocking every
+            // later resize forever. The max claim still prevents undercounting.
+            if (!markUnconfirmed || !resizePendingHasExpired(vm, pending)) return Effect.void;
+            return markUnconfirmed({
+              id: vm.id,
+              expectedDiskMb: existing.diskMb,
+              minimumDiskMb: pending.requestedDiskMb,
+              operationId: pending.operationId,
+            }).pipe(Effect.asVoid);
+          }
+          if (unconfirmed) {
+            // A successful provider resize whose follow-up stats were lost is
+            // no longer in flight. Use the first later positive stat as the
+            // lower bound, while retaining the requested size if the provider
+            // briefly reports a stale value.
+            const reservation = {
+              ...existing,
+              vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
+              memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+              diskMb: Math.max(unconfirmed.requestedDiskMb, diskMb),
+            };
+            return setReservation({
+              id: vm.id,
+              reservation,
+              expectedResizeUnconfirmedOperationId: unconfirmed.operationId,
+            }).pipe(Effect.asVoid);
+          }
           const reservation = pending
             ? {
               ...existing,
@@ -1489,12 +1529,20 @@ function reconcileLegacyResourceReservations(
             ...(pending ? { expectedResizeOperationId: pending.operationId } : {}),
           }).pipe(Effect.asVoid);
         }),
-        // An unavailable provider leaves the marker absent, so the SQL quota
-        // fallback remains conservative instead of silently undercounting.
+        // An unavailable provider leaves the candidate marker unchanged, so
+        // the SQL quota read remains conservative instead of undercounting.
         Effect.catchAll(() => Effect.void),
       );
     }, { concurrency: LEGACY_RESOURCE_RECONCILE_CONCURRENCY, discard: true });
   });
+}
+
+function resizePendingHasExpired(
+  vm: Pick<CloudVmRow, "updatedAt">,
+  pending: VmResourceResizePending,
+): boolean {
+  const startedAtMs = pending.createdAtMs ?? vm.updatedAt.getTime();
+  return Date.now() - startedAtMs >= RESIZE_PENDING_RECOVERY_AFTER_MS;
 }
 
 /** Refresh live provider state before retrying a count or shared-resource limit conflict. */
@@ -2358,24 +2406,21 @@ export function resizeVm(input: {
 
 /**
  * A successful provider resize followed by a lost stats response still owns
- * its reservation. Clear the pending generation at the per-VM maximum so a
- * later request is not blocked by a marker that no longer has an owner.
- * Background reconciliation can lower this conservative claim when stats are
- * available again.
+ * its reservation. Replace the active marker with an unconfirmed marker so a
+ * later reconcile can lower the conservative claim without blocking new work.
  */
 function finalizeUnobservedResize(
   repo: VmRepositoryShape,
   vmId: string,
   reservation: VmResizeReservation | null,
 ): Effect.Effect<void, never> {
-  if (!reservation || !repo.confirmVmResize) return Effect.void;
-  return repo.confirmVmResize({
+  if (!reservation || !repo.markVmResizeUnconfirmed) return Effect.void;
+  return repo.markVmResizeUnconfirmed({
     id: vmId,
     expectedDiskMb: reservation.reservedDiskMb,
     ...(reservation.requestedDiskMb === undefined
       ? {}
       : { minimumDiskMb: reservation.requestedDiskMb }),
-    confirmedDiskMb: VM_DISK_MB_MAX,
     operationId: reservation.operationId,
   }).pipe(
     Effect.asVoid,

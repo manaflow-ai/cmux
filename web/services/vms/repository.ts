@@ -46,6 +46,7 @@ import {
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+  VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
   firstExceededSharedResource,
   hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
@@ -262,6 +263,8 @@ export type VmRepositoryShape = {
     readonly reservation: VmResourceReservation;
     /** Clear a pending resize only when this generation owns it. */
     readonly expectedResizeOperationId?: string;
+    /** Clear an unconfirmed resize only when this generation owns it. */
+    readonly expectedResizeUnconfirmedOperationId?: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly reservePausedResume: (input: {
     readonly id: string;
@@ -290,6 +293,16 @@ export type VmRepositoryShape = {
     /** The requested claim; the temporary headroom hold may be larger. */
     readonly minimumDiskMb?: number;
     readonly confirmedDiskMb: number;
+    /** Unique generation returned by reserveVmResize. */
+    readonly operationId: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Persist a conservative claim while a completed resize awaits provider stats. */
+  readonly markVmResizeUnconfirmed?: (input: {
+    readonly id: string;
+    /** The claim written before provider I/O. A newer claim wins the race. */
+    readonly expectedDiskMb: number;
+    /** The requested claim; the temporary headroom hold may be larger. */
+    readonly minimumDiskMb?: number;
     /** Unique generation returned by reserveVmResize. */
     readonly operationId: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
@@ -737,7 +750,8 @@ function providerMetadataPatchForPersistence(
   return Object.fromEntries(
     Object.entries(metadata ?? {}).filter(([key]) =>
       key !== VM_RESOURCE_RESERVATION_METADATA_KEY &&
-      key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+      key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY &&
+      key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
     ),
   );
 }
@@ -758,11 +772,26 @@ function resizePendingMetadataJsonb(input: {
   readonly operationId: string;
   readonly requestedDiskMb: number;
   readonly previousDiskMb: number;
+  readonly createdAtMs: number;
 }) {
   return sql`jsonb_build_object(
     'operationId', ${input.operationId}::text,
     'requestedDiskMb', ${input.requestedDiskMb}::integer,
-    'previousDiskMb', ${input.previousDiskMb}::integer
+    'previousDiskMb', ${input.previousDiskMb}::integer,
+    'createdAtMs', ${input.createdAtMs}::bigint
+  )`;
+}
+
+function resizeUnconfirmedMetadataJsonb(input: {
+  readonly operationId: string;
+  readonly requestedDiskMb: number;
+}) {
+  return sql`jsonb_build_object(
+    ${sql.raw(`'${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}'`)},
+    jsonb_build_object(
+      'operationId', ${input.operationId}::text,
+      'requestedDiskMb', ${input.requestedDiskMb}::integer
+    )
   )`;
 }
 
@@ -1729,6 +1758,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             ...predicates,
             or(
               sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}`,
+              sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}`,
               sql`not coalesce((${validResourceReservationMarkerSql()}), false)`,
             ),
           ),
@@ -1739,6 +1769,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       // rows from a different SQL dialect or a stale read replica.
       return rows.filter((row) =>
         Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_PENDING_METADATA_KEY) ||
+        Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY) ||
         !hasVmResourceReservationMetadata(row.providerMetadata)
       );
     }),
@@ -1756,13 +1787,20 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         const lockKey = initial.billingTeamId?.trim() || `user:${initial.userId}`;
         await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
 
+        if (input.expectedResizeOperationId !== undefined && input.expectedResizeUnconfirmedOperationId !== undefined) {
+          throw new Error("resource repair cannot target two resize generations");
+        }
         // A normal legacy repair must not lower an in-flight resize. A pending
-        // repair is a compare-and-set on the request generation, so a stale
-        // provider read cannot clear a newer marker.
-        const pendingPredicate = input.expectedResizeOperationId === undefined
-          ? sql`not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})`
-          : sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${input.expectedResizeOperationId}`;
-        const markerPredicate = input.expectedResizeOperationId === undefined
+        // or unconfirmed repair is a compare-and-set on its generation, so a
+        // stale provider read cannot clear a newer marker.
+        const resizeMarkerPredicate = input.expectedResizeOperationId !== undefined
+          ? sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${input.expectedResizeOperationId}`
+          : input.expectedResizeUnconfirmedOperationId !== undefined
+            ? sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${sql.raw(`'${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}'`)}->>'operationId' = ${input.expectedResizeUnconfirmedOperationId}
+              and not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})`
+            : sql`not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})
+              and not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY})`;
+        const markerPredicate = input.expectedResizeOperationId === undefined && input.expectedResizeUnconfirmedOperationId === undefined
           ? sql`not coalesce((${validResourceReservationMarkerSql()}), false)`
           : sql`true`;
         const rows = await tx
@@ -1773,13 +1811,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             providerMetadata: sql`(
               coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
               || ${reservationMetadataJsonb(input.reservation)}
-            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'`,
+            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
+              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
             updatedAt: new Date(),
           })
           .where(and(
             eq(cloudVms.id, input.id),
             inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
-            pendingPredicate,
+            resizeMarkerPredicate,
             markerPredicate,
           ))
           .returning({ id: cloudVms.id });
@@ -1872,10 +1911,9 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           );
           if (hasPendingMarker) {
             const pending = vmResourceResizePendingFromMetadata(current.providerMetadata);
-            if (!pending) {
-              throw new Error("invalid pending resize marker");
-            }
-            throw new VmResizeInProgressError({ vmId: current.id });
+            // A malformed marker cannot identify an active owner. The locked
+            // update below replaces it with a fresh generation.
+            if (pending) throw new VmResizeInProgressError({ vmId: current.id });
           }
 
           const previous = vmResourceReservationFromMetadata(current.providerMetadata);
@@ -1921,6 +1959,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           // provider size and does not need a pending headroom reservation.
           const isNoopResize = input.currentDiskMb !== undefined && input.storageMb === input.currentDiskMb;
           const operationId = randomUUID();
+          const createdAtMs = Date.now();
           const diskMb = isNoopResize
             ? requestedDiskMb
             : Math.max(requestedDiskMb, capacity.diskMb - used.diskMb);
@@ -1933,13 +1972,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 ? sql`(
                   coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
                   || ${reservationMetadataJsonb(reserved)}
-                )`
-                : sql`jsonb_set(
-                  coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${reservationMetadataJsonb(reserved)},
-                  '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}',
-                  ${resizePendingMetadataJsonb({ operationId, requestedDiskMb, previousDiskMb })},
-                  true
-                )`,
+                ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
+                  #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`
+                : sql`(
+                  jsonb_set(
+                    coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${reservationMetadataJsonb(reserved)},
+                    '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}',
+                    ${resizePendingMetadataJsonb({ operationId, requestedDiskMb, previousDiskMb, createdAtMs })},
+                    true
+                  )
+                ) #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
               updatedAt: new Date(),
             })
             .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")));
@@ -1998,13 +2040,70 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 to_jsonb(${diskMb}::integer),
                 true
               )
-            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'`,
+            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
+              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
             updatedAt: new Date(),
           })
           .where(and(
             eq(cloudVms.id, input.id),
             inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
             sql`${cloudVms.providerMetadata}->'cmuxResourceReservation'->>'diskMb' = ${String(expectedDiskMb)}`,
+            sql`${cloudVms.providerMetadata}->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${operationId}`,
+          ))
+          .returning({ id: cloudVms.id });
+        return rows.length > 0;
+      });
+    }),
+
+  markVmResizeUnconfirmed: (input) =>
+    dbEffect("markVmResizeUnconfirmed", async () => {
+      const expectedDiskMb = positiveReservationInteger(input.expectedDiskMb);
+      const minimumDiskMb = input.minimumDiskMb === undefined
+        ? expectedDiskMb
+        : positiveReservationInteger(input.minimumDiskMb);
+      const operationId = typeof input.operationId === "string" ? input.operationId.trim() : "";
+      if (
+        expectedDiskMb === null ||
+        minimumDiskMb === null ||
+        operationId.length === 0 ||
+        operationId.length > 200
+      ) {
+        throw new Error("invalid unconfirmed resize claim");
+      }
+      const db = cloudDb();
+      return await db.transaction(async (tx) => {
+        const [initial] = await tx
+          .select({ userId: cloudVms.userId, billingTeamId: cloudVms.billingTeamId })
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!initial) return false;
+        const lockKey = initial.billingTeamId?.trim() || `user:${initial.userId}`;
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+        const rows = await tx
+          .update(cloudVms)
+          .set({
+            // Keep the conservative headroom claim until a later provider
+            // read confirms the real size. The generation check prevents a
+            // late stats failure from replacing a newer resize.
+            providerMetadata: sql`(
+              jsonb_set(
+                coalesce(${cloudVms.providerMetadata}, '{}'::jsonb),
+                '{cmuxResourceReservation,diskMb}',
+                to_jsonb(${VM_DISK_MB_MAX}::integer),
+                true
+              )
+              || ${resizeUnconfirmedMetadataJsonb({
+                operationId,
+                requestedDiskMb: minimumDiskMb,
+              })}
+            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'`,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(cloudVms.id, input.id),
+            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+            sql`${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}'->>'diskMb' = ${String(expectedDiskMb)}`,
             sql`${cloudVms.providerMetadata}->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${operationId}`,
           ))
           .returning({ id: cloudVms.id });
@@ -2047,7 +2146,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 ...reservation,
                 diskMb: previousDiskMb,
               })}
-            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'`,
+            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
+              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
             updatedAt: new Date(),
           })
           .where(and(

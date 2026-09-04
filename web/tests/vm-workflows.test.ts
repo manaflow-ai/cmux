@@ -41,6 +41,7 @@ import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import {
   PLAN_SHARED_DISK_MB,
+  VM_DISK_MB_MAX,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
 } from "../services/vms/machineSpec";
@@ -3248,7 +3249,7 @@ describe("VM Effect workflows", () => {
       from cloud_vms
       where id = ${vmId}
     `;
-    expect(row).toEqual({ diskMb: PLAN_SHARED_DISK_MB, pending: false, unconfirmed: true });
+    expect(row).toEqual({ diskMb: VM_DISK_MB_MAX, pending: false, unconfirmed: true });
   });
 
   dbTest("uses the shared disk pool for snapshot events without a recorded size", async () => {

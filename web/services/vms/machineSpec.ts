@@ -62,6 +62,8 @@ export const VM_RESOURCE_RESERVATION_METADATA_KEY = "cmuxResourceReservation";
  * cannot lower the claim during the provider call.
  */
 export const VM_RESOURCE_RESIZE_PENDING_METADATA_KEY = "cmuxResourceResizePending";
+/** Internal marker for a completed resize whose provider size is not confirmed yet. */
+export const VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY = "cmuxResourceResizeUnconfirmed";
 
 /** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up. */
 export function vcpusForMemoryMb(memoryMb: number): number {
@@ -146,6 +148,8 @@ export type VmResourceResizePending = {
   readonly operationId: string;
   readonly requestedDiskMb: number;
   readonly previousDiskMb: number;
+  /** Millisecond timestamp used to recover a worker that died before provider I/O. */
+  readonly createdAtMs?: number;
 };
 
 /** Read a validated in-flight resize marker from provider metadata. */
@@ -158,18 +162,46 @@ export function vmResourceResizePendingFromMetadata(
   const operationId = candidate.operationId;
   const requestedDiskMb = candidate.requestedDiskMb;
   const previousDiskMb = candidate.previousDiskMb;
+  const createdAtMs = candidate.createdAtMs;
   if (
     typeof operationId !== "string" ||
     operationId.trim().length === 0 ||
     operationId.length > 200 ||
     !isPositiveSafeInteger(requestedDiskMb) ||
-    !isPositiveSafeInteger(previousDiskMb)
+    !isPositiveSafeInteger(previousDiskMb) ||
+    (createdAtMs !== undefined && !isPositiveSafeInteger(createdAtMs))
   ) return null;
   return {
     operationId: operationId.trim(),
     requestedDiskMb,
     previousDiskMb,
+    ...(createdAtMs === undefined ? {} : { createdAtMs }),
   };
+}
+
+export type VmResourceResizeUnconfirmed = {
+  /** Unique request generation used to protect reconciliation from stale reads. */
+  readonly operationId: string;
+  /** Minimum provider size expected after the completed resize. */
+  readonly requestedDiskMb: number;
+};
+
+/** Read a validated completed-resize marker awaiting provider stats. */
+export function vmResourceResizeUnconfirmedFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): VmResourceResizeUnconfirmed | null {
+  const raw = metadata?.[VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const candidate = raw as Record<string, unknown>;
+  const operationId = candidate.operationId;
+  const requestedDiskMb = candidate.requestedDiskMb;
+  if (
+    typeof operationId !== "string" ||
+    operationId.trim().length === 0 ||
+    operationId.length > 200 ||
+    !isPositiveSafeInteger(requestedDiskMb)
+  ) return null;
+  return { operationId: operationId.trim(), requestedDiskMb };
 }
 
 function isPositiveSafeInteger(value: unknown): value is number {
