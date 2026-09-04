@@ -18,6 +18,10 @@ import XcodeProj
 @main
 struct CMUXAddTunnelTarget {
     static let targetName = "CmuxTunnelExtension"
+    static let wireGuardURL = "https://github.com/JacobZwang/wireguard-apple.git"
+    /// `cmux-xcode26-compat`, pinned by revision so the dependency cannot move
+    /// under us.
+    static let wireGuardRevision = "e79c3f898f7cb03493c65b9732c6990c011cab92"
 
     static func main() throws {
         var arguments = CommandLine.arguments.dropFirst()
@@ -37,18 +41,27 @@ struct CMUXAddTunnelTarget {
             return
         }
 
-        // No WireGuard package is wired in yet, deliberately. `wireguard-apple`
-        // on master does not resolve (its manifest declares `.macOS(.v12)` /
-        // `.iOS(.v15)` under swift-tools-version 5.3, where those cases do not
-        // exist), and 1.0.15-26 -- the newest self-consistent manifest -- then
-        // fails to compile, because `WireGuardKitC.h` uses `u_int32_t` without
-        // including <sys/types.h> and the current toolchain's module build
-        // rejects that. Target build settings do not reach a remote package's
-        // C target, so there is no override from here.
+        // WireGuardKit, which the provider uses to move packets.
         //
-        // Choosing between vendoring a patched copy, adopting a maintained
-        // fork, or waiting for upstream is a dependency decision, so this adds
-        // the target and leaves the implementation to that decision.
+        // A fork, not upstream, and pinned by revision. Upstream does not build
+        // on current Xcode: its manifest declares `.macOS(.v12)`/`.iOS(.v15)`
+        // under swift-tools-version 5.3 where those cases do not exist, so
+        // SwiftPM will not resolve it; and `WireGuardKitC.h` uses `u_int32_t`
+        // without including <sys/types.h>, which the explicit-module build
+        // rejects. Neither is fixable from here -- target build settings do not
+        // reach a remote package's C target -- so the fork carries those two
+        // changes and nothing else. Retire it when upstream takes them.
+        let wireGuard = XCRemoteSwiftPackageReference(
+            repositoryURL: wireGuardURL,
+            versionRequirement: .revision(wireGuardRevision)
+        )
+        pbxproj.add(object: wireGuard)
+        root.remotePackages.append(wireGuard)
+        let wireGuardProduct = XCSwiftPackageProductDependency(
+            productName: "WireGuardKit",
+            package: wireGuard
+        )
+        pbxproj.add(object: wireGuardProduct)
 
         // Sources live in a folder group beside the app's.
         let group = PBXGroup(sourceTree: .group, name: targetName, path: targetName)
@@ -75,6 +88,27 @@ struct CMUXAddTunnelTarget {
             group.children.append(file)
         }
 
+        // WireGuardKitGo declares `.linkedLibrary("wg-go")` but does not build
+        // it: upstream expects its host project to run the Makefile, which
+        // emits libwg-go.a into CONFIGURATION_BUILD_DIR -- already on the link
+        // path. Without this phase the extension fails at link with
+        // "library 'wg-go' not found".
+        let goBridge = PBXShellScriptBuildPhase(
+            name: "Build WireGuard Go Bridge",
+            shellScript: """
+            set -euo pipefail
+            CHECKOUT="${BUILD_DIR}/../../SourcePackages/checkouts/wireguard-apple/Sources/WireGuardKitGo"
+            if [ ! -d "$CHECKOUT" ]; then
+              echo "error: WireGuardKitGo checkout not found at $CHECKOUT" >&2
+              exit 1
+            fi
+            # The Makefile reads ARCHS, SDKROOT and the build dirs from Xcode's
+            # environment, so it needs no arguments beyond the goal.
+            make -C "$CHECKOUT" build
+            """
+        )
+        pbxproj.add(object: goBridge)
+
         let sourceBuildFile = PBXBuildFile(file: sourceFile)
         pbxproj.add(object: sourceBuildFile)
         let sources = PBXSourcesBuildPhase(files: [sourceBuildFile])
@@ -89,17 +123,16 @@ struct CMUXAddTunnelTarget {
         // load.
         let common: [String: Any] = [
             "PRODUCT_NAME": "$(TARGET_NAME)",
-            // Literal per configuration, the way the dock tile plugin does it:
-            // an embedded binary's id must be prefixed by its host's, and there
-            // is no build setting holding the host's id to derive from.
-            //
-            // Note this does not survive `scripts/reload.sh --tag`, which
-            // passes PRODUCT_BUNDLE_IDENTIFIER as a command-line build setting.
-            // Those apply to every target, so a tagged build gives the
-            // extension the host's own id and the embed check rejects it. That
-            // mechanism needs to compose ids per target -- via an xcconfig or a
-            // suffix setting -- before tagged builds can carry an extension.
-            "PRODUCT_BUNDLE_IDENTIFIER": "com.cmuxterm.app.network-extension",
+            // An embedded binary's id must be prefixed by its host's, and the
+            // host's id is not fixed: `scripts/reload.sh --tag` passes
+            // PRODUCT_BUNDLE_IDENTIFIER as a command-line build setting, which
+            // applies to every target. So the extension derives its id from
+            // whatever the host ended up with rather than naming one. A plain
+            // build composes com.cmuxterm.app.debug.network-extension; a tagged
+            // build composes com.cmuxterm.app.debug.<tag>.network-extension,
+            // and neither needs reload.sh to know this target exists.
+            "PRODUCT_BUNDLE_IDENTIFIER": "com.cmuxterm.app",
+            "CMUX_TUNNEL_EXTENSION_BUNDLE_ID": "$(PRODUCT_BUNDLE_IDENTIFIER).network-extension",
             "INFOPLIST_FILE": "\(targetName)/Info.plist",
             "CODE_SIGN_ENTITLEMENTS": "\(targetName)/\(targetName).entitlements",
             "SKIP_INSTALL": "YES",
@@ -121,7 +154,7 @@ struct CMUXAddTunnelTarget {
         // where it matters.
         var debugSettings = common
         debugSettings["CODE_SIGN_ENTITLEMENTS"] = ""
-        debugSettings["PRODUCT_BUNDLE_IDENTIFIER"] = "com.cmuxterm.app.debug.network-extension"
+        debugSettings["PRODUCT_BUNDLE_IDENTIFIER"] = "com.cmuxterm.app.debug"
         let debug = XCBuildConfiguration(name: "Debug", buildSettings: buildSettings(debugSettings))
         let release = XCBuildConfiguration(name: "Release", buildSettings: buildSettings(common))
         pbxproj.add(object: debug)
@@ -144,10 +177,11 @@ struct CMUXAddTunnelTarget {
         let target = PBXNativeTarget(
             name: targetName,
             buildConfigurationList: configurations,
-            buildPhases: [sources, frameworks, resources],
+            buildPhases: [goBridge, sources, frameworks, resources],
             product: product,
             productType: .appExtension
         )
+        target.packageProductDependencies = [wireGuardProduct]
         pbxproj.add(object: target)
         root.targets.append(target)
 

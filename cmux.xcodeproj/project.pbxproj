@@ -9795,6 +9795,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 44C6C34F392A56AD62D5FB5A /* Build configuration list for PBXNativeTarget "CmuxTunnelExtension" */;
 			buildPhases = (
+				2F1A2C8785D9C333EB21D2C8 /* Build WireGuard Go Bridge */,
 				AF057CBAC4A9EDC45934AF4A /* Sources */,
 				032C58E4AA9E914D1E5774BD /* Frameworks */,
 				4A70E34B7498A23A48FBB3C9 /* Resources */,
@@ -9805,6 +9806,7 @@
 			);
 			name = CmuxTunnelExtension;
 			packageProductDependencies = (
+				78B1930AEF1E12D02574C97A /* WireGuardKit */,
 			);
 			productReference = 1DB7A103431D35218B0530F3 /* CmuxTunnelExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -9898,6 +9900,7 @@
 				A5001252 /* XCRemoteSwiftPackageReference "sentry-cocoa" */,
 				A5001272 /* XCRemoteSwiftPackageReference "posthog-ios" */,
 				A5001292 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+				21B2CE0FAAAF8E393392C91A /* XCRemoteSwiftPackageReference "wireguard-apple" */,
 				A5001260 /* XCLocalSwiftPackageReference "vendor/bonsplit" */,
 				40B63BB4A170F0BD2D1DEFD1 /* XCLocalSwiftPackageReference "Packages/Shared/CMUXAuthCore" */,
 				53750001A0B1C2D3E4F50001 /* XCLocalSwiftPackageReference "Packages/Shared/CmuxAuthRuntime" */,
@@ -10018,6 +10021,20 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
+		2F1A2C8785D9C333EB21D2C8 /* Build WireGuard Go Bridge */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Build WireGuard Go Bridge";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nCHECKOUT=\"${BUILD_DIR}/../../SourcePackages/checkouts/wireguard-apple/Sources/WireGuardKitGo\"\nif [ ! -d \"$CHECKOUT\" ]; then\n  echo \"error: WireGuardKitGo checkout not found at $CHECKOUT\" >&2\n  exit 1\nfi\n# The Makefile reads ARCHS, SDKROOT and the build dirs from Xcode's\n# environment, so it needs no arguments beyond the goal.\nmake -C \"$CHECKOUT\" build";
+		};
 		A5001300A1B2C3D4E5F60719 /* ShellScript */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -13314,6 +13331,7 @@
 		82E157AA7EACEEF570CD17DC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CMUX_TUNNEL_EXTENSION_BUNDLE_ID = "$(PRODUCT_BUNDLE_IDENTIFIER).network-extension";
 				CODE_SIGN_ENTITLEMENTS = "";
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -13324,7 +13342,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cmuxterm.app.debug.network-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app.debug;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
@@ -13531,6 +13549,7 @@
 		B9BD55568EF88153C805F84C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CMUX_TUNNEL_EXTENSION_BUNDLE_ID = "$(PRODUCT_BUNDLE_IDENTIFIER).network-extension";
 				CODE_SIGN_ENTITLEMENTS = CmuxTunnelExtension/CmuxTunnelExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -13541,7 +13560,7 @@
 					"@executable_path/../../../../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "com.cmuxterm.app.network-extension";
+				PRODUCT_BUNDLE_IDENTIFIER = com.cmuxterm.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
@@ -13931,6 +13950,14 @@
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
+		21B2CE0FAAAF8E393392C91A /* XCRemoteSwiftPackageReference "wireguard-apple" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/JacobZwang/wireguard-apple.git";
+			requirement = {
+				kind = revision;
+				revision = e79c3f898f7cb03493c65b9732c6990c011cab92;
+			};
+		};
 		A5001232 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/sparkle-project/Sparkle";
@@ -14010,6 +14037,11 @@
 		5E55500000000000000000E2 /* CmuxCommandPalette */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = CmuxCommandPalette;
+		};
+		78B1930AEF1E12D02574C97A /* WireGuardKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 21B2CE0FAAAF8E393392C91A /* XCRemoteSwiftPackageReference "wireguard-apple" */;
+			productName = WireGuardKit;
 		};
 		A5001231 /* Sparkle */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -1,0 +1,44 @@
+{
+    "configurations": [
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:cmux}/Packages/macOS/CMUXProjectModel",
+            "name": "Debug cmux-project-dump (Packages/macOS/CMUXProjectModel)",
+            "target": "cmux-project-dump",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug cmux-project-dump (Packages/macOS/CMUXProjectModel)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:cmux}/Packages/macOS/CMUXProjectModel",
+            "name": "Release cmux-project-dump (Packages/macOS/CMUXProjectModel)",
+            "target": "cmux-project-dump",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release cmux-project-dump (Packages/macOS/CMUXProjectModel)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:cmux}/Packages/macOS/CMUXProjectModel",
+            "name": "Debug cmux-add-tunnel-target (Packages/macOS/CMUXProjectModel)",
+            "target": "cmux-add-tunnel-target",
+            "configuration": "debug",
+            "preLaunchTask": "swift: Build Debug cmux-add-tunnel-target (Packages/macOS/CMUXProjectModel)"
+        },
+        {
+            "type": "swift",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:cmux}/Packages/macOS/CMUXProjectModel",
+            "name": "Release cmux-add-tunnel-target (Packages/macOS/CMUXProjectModel)",
+            "target": "cmux-add-tunnel-target",
+            "configuration": "release",
+            "preLaunchTask": "swift: Build Release cmux-add-tunnel-target (Packages/macOS/CMUXProjectModel)"
+        }
+    ]
+}
