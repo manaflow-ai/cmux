@@ -115,6 +115,15 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         func admit(_ acknowledgement: Acknowledgement) -> Bool {
             let admitted = withStateLock { state in
                 guard !state.finished else { return false }
+                if state.entries.count >= maxBufferedEntries {
+                    guard let oldestLine = state.entries.firstIndex(where: { entry in
+                        if case .line = entry { return true }
+                        return false
+                    }) else {
+                        return false
+                    }
+                    state.entries.remove(at: oldestLine)
+                }
                 state.entries.append(.barrier(acknowledgement))
                 return true
             }
