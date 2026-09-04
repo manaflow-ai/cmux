@@ -470,8 +470,15 @@ struct VMTunnelManager: Sendable {
         guard lstat(socketURL.path, &socketInfo) == 0,
               (socketInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { return nil }
         let metadataTime = metadataInfo.st_mtimespec.tv_sec
-        guard abs(metadataTime - markerInfo.st_mtimespec.tv_sec) < 2,
-              abs(metadataTime - socketInfo.st_mtimespec.tv_sec) < 2 else { return nil }
+        let markerTime = markerInfo.st_mtimespec.tv_sec
+        let socketTime = socketInfo.st_mtimespec.tv_sec
+        // The companion is written by the final PostUp hook, after wg-quick
+        // creates both the root marker and the socket. A bounded monotonic
+        // ordering rejects a stale file even when Darwin reuses the same utunN,
+        // while allowing route setup to take longer than two seconds.
+        guard metadataTime >= markerTime,
+              metadataTime >= socketTime,
+              metadataTime - markerTime <= 60 else { return nil }
         return value
     }
 
