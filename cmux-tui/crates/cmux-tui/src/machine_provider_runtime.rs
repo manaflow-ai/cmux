@@ -3018,6 +3018,7 @@ mod tests {
         let worker = Arc::new(ProviderCloseWorker::with_capacity(1).unwrap());
         let (started, started_rx) = mpsc::channel();
         let (release, release_rx) = mpsc::channel();
+        let (finished, finished_rx) = mpsc::channel();
         worker
             .schedule(
                 MachineKey(1),
@@ -3032,10 +3033,11 @@ mod tests {
             .schedule(MachineKey(2), Box::new(|| {}))
             .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
         worker
-            .schedule(MachineKey(3), Box::new(|| {}))
+            .schedule(MachineKey(3), Box::new(move || finished.send(()).unwrap()))
             .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
         assert!(worker.pending.lock().unwrap().contains_key(&MachineKey(3)));
         release.send(()).unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         drop(worker);
     }
 
