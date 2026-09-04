@@ -53,8 +53,8 @@ class StartupViewModel @Inject constructor(
 
     /** Called after sign-in to re-run the startup logic. */
     fun onSignedIn() {
+        _destination.value = Destination.Loading
         viewModelScope.launch(Dispatchers.IO) {
-            _destination.value = Destination.Loading
             _destination.value = resolve()
         }
     }

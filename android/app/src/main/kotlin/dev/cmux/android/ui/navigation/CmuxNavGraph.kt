@@ -71,7 +71,7 @@ fun CmuxNavGraph() {
         composable(Routes.SIGN_IN) {
             SignInScreen(
                 onSignedIn = {
-                    // Re-run startup logic (auto-connects in debug, navigates to workspaces)
+                    startupViewModel.onSignedIn()
                     navController.navigate(Routes.STARTUP) {
                         popUpTo(Routes.SIGN_IN) { inclusive = true }
                     }
