@@ -87,12 +87,15 @@ extension VMTunnelManager {
     }
 
     /// Hook commands run as root inside wg-quick, so they can publish the
-    /// actual `utunN` while keeping the marker itself non-secret and readable
-    /// by the unprivileged cmux app. `%i` is substituted by wg-quick with the
-    /// real interface, not the logical config basename.
+    /// actual `utunN` and its socket inode while keeping the marker itself
+    /// non-secret and readable by the unprivileged cmux app. `%i` is
+    /// substituted by wg-quick with the real interface, not the logical config
+    /// basename.
     private static func runtimeMetadataHooks(path: String) -> [String] {
         let target = shellQuote(path)
-        let writeScript = "printf \"%s\\n\" \"%i\" > \(target) && chmod 444 \(target)"
+        // Build the `stat` format string at runtime: a literal `%i` in the
+        // hook would itself be consumed by wg-quick's `%i` substitution.
+        let writeScript = "interface=\"%i\"; socket=\"/var/run/wireguard/$interface.sock\"; format=$(printf '%%%s' i); inode=$(/usr/bin/stat -f \"$format\" \"$socket\") || exit 1; printf \"%s %s\\n\" \"$interface\" \"$inode\" > \(target) && chmod 444 \(target)"
         return [
             "PostUp = /bin/sh -c \(shellQuote(writeScript))",
             "PreDown = /bin/rm -f \(target)",

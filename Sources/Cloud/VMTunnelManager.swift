@@ -453,8 +453,13 @@ struct VMTunnelManager: Sendable {
               metadataInfo.st_size > 0,
               metadataInfo.st_size <= 64,
               let raw = try? String(contentsOf: metadataURL, encoding: .utf8) else { return nil }
-        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard value.range(of: #"^utun[0-9]+$"#, options: .regularExpression) != nil else { return nil }
+        let fields = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(whereSeparator: \.isWhitespace)
+        guard fields.count == 2,
+              let interface = fields.first.map(String.init),
+              interface.range(of: #"^utun[0-9]+$"#, options: .regularExpression) != nil,
+              let expectedInode = fields.last.flatMap({ UInt64(String($0)) }),
+              expectedInode > 0 else { return nil }
 
         // A stale companion file can survive a killed wg-quick process, and
         // Darwin may reuse the same utun number later. Require the companion,
@@ -466,9 +471,10 @@ struct VMTunnelManager: Sendable {
         var socketInfo = stat()
         let socketURL = metadataURL
             .deletingLastPathComponent()
-            .appendingPathComponent("\(value).sock", isDirectory: false)
+            .appendingPathComponent("\(interface).sock", isDirectory: false)
         guard lstat(socketURL.path, &socketInfo) == 0,
-              (socketInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { return nil }
+              (socketInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK),
+              UInt64(socketInfo.st_ino) == expectedInode else { return nil }
         let metadataTime = metadataInfo.st_mtimespec.tv_sec
         let markerTime = markerInfo.st_mtimespec.tv_sec
         let socketTime = socketInfo.st_mtimespec.tv_sec
@@ -479,7 +485,7 @@ struct VMTunnelManager: Sendable {
         guard metadataTime >= markerTime,
               metadataTime >= socketTime,
               metadataTime - markerTime <= 60 else { return nil }
-        return value
+        return interface
     }
 
     /// Combines the two unprivileged liveness signals used by ``wgQuickInterfaceUp``.

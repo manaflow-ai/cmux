@@ -171,6 +171,8 @@ struct VMTunnelStalenessTests {
         )
         #expect(runtimeMarked.contains("PostUp = /bin/sh -c"))
         #expect(runtimeMarked.contains("cmux-nightly.cmux-runtime"))
+        #expect(runtimeMarked.contains("stat -f"))
+        #expect(runtimeMarked.contains("%s %s"))
         #expect(runtimeMarked.contains("PreDown = /bin/rm -f"))
         #expect(runtimeMarked.contains("%i"))
     }
