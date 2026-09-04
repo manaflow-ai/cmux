@@ -27,6 +27,8 @@ import { vmCreateDisabledReason } from "./config";
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
   PLAN_SHARED_DISK_MB,
+  PLAN_SHARED_MEMORY_MB,
+  PLAN_SHARED_VCPU,
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
@@ -997,20 +999,21 @@ export function snapshotVm(input: {
         Effect.catchAll(() => Effect.succeed(null)),
       )
       : null;
+    const sourceHasReservation = hasVmResourceReservationMetadata(vm.providerMetadata);
     const sourceReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
     const snapshotReservation = {
-      vcpus: Math.max(
-        sourceReservation.vcpus,
-        snapshotStats?.vcpus ?? DEFAULT_VM_RESOURCE_RESERVATION.vcpus,
-      ),
-      memoryMb: Math.max(
-        sourceReservation.memoryMb,
-        snapshotStats?.memoryMb ?? DEFAULT_VM_RESOURCE_RESERVATION.memoryMb,
-      ),
-      diskMb: Math.max(
-        sourceReservation.diskMb,
-        snapshotStats?.diskMb ?? PLAN_SHARED_DISK_MB,
-      ),
+      // A valid durable claim is a floor because it can intentionally differ
+      // from a provider's baked shape. Legacy rows have no such floor: use a
+      // reported provider dimension exactly, and fall back only when absent.
+      vcpus: sourceHasReservation
+        ? Math.max(sourceReservation.vcpus, snapshotStats?.vcpus ?? sourceReservation.vcpus)
+        : snapshotStats?.vcpus ?? PLAN_SHARED_VCPU,
+      memoryMb: sourceHasReservation
+        ? Math.max(sourceReservation.memoryMb, snapshotStats?.memoryMb ?? sourceReservation.memoryMb)
+        : snapshotStats?.memoryMb ?? PLAN_SHARED_MEMORY_MB,
+      diskMb: sourceHasReservation
+        ? Math.max(sourceReservation.diskMb, snapshotStats?.diskMb ?? sourceReservation.diskMb)
+        : snapshotStats?.diskMb ?? PLAN_SHARED_DISK_MB,
     } satisfies VmResourceReservation;
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
@@ -1120,17 +1123,17 @@ function resourceReservationForFork(
   // Unknown legacy dimensions claim the complete base pool. This keeps the
   // fallback bounded by the entitlement instead of undercounting a large VM.
   const unknownShape = {
-    vcpus: Math.max(reservation.vcpus, DEFAULT_VM_RESOURCE_RESERVATION.vcpus),
-    memoryMb: Math.max(reservation.memoryMb, DEFAULT_VM_RESOURCE_RESERVATION.memoryMb),
+    vcpus: PLAN_SHARED_VCPU,
+    memoryMb: PLAN_SHARED_MEMORY_MB,
     diskMb: PLAN_SHARED_DISK_MB,
   } satisfies VmResourceReservation;
   if (!providers.getStats) return Effect.succeed(unknownShape);
   return providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
     Effect.map((stats) => {
       return {
-        vcpus: Math.max(reservation.vcpus, positiveResourceSize(stats.cpus) ?? unknownShape.vcpus),
-        memoryMb: Math.max(reservation.memoryMb, positiveResourceSize(stats.memoryTotalMb) ?? unknownShape.memoryMb),
-        diskMb: Math.max(reservation.diskMb, positiveResourceSize(stats.diskTotalMb) ?? unknownShape.diskMb),
+        vcpus: positiveResourceSize(stats.cpus) ?? unknownShape.vcpus,
+        memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? unknownShape.memoryMb,
+        diskMb: positiveResourceSize(stats.diskTotalMb) ?? unknownShape.diskMb,
       } satisfies VmResourceReservation;
     }),
     Effect.catchAll(() => Effect.succeed(unknownShape)),
