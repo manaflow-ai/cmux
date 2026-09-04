@@ -12,6 +12,7 @@ import {
   validatedNativeCallbackScheme,
 } from "../../lib/native-callback";
 import { appPricingNativeReturnURL } from "../../lib/billing";
+import { requestOrigin } from "../../lib/request-origin";
 import {
   isCmuxCheckoutSession,
   isActiveStripeSubscriptionStatus,
@@ -106,7 +107,7 @@ export default async function BillingSuccessPage({
   const email = purchaseEmail(session) ?? "";
   const { locale, messages } = await billingSuccessMessages(requestHeaders);
   const openCmuxHref = appPricingNativeReturnURL(
-    new URL("/handler/after-sign-in", request.nextUrl.origin),
+    new URL("/handler/after-sign-in", requestOrigin(request)),
     nativeCallbackHrefForScheme(scheme),
     sessionId,
   );

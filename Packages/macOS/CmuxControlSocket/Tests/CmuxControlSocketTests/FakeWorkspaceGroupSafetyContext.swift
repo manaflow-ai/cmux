@@ -5,8 +5,10 @@ import Foundation
 @MainActor
 final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
     var createdChildWorkspaceIDs: [UUID]?
+    var createdExternalID: String?
     var createResolution: ControlWorkspaceGroupCreateResolution = .notCreated
     var ungroupedGroupIDs: [UUID] = []
+    var removeGeneratedAnchor = false
     var deletedGroupIDs: [UUID] = []
     var deleteResult = 2
 
@@ -14,18 +16,22 @@ final class FakeWorkspaceGroupSafetyContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         name: String,
         cwd: String?,
-        childWorkspaceIDs: [UUID]
+        childWorkspaceIDs: [UUID],
+        externalID: String?
     ) -> ControlWorkspaceGroupCreateResolution {
         createdChildWorkspaceIDs = childWorkspaceIDs
+        createdExternalID = externalID
         return createResolution
     }
 
     func controlUngroupWorkspaceGroup(
         routing: ControlRoutingSelectors,
-        groupID: UUID
-    ) -> Int? {
+        groupID: UUID,
+        removeGeneratedAnchor: Bool
+    ) -> ControlWorkspaceGroupUngroupResolution {
         ungroupedGroupIDs.append(groupID)
-        return 2
+        self.removeGeneratedAnchor = removeGeneratedAnchor
+        return .dissolved(keptWorkspaceCount: 2)
     }
 
     func controlDeleteWorkspaceGroup(

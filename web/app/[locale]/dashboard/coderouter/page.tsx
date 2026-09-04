@@ -23,13 +23,19 @@ import {
   loadCoderouterTeamMetrics,
   type CoderouterTeamMetrics,
 } from "@/services/coderouter/teamMetrics";
+import { loadMachineUsage, MachineUsageSection } from "./machine-usage";
 import {
   coderouterOrganizationFromCookieHeader,
 } from "@/services/coderouter/organizationScope";
 import {
+  listClaudeAccounts,
+  type ClaudeAccountDescription,
+} from "@/services/coderouter/claudeUpstream";
+import {
   AddAiAccountForms,
   DeleteAiAccountButton,
 } from "../components/ai-account-forms";
+import { ClaudeUpstreamSection } from "../components/claude-upstream-forms";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
 
 // The browser prefetches one private page snapshot. The snapshot is never
@@ -179,10 +185,13 @@ export async function CoderouterOverviewContent({
     authenticated.scopedTeamId,
     authenticated.selectedTeamId,
   );
-  const [t, accountState, metrics] = await Promise.all([
+  const [tPage, t, accountState, metrics, claudeUpstream, machineUsage] = await Promise.all([
+    getTranslations({ locale, namespace: "dashboard.coderouter" }),
     getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
     loadAccounts(selectedTeam, authenticated.accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
+    loadClaudeUpstream(selectedTeam.id),
+    loadMachineUsage(selectedTeam.id),
   ]);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
@@ -218,6 +227,29 @@ export async function CoderouterOverviewContent({
           teamName={selectedTeam.name}
         />
 
+        <ClaudeUpstreamSection
+          teamId={selectedTeam.id}
+          accounts={claudeUpstream.kind === "ok" ? claudeUpstream.accounts : []}
+          canManage={selectedTeam.manageAccounts}
+          loadFailed={claudeUpstream.kind === "error"}
+        />
+
+        <MachineUsageSection
+          locale={locale}
+          t={tPage}
+          teamName={selectedTeam.name}
+          usage={machineUsage}
+        />
+
+        {selectedTeam.manageAccounts ? (
+          <section className="mb-4">
+            <div className="mb-2">
+              <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
+            </div>
+            <AddAiAccountForms />
+          </section>
+        ) : null}
+
         {accountState.kind === "notConfigured" ? (
           <StatusPanel title={t("notConfiguredTitle")} body={t("notConfiguredBody")} />
         ) : accountState.kind === "migrationPending" ? (
@@ -225,74 +257,63 @@ export async function CoderouterOverviewContent({
         ) : accountState.kind === "error" ? (
           <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
         ) : (
-          <div>
-            {selectedTeam.manageAccounts ? (
-              <section className="mb-4">
-                <div className="mb-2">
-                  <h2 className="text-sm font-medium">{t("addAccountsTitle")}</h2>
-                </div>
-                <AddAiAccountForms />
-              </section>
-            ) : null}
+          <section>
+            <div className="mb-2">
+              <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
+              <p className="mt-1 text-xs text-muted">
+                {t("accountsCount", { count: accountState.accounts.length })}
+              </p>
+            </div>
 
-            <section>
-              <div className="mb-2">
-                <h2 className="text-sm font-medium">{t("accountsTitle")}</h2>
-                <p className="mt-1 text-xs text-muted">
-                  {t("accountsCount", { count: accountState.accounts.length })}
-                </p>
+            {accountState.accounts.length === 0 ? (
+              <div className="border border-border p-3">
+                <div className="text-sm font-medium">{t("emptyTitle")}</div>
+                <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
               </div>
-
-              {accountState.accounts.length === 0 ? (
-                <div className="border border-border p-3">
-                  <div className="text-sm font-medium">{t("emptyTitle")}</div>
-                  <p className="mt-1 text-xs text-muted">{t("emptyBody")}</p>
+            ) : (
+              <div className="border border-border">
+                <div className="hidden grid-cols-[1.2fr_1fr_1fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
+                  <div>{t("providerColumn")}</div>
+                  <div>{t("labelColumn")}</div>
+                  <div>{t("createdColumn")}</div>
+                  {selectedTeam.manageAccounts ? (
+                    <div className="text-right">{t("actionsColumn")}</div>
+                  ) : <div />}
                 </div>
-              ) : (
-                <div className="border border-border">
-                  <div className="hidden grid-cols-[1.2fr_1fr_1fr_auto] gap-3 border-b border-border px-3 py-2 text-xs text-muted md:grid">
-                    <div>{t("providerColumn")}</div>
-                    <div>{t("labelColumn")}</div>
-                    <div>{t("createdColumn")}</div>
+                {accountState.accounts.map((account) => (
+                  <div
+                    key={account.id}
+                    className="grid gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center md:gap-3"
+                  >
+                    <div>
+                      <div className="mb-1 text-xs text-muted md:hidden">
+                        {t("providerColumn")}
+                      </div>
+                      <div>{providerLabel(account.kind, t)}</div>
+                    </div>
+                    <div className="min-w-0 truncate text-muted">
+                      <div className="mb-1 text-xs text-muted md:hidden">
+                        {t("labelColumn")}
+                      </div>
+                      {account.label || t("unlabeledAccount")}
+                    </div>
+                    <div className="font-mono text-xs text-muted">
+                      <div className="mb-1 font-sans text-xs text-muted md:hidden">
+                        {t("createdColumn")}
+                      </div>
+                      {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
+                    </div>
                     {selectedTeam.manageAccounts ? (
-                      <div className="text-right">{t("actionsColumn")}</div>
+                      <DeleteAiAccountButton
+                        teamId={selectedTeam.id}
+                        accountId={account.id}
+                      />
                     ) : <div />}
                   </div>
-                  {accountState.accounts.map((account) => (
-                    <div
-                      key={account.id}
-                      className="grid gap-2 border-b border-border px-3 py-2 text-sm last:border-b-0 md:grid-cols-[1.2fr_1fr_1fr_auto] md:items-center md:gap-3"
-                    >
-                      <div>
-                        <div className="mb-1 text-xs text-muted md:hidden">
-                          {t("providerColumn")}
-                        </div>
-                        <div>{providerLabel(account.kind, t)}</div>
-                      </div>
-                      <div className="min-w-0 truncate text-muted">
-                        <div className="mb-1 text-xs text-muted md:hidden">
-                          {t("labelColumn")}
-                        </div>
-                        {account.label || t("unlabeledAccount")}
-                      </div>
-                      <div className="font-mono text-xs text-muted">
-                        <div className="mb-1 font-sans text-xs text-muted md:hidden">
-                          {t("createdColumn")}
-                        </div>
-                        {formatCreatedAt(account.createdAt, dateFormatter, t("unknownCreatedAt"))}
-                      </div>
-                      {selectedTeam.manageAccounts ? (
-                        <DeleteAiAccountButton
-                          teamId={selectedTeam.id}
-                          accountId={account.id}
-                        />
-                      ) : <div />}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
+                ))}
+              </div>
+            )}
+          </section>
         )}
       </div>
     </CoderouterPageFrame>
@@ -514,6 +535,18 @@ async function loadAccounts(
     });
     const accounts = await client.listAccounts(tenant.tenantKey);
     return { kind: "ok", accounts };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+type ClaudeUpstreamState =
+  | { readonly kind: "ok"; readonly accounts: readonly ClaudeAccountDescription[] }
+  | { readonly kind: "error" };
+
+async function loadClaudeUpstream(teamId: string): Promise<ClaudeUpstreamState> {
+  try {
+    return { kind: "ok", accounts: await listClaudeAccounts(teamId) };
   } catch {
     return { kind: "error" };
   }

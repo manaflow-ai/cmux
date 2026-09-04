@@ -192,18 +192,56 @@ private final class FakeTree: WorkspaceSurfaceTreeReading {
 
         // First call: order changed from empty -> bump.
         #expect(model.registerGeometryChange() == true)
+        #expect(model.lastGeometryChangeChangedMembership)
         #expect(tree.bumpCount == 1)
         #expect(tree.lastOrderedPanelIds == [p1, p2])
 
         // No change -> no bump.
         #expect(model.registerGeometryChange() == false)
+        #expect(!model.lastGeometryChangeChangedMembership)
         #expect(tree.bumpCount == 1)
 
         // Reorder -> bump.
         tree.panes = [.init(id: pane, surfaceIds: [s2, s1], selectedIndex: 0)]
         #expect(model.registerGeometryChange() == true)
+        #expect(!model.lastGeometryChangeChangedMembership)
         #expect(tree.bumpCount == 2)
         #expect(tree.lastOrderedPanelIds == [p2, p1])
+    }
+
+    @Test func geometryChangeReportsPaneMembershipWithoutPanelOrderChange() {
+        let (model, tree) = make()
+        let s1 = UUID(), s2 = UUID()
+        let p1 = UUID(), p2 = UUID()
+        let firstPane = UUID()
+        tree.panes = [.init(id: firstPane, surfaceIds: [s1, s2], selectedIndex: 0)]
+        tree.surfaceToPanel = [s1: p1, s2: p2]
+        tree.registry = [p1, p2]
+        _ = model.registerGeometryChange()
+
+        tree.panes = [
+            .init(id: firstPane, surfaceIds: [s1], selectedIndex: 0),
+            .init(id: UUID(), surfaceIds: [s2], selectedIndex: 0),
+        ]
+        #expect(model.registerGeometryChange())
+        #expect(model.lastGeometryChangeChangedMembership)
+    }
+
+    @Test func geometryChangeReportsSurfaceMembershipWithoutPanelOrderChange() {
+        let (model, tree) = make()
+        let firstSurface = UUID()
+        let firstPanel = UUID()
+        let pane = UUID()
+        tree.panes = [.init(id: pane, surfaceIds: [firstSurface], selectedIndex: 0)]
+        tree.surfaceToPanel = [firstSurface: firstPanel]
+        tree.registry = [firstPanel]
+        _ = model.registerGeometryChange()
+
+        let replacementSurface = UUID()
+        tree.panes = [.init(id: pane, surfaceIds: [replacementSurface], selectedIndex: 0)]
+        tree.surfaceToPanel = [replacementSurface: firstPanel]
+        #expect(model.registerGeometryChange() == true)
+        #expect(model.lastGeometryChangeChangedMembership)
     }
 
     @Test func detachedModelReturnsEmptyDefaults() {

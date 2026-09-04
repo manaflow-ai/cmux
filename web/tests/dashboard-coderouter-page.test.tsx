@@ -32,9 +32,17 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+mock.module("next/server", () => ({
+  // The usage ledger defers its ClickHouse insert past the response with
+  // `after`; the render under test only needs the callback to be accepted.
+  after: (task: () => unknown) => {
+    void task;
+  },
+}));
+
 mock.module("next/headers", () => ({
-  headers: async () =>
-    new Headers(
+  headers: async () => {
+    return new Headers(
       scopedTeamId
         ? {
           cookie: `cmux_coderouter_organization=${
@@ -42,7 +50,8 @@ mock.module("next/headers", () => ({
           }`,
         }
         : undefined,
-    ),
+    );
+  },
 }));
 
 mock.module("next/cache", () => ({
@@ -99,7 +108,9 @@ mock.module("../services/vms/auth", () => ({
     if (!authorizationAvailable) throw authorizationFailure;
     return await operation(new AbortController().signal);
   },
-  verifySubrouterRequest: async () => ({ id: "user-1", selectedTeamId }),
+  verifySubrouterRequest: async () => {
+    return { id: "user-1", selectedTeamId };
+  },
   SubrouterAuthorizationUnavailableError:
     TestSubrouterAuthorizationUnavailableError,
   isSubrouterAuthorizationError: (error: unknown) =>
@@ -159,9 +170,68 @@ mock.module("../db/client", () => ({
   cloudDb: () => ({}),
 }));
 
+const machineMetricsCalls: Array<[string, string]> = [];
+let machineMetricsKind: "ready" | "unavailable" = "ready";
+
+mock.module("../services/coderouter/vmMetrics", () => ({
+  loadCoderouterTeamMachineMetrics: async (teamId: string, surface: string) => {
+    machineMetricsCalls.push([teamId, surface]);
+    return machineMetricsKind === "ready"
+      ? {
+        kind: "ready",
+        periodDays: 30,
+        generatedAt: "2026-08-08T12:00:00.000Z",
+        rateCardVersion: "2026-08-08",
+        machines: [{
+          vmId: "0f4b1c2e-1111-4222-8333-444455556666",
+          totals: {
+            inputTokens: 900,
+            cachedInputTokens: 100,
+            outputTokens: 100,
+            totalTokens: 1_000,
+            apiEquivalentUsd: 2.5,
+            pricedTokens: 1_000,
+            unpricedTokens: 0,
+          },
+        }, {
+          vmId: "not-owned-by-this-team",
+          totals: {
+            inputTokens: 1,
+            cachedInputTokens: 0,
+            outputTokens: 1,
+            totalTokens: 2,
+            apiEquivalentUsd: 0.01,
+            pricedTokens: 2,
+            unpricedTokens: 0,
+          },
+        }],
+      }
+      : { kind: "unavailable" };
+  },
+}));
+
+mock.module("../services/coderouter/teamMachines", () => ({
+  listTeamMachines: async () => [{
+    vmId: "0f4b1c2e-1111-4222-8333-444455556666",
+    displayName: "builder-01",
+    destroyed: false,
+    createdAt: "2026-08-01T00:00:00.000Z",
+  }],
+  findTeamMachine: async () => null,
+  normalizeVmId: (value: string) => value,
+}));
+
 mock.module("../app/[locale]/dashboard/components/ai-account-forms", () => ({
   AddAiAccountForms: () => null,
   DeleteAiAccountButton: () => null,
+}));
+
+mock.module("../services/coderouter/claudeUpstream", () => ({
+  listClaudeAccounts: async () => [],
+}));
+
+mock.module("../app/[locale]/dashboard/components/claude-upstream-forms", () => ({
+  ClaudeUpstreamSection: () => null,
 }));
 
 const { default: CoderouterOverviewPage, CoderouterOverviewContent } = await import(
@@ -177,6 +247,8 @@ describe("coderouter dashboard", () => {
     hostedControlConfigured = true;
     hostedExchangeCalls = 0;
     metricsTeamIds.length = 0;
+    machineMetricsCalls.length = 0;
+    machineMetricsKind = "ready";
     selectedTeamId = "team-1";
     scopedTeamId = null;
     authorizedTeams = [{
@@ -274,6 +346,38 @@ describe("coderouter dashboard", () => {
     expect(html).toContain("$4.25");
     expect(html).toContain("No prompts, outputs, account labels, or member identities");
     expect(html).not.toContain("stack-user");
+  });
+
+  test("renders the Machines card for owned machines only", async () => {
+    authorizationAvailable = true;
+
+    const page = await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ team: "team-1" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(machineMetricsCalls).toEqual([["team-1", "dashboard"]]);
+    expect(html).toContain("Machines");
+    expect(html).toContain("Per-machine coderouter usage for Team One over the last 30 days.");
+    expect(html).toContain("builder-01");
+    expect(html).toContain("0f4b1c2e-1111-4222-8333-444455556666");
+    expect(html).toContain("$2.50");
+    expect(html).not.toContain("not-owned-by-this-team");
+  });
+
+  test("renders the Machines card fallback when per-machine metrics are unavailable", async () => {
+    authorizationAvailable = true;
+    machineMetricsKind = "unavailable";
+
+    const page = await CoderouterOverviewPage({
+      params: Promise.resolve({ locale: "en" }),
+      searchParams: Promise.resolve({ team: "team-1" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain("Machine usage is temporarily unavailable.");
+    expect(html).not.toContain("builder-01");
   });
 
   test("uses the authenticated selected team when the URL has no team scope", async () => {

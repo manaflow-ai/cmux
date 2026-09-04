@@ -192,6 +192,7 @@ extension TerminalController {
         let destination = Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
         return v2VmCall(id: id, timeoutSeconds: 180) {
             let catalog = await SurfaceCatalog.shared
+            let provider = await CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId)
             if await catalog.resources[resource] == nil {
                 // Ports are discovered by probing the machine; a port the person names may
                 // not have been seen yet. Register it now and open it — a port pane is an
@@ -199,18 +200,18 @@ extension TerminalController {
                 // here (which does) held `vm open <id> <port>` for the link timeout on a
                 // machine whose link was still connecting. The re-sync runs behind it and
                 // reconciles the row.
-                await catalog.upsert(SurfaceResource(
-                    id: resource,
-                    title: ":\(port)",
-                    detail: nil,
-                    lifecycle: .running,
-                    agent: nil,
-                    remoteWorkspace: nil,
-                    port: port,
-                    url: nil
-                ))
-                Task { @MainActor in
-                    if let provider = CmuxTuiSurfaceProviderRegistry.shared.provider(machineID: vmId) {
+                if let provider {
+                    await catalog.upsert(SurfaceResource(
+                        id: resource,
+                        title: ":\(port)",
+                        detail: nil,
+                        lifecycle: .running,
+                        agent: nil,
+                        remoteWorkspace: nil,
+                        port: port,
+                        url: nil
+                    ), from: provider)
+                    Task { @MainActor in
                         await provider.refresh(force: true)
                     }
                 }
@@ -293,11 +294,12 @@ extension TerminalController {
         return v2VmCall(id: id, timeoutSeconds: 240) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
-            let resources = await catalog.snapshot.resources(on: machine).filter { $0.remoteWorkspace?.id == remoteWorkspaceID }
-            guard let workspace = resources.first?.remoteWorkspace else {
-                throw SurfaceCatalogError.destinationNotFound("workspace \(remoteWorkspaceID) on \(vmId)")
-            }
-            let group = SurfaceResourceGroup(title: workspace.name, resources: resources.map(\.id))
+            // Resolved exactly like the sidebar row: every view of every resource
+            // counts (a terminal viewed in two workspaces belongs to both), an
+            // existing-but-empty workspace opens nothing (D9) instead of reading
+            // as "not found", and a name works when only one workspace has it.
+            let (workspace, members) = try await Self.resolveRemoteWorkspaceForOpen(remoteWorkspaceID, machine: machine, catalog: catalog)
+            let group = SurfaceResourceGroup(title: workspace.name, resources: members.ids)
             let focus = Self.surfaceBool(params["focus"]) ?? true
             let workspaceID: UUID
             let projections: [SurfaceProjection]
@@ -307,7 +309,7 @@ extension TerminalController {
             } else {
                 let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                     group.resources,
-                    title: CloudTreeNodeActions.localWorkspaceTitle(machine: machine, group: group),
+                    title: CloudTreeNodeActions.localWorkspaceTitle(hostName: CloudTreeNodeActions.resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
                     focus: focus,
                     host: .app
                 )
@@ -316,7 +318,9 @@ extension TerminalController {
             }
             return [
                 "machine": machine.rawValue,
-                "remote_workspace_id": remoteWorkspaceID,
+                // The resolved `ws_…` id, not the selector as given (which may be a name).
+                "remote_workspace_id": workspace.id,
+                "remote_workspace_name": workspace.name,
                 "workspace_id": workspaceID.uuidString,
                 "surface_ids": projections.map { $0.panelID.uuidString },
                 "opened": projections.count,
@@ -493,6 +497,36 @@ extension TerminalController {
         guard case .cloud(let machineID) = machine else { return nil }
         _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: machineID)
         return await catalog.provider(for: machine)
+    }
+
+    /// `vm.workspace_open`'s workspace resolution — the sidebar row's own
+    /// (`CloudTreeNodeBuilder.lookupRemoteWorkspace`), so `cmux vm workspace open`
+    /// and a click on the row open the same set. A `ws_…` id or an unambiguous
+    /// name; an existing workspace with nothing in it is an error that says so
+    /// (the row opens nothing for it either, D9) and names the verb that starts
+    /// a terminal there.
+    nonisolated static func resolveRemoteWorkspaceForOpen(
+        _ selector: String,
+        machine: SurfaceMachineID,
+        catalog: SurfaceCatalog
+    ) async throws -> (SurfaceRemoteWorkspace, CloudTreeRemoteWorkspaceMembers) {
+        let snapshot = await catalog.snapshot
+        let machineID = machine.rawValue
+        switch CloudTreeNodeBuilder.lookupRemoteWorkspace(selector, on: machine, snapshot: snapshot) {
+        case .found(let workspace, let members):
+            guard !members.isEmpty else {
+                throw SurfaceCatalogError.nothingToOpen(
+                    "workspace \(workspace.name) (\(workspace.id)) on \(machineID) is empty; `cmux vm open \(machineID)/\(workspace.id)` starts a terminal there"
+                )
+            }
+            return (workspace, members)
+        case .ambiguous(let matches):
+            throw SurfaceCatalogError.destinationNotFound(
+                "workspace '\(selector)' on \(machineID) is ambiguous (\(matches.map(\.id).joined(separator: ", "))); pass the ws_… id from `cmux vm tree \(machineID)`"
+            )
+        case .notFound:
+            throw SurfaceCatalogError.destinationNotFound("workspace \(selector) on \(machineID) (see `cmux vm tree \(machineID)`)")
+        }
     }
 
     /// Creates a terminal on `machine` through its provider and, when a destination is given,

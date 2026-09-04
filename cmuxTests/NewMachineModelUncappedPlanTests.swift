@@ -12,7 +12,7 @@ import Testing
 @MainActor
 struct NewMachineModelUncappedPlanTests {
     private func makeModel(plan: MachinePlanSnapshot) -> NewMachineModel {
-        NewMachineModel(mode: .newMachine, plan: plan, imageKinds: []) { _, _ in true }
+        NewMachineModel(mode: .newMachine, plan: plan, imageKinds: []) { _ in true }
     }
 
     @Test("The plan meter reads a plain count when there is no ceiling", arguments: [

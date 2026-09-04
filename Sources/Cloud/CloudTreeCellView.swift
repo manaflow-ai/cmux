@@ -68,6 +68,9 @@ final class CloudTreeCellView: NSTableCellView {
         }
         if case .machine(let machine, _) = node.kind {
             toolTip = [machine.displayName, machine.activityLabel, machine.image].joined(separator: "\n")
+        } else if case .pendingMachine(let operation) = node.kind {
+            // The failure's first line rides along so a red row explains itself on hover.
+            toolTip = operation.summaryLine
         } else if case .localMachine(let row) = node.kind {
             toolTip = row.name
         } else {

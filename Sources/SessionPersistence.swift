@@ -1917,6 +1917,10 @@ struct SessionWorkspaceGroupSnapshot: Codable, Sendable, Equatable {
     var isPinned: Bool? = nil
     var customColor: String? = nil
     var iconSymbol: String? = nil
+    /// Optional caller-owned identity for idempotent group creation.
+    var externalID: String? = nil
+    /// Raw ``WorkspaceGroupAnchorProvenance`` value; absent in older snapshots.
+    var anchorWorkspaceProvenance: String? = nil
 }
 
 extension SessionWorkspaceSnapshot {

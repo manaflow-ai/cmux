@@ -1232,8 +1232,16 @@ CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux-stagi
 CMUX_AUTH_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 CMUX_WWW_ORIGIN_VALUE="$CMUX_DEV_ORIGIN"
 if [[ "$PROD_AUTH" -eq 1 ]]; then
-  CMUX_DEV_API_BASE_URL_VALUE="${CMUX_DEV_API_BASE_URL:-https://cmux.com}"
-  CMUX_IROH_BROKER_BASE_URL_VALUE="${CMUX_IROH_BROKER_BASE_URL:-https://cmux.com}"
+  if [[ -n "${CMUX_DEV_API_BASE_URL:-}" && "$CMUX_DEV_API_BASE_URL" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use API origin '$CMUX_DEV_API_BASE_URL'; production builds must use https://cmux.com" >&2
+    exit 1
+  fi
+  if [[ -n "${CMUX_IROH_BROKER_BASE_URL:-}" && "$CMUX_IROH_BROKER_BASE_URL" != "https://cmux.com" ]]; then
+    echo "error: --prod-auth cannot use Iroh broker origin '$CMUX_IROH_BROKER_BASE_URL'; production builds must use https://cmux.com" >&2
+    exit 1
+  fi
+  CMUX_DEV_API_BASE_URL_VALUE="https://cmux.com"
+  CMUX_IROH_BROKER_BASE_URL_VALUE="https://cmux.com"
   CMUX_AUTH_WWW_ORIGIN_VALUE="https://cmux.com"
   CMUX_WWW_ORIGIN_VALUE="https://cmux.com"
 fi

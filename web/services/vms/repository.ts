@@ -28,6 +28,8 @@ import {
   VmAccountDeletionInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
+  VM_MODEL_PLANE_FAILURE_CODES,
   isVmAccountDeletionInProgressError,
   isVmCreateDisabledError,
   isVmLimitExceededError,
@@ -133,6 +135,15 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<CloudVmTunnelRow, VmDatabaseError>;
   /** Mark a tunnel revoked, keeping the row for audit. Returns false when already revoked. */
   readonly revokeTunnel?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
+  /**
+   * Merge fields into a VM row's providerMetadata (existing keys win only when
+   * the patch omits them). Used to backfill data learned after create, e.g.
+   * private-network addresses read during an attach.
+   */
+  readonly mergeProviderMetadata?: (input: {
+    readonly id: string;
+    readonly patch: Readonly<Record<string, unknown>>;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly claimBillingGrant: (input: {
     readonly billingCustomerType: string;
     readonly billingCustomerId: string;
@@ -407,6 +418,12 @@ const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
   "billing_reserve_failed",
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
+  // Model-plane failures happen before any provider call: a coderouter outage
+  // clears on its own, so a same-key retry must reach provisioning again. The
+  // legacy entitlement code is kept for rows written before that gate was
+  // removed.
+  VM_MODEL_PLANE_FAILURE_CODES.unavailable,
+  LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE,
 ]);
 
 function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {
@@ -608,6 +625,19 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .where(and(eq(cloudVmTunnels.id, id), isNull(cloudVmTunnels.revokedAt)))
         .returning({ id: cloudVmTunnels.id });
       return rows.length > 0;
+    }),
+
+  mergeProviderMetadata: (input) =>
+    dbEffect("mergeProviderMetadata", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({
+          // jsonb || jsonb merges at the top level: patch keys win, others stay.
+          providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify(input.patch)}::jsonb`,
+          updatedAt: new Date(),
+        })
+        .where(eq(cloudVms.id, input.id));
     }),
 
   listUserVms: (userId, billingTeamId) =>

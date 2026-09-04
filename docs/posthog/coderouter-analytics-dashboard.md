@@ -89,6 +89,22 @@ Any nonzero privacy/integrity card is an incident.
 - any privacy/integrity violation
 - no successful events during expected active periods
 
-Customer-facing metrics must continue to use the fixed,
-server-authorized `coderouter-team-usage-30d` Endpoint. Never expose PostHog
-project access or free-form HogQL to customers.
+Customer-facing usage (dashboard and `/api/coderouter/vm-usage*`) is read
+from our own ClickHouse ledger, not from PostHog; see "Usage ledger" in
+`docs/coderouter-operations.md`. Never expose PostHog project access or
+free-form HogQL to customers.
+
+## Team usage Endpoint (dashboard only)
+
+| Endpoint | Source | Variables |
+| --- | --- | --- |
+| `coderouter-team-usage-30d` | `docs/posthog/coderouter-team-usage-30d.hogql` | `team_scope` |
+
+Publish it in the CodeRouter project with a required `team_scope` string
+variable for an operator view of one pseudonymous team. The app no longer
+calls it, so no Endpoint credential is configured in the web app.
+
+`$ai_generation` events carry `coderouter_vm_id` (the cmux `cloud_vms.id`
+UUID, an opaque server-minted identifier, not personal data) only when the
+route token was bound to a Cloud VM. `coderouter_route_health` carries the
+same value as `vm_id`. Unbound `cr` CLI traffic has neither property.
