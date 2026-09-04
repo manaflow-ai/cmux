@@ -34,12 +34,27 @@ struct WorkspaceToolbarTitleView: View {
 
             MobileCompactToolbarTitleStack(title: title, subtitle: subtitleLine)
         }
-        .padding(.horizontal, MobileCompactToolbarTitleStack.horizontalContentPadding)
+        .padding(
+            .horizontal,
+            horizontalSizeClass == .regular
+                ? WorkspaceRootToolbarSizing.regularControlHorizontalPadding
+                : MobileCompactToolbarTitleStack.horizontalContentPadding
+        )
         // The regular-width iPad title lives in a standalone glass capsule.
         // Give its two-line label enough vertical breathing room to avoid
         // crowding the capsule edge, while leaving the compact iPhone toolbar
         // metrics unchanged.
-        .padding(.vertical, horizontalSizeClass == .regular ? 4 : 0)
+        .padding(
+            .vertical,
+            horizontalSizeClass == .regular
+                ? WorkspaceRootToolbarSizing.regularControlVerticalPadding
+                : 0
+        )
+        .frame(
+            minHeight: horizontalSizeClass == .regular
+                ? WorkspaceRootToolbarSizing.controlHeight
+                : nil
+        )
         .accessibilityElement(children: .combine)
         .accessibilityValue(connectionStatus == .connected ? "" : connectionStatus.label)
     }

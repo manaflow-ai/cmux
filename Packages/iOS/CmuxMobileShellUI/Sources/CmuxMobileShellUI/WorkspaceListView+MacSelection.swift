@@ -341,11 +341,15 @@ private struct WorkspaceMacTitlePickerLabel: View {
         // capsule without changing the compact iPhone picker height.
         .padding(
             .horizontal,
-            usesCompactLabelTreatment ? 0 : WorkspaceRootToolbarSizing.pickerHorizontalPadding
+            usesCompactLabelTreatment
+                ? 0
+                : WorkspaceRootToolbarSizing.regularControlHorizontalPadding
         )
         .padding(
             .vertical,
-            usesCompactLabelTreatment ? 0 : WorkspaceRootToolbarSizing.pickerVerticalPadding
+            usesCompactLabelTreatment
+                ? 0
+                : WorkspaceRootToolbarSizing.regularControlVerticalPadding
         )
         .frame(width: width, alignment: .center)
         .frame(

@@ -52,8 +52,8 @@ extension EnvironmentValues {
 /// different glass height from the icon controls beside it.
 enum WorkspaceRootToolbarSizing {
     static let controlHeight: CGFloat = 44
-    static let pickerHorizontalPadding: CGFloat = 14
-    static let pickerVerticalPadding: CGFloat = 5
+    static let regularControlHorizontalPadding: CGFloat = 14
+    static let regularControlVerticalPadding: CGFloat = 5
     static let minimumPickerWidth: CGFloat = 98
     static let maximumPickerWidth: CGFloat = 124
     private static let nonPickerWidth: CGFloat = 277
