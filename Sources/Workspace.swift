@@ -14601,6 +14601,11 @@ extension Workspace: BonsplitDelegate {
         case .toggleFullWidthTab:
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return }
             toggleFullWidthTabMode(panelId: panelId)
+        case .disconnectRemote:
+            // Match the sidebar's non-destructive disconnect action: stop the
+            // current remote session while retaining its configuration for a
+            // later reconnect.
+            disconnectRemoteConnection(clearConfiguration: false)
         case .forkConversation,
              .forkConversationRight,
              .forkConversationLeft,
