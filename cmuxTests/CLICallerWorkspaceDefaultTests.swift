@@ -118,6 +118,59 @@ struct CLICallerWorkspaceDefaultTests {
         }
     }
 
+    /// `--no-caller` and an explicit caller selector are contradictory. The CLI must
+    /// reject the invocation before opening a socket instead of silently discarding
+    /// the selector and returning an indistinguishable identity response.
+    @Test(arguments: [
+        ("--workspace", false, false), ("--surface", false, false),
+        ("--workspace", true, false), ("--surface", true, false),
+        ("--workspace", false, true), ("--surface", false, true),
+        ("--workspace", true, true), ("--surface", true, true),
+    ])
+    func identifyNoCallerRejectsCallerSelector(selector: String, noCallerAfterTerminator: Bool, selectorAfterTerminator: Bool) throws {
+        let socketPath = Self.makeSocketPath("identify-conflict")
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        _ = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let payload = Self.jsonObject(line), let id = payload["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(id: id, ok: true, result: [
+                "socket_path": socketPath,
+                "focused": NSNull(),
+                "caller": NSNull(),
+            ])
+        }
+
+        var environment = cliEnvironment(
+            socketPath: socketPath,
+            callerWorkspaceId: Self.callerWorkspaceId
+        )
+        environment["CMUX_CLI_TTY_NAME"] = "/dev/ttys9999999"
+        let selectorValue = selector == "--workspace" ? Self.otherWorkspaceId : Self.callerSurfaceId
+        let beforeTerminator = (selectorAfterTerminator ? [] : [selector, selectorValue]) + (noCallerAfterTerminator ? [] : ["--no-caller"])
+        let afterTerminator = (selectorAfterTerminator ? [selector, selectorValue] : []) + (noCallerAfterTerminator ? ["--no-caller"] : [])
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: ["identify", "--json"] + beforeTerminator + (afterTerminator.isEmpty ? [] : ["--"] + afterTerminator),
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.status == 2, Comment(rawValue: result.stderr + result.stdout))
+        #expect(try state.requestObjects().isEmpty)
+        let output = result.stderr + result.stdout
+        #expect(output.contains("--no-caller"), Comment(rawValue: output))
+        #expect(output.contains(selector), Comment(rawValue: output))
+    }
+
     private func runIdentify(
         arguments: [String],
         callerWorkspaceId: String?
@@ -398,12 +451,20 @@ struct CLICallerWorkspaceDefaultTests {
         environment: [String: String],
         timeout: TimeInterval
     ) -> ProcessRunResult {
+        let home = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-caller-cli-\(UUID().uuidString)", isDirectory: true)
+        try? FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        var isolatedEnvironment = environment
+        isolatedEnvironment["HOME"] = home.path
+        isolatedEnvironment["CFFIXED_USER_HOME"] = home.path
+        isolatedEnvironment["XDG_CONFIG_HOME"] = home.appendingPathComponent(".config", isDirectory: true).path
         let process = Process()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
-        process.environment = environment
+        process.environment = isolatedEnvironment
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = stdoutPipe
         process.standardError = stderrPipe

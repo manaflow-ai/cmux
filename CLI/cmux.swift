@@ -5024,6 +5024,7 @@ struct CMUXCLI {
         )
     }
 
+    /// Parses global options and dispatches the selected cmux CLI command.
     func run() throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
@@ -5141,6 +5142,10 @@ struct CMUXCLI {
                 return
             }
             throw unknownCommandError(command)
+        }
+
+        if command == "identify" {
+            try validateIdentifyCallerOptions(commandArgs)
         }
 
         if command == "help" { print(usage()); return }; if command == "remote-daemon-status" { try runRemoteDaemonStatus(commandArgs: commandArgs, jsonOutput: jsonOutput); return }
@@ -20790,6 +20795,38 @@ struct CMUXCLI {
             remaining.append(arg)
         }
         return (values, remaining)
+    }
+
+    /// Rejects explicit caller selectors wherever they appear when identify opts out.
+    private func validateIdentifyCallerOptions(_ args: [String]) throws {
+        let sawNoCaller = hasFlag(args, name: "--no-caller")
+        var selectorFlags: [String] = []
+
+        for arg in args {
+            if arg == "--workspace" || arg.hasPrefix("--workspace=") {
+                if !selectorFlags.contains("--workspace") {
+                    selectorFlags.append("--workspace")
+                }
+            }
+            if arg == "--surface" || arg.hasPrefix("--surface=") {
+                if !selectorFlags.contains("--surface") {
+                    selectorFlags.append("--surface")
+                }
+            }
+        }
+
+        guard sawNoCaller, !selectorFlags.isEmpty else { return }
+        let selectors = selectorFlags.formatted(.list(type: .or))
+        throw CLIError(
+            message: String(
+                format: String(
+                    localized: "cli.identify.error.noCallerConflict",
+                    defaultValue: "identify: --no-caller cannot be combined with %@."
+                ),
+                selectors
+            ),
+            exitCode: 2
+        )
     }
 
     func optionValue(_ args: [String], name: String) -> String? {
