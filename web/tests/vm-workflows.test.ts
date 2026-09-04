@@ -3374,6 +3374,60 @@ describe("VM Effect workflows", () => {
     expect(row).toEqual({ diskMb: 32768, unconfirmed: false });
   });
 
+  dbTest("repairs an unconfirmed resize on a confirmed no-op retry", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000155";
+    const teamId = "team-workflow-resize-noop-retry";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-workflow-resize-noop-retry', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-noop-retry', 'snapshot-test', 'running',
+        ${sql.json({
+          cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: VM_DISK_MB_MAX },
+          [VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY]: {
+            operationId: "resize-operation-noop-retry",
+            requestedDiskMb: 65536,
+            previousDiskMb: 32768,
+            markedAtMs: Date.now(),
+          },
+        })}
+      )
+    `;
+
+    const reservation = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.reserveVmResize!({
+          id: vmId,
+          userId: "user-workflow-resize-noop-retry",
+          billingTeamId: teamId,
+          providerVmId: "provider-vm-resize-noop-retry",
+          currentDiskMb: 65536,
+          storageMb: 65536,
+          maxActiveVms: 50,
+        });
+      }).pipe(Effect.provide(VmRepositoryLive)),
+    );
+
+    expect(reservation).toMatchObject({
+      previousDiskMb: 65536,
+      reservedDiskMb: 65536,
+      requestedDiskMb: 65536,
+    });
+    const [row] = await sql<{ diskMb: number; unconfirmed: boolean }[]>`
+      select
+        (provider_metadata->'cmuxResourceReservation'->>'diskMb')::integer as "diskMb",
+        provider_metadata ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY} as unconfirmed
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(row).toEqual({ diskMb: 65536, unconfirmed: false });
+  });
+
   dbTest("uses the shared disk pool for snapshot events without a recorded size", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
