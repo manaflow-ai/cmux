@@ -302,6 +302,20 @@ import Testing
         #expect(coalescer.passes == 4)
     }
 
+    @Test(.timeLimit(.seconds(2))) @MainActor
+    func forcedRegistryRefreshCompletesAfterAnEmptyPass() async {
+        // A registry without a catalog/client makes performRefresh return immediately.
+        // A forced caller must still clear that completed flight; otherwise the old
+        // implementation re-entered its `while let refreshInFlight` loop forever and
+        // pinned the main actor at 100% CPU (the live `vm tree --refresh` repro).
+        let links = CloudMachineLinkManager(
+            clientURL: nil,
+            hostThemeColors: { nil }
+        )
+        let registry = CmuxTuiSurfaceProviderRegistry(links: links)
+        #expect(await registry.refresh(force: true) == false)
+    }
+
     @Test func headlessTerminalIOArgvFollowsTheCLIGrammar() {
         // Verified live against a machine: `write --text` types as-is (no newline),
         // `keys` takes bare key names, `screen read` / `screen wait --pattern` read back.
