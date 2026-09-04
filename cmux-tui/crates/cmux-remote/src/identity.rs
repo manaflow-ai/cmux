@@ -268,6 +268,21 @@ impl ClientIdentityStore {
         let fingerprint = public_key_fingerprint(&public_key);
         let now = unix_time()?;
         let (transaction, mut candidate) = self.reload_client_state().await?;
+        // A route hint is an address, and an address reaches one daemon at a
+        // time. Cloud VPCs recycle addresses, so `ws://10.16.133.2:1337/` names
+        // a different machine once the previous one is destroyed. Leaving the
+        // hint on the previous occupant left the route ambiguous forever: the
+        // store accumulated one entry per machine that ever held the address,
+        // and `remote connect <route>` then failed with "multiple known daemons
+        // match this route" until the stale entries were pruned by hand. The
+        // daemon being pinned here is the one answering at these addresses now,
+        // so it takes them from whoever held them before.
+        for (other_fingerprint, other) in candidate.daemons.iter_mut() {
+            if other_fingerprint == &fingerprint {
+                continue;
+            }
+            other.route_hints.retain(|hint| !route_hints.contains(hint));
+        }
         if let Some(existing) = candidate.daemons.get_mut(&fingerprint) {
             if decode_key(&existing.public_key)? != public_key {
                 return Err(IdentityError::Invalid("known daemon fingerprint collision".into()));
