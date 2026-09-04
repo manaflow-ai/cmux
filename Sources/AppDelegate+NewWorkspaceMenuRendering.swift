@@ -97,9 +97,6 @@ extension AppDelegate {
                     items.removeLast()
                 }
                 addRenderedSection(items)
-            case .cloud:
-                let cloudMenu = TitlebarCloudVMButton.makeCloudVMMenu()
-                addRenderedSection(cloudMenu.items)
             case .layouts(let rows):
                 var items: [NSMenuItem] = [
                     .sectionHeader(title: String(

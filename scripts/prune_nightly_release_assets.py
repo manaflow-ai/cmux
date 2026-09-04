@@ -17,6 +17,9 @@ import urllib.request
 
 IMMUTABLE_ASSET_PATTERNS = [
     re.compile(r"^cmux-nightly-macos-(?P<build>\d+)\.dmg$"),
+    re.compile(r"^cmux-nightly-macos-(?:arm64|x86_64|universal)-(?P<build>\d+)\.dmg$"),
+    # Sparkle delta from an older build to <build>; pruned together with <build>.
+    re.compile(r"^cmux-nightly-macos-(?:arm64|x86_64|universal)-(?P<build>\d+)-\d+\.delta$"),
     re.compile(r"^cmux-nightly-universal-macos-(?P<build>\d+)\.dmg$"),
 ]
 

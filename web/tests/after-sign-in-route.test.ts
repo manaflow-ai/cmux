@@ -24,6 +24,7 @@ let rawAccessCookie: string;
 let getUserResponses: Array<TestStackAuthUser | null> = [];
 let promotionShouldFail = false;
 const claimVerifiedBilling = mock(async () => undefined);
+const applyAdminGrants = mock(async () => undefined);
 const getUser = mock(async (): Promise<TestStackAuthUser | null> => getUserResponses.shift() ?? null);
 const signOut = mock((options?: unknown) => {
   void options;
@@ -43,6 +44,7 @@ const GET = makeAfterSignInHandler({
   stackServerApp: { getUser },
   promoteVerifiedAnonymousUser,
   claimVerifiedBilling,
+  applyAdminGrants,
   getCookieStore: async () => ({
     get: (name: string) => {
       if (name === HANDOFF_COOKIE && handoffCookie) return { value: handoffCookie };
@@ -98,6 +100,7 @@ describe("after sign-in native handoff", () => {
     signOut.mockClear();
     promoteVerifiedAnonymousUser.mockClear();
     claimVerifiedBilling.mockClear();
+    applyAdminGrants.mockClear();
   });
 
   test("issues and clears the handoff nonce with one cookie contract", async () => {
@@ -299,6 +302,10 @@ describe("after sign-in native handoff", () => {
       "anonymous-verified",
       "buyer@example.com",
     );
+    expect(applyAdminGrants).toHaveBeenCalledWith(
+      "anonymous-verified",
+      "buyer@example.com",
+    );
     expect(createSession).toHaveBeenCalledWith({
       expiresInMillis: 30 * 24 * 60 * 60 * 1000,
     });
@@ -328,6 +335,10 @@ describe("after sign-in native handoff", () => {
     );
 
     expect(claimVerifiedBilling).toHaveBeenCalledWith(
+      "verified-account",
+      "buyer@example.com",
+    );
+    expect(applyAdminGrants).toHaveBeenCalledWith(
       "verified-account",
       "buyer@example.com",
     );
@@ -512,6 +523,50 @@ describe("sign out and sign back in", () => {
 
     expect(signOut).not.toHaveBeenCalled();
     expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://cmux.test/");
+  });
+
+  const publicationTransaction = "tx_0123456789abcdefghijklmnopqrstuvwxyz";
+  const publicationState = "st_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+  function publicationSignIn(access: string): string {
+    const afterSignIn = `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(access)}`;
+    return `/handler/sign-in?after_auth_return_to=${encodeURIComponent(afterSignIn)}`;
+  }
+
+  test("signs out and redirects into sign-in for a protected Cloud VM domain transaction", async () => {
+    const access = `/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`;
+    const signIn = publicationSignIn(access);
+
+    const response = await GET(switchRequest(signIn));
+
+    expect(signOut).toHaveBeenCalledWith({ redirectUrl: `https://cmux.test${signIn}` });
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(`https://cmux.test${signIn}`);
+    expect(response.headers.get("set-cookie")).toContain("stack-access=;");
+  });
+
+  test("rejects Cloud VM access targets that are not exactly an opaque transaction", async () => {
+    const malformed = [
+      `/cloud/access?transaction=short&state=${publicationState}`,
+      `/cloud/access?transaction=${publicationTransaction}`,
+      `/cloud/access?transaction=${publicationTransaction}&state=${publicationState}&next=%2Fdocs`,
+      `/cloud/other?transaction=${publicationTransaction}&state=${publicationState}`,
+      `https://evil.test/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`,
+    ];
+
+    for (const access of malformed) {
+      const response = await GET(switchRequest(publicationSignIn(access)));
+      expect(signOut).not.toHaveBeenCalled();
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe("https://cmux.test/");
+    }
+
+    const extraSignInParam = `/handler/sign-in?after_auth_return_to=${encodeURIComponent(
+      `/handler/after-sign-in?after_auth_return_to=${encodeURIComponent(`/cloud/access?transaction=${publicationTransaction}&state=${publicationState}`)}`,
+    )}&prompt=none`;
+    const response = await GET(switchRequest(extraSignInParam));
+    expect(signOut).not.toHaveBeenCalled();
     expect(response.headers.get("location")).toBe("https://cmux.test/");
   });
 

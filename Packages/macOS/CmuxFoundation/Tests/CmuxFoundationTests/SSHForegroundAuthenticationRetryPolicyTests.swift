@@ -293,14 +293,84 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(leafPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(leafPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([leafPID])
 
         #expect(process.terminationStatus == 0)
         #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
-        #expect(Darwin.kill(leafPID, 0) != 0)
+        #expect(processLiveness(leafPID) == false)
+        #expect(processLiveness(leafPID) != nil)
+    }
+
+    @Test func terminatesTreeWhenAuthenticationRootWasAlreadyStopped() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-ssh-auth-prestopped-\(UUID().uuidString)", isDirectory: true)
+        let leafScript = root.appendingPathComponent("leaf.sh")
+        let leafPIDFile = root.appendingPathComponent("leaf.pid")
+        let readyMarker = root.appendingPathComponent("ready")
+        let signalLog = root.appendingPathComponent("signal.log")
+        try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+
+        try """
+        #!/bin/sh
+        trap '' HUP INT
+        trap 'printf "%s\\n" term > "$CMUX_TEST_SIGNAL_LOG"' TERM
+        printf '%s\\n' "$$" > "$CMUX_TEST_LEAF_PID"
+        : > "$CMUX_TEST_READY_MARKER"
+        while :; do /bin/sleep 30; done
+        """.write(to: leafScript, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: leafScript.path)
+
+        let command = """
+        \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
+        ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
+        cmux_test_auth_root=$!
+        trap '/bin/kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        cmux_test_ready_attempt=0
+        while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
+          /bin/sleep 0.01
+          cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
+        done
+        test -f "$CMUX_TEST_READY_MARKER" || exit 98
+        # The root is already stopped before cleanup takes ownership. The
+        # helper must journal it without sending a second STOP, then terminate
+        # both the root and its foreground-auth child.
+        /bin/kill -STOP "$cmux_test_auth_root"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        wait "$cmux_test_auth_root" 2>/dev/null || true
+        test "$(/bin/cat "$CMUX_TEST_SIGNAL_LOG" 2>/dev/null || true)" = term
+        trap - EXIT
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = ["-c", command]
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "CMUX_TEST_LEAF_SCRIPT": leafScript.path,
+            "CMUX_TEST_LEAF_PID": leafPIDFile.path,
+            "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_SIGNAL_LOG": signalLog.path,
+        ]) { _, override in override }
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        let stderrCapture = try makeStandardErrorCapture()
+        defer { removeStandardErrorCapture(stderrCapture) }
+        process.standardError = stderrCapture.handle
+
+        try process.run()
+        try waitForExit(process, stderrCapture: stderrCapture)
+
+        let leafPID = try #require(Int32(
+            String(contentsOf: leafPIDFile, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        defer { Darwin.kill(leafPID, SIGKILL) }
+        waitForProcessesToExit([leafPID])
+
+        #expect(process.terminationStatus == 0)
+        #expect(try String(contentsOf: signalLog, encoding: .utf8) == "term\n")
+        #expect(processLiveness(leafPID) == false)
+        #expect(processLiveness(leafPID) != nil)
     }
 
     @Test func refusesAuthenticationRootWithMismatchedKnownParent() throws {
@@ -353,6 +423,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-deadline-\(UUID().uuidString)", isDirectory: true)
         let chainScript = root.appendingPathComponent("chain.sh")
         let readyMarker = root.appendingPathComponent("ready")
+        let cleanupStartedMarker = root.appendingPathComponent("cleanup-started")
         let pidLog = root.appendingPathComponent("pids")
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
@@ -389,7 +460,29 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        # Lower the helper shell's process ceiling only after the full fixture
+        # exists. Keep the limit just above the live per-user count so the
+        # fixture remains runnable while the old recursive cleanup receives
+        # EAGAIN on its short-lived scans.
+        cmux_test_user_id=$(/usr/bin/id -u 2>/dev/null || true)
+        cmux_test_process_count=$(
+          /bin/ps -axo uid= 2>/dev/null |
+            /usr/bin/awk -v uid="$cmux_test_user_id" '$1 == uid { count += 1 } END { print count + 0 }'
+        ) || cmux_test_process_count=
+        case "$cmux_test_process_count" in
+          ''|*[!0-9]*) cmux_test_process_count= ;;
+        esac
+        if [ -n "$cmux_test_process_count" ]; then
+          ulimit -u "$((cmux_test_process_count + 16))" 2>/dev/null || \
+            ulimit -u 100 2>/dev/null || true
+        else
+          ulimit -u 100 2>/dev/null || true
+        fi
+        : > "$CMUX_TEST_CLEANUP_STARTED_MARKER"
+        # Exercise the event-enabled path without publishing an event. The
+        # helper must reserve a force pass instead of rolling back after the
+        # bounded FIFO wait.
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
         wait "$cmux_test_auth_root" 2>/dev/null || true
         """
 
@@ -398,6 +491,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_CHAIN_SCRIPT": chainScript.path,
+            "CMUX_TEST_CLEANUP_STARTED_MARKER": cleanupStartedMarker.path,
             "CMUX_TEST_READY_MARKER": readyMarker.path,
             "CMUX_TEST_PID_LOG": pidLog.path,
         ]) { _, override in override }
@@ -407,26 +501,35 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         defer { removeStandardErrorCapture(stderrCapture) }
         process.standardError = stderrCapture.handle
 
-        let startedAt = Date.now
         try process.run()
-        try waitForExit(process, stderrCapture: stderrCapture, timeout: 8)
+        let startDeadline = Date.now.addingTimeInterval(5)
+        while !fileManager.fileExists(atPath: cleanupStartedMarker.path),
+              process.isRunning,
+              Date.now < startDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        try #require(fileManager.fileExists(atPath: cleanupStartedMarker.path))
+        let startedAt = Date.now
+        try waitForExit(process, stderrCapture: stderrCapture, timeout: 10)
         let elapsed = Date.now.timeIntervalSince(startedAt)
 
         let processIDs = try String(contentsOf: pidLog, encoding: .utf8)
             .split(separator: "\n")
             .compactMap { Int32($0) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while processIDs.contains(where: { Darwin.kill($0, 0) == 0 }), Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit(processIDs)
 
         #expect(process.terminationStatus == 0)
         #expect(processIDs.count == 25)
+        // The helper has one shared two-second discovery budget plus a bounded
+        // force pass. Keep a wall-clock assertion so a per-node timeout or a
+        // signal-handler hang cannot pass on eventual process termination.
         #expect(
-            elapsed < 3,
+            elapsed < 5,
             "Foreground authentication cleanup took \(elapsed) seconds instead of one bounded deadline"
         )
-        #expect(!processIDs.contains(where: { Darwin.kill($0, 0) == 0 }))
+        let processStates = processIDs.map(processLiveness)
+        #expect(!processStates.contains(where: { $0 == nil }))
+        #expect(!processStates.contains(where: { $0 == true }))
     }
 
     @Test func terminatesReplacementSpawnedByAuthenticationTermHandler() throws {
@@ -435,7 +538,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .appendingPathComponent("cmux-ssh-auth-replacement-\(UUID().uuidString)", isDirectory: true)
         let readyMarker = root.appendingPathComponent("ready")
         let replacementScript = root.appendingPathComponent("replacement.sh")
+        let delayedLauncher = root.appendingPathComponent("delayed-launcher.sh")
+        let setIDLauncher = root.appendingPathComponent("setid-launcher.pl")
         let replacementPIDFile = root.appendingPathComponent("replacement.pid")
+        let handlerDone = root.appendingPathComponent("handler.done")
+        let eventToken = UUID().uuidString.lowercased()
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? fileManager.removeItem(at: root) }
 
@@ -446,17 +553,40 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         while :; do /bin/sleep 30; done
         """.write(to: replacementScript, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: replacementScript.path)
+        try """
+        #!/bin/sh
+        trap '' HUP INT TERM
+        # Keep the replacement behind the first one-second FIFO read. The
+        # helper must retry the completion event through its bounded deadline
+        # before releasing the wrapper and discovering the detached child.
+        /bin/sleep 1.2
+        /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" &
+        printf '%s\\n' "$!" > "$CMUX_TEST_REPLACEMENT_PID"
+        : > "$CMUX_TEST_HANDLER_DONE"
+        """.write(to: delayedLauncher, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: delayedLauncher.path)
+        try """
+        #!/usr/bin/perl
+        use POSIX qw(setsid);
+        setsid() or exit 125;
+        exec @ARGV or exit 126;
+        """.write(to: setIDLauncher, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: setIDLauncher.path)
 
         let policy = SSHForegroundAuthenticationRetryPolicy()
         let classifiedAuthentication = policy.classifyingTransientFailure(
             in: """
-            trap '/usr/bin/nohup /bin/sh "$CMUX_TEST_REPLACEMENT_SCRIPT" </dev/null >/dev/null 2>&1 & exit 143' TERM
+            # Delay a detached replacement and wait for its completion marker.
+            # The cleanup handshake must wait for this handler before the
+            # parent can disappear and reparent the replacement.
+            trap 'trap "" TERM; /usr/bin/perl "$CMUX_TEST_SETID_LAUNCHER" /bin/sh "$CMUX_TEST_DELAYED_LAUNCHER" </dev/null >/dev/null 2>&1 & while [ ! -f "$CMUX_TEST_HANDLER_DONE" ]; do /bin/sleep 0.01; done; exit 143' TERM
             : > "$CMUX_TEST_READY_MARKER"
             while :; do /bin/sleep 30; done
             """
         )
         let command = """
         \(policy.processTreeTerminationShellFunction())
+        CMUX_SSH_AUTH_EVENT_TOKEN=\(eventToken); export CMUX_SSH_AUTH_EVENT_TOKEN
         ( \(classifiedAuthentication) ) &
         cmux_test_auth_root=$!
         cmux_test_ready_attempt=0
@@ -465,7 +595,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1 "\(eventToken)"
         wait "$cmux_test_auth_root" 2>/dev/null || true
         cmux_test_replacement_attempt=0
         while [ ! -s "$CMUX_TEST_REPLACEMENT_PID" ] && [ "$cmux_test_replacement_attempt" -lt 100 ]; do
@@ -480,6 +610,9 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         process.arguments = ["-c", command]
         process.environment = ProcessInfo.processInfo.environment.merging([
             "CMUX_TEST_READY_MARKER": readyMarker.path,
+            "CMUX_TEST_SETID_LAUNCHER": setIDLauncher.path,
+            "CMUX_TEST_DELAYED_LAUNCHER": delayedLauncher.path,
+            "CMUX_TEST_HANDLER_DONE": handlerDone.path,
             "CMUX_TEST_REPLACEMENT_SCRIPT": replacementScript.path,
             "CMUX_TEST_REPLACEMENT_PID": replacementPIDFile.path,
         ]) { _, override in override }
@@ -497,13 +630,11 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         defer { Darwin.kill(replacementPID, SIGKILL) }
-        let exitDeadline = Date.now.addingTimeInterval(1)
-        while Darwin.kill(replacementPID, 0) == 0, Date.now < exitDeadline {
-            Thread.sleep(forTimeInterval: 0.01)
-        }
+        waitForProcessesToExit([replacementPID])
 
         #expect(process.terminationStatus == 0)
-        #expect(Darwin.kill(replacementPID, 0) != 0)
+        #expect(processLiveness(replacementPID) == false)
+        #expect(processLiveness(replacementPID) != nil)
     }
 
     @Test func restoresTerminalModesWhenTerminatingForegroundAuthenticationTree() throws {
@@ -536,7 +667,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
           cmux_test_ready_attempt=$((cmux_test_ready_attempt + 1))
         done
         test -f "$CMUX_TEST_READY_MARKER" || exit 98
-        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$"
+        cmux_ssh_terminate_auth_process_tree "$cmux_test_auth_root" "$$" 1
         wait "$cmux_test_auth_root" 2>/dev/null || true
         cmux_test_terminal_mode_after=$(/bin/stty -g) || exit 99
         test "$cmux_test_terminal_mode_after" = "$cmux_test_terminal_mode_before"
@@ -732,6 +863,42 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             while process.isRunning, Date.now < deadline {
                 Thread.sleep(forTimeInterval: 0.01)
             }
+        }
+    }
+
+    private func processLiveness(_ processID: Int32) -> Bool? {
+        // kill(pid, 0) also succeeds for zombies. The cleanup helper treats a
+        // zombie as terminated, so inspect process state before reporting a
+        // survivor. An unexpected proc_pidinfo result is unknown, not proof of
+        // termination.
+        var info = proc_bsdinfo()
+        let expectedSize = MemoryLayout<proc_bsdinfo>.stride
+        let size = proc_pidinfo(
+            pid_t(processID),
+            PROC_PIDTBSDINFO,
+            0,
+            &info,
+            Int32(expectedSize)
+        )
+        if Int(size) == expectedSize {
+            return info.pbi_status == UInt32(SZOMB) ? false : true
+        }
+        // proc_pidinfo reports either zero or -1 with ESRCH after a process
+        // has been reaped. Both results mean the process is no longer live.
+        if (size == 0 || size < 0) && errno == ESRCH {
+            return false
+        }
+        return nil
+    }
+
+    /// Wait for process exit or zombie reaping after the helper returns. This
+    /// scheduler-only allowance is separate from the helper's measured cleanup
+    /// deadline and prevents a loaded runner from making liveness assertions
+    /// race delayed reaping.
+    private func waitForProcessesToExit(_ processIDs: [Int32], timeout: TimeInterval = 5) {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while processIDs.contains(where: { processLiveness($0) == true }), Date.now < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
         }
     }
 }

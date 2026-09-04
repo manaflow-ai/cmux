@@ -498,11 +498,11 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         .as_ref()
         .map(|ui| ui.recoverable_workspaces().into_iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
-    let body_rows = (app.tree.workspaces.len() + recoverable.len()) * metrics.stride;
+    let body_rows = (app.tree.workspaces().len() + recoverable.len()) * metrics.stride;
     let selected_body = (app.workspace_sidebar_focused() && app.workspace_rail_follow_selection)
         .then(|| match app.workspace_rail_selection {
             WorkspaceRailSelection::Workspace
-                if app.sidebar_workspace_selection < app.tree.workspaces.len() =>
+                if app.sidebar_workspace_selection < app.tree.workspaces().len() =>
             {
                 Some(rail::RowSpan::new(
                     app.sidebar_workspace_selection * metrics.stride,
@@ -513,7 +513,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
                 if app.sidebar_recoverable_workspace_selection < recoverable.len() =>
             {
                 Some(rail::RowSpan::new(
-                    (app.tree.workspaces.len() + app.sidebar_recoverable_workspace_selection)
+                    (app.tree.workspaces().len() + app.sidebar_recoverable_workspace_selection)
                         * metrics.stride,
                     metrics.height,
                 ))
@@ -541,6 +541,10 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         selected_footer,
         actions_position,
     );
+    if let Some(usage) = app.machine_usage.as_ref() {
+        let readout = messages.machine_usage_readout(usage.api_equivalent_usd, usage.period_days);
+        rail::header_readout(frame, area, &readout, palette);
+    }
     let mut hits = Vec::new();
     let scrollbar_track = if viewport.body.height > 0 && body_rows > viewport.body.height as usize {
         Rect {
@@ -562,7 +566,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             },
         ));
     }
-    for (i, ws) in app.tree.workspaces.iter().enumerate() {
+    for (i, ws) in app.tree.workspaces().iter().enumerate() {
         let span = rail::RowSpan::new(i * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let active = i == app.tree.active_workspace;
@@ -602,7 +606,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     }
 
     for (index, workspace) in recoverable.iter().enumerate() {
-        let row = app.tree.workspaces.len() + index;
+        let row = app.tree.workspaces().len() + index;
         let span = rail::RowSpan::new(row * metrics.stride, metrics.height);
         let Some(y) = viewport.body_y(span) else { continue };
         let selected = app.workspace_sidebar_focused()
@@ -852,7 +856,7 @@ fn unread_summary(app: &App) -> Option<(usize, Color)> {
     let mut highest = None;
     for notification in app
         .tree
-        .workspaces
+        .workspaces()
         .iter()
         .flat_map(|workspace| workspace.screens.iter())
         .flat_map(|screen| screen.panes.iter())

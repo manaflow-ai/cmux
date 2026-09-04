@@ -1,4 +1,5 @@
 import { proxyOpenCodeRequest } from "../../../../../../../services/coderouter/opencodeProxy";
+import { coderouterControlRoute } from "../../../../../../../services/coderouter/requestTelemetry";
 
 export const maxDuration = 1_800;
 
@@ -9,14 +10,14 @@ type Context = {
   }>;
 };
 
-async function proxy(request: Request, context: Context): Promise<Response> {
-  try {
+const proxy = coderouterControlRoute<Context>(
+  "opencode_proxy",
+  "/api/coderouter/opencode/proxy/[providerId]/[...path]",
+  async (request, context) => {
     const params = await context.params;
-    return await proxyOpenCodeRequest(request, params.providerId, params.path);
-  } catch {
-    return Response.json({ error: "coderouter_unavailable" }, { status: 503 });
-  }
-}
+    return proxyOpenCodeRequest(request, params.providerId, params.path);
+  },
+);
 
 export const GET = proxy;
 export const POST = proxy;

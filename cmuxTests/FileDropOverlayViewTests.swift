@@ -451,26 +451,26 @@ struct FileDropOverlayViewTests {
         let leftDown = try #require(Self.mouseEvent(type: .leftMouseDown, location: leftPoint, window: window))
         let rightDown = try #require(Self.mouseEvent(type: .rightMouseDown, location: rightPoint, window: window))
         let rightDrag = try #require(Self.mouseEvent(type: .rightMouseDragged, location: leftPoint, window: window))
-        let middleDown = try Self.otherMouseEvent(
+        let middleDown = try #require(try Self.otherMouseEvent(
             type: .otherMouseDown,
             location: leftPoint,
             window: window,
             buttonNumber: 2
-        )
-        let middleDrag = try Self.otherMouseEvent(
+        ))
+        let middleDrag = try #require(try Self.otherMouseEvent(
             type: .otherMouseDragged,
             location: rightPoint,
             window: window,
             buttonNumber: 2
-        )
+        ))
         let leftUp = try #require(Self.mouseEvent(type: .leftMouseUp, location: rightPoint, window: window))
         let rightUp = try #require(Self.mouseEvent(type: .rightMouseUp, location: leftPoint, window: window))
-        let middleUp = try Self.otherMouseEvent(
+        let middleUp = try #require(try Self.otherMouseEvent(
             type: .otherMouseUp,
             location: rightPoint,
             window: window,
             buttonNumber: 2
-        )
+        ))
 
         overlay.mouseDown(with: leftDown)
         overlay.rightMouseDown(with: rightDown)

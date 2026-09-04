@@ -78,32 +78,14 @@ Values: `right`, `left`, `top`, `bottom`, `newTab`, `newWorkspace`.
 
 Default: `right`.
 
-## `ui.newWorkspace.menuSectionOrder`
-
-Controls the section order in the titlebar `+` button menu. The Cloud VM section is built in; the custom section comes from `ui.newWorkspace.contextMenu`.
-
-Values: `customFirst`, `cloudFirst`.
-
-Default: `cloudFirst`.
-
-```json
-{
-  "ui": {
-    "newWorkspace": {
-      "menuSectionOrder": "customFirst",
-      "contextMenu": [
-        "newWorkspace"
-      ]
-    }
-  }
-}
-```
-
-`sectionOrder` is accepted as an alias. Project-local `.cmux/cmux.json` values override the global setting.
-
 ## `terminal.agentHibernation`
 
-Routine Agent Hibernation is opt-in. cmux kills idle background agent processes to free RAM and CPU, then resumes each one with its saved session when you visit its tab. Independently, critical memory pressure can trigger a bounded safety pass over eligible idle background agents even when routine hibernation is disabled. See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility rules, confirmation settle window, and resume behavior.
+Routine Agent Hibernation is opt-in. cmux hibernates idle background agent
+processes to free RAM and CPU, then resumes each one with its saved session
+when you visit its tab. Independently, aggregate memory pressure can offer the
+same lossless hibernation lifecycle even when routine hibernation is disabled.
+See [agent-hooks.md](agent-hooks.md#agent-hibernation) for the full eligibility
+rules, confirmation settle window, and resume behavior.
 
 ```json
 {
@@ -117,9 +99,34 @@ Routine Agent Hibernation is opt-in. cmux kills idle background agent processes 
 }
 ```
 
-- `enabled`: turn routine Agent Hibernation on. Default: `false`. Critical-pressure safety hibernation remains active when this is `false`.
+- `enabled`: turn routine Agent Hibernation on. Default: `false`. Aggregate-pressure safety hibernation remains available when this is `false`.
 - `idleSeconds`: seconds a background idle agent terminal must be quiet before it can hibernate. A ~60s confirmation settle window still applies on top of this. Default: `5`. Range: `5`-`604800`.
-- `maxLiveTerminals`: how many live restorable agent terminals to keep before cmux hibernates the oldest idle background ones. Nothing hibernates while you are at or under this count. Default: `12`. Range: `1`-`256`.
+- `maxLiveTerminals`: the target used only by opt-in routine hibernation before it hibernates the oldest idle background terminals. It is not a global memory or agent limit, and aggregate-pressure handling does not use it. Default: `12`. Range: `1`-`256`.
+
+### Aggregate memory-pressure safety policy
+
+cmux prefers macOS's resource-coalition physical footprint, which includes the
+cmux process and its descendants. The private coalition layout is enabled only
+on OS releases with a validated ABI; if the API or validation is unavailable,
+cmux uses a complete, de-duplicated descendant process tree. An incomplete
+listing is treated as unavailable and cannot authorize hibernation. Relative
+percentages (warning at 50% and critical at 70% of installed physical memory,
+with an optional 20%/10% available-memory corroboration) decide only when to
+show the warning and when to offer the idle-only pass. They are signals, not a
+memory ceiling or a limit on cmux.
+
+At warning or critical aggregate pressure, cmux posts a localized visible
+notification. While the same complete pressure remains through the existing
+confirmation window, cmux considers every currently eligible idle, non-visible
+agent through the ordinary lossless Agent Hibernation lifecycle. The scheduled
+routine pass retains its oldest-activity ordering; the pressure pass considers
+all eligible agents, so its encounter order does not limit or prioritize which
+agents are eligible. The existing `idle` lifecycle state, terminal-input check,
+transcript/process identity validation, and visible-panel protection remain
+required; if those proofs are unavailable, that candidate is left running. This
+policy never caps memory use, caps the number of agents/panes/processes,
+throttles or blocks new work, or terminates active or visible work. Hibernated
+agents resume from their saved session exactly as routine Agent Hibernation does.
 
 Enable routine hibernation from the command palette (`⌘⇧P` -> Enable Agent Hibernation), from **Settings > Terminal > Agent Hibernation**, or with `cmux agent-hibernation on`.
 
