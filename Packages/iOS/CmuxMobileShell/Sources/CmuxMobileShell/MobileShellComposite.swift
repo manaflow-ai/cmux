@@ -9685,10 +9685,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // caller's pairing identity so a sibling build sharing the device id
         // cannot supply the wrong method. Tailscale never supplies Iroh dial
         // candidates, because its selected route must remain Tailscale.
-        let resolvedMethod = connectionMethod(
-            forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
-            instanceTag: instanceTagExpectation.expectedTag
-        )
+        // Stored reconnect callers already resolved Direct and supplied its
+        // allowlist. Avoid rescanning every saved pairing in that hot path.
+        let resolvedMethod: MobileConnectionMethod? = directOnlyDialCandidates == nil
+            ? connectionMethod(
+                forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
+                instanceTag: instanceTagExpectation.expectedTag
+            )
+            : nil
         // User-entered Tailscale authorization is scoped to the exact fresh
         // pairing route it came from. It must not disable Direct's Iroh
         // allowlist merely because another route is authorized in the same
@@ -10506,6 +10510,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
 
+        // Direct's explicit allowlist is already authoritative, so return its
+        // Iroh-only route set before resolving the per-pairing method again.
+        if directOnly {
+            return supportedRoutes.filter { $0.kind == .iroh }
+        }
+
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh. The method is
@@ -10521,7 +10531,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // encrypted; the transport dials only the user-enabled addresses):
         // no dev loopback and no host/port lane, so an unusable allowlist
         // fails closed instead of switching paths.
-        if directOnly || ticketMethod == .direct {
+        if ticketMethod == .direct {
             return supportedRoutes.filter { $0.kind == .iroh }
         }
         if ticketMethod == .tailscale {
