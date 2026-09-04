@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useTransition } from "react";
+import { useEffect, useRef } from "react";
 import { useLocale } from "next-intl";
 import { useRouter, usePathname } from "../../../i18n/navigation";
 import { locales, localeNames, type Locale } from "../../../i18n/routing";
@@ -10,10 +10,9 @@ export function LanguageSwitcher() {
   const router = useRouter();
   const pathname = usePathname();
   const pendingLocale = useRef<Locale | null>(null);
-  const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    if (isPending || pendingLocale.current !== locale) return;
+    if (pendingLocale.current !== locale) return;
 
     // Locale changes can pass through the instant-navigation cache (and the
     // default-locale redirect from /en to /). Refresh after next-intl has
@@ -21,7 +20,7 @@ export function LanguageSwitcher() {
     // from the same locale as the URL.
     pendingLocale.current = null;
     router.refresh();
-  }, [isPending, locale, router]);
+  }, [locale, router]);
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
@@ -29,9 +28,7 @@ export function LanguageSwitcher() {
       ? window.location.search + window.location.hash
       : "";
     pendingLocale.current = newLocale;
-    startTransition(() => {
-      router.replace(pathname + qs, { locale: newLocale });
-    });
+    router.replace(pathname + qs, { locale: newLocale });
   }
 
   return (
