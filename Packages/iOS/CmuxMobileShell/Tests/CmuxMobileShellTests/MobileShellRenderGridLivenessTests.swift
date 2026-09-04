@@ -726,7 +726,9 @@ import Testing
     let hostStatusCountBeforeFailure = await router.count(of: "mobile.host.status")
 
     // The host stops answering two independent read-only subscription probes,
-    // confirming a dead push path rather than a transient stall.
+    // and also stops answering repair attempts, confirming a dead push path
+    // rather than a transient stall.
+    await router.setHoldSubscribe(true)
     await router.holdProbeRequest(number: 1)
     await router.holdProbeRequest(number: 2)
     clock.advance(by: 10)

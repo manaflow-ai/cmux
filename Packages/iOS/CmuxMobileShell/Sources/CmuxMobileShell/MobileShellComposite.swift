@@ -13840,7 +13840,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     timeoutNanoseconds: timeoutNanoseconds
                 )
             case .failed:
-                return .failed
+                // A probe timeout is weaker evidence than a failed
+                // subscription round-trip. The keepalive lane can still be
+                // healthy while a single control request stalls during Iroh
+                // path migration. Re-assert the existing subscription before
+                // promoting this suspicion to a session replacement; this is
+                // idempotent on the host and preserves the live event reader.
+                return await self.requestTerminalEventSubscription(
+                    client: client,
+                    reason: "liveness_probe_retry",
+                    topics: topics,
+                    timeoutNanoseconds: timeoutNanoseconds
+                )
             }
         }
         // Bounded deadline via a one-shot DispatchSourceTimer — the same
