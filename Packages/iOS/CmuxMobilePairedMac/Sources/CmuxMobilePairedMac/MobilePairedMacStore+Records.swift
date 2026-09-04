@@ -347,7 +347,14 @@ extension MobilePairedMacStore {
             parameters: [.text(macDeviceID), .text(ownerKey)]
         )
         var removedKeys: Set<String> = []
-        while sqlite3_step(removedStatement) == SQLITE_ROW {
+        while true {
+            let step = sqlite3_step(removedStatement)
+            if step == SQLITE_DONE {
+                break
+            }
+            guard step == SQLITE_ROW else {
+                throw MobilePairedMacStoreError.stepFailed(step, lastErrorMessage())
+            }
             guard let kind = Self.readNullableText(removedStatement, column: 0),
                   let endpoint = Self.readNullableText(removedStatement, column: 1) else {
                 continue
