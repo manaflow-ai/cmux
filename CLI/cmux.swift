@@ -5827,15 +5827,18 @@ struct CMUXCLI {
                     break
                 }
                 let rows: [(String, String, String, String, String)] = vms.map { vm in
-                    (
-                        (vm["id"] as? String) ?? "?",
-                        (vm["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["id"] as? String) ?? "?",
-                        (vm["status"] as? String) ?? "unknown",
-                        (vm["provider"] as? String) ?? "?",
-                        (vm["image"] as? String) ?? "?"
-                    )
+                    let id = (vm["id"] as? String) ?? "?"
+                    let displayName = (vm["displayName"] as? String).flatMap { value in
+                        value.isEmpty ? nil : value
+                    }
+                    let slug = (vm["slug"] as? String).flatMap { value in
+                        value.isEmpty ? nil : value
+                    }
+                    let name = displayName ?? slug ?? id
+                    let status = (vm["status"] as? String) ?? "unknown"
+                    let provider = (vm["provider"] as? String) ?? "?"
+                    let image = (vm["image"] as? String) ?? "?"
+                    return (id, name, status, provider, image)
                 }
                 let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
