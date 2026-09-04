@@ -36,11 +36,7 @@ struct VaultAllSessionsBar: View {
     var body: some View {
         HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
             searchField
-            if showsSortAndFilter {
-                sortMenu
-                filterMenu
-            }
-            viewMenu
+            overflowMenu
         }
         // Keep the same 28-point rhythm and 4/6-point outer insets as the
         // mode bar, but let this toolbar flow into the session list without a
@@ -109,101 +105,69 @@ struct VaultAllSessionsBar: View {
         .titlebarInteractiveControl()
     }
 
-    private var sortMenu: some View {
+    private var overflowMenu: some View {
         Menu {
-            Picker(
-                String(localized: "sessionIndex.allSessions.sortBy", defaultValue: "Sort by"),
-                selection: $store.recencySort
-            ) {
-                ForEach(VaultSessionSort.allCases) { sort in
-                    Text(sort.label).tag(sort)
+            if showsSortAndFilter {
+                Picker(
+                    String(localized: "sessionIndex.allSessions.sortBy", defaultValue: "Sort by"),
+                    selection: $store.recencySort
+                ) {
+                    ForEach(VaultSessionSort.allCases) { sort in
+                        Text(sort.label).tag(sort)
+                    }
                 }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            VaultToolbarIcon(systemName: "arrow.up.arrow.down")
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .contentShape(Rectangle())
-        .help(String(localized: "sessionIndex.allSessions.sortTooltip", defaultValue: "Sort sessions"))
-        .accessibilityIdentifier("VaultAllSessionsSortMenu")
-        .titlebarInteractiveControl()
-    }
-
-    private var filterMenu: some View {
-        Menu {
-            Picker(
-                String(localized: "sessionIndex.filter.agent", defaultValue: "Agent"),
-                selection: $store.recencyFilter.agentID
-            ) {
-                Text(String(localized: "sessionIndex.filter.agent.all", defaultValue: "All agents"))
-                    .tag(String?.none)
-                ForEach(store.agentFilterOptions) { option in
-                    Text(option.label).tag(String?.some(option.id))
-                }
-            }
-            .pickerStyle(.inline)
-            Picker(
-                String(localized: "sessionIndex.filter.status", defaultValue: "Status"),
-                selection: $store.recencyFilter.liveness
-            ) {
-                ForEach(VaultSessionFilter.Liveness.allCases) { liveness in
-                    Text(liveness.label).tag(liveness)
-                }
-            }
-            .pickerStyle(.inline)
-            Picker(
-                String(localized: "sessionIndex.filter.folder", defaultValue: "Folder"),
-                selection: $store.recencyFilter.folder
-            ) {
-                Text(String(localized: "sessionIndex.filter.folder.all", defaultValue: "All folders"))
-                    .tag(String?.none)
-                ForEach(store.folderFilterOptions) { option in
-                    Text(option.label).tag(String?.some(option.id))
-                }
-            }
-            .pickerStyle(.inline)
-            Picker(
-                String(localized: "sessionIndex.filter.date", defaultValue: "Date"),
-                selection: $store.recencyFilter.datePreset
-            ) {
-                ForEach(VaultSessionFilter.DatePreset.allCases) { preset in
-                    Text(preset.label).tag(preset)
-                }
-            }
-            .pickerStyle(.inline)
-            if store.recencyFilter.isActive {
+                .pickerStyle(.inline)
                 Divider()
-                Button {
-                    store.recencyFilter = VaultSessionFilter()
-                } label: {
-                    Text(String(localized: "sessionIndex.filter.reset", defaultValue: "Reset Filters"))
+                Picker(
+                    String(localized: "sessionIndex.filter.agent", defaultValue: "Agent"),
+                    selection: $store.recencyFilter.agentID
+                ) {
+                    Text(String(localized: "sessionIndex.filter.agent.all", defaultValue: "All agents"))
+                        .tag(String?.none)
+                    ForEach(store.agentFilterOptions) { option in
+                        Text(option.label).tag(String?.some(option.id))
+                    }
                 }
+                .pickerStyle(.inline)
+                Picker(
+                    String(localized: "sessionIndex.filter.status", defaultValue: "Status"),
+                    selection: $store.recencyFilter.liveness
+                ) {
+                    ForEach(VaultSessionFilter.Liveness.allCases) { liveness in
+                        Text(liveness.label).tag(liveness)
+                    }
+                }
+                .pickerStyle(.inline)
+                Picker(
+                    String(localized: "sessionIndex.filter.folder", defaultValue: "Folder"),
+                    selection: $store.recencyFilter.folder
+                ) {
+                    Text(String(localized: "sessionIndex.filter.folder.all", defaultValue: "All folders"))
+                        .tag(String?.none)
+                    ForEach(store.folderFilterOptions) { option in
+                        Text(option.label).tag(String?.some(option.id))
+                    }
+                }
+                .pickerStyle(.inline)
+                Picker(
+                    String(localized: "sessionIndex.filter.date", defaultValue: "Date"),
+                    selection: $store.recencyFilter.datePreset
+                ) {
+                    ForEach(VaultSessionFilter.DatePreset.allCases) { preset in
+                        Text(preset.label).tag(preset)
+                    }
+                }
+                .pickerStyle(.inline)
+                if store.recencyFilter.isActive {
+                    Divider()
+                    Button {
+                        store.recencyFilter = VaultSessionFilter()
+                    } label: {
+                        Text(String(localized: "sessionIndex.filter.reset", defaultValue: "Reset Filters"))
+                    }
+                }
+                Divider()
             }
-        } label: {
-            VaultToolbarIcon(
-                systemName: store.recencyFilter.isActive
-                    ? "line.3.horizontal.decrease.circle.fill"
-                    : "line.3.horizontal.decrease.circle",
-                isActive: store.recencyFilter.isActive
-            )
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .contentShape(Rectangle())
-        .help(String(localized: "sessionIndex.allSessions.filterTooltip", defaultValue: "Filter sessions"))
-        .accessibilityIdentifier("VaultAllSessionsFilterMenu")
-        .titlebarInteractiveControl()
-    }
-
-    /// View-density menu kept beside search so it is discoverable in every
-    /// grouping, including Agent and Folder where the sort/filter menus are
-    /// intentionally hidden.
-    private var viewMenu: some View {
-        Menu {
             Picker(
                 String(localized: "sessionIndex.view.title", defaultValue: "Session view"),
                 selection: $isCompactView
@@ -215,34 +179,18 @@ struct VaultAllSessionsBar: View {
             }
             .pickerStyle(.inline)
         } label: {
-            VaultToolbarIcon(
-                systemName: isCompactView
-                    ? "eye.slash"
-                    : "eye",
-                isActive: isCompactView
-            )
+            VaultToolbarIcon(systemName: "ellipsis")
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
         .fixedSize()
         .contentShape(Rectangle())
-        .help(viewMenuTooltip)
-        .accessibilityLabel(
-            Text(String(localized: "sessionIndex.view.title", defaultValue: "Session view"))
-        )
-        .accessibilityHint(
-            Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view"))
-        )
+        .help(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view"))
+        .accessibilityLabel(Text(String(localized: "sessionIndex.view.title", defaultValue: "Session view")))
+        .accessibilityHint(Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view")))
         .accessibilityValue(viewSelectionLabel)
-        .accessibilityIdentifier("VaultSessionViewMenu")
+        .accessibilityIdentifier("VaultSessionOptionsMenu")
         .titlebarInteractiveControl()
-    }
-
-    private var viewMenuTooltip: String {
-        if isCompactView {
-            return String(localized: "sessionIndex.view.showDetails", defaultValue: "Show details")
-        }
-        return String(localized: "sessionIndex.view.hideDetails", defaultValue: "Hide details")
     }
 
     private var viewSelectionLabel: String {
