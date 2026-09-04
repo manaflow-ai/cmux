@@ -21,12 +21,49 @@ private enum ComputerUseCursorArtwork {
     static func draw(
         in context: CGContext,
         scale: CGFloat,
+        width: CGFloat = 1,
+        height: CGFloat = 1,
+        roundness: CGFloat = 0,
+        rotation: CGFloat = 0,
         outlineColor: CGColor? = nil,
         outlineWidth: CGFloat = 0
     ) {
         context.saveGState()
-        context.scaleBy(x: scale, y: scale)
+        let widthFactor = max(0.01, width)
+        let heightFactor = max(0.01, height)
+        let xScale = scale * widthFactor
+        let yScale = scale * heightFactor
+        let centerX = 0.4957769 + 10.6598503 / 2
+        let centerY = 0.4957769 + 10.6598503 / 2
+        // Match the logo lab transform: scale around the source center, then
+        // apply rotation. Translation is supplied by the caller so the live
+        // pointer can continue to use its own window coordinates.
+        context.translateBy(x: centerX * xScale, y: centerY * yScale)
+        context.rotate(by: rotation * .pi / 180)
+        context.scaleBy(x: xScale, y: yScale)
+        context.translateBy(x: -centerX, y: -centerY)
         let kite = path()
+
+        let cornerRadius = max(0, roundness)
+        let roundedPath: CGPath
+        if cornerRadius > 0 {
+            // The lab models roundness as a same-color, round-joined stroke.
+            // Convert the canvas-pixel radius into the pre-scale path space,
+            // then clip to the fill plus stroke so the gradient covers both.
+            let strokeWidth = (cornerRadius * 2) / max(0.01, min(xScale, yScale))
+            let union = CGMutablePath()
+            union.addPath(kite)
+            let stroke = kite.copy(
+                strokingWithWidth: strokeWidth,
+                lineCap: .round,
+                lineJoin: .round,
+                miterLimit: 10
+            )
+            union.addPath(stroke)
+            roundedPath = union
+        } else {
+            roundedPath = kite
+        }
 
         if let outlineColor, outlineWidth > 0 {
             // The upstream asset uses `paint-order: stroke`, so its outline is
@@ -39,7 +76,7 @@ private enum ComputerUseCursorArtwork {
         }
 
         context.saveGState()
-        context.addPath(kite)
+        context.addPath(roundedPath)
         context.clip()
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let colors = [
@@ -59,7 +96,7 @@ private enum ComputerUseCursorArtwork {
         if let gradient = CGGradient(
             colorsSpace: colorSpace,
             colors: colors,
-            locations: [0.0, 0.5, 1.0]
+            locations: [0.0, 0.59, 1.0]
         ) {
             context.drawLinearGradient(
                 gradient,
@@ -87,8 +124,15 @@ private enum ComputerUseCursorArtwork {
 enum ComputerUseHelperIconRenderer {
     private static let canvasSize = NSSize(width: 1_024, height: 1_024)
     private static let plateCornerRadius: CGFloat = 224
-    private static let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
-    private static let cursorScale: CGFloat = 44.8
+    // SolidJS logo-lab approved draft: translation 257.8472/257.8472,
+    // scale 45.7900, width/height 1.0000, roundness 16.5, rotation 0;
+    // transformed bounds 264.05/264.05/521.11/521.11; gradient midpoint 59%.
+    private static let cursorTranslation = CGPoint(x: 257.8472, y: 257.8472)
+    private static let cursorScale: CGFloat = 45.7900
+    private static let cursorWidth: CGFloat = 1.0000
+    private static let cursorHeight: CGFloat = 1.0000
+    private static let cursorRoundness: CGFloat = 16.5
+    private static let cursorRotation: CGFloat = 0
     private static let rimWidth: CGFloat = 14
     private static var cachedImages: [Bool: NSImage] = [:]
 
@@ -217,7 +261,11 @@ enum ComputerUseHelperIconRenderer {
         context.translateBy(x: cursorTranslation.x, y: cursorTranslation.y)
         ComputerUseCursorArtwork.draw(
             in: context,
-            scale: cursorScale
+            scale: cursorScale,
+            width: cursorWidth,
+            height: cursorHeight,
+            roundness: cursorRoundness,
+            rotation: cursorRotation
         )
         context.restoreGState()
 

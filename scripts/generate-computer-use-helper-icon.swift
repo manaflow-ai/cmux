@@ -15,8 +15,14 @@
 import AppKit
 
 let plateCornerRadius: CGFloat = 224
-let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
-let cursorScale: CGFloat = 44.8
+// SolidJS logo-lab approved draft. Keep these values in sync with
+// AgentCursorPointerView.swift and the Icon Composer source package.
+let cursorTranslation = CGPoint(x: 257.8472, y: 257.8472)
+let cursorScale: CGFloat = 45.7900
+let cursorWidth: CGFloat = 1.0000
+let cursorHeight: CGFloat = 1.0000
+let cursorRoundness: CGFloat = 16.5
+let cursorRotation: CGFloat = 0
 let rimWidth: CGFloat = 14
 let canvas = CGRect(x: 0, y: 0, width: 1_024, height: 1_024)
 
@@ -111,9 +117,32 @@ func render() -> CGImage? {
 
     context.saveGState()
     context.translateBy(x: cursorTranslation.x, y: cursorTranslation.y)
-    context.scaleBy(x: cursorScale, y: cursorScale)
+    let xScale = cursorScale * max(0.01, cursorWidth)
+    let yScale = cursorScale * max(0.01, cursorHeight)
+    let centerX = 0.4957769 + 10.6598503 / 2
+    let centerY = 0.4957769 + 10.6598503 / 2
+    context.translateBy(x: centerX * xScale, y: centerY * yScale)
+    context.rotate(by: cursorRotation * .pi / 180)
+    context.scaleBy(x: xScale, y: yScale)
+    context.translateBy(x: -centerX, y: -centerY)
     let kite = cursorPath()
-    context.addPath(kite)
+    let roundedPath: CGPath
+    if cursorRoundness > 0 {
+        let strokeWidth = (cursorRoundness * 2) / max(0.01, min(xScale, yScale))
+        let union = CGMutablePath()
+        union.addPath(kite)
+        let stroke = kite.copy(
+            strokingWithWidth: strokeWidth,
+            lineCap: .round,
+            lineJoin: .round,
+            miterLimit: 10
+        )
+        union.addPath(stroke)
+        roundedPath = union
+    } else {
+        roundedPath = kite
+    }
+    context.addPath(roundedPath)
     context.clip()
     if let gradient = CGGradient(
         colorsSpace: colorSpace,
@@ -122,7 +151,7 @@ func render() -> CGImage? {
             CGColor(colorSpace: colorSpace, components: [0x2D / 255.0, 0x8C / 255.0, 0xFF / 255.0, 1.0])!,
             CGColor(colorSpace: colorSpace, components: [0x6C / 255.0, 0x5C / 255.0, 0xFF / 255.0, 1.0])!,
         ] as CFArray,
-        locations: [0.0, 0.5, 1.0]
+        locations: [0.0, 0.59, 1.0]
     ) {
         context.drawLinearGradient(
             gradient,
