@@ -133,6 +133,13 @@ independent write source. `SurfaceCatalog` stores that state with the derived
 surface rows in one main-actor transaction. No sidebar, CLI, or pane keeps a
 second remote graph.
 
+The document's collection order preserves snapshot and export order only.
+Semantic layout order comes from each row's `index` and relationship IDs. Code
+must not infer identity, parentage, or pane placement from JSON array position
+when an index is present. The compatibility parser may retain daemon order for
+legacy one-shot rows that omit an index; the authoritative state path still
+requires complete graph collections before it can publish or mutate state.
+
 The state has an explicit synchronization mode. Current daemons use `journaled`
 mode and publish a `(generation, revision)` cursor. A generation change means a
 daemon restart or replacement, so revision numbers are never compared across
@@ -167,6 +174,13 @@ the exact tab id while the event feed catches up, and lets a later authoritative
 graph retire the overlay. A generation change retires an old receipt. Agents
 see active overlays as `pending_writes`, so they can distinguish a committed
 remote mutation that is not yet present in the last graph from a failed write.
+An incoming graph from a known older generation is rejected. A graph before a
+pending receipt revision is also rejected. A graph at the exact receipt cursor
+is accepted only when the named workspace or tab has the requested name. This
+receipt fence prevents a delayed or contradictory snapshot from erasing a write
+that the daemon already acknowledged. The complete graph is held back in that
+case because publishing unrelated new rows beside a stale target would present
+one false machine state to agents.
 
 Older daemons may return the same complete graph without a cursor. The app
 keeps that graph in `snapshot_only` mode, exports it to agents, and suspends the
@@ -221,6 +235,12 @@ title again. `nil` means that a caller did not provide a name and is not a
 clear request. Workspace names remain non-empty at the app boundary because
 the workspace row and local binding use that label as a required identity
 display value.
+
+The daemon name is canonical for a projected cloud workspace or tab. A local
+user edit is an optimistic intent only while its mutation is pending. A later
+accepted remote observation replaces it without echoing another write. Local
+aliases would need a separate field and product contract; this design does not
+hide an alias inside the daemon-owned title.
 
 The socket rename handlers use one 120-second operation deadline for refresh,
 compare-and-set, retry, compensation, and final reconciliation. Each individual

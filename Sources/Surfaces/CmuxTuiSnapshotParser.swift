@@ -29,8 +29,9 @@ struct CloudVMStateDeltaApplication: Sendable {
 struct CmuxTuiSnapshotParser: Sendable {
     /// Chooses a stable destination for projecting a terminal that currently has no remote
     /// tab view. The session snapshot lists structural records separately, so selection walks
-    /// the focused workspace, focused screen, and focused pane in that order, falling back to
-    /// canonical array order at each level. A new tab is appended to the chosen pane.
+    /// the focused workspace, focused screen, and focused pane in that order, using explicit
+    /// row indexes when available and a legacy daemon-order fallback otherwise. A new tab is
+    /// appended to the chosen pane.
     static func terminalProjectionTarget(from snapshot: [String: Any]) -> CloudTuiTerminalProjectionTarget? {
         guard requiredGraphCollectionsArePresent(in: snapshot) else { return nil }
         let workspaces = snapshot["workspaces"] as? [[String: Any]] ?? []
@@ -45,30 +46,19 @@ struct CmuxTuiSnapshotParser: Sendable {
         }
         // Prefer focused records, but do not strand a pool terminal when the focused
         // workspace/screen was intentionally left empty. The first candidate with a live
-        // pane is the safe destination; all arrays are already in daemon canonical order.
-        let orderedWorkspaces = workspaces.enumerated().sorted { left, right in
-            let leftFocused = (left.element["focused"] as? Bool) == true
-            let rightFocused = (right.element["focused"] as? Bool) == true
-            return leftFocused != rightFocused ? leftFocused : left.offset < right.offset
-        }
+        // pane is the safe destination. Explicit row indexes take precedence over transport
+        // order, while older snapshots retain their daemon-order fallback.
+        let orderedWorkspaces = orderedSnapshotRows(workspaces, focusedFirst: true)
         for workspaceEntry in orderedWorkspaces {
             guard let workspaceID = workspaceEntry.element["id"] as? String, !workspaceID.isEmpty else { continue }
-            let workspaceScreens = screens.enumerated().filter {
-                ($0.element["workspace_id"] as? String) == workspaceID
-            }.sorted { left, right in
-                let leftFocused = (left.element["focused"] as? Bool) == true
-                let rightFocused = (right.element["focused"] as? Bool) == true
-                return leftFocused != rightFocused ? leftFocused : left.offset < right.offset
-            }
+            let workspaceScreens = orderedSnapshotRows(screens.filter {
+                ($0["workspace_id"] as? String) == workspaceID
+            }, focusedFirst: true)
             for screenEntry in workspaceScreens {
                 guard let screenID = screenEntry.element["id"] as? String, !screenID.isEmpty else { continue }
-                let screenPanes = panes.enumerated().filter {
-                    ($0.element["screen_id"] as? String) == screenID
-                }.sorted { left, right in
-                    let leftFocused = (left.element["focused"] as? Bool) == true
-                    let rightFocused = (right.element["focused"] as? Bool) == true
-                    return leftFocused != rightFocused ? leftFocused : left.offset < right.offset
-                }
+                let screenPanes = orderedSnapshotRows(panes.filter {
+                    ($0["screen_id"] as? String) == screenID
+                }, focusedFirst: true)
                 for paneEntry in screenPanes {
                     guard let paneID = paneEntry.element["id"] as? String, !paneID.isEmpty else { continue }
                     return CloudTuiTerminalProjectionTarget(
@@ -239,7 +229,10 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// depend on wire order, or make an entity disappear while the snapshot is
     /// still marked current. Reject the whole document at this boundary so the
     /// provider takes its bounded full-snapshot recovery path instead.
-    private static func identityCollectionsAreUnique(in snapshot: [String: Any]) -> Bool {
+    private static func identityCollectionsAreUnique(
+        in snapshot: [String: Any],
+        allowIncompleteTabMetadata: Bool = false
+    ) -> Bool {
         var agentTerminalIDs = Set<String>()
         for key in ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"] {
             guard let raw = snapshot[key] else { continue }
@@ -265,10 +258,12 @@ struct CmuxTuiSnapshotParser: Sendable {
                 case "panes":
                     guard nonEmptyString(row["screen_id"]) != nil else { return false }
                 case "tabs":
-                    guard nonEmptyString(row["pane_id"]) != nil,
-                          nonEmptyString(row["content_kind"]) != nil,
-                          nonEmptyString(row["content_id"]) != nil
-                    else { return false }
+                    guard nonEmptyString(row["pane_id"]) != nil else { return false }
+                    if !allowIncompleteTabMetadata {
+                        guard nonEmptyString(row["content_kind"]) != nil,
+                              nonEmptyString(row["content_id"]) != nil
+                        else { return false }
+                    }
                 case "terminals":
                     if let rawTabIDs = row["tab_ids"], !(rawTabIDs is NSNull) {
                         guard let tabIDs = rawTabIDs as? [String],
@@ -310,7 +305,10 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// rename or open operation target another terminal. Missing terminal tabs
     /// remain allowed for exited or detached daemon records, which preserves
     /// the documented pool representation.
-    private static func snapshotRelationshipsAreConsistent(in snapshot: [String: Any]) -> Bool {
+    private static func snapshotRelationshipsAreConsistent(
+        in snapshot: [String: Any],
+        allowIncompleteTabMetadata: Bool = false
+    ) -> Bool {
         let workspaces = (snapshot["workspaces"] as? [[String: Any]]) ?? []
         let screens = (snapshot["screens"] as? [[String: Any]]) ?? []
         let panes = (snapshot["panes"] as? [[String: Any]]) ?? []
@@ -350,8 +348,19 @@ struct CmuxTuiSnapshotParser: Sendable {
                 // A missing tab is a valid detached/exited state. An existing
                 // tab with a different content identity is never safe to use.
                 guard let tab = tabByID[tabID] else { continue }
-                guard nonEmptyString(tab["content_kind"]) == "terminal",
-                      nonEmptyString(tab["content_id"]) == terminalID
+                let contentKind = nonEmptyString(tab["content_kind"])
+                let contentID = nonEmptyString(tab["content_id"])
+                if allowIncompleteTabMetadata, (contentKind == nil || contentID == nil) {
+                    // A focused/partial snapshot may omit the reverse edge.
+                    // If it supplies either half, still reject a contradictory
+                    // value instead of turning an unverifiable row into a
+                    // different terminal.
+                    if let contentKind, contentKind != "terminal" { return false }
+                    if let contentID, contentID != terminalID { return false }
+                    continue
+                }
+                guard contentKind == "terminal",
+                      contentID == terminalID
                 else { return false }
             }
         }
@@ -361,8 +370,15 @@ struct CmuxTuiSnapshotParser: Sendable {
                   let tabID = nonEmptyString(browser["tab_id"])
             else { return false }
             guard let tab = tabByID[tabID] else { continue }
-            guard nonEmptyString(tab["content_kind"]) == "browser",
-                  nonEmptyString(tab["content_id"]) == browserID
+            let contentKind = nonEmptyString(tab["content_kind"])
+            let contentID = nonEmptyString(tab["content_id"])
+            if allowIncompleteTabMetadata, (contentKind == nil || contentID == nil) {
+                if let contentKind, contentKind != "browser" { return false }
+                if let contentID, contentID != browserID { return false }
+                continue
+            }
+            guard contentKind == "browser",
+                  contentID == browserID
             else { return false }
         }
         return true
@@ -371,6 +387,43 @@ struct CmuxTuiSnapshotParser: Sendable {
     private static func uniquePreservingOrder(_ values: [String]) -> [String] {
         var seen = Set<String>()
         return values.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// Orders wire rows by their semantic index when one is present. The
+    /// daemon's older snapshots omit indexes on some rows, so their original
+    /// order remains the compatibility fallback. An explicit index wins over
+    /// an omitted one, and equal explicit indexes use the stable id before the
+    /// transport offset as a deterministic tie-break.
+    private static func orderedSnapshotRows(
+        _ rows: [[String: Any]],
+        focusedFirst: Bool = false
+    ) -> [(element: [String: Any], offset: Int)] {
+        rows.enumerated().sorted { left, right in
+            if focusedFirst {
+                let leftFocused = (left.element["focused"] as? Bool) == true
+                let rightFocused = (right.element["focused"] as? Bool) == true
+                if leftFocused != rightFocused { return leftFocused }
+            }
+            let leftIndex = integer(left.element["index"])
+            let rightIndex = integer(right.element["index"])
+            switch (leftIndex, rightIndex) {
+            case let (left?, right?) where left != right:
+                return left < right
+            case (.some, .none):
+                return true
+            case (.none, .some):
+                return false
+            default:
+                break
+            }
+            if leftIndex != nil,
+               let leftID = nonEmptyString(left.element["id"]),
+               let rightID = nonEmptyString(right.element["id"]),
+               leftID != rightID {
+                return leftID < rightID
+            }
+            return left.offset < right.offset
+        }
     }
 
     /// Returns every valid placement of a terminal. The tab content edge is
@@ -1257,17 +1310,19 @@ struct CmuxTuiSnapshotParser: Sendable {
         machine: SurfaceMachineID,
         only resourceIDs: Set<SurfaceResourceID>? = nil
     ) -> [SurfaceResource] {
-        // Raw one-shot callers do not pass through `state(fromSnapshot:)`.
-        // Apply the same graph boundary here so they cannot construct a
-        // resource with a placement borrowed from another tab.
-        guard requiredGraphCollectionsArePresent(in: snapshot),
-              identityCollectionsAreUnique(in: snapshot),
-              snapshotRelationshipsAreConsistent(in: snapshot)
+        // This compatibility entry point also serves older and focused public
+        // snapshots, which may omit collections or tab content metadata. The
+        // provider's authoritative `state(fromSnapshot:)` path remains strict;
+        // here, reject explicit identity conflicts while allowing omitted
+        // optional fields to be joined when the surrounding path is valid.
+        guard identityCollectionsAreUnique(in: snapshot, allowIncompleteTabMetadata: true),
+              snapshotRelationshipsAreConsistent(in: snapshot, allowIncompleteTabMetadata: true)
         else { return [] }
 
         let screensRaw = (snapshot["screens"] as? [[String: Any]]) ?? []
         let panesRaw = (snapshot["panes"] as? [[String: Any]]) ?? []
         let tabsRaw = (snapshot["tabs"] as? [[String: Any]]) ?? []
+        let orderedTabsRaw = orderedSnapshotRows(tabsRaw).map(\.element)
         let terminalsRaw = (snapshot["terminals"] as? [[String: Any]]) ?? []
         let agentsRaw = (snapshot["agents"] as? [[String: Any]]) ?? []
 
@@ -1324,7 +1379,7 @@ struct CmuxTuiSnapshotParser: Sendable {
             guard var terminal = terminal(fromSnapshotEntry: raw, machine: machine, agents: agentByTerminal) else { continue }
             let declaredTabIDs = uniquePreservingOrder((raw["tab_ids"] as? [String]) ?? [])
                 + ((raw["tab_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }.map { [$0] } ?? [])
-            let graphTabIDs: [String] = tabsRaw.compactMap { tab in
+            let graphTabIDs: [String] = orderedTabsRaw.compactMap { tab in
                 guard nonEmptyString(tab["content_kind"]) == "terminal",
                       nonEmptyString(tab["content_id"]) == terminalID,
                       let tabID = nonEmptyString(tab["id"]) else { return nil }
@@ -1402,7 +1457,7 @@ struct CmuxTuiSnapshotParser: Sendable {
         // it remembers its terminals and browsers.
         var displayViews: [String: [SurfaceRemoteView]] = [:]
         var displayOrder: [String] = []
-        for tab in tabsRaw {
+        for tab in orderedTabsRaw {
             guard ["display", "screen"].contains(tab["content_kind"] as? String),
                   let contentID = tab["content_id"] as? String, !contentID.isEmpty,
                   let tabID = tab["id"] as? String,
@@ -1501,10 +1556,16 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// terminal to derive them from.
     static func workspaces(fromSnapshot snapshot: [String: Any]) -> [SurfaceRemoteWorkspace] {
         let workspacesRaw = (snapshot["workspaces"] as? [[String: Any]]) ?? []
-        return workspacesRaw.enumerated().compactMap { index, raw in
+        return orderedSnapshotRows(workspacesRaw).compactMap { entry in
+            let raw = entry.element
             guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
             let name = (raw["name"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? id
-            return SurfaceRemoteWorkspace(id: id, name: name, index: index, focused: (raw["focused"] as? Bool) ?? false)
+            return SurfaceRemoteWorkspace(
+                id: id,
+                name: name,
+                index: integer(raw["index"]) ?? entry.offset,
+                focused: (raw["focused"] as? Bool) ?? false
+            )
         }
     }
 

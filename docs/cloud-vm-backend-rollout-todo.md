@@ -101,8 +101,20 @@ browsers, and agents. The macOS app must not create a second remote graph.
   carries `(generation, revision)` and terminal creation carries the exact
   `CreatedTerminalPath`. The provider exposes the receipt as transient
   `pending_writes` until an accepted graph reaches the same cursor, then removes
-  it. A generation change retires it. This gives immediate rename commands an
-  exact target without letting a delayed snapshot erase a successful create.
+  it. A known older generation or a graph before the receipt is rejected. A
+  graph at the exact receipt cursor must contain the requested workspace or tab
+  name. This gives immediate rename commands an exact target without letting a
+  delayed or contradictory snapshot erase a successful write.
+- Canonical collection order preserves snapshot and export order only. Layout
+  order comes from row `index` values and relationship IDs. Agents and UI code
+  must not infer identity or placement from JSON array position when an index
+  is present. The compatibility parser may retain daemon order for legacy
+  one-shot rows without an index; authoritative state still requires complete
+  graph collections.
+- The daemon name is canonical for a projected cloud workspace or tab. A local
+  rename is an optimistic intent until the receipt fence accepts the daemon
+  graph. A later remote observation replaces the local value without another
+  write. A local-only alias needs a separate field and is outside this contract.
 - A resource kind that is absent from the client's known delta storage map is a
   fail-closed barrier. The app fetches one bounded full snapshot instead of
   guessing a plural key or identity rule. The snapshot retains the new kind as

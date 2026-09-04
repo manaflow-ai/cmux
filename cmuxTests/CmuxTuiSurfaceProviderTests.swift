@@ -551,6 +551,41 @@ import Testing
         #expect(target.index == 0)
     }
 
+    @Test func explicitLayoutIndexesWinOverSnapshotArrayOrder() throws {
+        var snapshot = Self.sessionSnapshot
+        snapshot["workspaces"] = [
+            ["id": "ws_api", "name": "api", "index": 1, "focused": false],
+            ["id": "ws_main", "name": "main", "index": 0, "focused": false],
+        ]
+        snapshot["screens"] = [
+            ["id": "screen_main_late", "workspace_id": "ws_main", "index": 2, "focused": false],
+            ["id": "screen_api", "workspace_id": "ws_api", "index": 1, "focused": false],
+            ["id": "screen_main", "workspace_id": "ws_main", "index": 0, "focused": false],
+        ]
+        snapshot["panes"] = [
+            ["id": "pane_main_late", "screen_id": "screen_main_late", "focused": false],
+            ["id": "pane_api", "screen_id": "screen_api", "focused": false],
+            ["id": "pane_main", "screen_id": "screen_main", "focused": false],
+        ]
+        snapshot["tabs"] = []
+        snapshot["terminals"] = []
+        snapshot["browsers"] = []
+        snapshot["agents"] = []
+
+        // Index values are semantic layout coordinates. The JSON array is a
+        // transport detail and is intentionally out of order in this fixture.
+        let workspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: snapshot)
+        #expect(workspaces.map(\.id) == ["ws_main", "ws_api"])
+
+        let target = try #require(CmuxTuiSnapshotParser.terminalProjectionTarget(from: snapshot))
+        #expect(target.workspaceID == "ws_main")
+        #expect(target.screenID == "screen_main")
+        #expect(target.paneID == "pane_main")
+
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
+        #expect(state.lookupIndex.screenIDs(workspaceID: "ws_main") == ["screen_main", "screen_main_late"])
+    }
+
     @Test func terminalProjectionArgvUsesTheRemoteDestination() {
         let target = CloudTuiTerminalProjectionTarget(
             workspaceID: "ws_main", screenID: "screen_1", paneID: "pane_1", index: 2

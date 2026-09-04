@@ -402,7 +402,10 @@ struct CloudVMStateIndex: Sendable {
     }
 
     func screenIDs(workspaceID: String) -> [String] {
-        screenIDsByWorkspaceID[workspaceID] ?? []
+        orderedIDs(
+            screenIDsByWorkspaceID[workspaceID] ?? [],
+            index: { screensByID[$0]?.index }
+        )
     }
 
     func paneIDs(screenID: String) -> [String] {
@@ -419,11 +422,27 @@ struct CloudVMStateIndex: Sendable {
     }
 
     private func orderedTabIDs(_ ids: [String]) -> [String] {
+        orderedIDs(ids, index: { tabsByID[$0]?.index })
+    }
+
+    /// Relationship indexes are append-only caches, so their order must be
+    /// rebuilt from the entity's explicit semantic index whenever a caller
+    /// reads it. Transport arrival order is only the fallback for legacy rows
+    /// that do not carry an index.
+    private func orderedIDs(_ ids: [String], index: (String) -> Int?) -> [String] {
         ids.enumerated().sorted { left, right in
-            let leftIndex = tabsByID[left.element]?.index ?? Int.max
-            let rightIndex = tabsByID[right.element]?.index ?? Int.max
-            if leftIndex != rightIndex { return leftIndex < rightIndex }
-            return left.offset < right.offset
+            let leftIndex = index(left.element)
+            let rightIndex = index(right.element)
+            switch (leftIndex, rightIndex) {
+            case let (left?, right?) where left != right:
+                return left < right
+            case (.some, .none):
+                return true
+            case (.none, .some):
+                return false
+            default:
+                return left.offset < right.offset
+            }
         }.map { $0.element }
     }
 
