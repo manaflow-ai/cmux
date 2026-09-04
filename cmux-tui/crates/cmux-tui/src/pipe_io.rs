@@ -2131,6 +2131,46 @@ mod tests {
     }
 
     #[test]
+    fn stdin_pump_does_not_wait_for_a_blocked_claim_before_forwarding_input() {
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let mut input = Cursor::new(
+            b"{\"claim\":{\"geometry\":true}}\n{\"input\":\"aGk=\"}\n".to_vec(),
+        );
+        let (claim_started_sender, claim_started_receiver) = sync_channel(0);
+        let (release_sender, release_receiver) = std::sync::mpsc::channel();
+        let (input_seen_sender, input_seen_receiver) = sync_channel(0);
+
+        let pump = std::thread::spawn(move || {
+            run_stdin_pump_with_handlers(
+                &mut input,
+                &lifecycle_sender,
+                move |_bytes| {
+                    input_seen_sender.send(()).unwrap();
+                    PipeIoControlResult::Completed(())
+                },
+                |_cols, _rows| PipeIoControlResult::Completed(true),
+                move || {
+                    claim_started_sender.send(()).unwrap();
+                    release_receiver.recv().unwrap();
+                    PipeIoControlResult::Completed(())
+                },
+                |_line| {},
+            );
+        });
+
+        claim_started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let input_forwarded_before_claim_release =
+            input_seen_receiver.recv_timeout(Duration::from_millis(100)).is_ok();
+        release_sender.send(()).unwrap();
+        pump.join().unwrap();
+        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinClosed);
+        assert!(
+            input_forwarded_before_claim_release,
+            "stdin input waited for the geometry claim response"
+        );
+    }
+
+    #[test]
     fn stdin_pump_reports_line_read_errors_as_stdin_errors() {
         let inputs = vec![b"\xff\n".to_vec(), vec![b'a'; MAX_PIPE_IO_LINE_BYTES + 1]];
         for input in inputs {
