@@ -519,6 +519,8 @@ struct Args {
     advertised_routes: Vec<String>,
     term: Option<String>,
     agent_browser_provider: bool,
+    owner_host_fg: Option<cmux_tui_core::Rgb>,
+    owner_host_bg: Option<cmux_tui_core::Rgb>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -549,10 +551,35 @@ impl Args {
             && !self.remote
             && self.term.is_none()
     }
+
+    fn owner_host_colors(&self) -> cmux_tui_core::DefaultColors {
+        cmux_tui_core::DefaultColors {
+            fg: self.owner_host_fg,
+            bg: self.owner_host_bg,
+            ..Default::default()
+        }
+    }
 }
 
 fn parse_args(args: impl IntoIterator<Item = String>) -> Args {
     parse_args_result(args).unwrap_or_else(|message| usage_exit(&message))
+}
+
+fn parse_owner_host_color(flag: &str, value: &str) -> Result<cmux_tui_core::Rgb, String> {
+    let value = value
+        .strip_prefix('#')
+        .ok_or_else(|| format!("{flag} must be a six-digit hexadecimal color"))?;
+    if value.len() != 6 {
+        return Err(format!("{flag} must be a six-digit hexadecimal color"));
+    }
+    if !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!("{flag} must be a six-digit hexadecimal color"));
+    }
+    let parse = |range: std::ops::Range<usize>| {
+        u8::from_str_radix(&value[range], 16)
+            .map_err(|_| format!("{flag} must be a six-digit hexadecimal color"))
+    };
+    Ok(cmux_tui_core::Rgb { r: parse(0..2)?, g: parse(2..4)?, b: parse(4..6)? })
 }
 
 fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, String> {
@@ -593,6 +620,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         advertised_routes: Vec::new(),
         term: None,
         agent_browser_provider: false,
+        owner_host_fg: None,
+        owner_host_bg: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -793,6 +822,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             "--term" => {
                 out.term = Some(args.next().ok_or_else(|| "--term needs a value".to_string())?);
+            }
+            // Private launch contract used by the detached owner. These
+            // values come from the first client's terminal probe and are
+            // intentionally omitted from public help and documentation.
+            "--owner-host-fg" | "--owner-host-bg" => {
+                let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
+                let color = parse_owner_host_color(&arg, &value)?;
+                let slot = if arg == "--owner-host-fg" {
+                    &mut out.owner_host_fg
+                } else {
+                    &mut out.owner_host_bg
+                };
+                if slot.replace(color).is_some() {
+                    return Err(format!("{arg} may be supplied only once"));
+                }
             }
             // Private launch contract used by cmux-browser. It configures
             // Vercel agent-browser to attach through the local provider
@@ -1274,6 +1318,8 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--relay-ticket-command-arg",
     "--advertise",
     "--term",
+    "--owner-host-fg",
+    "--owner-host-bg",
 ];
 
 /// Return the first argument after a startup option and its value.
@@ -1668,6 +1714,7 @@ fn run_attach(args: Args, config: config::StartupConfigSnapshot) -> anyhow::Resu
         config,
         Session::Remote(remote),
         surface_only,
+        None,
     )
 }
 
@@ -1890,6 +1937,7 @@ fn run_server(
     if args.ephemeral && args.state.is_some() {
         anyhow::bail!("--ephemeral and --state are mutually exclusive");
     }
+    let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
     let provider_management_listener = take_provider_management_listener()?;
     #[cfg(not(target_os = "linux"))]
@@ -1916,6 +1964,7 @@ fn run_server(
             args.session,
             config,
             Session::Remote(remote),
+            None,
             None,
         );
     }
@@ -2036,9 +2085,13 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
-    // Headless sessions have no host terminal to query, so seed the mux from
-    // Ghostty's config before any protocol client can create a surface.
-    mux.seed_default_colors_if_no_durable_override(config.terminal_defaults);
+    // Headless sessions have no host terminal to query. The first
+    // interactive client may provide a private host-color handoff; use it
+    // only to fill unspecified config values before any surface is created.
+    mux.seed_default_colors_if_no_durable_override(owner_startup_defaults(
+        config.terminal_defaults,
+        owner_host_colors,
+    ));
     mux.configure_sidebar_plugin(config.sidebar.plugin.clone());
     #[cfg(target_os = "linux")]
     let _provider_management = provider_management_listener
@@ -2305,7 +2358,34 @@ fn run_tui_with_owner(
     owner_mux: Option<Arc<Mux>>,
     config: config::StartupConfigSnapshot,
 ) -> anyhow::Result<()> {
-    match run_tui_once(session, session_label, surface_only, owner_mux, None, None, config)? {
+    run_tui_with_owner_and_host_colors(
+        session,
+        session_label,
+        surface_only,
+        owner_mux,
+        config,
+        None,
+    )
+}
+
+fn run_tui_with_owner_and_host_colors(
+    session: Session,
+    session_label: String,
+    surface_only: Option<cmux_tui_core::SurfaceId>,
+    owner_mux: Option<Arc<Mux>>,
+    config: config::StartupConfigSnapshot,
+    host_color_override: Option<cmux_tui_core::DefaultColors>,
+) -> anyhow::Result<()> {
+    match run_tui_once(
+        session,
+        session_label,
+        surface_only,
+        owner_mux,
+        None,
+        None,
+        config,
+        host_color_override,
+    )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request returned without a machine runtime")
@@ -2365,12 +2445,19 @@ fn start_detached_owner_session(
     socket_path: PathBuf,
 ) -> anyhow::Result<()> {
     let messages = &localization::catalog().local_server;
+    // The terminal input line discipline is still active before the TUI
+    // starts. Enable raw mode while asking the host for its OSC replies so
+    // the replies are available to this process immediately.
+    crossterm::terminal::enable_raw_mode()?;
+    let host_colors = host_colors::probe_default_colors();
+    crossterm::terminal::disable_raw_mode()?;
     let spec = local_owner::OwnerSpec {
         session: args.session.clone(),
         socket: socket_path.clone(),
         socket_is_derived: args.socket.is_none(),
         state: args.state.clone(),
         term: args.term.clone(),
+        initial_host_colors: Some(host_colors),
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     if let Err(error) = local_owner::ensure_owner(&spec, Some(&args.session), deadline) {
@@ -2393,7 +2480,14 @@ fn start_detached_owner_session(
     }
     let remote = RemoteSession::connect(&socket_path)
         .context("connect the interactive client to its detached session owner")?;
-    run_connected_session_client(socket_path, args.session, config, Session::Remote(remote), None)
+    run_connected_session_client(
+        socket_path,
+        args.session,
+        config,
+        Session::Remote(remote),
+        None,
+        Some(host_colors),
+    )
 }
 
 fn run_connected_session_client(
@@ -2402,19 +2496,34 @@ fn run_connected_session_client(
     config: config::StartupConfigSnapshot,
     session: Session,
     surface_only: Option<cmux_tui_core::SurfaceId>,
+    host_colors: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<()> {
     if surface_only.is_some() {
-        return run_tui(session, session_label, surface_only, config);
+        return run_tui_with_owner_and_host_colors(
+            session,
+            session_label,
+            surface_only,
+            None,
+            config,
+            host_colors,
+        );
     }
     match session_client_mode(&config) {
-        SessionClientMode::Plain => run_tui(session, session_label, None, config),
+        SessionClientMode::Plain => run_tui_with_owner_and_host_colors(
+            session,
+            session_label,
+            None,
+            None,
+            config,
+            host_colors,
+        ),
         SessionClientMode::Machines => {
             let runtime = MachineRuntime::with_creation_sources(
                 socket_path,
                 config.machines.clone(),
                 config.machine_sidebar.create_sources.clone(),
             );
-            run_machine_client_with_initial(runtime, session, None, config)
+            run_machine_client_with_initial(runtime, session, None, config, host_colors)
         }
     }
 }
@@ -2427,7 +2536,7 @@ fn run_machine_client(
     let active = runtime.initial_key();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     let session = connections.connect(active)?;
-    run_machine_client_with_hub(runtime, session, connections, Some(owner_mux), config)
+    run_machine_client_with_hub(runtime, session, connections, Some(owner_mux), config, None)
 }
 
 fn run_machine_client_with_initial(
@@ -2435,12 +2544,13 @@ fn run_machine_client_with_initial(
     session: Session,
     active_lease: Option<Box<dyn MachineConnectionLease>>,
     config: config::StartupConfigSnapshot,
+    host_colors: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let connections = MachineConnectionHub::new(runtime.connection_connectors());
     connections
         .insert_ready(active, MachineConnection { session: session.clone(), _lease: active_lease });
-    run_machine_client_with_hub(runtime, session, connections, None, config)
+    run_machine_client_with_hub(runtime, session, connections, None, config, host_colors)
 }
 
 fn run_machine_client_with_hub(
@@ -2449,6 +2559,7 @@ fn run_machine_client_with_hub(
     connections: MachineConnectionHub,
     owner_mux: Option<Arc<Mux>>,
     config: config::StartupConfigSnapshot,
+    host_colors: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<()> {
     let active = runtime.initial_key();
     let label = runtime.name(active).unwrap_or("machine").to_string();
@@ -2457,8 +2568,16 @@ fn run_machine_client_with_hub(
     connections.note_presented(Some(active));
     let controller: Box<dyn MachineController> =
         Box::new(StaticMachineController { runtime, active, connections, pending: None });
-    match run_tui_once(session, label, None, owner_mux, Some(machine_ui), Some(controller), config)?
-    {
+    match run_tui_once(
+        session,
+        label,
+        None,
+        owner_mux,
+        Some(machine_ui),
+        Some(controller),
+        config,
+        host_colors,
+    )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("machine request escaped its in-place controller")
@@ -2601,7 +2720,16 @@ fn run_provider_machine_client(
     };
     runtime.sync_connections();
     let controller: Box<dyn MachineController> = Box::new(runtime);
-    match run_tui_once(session, label, None, None, Some(machine_ui), Some(controller), config)? {
+    match run_tui_once(
+        session,
+        label,
+        None,
+        None,
+        Some(machine_ui),
+        Some(controller),
+        config,
+        None,
+    )? {
         app::RunOutcome::Quit => Ok(()),
         app::RunOutcome::Machine(_) => {
             anyhow::bail!("provider request escaped its in-place controller")
@@ -2626,6 +2754,19 @@ fn frontend_default_colors(
         configured.fg = host.fg;
     }
     if host.bg.is_some() {
+        configured.bg = host.bg;
+    }
+    configured
+}
+
+fn owner_startup_defaults(
+    mut configured: cmux_tui_core::DefaultColors,
+    host: cmux_tui_core::DefaultColors,
+) -> cmux_tui_core::DefaultColors {
+    if configured.fg.is_none() {
+        configured.fg = host.fg;
+    }
+    if configured.bg.is_none() {
         configured.bg = host.bg;
     }
     configured
@@ -2665,13 +2806,13 @@ fn run_tui_once(
     machine_ui: Option<MachineUiState>,
     machine_controller: Option<Box<dyn MachineController>>,
     config: config::StartupConfigSnapshot,
+    host_color_override: Option<cmux_tui_core::DefaultColors>,
 ) -> anyhow::Result<app::RunOutcome> {
     crossterm::terminal::enable_raw_mode()?;
-    let FrontendSessionPreparation { session, colors } = prepare_frontend_session(
-        session,
-        config.terminal_defaults,
-        host_colors::probe_default_colors,
-    );
+    let FrontendSessionPreparation { session, colors } =
+        prepare_frontend_session(session, config.terminal_defaults, || {
+            host_color_override.unwrap_or_else(host_colors::probe_default_colors)
+        });
     crossterm::terminal::disable_raw_mode()?;
     app::run_with_machine_updates(
         session,
@@ -3243,6 +3384,46 @@ mod tests {
             colors.bg, configured.bg,
             "a missing host background must preserve the configured local default"
         );
+    }
+
+    #[test]
+    fn detached_owner_host_colors_fill_only_unspecified_defaults() {
+        let configured = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0x12, g: 0x34, b: 0x56 }),
+            bg: None,
+            ..Default::default()
+        };
+        let host = cmux_tui_core::DefaultColors {
+            fg: Some(cmux_tui_core::Rgb { r: 0xaa, g: 0xbb, b: 0xcc }),
+            bg: Some(cmux_tui_core::Rgb { r: 0x65, g: 0x43, b: 0x21 }),
+            ..Default::default()
+        };
+
+        let defaults = owner_startup_defaults(configured, host);
+
+        assert_eq!(
+            defaults.fg, configured.fg,
+            "an explicit configured foreground must remain authoritative"
+        );
+        assert_eq!(defaults.bg, host.bg, "the host fills a missing background");
+    }
+
+    #[test]
+    fn private_owner_host_color_parser_requires_rgb_hex() {
+        let parsed =
+            args(&["--headless", "--owner-host-fg", "#112233", "--owner-host-bg", "#445566"]);
+        assert_eq!(parsed.owner_host_fg, Some(cmux_tui_core::Rgb { r: 0x11, g: 0x22, b: 0x33 }));
+        assert_eq!(parsed.owner_host_bg, Some(cmux_tui_core::Rgb { r: 0x44, g: 0x55, b: 0x66 }));
+        assert_eq!(
+            parse_owner_host_color("--owner-host-fg", "#112233").unwrap(),
+            cmux_tui_core::Rgb { r: 0x11, g: 0x22, b: 0x33 }
+        );
+        for value in ["112233", "#1234", "#gg2233"] {
+            assert!(
+                parse_owner_host_color("--owner-host-fg", value).is_err(),
+                "invalid private color {value:?} was accepted"
+            );
+        }
     }
 
     #[cfg(unix)]

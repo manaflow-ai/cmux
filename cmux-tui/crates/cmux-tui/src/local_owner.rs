@@ -44,6 +44,10 @@ pub(crate) struct OwnerSpec {
     pub socket_is_derived: bool,
     pub state: Option<PathBuf>,
     pub term: Option<String>,
+    /// Host colors sampled by the first interactive client. The detached
+    /// owner has no terminal of its own, so the client passes these values
+    /// through the private startup contract before the owner creates a PTY.
+    pub initial_host_colors: Option<cmux_tui_core::DefaultColors>,
 }
 
 /// A validated, client-ready owner.
@@ -303,6 +307,18 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
+    }
+    if let Some(colors) = spec.initial_host_colors {
+        if let Some(foreground) = colors.fg {
+            command
+                .arg("--owner-host-fg")
+                .arg(format!("#{:02x}{:02x}{:02x}", foreground.r, foreground.g, foreground.b));
+        }
+        if let Some(background) = colors.bg {
+            command
+                .arg("--owner-host-bg")
+                .arg(format!("#{:02x}{:02x}{:02x}", background.r, background.g, background.b));
+        }
     }
     // The owner reports through the bounded client log at its state root;
     // terminal teardown must never reach it, so it gets no stdio and (on

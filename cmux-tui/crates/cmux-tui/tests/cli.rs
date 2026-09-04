@@ -2712,9 +2712,7 @@ impl PtyChild {
         let background = background.to_string();
         let output_drain = std::thread::spawn(move || {
             let query = b"\x1b]10;?\x1b\\\x1b]11;?\x1b\\";
-            let response = format!(
-                "\x1b]10;rgb:{foreground}\x1b\\\x1b]11;rgb:{background}\x1b\\"
-            );
+            let response = format!("\x1b]10;rgb:{foreground}\x1b\\\x1b]11;rgb:{background}\x1b\\");
             let mut pending = Vec::new();
             let mut buffer = [0; 8192];
             loop {
@@ -2917,14 +2915,7 @@ fn first_interactive_client_passes_host_colors_to_detached_owner() {
     let state_arg = state.to_str().unwrap();
     let shutdown = DetachedOwnerShutdownGuard(socket.clone());
     let mut client = PtyChild::start_with_host_colors(
-        &[
-            "--session",
-            "detached-owner-host-colors",
-            "--socket",
-            socket_arg,
-            "--state",
-            state_arg,
-        ],
+        &["--session", "detached-owner-host-colors", "--socket", socket_arg, "--state", state_arg],
         &[
             ("HOME", home.as_os_str()),
             ("XDG_CONFIG_HOME", config_home.as_os_str()),
@@ -2939,10 +2930,8 @@ fn first_interactive_client_passes_host_colors_to_detached_owner() {
 
     let deadline = Instant::now() + Duration::from_secs(10);
     let surface = loop {
-        let tree = json_socket_request(
-            &socket,
-            serde_json::json!({"id": 1, "cmd": "list-workspaces"}),
-        );
+        let tree =
+            json_socket_request(&socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}));
         if let Some(surface) = tree["workspaces"]
             .as_array()
             .into_iter()
@@ -2983,14 +2972,7 @@ fn first_interactive_client_passes_host_colors_to_detached_owner() {
 
     drop(reader);
     drop(writer);
-    let _ = lifecycle_cli(&[
-        "--json",
-        "--socket",
-        socket_arg,
-        "session",
-        "current",
-        "shutdown",
-    ]);
+    let _ = lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert!(
         client.wait_for_exit(Duration::from_secs(10)).is_some(),
         "interactive client did not exit after owner shutdown"
