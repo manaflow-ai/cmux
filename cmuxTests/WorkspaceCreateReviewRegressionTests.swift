@@ -289,7 +289,8 @@ private final class RejectingWorkspaceCreationTabManager: TabManager {
         autoRefreshMetadata: Bool,
         normalizeWorkspaceGroupsAfterInsert: Bool,
         applyCreationTitleAsCustomTitle: Bool,
-        allowTextBoxFocusDefault: Bool
+        allowTextBoxFocusDefault: Bool,
+        vaultHistoryContext: VaultHistoryWorkspaceCreationContext
     ) -> Workspace? {
         nil
     }
