@@ -23,6 +23,19 @@ extension MobileShellComposite {
     ) async {
         let focused = connections[ownerKey.pairingID]
         let foregroundClient = focused?.client ?? remoteClient
+        let recoveryKey = foregroundMacDeviceID == nil
+            ? recoveryTargetMacDeviceID.map {
+                MacPairingKey(
+                    macDeviceID: $0,
+                    instanceTag: recoveryTargetInstanceTag
+                )
+            }
+            : nil
+        let foregroundAttemptKey = recoveryKey ?? foregroundMacKey
+        let matchesForegroundAttempt = foregroundAttemptKey == ownerKey
+            && activeRoute.map {
+                routeMatchesForRemoval(removedRoute, $0)
+            } == true
         let isForegroundRoute = connectionState == .connected
             && foregroundMacKey == ownerKey
             && (activeRoute.map {
@@ -31,7 +44,18 @@ extension MobileShellComposite {
                 routeMatchesForRemoval(removedRoute, $0.route)
             } == true)
 
-        if isForegroundRoute {
+        if matchesForegroundAttempt || isForegroundRoute {
+            if matchesForegroundAttempt {
+                // A reconnect publishes its candidate route before the dial
+                // starts. Supersede that exact attempt even while the shell is
+                // still disconnected, otherwise it can finish on the deleted
+                // endpoint.
+                storedMacReconnectGeneration &+= 1
+                isReconnectingStoredMac = false
+                pendingForcedStoredMacReconnect = false
+                didFinishStoredMacReconnectAttempt = true
+                connectionAttemptGeneration = UUID()
+            }
             // `clearRemoteConnectionContext` historically looked up the
             // foreground registry entry by bare device id. Remove the exact
             // tagged entry first so the live registry cannot retain a client
@@ -78,10 +102,12 @@ extension MobileShellComposite {
                   $0.macDeviceID == macDeviceID && $0.instanceTag == instanceTag
               }) else { return false }
 
-        guard let removedRoute = mac.routes.first(where: {
+        guard let removedRouteIndex = mac.routes.firstIndex(where: {
             routeMatchesForRemoval(route, $0)
         }) else { return false }
-        let routes = mac.routes.filter { $0.id != removedRoute.id }
+        let removedRoute = mac.routes[removedRouteIndex]
+        var routes = mac.routes
+        routes.remove(at: removedRouteIndex)
         do {
             if routes.isEmpty {
                 guard deleteComputerIfLastRoute else { return false }

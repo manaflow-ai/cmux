@@ -25,7 +25,7 @@ import Testing
             endpoint: .hostPort(host: "100.64.0.17", port: 56_584)
         )
         let fallbackRoute = try CmxAttachRoute(
-            id: "tailscale-fallback",
+            id: "tailscale-active",
             kind: .tailscale,
             endpoint: .hostPort(host: "100.64.0.18", port: 56_584)
         )
@@ -111,5 +111,82 @@ import Testing
         #expect(shell.activeRoute == nil)
         #expect(shell.connectionState == .disconnected)
         #expect(shell.connections[MacPairingKey(macDeviceID: "mac-route-removal", instanceTag: nil)] == nil)
+        let remaining = try await pairedStore.loadAll(
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        #expect(remaining.first?.routes == [fallbackRoute])
+    }
+
+    @Test func deletingRouteDuringForegroundReconnectSupersedesAttempt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let pairedStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired.sqlite3")
+        )
+        let route = try CmxAttachRoute(
+            id: "tailscale-reconnect",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.19", port: 56_584)
+        )
+        try await pairedStore.upsert(
+            macDeviceID: "mac-route-reconnect",
+            displayName: "Route Reconnect Mac",
+            routes: [route, try CmxAttachRoute(
+                id: "iroh-reconnect",
+                kind: .iroh,
+                endpoint: .peer(
+                    identity: CmxIrohPeerIdentity(
+                        endpointID: String(repeating: "a", count: 64)
+                    ),
+                    pathHints: []
+                )
+            )],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date()
+        )
+
+        let closeGate = LivenessTransportCloseGate()
+        let runtime = LivenessTestRuntime(
+            transportFactory: LivenessTransportFactory(
+                router: LivenessHostRouter(),
+                box: TransportBox(),
+                closeGate: closeGate
+            ),
+            now: Date.init
+        )
+        let shell = MobileShellComposite(
+            runtime: runtime,
+            isSignedIn: true,
+            connectionState: .disconnected,
+            pairedMacStore: pairedStore,
+            identityProvider: StaticIdentityProvider(userID: "user-1")
+        )
+        await shell.loadPairedMacs()
+        shell.activeRoute = route
+        shell.foregroundMacDeviceID = "mac-route-reconnect"
+        shell.isReconnectingStoredMac = true
+        let generation = shell.storedMacReconnectGeneration
+
+        let removal = Task { @MainActor in
+            await shell.removeRoute(
+                route,
+                macDeviceID: "mac-route-reconnect",
+                instanceTag: nil
+            )
+        }
+
+        #expect(await removal.value)
+        #expect(shell.storedMacReconnectGeneration > generation)
+        #expect(!shell.isReconnectingStoredMac)
+        #expect(shell.activeRoute == nil)
     }
 }

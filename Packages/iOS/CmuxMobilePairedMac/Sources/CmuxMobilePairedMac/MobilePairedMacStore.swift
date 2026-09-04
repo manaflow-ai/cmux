@@ -730,10 +730,12 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             // Endpoint and transport kind are the authoritative identity. A
             // refreshed registry can reuse a route id for another endpoint,
             // so accepting an id-only match could delete the wrong route.
-            guard let removed = currentRoutes.first(where: {
+            guard let removedIndex = currentRoutes.firstIndex(where: {
                 $0.kind == route.kind && $0.endpoint == route.endpoint
             }) else { return }
-            let remaining = currentRoutes.filter { $0.id != removed.id }
+            let removed = currentRoutes[removedIndex]
+            var remaining = currentRoutes
+            remaining.remove(at: removedIndex)
             guard !remaining.isEmpty else { return }
 
             let encoded = try Self.encodeRouteEndpoint(removed)
