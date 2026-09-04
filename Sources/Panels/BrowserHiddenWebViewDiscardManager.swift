@@ -20,7 +20,6 @@ protocol BrowserHiddenWebViewDiscardManagerDelegate: AnyObject {
 @MainActor
 final class BrowserHiddenWebViewDiscardManager {
     struct BlockerSnapshot {
-        let isChromiumBacked: Bool
         let isClosing: Bool
         let isVisibleInUI: Bool
         let shouldRenderWebView: Bool

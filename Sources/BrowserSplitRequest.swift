@@ -9,6 +9,4 @@ struct BrowserSplitRequest: Sendable {
     let chromeVisibility: BrowserChromeVisibility
     let transparentBackground: Bool
     let bypassRemoteProxy: Bool
-    /// An explicit pane override. `nil` inherits `browser.defaultEngine`.
-    let engine: BrowserEngineKind?
 }
