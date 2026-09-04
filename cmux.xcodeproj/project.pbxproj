@@ -1404,6 +1404,7 @@
 		A5F100000000000000000009 /* GhosttySurfaceScrollView+NotificationScroll.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F10000000000000000000A /* GhosttySurfaceScrollView+NotificationScroll.swift */; };
 		A11EAC000000000000000000 /* GhosttyTerminalAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */; };
 		C0DEF828300000000000001 /* GhosttyTerminalImmediateHostedStateAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */; };
+		37106908DC3196DFD53D7812 /* GhosttyTerminalMouseRoutingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */; };
 		A5001B00 /* GhosttyTerminalScrollBoost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001B01 /* GhosttyTerminalScrollBoost.swift */; };
 		D5671201D5671201D5671201 /* GhosttyTerminalScrollSpeed.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */; };
 		C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */; };
@@ -2765,8 +2766,6 @@
 		B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */; };
 		2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */; };
 		F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */; };
-		C7261F010000000000000001 /* TerminalPointerFocusActivationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */; };
-		C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */; };
 		9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9612B0010000000000000001 /* TerminalPortalReconciliation.swift */; };
 		D0F101000000000000000003 /* TerminalRawMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F101000000000000000013 /* TerminalRawMode.swift */; };
 		D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */; };
@@ -4541,6 +4540,7 @@
 		A5F10000000000000000000A /* GhosttySurfaceScrollView+NotificationScroll.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GhosttySurfaceScrollView+NotificationScroll.swift"; sourceTree = "<group>"; };
 		A11EAC000000000000000001 /* GhosttyTerminalAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalAppearance.swift; sourceTree = "<group>"; };
 		C0DEF828300000000000002 /* GhosttyTerminalImmediateHostedStateAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalImmediateHostedStateAction.swift; sourceTree = "<group>"; };
+		56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalMouseRoutingTests.swift; sourceTree = "<group>"; };
 		A5001B01 /* GhosttyTerminalScrollBoost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalScrollBoost.swift; sourceTree = "<group>"; };
 		D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalScrollSpeed.swift; sourceTree = "<group>"; };
 		C13519000000000000000004 /* GhosttyTerminalStartupEnvironmentTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalStartupEnvironmentTests.swift; sourceTree = "<group>"; };
@@ -5885,8 +5885,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		B88359000000000000000002 /* TerminalPastePreparationWorkerSupervisor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerSupervisor.swift; sourceTree = "<group>"; };
 		B85403EFC95DBB4FA4AE9CE7 /* TerminalPastePreparationWorkerTextPayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPastePreparationWorkerTextPayload.swift; sourceTree = "<group>"; };
 		F87910110000000000000002 /* TerminalPendingConfigurationReload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPendingConfigurationReload.swift; sourceTree = "<group>"; };
-		C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicy.swift; sourceTree = "<group>"; };
-		C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPointerFocusActivationPolicyTests.swift; sourceTree = "<group>"; };
 		9612B0010000000000000001 /* TerminalPortalReconciliation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalPortalReconciliation.swift; sourceTree = "<group>"; };
 		D0F101000000000000000013 /* TerminalRawMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRawMode.swift; sourceTree = "<group>"; };
 		D5671002D5671002D5671002 /* TerminalScrollSpeedSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/TerminalScrollSpeedSettings.swift; sourceTree = "<group>"; };
@@ -7498,7 +7496,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001B01 /* GhosttyTerminalScrollBoost.swift */,
 				D5671202D5671202D5671202 /* GhosttyTerminalScrollSpeed.swift */,
 				C54860070000000000000002 /* GhosttyNSViewSurfaceLinkCopy.swift */,
-				C7261F010000000000000002 /* TerminalPointerFocusActivationPolicy.swift */,
 				C75100030000000000000002 /* TerminalSelectionTranslationAnchorView.swift */,
 				C75100020000000000000002 /* TerminalSelectionTranslation.swift */,
 				C13519000000000000000006 /* RestorableAgentTypes.swift */,
@@ -8978,7 +8975,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				DE71CE000000000000000005 /* MobileHostNetworkPathRefreshTests.swift */,
 				AA5269A0C0DE0003FACE0003 /* ForeignFirstResponderPolicyTests.swift */,
 				F1C1AA20B7E84D10A1C10001 /* InactivePaneFirstClickFocusTests.swift */,
-				C7261F020000000000000002 /* TerminalPointerFocusActivationPolicyTests.swift */,
 				FA000001A1B2C3D4E5F60718 /* WorkspaceStressProfileTests.swift */,
 				A5008380 /* BrowserFindJavaScriptTests.swift */,
 				C2B6A97D1F2E4C71A8B9D002 /* BrowserOmnibarPerformanceSupportTests.swift */,
@@ -9181,6 +9177,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				781100027811000278110002 /* FileDropOverlayHitTestPerformanceTests.swift */,
 				D0B10019A1B2C3D4E5F60001 /* FileDropOverlayViewTests.swift */,
 				F0A110040000000000000001 /* GhosttyMouseSessionLedgerTests.swift */,
+				56813E59AFD4FF3217AD512A /* GhosttyTerminalMouseRoutingTests.swift */,
 				2907A0042907A0042907A004 /* AppDelegateIssue2907RoutingTests.swift */,
 				9666A2029666A2029666A202 /* SwiftTestingAssertions.swift */,
 				875900000000000000000002 /* Issue8759FreezeRegressionTests.swift */,
@@ -11814,7 +11811,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B88359000000000000000001 /* TerminalPastePreparationWorkerSupervisor.swift in Sources */,
 				2681A216F02BEE5AD12CE00D /* TerminalPastePreparationWorkerTextPayload.swift in Sources */,
 				F87910110000000000000001 /* TerminalPendingConfigurationReload.swift in Sources */,
-				C7261F010000000000000001 /* TerminalPointerFocusActivationPolicy.swift in Sources */,
 				9612A0010000000000000001 /* TerminalPortalReconciliation.swift in Sources */,
 				D5671001D5671001D5671001 /* TerminalScrollSpeedSettings.swift in Sources */,
 				862C77A9D235803A22B715B5 /* TerminalSearchNavigation.swift in Sources */,
@@ -12690,6 +12686,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				7269A0017269A0017269A001 /* GhosttyPhysicalInputFocusReassertionTests.swift in Sources */,
 				5C0011AA0000000000000001 /* GhosttyScrollPreciseBoostTests.swift in Sources */,
 				816400000000000000000003 /* GhosttyScrollViewTests.swift in Sources */,
+				37106908DC3196DFD53D7812 /* GhosttyTerminalMouseRoutingTests.swift in Sources */,
 				C13519000000000000000003 /* GhosttyTerminalStartupEnvironmentTests.swift in Sources */,
 				D7AB34400000000000000003 /* GhosttyTerminalViewVisibilityPolicyTests.swift in Sources */,
 				A10190000000000000000001 /* GhosttyTitleUpdateIngressTests.swift in Sources */,
@@ -13026,7 +13023,6 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */,
 				11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */,
 				596100000000000000000007 /* TerminalNotificationStore+NativeNotificationDeliveryTesting.swift in Sources */,
-				C7261F020000000000000001 /* TerminalPointerFocusActivationPolicyTests.swift in Sources */,
 				D5671101D5671101D5671101 /* TerminalScrollSpeedSettingsFileStoreTests.swift in Sources */,
 				222425EC9FE2E318D8F6F46A /* TerminalSearchNavigationTests.swift in Sources */,
 				C0DE53360000000000000001 /* TerminalSearchOverlayMouseReleaseTests.swift in Sources */,
