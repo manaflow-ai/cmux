@@ -3783,10 +3783,11 @@ fn private_dump_directory(path: &Path) -> io::Result<PrivateDumpDirectory> {
         directory = unsafe { fs::File::from_raw_fd(next) };
     }
     validate_dump_directory(&directory, true)?;
-    let temporary = open_private_child_directory(&directory, ".cmux-dump-tmp")?;
+    let output = open_private_child_directory(&directory, ".cmux-dump-files")?;
+    let temporary = open_private_child_directory(&output, ".cmux-dump-tmp")?;
     prune_stale_dump_temps(&temporary)?;
-    prune_dump_files(&directory)?;
-    Ok(PrivateDumpDirectory { output: directory, temporary })
+    prune_dump_files(&output)?;
+    Ok(PrivateDumpDirectory { output, temporary })
 }
 
 #[cfg(unix)]
@@ -4298,7 +4299,6 @@ where
     })?;
     let mut file = file.expect("temporary file is present when its name is present");
     let result = write_contents(&mut file).and_then(|()| file.sync_all());
-    drop(file);
     if let Err(error) = result {
         unsafe {
             libc::unlinkat(directory.temporary.as_raw_fd(), temp_name.as_ptr(), 0);
@@ -5203,7 +5203,8 @@ mod tests {
         let dump_path = root.path().join("dumps");
         let directory = private_dump_directory(&dump_path).unwrap();
         drop(directory);
-        let stale_path = dump_path.join(".cmux-dump-tmp/.mirror-1.txt.tmp-99999999-1");
+        let stale_path =
+            dump_path.join(".cmux-dump-files/.cmux-dump-tmp/.mirror-1.txt.tmp-99999999-1");
         fs::write(&stale_path, b"partial secret").unwrap();
 
         let _directory = private_dump_directory(&dump_path).unwrap();
@@ -5226,7 +5227,7 @@ mod tests {
             ("mirror-2.txt", b"new-".as_slice(), 3_i64),
         ];
         for (name, contents, modified) in files {
-            let path = dump_path.join(name);
+            let path = dump_path.join(".cmux-dump-files").join(name);
             fs::write(&path, contents).unwrap();
             fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
             let path = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
@@ -5242,10 +5243,11 @@ mod tests {
 
         prune_dump_files_with_limits(&directory.output, 2, 10).unwrap();
 
-        assert!(!dump_path.join("mirror-1.txt").exists());
-        assert!(dump_path.join("frames-1.log").exists());
-        assert!(dump_path.join("mirror-2.txt").exists());
-        let retained = fs::read_dir(&dump_path)
+        let output_path = dump_path.join(".cmux-dump-files");
+        assert!(!output_path.join("mirror-1.txt").exists());
+        assert!(output_path.join("frames-1.log").exists());
+        assert!(output_path.join("mirror-2.txt").exists());
+        let retained = fs::read_dir(&output_path)
             .unwrap()
             .filter_map(Result::ok)
             .filter(|entry| is_private_dump_name(entry.file_name().as_os_str().as_bytes()))
@@ -5263,7 +5265,7 @@ mod tests {
         let directory = private_dump_directory(&dump_path).unwrap();
         let name = ".mirror-1.txt.tmp-99999999-1";
         let active = private_dump_file(&directory.temporary, name).unwrap();
-        let temp_path = dump_path.join(".cmux-dump-tmp").join(name);
+        let temp_path = dump_path.join(".cmux-dump-files/.cmux-dump-tmp").join(name);
 
         let next_directory = private_dump_directory(&dump_path).unwrap();
         assert!(temp_path.exists());
@@ -5327,8 +5329,8 @@ mod tests {
 
         write_private_dump(&directory, "mirror.txt", |file| file.write_all(b"secret")).unwrap();
 
-        assert_eq!(fs::read(original.join("mirror.txt")).unwrap(), b"secret");
-        assert!(!dump_path.join("mirror.txt").exists());
+        assert_eq!(fs::read(original.join(".cmux-dump-files/mirror.txt")).unwrap(), b"secret");
+        assert!(!dump_path.join(".cmux-dump-files/mirror.txt").exists());
     }
 
     #[cfg(unix)]
@@ -5337,7 +5339,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
         let directory = private_dump_directory(&dump_path).unwrap();
-        let final_path = dump_path.join("mirror.txt");
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
         fs::write(&final_path, b"previous").unwrap();
 
         let error = write_private_dump(&directory, "mirror.txt", |_file| {
@@ -5347,7 +5349,7 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert_eq!(fs::read(&final_path).unwrap(), b"previous");
-        assert!(fs::read_dir(&dump_path).unwrap().filter_map(Result::ok).all(|entry| {
+        assert!(fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(|entry| {
             entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
         }));
     }
@@ -5358,8 +5360,8 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
         let directory = private_dump_directory(&dump_path).unwrap();
-        let final_path = dump_path.join("mirror.txt");
-        let linked_path = dump_path.join("mirror-backup.txt");
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
+        let linked_path = dump_path.join(".cmux-dump-files/mirror-backup.txt");
         fs::write(&final_path, b"previous").unwrap();
         fs::hard_link(&final_path, &linked_path).unwrap();
 
@@ -5376,8 +5378,8 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
         let directory = private_dump_directory(&dump_path).unwrap();
-        let final_path = dump_path.join("mirror.txt");
-        let linked_path = dump_path.join("mirror-backup.txt");
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
+        let linked_path = dump_path.join(".cmux-dump-files/mirror-backup.txt");
         fs::write(&final_path, b"previous").unwrap();
         fs::hard_link(&final_path, &linked_path).unwrap();
 
@@ -5403,7 +5405,7 @@ mod tests {
 
         assert!(matches!(error.raw_os_error(), Some(libc::EISDIR) | Some(libc::ENOTEMPTY)));
         assert!(final_path.is_dir());
-        assert!(fs::read_dir(&dump_path).unwrap().filter_map(Result::ok).all(|entry| {
+        assert!(fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(|entry| {
             entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
         }));
     }
