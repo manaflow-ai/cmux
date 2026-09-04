@@ -19,7 +19,7 @@ struct MobileDevicesToolbarLabel: View {
         let hasOutdatedListAuth = computerDeviceIDs.contains { deviceID in
             listAuth.entry(deviceID: deviceID)?.isOutdated == true
         }
-        Self.warningVisible(
+        return Self.warningVisible(
             hasGateWarning: !gateWarningDeviceIDs.isDisjoint(with: computerDeviceIDs),
             hasOutdatedListAuth: hasOutdatedListAuth,
             hasComputers: !computerDeviceIDs.isEmpty
