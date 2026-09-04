@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import enMessages from "../messages/en.json";
 import jaMessages from "../messages/ja.json";
+import { loadMessages } from "../i18n/messages";
+import { locales } from "../i18n/routing";
 import {
   LEGACY_PRICE_LOOKUP_KEYS,
   PRO_PRICING_USD,
@@ -261,4 +263,20 @@ describe("pricing copy matches the plan policy", () => {
       }
     });
   }
+
+  test("fallback locales inherit the shared English VM policy", async () => {
+    for (const locale of locales) {
+      if (locale === "en" || locale === "ja") continue;
+      const messages = await loadMessages(locale) as typeof enMessages;
+      const pricing = messages.pricing;
+      const proFeatures = pricing.pro.features.join("\n");
+      expect(proFeatures).toContain("all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk");
+      expect(proFeatures).not.toContain("each with 5 vCPU");
+      const capacityRow = pricing.compare.rows.find((row) => row.label === "Resources shared across Cloud VMs");
+      expect(capacityRow?.pro).toBe("5 vCPU, 20 GB RAM, 200 GB disk total");
+      expect(capacityRow?.team).toBe("Per user: 5 vCPU, 20 GB RAM, and 200 GB disk total");
+      const faq = pricing.faq.items.map((item) => item.a).join("\n");
+      expect(faq).toContain("Each user's VMs share a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk");
+    }
+  });
 });
