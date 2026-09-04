@@ -32,6 +32,8 @@ function summarizeNightlyFailure(results) {
 
 function formatNightlyFailure({ runUrl, headSha, results }) {
   const summary = summarizeNightlyFailure(results);
+  // The public run URL and source SHA are deliberate audit breadcrumbs, not
+  // credentials: operators need them to locate the exact failed execution.
   const body =
     `Nightly run ${runUrl} failed on ${headSha} in the ${summary.where}.\n\n` +
     `${summary.impact} This issue closes itself on the next successful publish.`;
