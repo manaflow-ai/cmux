@@ -50,14 +50,47 @@ struct ArtifactActionRouter {
         }
     }
 
-    /// Reveals a file-backed record in Finder after validating its owner.
+    /// Opens a URL artifact in cmux's embedded browser, preserving the legacy
+    /// Links context-menu action independently of the user's preferred route.
+    @discardableResult
+    func openBuiltIn(_ record: ArtifactRecord, from workspace: Workspace) -> Bool {
+        guard case .url(let value) = record.representation,
+              let url = URL(string: value), !url.isFileURL,
+              let targetWorkspace = ownerWorkspace(for: record, fallback: workspace) else { return false }
+        if let sourcePanelID = record.metadata["sourcePanelID"].flatMap(UUID.init(uuidString:)),
+           targetWorkspace.openTerminalBrowserLink(url: url, sourcePanelId: sourcePanelID) {
+            return true
+        }
+        targetWorkspace.owningTabManager?.openBrowser(
+            inWorkspace: targetWorkspace.id,
+            url: url,
+            preferSplitRight: true
+        )
+        return true
+    }
+
+    /// Opens a URL artifact in the user's default external browser.
+    @discardableResult
+    func openExternal(_ record: ArtifactRecord) -> Bool {
+        guard case .url(let value) = record.representation,
+              let url = URL(string: value) else { return false }
+        return NSWorkspace.shared.open(url)
+    }
+
+    /// Reveals a file-backed record or focuses a link's emitting surface.
     func reveal(_ record: ArtifactRecord, from workspace: Workspace) {
         guard let targetWorkspace = ownerWorkspace(for: record, fallback: workspace) else { return }
         switch record.representation {
         case .url(let value):
-            guard let url = URL(string: value), url.isFileURL else { return }
-            guard FileManager.default.fileExists(atPath: url.path), !Self.isSymlink(url) else { return }
-            NSWorkspace.shared.activateFileViewerSelecting([url])
+            guard let url = URL(string: value) else { return }
+            if url.isFileURL {
+                guard FileManager.default.fileExists(atPath: url.path), !Self.isSymlink(url) else { return }
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } else if let sourcePanelID = record.metadata["sourcePanelID"].flatMap(UUID.init(uuidString:)) {
+                // Stream capture has no line/column anchor, but retaining the
+                // emitting surface preserves the legacy Reveal in Pane action.
+                targetWorkspace.focusPanel(sourcePanelID)
+            }
         case .directory(let path):
             let url = URL(fileURLWithPath: path, isDirectory: true)
             guard FileManager.default.fileExists(atPath: url.path), !Self.isSymlink(url) else { return }

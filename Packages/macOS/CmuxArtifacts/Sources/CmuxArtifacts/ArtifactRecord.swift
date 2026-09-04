@@ -69,7 +69,7 @@ public struct ArtifactRecord: Codable, Equatable, Hashable, Sendable, Identifiab
     public var copyValue: String {
         switch representation {
         case .url(let value), .directory(let value): value
-        case .managedFile(_, let suggestedFileName): suggestedFileName
+        case .managedFile(_, let suggestedFileName): metadata["sourcePath"] ?? suggestedFileName
         case .inlineText(let value), .inlineHTML(let value): value
         }
     }

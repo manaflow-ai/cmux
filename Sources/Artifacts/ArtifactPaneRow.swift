@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 /// Immutable Artifacts row with open, copy, reveal, and Vault-style drag actions.
@@ -28,6 +29,15 @@ struct ArtifactPaneRow: View {
                     .background(Capsule().fill(Color(nsColor: .quaternaryLabelColor)))
                 }
             }
+            if let title = snapshot.record.title,
+               !title.isEmpty,
+               title != snapshot.displayValue {
+                Text(title)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
             Text(snapshot.detail)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -47,10 +57,21 @@ struct ArtifactPaneRow: View {
             Button(String(localized: "artifactsPane.action.open", defaultValue: "Open Artifact")) {
                 actions.open(snapshot)
             }
+            if snapshot.record.isURLLike {
+                Button(String(localized: "linksPane.action.openBuiltIn", defaultValue: "Open in Built-in Browser")) {
+                    actions.openBuiltIn(snapshot)
+                }
+                Button(String(localized: "linksPane.action.openDefault", defaultValue: "Open in Default Browser")) {
+                    actions.openExternal(snapshot)
+                }
+                Button(String(localized: "linksPane.action.reveal", defaultValue: "Reveal in Pane")) {
+                    actions.reveal(snapshot)
+                }
+            }
             Button(String(localized: "artifactsPane.action.copy", defaultValue: "Copy Artifact")) {
                 actions.copy(snapshot)
             }
-            if isRevealable {
+            if isRevealable && !snapshot.record.isURLLike {
                 Button(String(localized: "artifactsPane.action.reveal", defaultValue: "Reveal in Finder")) {
                     actions.reveal(snapshot)
                 }
@@ -81,11 +102,19 @@ struct ArtifactPaneRow: View {
     }
 
     private var isRevealable: Bool {
-        switch snapshot.record.kind {
-        case .unknown:
-            false
-        default:
-            snapshot.record.kind.isFileBacked
+        guard !isUnknownKind else { return false }
+        switch snapshot.record.representation {
+        case .managedFile, .directory:
+            return true
+        case .url(let value):
+            return URL(string: value)?.isFileURL == true
+        case .inlineText, .inlineHTML:
+            return false
         }
+    }
+
+    private var isUnknownKind: Bool {
+        if case .unknown = snapshot.record.kind { return true }
+        return false
     }
 }

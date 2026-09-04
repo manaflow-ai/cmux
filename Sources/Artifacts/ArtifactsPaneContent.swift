@@ -116,6 +116,8 @@ struct ArtifactsPaneContent: View {
     private var artifactList: some View {
         let actions = ArtifactPaneRowActions(
             open: { ArtifactActionRouter().open($0.record, from: workspace) },
+            openBuiltIn: { ArtifactActionRouter().openBuiltIn($0.record, from: workspace) },
+            openExternal: { ArtifactActionRouter().openExternal($0.record) },
             copy: { copy($0.record.copyValue) },
             reveal: { ArtifactActionRouter().reveal($0.record, from: workspace) },
             remove: { remove($0.record) },
@@ -249,7 +251,11 @@ struct ArtifactsPaneContent: View {
         guard let selectedID,
               let row = rows.first(where: { $0.id == selectedID }) else { return .ignored }
         if press.key == .return {
-            ArtifactActionRouter().open(row.record, from: workspace)
+            if press.modifiers.contains(.command) {
+                ArtifactActionRouter().openExternal(row.record)
+            } else {
+                ArtifactActionRouter().open(row.record, from: workspace)
+            }
             return .handled
         }
         if press.key == "c", press.modifiers == .command {
