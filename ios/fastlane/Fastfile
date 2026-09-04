@@ -15,7 +15,10 @@ def reset_screenshot_simulators(device_names)
     device["udid"] if device["isAvailable"] != false && device_names.include?(device["name"])
   end.uniq
   udids.each do |udid|
-    sh("xcrun", "simctl", "shutdown", udid, log: false)
+    # simctl reports status 149 when the device is already shut down. `system`
+    # keeps that expected state non-fatal while the following erase remains a
+    # checked Fastlane command.
+    system("xcrun", "simctl", "shutdown", udid, out: File::NULL, err: File::NULL)
     sh("xcrun", "simctl", "erase", udid, log: false)
   end
   UI.message("Reset #{udids.length} screenshot simulator(s) for a clean locale run")
