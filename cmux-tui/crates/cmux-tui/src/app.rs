@@ -24900,6 +24900,8 @@ impl App {
     fn cancel_pointer_before_modal(&mut self) {
         let menu_scrollbar_dragging =
             self.menu.as_ref().is_some_and(|menu| menu.scrollbar_drag.is_some());
+        let shortcut_help_scrollbar_dragging =
+            self.shortcut_help.as_ref().is_some_and(|help| help.scrollbar_drag.is_some());
         let retained_mouse = self.pending_pointer_motion.is_some()
             || self
                 .deferred_input
@@ -24908,6 +24910,7 @@ impl App {
         if self.drag.is_some()
             || !self.active_pointer_buttons.is_empty()
             || menu_scrollbar_dragging
+            || shortcut_help_scrollbar_dragging
             || retained_mouse
         {
             self.cancel_pointer_interaction();
@@ -24926,6 +24929,8 @@ impl App {
         self.reset_selection_click_sequence();
         let menu_scrollbar_dragged =
             self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
+        let shortcut_help_scrollbar_dragged =
+            self.shortcut_help.as_mut().is_some_and(|help| help.scrollbar_drag.take().is_some());
         let pointer_dragged = self.drag.is_some();
         if matches!(self.drag, Some(Drag::PtyMouse { .. })) {
             self.cancel_pty_mouse_drag();
@@ -24952,7 +24957,7 @@ impl App {
         }
         self.active_pointer_buttons.clear();
         self.ignored_pointer_buttons.clear();
-        menu_scrollbar_dragged || pointer_dragged
+        menu_scrollbar_dragged || shortcut_help_scrollbar_dragged || pointer_dragged
     }
 
     fn cancel_pty_mouse_drag(&mut self) {
@@ -31291,6 +31296,42 @@ mod tests {
             RenderAction::Paint
         );
         assert!(app.shortcut_help.as_ref().unwrap().scroll_offset > previous_offset);
+    }
+
+    #[test]
+    fn shortcut_help_keyboard_boundary_releases_its_scrollbar_capture() {
+        let mux = Mux::new("shortcut-help-scrollbar-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let track = app.shortcut_help.as_ref().unwrap().scrollbar_track;
+        assert!(track.height > 0);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert!(!app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        let offset_after_key = app.shortcut_help.as_ref().unwrap().scroll_offset;
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert_eq!(
+            app.shortcut_help.as_ref().unwrap().scroll_offset,
+            offset_after_key,
+            "a drag after a keyboard boundary must not reuse the old help scrollbar owner"
+        );
     }
 
     #[test]
