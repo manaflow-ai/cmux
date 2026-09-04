@@ -2135,14 +2135,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           # Signal leaves first. This preserves TERM handlers that restore the
           # terminal or launch a short-lived replacement process.
-          cmux_ssh_auth_debug "before term candidate filter"
-          if ! cmux_ssh_auth_filter_current_records \
-            "$cmux_ssh_auth_owned" "$cmux_ssh_auth_term_candidates" 1; then
-            cmux_ssh_auth_debug "term candidate filter failed; emergency pass"
+          cmux_ssh_auth_debug "before term candidate copy"
+          # The ownership journal is already a stopped, identity-fenced tree.
+          # Reusing it avoids another full process-table scan immediately
+          # before TERM; a saturated runner can otherwise deliver HUP while
+          # that scan is waiting for a fork and abort the cleanup shell.
+          : > "$cmux_ssh_auth_term_candidates" || exit 0
+          while IFS= read -r cmux_ssh_auth_term_line; do
+            printf '%s\n' "$cmux_ssh_auth_term_line" >> "$cmux_ssh_auth_term_candidates" || exit 0
+          done < "$cmux_ssh_auth_owned"
+          if [ ! -s "$cmux_ssh_auth_term_candidates" ]; then
+            cmux_ssh_auth_debug "term candidate copy empty; emergency pass"
             if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
               cmux_ssh_auth_cleanup_complete=1
             else
-              cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
               cmux_ssh_auth_cleanup_needs_root_abort=1
             fi
             exit 0
