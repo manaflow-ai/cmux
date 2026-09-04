@@ -95,12 +95,12 @@ describe("cloud vm ledger to PostHog mapping", () => {
     expect(event!.insertId).toBe("cloud_vm_destroyed:11111111-1111-4111-8111-111111111111");
   });
 
-  test("an unknown destroy source falls back to user_request and a missing createdAt omits lifetime", () => {
+  test("an unknown destroy source stays neutral and a missing createdAt omits lifetime", () => {
     const event = vmProductEventFromLedger(ledgerRow({
       eventType: "vm.destroyed",
       metadata: { source: "something-new" },
     }), NOW);
-    expect(event!.properties).toMatchObject({ reason: "user_request" });
+    expect(event!.properties).toMatchObject({ reason: "unknown" });
     expect("lifetime_seconds" in event!.properties!).toBe(false);
   });
 
