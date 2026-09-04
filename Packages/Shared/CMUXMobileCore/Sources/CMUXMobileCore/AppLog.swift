@@ -205,8 +205,61 @@ public actor AppLog {
     private enum Entry: Sendable {
         case event(DiagnosticEvent, wall: Date)
         case appLine(String, wall: Date)
-        case barrier(CheckedContinuation<Void, Never>)
-        case clear(CheckedContinuation<Void, Never>)
+        case barrier(Acknowledgement)
+        case clear(Acknowledgement)
+    }
+
+    /// A one-shot acknowledgement that can be resolved by either the drain or
+    /// the export task's timeout/cancellation path without ever resuming a
+    /// continuation twice.
+    private final class Acknowledgement: @unchecked Sendable {
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<Bool, Never>?
+        private var result: Bool?
+
+        func wait(timeoutNanoseconds: UInt64) async -> Bool {
+            let timeoutTask = Task.detached { [self] in
+                do {
+                    try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                    resolve(false)
+                } catch {
+                    // The waiter completed before the deadline.
+                }
+            }
+            let result = await withTaskCancellationHandler(operation: {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                    lock.lock()
+                    if let resolvedResult = self.result {
+                        lock.unlock()
+                        continuation.resume(returning: resolvedResult)
+                    } else {
+                        self.continuation = continuation
+                        lock.unlock()
+                    }
+                }
+            }, onCancel: {
+                resolve(false)
+            })
+            timeoutTask.cancel()
+            return result
+        }
+
+        func signal() {
+            resolve(true)
+        }
+
+        private func resolve(_ result: Bool) {
+            lock.lock()
+            guard self.result == nil else {
+                lock.unlock()
+                return
+            }
+            self.result = result
+            let continuation = self.continuation
+            self.continuation = nil
+            lock.unlock()
+            continuation?.resume(returning: result)
+        }
     }
 
     /// Synchronously admits entries from arbitrary producer threads while
@@ -321,7 +374,7 @@ public actor AppLog {
         private static func resumeControl(_ entry: Entry) {
             switch entry {
             case .barrier(let acknowledgement), .clear(let acknowledgement):
-                acknowledgement.resume()
+                acknowledgement.signal()
             case .event, .appLine:
                 break
             }
@@ -547,6 +600,8 @@ public actor AppLog {
     private let timestampFormatter: ISO8601DateFormatter
     private let ingress: EntryIngress
 
+    private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
+
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
     public init(
@@ -637,12 +692,12 @@ public actor AppLog {
             appFile?.append("\(timestampFormatter.string(from: wall)) \(line)")
         case .barrier(let acknowledgement):
             flushPendingFrameRun()
-            acknowledgement.resume()
+            acknowledgement.signal()
         case .clear(let acknowledgement):
             pendingFrameRun = nil
             appFile?.clear()
             networkFile?.clear()
-            acknowledgement.resume()
+            acknowledgement.signal()
         }
     }
 
@@ -653,8 +708,11 @@ public actor AppLog {
     /// The active file and retained generations are merged into their domain's
     /// member, so rotation history never turns into extra files in the export.
     public func exportLogs() async -> URL? {
-        await withCheckedContinuation { acknowledgement in
-            ingress.enqueue(.barrier(acknowledgement))
+        let acknowledgement = Acknowledgement()
+        ingress.enqueue(.barrier(acknowledgement))
+        guard await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds),
+              !Task.isCancelled else {
+            return nil
         }
 
         let appData = mergedData(for: appFile?.url)
@@ -669,9 +727,9 @@ public actor AppLog {
     /// Entries already admitted before this call are drained first, so a clear
     /// cannot be undone by an older write still waiting in the ingress stream.
     public func clear() async {
-        await withCheckedContinuation { acknowledgement in
-            ingress.enqueue(.clear(acknowledgement))
-        }
+        let acknowledgement = Acknowledgement()
+        ingress.enqueue(.clear(acknowledgement))
+        _ = await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
     }
 
     private func mergedData(for fileURL: URL?) -> Data {

@@ -178,9 +178,12 @@ public actor MobileDebugLogSink {
         try? fileManager.removeItem(at: fileURL)
         try? fileManager.removeItem(at: URL(fileURLWithPath: fileURL.path + ".1"))
 
-        guard shouldReopen,
-              let openedLogFile = Self.openLogFile(at: fileURL, header: fileHeader)
-        else {
+        guard shouldReopen else {
+            fileLoggingEnabled = false
+            fileBytesWritten = 0
+            return true
+        }
+        guard let openedLogFile = Self.openLogFile(at: fileURL, header: fileHeader) else {
             fileLoggingEnabled = false
             fileBytesWritten = 0
             return false

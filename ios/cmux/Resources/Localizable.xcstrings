@@ -27689,6 +27689,65 @@
         }
       }
     },
+    "mobile.settings.diagnostics.clear.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn’t reopen verbose logging after clearing. Logging was turned off; check available storage and try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "消去後に詳細ログを再開できませんでした。ログ記録をオフにしました。空き容量を確認して、もう一度お試しください。"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausführliche Protokollierung konnte nach dem Löschen nicht erneut geöffnet werden. Die Protokollierung wurde deaktiviert. Prüfe den verfügbaren Speicher und versuche es erneut."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de rouvrir les journaux détaillés après l’effacement. Les journaux ont été désactivés ; vérifiez l’espace disponible et réessayez."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر إعادة فتح التسجيل التفصيلي بعد المسح. تم إيقاف التسجيل؛ تحقق من مساحة التخزين وحاول مرة أخرى."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo volver a abrir el registro detallado después de borrar. Se desactivó el registro; comprueba el espacio disponible e inténtalo de nuevo."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除後無法重新開啟詳細記錄。記錄功能已關閉，請檢查可用儲存空間後再試一次。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清除后无法重新打开详细日志。日志记录已关闭，请检查可用存储空间后重试。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지운 후 상세 로그를 다시 열 수 없습니다. 로그 기록이 꺼졌습니다. 사용 가능한 저장 공간을 확인하고 다시 시도하세요."
+          }
+        }
+      }
+    },
     "mobile.settings.diagnostics.shareAppLog": {
       "extractionState": "manual",
       "localizations": {

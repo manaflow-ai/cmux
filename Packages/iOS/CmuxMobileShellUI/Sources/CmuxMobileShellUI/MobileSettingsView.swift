@@ -950,7 +950,15 @@ private struct MobileSettingsDiagnosticsSection: View {
                     // Stop and drain the string sink first. Its synchronous
                     // observer mirrors each accepted line into AppLog, so the
                     // AppLog barrier below includes every pre-clear line.
-                    await MobileDebugLog.shared.clearPersistedLog()
+                    let verboseLogWasEnabled = irohSettingsModel?.verboseLogEnabled == true
+                    let didClearVerboseLog = await MobileDebugLog.shared.clearPersistedLog()
+                    if verboseLogWasEnabled && !didClearVerboseLog {
+                        await irohSettingsModel?.setVerboseLog(false)
+                        exportErrorMessage = L10n.string(
+                            "mobile.settings.diagnostics.clear.failed",
+                            defaultValue: "Couldn’t reopen verbose logging after clearing. Logging was turned off; check available storage and try again."
+                        )
+                    }
                     await irohSettingsModel?.clearDiagnosticReport()
                     await diagnosticLog?.clear()
                     await appLog?.clear()
@@ -1022,6 +1030,7 @@ private struct MobileSettingsDiagnosticsSection: View {
         isPreparingExport = true
         defer { isPreparingExport = false }
         guard let url = await appLog.exportLogs() else {
+            guard !Task.isCancelled else { return }
             exportErrorMessage = L10n.string(
                 "mobile.settings.diagnostics.export.failed",
                 defaultValue: "Couldn’t export logs. Check available storage and try again."
