@@ -124,6 +124,14 @@ final class GlobalSearchCoordinator {
                 hasher.combine(record.id)
                 hasher.combine(record.lastSeenAt)
                 hasher.combine(record.occurrenceCount)
+                hasher.combine(record.kind.rawValue)
+                hasher.combine(record.source.rawValue)
+                hasher.combine(record.title)
+                for (key, value) in record.metadata.sorted(by: { $0.key < $1.key }) {
+                    hasher.combine(key)
+                    hasher.combine(value)
+                }
+                hasher.combine(record.representation.searchableValue)
             }
             let signature = hasher.finalize()
             guard artifactIndexSignature != signature else { return }

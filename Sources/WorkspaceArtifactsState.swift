@@ -449,7 +449,10 @@ final class WorkspaceArtifactsState {
             recentTitleChanges.removeFirst(recentTitleChanges.count - Self.maximumRecentTitleChanges)
         }
         latestTitleChange = change
-        persistenceRevision &+= 1
+        // Title updates are part of the visible row snapshot as well as the
+        // durable record; invalidate the structural projection so both the
+        // workspace pane and global-search reconciliation see the new title.
+        markStructuralChange()
         enqueue(record: updated)
     }
 
