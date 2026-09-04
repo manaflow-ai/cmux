@@ -19,7 +19,7 @@ use super::{
 };
 use crate::app::{
     App, FilesRailSelection, Hit, RailKind, SidebarHiddenReason, WorkspaceRailSelection,
-    sidebar_profile_token,
+    sidebar_profile_token, sidebar_split_divider_token, sidebar_view_token,
 };
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
@@ -316,6 +316,10 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let selection = machine_ui.selection;
     let managed_machines = machine_ui.managed_machines().to_vec();
     let rail_selection = machine_ui.rail_selection;
+    let view_token = app
+        .view_index_for_rail(RailKind::Machine)
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map(sidebar_view_token);
     let palette = rail::RailPalette::for_app(app, app.machine_sidebar_focused());
     let metrics = rail::RailMetrics::for_app(app);
     let messages = &localization::catalog().sidebar;
@@ -473,7 +477,10 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         hits.push((rail::row(area, y), Hit::ConnectMachine));
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Machine)));
-    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Machine, view_token: None }));
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Machine, view_token },
+    ));
     app.hits.extend(hits);
 }
 
@@ -484,6 +491,10 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
     app.tabs_rail_selection = app.tabs_rail_selection.min(targets.len().saturating_sub(1));
     let palette = rail::RailPalette::for_app(app, app.tabs_sidebar_focused());
     let metrics = rail::RailMetrics::for_app(app);
+    let view_token = app
+        .view_index_for_rail(RailKind::Tabs)
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map(sidebar_view_token);
     let messages = &localization::catalog().sidebar;
     rail::prepare(frame, area, palette);
 
@@ -542,8 +553,10 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         }
     }
     app.hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Tabs)));
-    app.hits
-        .push((rail::divider(area), Hit::RailResize { kind: RailKind::Tabs, view_token: None }));
+    app.hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Tabs, view_token },
+    ));
 }
 
 /// Render one configurable resource path as a dense native tree column.
@@ -587,17 +600,8 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
 
     // Agent rows can span two terminal lines; every row's span is derived
     // from the same height table so scrolling and hits stay aligned.
-    let two_line_agents = spec.row_lines >= 2;
-    let row_height = |row: &crate::sidebar_projection::ProjectionRow| -> usize {
-        if two_line_agents && row.agent_state.is_some() { 2 } else { 1 }
-    };
-    let mut row_spans = Vec::with_capacity(rows.len());
-    let mut body_rows = 0usize;
-    for row in rows.iter() {
-        let height = row_height(row);
-        row_spans.push(rail::RowSpan::new(body_rows, height));
-        body_rows += height;
-    }
+    let metrics = rail::RailMetrics::for_app(app);
+    let (row_spans, body_rows) = crate::app::projection_row_spans(&rows, &spec, metrics);
 
     let selectable_rows = rows.len().saturating_add(actions.len());
     let (selected, viewport) = {
@@ -642,7 +646,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         let span = row_spans[row_index];
         let Some(y) = viewport.body_y(span) else { continue };
         let highlighted = row.active || (focused && selected == row_index);
-        let two_line = span.height == 2;
+        let two_line = span.height >= 2 && row.agent_state.is_some();
         // Two-line agent rows read like herdr: the state glyph plus the
         // context line (tab title, else the session/workspace subtitle),
         // then the agent type dim underneath. Single-line rows keep the
@@ -673,6 +677,15 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             "idle" => Some(rail::TreeRowIndicator::Circle),
             _ => None,
         });
+        let projection_second_line = if span.height >= 2 {
+            if two_line {
+                Some(second_line.as_deref().unwrap_or(""))
+            } else {
+                Some(row.subtitle.as_str())
+            }
+        } else {
+            None
+        };
         let disclosure = rail::tree_row(
             frame,
             area,
@@ -681,7 +694,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
                 depth: row.depth,
                 name: title,
                 detail: &detail,
-                second_line: two_line.then_some(second_line.as_deref().unwrap_or("")),
+                second_line: projection_second_line,
                 branch: row.branch.map(|_| row.expanded),
                 indicator,
                 highlighted,
@@ -694,14 +707,14 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
                 rect,
                 Hit::ProjectionToggle {
                     view: view_index,
-                    view_token: sidebar_profile_token(&spec.id),
+                    view_token: sidebar_view_token(&spec),
                     branch,
                 },
             ));
         }
         let hit = Hit::ProjectionRow {
             view: view_index,
-            view_token: sidebar_profile_token(&spec.id),
+            view_token: sidebar_view_token(&spec),
             row: row_index,
             target: row.target,
         };
@@ -724,7 +737,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             rail::row(area, y),
             Hit::SidebarAction {
                 view: view_index,
-                view_token: sidebar_profile_token(&spec.id),
+                view_token: sidebar_view_token(&spec),
                 action: action.target,
             },
         ));
@@ -735,24 +748,25 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         rail::divider(rail_area),
         Hit::RailResize {
             kind: RailKind::Projection(view_index),
-            view_token: Some(sidebar_profile_token(&spec.id)),
+            view_token: Some(sidebar_view_token(&spec)),
         },
     ));
 }
 
 /// Draw the horizontal rule of every vertical split divider and register
-/// its drag handle. Horizontal splits need no extra drawing: their handle
-/// is the left child's border column, rerouted at press time.
+/// an explicit semantic drag handle for both split directions. A horizontal
+/// handle reuses the left child's border column, but it still owns its own
+/// route so a later topology cannot turn it into a column resize.
 pub fn draw_split_dividers(app: &mut App, frame: &mut Frame) {
     if app.sidebar_layout.dividers.is_empty() {
         return;
     }
     let palette = rail::RailPalette::for_app(app, false);
     for divider in app.sidebar_layout.dividers.clone() {
-        if divider.dir != crate::config::SidebarSplitDir::Vertical || divider.rect.width == 0 {
+        if divider.rect.width == 0 || divider.rect.height == 0 {
             continue;
         }
-        {
+        if divider.dir == crate::config::SidebarSplitDir::Vertical {
             let buf = frame.buffer_mut();
             let y = divider.rect.y;
             let last = divider.rect.x + divider.rect.width - 1;
@@ -771,6 +785,7 @@ pub fn draw_split_dividers(app: &mut App, frame: &mut Frame) {
                 Hit::SidebarSplitDivider {
                     group: divider.group,
                     index: divider.index,
+                    divider_token: sidebar_split_divider_token(group, divider.index, divider.rect),
                     group_token: sidebar_profile_token(&group.id),
                     first_token: sidebar_profile_token(first),
                     second_token: sidebar_profile_token(second),
@@ -862,7 +877,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     let view_index = app.view_index_for_rail(RailKind::Workspace);
     let view_token = view_index
         .and_then(|index| app.config.sidebar.views.get(index))
-        .map_or(0, |view| sidebar_profile_token(&view.id));
+        .map_or(0, sidebar_view_token);
     let recoverable = app
         .machine_ui
         .as_ref()
@@ -1077,7 +1092,10 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Workspace)));
     hits.push((
         rail::divider(area),
-        Hit::RailResize { kind: RailKind::Workspace, view_token: None },
+        Hit::RailResize {
+            kind: RailKind::Workspace,
+            view_token,
+        },
     ));
     app.hits.extend(hits);
 }
@@ -1110,7 +1128,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let view_index = app.view_index_for_rail(RailKind::Workspace);
     let view_token = view_index
         .and_then(|index| app.config.sidebar.views.get(index))
-        .map_or(0, |view| sidebar_profile_token(&view.id));
+        .map_or(0, sidebar_view_token);
     let actions_position = app.workspace_actions_position();
     let geometry = app.files_layout_geometry(area);
     let body = geometry.body;
@@ -1354,7 +1372,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
                         .sidebar
                         .views
                         .get(view)
-                        .map_or(0, |view| sidebar_profile_token(&view.id));
+                        .map_or(0, sidebar_view_token);
                     hits.push((
                         rail::row(area, y),
                         Hit::SidebarAction { view, view_token, action: action.target },
@@ -1365,7 +1383,10 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     }
     hits.push((
         rail::divider(area),
-        Hit::RailResize { kind: RailKind::Workspace, view_token: None },
+        Hit::RailResize {
+            kind: RailKind::Workspace,
+            view_token,
+        },
     ));
     app.hits.extend(hits);
     input_cursor

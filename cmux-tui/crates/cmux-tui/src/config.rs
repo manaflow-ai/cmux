@@ -637,7 +637,7 @@ struct RawPlusButton {
 }
 
 /// Where a view's pinned action buttons render.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ActionsPosition {
     Top,
@@ -1220,7 +1220,7 @@ pub enum SidebarResourceKind {
     Agents,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SidebarViewSpec {
     pub id: String,
     pub levels: Vec<SidebarResourceKind>,
@@ -1250,7 +1250,7 @@ pub struct SidebarViewSpec {
 
 /// Sort modes for agents-view rows. `Priority` is herdr's attention order
 /// (blocked > unseen idle > working > seen idle), the default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum AgentSortMode {
     #[default]
     Priority,
@@ -1295,7 +1295,7 @@ fn parse_agent_sort_mode(value: &str) -> Result<AgentSortMode, String> {
 /// (https://github.com/herdrdev/herdr), Apache-2.0, commit 7b675f42af35
 /// (src/app/agent_view.rs), modified by manaflow: cmux keeps its real
 /// `done` state rather than herdr's unseen-idle-to-done status mapping.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct AgentRowFilter {
     /// Adapter ids to keep; empty keeps every agent type.
     pub agents: Vec<String>,
@@ -1322,7 +1322,7 @@ fn valid_agent_filter_token(token: &str) -> bool {
 }
 
 /// Which workspaces feed a flat tabs/agents view.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum SidebarViewScope {
     /// Follow the selected workspace (the historical behavior).
     #[default]
@@ -1387,7 +1387,7 @@ pub fn sidebar_layout_of_columns(views: &[SidebarViewSpec]) -> Vec<SidebarLayout
 }
 
 /// One pinned sidebar action and its optional label override.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SidebarActionSpec {
     pub action: Action,
     pub label: Option<String>,

@@ -9,6 +9,7 @@
 #[cfg(test)]
 use std::cell::Cell;
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
 use std::path::PathBuf;
@@ -135,6 +136,15 @@ pub(crate) fn sidebar_profile_token(id: &str) -> u64 {
     hash
 }
 
+/// Semantic receipt for one rendered sidebar view. Unlike the profile token,
+/// this covers every field that can change the view's rows, actions, or
+/// geometry. A delayed click therefore cannot cross a same-id config reload.
+pub(crate) fn sidebar_view_token(view: &SidebarViewSpec) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    view.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// All mutable frontend state owned by one named sidebar profile. Stable
 /// profile, view, and split ids keep state attached to its semantic owner
 /// when configuration order changes.
@@ -163,6 +173,9 @@ struct SidebarProfilePresentationState {
     content_mode: Option<SidebarView>,
     /// Preserve the user's Files intent while its workspace host is hidden.
     files_restore_pending: bool,
+    /// Stable host identity attached to a pending Files restore. A config
+    /// reload that removes or replaces that host must invalidate the intent.
+    files_restore_host: Option<String>,
     /// Scroll offset for configured action rows while the workspace host is
     /// in Files mode. This is separate from the Workspaces rail footer and
     /// follows the active profile when profiles are switched.
@@ -189,6 +202,7 @@ impl Default for SidebarProfilePresentationState {
             pinned_views: HashSet::new(),
             content_mode: None,
             files_restore_pending: false,
+            files_restore_host: None,
             files_action_scroll: 0,
             files_action_follow_selection: true,
         }
@@ -4276,8 +4290,94 @@ enum FilesRailTarget {
     Action(SidebarActionTarget),
 }
 
-fn rail_page_size(area: Option<Rect>) -> usize {
-    area.map_or(1, |area| usize::from(area.height.saturating_sub(1)).saturating_div(3).max(1))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProjectionNavigationTarget {
+    Row(usize),
+    Action(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProjectionNavigationItem {
+    target: ProjectionNavigationTarget,
+    span: crate::ui::rail::RowSpan,
+}
+
+/// Build the projection row spans used by rendering, wheel admission, and
+/// keyboard paging. One table prevents a two-line agent or a configured row
+/// gap from being counted differently by those paths.
+pub(crate) fn projection_row_spans(
+    rows: &[ProjectionRow],
+    spec: &SidebarViewSpec,
+    metrics: crate::ui::rail::RailMetrics,
+) -> (Vec<crate::ui::rail::RowSpan>, usize) {
+    let gap = metrics.stride.saturating_sub(metrics.height);
+    let mut spans = Vec::with_capacity(rows.len());
+    let mut total = 0usize;
+    for (index, row) in rows.iter().enumerate() {
+        // Projection trees stay dense by design. Agent rows opt into their
+        // herdr-style second line through `row_lines`; other resource rows
+        // remain one line even when the built-in rail height is two.
+        let height = row
+            .agent_state
+            .as_ref()
+            .map_or(1, |_| usize::from(spec.row_lines.max(1).min(2)));
+        spans.push(crate::ui::rail::RowSpan::new(total, height));
+        total = total.saturating_add(height);
+        if index + 1 < rows.len() {
+            total = total.saturating_add(gap);
+        }
+    }
+    (spans, total)
+}
+
+fn projection_navigation_index(
+    key: &KeyEvent,
+    current: usize,
+    items: &[ProjectionNavigationItem],
+    page_cells: usize,
+) -> Option<usize> {
+    if items.is_empty() {
+        return None;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(current.saturating_sub(1)),
+        KeyCode::Down | KeyCode::Char('j') => Some((current + 1).min(items.len() - 1)),
+        KeyCode::Home => Some(0),
+        KeyCode::End => Some(items.len() - 1),
+        KeyCode::PageUp => {
+            let target = items[current].span.start.saturating_sub(page_cells.max(1));
+            Some(
+                items
+                    .iter()
+                    .enumerate()
+                    .take(current + 1)
+                    .filter(|(_, item)| item.span.start <= target)
+                    .map(|(index, _)| index)
+                    .next_back()
+                    .unwrap_or(0),
+            )
+        }
+        KeyCode::PageDown => {
+            let target = items[current].span.start.saturating_add(page_cells.max(1));
+            Some(
+                items
+                    .iter()
+                    .enumerate()
+                    .skip(current + 1)
+                    .find(|(_, item)| item.span.start >= target)
+                    .map_or(items.len() - 1, |(index, _)| index),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn rail_page_size(area: Option<Rect>, metrics: crate::ui::rail::RailMetrics) -> usize {
+    area.map_or(1, |area| {
+        usize::from(area.height.saturating_sub(1))
+            .saturating_div(metrics.stride.max(1))
+            .max(1)
+    })
 }
 
 fn rail_navigation_index(key: &KeyEvent, current: usize, len: usize, page: usize) -> Option<usize> {
@@ -4437,6 +4537,7 @@ pub enum Hit {
     SidebarSplitDivider {
         group: usize,
         index: usize,
+        divider_token: u64,
         group_token: u64,
         first_token: u64,
         second_token: u64,
@@ -4574,6 +4675,29 @@ pub struct SidebarDividerPlacement {
     pub index: usize,
     pub rect: Rect,
     pub dir: crate::config::SidebarSplitDir,
+}
+
+/// Receipt for one rendered split handle. It includes topology, orientation,
+/// and geometry, so a delayed mouse event cannot resize a different divider
+/// after a layout refresh.
+pub(crate) fn sidebar_split_divider_token(
+    group: &SidebarSplitGroupPlacement,
+    index: usize,
+    rect: Rect,
+) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    group.id.hash(&mut hasher);
+    match group.dir {
+        crate::config::SidebarSplitDir::Vertical => 0u8.hash(&mut hasher),
+        crate::config::SidebarSplitDir::Horizontal => 1u8.hash(&mut hasher),
+    }
+    group.child_keys.hash(&mut hasher);
+    index.hash(&mut hasher);
+    rect.x.hash(&mut hasher);
+    rect.y.hash(&mut hasher);
+    rect.width.hash(&mut hasher);
+    rect.height.hash(&mut hasher);
+    hasher.finish()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11344,7 +11468,8 @@ impl App {
         {
             return;
         }
-        let supported = self.active_files_host_id().is_some_and(|host_id| {
+        let host_id = self.active_files_host_id();
+        let supported = host_id.as_ref().is_some_and(|host_id| {
             self.active_sidebar_profile_state()
                 .is_none_or(|state| !state.hidden_views.contains(&host_id))
         });
@@ -11352,7 +11477,18 @@ impl App {
             return;
         }
         self.active_sidebar_profile_state_mut().content_mode = Some(SidebarView::Files);
-        self.active_sidebar_profile_state_mut().files_restore_pending = true;
+        let state = self.active_sidebar_profile_state_mut();
+        if let Some(host_id) = host_id {
+            state.files_restore_pending = true;
+            state.files_restore_host = Some(host_id);
+        } else {
+            // There is no semantic host to restore. Keeping a pending bit
+            // here would make a future, unrelated Workspaces view reopen
+            // Files without a user action.
+            state.files_restore_pending = false;
+            state.files_restore_host = None;
+            state.content_mode = Some(SidebarView::Workspaces);
+        }
         self.sidebar_view = SidebarView::Workspaces;
         self.sidebar_followed_surface = None;
         self.status_message =
@@ -12346,11 +12482,52 @@ impl App {
     }
 
     fn sidebar_view_token_matches(&self, index: usize, token: u64) -> bool {
-        self.config
-            .sidebar
-            .views
-            .get(index)
-            .is_some_and(|view| sidebar_profile_token(&view.id) == token)
+        let Some(view) = self.config.sidebar.views.get(index) else { return false };
+        if sidebar_view_token(view) != token || !self.sidebar_visible || self.surface_only.is_some()
+        {
+            return false;
+        }
+        if self.sidebar_layout.ordered.is_empty() {
+            // Startup and isolated renderer tests can draw through the legacy
+            // width fallback before the first layout. A committed empty
+            // layout means the solver mounted no view, so an old hit is stale.
+            return self.outer_size == (0, 0);
+        }
+        self.sidebar_layout
+            .ordered
+            .iter()
+            .any(|placement| placement.view_index == index)
+    }
+
+    fn projection_sidebar_page_cells(
+        &self,
+        view_index: usize,
+        spec: &SidebarViewSpec,
+        body_rows: usize,
+        footer_rows: usize,
+    ) -> usize {
+        let Some(mut area) = self.projection_sidebar_area(view_index) else { return 1 };
+        if spec.includes(SidebarResourceKind::Agents) && area.height > 1 {
+            area = Rect { y: area.y + 1, height: area.height - 1, ..area };
+        }
+        let (mut body_offset, mut footer_offset) = self
+            .active_sidebar_profile_state()
+            .and_then(|state| state.projection_rails.get(&spec.id))
+            .map(|state| (state.scroll, state.footer_scroll))
+            .unwrap_or_default();
+        let viewport = crate::ui::rail::viewport_positioned(
+            area,
+            body_rows.max(1),
+            footer_rows,
+            &mut body_offset,
+            &mut footer_offset,
+            None,
+            None,
+            spec.actions_position,
+        );
+        usize::from(viewport.body.height)
+            .saturating_add(usize::from(viewport.footer.height))
+            .max(1)
     }
 
     pub(crate) fn workspace_sidebar_action_rows(&self) -> Vec<SidebarActionRow> {
@@ -16217,6 +16394,28 @@ impl App {
             let Some(state) = self.sidebar_presentation.profiles.get_mut(&profile.id) else {
                 continue;
             };
+            let files_host_id = profile
+                .views
+                .iter()
+                .find(|view| {
+                    view.legacy_kind().is_some_and(|kind| kind == SidebarColumnKind::Workspaces)
+                })
+                .map(|view| view.id.clone());
+            if state.files_restore_pending
+                && state.files_restore_host.as_deref() != files_host_id.as_deref()
+            {
+                // Files restoration is an intent for one exact host. If a
+                // reload removes or replaces that host, discard the intent
+                // instead of reopening Files on an unrelated future view.
+                state.files_restore_pending = false;
+                state.files_restore_host = None;
+                state.content_mode = Some(SidebarView::Workspaces);
+            } else if !state.files_restore_pending {
+                state.files_restore_host = None;
+            }
+            if files_host_id.is_none() && state.content_mode == Some(SidebarView::Files) {
+                state.content_mode = Some(SidebarView::Workspaces);
+            }
             let mut valid_keys =
                 profile.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
             for view in &profile.views {
@@ -16715,13 +16914,16 @@ impl App {
                 });
             if self.sidebar_view != SidebarView::Files
                 && presentation.files_restore_pending
+                && presentation.files_restore_host.as_deref() == files_host_id.as_deref()
                 && host_usable
             {
                 // A constrained frame may have forced a temporary
                 // Workspaces fallback. Restore Files as soon as its host is
                 // mounted again, without waiting for another user action.
                 self.sidebar_view = SidebarView::Files;
-                self.active_sidebar_profile_state_mut().files_restore_pending = false;
+                let state = self.active_sidebar_profile_state_mut();
+                state.files_restore_pending = false;
+                state.files_restore_host = None;
                 self.remember_active_sidebar_content_mode();
             } else if self.sidebar_visible
                 && self.sidebar_view == SidebarView::Files
@@ -16735,6 +16937,7 @@ impl App {
                 let state = self.active_sidebar_profile_state_mut();
                 state.content_mode = Some(SidebarView::Files);
                 state.files_restore_pending = true;
+                state.files_restore_host = files_host_id.clone();
                 self.sidebar_view = SidebarView::Workspaces;
                 self.sidebar_followed_surface = None;
                 self.status_message = Some(
@@ -20462,25 +20665,62 @@ impl App {
     }
 
     fn workspace_rail_targets(&self) -> Vec<WorkspaceRailTarget> {
-        let mut targets = self
+        let mut resources = self
             .tree
             .workspaces()
             .iter()
             .map(|workspace| WorkspaceRailTarget::Workspace(workspace.id))
             .collect::<Vec<_>>();
-        targets.extend(
+        resources.extend(
             self.machine_ui
                 .as_ref()
                 .into_iter()
                 .flat_map(MachineUiState::recoverable_workspaces)
                 .map(|workspace| WorkspaceRailTarget::Recoverable(workspace.id.clone())),
         );
-        targets.extend(
-            self.workspace_sidebar_action_rows()
-                .into_iter()
-                .map(|action| WorkspaceRailTarget::Action(action.target)),
+        let actions = self
+            .workspace_sidebar_action_rows()
+            .into_iter()
+            .map(|action| WorkspaceRailTarget::Action(action.target))
+            .collect::<Vec<_>>();
+        match self.workspace_actions_position() {
+            crate::config::ActionsPosition::Top => actions.into_iter().chain(resources).collect(),
+            crate::config::ActionsPosition::Bottom => {
+                resources.into_iter().chain(actions).collect()
+            }
+        }
+    }
+
+    fn workspace_rail_page_size(&self) -> usize {
+        let Some(area) = self.sidebar_layout.workspace else { return 1 };
+        let metrics = crate::ui::rail::RailMetrics::for_app(self);
+        let recoverable = self
+            .machine_ui
+            .as_ref()
+            .map_or(0, |ui| ui.recoverable_workspaces().len());
+        let body_rows = (self.tree.workspaces().len() + recoverable) * metrics.stride;
+        let footer_rows = self.workspace_sidebar_action_rows().len();
+        let mut body_offset = self.workspace_rail_scroll;
+        let mut footer_offset = self.workspace_footer_scroll;
+        let viewport = crate::ui::rail::viewport_positioned(
+            area,
+            body_rows.max(1),
+            footer_rows,
+            &mut body_offset,
+            &mut footer_offset,
+            None,
+            None,
+            self.workspace_actions_position(),
         );
-        targets
+        let visible_body = if viewport.body.height == 0 {
+            0
+        } else {
+            (usize::from(viewport.body.height) + metrics.stride.saturating_sub(1))
+                / metrics.stride.max(1)
+        };
+        visible_body
+            .saturating_add(usize::from(viewport.footer.height))
+            .max(1)
     }
 
     fn workspace_rail_target(&self) -> Option<WorkspaceRailTarget> {
@@ -20804,7 +21044,10 @@ impl App {
         ) {
             self.machine_rail_follow_selection = true;
         }
-        let page = rail_page_size(self.sidebar_layout.machine);
+        let page = rail_page_size(
+            self.sidebar_layout.machine,
+            crate::ui::rail::RailMetrics::for_app(self),
+        );
         let mut continue_past_boundary = false;
         let command = {
             let Some(machine) = self.machine_ui.as_mut() else {
@@ -20926,8 +21169,39 @@ impl App {
         }
         let rows = self.projection_rows(view_index);
         let actions = self.sidebar_action_rows(view_index);
-        let selectable_rows = rows.len().saturating_add(actions.len());
-        let current = self
+        let Some(spec) = self.config.sidebar.views.get(view_index).cloned() else {
+            return Ok(RenderAction::Draw);
+        };
+        let metrics = crate::ui::rail::RailMetrics::for_app(self);
+        let (row_spans, body_rows) = projection_row_spans(&rows, &spec, metrics);
+        let top_actions = matches!(spec.actions_position, crate::config::ActionsPosition::Top);
+        let mut navigation = Vec::with_capacity(rows.len().saturating_add(actions.len()));
+        if top_actions {
+            for index in 0..actions.len() {
+                navigation.push(ProjectionNavigationItem {
+                    target: ProjectionNavigationTarget::Action(index),
+                    span: crate::ui::rail::RowSpan::new(index, 1),
+                });
+            }
+        }
+        for (index, span) in row_spans.iter().copied().enumerate() {
+            navigation.push(ProjectionNavigationItem {
+                target: ProjectionNavigationTarget::Row(index),
+                span: crate::ui::rail::RowSpan::new(
+                    span.start.saturating_add(if top_actions { actions.len() } else { 0 }),
+                    span.height,
+                ),
+            });
+        }
+        if !top_actions {
+            for index in 0..actions.len() {
+                navigation.push(ProjectionNavigationItem {
+                    target: ProjectionNavigationTarget::Action(index),
+                    span: crate::ui::rail::RowSpan::new(body_rows.saturating_add(index), 1),
+                });
+            }
+        }
+        let current_target = self
             .config
             .sidebar
             .views
@@ -20936,12 +21210,31 @@ impl App {
                 self.active_sidebar_profile_state()
                     .and_then(|state| state.projection_rails.get(&view.id))
             })
-            .map_or(0, |state| match state.selected_action {
-                Some(index) if index < actions.len() => rows.len().saturating_add(index),
-                Some(_) => selectable_rows,
-                None => state.selected.min(selectable_rows.saturating_sub(1)),
+            .map(|state| match state.selected_action {
+                Some(index) if index < actions.len() => ProjectionNavigationTarget::Action(index),
+                _ => ProjectionNavigationTarget::Row(
+                    state.selected.min(rows.len().saturating_sub(1)),
+                ),
+            })
+            .unwrap_or_else(|| {
+                if rows.is_empty() {
+                    ProjectionNavigationTarget::Action(0)
+                } else {
+                    ProjectionNavigationTarget::Row(0)
+                }
             });
-        let selected = rows.get(current).cloned();
+        let current = navigation
+            .iter()
+            .position(|item| item.target == current_target)
+            .unwrap_or_default();
+        // Resolve the active item from the navigation table. This keeps the
+        // keyboard reducer aligned with the visual order for both action
+        // positions, and fails closed if a saved selection no longer exists.
+        let active_target = navigation.get(current).map(|item| item.target);
+        let selected = active_target.and_then(|target| match target {
+            ProjectionNavigationTarget::Row(index) => rows.get(index).cloned(),
+            ProjectionNavigationTarget::Action(_) => None,
+        });
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             if !key.modifiers.contains(KeyModifiers::ALT)
                 && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
@@ -20966,22 +21259,24 @@ impl App {
             }
             return Ok(RenderAction::Draw);
         }
-        let page = self
-            .projection_sidebar_area(view_index)
-            .map_or(1, |area| usize::from(area.height.saturating_sub(2)).max(1));
-        if let Some(next) = rail_navigation_index(key, current, selectable_rows, page) {
+        let page = self.projection_sidebar_page_cells(view_index, &spec, body_rows, actions.len());
+        if let Some(next) = projection_navigation_index(key, current, &navigation, page) {
             if next == current
+                && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'))
                 && self.continue_past_rail_boundary(RailKind::Projection(view_index), key)
             {
                 return Ok(RenderAction::Draw);
             }
             let state = self.projection_rail_state_mut(view_index);
-            if next < rows.len() {
-                state.selected = next;
-                state.selected_target = rows.get(next).map(|row| row.target);
-                state.selected_action = None;
-            } else {
-                state.selected_action = Some(next.saturating_sub(rows.len()));
+            match navigation[next].target {
+                ProjectionNavigationTarget::Row(index) => {
+                    state.selected = index;
+                    state.selected_target = rows.get(index).map(|row| row.target);
+                    state.selected_action = None;
+                }
+                ProjectionNavigationTarget::Action(index) => {
+                    state.selected_action = Some(index);
+                }
             }
             state.follow_selection = true;
             return Ok(RenderAction::Draw);
@@ -21014,16 +21309,20 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         if key.code == KeyCode::Enter {
-            if let Some(row) = selected {
-                if self.activate_projection_target(row.target)? {
-                    self.focus = FocusTarget::Pane;
+            match active_target {
+                Some(ProjectionNavigationTarget::Row(index)) => {
+                    if let Some(row) = rows.get(index)
+                        && self.activate_projection_target(row.target)?
+                    {
+                        self.focus = FocusTarget::Pane;
+                    }
                 }
-            } else if let Some(action) = current
-                .checked_sub(rows.len())
-                .and_then(|index| actions.get(index))
-                .map(|action| action.target)
-            {
-                return self.invoke_sidebar_action(action);
+                Some(ProjectionNavigationTarget::Action(index)) => {
+                    if let Some(action) = actions.get(index).map(|action| action.target) {
+                        return self.invoke_sidebar_action(action);
+                    }
+                }
+                None => {}
             }
         }
         Ok(RenderAction::Draw)
@@ -21425,7 +21724,7 @@ impl App {
                     .workspace_rail_target()
                     .and_then(|selected| targets.iter().position(|target| target == &selected))
                     .unwrap_or_default();
-                let page = rail_page_size(self.sidebar_layout.workspace);
+                let page = self.workspace_rail_page_size();
                 if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
                     if next == current && self.continue_past_rail_boundary(RailKind::Workspace, key)
                     {
@@ -21491,7 +21790,10 @@ impl App {
         }
         let targets = self.sidebar_tab_targets();
         self.tabs_rail_selection = self.tabs_rail_selection.min(targets.len().saturating_sub(1));
-        let page = rail_page_size(self.sidebar_layout.tabs);
+        let page = rail_page_size(
+            self.sidebar_layout.tabs,
+            crate::ui::rail::RailMetrics::for_app(self),
+        );
         if let Some(next) =
             rail_navigation_index(key, self.tabs_rail_selection, targets.len(), page)
         {
@@ -23018,6 +23320,7 @@ impl App {
             let state = self.active_sidebar_profile_state_mut();
             state.content_mode = Some(next);
             state.files_restore_pending = false;
+            state.files_restore_host = None;
         }
         if self.config.sidebar.plugin.is_some() {
             return;
@@ -23428,7 +23731,15 @@ impl App {
     }
 
     fn hit_at(&self, x: u16, y: u16) -> Option<Hit> {
-        self.hits.iter().find(|(rect, _)| rect.contains(x, y)).map(|(_, hit)| *hit)
+        // Split dividers overlay rail border cells. Give their explicit
+        // semantic receipt priority over the rail's generic resize hit.
+        self.hits
+            .iter()
+            .find(|(rect, hit)| {
+                matches!(hit, Hit::SidebarSplitDivider { .. }) && rect.contains(x, y)
+            })
+            .or_else(|| self.hits.iter().find(|(rect, _)| rect.contains(x, y)))
+            .map(|(_, hit)| *hit)
     }
 
     fn omnibar_hit_at(&self, x: u16, y: u16) -> Option<(PaneId, OmnibarHit)> {
@@ -25168,7 +25479,8 @@ impl App {
                     let Some(view_index) =
                         self.config.sidebar.views.iter().enumerate().find_map(|(index, view)| {
                             (self.rail_kind_for_view(index) == RailKind::Workspace
-                                && sidebar_profile_token(&view.id) == view_token)
+                                && sidebar_view_token(view) == view_token
+                                && self.sidebar_view_token_matches(index, view_token))
                                 .then_some(index)
                         })
                     else {
@@ -25274,56 +25586,56 @@ impl App {
                     self.start_files_scrollbar_drag(track, total_rows, visible_rows, y);
                 }
                 Hit::RailResize { kind, view_token } => {
-                    if let RailKind::Projection(index) = kind
-                        && view_token
-                            != self
-                                .config
-                                .sidebar
-                                .views
-                                .get(index)
-                                .map(|view| sidebar_profile_token(&view.id))
-                    {
-                        return Ok(RenderAction::Draw);
+                    if let Some(token) = view_token {
+                        let Some(index) = self.view_index_for_rail(kind) else {
+                            return Ok(RenderAction::Draw);
+                        };
+                        if !self.sidebar_view_token_matches(index, token) {
+                            return Ok(RenderAction::Draw);
+                        }
                     }
-                    // A horizontal split divider shares the left child's
-                    // border column; a press there re-shares the split
-                    // instead of resizing the whole column.
-                    if let Some(divider) = self
+                    // Explicit SidebarSplitDivider hits own every split
+                    // boundary. A generic border hit at such a coordinate is
+                    // stale and must not discover a new split by geometry.
+                    if self
                         .sidebar_layout
                         .dividers
                         .iter()
-                        .find(|divider| divider.rect.contains(x, y))
-                        .copied()
+                        .any(|divider| divider.rect.contains(x, y))
                     {
-                        if let Some((group, first_child, second_child)) =
-                            self.sidebar_split_drag_target(divider.group, divider.index)
-                        {
-                            self.drag =
-                                Some(Drag::SidebarSplit { group, first_child, second_child });
-                        }
-                    } else {
-                        self.drag = Some(Drag::RailResize(kind));
+                        return Ok(RenderAction::Draw);
                     }
+                    self.drag = Some(Drag::RailResize(kind));
                 }
                 Hit::SidebarSplitDivider {
                     group,
                     index,
+                    divider_token,
                     group_token,
                     first_token,
                     second_token,
                 } => {
-                    let valid =
+                    let current_divider = self
+                        .sidebar_layout
+                        .dividers
+                        .iter()
+                        .find(|divider| divider.group == group && divider.index == index)
+                        .copied();
+                    let valid = current_divider.is_some_and(|divider| {
                         self.sidebar_layout.split_groups.get(group).is_some_and(|candidate| {
                             candidate
                                 .child_keys
                                 .get(index)
                                 .zip(candidate.child_keys.get(index + 1))
                                 .is_some_and(|(first, second)| {
-                                    sidebar_profile_token(&candidate.id) == group_token
+                                    sidebar_split_divider_token(candidate, index, divider.rect)
+                                        == divider_token
+                                        && sidebar_profile_token(&candidate.id) == group_token
                                         && sidebar_profile_token(first) == first_token
                                         && sidebar_profile_token(second) == second_token
                                 })
-                        });
+                        })
+                    });
                     if valid
                         && let Some((group, first_child, second_child)) =
                             self.sidebar_split_drag_target(group, index)
@@ -26760,7 +27072,8 @@ impl App {
                     let restore_files = visible
                         && self.sidebar_view == SidebarView::Workspaces
                         && is_files_host
-                        && state.files_restore_pending;
+                        && state.files_restore_pending
+                        && state.files_restore_host.as_deref() == Some(view.as_str());
                     if hides_focused
                         && state.focused_view.as_ref().is_some_and(|identity| identity.id == view)
                     {
@@ -26784,7 +27097,9 @@ impl App {
                     self.focus = FocusTarget::Pane;
                 }
                 if restore_files {
-                    self.active_sidebar_profile_state_mut().files_restore_pending = false;
+                    let state = self.active_sidebar_profile_state_mut();
+                    state.files_restore_pending = false;
+                    state.files_restore_host = None;
                     self.sidebar_view = SidebarView::Files;
                 }
                 self.ensure_files_mode_supported();
@@ -27305,12 +27620,12 @@ impl App {
                 return Ok(RenderAction::None);
             };
             let rows = self.projection_rows(view_index);
-            let two_line_agents = spec.row_lines >= 2;
-            let body_rows = rows
-                .iter()
-                .map(|row| if two_line_agents && row.agent_state.is_some() { 2 } else { 1 })
-                .sum::<usize>()
-                .max(usize::from(rows.is_empty()));
+            let (_, projected_body_rows) = projection_row_spans(
+                &rows,
+                &spec,
+                crate::ui::rail::RailMetrics::for_app(self),
+            );
+            let body_rows = projected_body_rows.max(usize::from(rows.is_empty()));
             if spec.includes(SidebarResourceKind::Agents) && rail_area.height > 1 {
                 rail_area = Rect { y: rail_area.y + 1, height: rail_area.height - 1, ..rail_area };
             }
@@ -31324,9 +31639,10 @@ mod tests {
 
         // Simulate a config reorder between pointer sampling and dispatch.
         // The rendered token belongs to Focus, while index 1 now names Work.
+        app.config.sidebar.active_profile = "focus".into();
         app.config.sidebar.profiles.swap(0, 1);
         app.handle_left_down(profile.x, profile.y, KeyModifiers::NONE).unwrap();
-        assert_eq!(app.config.sidebar.active_profile, "work");
+        assert_eq!(app.config.sidebar.active_profile, "focus");
     }
 
     #[test]
@@ -32611,6 +32927,54 @@ mod tests {
         app.drag_sidebar_split_divider("left", "workspaces", "all-agents", 0, 0);
         app.sync_layout((120, 31));
         assert_eq!(app.sidebar_layout.ordered[0].rect.height, super::MIN_SPLIT_RAIL_HEIGHT);
+    }
+
+    #[test]
+    fn horizontal_sidebar_split_uses_an_explicit_receipt_and_rejects_stale_geometry() {
+        use crate::config::{SidebarLayoutNode, SidebarSplitDir, SidebarSplitSpec};
+
+        let mux = Mux::new("sidebar-horizontal-split-hit-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let mut config = split_sidebar_config();
+        config.sidebar.layout = vec![SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "left".into(),
+            dir: SidebarSplitDir::Horizontal,
+            weights: vec![1, 1],
+            children: vec![SidebarLayoutNode::Leaf(0), SidebarLayoutNode::Leaf(1)],
+            width: 50,
+            max_width: 0,
+            collapse_priority: 30,
+        })];
+        config.sidebar.profiles[0].layout = config.sidebar.layout.clone();
+        app.config = config;
+        app.sync_layout((100, 24));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let (handle, receipt) = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, Hit::SidebarSplitDivider { .. }).then_some((*rect, *hit))
+            })
+            .expect("horizontal split has an explicit divider receipt");
+        assert!(matches!(receipt, Hit::SidebarSplitDivider { .. }));
+
+        app.handle_left_down(handle.x, handle.y, KeyModifiers::NONE).unwrap();
+        assert!(matches!(app.drag, Some(Drag::SidebarSplit { .. })));
+
+        // A layout refresh moves the boundary. The old receipt remains in the
+        // hit map until the next draw, so dispatch must validate its geometry
+        // before accepting the drag.
+        app.drag = None;
+        if let Some(crate::config::SidebarLayoutNode::Split(split)) =
+            app.config.sidebar.layout.first_mut()
+        {
+            split.weights = vec![3, 1];
+        }
+        app.sync_layout((100, 24));
+        app.handle_left_down(handle.x, handle.y, KeyModifiers::NONE).unwrap();
+        assert!(app.drag.is_none(), "a stale horizontal divider receipt must fail closed");
     }
 
     #[test]
@@ -48955,6 +49319,17 @@ mod tests {
         assert!(action.y < row.y, "top actions must precede the projection body");
         assert!(buffer_text(terminal.backend().buffer()).contains("rename workspace"));
 
+        // Keyboard order must use the same top-mounted action as the mouse
+        // hit map. Enter on the first visible action opens its workspace
+        // prompt instead of subtracting the body row count from its index.
+        app.focus = FocusTarget::ProjectionRail(0);
+        app.projection_rail_state_mut(0).selected_action = Some(0);
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::Workspace(_))
+        ));
+
         mux.close_surface(surface.id).unwrap();
     }
 
@@ -48989,6 +49364,12 @@ mod tests {
                 matches!(hit, super::Hit::SidebarAction { view: 0, .. }).then_some(*rect)
             })
             .expect("rendered action hit");
+
+        // The view id stays stable across a definition edit, but the old
+        // receipt must still expire because its label and geometry changed.
+        app.config.sidebar.views[0].actions[0].label = Some("renamed action".into());
+        app.handle_left_down(action.x, action.y, KeyModifiers::NONE).unwrap();
+        assert!(app.prompt.is_none(), "a changed view definition invalidates its old hit");
 
         app.config.sidebar.views[0].actions.clear();
         app.handle_left_down(action.x, action.y, KeyModifiers::NONE).unwrap();
@@ -52018,7 +52399,7 @@ mod tests {
             tabs_rail_selection: 0,
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
-            sidebar_presentation: super::SidebarPresentationState::default(),
+        sidebar_presentation: super::SidebarPresentationState::default(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
             agent_focus_stamps: HashMap::new(),
