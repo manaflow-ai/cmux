@@ -105,9 +105,33 @@ describe("pricing copy matches the plan policy", () => {
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
   });
 
-  for (const [locale, messages, sharedPhrase, stalePerVmPhrase, capacityLabel] of [
-    ["en", enMessages, "all sharing a total of", "each with", "Resources shared across Cloud VMs"],
-    ["ja", jaMessages, "すべての VM で合計", "各 5 vCPU", "Cloud VM 間で共有するリソース"],
+  for (const [
+    locale,
+    messages,
+    sharedPhrase,
+    stalePerVmPhrase,
+    capacityLabel,
+    faqSharedPhrase,
+    faqPerUserPhrase,
+  ] of [
+    [
+      "en",
+      enMessages,
+      "all sharing a total of",
+      "each with",
+      "Resources shared across Cloud VMs",
+      "Each user's VMs share a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk",
+      "up to 50 Cloud VMs per user",
+    ],
+    [
+      "ja",
+      jaMessages,
+      "すべての VM で合計",
+      "各 5 vCPU",
+      "Cloud VM 間で共有するリソース",
+      "各ユーザーの VM は合計 5 vCPU、20 GB の RAM、200 GB のディスクを共有",
+      "ユーザーごとに最大 50 台の Cloud VM",
+    ],
   ] as const) {
     test(`${locale} pricing copy states the current prices and shared capacity`, () => {
       const pricing = messages.pricing;
@@ -128,6 +152,8 @@ describe("pricing copy matches the plan policy", () => {
       expect(capacityRow?.pro).toContain(`${memoryGb} GB`);
       expect(capacityRow?.pro).toContain(`${diskGb} GB`);
       expect(capacityRow?.team).toContain(`${vcpus} vCPU`);
+      expect(capacityRow?.team).toContain(`${memoryGb} GB`);
+      expect(capacityRow?.team).toContain(`${diskGb} GB`);
       const teamCapacity = capacityRow?.team ?? "";
       expect(locale === "en" ? teamCapacity.toLowerCase() : teamCapacity).toContain(
         locale === "en" ? "per user" : "ユーザーごとに",
@@ -144,6 +170,8 @@ describe("pricing copy matches the plan policy", () => {
       expect(faq.toLowerCase()).not.toContain("unlimited active");
       expect(faq).not.toContain("無制限に利用");
       expect(faq).not.toContain(stalePerVmPhrase);
+      expect(faq).toContain(faqSharedPhrase);
+      expect(faq).toContain(faqPerUserPhrase);
     });
   }
 });

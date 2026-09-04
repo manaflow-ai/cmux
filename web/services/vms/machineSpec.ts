@@ -1,9 +1,9 @@
 /**
- * The provider sizing profile for paid Cloud VMs. Paid plans allow up to
- * PAID_MAX_ACTIVE_VMS_DEFAULT machines and advertise the profile's 5 vCPU,
- * 20 GB memory, and 200 GB disk as shared across those machines. The pricing
- * copy is pinned to these constants by test, so a change here that forgets the
- * copy (or vice versa) fails CI.
+ * The provider sizing profile applied to each paid Cloud VM. Paid plans allow
+ * up to PAID_MAX_ACTIVE_VMS_DEFAULT machines and advertise the profile's 5
+ * vCPU, 20 GB memory, and 200 GB disk as a shared plan pool. The pricing copy
+ * is pinned to these constants by test, so a change here that forgets the copy
+ * (or vice versa) fails CI.
  *
  * Kept dependency-free so the provider drivers can size a machine without
  * pulling the billing graph into their module.
