@@ -3,6 +3,7 @@ import Bonsplit
 import Combine
 import CmuxAppKitSupportUI
 import CmuxFoundation
+import CmuxGit
 import CmuxWorkspaces
 import CmuxSettings
 import SwiftUI
@@ -854,6 +855,27 @@ struct FileExplorerPanelView: NSViewRepresentable {
             copyRelItem.target = self
             copyRelItem.representedObject = node
             menu.addItem(copyRelItem)
+
+            // kb:{shortcut}: outline-only menu — search results lack Copy GitHub URL
+            // kb:{shortcut}: github.com only — non-github.com remotes omitted
+            // kb:{shortcut}: no detached HEAD — detached HEAD gets no item
+            if isLocal,
+               let githubURL = GitMetadataService.githubWebURL(
+                forFileSystemPath: node.path,
+                resource: node.isDirectory ? .folder : .file
+               ) {
+                let copyGitHubItem = NSMenuItem(
+                    title: String(
+                        localized: "fileExplorer.contextMenu.copyGitHubURL",
+                        defaultValue: "Copy GitHub URL"
+                    ),
+                    action: #selector(contextMenuCopyGitHubURL(_:)),
+                    keyEquivalent: ""
+                )
+                copyGitHubItem.target = self
+                copyGitHubItem.representedObject = githubURL.absoluteString
+                menu.addItem(copyGitHubItem)
+            }
         }
 
         @objc private func contextMenuOpenExternally(_ sender: NSMenuItem) {
@@ -881,6 +903,12 @@ struct FileExplorerPanelView: NSViewRepresentable {
                 relativePath,
                 to: .general
             )
+        }
+
+        @objc private func contextMenuCopyGitHubURL(_ sender: NSMenuItem) {
+            guard let urlString = sender.representedObject as? String else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(urlString, forType: .string)
         }
     }
 }
