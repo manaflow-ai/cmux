@@ -64,6 +64,8 @@ export const VM_RESOURCE_RESERVATION_METADATA_KEY = "cmuxResourceReservation";
 export const VM_RESOURCE_RESIZE_PENDING_METADATA_KEY = "cmuxResourceResizePending";
 /** Internal marker for a completed resize whose provider size is not confirmed yet. */
 export const VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY = "cmuxResourceResizeUnconfirmed";
+/** Internal marker that postpones a legacy resource read until a later pass. */
+export const VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY = "cmuxResourceReconcileRetry";
 
 /** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up. */
 export function vcpusForMemoryMb(memoryMb: number): number {
@@ -202,6 +204,23 @@ export function vmResourceResizeUnconfirmedFromMetadata(
     !isPositiveSafeInteger(requestedDiskMb)
   ) return null;
   return { operationId: operationId.trim(), requestedDiskMb };
+}
+
+export type VmResourceReconcileRetry = {
+  /** Unix epoch milliseconds at which the row may be attempted again. */
+  readonly nextAttemptAtMs: number;
+};
+
+/** Read a validated retry marker for background resource reconciliation. */
+export function vmResourceReconcileRetryFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): VmResourceReconcileRetry | null {
+  const raw = metadata?.[VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const candidate = raw as Record<string, unknown>;
+  const nextAttemptAtMs = candidate.nextAttemptAtMs;
+  if (!isPositiveSafeInteger(nextAttemptAtMs)) return null;
+  return { nextAttemptAtMs };
 }
 
 function isPositiveSafeInteger(value: unknown): value is number {

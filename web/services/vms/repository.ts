@@ -45,12 +45,14 @@ import {
   PLAN_SHARED_DISK_MB,
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
+  VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
   firstExceededSharedResource,
   hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
   vmResourceReservationFromMetadata,
+  vmResourceReconcileRetryFromMetadata,
   vmResourceResizePendingFromMetadata,
   withVmResourceReservationMetadata,
   type VmResourceReservation,
@@ -257,6 +259,11 @@ export type VmRepositoryShape = {
     /** Keep provider reconciliation bounded. */
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Defer a legacy resource read without losing its place in the batch. */
+  readonly deferResourceReservation?: (input: {
+    readonly id: string;
+    readonly nextAttemptAt: Date;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /** Persist a provider-confirmed claim for a legacy VM row. */
   readonly setResourceReservation?: (input: {
     readonly id: string;
@@ -750,6 +757,7 @@ function providerMetadataPatchForPersistence(
   return Object.fromEntries(
     Object.entries(metadata ?? {}).filter(([key]) =>
       key !== VM_RESOURCE_RESERVATION_METADATA_KEY &&
+      key !== VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
     ),
@@ -793,6 +801,32 @@ function resizeUnconfirmedMetadataJsonb(input: {
       'requestedDiskMb', ${input.requestedDiskMb}::integer
     )
   )`;
+}
+
+function resourceReconcileRetryMetadataJsonb(nextAttemptAtMs: number) {
+  return sql`jsonb_build_object(
+    ${sql.raw(`'${VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY}'`)},
+    jsonb_build_object(
+      'nextAttemptAtMs', ${nextAttemptAtMs}::bigint
+    )
+  )`;
+}
+
+/** SQL predicate that keeps deferred rows out until their retry time. */
+function resourceReconcileRetryEligibleSql(nowMs: number) {
+  const metadata = sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)`;
+  const retryAt = sql<string | null>`${metadata}->${sql.raw(`'${VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY}'`)}->>'nextAttemptAtMs'`;
+  // The CASE keeps malformed provider metadata from reaching a numeric cast.
+  // Invalid markers are eligible immediately so the background pass can heal
+  // them instead of starving newer rows.
+  return sql`case
+    when ${retryAt} ~ '^[0-9]{1,16}$' then
+      case
+        when (${retryAt})::numeric <= 9007199254740991 then (${retryAt})::numeric
+        else 0
+      end
+    else 0
+  end <= ${nowMs}`;
 }
 
 function accountUsageScopeWhere(input: {
@@ -1737,6 +1771,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   legacyResourceReservationCandidates: (input) =>
     dbEffect("legacyResourceReservationCandidates", async () => {
       const db = cloudDb();
+      const nowMs = Date.now();
       const scope = input.billingTeamId?.trim()
         ? eq(cloudVms.billingTeamId, input.billingTeamId.trim())
         : input.userId
@@ -1756,6 +1791,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .where(
           and(
             ...predicates,
+            resourceReconcileRetryEligibleSql(nowMs),
             or(
               sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}`,
               sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}`,
@@ -1767,11 +1803,46 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .limit(input.limit);
       // Keep a runtime check as a second boundary for adapters that return
       // rows from a different SQL dialect or a stale read replica.
-      return rows.filter((row) =>
-        Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_PENDING_METADATA_KEY) ||
-        Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY) ||
-        !hasVmResourceReservationMetadata(row.providerMetadata)
-      );
+      return rows.filter((row) => {
+        const retry = vmResourceReconcileRetryFromMetadata(row.providerMetadata);
+        if (retry && retry.nextAttemptAtMs > nowMs) return false;
+        return Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_PENDING_METADATA_KEY) ||
+          Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY) ||
+          !hasVmResourceReservationMetadata(row.providerMetadata);
+      });
+    }),
+
+  deferResourceReservation: (input) =>
+    dbEffect("deferResourceReservation", async () => {
+      const nextAttemptAtMs = input.nextAttemptAt.getTime();
+      if (!Number.isSafeInteger(nextAttemptAtMs) || nextAttemptAtMs <= 0) {
+        throw new Error("resource reconciliation retry time must be a positive timestamp");
+      }
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        const [initial] = await tx
+          .select({ userId: cloudVms.userId, billingTeamId: cloudVms.billingTeamId })
+          .from(cloudVms)
+          .where(eq(cloudVms.id, input.id))
+          .limit(1);
+        if (!initial) return;
+        const lockKey = initial.billingTeamId?.trim() || `user:${initial.userId}`;
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+        await tx
+          .update(cloudVms)
+          .set({
+            // Keep retry state in the row so every worker observes the same
+            // backoff and a permanently failing provider cannot monopolize a
+            // bounded oldest-first batch.
+            providerMetadata: sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+              || ${resourceReconcileRetryMetadataJsonb(nextAttemptAtMs)}`,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(cloudVms.id, input.id),
+            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+          ));
+      });
     }),
 
   setResourceReservation: (input) =>
@@ -1812,7 +1883,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
               || ${reservationMetadataJsonb(input.reservation)}
             ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
-              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
+              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
+              #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
             updatedAt: new Date(),
           })
           .where(and(
@@ -1973,7 +2045,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                   coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
                   || ${reservationMetadataJsonb(reserved)}
                 ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
-                  #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`
+                  #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
+                  #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`
                 : sql`(
                   jsonb_set(
                     coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${reservationMetadataJsonb(reserved)},
@@ -1981,7 +2054,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                     ${resizePendingMetadataJsonb({ operationId, requestedDiskMb, previousDiskMb, createdAtMs })},
                     true
                   )
-                ) #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
+                ) #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
+                  #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
               updatedAt: new Date(),
             })
             .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")));
@@ -2041,7 +2115,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 true
               )
             ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
-              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
+              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
+              #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
             updatedAt: new Date(),
           })
           .where(and(
@@ -2097,7 +2172,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 operationId,
                 requestedDiskMb: minimumDiskMb,
               })}
-            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'`,
+            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
+              #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
             updatedAt: new Date(),
           })
           .where(and(
@@ -2147,7 +2223,8 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 diskMb: previousDiskMb,
               })}
             ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
-              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'`,
+              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
+              #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
             updatedAt: new Date(),
           })
           .where(and(

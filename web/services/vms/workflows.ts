@@ -35,6 +35,7 @@ import {
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
   hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
+  vmResourceReconcileRetryFromMetadata,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
   vmResourceResizePendingFromMetadata,
@@ -185,6 +186,10 @@ const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
+const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
+// Ten concurrent waves of this batch must leave time for status reconciliation
+// in a short-lived cron invocation, even when a provider is fully hung.
+const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -1443,10 +1448,7 @@ function reconcileLegacyResourceReservations(
   },
 ): Effect.Effect<void, never> {
   const findCandidates = repo.legacyResourceReservationCandidates;
-  const setReservation = repo.setResourceReservation;
-  const markUnconfirmed = repo.markVmResizeUnconfirmed;
-  const getStats = providers.getStats;
-  if (!findCandidates || !setReservation || !getStats) return Effect.void;
+  if (!findCandidates || !repo.setResourceReservation || !providers.getStats) return Effect.void;
 
   return Effect.gen(function*() {
     const candidates = yield* findCandidates({
@@ -1454,94 +1456,156 @@ function reconcileLegacyResourceReservations(
       billingTeamId: input.billingTeamId,
       limit: input.limit ?? LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
     }).pipe(Effect.catchAll(() => Effect.succeed([])));
-    yield* Effect.forEach(candidates, (vm) => {
-      const providerVmId = vm.providerVmId;
-      if (!providerVmId) return Effect.void;
-      const metadata = vm.providerMetadata ?? {};
-      const hasPendingMarker = Object.prototype.hasOwnProperty.call(
-        metadata,
-        VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
-      );
-      const pending = vmResourceResizePendingFromMetadata(metadata);
-      const hasUnconfirmedMarker = Object.prototype.hasOwnProperty.call(
-        metadata,
-        VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
-      );
-      const unconfirmed = vmResourceResizeUnconfirmedFromMetadata(metadata);
-      // A malformed control marker is deliberately left in place. Clearing it
-      // without a request generation could release a newer resize claim.
-      if (hasPendingMarker && !pending) return Effect.void;
-      if (hasUnconfirmedMarker && !unconfirmed) return Effect.void;
-      return getStats(vm.provider, providerVmId).pipe(
-        Effect.flatMap((stats) => {
-          const diskMb = positiveResourceSize(stats.diskTotalMb);
-          if (diskMb === null) return Effect.void;
-          const existing = vmResourceReservationFromMetadata(metadata);
-          if (pending && diskMb < pending.requestedDiskMb) {
-            // A worker can die after reserving headroom but before provider
-            // I/O. After the recovery window, release the in-progress marker
-            // into a conservative unconfirmed claim instead of blocking every
-            // later resize forever. The max claim still prevents undercounting.
-            if (!markUnconfirmed || !resizePendingHasExpired(vm, pending)) return Effect.void;
-            return markUnconfirmed({
-              id: vm.id,
-              expectedDiskMb: existing.diskMb,
-              minimumDiskMb: pending.requestedDiskMb,
-              operationId: pending.operationId,
-            }).pipe(Effect.asVoid);
-          }
-          if (unconfirmed) {
-            // A successful provider resize whose follow-up stats were lost is
-            // no longer in flight. Use the first later positive stat as the
-            // lower bound, while retaining the requested size if the provider
-            // briefly reports a stale value.
-            const reservation = {
-              ...existing,
-              vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
-              memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
-              diskMb: Math.max(unconfirmed.requestedDiskMb, diskMb),
-            };
-            return setReservation({
-              id: vm.id,
-              reservation,
-              expectedResizeUnconfirmedOperationId: unconfirmed.operationId,
-            }).pipe(Effect.asVoid);
-          }
-          const reservation = pending
-            ? {
-              ...existing,
-              vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
-              memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
-              diskMb: Math.max(pending.requestedDiskMb, diskMb),
-            }
-            : {
-              ...DEFAULT_VM_RESOURCE_RESERVATION,
-              vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
-              memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
-              // Never replace the logical starting profile with a smaller
-              // provider report. A larger report remains visible and fails
-              // closed against the shared pool.
-              diskMb: Math.max(DEFAULT_VM_RESOURCE_RESERVATION.diskMb, diskMb),
-            };
-          return setReservation({
-            id: vm.id,
-            reservation,
-            ...(pending ? { expectedResizeOperationId: pending.operationId } : {}),
-          }).pipe(Effect.asVoid);
-        }),
-        // An unavailable provider leaves the candidate marker unchanged, so
-        // the SQL quota read remains conservative instead of undercounting.
-        Effect.catchAll(() => Effect.void),
-      );
-    }, { concurrency: LEGACY_RESOURCE_RECONCILE_CONCURRENCY, discard: true });
+    yield* Effect.forEach(
+      candidates,
+      (vm) => reconcileLegacyResourceCandidate(repo, providers, vm),
+      { concurrency: LEGACY_RESOURCE_RECONCILE_CONCURRENCY, discard: true },
+    );
   });
 }
 
+/** Defer one candidate with durable backoff when the provider cannot be read. */
+function deferLegacyResourceCandidate(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  requestedAttemptAtMs?: number,
+): Effect.Effect<void, never> {
+  const defer = repo.deferResourceReservation;
+  if (!defer) return Effect.void;
+  const nowMs = Date.now();
+  const nextAttemptAtMs = Math.max(
+    nowMs + LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS,
+    requestedAttemptAtMs ?? 0,
+  );
+  return defer({
+    id: vm.id,
+    nextAttemptAt: new Date(nextAttemptAtMs),
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/** Reconcile one legacy row, keeping provider work outside the request path. */
+function reconcileLegacyResourceCandidate(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  vm: CloudVmRow,
+): Effect.Effect<void, never> {
+  const setReservation = repo.setResourceReservation;
+  const markUnconfirmed = repo.markVmResizeUnconfirmed;
+  const getStats = providers.getStats;
+  const providerVmId = vm.providerVmId;
+  if (!providerVmId || !setReservation || !getStats) return Effect.void;
+
+  const metadata = vm.providerMetadata ?? {};
+  const hasPendingMarker = Object.prototype.hasOwnProperty.call(
+    metadata,
+    VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+  );
+  const pending = vmResourceResizePendingFromMetadata(metadata);
+  const hasUnconfirmedMarker = Object.prototype.hasOwnProperty.call(
+    metadata,
+    VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
+  );
+  const unconfirmed = vmResourceResizeUnconfirmedFromMetadata(metadata);
+  const retry = vmResourceReconcileRetryFromMetadata(metadata);
+  // The repository filters these rows in SQL. Keep this second boundary for
+  // alternate adapters and stale replicas.
+  if (retry && retry.nextAttemptAtMs > Date.now()) return Effect.void;
+  // A malformed control marker has no safe generation to clear. Keep it and
+  // retry later instead of releasing a newer claim by accident.
+  if (hasPendingMarker && !pending || hasUnconfirmedMarker && !unconfirmed) {
+    return deferLegacyResourceCandidate(repo, vm);
+  }
+  // A live pending resize still has an owner that can confirm it. Do not read
+  // provider stats and clear the marker while that request may be in flight.
+  if (pending && !resizePendingHasExpired(pending)) {
+    const recoveryAtMs = pending.createdAtMs === undefined
+      ? undefined
+      : pending.createdAtMs + RESIZE_PENDING_RECOVERY_AFTER_MS;
+    return deferLegacyResourceCandidate(repo, vm, recoveryAtMs);
+  }
+
+  const readStats = getStats(vm.provider, providerVmId).pipe(
+    // A hung provider read must not hold the cron worker or starve later rows.
+    Effect.timeoutFail({
+      duration: LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT,
+      onTimeout: () => new Error(`legacy resource stats timed out for ${providerVmId}`),
+    }),
+  );
+  return readStats.pipe(
+    Effect.flatMap((stats) => {
+      const diskMb = positiveResourceSize(stats.diskTotalMb);
+      if (diskMb === null) return deferLegacyResourceCandidate(repo, vm);
+      const existing = vmResourceReservationFromMetadata(metadata);
+      if (pending && diskMb < pending.requestedDiskMb) {
+        // A worker can die after reserving headroom but before provider I/O.
+        // After the recovery window, retain a maximum claim until stats prove
+        // that the requested size exists.
+        if (!markUnconfirmed || !resizePendingHasExpired(pending)) {
+          return deferLegacyResourceCandidate(repo, vm);
+        }
+        return markUnconfirmed({
+          id: vm.id,
+          expectedDiskMb: existing.diskMb,
+          minimumDiskMb: pending.requestedDiskMb,
+          operationId: pending.operationId,
+        }).pipe(
+          Effect.asVoid,
+          Effect.catchAll(() => deferLegacyResourceCandidate(repo, vm)),
+        );
+      }
+      if (unconfirmed) {
+        // Keep the maximum claim while the provider reports a stale size.
+        // Clearing the marker before the requested size is observed would
+        // permanently undercount the shared disk pool.
+        if (diskMb < unconfirmed.requestedDiskMb) {
+          return deferLegacyResourceCandidate(repo, vm);
+        }
+        const reservation = {
+          ...existing,
+          vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
+          memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+          diskMb: Math.max(unconfirmed.requestedDiskMb, diskMb),
+        };
+        return setReservation({
+          id: vm.id,
+          reservation,
+          expectedResizeUnconfirmedOperationId: unconfirmed.operationId,
+        }).pipe(Effect.asVoid);
+      }
+      const reservation = pending
+        ? {
+          ...existing,
+          vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
+          memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+          diskMb: Math.max(pending.requestedDiskMb, diskMb),
+        }
+        : {
+          ...DEFAULT_VM_RESOURCE_RESERVATION,
+          vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
+          memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+          // Never replace the logical starting profile with a smaller
+          // provider report. A larger report remains visible and fails closed.
+          diskMb: Math.max(DEFAULT_VM_RESOURCE_RESERVATION.diskMb, diskMb),
+        };
+      return setReservation({
+        id: vm.id,
+        reservation,
+        ...(pending ? { expectedResizeOperationId: pending.operationId } : {}),
+      }).pipe(Effect.asVoid);
+    }),
+    // An unavailable provider leaves the claim conservative and retries later.
+    Effect.catchAll(() => deferLegacyResourceCandidate(repo, vm)),
+  );
+}
+
 function resizePendingHasExpired(
-  vm: Pick<CloudVmRow, "updatedAt">,
   pending: VmResourceResizePending,
 ): boolean {
-  const startedAtMs = pending.createdAtMs ?? vm.updatedAt.getTime();
+  // Old markers have no reliable start time. Treat them as recoverable so a
+  // migration cannot remain blocked forever; new markers carry their own
+  // generation timestamp and get the full recovery window.
+  if (pending.createdAtMs === undefined) return true;
+  const startedAtMs = pending.createdAtMs;
   return Date.now() - startedAtMs >= RESIZE_PENDING_RECOVERY_AFTER_MS;
 }
 
