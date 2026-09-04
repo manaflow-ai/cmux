@@ -832,13 +832,14 @@ struct MachineRowActions {
             arguments: arguments,
             successTitle: successTitle,
             presentOutputOnSuccess: presentOutputOnSuccess,
-            onCancellationReady: onCancellationReady
-        ) { completion in
-            if completion.terminationStatus == 0 {
-                onSuccess?()
+            onCancellationReady: onCancellationReady,
+            onCompletion: { completion in
+                if completion.terminationStatus == 0 {
+                    onSuccess?()
+                }
+                onDidMutate()
             }
-            onDidMutate()
-        }
+        )
     }
 
     @MainActor
