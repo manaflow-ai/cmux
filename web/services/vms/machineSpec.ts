@@ -57,6 +57,11 @@ export const DEFAULT_VM_RESOURCE_RESERVATION: VmResourceReservation = {
 };
 
 export const VM_RESOURCE_RESERVATION_METADATA_KEY = "cmuxResourceReservation";
+/** Internal marker for a resize that still holds conservative disk headroom.
+ * The reservation remains valid while this marker is present, so reconciliation
+ * cannot lower the claim during the provider call.
+ */
+export const VM_RESOURCE_RESIZE_PENDING_METADATA_KEY = "cmuxResourceResizePending";
 
 /** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up. */
 export function vcpusForMemoryMb(memoryMb: number): number {

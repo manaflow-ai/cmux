@@ -39,6 +39,7 @@ import {
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
+import { VM_RESOURCE_RESIZE_PENDING_METADATA_KEY } from "../services/vms/machineSpec";
 import {
   createVm,
   destroyVm,
@@ -2625,13 +2626,13 @@ describe("VM Effect workflows", () => {
       ) values (
         ${vmId}, 'user-workflow-resize-headroom', ${teamId}, 'pro', 'freestyle',
         'provider-vm-resize-headroom', 'snapshot-test', 'running',
-        ${JSON.stringify({
+        ${sql.json({
           cmuxResourceReservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 32768 },
-        })}::jsonb
+        })}
       )
     `;
 
-    const runRepo = <T,>(operation: (repo: VmRepositoryShape) => Effect.Effect<T, never>) =>
+    const runRepo = <T,>(operation: (repo: VmRepositoryShape) => Effect.Effect<T, unknown>) =>
       Effect.runPromise(
         Effect.gen(function* () {
           const repo = yield* VmRepository;
@@ -2648,7 +2649,17 @@ describe("VM Effect workflows", () => {
       maxActiveVms: 50,
     }));
 
-    expect(reservation).toEqual({ previousDiskMb: 32768, reservedDiskMb: 200 * 1024 });
+    expect(reservation).toEqual({
+      previousDiskMb: 32768,
+      reservedDiskMb: 200 * 1024,
+      requestedDiskMb: 65536,
+    });
+    const [pending] = await sql<{ pending: boolean }[]>`
+      select provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(pending?.pending).toBe(true);
     const blocked = await Effect.runPromise(
       Effect.gen(function* () {
         const repo = yield* VmRepository;
@@ -2670,9 +2681,16 @@ describe("VM Effect workflows", () => {
     const confirmed = await runRepo((repo) => repo.confirmVmResize!({
       id: vmId,
       expectedDiskMb: reservation!.reservedDiskMb,
+      minimumDiskMb: reservation!.requestedDiskMb,
       confirmedDiskMb: 73728,
     }));
     expect(confirmed).toBe(true);
+    const [cleared] = await sql<{ pending: boolean }[]>`
+      select provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(cleared?.pending).toBe(false);
 
     const created = await runRepo((repo) => repo.beginCreate({
       userId: "user-workflow-resize-headroom",

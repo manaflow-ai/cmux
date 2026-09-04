@@ -2269,6 +2269,9 @@ export function resizeVm(input: {
       yield* repo.confirmVmResize({
         id: vm.id,
         expectedDiskMb: reservation.reservedDiskMb,
+        ...(reservation.requestedDiskMb === undefined
+          ? {}
+          : { minimumDiskMb: reservation.requestedDiskMb }),
         confirmedDiskMb,
       });
     }
