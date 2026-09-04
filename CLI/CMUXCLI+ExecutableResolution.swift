@@ -84,8 +84,32 @@ extension CMUXCLI {
         searchPath: String?,
         skip: ((String) -> Bool)? = nil
     ) -> String? {
-        let entries = providerExecutableSearchDirectories(searchPath: searchPath)
-        for entry in entries where !entry.isEmpty {
+        resolveExecutable(
+            name,
+            searchDirectories: providerExecutableSearchDirectories(searchPath: searchPath),
+            skip: skip
+        )
+    }
+
+    /// Resolves an executable only from the supplied `PATH`, without provider fallbacks.
+    func resolveExecutableInSuppliedSearchPath(
+        _ name: String,
+        searchPath: String?,
+        skip: ((String) -> Bool)? = nil
+    ) -> String? {
+        resolveExecutable(
+            name,
+            searchDirectories: suppliedExecutableSearchDirectories(searchPath: searchPath),
+            skip: skip
+        )
+    }
+
+    private func resolveExecutable(
+        _ name: String,
+        searchDirectories: [String],
+        skip: ((String) -> Bool)?
+    ) -> String? {
+        for entry in searchDirectories where !entry.isEmpty {
             let candidate = URL(fileURLWithPath: entry, isDirectory: true)
                 .appendingPathComponent(name, isDirectory: false)
                 .path
@@ -187,7 +211,7 @@ extension CMUXCLI {
     /// not consume them as presentation options or generic subcommand help.
     func managedProviderArgumentsPassThrough(command: String) -> Bool {
         switch command {
-        case "claude-teams", "codex-teams", "omo", "omx", "omc":
+        case "__herdr-compat", "claude-teams", "codex-teams", "omo", "omx", "omc":
             return true
         default:
             return false
@@ -339,6 +363,28 @@ extension CMUXCLI {
         return AgentExecutableSearchPathResolver()
             .normalizedDirectories(from: directories)
             .filter { !isCmuxAppBundleResourceBinDirectory($0) }
+    }
+
+    private func suppliedExecutableSearchDirectories(searchPath: String?) -> [String] {
+        guard let searchPath else { return [] }
+        let currentDirectory = FileManager.default.currentDirectoryPath
+        guard !searchPath.isEmpty else {
+            return normalizedExecutableSearchDirectories([currentDirectory])
+        }
+        let directories = searchPath
+            .split(separator: ":", omittingEmptySubsequences: false)
+            .map { $0.isEmpty ? currentDirectory : String($0) }
+        return normalizedExecutableSearchDirectories(directories)
+    }
+
+    private func normalizedExecutableSearchDirectories(_ directories: [String]) -> [String] {
+        // Validate raw components before URL normalization. In particular,
+        // `missing-directory/..` must not collapse into the current directory
+        // and accidentally shadow a real executable there.
+        let normalized = AgentExecutableSearchPathResolver(
+            currentDirectoryPath: FileManager.default.currentDirectoryPath
+        ).normalizedDirectories(from: directories)
+        return normalized.filter { !isCmuxAppBundleResourceBinDirectory($0) }
     }
 
     private func providerNodeVersionBinDirectories(root: String, suffix: String) -> [String] {
