@@ -159,10 +159,7 @@ fn machine_listening_tcp_json() -> anyhow::Result<Value> {
     #[cfg(unix)]
     {
         const MAX_LISTING_BYTES: usize = 512 * 1024;
-        let candidates: [(&str, &[&str]); 2] = [
-            ("ss", &["-H", "-ltn"]),
-            ("netstat", &["-ltn"]),
-        ];
+        let candidates: [(&str, &[&str]); 2] = [("ss", &["-H", "-ltn"]), ("netstat", &["-ltn"])];
         let mut failures = Vec::new();
         for (program, arguments) in candidates {
             let output = match std::process::Command::new(program).args(arguments).output() {
