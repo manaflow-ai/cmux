@@ -33,6 +33,7 @@ struct AgentNotificationDelivery: Sendable {
         agentKind: String? = nil,
         isSubagent: Bool? = nil,
         correlationKey: String? = nil,
+        sessionId: String? = nil,
         coalesces: Bool = false
     ) -> Bool {
         if let category,
@@ -56,7 +57,8 @@ struct AgentNotificationDelivery: Sendable {
                 category: category,
                 pending: pending,
                 agentKind: agentKind,
-                isSubagent: isSubagent
+                isSubagent: isSubagent,
+                sessionId: sessionId
             ),
             soundContext: soundContext,
             correlationKey: correlationKey,
@@ -71,7 +73,8 @@ struct AgentNotificationDelivery: Sendable {
         category: AgentNotifyCategory?,
         pending: Bool,
         agentKind: String?,
-        isSubagent: Bool?
+        isSubagent: Bool?,
+        sessionId: String? = nil
     ) -> TerminalNotificationPolicyAgentContext? {
         guard category != nil || agentKind != nil || isSubagent != nil else {
             return nil
@@ -80,7 +83,8 @@ struct AgentNotificationDelivery: Sendable {
             kind: agentKind,
             category: category?.rawValue,
             pending: category == nil ? nil : pending,
-            isSubagent: isSubagent
+            isSubagent: isSubagent,
+            sessionId: sessionId
         )
     }
 }

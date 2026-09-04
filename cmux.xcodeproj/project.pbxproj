@@ -2721,6 +2721,7 @@
 		7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */; };
 		A5E380710000000000000001 /* TerminalNotificationOpenPanelFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */; };
 		A5001096 /* TerminalNotificationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001097 /* TerminalNotificationPolicy.swift */; };
+		AD3485A5EE95A94C7580A3ED /* TerminalNotificationPolicyAgentContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C08BD36B31E50A48F5EFE9 /* TerminalNotificationPolicyAgentContext.swift */; };
 		468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */; };
 		79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */; };
 		A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */; };
@@ -2728,6 +2729,7 @@
 		A5001098 /* TerminalNotificationScrollPosition.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001099 /* TerminalNotificationScrollPosition.swift */; };
 		A5E380700000000000000001 /* TerminalNotificationSocketActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */; };
 		11189010A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11189011A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift */; };
+		9F5E3982C7D6FF23B855E6A9 /* TerminalNotificationStore+FocusState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F58EB2DE58F4E5EF8752CF2 /* TerminalNotificationStore+FocusState.swift */; };
 		468120000000000000000005 /* TerminalNotificationStore+HookResolution.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468120000000000000000006 /* TerminalNotificationStore+HookResolution.swift */; };
 		7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */; };
 		B7F0000A /* TerminalNotificationStore+Mute.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F00009 /* TerminalNotificationStore+Mute.swift */; };
@@ -5836,6 +5838,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		7939000EAA11BB22CC33DD0E /* TerminalNotificationLiveRetargetDelivery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationLiveRetargetDelivery.swift; sourceTree = "<group>"; };
 		A5E380710000000000000002 /* TerminalNotificationOpenPanelFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationOpenPanelFallbackTests.swift; sourceTree = "<group>"; };
 		A5001097 /* TerminalNotificationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicy.swift; sourceTree = "<group>"; };
+		E2C08BD36B31E50A48F5EFE9 /* TerminalNotificationPolicyAgentContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationPolicyAgentContext.swift"; sourceTree = "<group>"; };
 		468120000000000000000008 /* TerminalNotificationPolicyDeliveryIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyDeliveryIdentity.swift; sourceTree = "<group>"; };
 		79390014AA11BB22CC33DD14 /* TerminalNotificationPolicyInFlightStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationPolicyInFlightStore.swift; sourceTree = "<group>"; };
 		A5A5A502A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationQueue.swift; sourceTree = "<group>"; };
@@ -5843,6 +5846,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		A5001099 /* TerminalNotificationScrollPosition.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationScrollPosition.swift; sourceTree = "<group>"; };
 		A5E380700000000000000002 /* TerminalNotificationSocketActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketActionTests.swift; sourceTree = "<group>"; };
 		11189011A1B2C3D4E5F60718 /* TerminalNotificationSocketAttributionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalNotificationSocketAttributionTests.swift; sourceTree = "<group>"; };
+		0F58EB2DE58F4E5EF8752CF2 /* TerminalNotificationStore+FocusState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+FocusState.swift"; sourceTree = "<group>"; };
 		468120000000000000000006 /* TerminalNotificationStore+HookResolution.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+HookResolution.swift"; sourceTree = "<group>"; };
 		7490D0107490D0107490D010 /* TerminalNotificationStore+MemoryPressure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+MemoryPressure.swift"; sourceTree = "<group>"; };
 		B7F00009 /* TerminalNotificationStore+Mute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TerminalNotificationStore+Mute.swift"; sourceTree = "<group>"; };
@@ -7743,6 +7747,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				6313A1A1 /* PaneMemoryGuardrail.swift */,
 				A5D41235A1B2C3D4E5F60718 /* AgentNotificationGate.swift */,
 				A77A0006A1B2C3D4E5F60001 /* AgentJournalLifecycleCenter.swift */,
+				E2C08BD36B31E50A48F5EFE9 /* TerminalNotificationPolicyAgentContext.swift */,
+				0F58EB2DE58F4E5EF8752CF2 /* TerminalNotificationStore+FocusState.swift */,
 				F49FD681C026A6B0C83211C6 /* AgentJournalLifecycleCenter+Notifications.swift */,
 				2DDAD1AC31A52ED5D308536B /* AgentJournalLifecycleCenter+Projection.swift */,
 				A77A000FA1B2C3D4E5F60001 /* AgentJournalLazyStore.swift */,
@@ -11765,10 +11771,12 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B7F00008 /* TerminalNotificationDeliveryDecision.swift in Sources */,
 				7939000DAA11BB22CC33DD0D /* TerminalNotificationLiveRetargetDelivery.swift in Sources */,
 				A5001096 /* TerminalNotificationPolicy.swift in Sources */,
+				AD3485A5EE95A94C7580A3ED /* TerminalNotificationPolicyAgentContext.swift in Sources */,
 				468120000000000000000007 /* TerminalNotificationPolicyDeliveryIdentity.swift in Sources */,
 				79390013AA11BB22CC33DD13 /* TerminalNotificationPolicyInFlightStore.swift in Sources */,
 				A5A5A501A1B2C3D4E5F60718 /* TerminalNotificationQueue.swift in Sources */,
 				A5001098 /* TerminalNotificationScrollPosition.swift in Sources */,
+				9F5E3982C7D6FF23B855E6A9 /* TerminalNotificationStore+FocusState.swift in Sources */,
 				468120000000000000000005 /* TerminalNotificationStore+HookResolution.swift in Sources */,
 				7490C0107490C0107490C010 /* TerminalNotificationStore+MemoryPressure.swift in Sources */,
 				B7F0000A /* TerminalNotificationStore+Mute.swift in Sources */,

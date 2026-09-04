@@ -69,8 +69,10 @@ extension AgentJournalLifecycleCenter {
             if page.isEmpty { break }
             for event in page.events {
                 let canonical = canonicalized(event, aliases: aliases)
-                reducer.apply(canonical, to: &state)
-                _ = notifications.apply(canonical)
+                let decision = notifications.apply(canonical)
+                if decision.disposition != .stale {
+                    reducer.apply(notifications.lifecycleEvent(canonical), to: &state)
+                }
             }
             folded += page.events.count
             skipped += page.skippedSequences.count

@@ -52,7 +52,7 @@ extension FeedCoordinator {
             correlationKey: requestId, title: title, subtitle: subtitle, body: body,
             cwd: event.cwd, isAppFocused: AppFocusState.isAppFocused(), isFocusedPanel: false,
             agent: TerminalNotificationPolicyAgentContext(kind: event.source,
-                category: "needs-permission", pending: false, isSubagent: false), soundContext: soundContext)
+                category: "needs-permission", pending: false, isSubagent: false, sessionId: sessionID), soundContext: soundContext)
         guard AgentJournalLifecycleCenter.notificationTargetIsCurrent(draft) else { return false }
         _ = TerminalNotificationStore.shared.applyNotification(request: request, effects: storeEffects,
             now: Date(), cooldownReservation: nil, scrollPosition: nil, clickAction: nil,

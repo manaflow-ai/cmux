@@ -110,7 +110,10 @@ public struct AgentNotificationReconciler: Sendable {
                 session.phase = phase == .running && !session.delivered.isEmpty ? .needsInput : phase
             }
         case .childSpawned:
-            if let child = context?.requestIdentity { session.children.insert(child) }
+            if let child = context?.requestIdentity {
+                session.children.insert(child)
+                if session.phase == .idle || session.phase == .unknown { session.phase = .running }
+            }
         case .childCompleted, .childFailed:
             if let child = context?.requestIdentity { session.children.remove(child) }
         }
@@ -137,6 +140,27 @@ public struct AgentNotificationReconciler: Sendable {
         session.delivered[identity] = context?.notification?.correlationKey ?? identity
         sessions[sessionKey] = session
         return .init(.accepted, identity: identity, invalidatedCorrelationKeys: invalidated)
+    }
+
+    /// Projects the reconciled phase back into the shared lifecycle fold.
+    /// - Parameter event: The event just observed through `apply`.
+    /// - Returns: A lifecycle assertion using the same causal state as admission.
+    public func lifecycleEvent(_ event: AgentJournalEvent) -> AgentJournalEvent {
+        var draft = event.draft
+        guard let sessionID = draft.sessionId,
+              let session = sessions[Self.key([draft.source, sessionID])] else { return event }
+        switch draft.kind {
+        case .turnCompleted:
+            draft.pendingWork = session.phase == .running
+        case .stateChanged where draft.declaredPhase != nil:
+            draft.declaredPhase = session.phase
+        case .childSpawned, .childCompleted, .childFailed:
+            draft.kind = .stateChanged
+            draft.declaredPhase = session.phase
+        default:
+            break
+        }
+        return AgentJournalEvent(sequence: event.sequence, committedAtMs: event.committedAtMs, draft: draft)
     }
 
     private static func key(_ components: [String]) -> String {

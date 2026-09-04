@@ -1,3 +1,5 @@
+import CMUXAgentLaunch
+import CmuxFoundation
 import CmuxAgentJournal
 import CmuxSettings
 import Foundation
@@ -88,5 +90,74 @@ extension AgentNotificationRegressionTests {
         TerminalMutationBus.shared.drainForTesting()
         #expect(fixture.store.notifications.count == 1)
         #expect(fixture.store.notifications.first?.correlationKey == next.identity)
+    }
+    @Test(arguments: ["claude", "codex"])
+    func finalDeliveryRejectsReplacedSessionButAcceptsItsResume(source: String) throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let event = semanticEvent(fixture, source: source)
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId] = SurfaceResumeBindingSnapshot(
+            name: source, kind: source, command: "agent resume", checkpointId: "replacement",
+            source: "agent-hook", updatedAt: 1)
+        #expect(!AgentJournalLifecycleCenter.notificationTargetIsCurrent(event.draft))
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId]?.checkpointId = "session"
+        #expect(AgentJournalLifecycleCenter.notificationTargetIsCurrent(event.draft))
+        let request = TerminalNotificationPolicyRequest(tabId: fixture.source.id,
+            surfaceId: fixture.panelId, title: "Agent", subtitle: "", body: "Ready", cwd: nil,
+            isAppFocused: false, isFocusedPanel: false,
+            agent: TerminalNotificationPolicyAgentContext(kind: source, sessionId: "session"))
+        #expect(AgentJournalLifecycleCenter.notificationRequestIsCurrent(request))
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId]?.checkpointId = "replacement"
+        #expect(!AgentJournalLifecycleCenter.notificationRequestIsCurrent(request))
+    }
+
+    @MainActor private final class FeedEffectRecorder {
+        var banners = 0
+        var unreadWhenBannerPosted = false
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func genuineFeedWaitSharesAdmissionAndRecordedEffects(source: String) async throws {
+        let fixture = try makeFixture()
+        defer { fixture.restore() }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let journal = AgentJournalLifecycleCenter(databaseURL: root.appendingPathComponent("journal.sqlite"))
+        let previousStore = FeedCoordinator.shared.store
+        let previousJournal = FeedCoordinator.shared.notificationJournal
+        let previousObserver = FeedCoordinatorTestHooks.notificationPostObserver
+        defer {
+            FeedCoordinatorTestHooks.notificationPostObserver = previousObserver
+            if let previousStore {
+                FeedCoordinator.shared.install(store: previousStore, notificationJournal: previousJournal)
+            }
+        }
+        FeedCoordinator.shared.install(store: WorkstreamStore(ringCapacity: 10), notificationJournal: journal)
+        let recorder = FeedEffectRecorder()
+        let requestID = UUID().uuidString
+        let workspaceID = fixture.source.id
+        let surfaceID = fixture.panelId
+        FeedCoordinatorTestHooks.notificationPostObserver = { _, request in
+            MainActor.assumeIsolated {
+                guard request == requestID else { return }
+                recorder.banners += 1
+                recorder.unreadWhenBannerPosted = TerminalNotificationStore.shared
+                    .hasUnreadNotification(forTabId: workspaceID, surfaceId: surfaceID)
+                FeedCoordinator.shared.deliverReply(requestId: request, decision: .permission(.once))
+            }
+        }
+        let event = WorkstreamEvent(sessionId: try #require(FeedWorkstreamIdentifier(agentID: source, sessionID: "feed-session")).rawValue,
+            hookEventName: .permissionRequest, source: source,
+            workspaceId: workspaceID.uuidString, surfaceId: surfaceID.uuidString,
+            toolName: "Tool", requestId: requestID)
+        let result = await Task.detached {
+            FeedCoordinator.shared.ingestBlocking(event: event, waitTimeout: 10)
+        }.value
+        guard case .resolved = result else {
+            Issue.record("A genuine Feed wait must notify and accept its reply: \(result)")
+            return
+        }
+        #expect(recorder.banners == 1)
+        #expect(recorder.unreadWhenBannerPosted)
     }
 }

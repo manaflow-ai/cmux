@@ -79,9 +79,18 @@ extension AgentJournalLifecycleCenter {
             category: category, pending: draft.pendingWork, soundContext: sound,
             agentKind: draft.source, isSubagent: draft.isSubagent,
             correlationKey: notification.correlationKey ?? identity,
+            sessionId: draft.sessionId,
             coalesces: false
         )
         if !delivered { notificationDiagnostic(draft, reason: "preference-filtered", identity: identity) }
+    }
+
+    @MainActor
+    static func notificationRequestIsCurrent(_ request: TerminalNotificationPolicyRequest) -> Bool {
+        guard let sessionID = request.agent?.sessionId, let surfaceID = request.surfaceId else { return true }
+        return notificationTargetIsCurrent(AgentJournalEventDraft(kind: .stateChanged, occurredAtMs: 0,
+            source: request.agent?.kind ?? "agent", agentKey: request.agent?.kind ?? "agent",
+            sessionId: sessionID, workspaceId: request.tabId.uuidString, surfaceId: surfaceID.uuidString))
     }
 
     static func notificationDiagnostic(_ draft: AgentJournalEventDraft, reason: String, identity: String? = nil) {
