@@ -2351,6 +2351,7 @@ import Testing
             (["open"], "open requires at least one path or URL"),
             (["diff", "one.patch", "two.patch"], "diff accepts at most one patch file"),
             (["restore", "codex", UUID().uuidString.lowercased()], "restore: cmux is still opening."),
+            (["fork", "pi", UUID().uuidString.lowercased()], "fork: cmux is still opening."),
             (["restore-session", "--invalid"], "restore-session: unknown flag '--invalid'"),
             (["feedback", "--invalid"], "feedback: unknown flag '--invalid'"),
         ]
