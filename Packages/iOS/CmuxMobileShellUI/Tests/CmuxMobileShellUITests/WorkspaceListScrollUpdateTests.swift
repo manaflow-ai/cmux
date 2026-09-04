@@ -187,6 +187,63 @@ import UIKit
         )
     }
 
+    @Test func concurrentAgentHeightAndStructureUpdatesWaitForDeceleration() {
+        let firstWorkspace = preview(
+            id: "workspace-1",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
+        )
+        let secondWorkspace = preview(
+            id: "workspace-2",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_021)
+        )
+        var heightChangingUpdate = firstWorkspace
+        heightChangingUpdate.customDescription = "Agent A completed with durable context"
+        var latestUpdate = heightChangingUpdate
+        latestUpdate.previewText = "Agent B finished"
+        let thirdWorkspace = preview(
+            id: "workspace-3",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_022)
+        )
+
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [firstWorkspace, secondWorkspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+        let routeBeforeScrollUpdates = coordinator.lastPayloadApplyRoute
+
+        coordinator.scrollViewWillBeginDragging(tableView)
+        coordinator.update(
+            configuration: configuration(workspaces: [heightChangingUpdate, secondWorkspace]),
+            in: tableView
+        )
+        coordinator.update(
+            configuration: configuration(
+                workspaces: [latestUpdate, secondWorkspace, thirdWorkspace]
+            ),
+            in: tableView
+        )
+
+        #expect(coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates)
+        #expect(tableView.numberOfRows(inSection: 0) == 2)
+
+        coordinator.scrollViewDidEndDragging(tableView, willDecelerate: true)
+        #expect(coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates)
+        #expect(tableView.numberOfRows(inSection: 0) == 2)
+
+        coordinator.scrollViewDidEndDecelerating(tableView)
+        #expect(coordinator.lastPayloadApplyRoute == .tableReload)
+        #expect(tableView.numberOfRows(inSection: 0) == 3)
+        #expect(
+            coordinator.configuration.workspacesByID[firstWorkspace.id]?.previewText
+                == latestUpdate.previewText
+        )
+        #expect(
+            coordinator.configuration.workspacesByID[firstWorkspace.id]?.customDescription
+                == latestUpdate.customDescription
+        )
+    }
+
     @Test func descriptionArrivalChangesRowHeightThroughTableReload() {
         // A durable description adds a text line, changing the row's height
         // key: this payload change must keep riding the snapshot apply so
