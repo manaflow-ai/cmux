@@ -304,6 +304,7 @@ VM subcommands:
 | `vm base open`, `vm base reset` | Open (creating on first use) or reset the persistent Base machine. `--base` / `--desktop` choose the kind for the create; an existing Base keeps its image. The app's Cloud VM button shows the Set Up Base sheet only when no Base exists yet. |
 | `vm shell`, `vm attach` | Open an interactive shell for an existing VM. Every cloud open (`vm shell` / `vm new` / `vm fork` / `vm restore` / `vm base open` / `vm base reset`, the Machines panel, the sidebar cloud button) uses one path and lands a PLAIN terminal on the machine (like an ssh session, not the cmux-tui client): `vm.cmux_remote_info` (availability and protocol check; the local client's `client_capabilities` when one is installed), then `workspace.create` or, for `--workspace`, `workspace.cloud_vm_terminal_ready` (a placeholder pane), then `workspace.cloud_vm_bind`, then `surface.new_terminal {machine, open: true, workspace_id, focus: true, name: "shell"}` — the machine's provider creates a `bash -l` terminal in its cmux-tui session (a catalog resource `<machine>/terminal/<term_…>`) and the catalog projects it into the workspace as a pane running `attach --terminal`; the placeholder is closed with `surface.close`. The `OK` line carries `terminal=<term_…>` and a `Reattach: cmux vm open <m>/<ws>/<term>` hint; `--json` adds `terminal_id`, `remote_workspace_id`, `surface_id`. `cmux vm tui <id>` is the only open that runs the full client. The websocket/SSH transports remain only for deployments whose control plane reports no cmux-tui daemon; a machine that answers `vm_attach_transport_unsupported` is cmux-tui only and never falls back. |
 | `vm stats <id>`, `vm top <id>` | Print CPU, memory, and disk for the machine right now; a sleeping machine reports `asleep` and is not woken. |
+| `vm resize <id> --disk <GiB>` | Increase a machine's disk in 4 GiB steps, from 4 GiB through the Freestyle 256 GiB limit. The operation is grow-only and returns the provider-confirmed size. |
 | `vm desktop <id>`, `vm vnc <id>` | Open the VM's noVNC desktop as a browser pane in the machine's open workspace, else the workspace you are in (or `--workspace <id\|ref\|index>`); desktop-kind machines only (`--base` machines have no screen). The pane opens the machine's private address on 6901 over the owner's private network (`POST /api/vm/<id>/open-port`). One path with `vm open <id>:desktop`, the split beside `vm shell`, and the sidebar tree: `vm.desktop_open {id, workspace_id?, focus}` (focus defaults to false so the pane never steals typing from the shell). |
 | `vm rename <id> <label>`, `vm rename <id> --clear` | Set or clear a display label; the machine id stays its address. |
 | `vm rm`, `vm destroy`, `vm delete` | Destroy a VM. |
@@ -681,28 +682,28 @@ the expected text without connecting to a cmux socket.
 - `cmux capabilities --help` -> `Usage: cmux capabilities`
 - `cmux events --help` -> `Usage: cmux events [options]`
 - `cmux auth --help` -> `Usage: cmux auth <status|login|logout>`
-- `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|workspace|terminal|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
-- `cmux vm domains --help` -> `cmux cloud domains [list]`
-- `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
-- `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
-- `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
-- `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]`
-- `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>`
-- `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
-- `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
-- `cmux vm pull --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
-- `cmux vm download --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
-- `cmux vm wait --help` -> `Usage: cmux vm wait <id> [--timeout <seconds>] [--wake]`
-- `cmux vm open --help` -> `Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]`
-- `cmux vm tree --help` -> `Usage: cmux vm tree [<machine>|local] [--refresh] [--json]`
-- `cmux vm workspace --help` -> `cmux vm workspace open <machine> <workspace-id>`
-- `cmux vm terminal --help` -> `cmux vm terminal close <machine> <terminal-id>`
-- `cmux vm tui --help` -> `Usage: cmux vm tui <id> [--window <id|ref|index>]`
-- `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
-- `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
-- `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
+ - `cmux vm --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+ - `cmux cloud --help` -> `Usage: cmux cloud <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+ - `cmux vm ls --help` -> `Usage: cmux vm <base|new|ls|domains|tree|workspace|terminal|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]`
+ - `cmux vm domains --help` -> `cmux cloud domains [list]`
+ - `cmux vm run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+ - `cmux vm run -h` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+ - `cmux cloud run --help` -> `Usage: cmux vm run [--sync] [--pull <remote-path>] [--machine <id>] [--new] [--size <20g>] [--timeout <seconds>] -- <command...>`
+ - `cmux vm route --help` -> `Usage: cmux vm route [--cwd <dir>] [--new] [--provision] [--size <20g>] [--json]`
+ - `cmux vm agent --help` -> `Usage: cmux vm agent --agent <claude|codex|opencode|pi> [--machine <id>] [--sync] [--cwd <dir>] [--name <name>] [--no-open] [--new] [--size <s>] [--json] -- <prompt or args...>`
+ - `cmux vm push --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
+ - `cmux vm upload --help` -> `Usage: cmux vm push <id> <local-path> [remote-path] [--exclude <pattern>]... [--no-default-excludes]`
+ - `cmux vm pull --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
+ - `cmux vm download --help` -> `Usage: cmux vm pull <id> <remote-path> [local-path]`
+ - `cmux vm wait --help` -> `Usage: cmux vm wait <id> [--timeout <seconds>] [--wake]`
+ - `cmux vm open --help` -> `Usage: cmux vm open <target> [--workspace <id|ref|index>] [--focus <true|false>] [--print]`
+ - `cmux vm tree --help` -> `Usage: cmux vm tree [<machine>|local] [--refresh] [--json]`
+ - `cmux vm workspace --help` -> `cmux vm workspace open <machine> <workspace-id>`
+ - `cmux vm terminal --help` -> `cmux vm terminal close <machine> <terminal-id>`
+ - `cmux vm tui --help` -> `Usage: cmux vm tui <id> [--window <id|ref|index>]`
+ - `cmux vm prompt --help` -> `cmux vm prompt --open <agent>`
+ - `cmux vm base --help` -> `cmux vm base reset [--desktop|--base] [--reason <text>]`
+ - `cmux surface --help` -> `Usage: cmux surface ls [<machine>|local] [--refresh] [--json]`
 - `cmux remotes --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux remote --help` -> `Usage: cmux remotes <list|add|remove> [options]`
 - `cmux coderouter --help` -> `Usage: cmux coderouter <status|machines|claude> [options]`

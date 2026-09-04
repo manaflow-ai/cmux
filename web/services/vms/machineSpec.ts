@@ -11,7 +11,12 @@
 export const PAID_MAX_ACTIVE_VMS_DEFAULT = 50;
 export const PLAN_MACHINE_MEMORY_MB = 20480;
 export const VM_MEMORY_MB_PER_VCPU = 4096;
-export const VM_DISK_MB_DEFAULT = 204800;
+/** New machines start with this disk. Freestyle resizes disks grow-only. */
+export const VM_DISK_MB_DEFAULT = 32768;
+/** Freestyle Pro's documented per-VM disk ceiling. */
+export const VM_DISK_MB_MAX = 262144;
+/** User-facing disk sizes are aligned to whole GiB steps. */
+export const VM_DISK_MB_STEP = 4096;
 
 /** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up (20 GB → 5). */
 export function vcpusForMemoryMb(memoryMb: number): number {
