@@ -4,12 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [[ -z "${DIRECT_DATABASE_URL:-${DATABASE_URL:-}}" ]]; then
-  echo "DATABASE_URL or DIRECT_DATABASE_URL is required for DB behavior tests" >&2
+if [[ -z "${CMUX_DB_TEST_DATABASE_URL:-}" ]]; then
+  echo "CMUX_DB_TEST_DATABASE_URL is required for DB behavior tests" >&2
   exit 2
 fi
 
 export CMUX_DB_TEST=1
+export DATABASE_URL="$CMUX_DB_TEST_DATABASE_URL"
+export DIRECT_DATABASE_URL="$CMUX_DB_TEST_DATABASE_URL"
 
 db_test_timeout_ms="${CMUX_DB_TEST_TIMEOUT_MS:-30000}"
 if [[ ! "$db_test_timeout_ms" =~ ^[1-9][0-9]*$ ]]; then

@@ -132,6 +132,7 @@ case "$command" in
     export CMUX_DB_PORT="$((cmux_port + ${CMUX_TEST_DB_PORT_OFFSET:-30000}))"
     export DATABASE_URL="postgres://${db_user}:${db_password}@localhost:${CMUX_DB_PORT}/${CMUX_DB_NAME}"
     export DIRECT_DATABASE_URL="$DATABASE_URL"
+    export CMUX_DB_TEST_DATABASE_URL="$DATABASE_URL"
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
     bunx drizzle-kit migrate --config "$ROOT_DIR/drizzle.config.ts"
     bash "$ROOT_DIR/scripts/run-db-behavior-tests.sh"
