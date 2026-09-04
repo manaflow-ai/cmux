@@ -463,7 +463,12 @@ extension CMUXCLI {
         }
         let tail = redactor.finish()
         if !tail.isEmpty { FileHandle.standardError.write(tail) }
-        let status = await termination.first ?? process.terminationStatus
+        var terminatedStatus: Int32?
+        for await status in termination {
+            terminatedStatus = status
+            break
+        }
+        let status = terminatedStatus ?? process.terminationStatus
         let output = String(decoding: capture, as: UTF8.self)
         guard status == 0 else { return nil }
         let range = NSRange(output.startIndex..<output.endIndex, in: output)
@@ -1098,7 +1103,7 @@ extension CMUXCLI {
                 )
             }
             if let code = (account["lastFailureCode"] as? String).map(Self.sanitizeForTerminal), !code.isEmpty {
-                health += Self.coderouterFormatted("cli.coderouter.health.failureCode", ", %@", code)
+                health += Self.coderouterFormatted("cli.coderouter.health.failureCodeWithComma", ", %@", code)
             }
             let sessions = Self.intValue(account["activeSessions"]) ?? 0
             var usageText = ""

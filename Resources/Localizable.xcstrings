@@ -37178,6 +37178,20 @@
         "ja": { "stringUnit": { "state": "needs_review", "value": "No Claude upstream accounts were set." } }
       }
     },
+    "cli.coderouter.account.clearMany": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK removed %lld Claude upstream accounts. Cloud machines have no `claude` route until a new one is added." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK removed %lld Claude upstream accounts. Cloud machines have no `claude` route until a new one is added." } }
+      }
+    },
+    "cli.coderouter.account.clearOne": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK removed %lld Claude upstream account. Cloud machines have no `claude` route until a new one is added." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "OK removed %lld Claude upstream account. Cloud machines have no `claude` route until a new one is added." } }
+      }
+    },
     "cli.coderouter.account.disabled": {
       "extractionState": "manual",
       "localizations": {
@@ -37519,6 +37533,13 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "%@" } },
         "ja": { "stringUnit": { "state": "needs_review", "value": "%@" } }
+      }
+    },
+    "cli.coderouter.health.failureCodeWithComma": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": ", %@" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": ", %@" } }
       }
     },
     "cli.coderouter.health.lastUsed": {
