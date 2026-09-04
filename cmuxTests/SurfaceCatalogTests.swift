@@ -1093,6 +1093,6 @@ struct SurfaceCatalogTests {
         #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "second")
         catalog.rollbackCloudWorkspaceRename(second)
         #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: workspace.id) == nil)
-        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "first")
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "main")
     }
 }

@@ -144,8 +144,8 @@ struct CloudWorkspaceRenameReconciliationTests {
         #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "new")
     }
 
-    @Test("A reconnect retains a pending rename until the new graph confirms it")
-    func reconnectRetainsPendingRename() throws {
+    @Test("A reconnect accepts the durable name from its fresh generation")
+    func reconnectAcceptsDurableName() throws {
         let machine = SurfaceMachineID.cloud("rename-vm")
         let before = SurfaceRemoteWorkspace(
             id: "ws_same", name: "before", index: 0, focused: true
@@ -169,9 +169,9 @@ struct CloudWorkspaceRenameReconciliationTests {
             receipt: CloudVMCursor(generation: "g1", revision: 5)
         )
 
-        for (revision, name) in [(1, "before"), (2, "before")] {
+        for revision in [1, 2] {
             let workspace = SurfaceRemoteWorkspace(
-                id: before.id, name: name, index: 0, focused: true
+                id: before.id, name: "after", index: 0, focused: true
             )
             #expect(catalog.replaceCloudResources(
                 [resource(machine, workspace: workspace)],
@@ -181,16 +181,6 @@ struct CloudWorkspaceRenameReconciliationTests {
             ))
             #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "after")
         }
-
-        let confirmed = SurfaceRemoteWorkspace(
-            id: before.id, name: "after", index: 0, focused: true
-        )
-        #expect(catalog.replaceCloudResources(
-            [resource(machine, workspace: confirmed)],
-            on: machine,
-            info: info(machine, workspace: confirmed),
-            cursor: CloudVMCursor(generation: "g2", revision: 3)
-        ))
         #expect(catalog.pendingCloudWorkspaceRenameName(
             machine: machine,
             workspaceID: before.id
@@ -422,8 +412,8 @@ struct CloudWorkspaceRenameReconciliationTests {
             cursor: CloudVMCursor(generation: "g2", revision: 1)
         ))
         catalog.resolveFailedCloudWorkspaceRename(secondToken)
-        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: before.id) == "after-again")
-        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "after-again")
+        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: before.id) == nil)
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "remote")
     }
 
     @Test("Cloud binding round trips and remains compatible with legacy manifests")
