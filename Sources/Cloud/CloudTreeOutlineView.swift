@@ -704,14 +704,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             return items
         }
 
-        /// A running create offers nothing but Refresh; a failed one offers the
-        /// same verbs as its hover buttons plus the transcript.
+        /// A running create can be cancelled immediately; a failed one offers
+        /// the same retry/dismiss verbs as its hover buttons plus the transcript.
         private func pendingMachineMenuItems(_ operation: MachineCreateOperation) -> [NSMenuItem] {
             let create = machineActions.create
             let nodeActions = nodeActions
             let id = operation.id
             var items: [NSMenuItem] = []
-            if !operation.isRunning {
+            if operation.isRunning {
+                items.append(item(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) { create.cancel(id) })
+            } else {
                 items.append(item(String(localized: "machines.pending.retry", defaultValue: "Retry Create")) { create.retry(id) })
                 items.append(item(String(localized: "machines.pending.showError", defaultValue: "Show Error\u{2026}")) { create.showFailure(id) })
                 items.append(item(String(localized: "machines.pending.copyError", defaultValue: "Copy Error")) { create.copyFailure(id) })
