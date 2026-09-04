@@ -347,8 +347,8 @@ private struct WorkspaceMacTitlePickerLabel: View {
             .vertical,
             usesCompactLabelTreatment ? 0 : WorkspaceRootToolbarSizing.pickerVerticalPadding
         )
+        .frame(width: width, alignment: .center)
         .frame(
-            width: width,
             minHeight: usesCompactLabelTreatment ? nil : WorkspaceRootToolbarSizing.controlHeight,
             alignment: .center
         )
