@@ -12,15 +12,22 @@ public import Foundation
 /// Session ownership belongs to ``IrxPeerEngine``.
 public actor IrxControlByteTransport: CmxByteTransport {
     public typealias Establish = @Sendable () async throws -> (IrxConnection, IrxLaneStream)
+    public typealias OnClose = @Sendable () async -> Void
 
     private let establish: Establish
+    private let onClose: OnClose?
     private var pair: (IrxConnection, IrxLaneStream)?
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
     private var isClosed = false
 
-    public init(closeCode: IrxCloseCode, establish: @escaping Establish) {
+    public init(
+        closeCode: IrxCloseCode,
+        establish: @escaping Establish,
+        onClose: OnClose? = nil
+    ) {
         _ = closeCode
         self.establish = establish
+        self.onClose = onClose
     }
 
     /// Wraps an already-established pair (host side).
@@ -54,6 +61,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
         // retiring RPC client look like a peer death to the engine.
         await lane.writer.finish()
         await lane.reader.stop()
+        await onClose?()
     }
 
     private func establishedPair() async throws -> (IrxConnection, IrxLaneStream) {
@@ -72,6 +80,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
         let established = try await task.value
         guard !isClosed else {
             await established.1.close()
+            await onClose?()
             throw IrxConnectionError.closed(nil)
         }
         pair = established

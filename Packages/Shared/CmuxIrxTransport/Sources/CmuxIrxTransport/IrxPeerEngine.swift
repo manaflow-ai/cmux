@@ -235,7 +235,7 @@ public actor IrxPeerEngine {
     /// app-foreground event into a user-visible disconnect and redial.
     public func foregroundKick(staleAfter: Duration = .seconds(15)) {
         Task {
-            if let session = await self.currentSessionForKick(),
+            if let session = self.currentSessionForKick(),
                await !session.connection.isClosed
             {
                 self.record(
