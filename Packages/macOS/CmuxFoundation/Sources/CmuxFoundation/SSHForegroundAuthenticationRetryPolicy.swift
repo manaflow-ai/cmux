@@ -2016,8 +2016,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # back to the helper; cleanup must remain alive long enough to finish
           # its identity-fenced force pass instead of aborting mid-tree.
           trap '' HUP
-          trap 'exit 130' INT
-          trap 'exit 143' TERM
+          # Once cleanup owns the tree, an interrupt delivered to the shared
+          # process group must not tear down the reaper before its bounded
+          # force pass completes.
+          trap '' INT TERM
 
           # Validate the known root parent and build the first breadth-first
           # member list. The root is stopped first in that order.
@@ -2033,6 +2035,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_initial_count=$((cmux_ssh_auth_initial_count + 1))
           done < "$cmux_ssh_auth_members"
           cmux_ssh_auth_debug "initial members=$cmux_ssh_auth_initial_count"
+          if [ "${CMUX_SSH_AUTH_DEBUG:-0}" = 1 ]; then
+            while IFS= read -r cmux_ssh_auth_initial_debug_line; do
+              cmux_ssh_auth_debug "initial record=$cmux_ssh_auth_initial_debug_line"
+            done < "$cmux_ssh_auth_initial_members"
+          fi
           cmux_ssh_auth_start_cleanup_clock
           # The authentication wrapper derives this same path from the fresh
           # per-attempt nonce. A pre-existing path is never removed or reused,
