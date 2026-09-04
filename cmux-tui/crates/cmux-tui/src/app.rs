@@ -46432,11 +46432,7 @@ mod tests {
         let mux = Mux::new(
             name,
             SurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "sleep 30".to_string(),
-                ]),
+                command: Some(vec!["/bin/sleep".to_string(), "300".to_string()]),
                 cwd: cwd.map(|path| path.to_string_lossy().into_owned()),
                 ..Default::default()
             },
