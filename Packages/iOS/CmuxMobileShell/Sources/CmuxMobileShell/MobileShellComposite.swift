@@ -1053,6 +1053,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     public var hasMacVersionUpdateRequired: Bool {
         !macVersionUpdateRequiredDeviceIDs.isEmpty
     }
+    /// Version reported by the currently authenticated foreground Mac. The
+    /// background compatibility refresh uses this to revalidate an already
+    /// connected session if the remote policy becomes stricter.
+    var authenticatedMacAppVersion: String?
     /// Version-gate details captured when a connect route is rejected, so
     /// the end-of-attempt classification names the exact versions instead of
     /// a generic code. Cleared with the pairing error at attempt start.
@@ -4636,6 +4640,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: client
         ) {
         case .allowed:
+            authenticatedMacAppVersion = macAppVersion
             clearMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
             break
         case .buildIncompatible:
@@ -10648,6 +10653,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         activeMacInstanceTag = nil
+        authenticatedMacAppVersion = nil
         connectedHostName = ""
     }
 
@@ -11323,7 +11329,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// line and one `ios_pairing_failed` whose `reason` matches the message.
     /// ``connectionState``/``macConnectionStatus`` teardown stays at the call
     /// sites because some paths (auth re-auth) also flip ``connectionRequiresReauth``.
-    private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+    func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
         // Every failure path funnels through this sink, so the version-gate
         // stash is resolved here: any route rejected for a too-old Mac this
         // attempt upgrades the surfaced category to the exact versions,
@@ -11381,7 +11387,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         macCompatPolicy = policy
     }
 
-    private func noteMacVersionUpdateRequired(for macDeviceID: String) {
+    func noteMacVersionUpdateRequired(for macDeviceID: String) {
         let canonicalID = cmxCanonicalDeviceID(macDeviceID)
         guard !canonicalID.isEmpty else { return }
         macVersionUpdateRequiredDeviceIDs.insert(canonicalID)

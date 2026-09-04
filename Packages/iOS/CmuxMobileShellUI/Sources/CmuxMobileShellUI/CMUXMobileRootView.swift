@@ -1125,6 +1125,7 @@ struct CMUXMobileRootView: View {
             await macCompatCenter.refresh()
             guard !Task.isCancelled else { return }
             store.applyMacCompatibilityPolicy(macCompatCenter.policy)
+            store.revalidateActiveMacCompatibilityPolicy()
         }
     }
     #endif
