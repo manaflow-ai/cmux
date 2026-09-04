@@ -4423,6 +4423,19 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 "Clearing Settings must also suppress an already-installed stale menu equivalent"
             )
         }
+        withTemporaryShortcut(
+            action: .openSettings,
+            shortcut: StoredShortcut(key: ",", command: true, shift: false, option: false, control: false)
+        ) {
+            XCTAssertTrue(
+                appDelegate.debugMatchesConfiguredShortcut(event: event, action: .openSettings),
+                "An explicit logical Cmd+, Settings binding must remain available"
+            )
+            XCTAssertFalse(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "An explicit Settings override must not be suppressed"
+            )
+        }
 #else
         XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif
