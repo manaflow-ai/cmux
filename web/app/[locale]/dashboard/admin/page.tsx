@@ -1,12 +1,11 @@
 import { getTranslations } from "next-intl/server";
 import { notFound, redirect } from "next/navigation";
 
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { getRequestScopedStackUser, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { ADMIN_EMAIL_DOMAINS, isAdminUser } from "@/services/admin/access";
 import { loadProListSnapshot, type ProListSnapshot } from "@/services/admin/proList";
 import { withPrioritySpan } from "@/services/telemetry";
-import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
 import { AdminProPanel } from "./admin-pro-panel";
 
@@ -26,11 +25,7 @@ export default async function DashboardAdminPage({
     "cmux-admin-dashboard",
     "cmux.admin.auth",
     { "http.route": "/dashboard/admin", "cmux.locale": locale },
-    () => withStackAuthSpan(
-      "get_user",
-      () => getStackServerApp().getUser({ or: "return-null" }),
-      { "cmux.auth.flow": "admin_page" },
-    ),
+    () => getRequestScopedStackUser("admin_page"),
   );
   if (!user || user.isAnonymous) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/admin")));
