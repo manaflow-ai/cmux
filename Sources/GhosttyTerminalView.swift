@@ -6421,6 +6421,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
     }
 
+    /// Hands a key event to AppKit text input (IME, dead keys, key bindings).
+    /// DEBUG builds let `debugTextInputEventHandler` intercept the event first so
+    /// tests can script IME behavior; when it declines, the event falls through
+    /// to `interpretKeyEvents`.
+    private func runTextInputInterpretation(for event: NSEvent) {
+#if DEBUG
+        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
+            if !debugTextInputEventHandler(self, event) {
+                interpretKeyEvents([event])
+            }
+        } else {
+            interpretKeyEvents([event])
+        }
+#else
+        interpretKeyEvents([event])
+#endif
+    }
+
     override func keyDown(with event: NSEvent) {
         if routeInputDuringClipboardRead(event) { return }
         let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
@@ -6629,18 +6647,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         let interpretTimingStart = CmuxTypingTiming.start()
         let interpretPhaseStart = ProcessInfo.processInfo.systemUptime
 #endif
-#if DEBUG
-        if let debugTextInputEventHandler = Self.debugTextInputEventHandler {
-            let handled = debugTextInputEventHandler(self, textInputEvent)
-            if !handled {
-                interpretKeyEvents([textInputEvent])
-            }
-        } else {
-            interpretKeyEvents([textInputEvent])
-        }
-#else
-        interpretKeyEvents([textInputEvent])
-#endif
+        runTextInputInterpretation(for: textInputEvent)
 #if DEBUG
         interpretMs = (ProcessInfo.processInfo.systemUptime - interpretPhaseStart) * 1000.0
         CmuxTypingTiming.logDuration(
@@ -6649,6 +6656,24 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             event: event
         )
 #endif
+
+        // Apple's Korean input method can commit the first keystroke after an
+        // input-source switch as a lone jamo instead of composing it ("분리"
+        // arrives as "ㅂㅜㄴ리"). Run that one event through interpretation again
+        // so the now-initialized input method opens the composition.
+        if keyboardIdBefore == KeyboardLayout.id,
+           shouldReinterpretLoneJamoCommit(
+               markedTextBefore: markedTextBefore,
+               markedTextAfter: markedText.length > 0,
+               accumulatedText: keyTextAccumulator ?? [],
+               inputSourceId: keyboardIdBefore
+           ) {
+            keyTextAccumulator = []
+#if DEBUG
+            cmuxDebugLog("ime.reinterpretLoneJamoCommit keyCode=\(event.keyCode)")
+#endif
+            runTextInputInterpretation(for: textInputEvent)
+        }
 
         // If the keyboard layout changed, an input method grabbed the event.
         // Sync preedit and return without sending the key to Ghostty.
