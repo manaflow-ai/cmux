@@ -86,6 +86,30 @@ describe("server event payload", () => {
 });
 
 describe("server event delivery", () => {
+  test("does not start the fetch before the deferred callback runs", async () => {
+    const calls: string[] = [];
+    const deferred: Promise<unknown>[] = [];
+    const fetchImpl = (async (input: string | URL | Request) => {
+      calls.push(String(input));
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+    const delivery = captureServerEvent(
+      { event: "cloud_vm_created", distinctId: "user-1" },
+      {
+        fetch: fetchImpl,
+        env: { CMUX_SERVER_ANALYTICS_FORCE: "1" },
+        defer: (task) => deferred.push(task),
+        now: () => new Date("2026-09-03T00:00:00.000Z"),
+      },
+    );
+
+    expect(calls).toHaveLength(0);
+    expect(deferred).toHaveLength(1);
+    await deferred[0];
+    await delivery;
+    expect(calls).toHaveLength(1);
+  });
+
   test("posts to /capture/ and defers the task past the response", async () => {
     const collected = collector();
     await captureServerEvent({ event: "cloud_vm_created", distinctId: "user-1" }, collected.dependencies);
