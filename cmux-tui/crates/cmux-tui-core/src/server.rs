@@ -3828,7 +3828,7 @@ impl ClientRegistry {
         self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
-    fn daemon_handoff_in_progress(&self) -> bool {
+    pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
         self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
