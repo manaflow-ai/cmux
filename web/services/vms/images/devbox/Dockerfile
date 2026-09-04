@@ -25,7 +25,7 @@ FROM debian:bookworm-slim
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25).
-ENV CMUX_IMAGE_EPOCH=2026-09-01-r3
+ENV CMUX_IMAGE_EPOCH=2026-09-03-r4
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -138,14 +138,17 @@ ARG CMUX_IMAGE_CODEX_VERSION=0.151.0
 ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.25
 ARG CMUX_IMAGE_PI_VERSION=0.84.4
 ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.35.2
+ARG CMUX_IMAGE_CODEROUTER_VERSION=0.3.2
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
     "opencode-ai@${CMUX_IMAGE_OPENCODE_VERSION}" \
     "@earendil-works/pi-coding-agent@${CMUX_IMAGE_PI_VERSION}" \
     "agent-browser@${CMUX_IMAGE_AGENT_BROWSER_VERSION}" \
+    "coderouter@${CMUX_IMAGE_CODEROUTER_VERSION}" \
   && mise reshim \
-  && claude --version && codex --version && opencode --version && pi --version && agent-browser --version
+  && claude --version && codex --version && opencode --version && pi --version && agent-browser --version \
+  && coderouter --version && cr --version
 
 # Keep Claude Code session transcripts effectively forever (chatmux parity).
 RUN mkdir -p /etc/claude-code \

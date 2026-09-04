@@ -9,7 +9,10 @@ half-life prompt, seeded history, and the coderouter agent-config generator.
 
 `vm-devbox-image.test.ts` pins the shared files (`cmux-bashrc`,
 `agent-config.sh`, `seed-history`, `chrome-managed-policy.json`) to their
-chatmux counterparts, so edit both copies together.
+chatmux counterparts, so edit both copies together. The image also carries the
+pinned `coderouter` package (both `coderouter` and `cr`); the provider repeats
+that install during create/attach so machines made from an older snapshot are
+repaired before their first shell is shown.
 
 ## Session daemon: cmux-tui
 
@@ -30,6 +33,10 @@ enrollment as the session gate). The listener must therefore be dual-stack.
 Shells spawned by the daemon run as root with HOME=/root and get the bash
 devshell (ble.sh ghost text, half-life prompt, seeded history) through the
 `/etc/bash.bashrc` chain.
+
+The in-VM `cmux` command is a small POSIX shim installed at create/attach. It
+forwards local resource verbs to that machine's `cmux-tui` daemon and exposes
+the peer-link `cmux vm …` verbs; it does not contain a control-plane token.
 
 ## Bake
 

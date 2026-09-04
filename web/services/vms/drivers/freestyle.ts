@@ -24,6 +24,8 @@ import {
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { guestCliInstallCommand } from "../guestCli";
+import { guestCoderouterInstallCommand } from "../guestCoderouter";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
@@ -894,8 +896,12 @@ export class FreestyleProvider implements VMProvider {
     await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
       .catch((err: unknown) => {
         throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
-      });
+    });
     if (envs) await this.writeModelPlaneEnv(vm, vmId, envs);
+    // Older snapshots contain the coding agents but not the in-VM command
+    // shims. Install both before the daemon starts so the very first shell a
+    // user sees has `cmux`, `coderouter`, and `cr` on its PATH.
+    await this.installGuestTools(vm, vmId);
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
   }
@@ -929,6 +935,9 @@ export class FreestyleProvider implements VMProvider {
    * bake boots the daemon on 0.0.0.0, which the public-IPv6 route cannot reach.
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
+    // Run this before the health fast-path: a daemon can be healthy on a
+    // legacy image while its guest command tools are still absent.
+    await this.installGuestTools(vm, vmId);
     const healthy = await this.execResult(vm, freestyleDaemonHealthyCommand());
     if (healthy?.exitCode === 0) return;
     const source = await resolveCmuxTuiSource("freestyle");
@@ -941,6 +950,26 @@ export class FreestyleProvider implements VMProvider {
     }
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+  }
+
+  /**
+   * Repair the guest command contract on every create/attach. The command is
+   * idempotent and writes only system paths; a failure is surfaced on the
+   * attach path instead of handing out a shell in which the advertised tools
+   * are silently missing.
+   */
+  private async installGuestTools(vm: Vm, vmId: string): Promise<void> {
+    const command = [
+      "export HOME=/root",
+      "export PATH=\"/opt/mise/shims:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH\"",
+      guestCliInstallCommand(),
+      guestCoderouterInstallCommand(),
+    ].join(" && ");
+    const result = await this.execResult(vm, command, 150_000);
+    if (!result || result.exitCode !== 0) {
+      const detail = result ? (result.stderr || result.stdout).trim().slice(0, 500) : "provider exec failed";
+      throw new ProviderError("freestyle", `guest CLI tools install in ${vmId} failed: ${detail}`);
+    }
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

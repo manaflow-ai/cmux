@@ -3,8 +3,10 @@
 cmux Cloud machines come up with their coding agents already routed through
 your team's AI subscriptions. There is nothing to log into on a machine —
 `claude`, `codex`, `opencode`, and `pi` work the moment a terminal opens,
-provided your team has connected an account for that agent. You connect each
-account **once**, from your Mac.
+provided your team has connected an account for that agent. The machine also
+has the pinned `coderouter`/`cr` CLI and the in-VM `cmux` shim available for
+inspection and automation; those commands do not require copying a personal
+credential into the VM. You connect each account **once**, from your Mac.
 
 ## The one step
 
@@ -59,7 +61,8 @@ cmux ai-accounts list          # your team's connected accounts
 cmux vm new                    # a fresh machine…
 # …in a terminal on it:
 claude -p "hello"              # answers with no login prompt
-curl -sS -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/v1/status"
+  cr capabilities --json       # installed CLI contract (no login required)
+  curl -sS -H "authorization: Bearer $OPENAI_API_KEY" "$CMUX_CODEROUTER_URL/v1/status"
 ```
 
 The last line is what a machine may ask about its own plane: per agent,

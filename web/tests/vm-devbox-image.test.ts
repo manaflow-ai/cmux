@@ -199,6 +199,7 @@ describe("devbox image template", () => {
       "CMUX_IMAGE_OPENCODE_VERSION",
       "CMUX_IMAGE_PI_VERSION",
       "CMUX_IMAGE_AGENT_BROWSER_VERSION",
+      "CMUX_IMAGE_CODEROUTER_VERSION",
     ]) {
       const devboxPin = new RegExp(`^ARG ${arg}=(\\S+)$`, "m").exec(dockerfile)?.[1];
       // Ranges and floating tags would make a bake unreproducible.
@@ -211,6 +212,7 @@ describe("devbox image template", () => {
       "opencode-ai",
       "@earendil-works/pi-coding-agent",
       "agent-browser",
+      "coderouter",
     ]);
 
     const devboxCuaVersion = /CUA_DRIVER_RS_VERSION=(\S+)/.exec(dockerfile)?.[1];
@@ -218,6 +220,7 @@ describe("devbox image template", () => {
     expect(readScript("build-devbox-freestyle.ts")).toContain(
       `CUA_DRIVER_RS_VERSION=${devboxCuaVersion}`,
     );
+    expect(readScript("build-devbox-freestyle.ts")).toContain("cr --version");
   });
 
   test("one public-platform SDK serves the bake, the verifier, and the driver", () => {

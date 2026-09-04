@@ -409,7 +409,16 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeTask: Task<Void, Never>?
     private static let statsInterval: Duration = .seconds(20)
 
-    init() {
+    init(
+        localWorkspacesProvider: @escaping @MainActor () -> [CloudTreeLocalWorkspace] = {
+            guard let tabManager = AppDelegate.shared?.tabManager else { return [] }
+            let selected = tabManager.selectedTabId
+            return tabManager.tabs.map {
+                CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected)
+            }
+        }
+    ) {
+        self.localWorkspacesProvider = localWorkspacesProvider
         authSignOutObserver = NotificationCenter.default.addObserver(
             forName: .cmuxCloudVMAccessDidEnd,
             object: nil,

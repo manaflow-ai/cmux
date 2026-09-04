@@ -81,8 +81,11 @@ make revocation scope the whole user, not the machine.
 **Neither.** The split is:
 
 - **Agents on the VM speak to the serving origin directly** with the route
-  token — plain HTTPS to `/v1/*`. No local daemon, no `cr` binary required on
-  the machine, no Mac in the hot path (a phone-initiated VM works the same).
+  token — plain HTTPS to `/v1/*`. No local daemon or interactive `cr login` is
+  needed on the machine, and no Mac sits in the hot path (a phone-initiated VM
+  works the same). The image still installs `coderouter`/`cr` so diagnostics
+  such as `cr capabilities --json` and agent tooling have a stable command;
+  the VM model-plane environment, rather than a user login, is the auth path.
 - **The web control plane is the broker**: it mints at `POST /api/vm`,
   and owns rotation/revocation. The Mac app's only involvement is being the
   authenticated caller of `POST /api/vm`.

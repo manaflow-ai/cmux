@@ -29,12 +29,28 @@ enum CloudVMPanelAuthState: Equatable {
 /// snapshots plus closure bundles only (snapshot-boundary rule); every mutation
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
-    @StateObject private var viewModel = MachinesPanelViewModel()
+    @StateObject private var viewModel: MachinesPanelViewModel
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
     @AppStorage(CloudTreeStyleStore.defaultsKey) private var cloudTreeStyleID: String = CloudTreeStyle.defaultStyle.id
+    /// The manager owned by the window containing this right sidebar. Cloud
+    /// workspace clicks must not route through AppDelegate's active-manager
+    /// fallback, because another window may be active while this sidebar is
+    /// being clicked.
+    let tabManager: TabManager
     let chromeBackgroundColor: NSColor
+
+    init(tabManager: TabManager, chromeBackgroundColor: NSColor) {
+        self.tabManager = tabManager
+        self.chromeBackgroundColor = chromeBackgroundColor
+        _viewModel = StateObject(wrappedValue: MachinesPanelViewModel(localWorkspacesProvider: {
+            let selected = tabManager.selectedTabId
+            return tabManager.tabs.map {
+                CloudTreeLocalWorkspace(id: $0.id, title: $0.title, isSelected: $0.id == selected)
+            }
+        }))
+    }
 
     private var accountFlow: HostAccountFlow? {
         AppDelegate.shared?.auth?.accountFlow
@@ -431,9 +447,20 @@ struct MachinesPanelView: View {
         )
         let nodeActions = CloudTreeNodeActions.bound(
             catalog: { SurfaceCatalog.shared },
-            selectedWorkspaceID: { AppDelegate.shared?.tabManager?.selectedTabId },
+            selectedWorkspaceID: { tabManager.selectedTabId },
             selectLocalWorkspace: { workspaceID in
-                AppDelegate.shared?.tabManager?.selectedTabId = workspaceID
+                // Use the exact manager for this window. If the workspace has a
+                // pane, the canonical focus path selects both the workspace and
+                // its pane; otherwise select the empty workspace directly.
+                if let panelID = tabManager.focusedSurfaceId(for: workspaceID) {
+                    SurfacePaneFactory.focus(panelID: panelID, in: workspaceID)
+                } else if let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) {
+                    tabManager.selectWorkspace(workspace)
+                    if let windowID = AppDelegate.shared?.windowId(for: tabManager) {
+                        _ = AppDelegate.shared?.focusMainWindow(windowId: windowID)
+                    }
+                    TerminalController.shared.setActiveTabManager(tabManager)
+                }
             },
             onWillMutate: { [weak viewModel] label in viewModel?.beginOperation(label) },
             onDidMutate: { [weak viewModel] in viewModel?.endOperation() },
