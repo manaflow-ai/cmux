@@ -68,6 +68,7 @@ extension Workspace {
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -117,7 +118,9 @@ extension Workspace {
                     ),
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
-                        surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                        surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                        downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable:
+                            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
                     ),
                     terminalFontSizeSnapshotProjection:
                         terminalFontSizeSnapshotProjection,
@@ -197,7 +200,9 @@ extension Workspace {
         snapshot.dock = _dockSplit?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
         return snapshot
     }
@@ -1490,10 +1495,23 @@ extension Workspace {
 
     func effectiveSurfaceResumeBinding(
         panelId: UUID,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable: Bool = false
     ) -> SurfaceResumeBindingSnapshot? {
         let storedBinding = surfaceResumeBindingsByPanelId[panelId]
         guard let surfaceResumeBindingIndex else {
+            guard var storedBinding,
+                  storedBinding.isProcessDetected,
+                  downgradeStoredProcessDetectedResumeBindingWhenDetectionUnavailable else {
+                return storedBinding
+            }
+            // A windowless recovery freeze cannot synchronously verify process
+            // detection after it releases this workspace graph. Preserve the
+            // command for manual recovery without trusting it to auto-run.
+            storedBinding.autoResume = false
+            storedBinding.approvalPolicy = .manual
+            storedBinding.approvalRecordId = nil
+            surfaceResumeBindingsByPanelId[panelId] = storedBinding
             return storedBinding
         }
 
