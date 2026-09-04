@@ -217,14 +217,21 @@ struct VaultPaneTransferLifecycleTests {
                 currentEvent: mouseDragged,
                 dragPasteboard: drag.pasteboard
             )
+            let dragTarget = try #require(dragHit as? BrowserPaneDropTargetView)
+            let draggingInfo = VaultPaneMockDraggingInfo(
+                window: window,
+                location: pointInWindow,
+                pasteboard: drag.pasteboard
+            )
+            #expect(dragTarget.draggingEntered(draggingInfo) == .move)
+            defer { dragTarget.draggingEnded(draggingInfo) }
             let mouseUpHit = host.performHitTest(
                 at: pointInHost,
                 currentEvent: mouseUp,
                 dragPasteboard: drag.pasteboard
             )
 
-            #expect(dragHit is BrowserPaneDropTargetView)
-            #expect(mouseUpHit is BrowserPaneDropTargetView)
+            #expect(mouseUpHit === dragTarget)
             #expect(drag.resolvedTransfer?.tab.id.uuid == drag.dragID)
         }
     }
