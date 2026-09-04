@@ -1128,6 +1128,7 @@
           "autoNamingAgent": "Her oturum için otomatik adları hangi aracının oluşturacağı. \"auto\" (varsayılan) her oturumu kendi aracısıyla adlandırır; herhangi bir aracı kısaltması (claude, codex, grok, opencode, pi, omp, …) diğer aracıların oturumları dahil tüm oturumların adlandırmasını geçersiz kılar. Çalıştırılamayan veya kurulu olmayan aracılar oturumun kendi aracısına geri döner, böylece adlandırma asla bozulmaz."
         },
         "app": {
+          "appIconImagePath": "Dock ve uygulama değiştirici simgesi için isteğe bağlı yerel görsel yolu. Geçersiz veya desteklenmeyen görseller appIcon ayarına döner.",
           "confirmQuit": "cmux'un çıkmadan önce ne zaman onay isteyeceğini denetler. DEV derlemeleri bu ayardan bağımsız olarak her zaman hemen çıkar. Eski app.warnBeforeQuit boolean yedeği olarak kabul edilmeye devam eder.",
           "windowTitleTemplate": "İsteğe bağlı NSWindow başlık şablonu. Boş bırakılırsa geçerli dizin yedeği dahil cmux'un mevcut varsayılan başlık davranışı korunur. Desteklenen yer tutucular: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Çıkış onayı için eski boolean yedeği. Yeni yapılandırmalar için app.confirmQuit kullanın.",

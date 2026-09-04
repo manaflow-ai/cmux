@@ -21,6 +21,14 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "appIconMode"
     )
 
+    /// Optional local image used for the Dock and app-switcher icon. An empty
+    /// value preserves the selected built-in ``appIcon`` mode.
+    public let appIconImagePath = DefaultsKey<String>(
+        id: "app.appIconImagePath",
+        defaultValue: "",
+        userDefaultsKey: "appIconImagePath"
+    )
+
     /// Optional macOS window title template. Empty preserves the default
     /// active-workspace title behavior.
     public let windowTitleTemplate = DefaultsKey<String>(

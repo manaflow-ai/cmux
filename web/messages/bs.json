@@ -1128,6 +1128,7 @@
           "autoNamingAgent": "Koji agent generiše automatska imena za svaku sesiju. \"auto\" (zadano) imenuje svaku sesiju njenim vlastitim agentom; bilo koji slug agenta (claude, codex, grok, opencode, pi, omp, …) zamjenjuje imenovanje za sve sesije, čak i za sesije drugih agenata. Agenti koji se ne mogu pokrenuti ili nisu instalirani vraćaju se na vlastiti agent sesije, tako da se imenovanje nikada ne prekida."
         },
         "app": {
+          "appIconImagePath": "Opcionalna putanja lokalne slike za ikonu Docka i prebacivača aplikacija. Nevažeće ili nepodržane slike vraćaju se na appIcon.",
           "confirmQuit": "Određuje kada cmux traži potvrdu prije izlaska. DEV verzije se uvijek odmah zatvaraju bez obzira na ovu postavku. Naslijeđeni app.warnBeforeQuit se i dalje prihvata kao boolean rezervna opcija.",
           "windowTitleTemplate": "Opcionalni predložak za NSWindow naslov. Prazno zadržava postojeće zadano ponašanje naslova u cmux-u, uključujući rezervu na trenutni direktorij. Podržani rezervisani izrazi: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Naslijeđena boolean rezervna opcija za potvrdu izlaska. Za nove konfiguracije koristite app.confirmQuit.",

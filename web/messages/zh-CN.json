@@ -1128,6 +1128,7 @@
           "autoNamingAgent": "为每个会话生成自动名称的代理。\"auto\"（默认）使用各会话自己的代理来命名；任意代理标识（claude、codex、grok、opencode、pi、omp 等）会覆盖所有会话的命名，包括其他代理的会话。无法驱动或未安装的代理会回退到会话自身的代理，因此命名永不中断。"
         },
         "app": {
+          "appIconImagePath": "Dock 和应用切换器图标的可选本地图像路径。无效或不受支持的图像会回退到 appIcon。",
           "confirmQuit": "控制 cmux 在退出前何时请求确认。无论此设置如何，DEV 构建都会立即退出。旧的 app.warnBeforeQuit 仍作为布尔回退值接受。",
           "windowTitleTemplate": "可选的 NSWindow 标题模板。留空会保留 cmux 现有的默认标题行为，包括回退到当前目录。支持的占位符：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",

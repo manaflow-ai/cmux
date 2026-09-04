@@ -1128,6 +1128,7 @@
           "autoNamingAgent": "為每個工作階段產生自動名稱的代理。\"auto\"（預設）使用各工作階段自己的代理來命名；任意代理識別碼（claude、codex、grok、opencode、pi、omp 等）會覆寫所有工作階段的命名，包括其他代理的工作階段。無法驅動或未安裝的代理會回退到工作階段自身的代理，因此命名永不中斷。"
         },
         "app": {
+          "appIconImagePath": "Dock 和 App 切換器圖示的選用本機圖片路徑。無效或不支援的圖片會回復到 appIcon。",
           "confirmQuit": "控制 cmux 在退出前何時要求確認。無論此設定為何，DEV 建置都會立即退出。舊的 app.warnBeforeQuit 仍會作為布林後備值接受。",
           "windowTitleTemplate": "可選的 NSWindow 標題範本。留空會保留 cmux 既有的預設標題行為，包括回退到目前目錄。支援的預留位置：'{windowId}'、'{windowToken}'、'{activeWorkspace}'、'{activeDirectory}'、'{defaultTitle}'、'{appName}'。",
           "warnBeforeQuit": "用於退出確認的舊版布林後備值。新設定請使用 app.confirmQuit。",

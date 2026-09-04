@@ -60,6 +60,7 @@ extension CmuxSettingsFileStore {
                     "language": AppCatalogSection().language.defaultValue.rawValue,
                     "appearance": AppearanceSettings.defaultMode.rawValue,
                     "appIcon": AppIconSettings.defaultMode.rawValue,
+                    "appIconImagePath": "",
                     "windowTitleTemplate": WindowTitleTemplate.defaultRawValue,
                     "menuBarOnly": MenuBarOnlySettings.defaultMenuBarOnly,
                     "newWorkspacePlacement": SettingCatalog().app.newWorkspacePlacement.defaultValue.rawValue,

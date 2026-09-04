@@ -102,6 +102,10 @@ public protocol SettingsHostActions: AnyObject {
     /// can preview it from the Settings UI.
     func previewNotificationSound(value: String, customFilePath: String)
 
+    /// Reports whether a persisted custom app-icon path resolves to a supported
+    /// image in the host app's filesystem context, without blocking the UI actor.
+    func isCustomAppIconValid(_ path: String) async -> Bool
+
     /// Returns the current number of saved browser-history entries, or
     /// `nil` if the host hasn't loaded the history store yet. The
     /// Browser section uses this to render a dynamic "N saved pages"
@@ -419,6 +423,12 @@ public extension SettingsHostActions {
         if fraction == 0 { return "\(whole)" }
         if fraction % 10 == 0 { return "\(whole).\(fraction / 10)" }
         return "\(whole).\(fraction < 10 ? "0" : "")\(fraction)"
+    }
+
+    /// Treats a non-empty path as active for package-only previews and hosts
+    /// that do not have an image decoder available.
+    func isCustomAppIconValid(_ path: String) async -> Bool {
+        !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 

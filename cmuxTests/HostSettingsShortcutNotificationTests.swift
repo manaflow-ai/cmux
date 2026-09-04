@@ -65,7 +65,8 @@ struct HostSettingsShortcutNotificationTests {
         try updatedContents.write(to: settingsFileURL, atomically: true, encoding: .utf8)
         HostSettingsActions(
             configFileURL: settingsFileURL,
-            computerUseRuntimeService: ComputerUseRuntimeService()
+            computerUseRuntimeService: ComputerUseRuntimeService(),
+            appIconSettingsApplication: AppIconSettingsApplication()
         ).notifyShortcutSettingsDidChange()
 
         #expect(counter.value == expectedNotificationCount)

@@ -30,7 +30,7 @@ extension Array where Element == CuratedSettingEntry {
             // App
             .init(section: .app, id: "language", title: "Language", synonyms: "app.language locale l10n localization translation japanese english ja en nihongo restart"),
             .init(section: .app, id: "appearance", title: "Appearance", synonyms: "app.appearance theme color scheme light mode dark mode system mode"),
-            .init(section: .app, id: "app-icon", title: "App Icon", synonyms: "app.appIcon dock icon application icon app switcher alternate icon"),
+            .init(section: .app, id: "app-icon", title: "App Icon", synonyms: "app.appIcon app.appIconImagePath dock icon application icon app switcher alternate icon custom image file"),
             .init(section: .app, id: "new-workspace-placement", title: "New Workspace Placement", synonyms: "app.newWorkspacePlacement new tab insert position order top bottom end"),
             .init(section: .app, id: "workspace-layouts", title: String(localized: "settings.app.workspaceLayouts", defaultValue: "Workspace Layouts"), synonyms: "workspace layouts customize layout default new workspace menu save delete cmux.json actions"),
             .init(section: .app, id: "workspace-inherit-working-directory", title: "Inherit Workspace Working Directory", synonyms: "app.workspaceInheritWorkingDirectory workspace cwd directory inherit current focused working-directory"),

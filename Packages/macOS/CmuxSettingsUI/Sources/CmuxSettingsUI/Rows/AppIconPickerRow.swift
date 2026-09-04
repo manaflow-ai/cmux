@@ -16,6 +16,7 @@ import SwiftUI
 struct AppIconPickerRow: View {
     let selectedMode: AppIconMode
     let onSelect: (AppIconMode) -> Void
+    let hasCustomImage: Bool
 
     private let iconSize: CGFloat = 48
     private let autoIconSize: CGFloat = 36
@@ -33,7 +34,7 @@ struct AppIconPickerRow: View {
 
             HStack(spacing: 8) {
                 ForEach(AppIconMode.allCases, id: \.self) { mode in
-                    let isSelected = selectedMode == mode
+                    let isSelected = !hasCustomImage && selectedMode == mode
                     Button {
                         onSelect(mode)
                     } label: {

@@ -833,6 +833,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     /// `ContentView` environment so `@LiveSetting` can resolve the stores it
     /// observes inside the sidebar.
     var settingsRuntime: SettingsRuntime?
+    /// Owns custom app-icon resolution for the application lifetime.
+    private var appIconSettingsApplication: AppIconSettingsApplication?
     private var computerUseRuntimeService: ComputerUseRuntimeService?
     weak var fileExplorerState: FileExplorerState?
     weak var fullscreenControlsViewModel: TitlebarControlsViewModel?
@@ -2328,6 +2330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         StartupBreadcrumbLog.append("appDelegate.willTerminate.begin")
+        appIconSettingsApplication?.cancel()
         // Backstop for any terminate path that did not route through
         // prepareForConfirmedAppTermination(). Normal confirmed termination has already
         // persisted a fresh index before AppKit receives its reply; do not overwrite that
@@ -2401,7 +2404,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         sidebarState: SidebarState,
         settingsRuntime: SettingsRuntime,
         auth: MacAuthComposition,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        appIconSettingsApplication: AppIconSettingsApplication? = nil
     ) {
         captureSessionLaunchStateIfNeeded()
         self.tabManager = tabManager
@@ -2420,6 +2424,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         self.sidebarState = sidebarState
         self.auth = auth
         self.computerUseRuntimeService = computerUseRuntimeService
+        self.appIconSettingsApplication = appIconSettingsApplication
         (settingsRuntime.hostActions as? HostSettingsActions)?.setRunComputerUseOnboardingAction { [weak self] startingPoint in
             self?.computerUseUXCoordinator.presentOnboarding(startingAt: startingPoint)
         }
@@ -2507,6 +2512,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // keeps working. No-op when already set or the legacy file is absent.
         Task { await DevWindowDisplayDefault.migrateLegacyFileIfNeeded(runtime: settingsRuntime) }
 #endif
+    }
+
+    /// Applies a managed app-icon change through the lifecycle-owned resolver.
+    @MainActor
+    func applyCurrentAppIcon(defaults: UserDefaults = .standard) {
+        guard let appIconSettingsApplication else { return }
+        AppIconSettings.applyCurrentIcon(
+            defaults: defaults,
+            application: appIconSettingsApplication
+        )
     }
 
     private func pendingCrashScanTaskIfNeeded() -> Task<GhosttyCrashBreadcrumb.PendingCrash?, Never> {
@@ -17708,8 +17723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func ensureApplicationIcon() {
-        let mode = AppIconSettings.resolvedMode()
-        AppIconSettings.applyIcon(mode)
+        applyCurrentAppIcon()
     }
 
     private func scheduleLaunchServicesBundleRegistration(

@@ -1128,6 +1128,7 @@
           "autoNamingAgent": "Welcher Agent für jede Sitzung automatische Namen erzeugt. „auto“ (Standard) benennt jede Sitzung mit ihrem eigenen Agenten; ein beliebiger Agent-Slug (claude, codex, grok, opencode, pi, omp, …) überschreibt die Benennung für alle Sitzungen, auch für die anderer Agenten. Nicht ansteuerbare oder nicht installierte Agenten greifen auf den eigenen Agenten der Sitzung zurück, sodass die Benennung nie fehlschlägt."
         },
         "app": {
+          "appIconImagePath": "Optionaler Pfad zu einem lokalen Bild für das Dock- und App-Umschaltersymbol. Ungültige oder nicht unterstützte Bilder fallen auf appIcon zurück.",
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Älterer boolescher Fallback für die Beenden-Bestätigung. Verwenden Sie app.confirmQuit für neue Konfigurationen.",

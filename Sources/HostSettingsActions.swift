@@ -18,6 +18,8 @@ private let hostSettingsLogger = Logger(subsystem: "com.cmuxterm.app", category:
 @MainActor
 final class HostSettingsActions: SettingsHostActions {
     private let configFileURL: URL
+    private nonisolated let appIconConfigPath: String
+    private let appIconSettingsApplication: AppIconSettingsApplication
     private let computerUseRuntimeService: ComputerUseRuntimeService
     private var runComputerUseOnboardingAction:
         @MainActor (ComputerUseOnboardingWindowController.StartingPoint) -> Void = { _ in }
@@ -31,15 +33,16 @@ final class HostSettingsActions: SettingsHostActions {
     /// in-app button's SwiftUI scene or this host-presented window).
     private let configWindowIdentifier = "cmux.configEditor"
 
-    /// Observes the `appIconMode` defaults key the settings package writes
-    /// so the host can re-apply the dock/app-switcher icon when the user
-    /// changes the App Icon picker. The package only persists the value;
-    /// applying `NSApplication.shared.applicationIconImage` is host work.
+    /// Observes the built-in mode and optional custom image defaults the
+    /// settings package writes so the host can re-apply the Dock/app-switcher
+    /// icon. The package only persists values; applying AppKit state is host
+    /// work.
     ///
     /// Uses the closure-based `NSKeyValueObservation` token API, the
     /// sanctioned seam for bridging a Foundation type that exposes change
     /// only via KVO (`UserDefaults`). The token is invalidated in `deinit`.
     private var appIconModeObservation: NSKeyValueObservation?
+    private var appIconImagePathObservation: NSKeyValueObservation?
 
     /// Retains the AppKit window hosting ``ConfigSettingsView`` so repeated
     /// "Open Config" presses reuse the same dedicated terminal-config
@@ -53,31 +56,46 @@ final class HostSettingsActions: SettingsHostActions {
 
     init(
         configFileURL: URL,
-        computerUseRuntimeService: ComputerUseRuntimeService
+        computerUseRuntimeService: ComputerUseRuntimeService,
+        appIconSettingsApplication: AppIconSettingsApplication
     ) {
         self.configFileURL = configFileURL
+        self.appIconConfigPath = configFileURL.path
+        self.appIconSettingsApplication = appIconSettingsApplication
         self.computerUseRuntimeService = computerUseRuntimeService
         startObservingAppIconMode()
     }
 
     deinit {
         appIconModeObservation?.invalidate()
+        appIconImagePathObservation?.invalidate()
+        appIconSettingsApplication.cancel()
         notificationSoundPreviewTask?.cancel()
     }
 
     private func startObservingAppIconMode() {
         // Apply once on construction so a value persisted before this
         // instance existed (e.g. from the config file) is reflected.
-        AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+        AppIconSettings.applyCurrentIcon(application: appIconSettingsApplication)
 
         appIconModeObservation = UserDefaults.standard.observe(
             \.appIconMode,
             options: [.new]
-        ) { _, _ in
+        ) { [weak self] _, _ in
             // KVO delivers on the thread that mutated the key; @AppStorage
             // writes happen on the main actor, so hop to it to apply.
-            Task { @MainActor in
-                AppIconSettings.applyIcon(AppIconSettings.resolvedMode())
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                AppIconSettings.applyCurrentIcon(application: self.appIconSettingsApplication)
+            }
+        }
+        appIconImagePathObservation = UserDefaults.standard.observe(
+            \.appIconImagePath,
+            options: [.new]
+        ) { [weak self] _, _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                AppIconSettings.applyCurrentIcon(application: self.appIconSettingsApplication)
             }
         }
     }
@@ -130,6 +148,16 @@ final class HostSettingsActions: SettingsHostActions {
 
     func applyLanguageOverride(_ language: AppLanguage) {
         LanguageSettingsStore(defaults: .standard).applyLanguageOverride(language)
+    }
+
+    func isCustomAppIconValid(_ path: String) async -> Bool {
+        await AppIconImageResolver.isValid(
+            for: path,
+            relativeToConfig: appIconConfigPath,
+            log: { message in
+                hostSettingsLogger.warning("\(message, privacy: .public)")
+            }
+        )
     }
 
     func refreshComputerUsePermissions() async {
@@ -739,5 +767,10 @@ private extension UserDefaults {
     /// to ``AppIconSettings/modeKey`` (`"appIconMode"`).
     @objc dynamic var appIconMode: String? {
         string(forKey: "appIconMode")
+    }
+
+    /// KVO-observable accessor for the optional custom app-icon path.
+    @objc dynamic var appIconImagePath: String? {
+        string(forKey: "appIconImagePath")
     }
 }

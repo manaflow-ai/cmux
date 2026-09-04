@@ -14,6 +14,12 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
+import OSLog
+
+nonisolated private let appIconRuntimeLogger = Logger(
+    subsystem: "com.cmuxterm.app",
+    category: "AppIcon"
+)
 
 /// The process entry point. When the binary is launched with a worker flag
 /// (the app re-executes its own binary so a crash or hang in paste preparation,
@@ -45,6 +51,9 @@ enum CmuxMain {
 }
 
 struct cmuxApp: App {
+    /// Composition-root owner for asynchronous custom app-icon resolution.
+    private let appIconSettingsApplication: AppIconSettingsApplication
+
     /// Dependency container for the new settings packages. Constructed
     /// once at app launch and injected into the SwiftUI environment via
     /// `.settingsRuntime(_:)`; descendant views resolve their settings
@@ -82,6 +91,8 @@ struct cmuxApp: App {
         // it owns localized search-index text for the process lifetime.
         let settingsCatalog = SettingCatalog()
         let configFileURL = CmuxConfigLocation().userConfigFile
+        let appIconSettingsApplication = AppIconSettingsApplication()
+        self.appIconSettingsApplication = appIconSettingsApplication
         // Relocate a pre-existing socket password out of the legacy
         // Application Support directory before any store reads it. The CLI reads
         // this file on every agent hook, and a cross-identity reach into
@@ -222,7 +233,8 @@ struct cmuxApp: App {
             accountFlow: authComposition.accountFlow,
             hostActions: HostSettingsActions(
                 configFileURL: configFileURL,
-                computerUseRuntimeService: computerUseRuntimeService
+                computerUseRuntimeService: computerUseRuntimeService,
+                appIconSettingsApplication: appIconSettingsApplication
             )
         )
         StartupBreadcrumbLog.append("app.init.settingsRuntime.created")
@@ -307,7 +319,8 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
-            computerUseRuntimeService: computerUseRuntimeService
+            computerUseRuntimeService: computerUseRuntimeService,
+            appIconSettingsApplication: appIconSettingsApplication
         )
         historyMenuCoordinator.refreshIfNeeded()
         StartupBreadcrumbLog.append("app.init.delegate.configured")
@@ -5043,6 +5056,7 @@ enum AppIconLaunchState {
 
 enum AppIconSettings {
     static let modeKey = "appIconMode"
+    static let imagePathKey = "appIconImagePath"
     static let defaultMode: AppIconMode = .automatic
     private static let dockTileIconDidChangeNotification = Notification.Name("com.cmuxterm.appIconDidChange")
     private static var liveEnvironmentProvider: () -> Environment = { .live() }
@@ -5062,10 +5076,29 @@ enum AppIconSettings {
     struct Environment {
         let isApplicationFinishedLaunching: () -> Bool
         let imageForMode: (AppIconMode) -> NSImage?
+        let prepareImageForPath: (@Sendable (String) async -> AppIconImageResolver.PreparedImage?)?
         let setApplicationIconImage: (NSImage) -> Void
         let startAppearanceObservation: () -> Void
         let stopAppearanceObservation: () -> Void
         let notifyDockTilePlugin: () -> Void
+
+        init(
+            isApplicationFinishedLaunching: @escaping () -> Bool,
+            imageForMode: @escaping (AppIconMode) -> NSImage?,
+            prepareImageForPath: (@Sendable (String) async -> AppIconImageResolver.PreparedImage?)? = nil,
+            setApplicationIconImage: @escaping (NSImage) -> Void,
+            startAppearanceObservation: @escaping () -> Void,
+            stopAppearanceObservation: @escaping () -> Void,
+            notifyDockTilePlugin: @escaping () -> Void
+        ) {
+            self.isApplicationFinishedLaunching = isApplicationFinishedLaunching
+            self.imageForMode = imageForMode
+            self.prepareImageForPath = prepareImageForPath
+            self.setApplicationIconImage = setApplicationIconImage
+            self.startAppearanceObservation = startAppearanceObservation
+            self.stopAppearanceObservation = stopAppearanceObservation
+            self.notifyDockTilePlugin = notifyDockTilePlugin
+        }
 
         static func live() -> Self {
             Self(
@@ -5075,6 +5108,14 @@ enum AppIconSettings {
                 imageForMode: { mode in
                     guard let imageName = mode.imageName else { return nil }
                     return NSImage(named: imageName)
+                },
+                prepareImageForPath: { path in
+                    await AppIconImageResolver.preparedImage(
+                        for: path,
+                        log: { message in
+                            appIconRuntimeLogger.warning("\(message, privacy: .public)")
+                        }
+                    )
                 },
                 setApplicationIconImage: { icon in
                     NSApplication.shared.applicationIconImage = icon
@@ -5106,7 +5147,29 @@ enum AppIconSettings {
         return mode
     }
 
-    static func applyIcon(_ mode: AppIconMode, environment: Environment? = nil) {
+    static func resolvedImagePath(defaults: UserDefaults = .standard) -> String? {
+        let path = (defaults.string(forKey: imagePathKey) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return path.isEmpty ? nil : path
+    }
+
+    /// Applies the one effective app-icon selection. A valid custom image
+    /// wins over the built-in mode; an invalid image is logged by the
+    /// resolver and falls back to the selected Automatic / Light / Dark mode.
+    @MainActor
+    static func applyCurrentIcon(
+        application: AppIconSettingsApplication,
+        defaults: UserDefaults = .standard,
+        environment: Environment? = nil
+    ) {
+        let environment = environment ?? liveEnvironmentProvider()
+        application.applyCurrentIcon(defaults: defaults, environment: environment)
+    }
+
+    static func applyIcon(
+        _ mode: AppIconMode,
+        environment: Environment? = nil
+    ) {
         let environment = environment ?? liveEnvironmentProvider()
         // Tahoe can crash or wedge when app icon work runs during App.init(),
         // so leave settings replay to update defaults only and let AppDelegate

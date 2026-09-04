@@ -51,6 +51,8 @@ final class CmuxSettingsFileStore {
     /// change would loop forever against it.
     private let isUserDefaultsKeyForcedByProfile: (String) -> Bool
     private let onWatchedFileReload: @MainActor @Sendable (String) -> Void
+    /// Applies an imported app-icon setting through the app lifecycle owner.
+    private let onAppIconSettingsChanged: @MainActor @Sendable (UserDefaults) -> Void
     private let stateLock = NSLock()
 
     private var watchers: [FileWatcher] = []
@@ -88,7 +90,8 @@ final class CmuxSettingsFileStore {
             }
             return policy.isKeyForcedInAppDomain(key)
         },
-        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in }
+        onWatchedFileReload: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+        onAppIconSettingsChanged: @escaping @MainActor @Sendable (UserDefaults) -> Void = { _ in }
     ) {
         self.isUserDefaultsKeyForcedByProfile = isUserDefaultsKeyForcedByProfile
         self.primaryPath = primaryPath
@@ -103,6 +106,7 @@ final class CmuxSettingsFileStore {
         self.languageSettingsStore = languageSettingsStore
         self.passwordStore = passwordStore
         self.onWatchedFileReload = onWatchedFileReload
+        self.onAppIconSettingsChanged = onAppIconSettingsChanged
         importedManagedDefaults = Self.loadImportedManagedDefaults(defaults: userDefaults)
         bootstrapPrimaryTemplateIfNeeded()
         reload(applyLiveDefaultSideEffects: false)
@@ -466,6 +470,23 @@ final class CmuxSettingsFileStore {
                 return
             }
             snapshot.managedUserDefaults[AppIconSettings.modeKey] = .string(mode.rawValue)
+        } else if section.keys.contains("appIcon") {
+            logInvalid("app.appIcon", sourcePath: sourcePath)
+        }
+        if let raw = jsonString(section["appIconImagePath"]) {
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                snapshot.managedUserDefaults[AppIconSettings.imagePathKey] = .string("")
+            } else if let normalized = CmuxValidatedImageAsset.normalizedPath(
+                trimmed,
+                relativeToConfig: sourcePath
+            ) {
+                snapshot.managedUserDefaults[AppIconSettings.imagePathKey] = .string(normalized)
+            } else {
+                logInvalid("app.appIconImagePath", sourcePath: sourcePath)
+            }
+        } else if section.keys.contains("appIconImagePath") {
+            logInvalid("app.appIconImagePath", sourcePath: sourcePath)
         }
         if let value = jsonBool(section["menuBarOnly"]) {
             snapshot.managedUserDefaults[MenuBarOnlySettings.menuBarOnlyKey] = .bool(value)
@@ -1627,6 +1648,7 @@ final class CmuxSettingsFileStore {
         let notificationCenter = notificationCenter
         let userDefaults = userDefaults
         let languageSettingsStore = languageSettingsStore
+        let onAppIconSettingsChanged = onAppIconSettingsChanged
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
@@ -1671,8 +1693,11 @@ final class CmuxSettingsFileStore {
                 if change.defaultsKey == AppCatalogSection().language.userDefaultsKey {
                     let rawValue = userDefaults.string(forKey: change.defaultsKey) ?? ""
                     languageSettingsStore?.applyLanguageOverride(AppLanguage(rawValue: rawValue) ?? .system)
-                } else if change.defaultsKey == AppIconSettings.modeKey {
-                    AppIconSettings.applyIcon(AppIconSettings.resolvedMode(defaults: userDefaults))
+                } else if change.defaultsKey == AppIconSettings.modeKey ||
+                    change.defaultsKey == AppIconSettings.imagePathKey {
+                    MainActor.assumeIsolated {
+                        onAppIconSettingsChanged(userDefaults)
+                    }
                 } else if change.defaultsKey == GlobalFontMagnification.percentKey {
                     notificationCenter.post(name: GlobalFontMagnification.didChangeNotification, object: nil)
                 }

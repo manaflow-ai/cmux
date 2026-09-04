@@ -1128,6 +1128,7 @@
           "autoNamingAgent": "Hvilken agent som genererer automatiske navn for hver økt. \"auto\" (standard) navngir hver økt med sin egen agent; en hvilken som helst agent-slug (claude, codex, grok, opencode, pi, omp, …) overstyrer navngivingen for alle økter, også andre agenters. Agenter som ikke kan styres eller ikke er installert, faller tilbake til øktens egen agent, så navngivingen aldri svikter."
         },
         "app": {
+          "appIconImagePath": "Valgfri sti til et lokalt bilde for Dock- og appbytterikonet. Ugyldige eller ikke-støttede bilder faller tilbake til appIcon.",
           "confirmQuit": "Styrer når cmux ber om bekreftelse før avslutning. DEV-bygg avslutter alltid umiddelbart uansett denne innstillingen. Den eldre app.warnBeforeQuit godtas fortsatt som boolsk fallback.",
           "windowTitleTemplate": "Valgfri mal for NSWindow-tittelen. Tom verdi bevarer cmux sin eksisterende standardtittelatferd, inkludert fallback til gjeldende katalog. Støttede plassholdere: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "warnBeforeQuit": "Eldre boolsk fallback for avslutningsbekreftelse. Bruk app.confirmQuit for nye konfigurasjoner.",

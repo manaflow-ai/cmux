@@ -106,6 +106,9 @@ extension CmuxSettingsFileStore {
             languageSettingsStore: LanguageSettingsStore(defaults: .standard),
             onWatchedFileReload: { source in
                 AppDelegate.shared?.reconcileSocketListenerConfiguration(source: source)
+            },
+            onAppIconSettingsChanged: { defaults in
+                AppDelegate.shared?.applyCurrentAppIcon(defaults: defaults)
             }
         )
     }

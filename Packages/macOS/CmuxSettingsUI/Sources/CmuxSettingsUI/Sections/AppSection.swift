@@ -1,6 +1,8 @@
+import AppKit
 import CmuxFoundation
 import CmuxSettings
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// **App** section — mirrors the legacy in-app section row-for-row
 /// inside a single `SettingsCard`: Language, Appearance, App Icon,
@@ -25,6 +27,8 @@ public struct AppSection: View {
     @State private var language: DefaultsValueModel<AppLanguage>
     @State private var appearance: DefaultsValueModel<AppearanceMode>
     @State private var appIcon: DefaultsValueModel<AppIconMode>
+    @State private var appIconImagePath: DefaultsValueModel<String>
+    @State private var customAppIconIsValid = false
     @State private var placement: DefaultsValueModel<WorkspacePlacement>
     @State private var inheritDir: DefaultsValueModel<Bool>
     @State private var minimalMode: DefaultsValueModel<WorkspacePresentationMode>
@@ -82,6 +86,7 @@ public struct AppSection: View {
         _language = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.language))
         _appearance = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appearance))
         _appIcon = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIcon))
+        _appIconImagePath = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.appIconImagePath))
         _placement = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.newWorkspacePlacement))
         _inheritDir = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.workspaceInheritWorkingDirectory))
         _minimalMode = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.app.presentationMode))
@@ -145,15 +150,37 @@ public struct AppSection: View {
             mainCard
         }
         .task {
-            startSettingsObservation([language, appearance, appIcon, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
+            startSettingsObservation([language, appearance, appIcon, appIconImagePath, placement, inheritDir, minimalMode, keepWorkspaceOpen, firstClick, focusHistoryIncludesPanesAndTabs, fileDrop, preferredEditor, openSupported, openMarkdown, globalFontMagnification, markdownFontSize, markdownFontFamily, markdownMaxWidth, canvasPaneGap, canvasSnapping, fileEditorWordWrap, iMessage, reorder, dockBadge, menuBarOnly, showInMenuBar, paneRing, paneFlash, desktopNotifications, agentPermissionPrompt, agentTurnComplete, agentIdleReminder, soundName, soundCommand, customSoundFile, soundOverrides, telemetry, confirmQuit, warnCloseTab, warnCloseX, hideCloseButton, renameSelects, paletteAllSurfaces])
             if soundAgents.isEmpty {
                 soundAgents = await hostActions.notificationSoundAgentOptions()
             }
             if languageAtAppear == nil { languageAtAppear = language.current }; if telemetryAtAppear == nil { telemetryAtAppear = telemetry.current }
         }
+        .task(id: appIconImagePath.current) {
+            let path = appIconImagePath.current
+            customAppIconIsValid = false
+            let isValid: Bool
+            if path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isValid = false
+            } else {
+                isValid = await hostActions.isCustomAppIconValid(path)
+            }
+            guard !Task.isCancelled else { return }
+            customAppIconIsValid = Self.customImageIsActive(
+                path: path,
+                isValid: isValid
+            )
+        }
         .onChange(of: soundOverrides.current) { _, newValue in
             soundOverridesModel.accept(newValue)
         }
+    }
+
+    /// Keeps the built-in picker selected when a configured custom path cannot
+    /// be resolved by the host, while preserving the custom override indicator
+    /// for a successfully decoded image.
+    nonisolated static func customImageIsActive(path: String, isValid: Bool) -> Bool {
+        !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && isValid
     }
 
     private var globalFontMagnificationSubtitle: String {
@@ -205,9 +232,29 @@ public struct AppSection: View {
             // App Icon — three-up visual picker mirroring legacy
             AppIconPickerRow(
                 selectedMode: appIcon.current,
-                onSelect: { appIcon.set($0) }
+                onSelect: {
+                    // A built-in selection is the single action that exits
+                    // custom mode and restores Automatic / Light / Dark.
+                    appIconImagePath.reset()
+                    appIcon.set($0)
+                },
+                hasCustomImage: Self.customImageIsActive(
+                    path: appIconImagePath.current,
+                    isValid: customAppIconIsValid
+                )
             )
             .settingsSearchAnchors(["setting:app:app-icon"])
+            SettingsCardDivider()
+
+            AppIconCustomPickerRow(
+                selectedPath: appIconImagePath.current,
+                onChoose: { chooseCustomAppIcon(into: appIconImagePath) },
+                onClear: { appIconImagePath.reset() }
+            )
+            // Keep the built-in picker as the unique scroll anchor for this
+            // combined setting. The custom row participates in the same
+            // highlight without claiming a duplicate SwiftUI ID.
+            .settingsSearchHighlight(["setting:app:app-icon", "setting:app:app-icon-image-path"])
             SettingsCardDivider()
 
             // New Workspace Placement
@@ -821,6 +868,21 @@ public struct AppSection: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("CommandPaletteSearchAllSurfacesToggle")
             }
+        }
+    }
+
+    private func chooseCustomAppIcon(into model: DefaultsValueModel<String>) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.title = String(
+            localized: "settings.app.appIcon.custom.panelTitle",
+            defaultValue: "Choose App Icon Image"
+        )
+        if panel.runModal() == .OK, let url = panel.url {
+            model.set(url.path)
         }
     }
 

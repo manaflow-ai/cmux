@@ -11,6 +11,7 @@ General app preferences from Settings > App.
 | `app.language` | `"system"` or `"en"` or `"ar"` or `"bs"` or `"zh-Hans"` or `"zh-Hant"` or `"da"` or `"de"` or `"es"` or `"fr"` or `"it"` or `"ja"` or `"ko"` or `"nb"` or `"pl"` or `"pt-BR"` or `"ru"` or `"th"` or `"tr"` | `"system"` | Preferred app language. |
 | `app.appearance` | `"system"` or `"light"` or `"dark"` | `"system"` | App appearance mode. |
 | `app.appIcon` | `"automatic"` or `"light"` or `"dark"` | `"automatic"` | Dock and app switcher icon style. |
+| `app.appIconImagePath` | string | `""` | Optional local image path for the Dock and app switcher icon. Invalid or unsupported images fall back to `app.appIcon`. |
 | `app.menuBarOnly` | boolean | `false` | Hide the Dock icon and app switcher entry while keeping cmux available from the menu bar. |
 | `app.newWorkspacePlacement` | `"top"` or `"afterCurrent"` or `"end"` | `"afterCurrent"` | Where new workspaces are inserted in the sidebar. |
 | `app.workspaceInheritWorkingDirectory` | boolean | `true` | When true, new workspaces inherit the current workspace working directory. When false, new workspaces use Ghostty's working-directory setting instead. |

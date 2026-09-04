@@ -52,7 +52,7 @@ The rest of this doc assumes it is on `$PATH` as `cmux-settings`; from a checkou
 
 ## Quick reference
 
-- Appearance: `app.appearance` (`"system" | "light" | "dark"`), `app.appIcon`, `app.menuBarOnly`, `app.minimalMode`.
+- Appearance: `app.appearance` (`"system" | "light" | "dark"`), `app.appIcon`, `app.appIconImagePath` (optional local image), `app.menuBarOnly`, `app.minimalMode`.
 - Sidebar tint: `sidebarAppearance.matchTerminalBackground`, `.tintColor`, `.tintOpacity` (0..1).
 - Sidebar details: `sidebar.hideAllDetails`, `.showBranchDirectory`, `.showPullRequests`, `.showPorts`, `.showLog`.
 - Notifications: `notifications.dockBadge`, `.sound` (enum including `"none"`, `"custom_file"`), `.customSoundFilePath`, `.hooks` (array).
