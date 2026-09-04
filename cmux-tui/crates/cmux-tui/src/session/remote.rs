@@ -2408,6 +2408,11 @@ impl RemoteSession {
                     *state = DisconnectState::ExpectedRemoteShutdown;
                 }
                 drop(state);
+                // Wake every request that was already admitted before the
+                // daemon announced its shutdown. The synthetic response is
+                // classified with the expected-remote state, so callers get
+                // DaemonShutdown instead of a timeout when EOF follows.
+                self.begin_shutdown();
                 self.emit(MuxEvent::Empty);
             }
             Some("tree-changed") => {

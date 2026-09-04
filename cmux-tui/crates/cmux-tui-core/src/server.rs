@@ -5521,6 +5521,13 @@ fn complete_daemon_shutdown_after_ack(
         return false;
     }
     mux.request_daemon_shutdown();
+    if writer
+        .send_control(&json!({"event": DAEMON_SHUTDOWN_EVENT}))
+        .and_then(|()| writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT))
+        .is_err()
+    {
+        return false;
+    }
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
             disconnect_client_with_notice(mux, peer, true, Some(DAEMON_SHUTDOWN_EVENT));
