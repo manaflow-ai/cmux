@@ -1,3 +1,4 @@
+#if os(iOS)
 import Foundation
 import os
 import Testing
@@ -104,3 +105,4 @@ import Testing
         #expect(failure.kind == .link)
     }
 }
+#endif
