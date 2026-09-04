@@ -113,7 +113,8 @@ final class AppCompositionRoot {
         if Self.crashReportingEnabled {
             MobileCrashReporter().startIfEnabled(
                 consent: telemetryConsent,
-                revocationWatcher: crashRevocationWatcher
+                revocationWatcher: crashRevocationWatcher,
+                replayMaskedViewClasses: MobileSessionReplayMasking.maskedViewClasses
             )
             crashReportingEvent = telemetryConsent.isTelemetryEnabled
                 ? .crashReportingStarted
