@@ -112,6 +112,9 @@ jobs:
     needs: decide
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *'
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
+    # The cache is optional to consumers, but this job performs a real universal
+    # Release compile. Keep that compile fatal so a source/toolchain regression
+    # cannot be reported green; the publishing build remains authoritative.
     runs-on: ${{ vars.MACOS_RUNNER_26_RELEASE || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 45
     env:
@@ -935,7 +938,7 @@ jobs:
   # A nightly that fails on main stalls every NIGHTLY install silently. Keep
   # one open issue per breakage so the failure is visible without watching Actions.
   report-nightly-failure:
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, publish-nightly]
+    needs: [decide, refresh-compilation-cache, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, publish-nightly]
     if: always() && needs.decide.outputs.should_publish == 'true' && contains(needs.*.result, 'failure')
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
@@ -954,7 +957,11 @@ jobs:
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const results = JSON.parse(process.env.RESULTS);
             const failed = Object.entries(results).filter(([, v]) => v.result === 'failure').map(([k]) => k);
-            const body = `Nightly run ${runUrl} failed on ${process.env.HEAD_SHA} in: ${failed.join(', ')}.\n\nNIGHTLY installs stop receiving updates until a run on main succeeds. This issue closes itself on the next successful publish.`;
+            const publishFailed = failed.some((name) => name !== 'refresh-compilation-cache');
+            const impact = publishFailed
+              ? 'NIGHTLY installs stop receiving updates until a run on main succeeds.'
+              : 'The cache refresh failed; no publish was attempted and the previous NIGHTLY remains available.';
+            const body = `Nightly run ${runUrl} failed on ${process.env.HEAD_SHA} in: ${failed.join(', ')}.\n\n${impact} This issue closes itself on the next successful publish.`;
             try {
               await github.rest.issues.getLabel({ owner, repo, name: label });
             } catch (error) {

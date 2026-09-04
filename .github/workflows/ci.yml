@@ -1,18 +1,10 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
+  # Run the router for every pull request. It keeps provenance-only and other
+  # cheap changes on their narrow lanes, while ensuring app changes reach the
+  # macOS Release compile gate before they can merge to main.
   pull_request:
-    paths:
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
-      - scripts/validate-xcframework-archive.py
-      - scripts/ghosttykit-checksums.txt
-      - tests/test_ci_ghosttykit_release_check.sh
-      - tests/test_ci_change_areas.py
-      - .github/workflows/ci.yml
   workflow_dispatch:
 
 permissions:
