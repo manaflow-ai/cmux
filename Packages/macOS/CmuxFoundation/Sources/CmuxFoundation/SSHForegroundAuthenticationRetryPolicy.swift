@@ -695,6 +695,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_snapshot_format=
           cmux_ssh_auth_cleanup_needs_root_abort=0
           cmux_ssh_auth_dynamic_discovery_failed=0
+          # These flags are initialized before the EXIT trap can run. A
+          # fork-starved shell may abort while an external snapshot command is
+          # being started, so cleanup must still know whether an identity-fenced
+          # stopped journal is available for the fork-free backstop below.
+          cmux_ssh_auth_tree_frozen=0
+          cmux_ssh_auth_force_frozen=0
+          cmux_ssh_auth_force_backstop_used=0
           if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
             cmux_ssh_auth_signal_backend=darwin
           fi
@@ -1855,14 +1862,75 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_kernel_journal "$cmux_ssh_auth_resume_path"
           }
 
+          # Force-kill a journal that was already confirmed stopped. Every row
+          # reached this function came from an identity-checked STOP request and
+          # a confirming process-table snapshot, so the stopped PID cannot exit
+          # and be reused between validation and this shell-builtin KILL. Keep
+          # this path completely fork-free: under the runner's process ceiling
+          # even the Ruby/Perl identity helpers used by normal cleanup can fail
+          # with EAGAIN, but a shell builtin remains available. A failed KILL is
+          # treated as an already-gone target (the only safe result that does
+          # not require another liveness probe); no unjournaled PID is touched.
+          cmux_ssh_auth_force_confirmed_journal() {
+            cmux_ssh_auth_force_journal_path="$1"
+            [ -r "$cmux_ssh_auth_force_journal_path" ] || return 0
+            while IFS=' ' read -r cmux_ssh_auth_force_depth \
+              cmux_ssh_auth_force_pid cmux_ssh_auth_force_parent \
+              cmux_ssh_auth_force_group cmux_ssh_auth_force_original_state \
+              cmux_ssh_auth_force_started cmux_ssh_auth_force_extra; do
+              [ -z "$cmux_ssh_auth_force_extra" ] || continue
+              case "$cmux_ssh_auth_force_depth:$cmux_ssh_auth_force_pid:$cmux_ssh_auth_force_parent:$cmux_ssh_auth_force_group" in
+                ''|*[!0-9:]*|*:|*:) continue ;;
+              esac
+              case "$cmux_ssh_auth_force_pid" in
+                ''|0|0*|*[!0-9]*) continue ;;
+              esac
+              case "$cmux_ssh_auth_force_started" in
+                P_[1-9][0-9]*_0_0_0_0|K_[1-9][0-9]*_[0-9]*_0_0) ;;
+                *) continue ;;
+              esac
+              # SIGKILL is sufficient for a stopped process. Do not send CONT
+              # afterward: once KILL is delivered, a reused PID must never be
+              # signaled by a second operation.
+              kill -KILL "$cmux_ssh_auth_force_pid" >/dev/null 2>&1 || true
+            done < "$cmux_ssh_auth_force_journal_path"
+            return 0
+          }
+
           cmux_ssh_auth_cleanup() {
             trap - EXIT HUP INT TERM
             if [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
-              cmux_ssh_auth_resume_file "$cmux_ssh_auth_pending"
-              cmux_ssh_auth_resume_file "$cmux_ssh_auth_owned"
-              if [ "$cmux_ssh_auth_cleanup_needs_root_abort" = 1 ]; then
+              if [ "$cmux_ssh_auth_dynamic_discovery_failed" != 1 ] &&
+                 { [ "$cmux_ssh_auth_tree_frozen" = 1 ] ||
+                   [ "$cmux_ssh_auth_force_frozen" = 1 ]; }; then
+                # The journal is already stopped and identity-fenced. Use the
+                # no-fork backstop before any best-effort rollback helper; this
+                # is the only cleanup operation that remains reliable after an
+                # EAGAIN abort in a snapshot or Ruby/Perl signal process.
+                cmux_ssh_auth_force_confirmed_journal "$cmux_ssh_auth_pending"
+                cmux_ssh_auth_force_confirmed_journal "$cmux_ssh_auth_owned"
+                cmux_ssh_auth_cleanup_complete=1
+                cmux_ssh_auth_force_backstop_used=1
+              else
+                cmux_ssh_auth_resume_file "$cmux_ssh_auth_pending"
+                cmux_ssh_auth_resume_file "$cmux_ssh_auth_owned"
+              fi
+              if [ "$cmux_ssh_auth_cleanup_needs_root_abort" = 1 ] &&
+                 [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
                 cmux_ssh_auth_force_root_termination
               fi
+            fi
+            if [ "$cmux_ssh_auth_force_backstop_used" = 1 ]; then
+              # KILL freed the owned processes, but the shell may still be at
+              # its per-user process ceiling. Close the helper's descriptors
+              # with builtins and return a successful cleanup status before
+              # attempting optional filesystem cleanup (which would require a
+              # new fork and could recreate the same EAGAIN failure). The
+              # short-lived state directory is private to TMPDIR and is safely
+              # reclaimable by the next bounded cleanup sweep.
+              exec 9>&- 2>/dev/null || true
+              exec 8>&- 2>/dev/null || true
+              exit 0
             fi
             # Once the wrapper opens the per-attempt event FIFOs, marker
             # identity cleanup is handed to this helper. The wrapper may time
