@@ -5433,7 +5433,7 @@ struct CMUXCLI {
         } catch {
             cliTelemetry.breadcrumb("socket.connect.failure", data: ["path": resolvedSocketPath])
             cliTelemetry.captureError(stage: "socket_connect", error: error)
-            if command == "restore", explicitSocketPath == nil {
+            if commandUsesContinuationSocketStartupWait(command), explicitSocketPath == nil {
                 cliDebugLog("socket.connect.wait.entered path=\(resolvedSocketPath)")
                 cliTelemetry.breadcrumb(
                     "socket.connect.wait",
@@ -8204,12 +8204,22 @@ struct CMUXCLI {
     /// ``connectClient(launchIfNeeded:)`` or the restore-specific launcher can
     /// complete the on-demand startup instead of discovery failing first.
     private func commandCanLaunchAppWhenSocketUnavailable(_ command: String) -> Bool {
+        if commandUsesContinuationSocketStartupWait(command) {
+            return true
+        }
         switch command {
-        case "settings", "shortcuts", "open", "diff", "restore", "restore-session", "feedback":
+        case "settings", "shortcuts", "open", "diff", "restore-session", "feedback":
             return true
         default:
             return false
         }
+    }
+
+    /// Continuation commands wait for the listener that the newly launched app
+    /// is about to bind, while other launch-capable commands keep their normal
+    /// immediate connection-failure behavior.
+    private func commandUsesContinuationSocketStartupWait(_ command: String) -> Bool {
+        command == "restore" || command == "fork"
     }
 
     /// Open a path in cmux by asking LaunchServices to deliver a directory URL to the app.
