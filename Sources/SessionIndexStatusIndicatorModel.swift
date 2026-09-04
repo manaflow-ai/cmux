@@ -49,21 +49,18 @@ nonisolated struct SessionIndexStatusIndicatorModel: Equatable, Sendable {
         isActive ? .green : Color.secondary.opacity(0.55)
     }
 
-    /// A known-running pane is authoritative while the process index catches
-    /// up after a resume. The parent supplies this flag only for panes whose
+    /// The Vault circle represents a session that is active and focusable in
+    /// this cmux window. The parent supplies this flag only for panes whose
     /// shell reports a foreground command, so a pane that has returned to its
-    /// shell after an exit cannot remain green. Indexed rows use the
-    /// process-derived status when no active pane is known.
+    /// shell cannot remain green. A process running in another terminal (or
+    /// one that cannot be mapped to a pane) remains gray here.
     nonisolated static func make(
         isInPane: Bool,
         liveStatus: VaultSessionLiveStatus?
     ) -> SessionIndexStatusIndicatorModel {
-        if isInPane {
-            return SessionIndexStatusIndicatorModel(state: .activeInPane)
-        }
-        if liveStatus?.isActiveForIndicator == true {
-            return SessionIndexStatusIndicatorModel(state: .active)
-        }
-        return SessionIndexStatusIndicatorModel(state: .inactive)
+        _ = liveStatus
+        return SessionIndexStatusIndicatorModel(
+            state: isInPane ? .activeInPane : .inactive
+        )
     }
 }

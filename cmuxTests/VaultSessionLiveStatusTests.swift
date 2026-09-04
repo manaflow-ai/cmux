@@ -88,10 +88,13 @@ struct VaultSessionLiveStatusTests {
             isInPane: false,
             liveStatus: .live
         )
-        #expect(liveIndexed.isActive)
+        #expect(!liveIndexed.isActive)
         #expect(
             liveIndexed.label
-                == String(localized: "sessionIndex.status.activeIndicator", defaultValue: "Active")
+                == String(
+                    localized: "sessionIndex.status.inactiveIndicator",
+                    defaultValue: "Inactive"
+                )
         )
 
         let idleIndexed = SessionIndexStatusIndicatorModel.make(
