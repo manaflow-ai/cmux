@@ -23,6 +23,7 @@ import {
   type VmBillingGatewayShape,
 } from "./billingGateway";
 import { vmCreateDisabledReason } from "./config";
+import { VM_DISK_MB_MAX, VM_DISK_MB_STEP } from "./machineSpec";
 import {
   VmBillingError,
   VmAccountDeletionIdentityRevocationError,
@@ -33,6 +34,7 @@ import {
   VmFreeAccessExpiredError,
   VmModelPlaneError,
   VmNotFoundError,
+  VmResizeInvalidError,
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
@@ -393,7 +395,7 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
-  /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
+  /** See CreateOptions.imageSize: CPU and memory are baked; disk can grow later. */
   readonly imageSize?: CreateOptions["imageSize"];
   /**
    * Wires the machine to coderouter. Provisioned after the row exists (its id
@@ -1308,7 +1310,7 @@ function boundedVmStatusReconcileLimit(limit: number | undefined): number {
 const RESUME_STATUS_PROBE_TIMEOUT = "5 seconds";
 const RESUME_SETTLE_ATTEMPTS = 10;
 const RESUME_SETTLE_INTERVAL = "1 second";
-type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "open_port";
+type VmResumeSource = "exec" | "attach" | "ssh" | "fork" | "open_port" | "resize";
 
 type ResumePreflightOptions = {
   /**
@@ -1904,6 +1906,63 @@ export function getVmStats(input: {
       );
     }
     return yield* providers.getStats(vm.provider, input.providerVmId);
+  });
+}
+
+export function resizeVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+  readonly storageMb: number;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!providers.resize || !providers.getStats) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
+    }
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
+      forceProviderProbe: true,
+    });
+    const current = yield* providers.getStats(vm.provider, input.providerVmId);
+    const currentMb = current.diskTotalMb;
+    if (currentMb === undefined || currentMb === null || currentMb <= 0) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
+    }
+    if (input.storageMb < currentMb) {
+      return yield* Effect.fail(new VmResizeInvalidError({
+        vmId: input.providerVmId,
+        requestedMb: input.storageMb,
+        currentMb,
+        maxMb: VM_DISK_MB_MAX,
+        reason: "below_current",
+      }));
+    }
+    if (input.storageMb > VM_DISK_MB_MAX || input.storageMb % VM_DISK_MB_STEP !== 0) {
+      return yield* Effect.fail(new VmResizeInvalidError({
+        vmId: input.providerVmId,
+        requestedMb: input.storageMb,
+        currentMb,
+        maxMb: VM_DISK_MB_MAX,
+        reason: "above_max",
+      }));
+    }
+    if (input.storageMb === currentMb) return current;
+    yield* providers.resize(vm.provider, input.providerVmId, { storageMb: input.storageMb });
+    const updated = yield* providers.getStats(vm.provider, input.providerVmId);
+    yield* repo.recordUsageEvent({
+      userId: input.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.resize",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { storageMb: input.storageMb, previousStorageMb: currentMb },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return updated;
   });
 }
 
