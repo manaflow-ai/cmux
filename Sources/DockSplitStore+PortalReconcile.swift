@@ -42,7 +42,9 @@ extension DockSplitStore {
             )
             return terminal.hostedView.isSurfaceViewFirstResponder()
         case let browser as BrowserPanel:
-            return restoreBrowserPanelInputFocus(browser)
+            return browser.restoreFocusIntent(
+                browser.preferredFocusIntentForActivation()
+            )
         default:
             panel.focus()
             return true

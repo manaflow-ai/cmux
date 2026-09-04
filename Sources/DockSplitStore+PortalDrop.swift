@@ -67,7 +67,8 @@ extension DockSplitStore {
 
         // Internal Dock drag. A center drop onto the source pane is a no-op.
         if zone == .center, sourcePane == paneId { return true }
-        noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+        let focusWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        noteKeyboardFocusIntent(window: focusWindow)
         let movedTab = TabID(uuid: tabId)
         let didMove: Bool
         switch zone {
@@ -83,6 +84,16 @@ extension DockSplitStore {
             didMove = bonsplitController.splitPane(paneId, orientation: .vertical, movingTab: movedTab, insertFirst: false) != nil
         }
         if didMove {
+            // Bonsplit's moving-tab split emits only didSplitPane, so the moved
+            // panel needs an explicit focus transaction after the split callback
+            // has repaired any source-pane placeholder.
+            if zone != .center,
+               let movedPanel = panel(for: movedTab) {
+                focusPanelFromDockInteraction(
+                    movedPanel.id,
+                    window: focusWindow
+                )
+            }
             scheduleDockPortalReconcile(reason: "dock.portalPaneDrop")
         }
         return didMove

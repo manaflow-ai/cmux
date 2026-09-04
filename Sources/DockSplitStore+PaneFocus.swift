@@ -187,35 +187,6 @@ extension DockSplitStore {
         return nil
     }
 
-    /// Focuses a Dock browser's address bar for a blank page, otherwise
-    /// restoring keyboard input to the page WebView.
-    @discardableResult
-    func focusBrowserPanelPreferringAddressBar(_ browser: BrowserPanel) -> Bool {
-        if browser.isShowingNewTabPage || browser.preferredURLStringForOmnibar() == nil {
-            if AppDelegate.shared?.focusBrowserAddressBar(in: browser) == true {
-                return true
-            }
-            // Chromeless browsers cannot expose an address bar. Keep the same
-            // immediate-input contract by falling back to their WebView.
-            return browser.requestExplicitWebViewFocus()
-        }
-        return browser.requestExplicitWebViewFocus()
-    }
-
-    /// Restores the browser's semantic focus target while preserving the Dock's
-    /// blank-page preference for the address bar.
-    @discardableResult
-    func restoreBrowserPanelInputFocus(
-        _ browser: BrowserPanel,
-        intent: PanelFocusIntent? = nil
-    ) -> Bool {
-        let resolvedIntent = intent ?? browser.preferredFocusIntentForActivation()
-        if case .browser(.webView) = resolvedIntent {
-            return focusBrowserPanelPreferringAddressBar(browser)
-        }
-        return browser.restoreFocusIntent(resolvedIntent)
-    }
-
     func focusedDockPaneSelection() -> (pane: PaneID?, tab: TabID?) {
         let pane = bonsplitController.focusedPaneId
         return (pane, pane.flatMap { bonsplitController.selectedTab(inPane: $0)?.id })
@@ -348,7 +319,7 @@ extension DockSplitStore {
             return
         }
         if let browser = selectedPanel as? BrowserPanel {
-            _ = restoreBrowserPanelInputFocus(browser, intent: activationIntent)
+            _ = browser.restoreFocusIntent(activationIntent)
         } else {
             selectedPanel.focus()
         }

@@ -15,9 +15,6 @@ extension DockSplitStore {
             return nil
         }
         let tabs = bonsplitController.tabs(inPane: paneId)
-        if focus {
-            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
-        }
         guard let anchorIndex = tabs.firstIndex(where: {
             $0.id == anchorTabId
         }),
@@ -38,6 +35,11 @@ extension DockSplitStore {
             return nil
         }
 
+        let focusWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        if focus {
+            noteKeyboardFocusIntent(window: focusWindow)
+        }
+
         duplicatedPanel.setMuted(browser.isMuted)
         bonsplitController.updateTab(
             duplicatedTabId,
@@ -55,7 +57,7 @@ extension DockSplitStore {
         if focus {
             focusPanelFromDockInteraction(
                 duplicatedPanelId,
-                window: NSApp.keyWindow ?? NSApp.mainWindow
+                window: focusWindow
             )
         }
         return duplicatedPanel
