@@ -53,6 +53,23 @@ struct VMTunnelManagerTests {
     }
 
     @Test
+    func readingStoredFingerprintDoesNotMintAfterRevoke() throws {
+        let home = try temporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let manager = VMTunnelManager(home: home, interfaceName: "cmux-test")
+
+        #expect(manager.storedDeviceFingerprint() == nil)
+        #expect(!FileManager.default.fileExists(atPath: manager.deviceIDURL.path))
+
+        let minted = try manager.deviceFingerprint()
+        #expect(manager.storedDeviceFingerprint() == minted)
+
+        manager.removeLocalCredentials()
+        #expect(manager.storedDeviceFingerprint() == nil)
+        #expect(!FileManager.default.fileExists(atPath: manager.deviceIDURL.path))
+    }
+
+    @Test
     func cloudAccessRevokeSendsTheDeviceIDInTheBody() throws {
         let request = VMClient.cloudAccessRevocationRequest(deviceID: "mac physical/device")
 
