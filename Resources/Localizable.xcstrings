@@ -291429,6 +291429,13 @@
         "ja": { "stringUnit": { "state": "translated", "value": "エラー: 使用法: artifacts [open]" } }
       }
     },
+    "cli.help.artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux artifacts <list|search|open|add> [flags]\n\nBrowse the durable Artifacts catalog. Scope defaults to global; pass\n--workspace <id|ref> for one workspace or --project <id> for one project.\n\nFlags:\n  --scope <global|workspace|project>\n  --workspace <id|ref|index>\n  --project <id>\n  --query <text>             Search URL, path, title, metadata, or content\n  --limit <count>             Bound search results\n  --url <url>                 Add one explicit URL\n  --path <path>               Add one explicit local file/folder\n  --html <markup>             Add one bounded HTML artifact\n  --text <text>               Add one bounded text artifact\n  --kind <kind>               Optional artifact kind override\n  --title <title>             Optional display title\n  --json                      Print structured records" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux artifacts <list|search|open|add> [フラグ]\n\n永続化された Artifacts カタログを参照します。スコープの既定値は global です。\n1つのワークスペースには --workspace <id|ref>、1つのプロジェクトには --project <id> を指定します。\n\nフラグ:\n  --scope <global|workspace|project>\n  --workspace <id|ref|index>\n  --project <id>\n  --query <text>             URL、パス、タイトル、メタデータ、または内容を検索\n  --limit <count>             検索結果数を制限\n  --url <url>                 明示的な URL を1件追加\n  --path <path>               ローカルのファイルまたはフォルダを1件追加\n  --html <markup>             サイズ制限付き HTML アーティファクトを1件追加\n  --text <text>               サイズ制限付きテキストアーティファクトを1件追加\n  --kind <kind>               任意のアーティファクト種別で上書き\n  --title <title>             任意の表示タイトル\n  --json                      構造化されたレコードを出力" } }
+      }
+    },
     "artifacts.cli.opened": {
       "extractionState": "manual",
       "localizations": {

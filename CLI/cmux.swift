@@ -20815,7 +20815,7 @@ struct CMUXCLI {
         case "open": return openSubcommandUsage()
         case "diff": return diffSubcommandUsage()
         case "artifacts":
-            return """
+            return String(localized: "cli.help.artifacts", defaultValue: """
             Usage: cmux artifacts <list|search|open|add> [flags]
 
             Browse the durable Artifacts catalog. Scope defaults to global; pass
@@ -20834,7 +20834,7 @@ struct CMUXCLI {
               --kind <kind>               Optional artifact kind override
               --title <title>             Optional display title
               --json                      Print structured records
-            """
+            """)
         case "markdown":
             return """
             Usage: cmux markdown open <path> [options]
