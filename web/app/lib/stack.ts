@@ -1,3 +1,5 @@
+import { trace } from "@opentelemetry/api";
+import { cache } from "react";
 import { StackServerApp } from "@stackframe/stack";
 import { env } from "../env";
 import { stackApiBaseURL } from "../../services/auth/stackApiBaseURL";
@@ -14,6 +16,37 @@ const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
 let stackServerAppCache: StackServerApp<true> | null = null;
 let nonRedirectingStackServerAppCache: StackServerApp<true> | null = null;
+
+type RequestStackUser = Awaited<ReturnType<StackServerApp<true>["getUser"]>>;
+
+// React creates one value per server render. This map deduplicates repeated
+// read-only user lookups without sharing auth state between users or requests.
+const requestStackUserCache = cache(
+  () => new Map<string, Promise<RequestStackUser>>(),
+);
+
+/** Resolve the current browser user once per server render. */
+export function getRequestScopedStackUser(flow: string): Promise<RequestStackUser> {
+  const cache = requestStackUserCache();
+  const key = "current-user";
+  const existing = cache.get(key);
+  if (existing) {
+    trace.getActiveSpan()?.setAttribute("cmux.auth.request_cache", "hit");
+    return existing;
+  }
+
+  trace.getActiveSpan()?.setAttribute("cmux.auth.request_cache", "miss");
+  const pending = withStackAuthSpan(
+    "get_user",
+    () => getStackServerApp().getUser({ or: "return-null" }),
+    { "cmux.auth.flow": flow },
+  );
+  cache.set(key, pending);
+  void pending.catch(() => {
+    if (cache.get(key) === pending) cache.delete(key);
+  });
+  return pending;
+}
 
 export function isStackConfigured(): boolean {
   return Boolean(projectId && publishableClientKey && secretServerKey);

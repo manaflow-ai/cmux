@@ -699,6 +699,9 @@ extension TerminalController {
         if let displayName = vm.displayName, !displayName.isEmpty {
             payload["displayName"] = displayName
         }
+        if let slug = vm.slug, !slug.isEmpty {
+            payload["slug"] = slug
+        }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
         }

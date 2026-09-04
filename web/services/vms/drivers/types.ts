@@ -68,6 +68,12 @@ export type VMHandle = {
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /**
+   * The machine's generated three-word name, shown in the provider's own
+   * console so it matches what cmux shows. Cosmetic: providers that name
+   * machines uniquely must not fail the create over it.
+   */
+  displayName?: string;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
