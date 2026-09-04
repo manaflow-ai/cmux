@@ -2,8 +2,9 @@
 
 This is the private-beta runbook for billing convergence, webhook replay,
 latency evidence, and privacy-safe observability. Never paste route tokens,
-OAuth credentials, request bodies, email addresses, or provider-account IDs
-into tickets, logs, Sentry, PostHog, or ClickHouse.
+OAuth credentials, request bodies, email addresses, provider credentials, or
+account labels into tickets, logs, Sentry, PostHog, or ClickHouse. Bounded,
+server-minted account IDs may appear only in the closed telemetry fields.
 
 ## Access
 
@@ -78,19 +79,29 @@ the authenticated output if it contains a principal identifier.
 
 - Sentry project: `coderouter-web`; alert on new coderouter errors,
   reconciliation failure, refresh failure, and sustained provider failure.
-- PostHog project: a dedicated CodeRouter-only project with AI Observability
-  enabled and its project timezone pinned to UTC. Do not ingest ordinary cmux
-  product analytics into it.
+- PostHog project: the main cmux project (`244066`), with AI Observability
+  enabled for the canonical CodeRouter trace events. Keep ordinary cmux
+  product events separate with `product` filters.
 - CodeRouter model-usage events use PostHog's standard `$ai_generation`
   schema in content-free privacy mode. They contain token counts, the
   model/provider category required for pricing, and a pre-calculated
-  API-equivalent estimate. They do not include a prompt, output, trace,
-  request body, member identity, or raw Stack team ID.
-- The stable team scope is HMAC-SHA256 with the independent
-  `CODEROUTER_ANALYTICS_SCOPE_SECRET`; plain hashing is not sufficient because
-  known team IDs would be guessable. Person-profile processing is disabled.
+  API-equivalent estimate. They do not include a prompt, output, request body,
+  email, credential or raw free-form input. Authenticated events use the Stack
+  user id and the billing team as the `stack_team` group.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
-  tokens, email, payment-method details, or provider-account identifiers.
+  tokens, emails, payment-method details, or provider-account labels. The
+  canonical trace may carry a bounded opaque account ID for routing diagnostics;
+  it is not a credential or an account label.
+- Person-level product analytics live in the main cmux PostHog project through
+  `web/services/coderouter/analytics.ts` and
+  `web/services/coderouter/requestTelemetry.ts`: `$ai_trace`, `$ai_span`,
+  `$ai_generation`, and closed account/session/upstream lifecycle events. A
+  failed request is a `$ai_trace` with `$ai_is_error=true`; the old
+  `coderouter_request_failed` event is not emitted. See
+  `docs/posthog/cloud-product-analytics.md` for the catalog and query shapes.
+- The former dedicated CodeRouter project (`549394`) is no longer a runtime
+  sink. Treat its dashboards and environment keys as legacy, and remove keys
+  only after checking operator tooling.
 
 ### Usage ledger (ClickHouse)
 
@@ -196,8 +207,8 @@ is replayed on the next healthy account (up to `MAX_UPSTREAM_ATTEMPTS`, 4). Disa
 skipped. When every account is cooling down the client gets 503 `overloaded_error` with the soonest
 `retry-after`; when none exists, 503 with the add instructions. `usage_events.upstream_account_id`
 and `route_events.upstream_account_id` (ClickHouse migration `002`) name the account that served a
-request; PostHog carries `upstream_account_id` on `coderouter_route_health` and
-`coderouter_model_request_completed`.
+request; PostHog carries it on the canonical `$ai_trace` and `$ai_generation`
+events when available.
 
 The cmux CLI manages the list through the app's session, so no credential is typed into a browser
 or argv:
