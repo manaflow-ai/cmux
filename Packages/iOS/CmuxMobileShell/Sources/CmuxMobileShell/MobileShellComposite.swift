@@ -9689,9 +9689,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
             instanceTag: instanceTagExpectation.expectedTag
         )
+        // User-entered Tailscale authorization is scoped to the exact fresh
+        // pairing route it came from. It must not disable Direct's Iroh
+        // allowlist merely because another route is authorized in the same
+        // account/session. Preserve the explicit pairing event only when this
+        // ticket itself names the authorized Tailscale endpoint; stored and
+        // unrelated tickets remain pinned to their Direct candidates.
+        let hasFreshExplicitTailscaleAuthorization = pairedMacDeviceID == nil
+            && ticket.routes.contains { route in
+                Self.userTailscalePairingAuthorization(
+                    for: route,
+                    authorizations: userTailscalePairingAuthorizations
+                ) != nil
+            }
         let directOnlyDialCandidates = directOnlyDialCandidates
-            ?? (userTailscalePairingAuthorizations.isEmpty
-                && resolvedMethod == .direct
+            ?? (resolvedMethod == .direct
+                && !hasFreshExplicitTailscaleAuthorization
                 ? irohMethodPinnedDialCandidates(
                     forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
                     instanceTag: instanceTagExpectation.expectedTag
