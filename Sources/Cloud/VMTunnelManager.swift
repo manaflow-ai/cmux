@@ -39,6 +39,7 @@ struct VMTunnelManager: Sendable {
     enum TunnelError: Error, CustomStringConvertible {
         case keyStorageFailed(String)
         case configMalformed(String)
+        case configChangedWhileApplying(expected: String, actual: String?)
 
         var description: String {
             switch self {
@@ -46,6 +47,8 @@ struct VMTunnelManager: Sendable {
                 return "Could not store the WireGuard key for this Mac: \(detail)"
             case .configMalformed(let detail):
                 return "The tunnel config from the Cloud VM service could not be completed: \(detail)"
+            case .configChangedWhileApplying:
+                return "The tunnel config changed while it was being applied; run `cmux vpn up` again."
             }
         }
     }
@@ -110,15 +113,34 @@ struct VMTunnelManager: Sendable {
         }
     }
 
-    /// wg-quick names the interface after the config file, so this is both.
-    static let interfaceName = "cmux"
+    /// The system interface is scoped to the Cloud VM deployment. The app hub
+    /// gets a separate identity and config name so it never shares a key or
+    /// peer session with `cmux vpn up`.
+    static func interfaceName(forAPIBaseURL url: URL) -> String {
+        let host = (url.host ?? "").lowercased()
+        if host.isEmpty || host == "cmux.com" || host.hasSuffix(".cmux.com") { return "cmux" }
+        if host == "localhost" || host == "127.0.0.1" || host == "::1" { return "cmux-local" }
+        if host.contains("staging") { return "cmux-staging" }
+        return "cmux-dev"
+    }
 
     let home: URL
     let identity: Identity
+    let interfaceName: String
 
-    init(home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true), identity: Identity = .system) {
+    init(
+        home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
+        identity: Identity = .system,
+        interfaceName: String? = nil
+    ) {
         self.home = home
         self.identity = identity
+        switch identity {
+        case .system:
+            self.interfaceName = interfaceName ?? Self.interfaceName(forAPIBaseURL: AuthEnvironment.vmAPIBaseURL)
+        case .app:
+            self.interfaceName = interfaceName ?? "cmux-app\(identity.scopeSuffix)"
+        }
     }
 
     /// `~/.cmuxterm/wireguard`, 0700 — alongside the cmux-tui client state,
@@ -139,8 +161,7 @@ struct VMTunnelManager: Sendable {
     var deviceIDURL: URL { stateDir.appendingPathComponent("device-id", isDirectory: false) }
     var configURL: URL {
         switch identity {
-        case .system: return stateDir.appendingPathComponent("\(Self.interfaceName).conf", isDirectory: false)
-        case .app: return stateDir.appendingPathComponent("\(Self.interfaceName)-app\(identity.scopeSuffix).conf", isDirectory: false)
+        case .system, .app: return stateDir.appendingPathComponent("\(interfaceName).conf", isDirectory: false)
         }
     }
 
@@ -148,7 +169,7 @@ struct VMTunnelManager: Sendable {
     /// file is root-only (0400), so liveness detection must not depend on it;
     /// see `wgQuickInterfaceUp()`.
     var runtimeNameFileURL: URL {
-        URL(fileURLWithPath: "/var/run/wireguard/\(Self.interfaceName).name", isDirectory: false)
+        URL(fileURLWithPath: "/var/run/wireguard/\(interfaceName).name", isDirectory: false)
     }
 
     /// Whether this build can own the tunnel as a NetworkExtension VPN.
@@ -174,6 +195,65 @@ struct VMTunnelManager: Sendable {
     /// the same minted id, so the two tunnels are visibly one Mac.
     func deviceFingerprint() throws -> String {
         try baseDeviceFingerprint() + identity.fingerprintSuffix
+    }
+
+    /// SHA-256 of the config on disk, or nil when no enrollment exists.
+    func configDigest() -> String? {
+        guard let data = try? Data(contentsOf: configURL) else { return nil }
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    var appliedDigestURL: URL { stateDir.appendingPathComponent("\(interfaceName).applied", isDirectory: false) }
+
+    func appliedDigest() -> String? {
+        guard let text = try? String(contentsOf: appliedDigestURL, encoding: .utf8) else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func recordApplied(_ applied: Bool, expectedDigest: String? = nil) throws {
+        guard applied else {
+            try? FileManager.default.removeItem(at: appliedDigestURL)
+            return
+        }
+        guard let digest = configDigest() else {
+            throw TunnelError.configMalformed("no tunnel config to record as applied")
+        }
+        if let expectedDigest, digest != expectedDigest {
+            throw TunnelError.configChangedWhileApplying(expected: expectedDigest, actual: digest)
+        }
+        try ensureStateDir()
+        try write(digest + "\n", to: appliedDigestURL)
+    }
+
+    func isStale() -> Bool {
+        Self.isStale(interfaceUp: wgQuickInterfaceUp(), appliedDigest: appliedDigest(), configDigest: configDigest())
+    }
+
+    static func isStale(interfaceUp: Bool, appliedDigest: String?, configDigest: String?) -> Bool {
+        guard interfaceUp, let configDigest else { return false }
+        return appliedDigest != configDigest
+    }
+
+    static func privateRouteBlocker(interfaceUp: Bool, stale: Bool) -> String? {
+        if !interfaceUp {
+            return String(
+                localized: "cloudTree.link.tunnelDown",
+                defaultValue: "This Mac's tunnel to your Cloud VM network is down — run `cmux vpn up`."
+            )
+        }
+        if stale {
+            return String(
+                localized: "cloudTree.link.tunnelStale",
+                defaultValue: "This Mac's tunnel is up for a different enrollment — run `cmux vpn up` to switch it."
+            )
+        }
+        return nil
+    }
+
+    func privateRouteBlocker() -> String? {
+        let up = wgQuickInterfaceUp()
+        return Self.privateRouteBlocker(interfaceUp: up, stale: up && isStale())
     }
 
     private func baseDeviceFingerprint() throws -> String {
@@ -248,13 +328,16 @@ struct VMTunnelManager: Sendable {
             deviceFingerprint: fingerprint,
             deviceName: deviceName ?? CloudTuiClientPaths.deviceName()
         )
-        let config = try Self.completedConfig(endpoint.clientConfig, privateKey: keys.privateKey)
+        let allowedIPs = [endpoint.networkCidr, endpoint.networkCidrV6]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let config = try Self.completedConfig(endpoint.clientConfig, privateKey: keys.privateKey, allowedIPs: allowedIPs)
         try ensureStateDir()
         try write(config, to: configURL)
         return LocalTunnelState(
             endpoint: endpoint,
             configPath: configURL.path,
-            interfaceName: Self.interfaceName
+            interfaceName: interfaceName
         )
     }
 
@@ -327,22 +410,33 @@ struct VMTunnelManager: Sendable {
 
     /// Fill the blank `PrivateKey` line the server left in the config.
     /// The server-issued config is otherwise complete and final.
-    static func completedConfig(_ config: String, privateKey: String) throws -> String {
+    static func completedConfig(_ config: String, privateKey: String, allowedIPs: [String] = []) throws -> String {
         var lines = config.components(separatedBy: "\n")
-        if let index = lines.firstIndex(where: { line in
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            return trimmed.lowercased().hasPrefix("privatekey")
-        }) {
+        func key(of line: String) -> String {
+            line.split(separator: "=", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces).lowercased() } ?? ""
+        }
+        if let index = lines.firstIndex(where: { key(of: $0) == "privatekey" }) {
             lines[index] = "PrivateKey = \(privateKey)"
-            return lines.joined(separator: "\n")
+        } else {
+            guard let interfaceIndex = lines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
+            }) else {
+                throw TunnelError.configMalformed("no [Interface] section in server config")
+            }
+            lines.insert("PrivateKey = \(privateKey)", at: interfaceIndex + 1)
         }
-        // No PrivateKey line at all: insert directly under [Interface].
-        guard let interfaceIndex = lines.firstIndex(where: {
-            $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
-        }) else {
-            throw TunnelError.configMalformed("no [Interface] section in server config")
+        if !allowedIPs.isEmpty {
+            let routes = "AllowedIPs = \(allowedIPs.joined(separator: ", "))"
+            if let index = lines.firstIndex(where: { key(of: $0) == "allowedips" }) {
+                lines[index] = routes
+            } else if let peerIndex = lines.firstIndex(where: {
+                $0.trimmingCharacters(in: .whitespaces).lowercased() == "[peer]"
+            }) {
+                lines.insert(routes, at: peerIndex + 1)
+            } else {
+                throw TunnelError.configMalformed("no [Peer] section in server config")
+            }
         }
-        lines.insert("PrivateKey = \(privateKey)", at: interfaceIndex + 1)
         return lines.joined(separator: "\n")
     }
 
