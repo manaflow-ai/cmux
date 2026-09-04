@@ -315,6 +315,25 @@ import Testing
         #endif
     }
 
+    @Test func screenshotCaptureCanHideWorkspaceChangesHint() {
+        #if DEBUG
+        #expect(UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "1"]
+        ))
+        #expect(UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: [:],
+            arguments: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT=1"]
+        ))
+        #else
+        #expect(!UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "1"]
+        ))
+        #endif
+        #expect(!UITestConfig.hideWorkspaceChangesHintForScreenshots(
+            from: ["CMUX_UITEST_HIDE_WORKSPACE_CHANGES_HINT": "0"]
+        ))
+    }
+
     @Test func pushReadinessPreviewUsesExplicitInputsWithEnvironmentPrecedence() {
         #if DEBUG
         #expect(UITestConfig.pushReadinessPreviewState(

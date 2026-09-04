@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "../../env";
 import { stackServerApp } from "../../lib/stack";
-
+import { requestOrigin } from "../../lib/request-origin";
+import { isPublicationToken } from "../../../services/vm-publications/security";
 
 type SignOutAndSignInDependencies = {
   projectId: string | undefined;
@@ -16,8 +17,9 @@ const CROCKFORD_BASE32_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 function sameOriginURL(value: string | null, request: NextRequest): URL | null {
   if (!value) return null;
   try {
-    const url = new URL(value, request.nextUrl.origin);
-    return url.origin === request.nextUrl.origin ? url : null;
+    const origin = requestOrigin(request);
+    const url = new URL(value, origin);
+    return url.origin === origin ? url : null;
   } catch {
     return null;
   }
@@ -33,6 +35,32 @@ function validatedNativeSignInTarget(request: NextRequest): string | null {
   if (afterAuth.searchParams.has("after_auth_return_to")) return null;
 
   return `${target.pathname}${target.search}${target.hash}`;
+}
+
+function onlySearchParams(url: URL, allowed: readonly string[]): boolean {
+  const keys = [...url.searchParams.keys()].sort();
+  return keys.length === allowed.length && keys.every((key, index) => key === allowed[index]);
+}
+
+// A signed-in viewer refused by a protected Cloud VM domain can switch
+// accounts: sign out, straight into sign-in, and back to the same access
+// transaction. Every hop is same-origin and the transaction is opaque.
+function validatedPublicationSignInTarget(request: NextRequest): string | null {
+  const target = sameOriginURL(request.nextUrl.searchParams.get("after_auth_return_to"), request);
+  if (!target || target.pathname !== "/handler/sign-in") return null;
+  if (!onlySearchParams(target, ["after_auth_return_to"])) return null;
+
+  const afterAuth = sameOriginURL(target.searchParams.get("after_auth_return_to"), request);
+  if (!afterAuth || afterAuth.pathname !== "/handler/after-sign-in") return null;
+  if (!onlySearchParams(afterAuth, ["after_auth_return_to"])) return null;
+
+  const access = sameOriginURL(afterAuth.searchParams.get("after_auth_return_to"), request);
+  if (!access || access.pathname !== "/cloud/access") return null;
+  if (!onlySearchParams(access, ["state", "transaction"])) return null;
+  if (!isPublicationToken(access.searchParams.get("transaction"))) return null;
+  if (!isPublicationToken(access.searchParams.get("state"))) return null;
+
+  return `${target.pathname}${target.search}`;
 }
 
 function canStartSignOut(request: NextRequest): boolean {
@@ -112,13 +140,13 @@ function isNextRedirectError(error: unknown): boolean {
 
 export function makeSignOutAndSignInHandler(dependencies: SignOutAndSignInDependencies) {
   return async function GET(request: NextRequest) {
-    const target = validatedNativeSignInTarget(request);
-    if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", request.url));
+    const target = validatedNativeSignInTarget(request) ?? validatedPublicationSignInTarget(request);
+    if (!target || !canStartSignOut(request)) return NextResponse.redirect(new URL("/", requestOrigin(request)));
 
-    const response = NextResponse.redirect(new URL(target, request.url));
+    const response = NextResponse.redirect(new URL(target, requestOrigin(request)));
     if (dependencies.projectId) clearStackAuthCookies(response, request, dependencies.projectId);
 
-    const redirectUrl = new URL(target, request.nextUrl.origin).toString();
+    const redirectUrl = new URL(target, requestOrigin(request)).toString();
     try {
       await dependencies.signOut?.({ redirectUrl });
     } catch (error) {

@@ -1,3 +1,4 @@
+import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { captureVmReaperSummary } from "../../../../services/vms/observability";
 import { reapVmResources } from "../../../../services/vms/reaper";
 import { runVmWorkflow } from "../../../../services/vms/workflows";
@@ -7,8 +8,7 @@ import { runVmWorkflow } from "../../../../services/vms/workflows";
 export const maxDuration = 300;
 
 export async function GET(request: Request): Promise<Response> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!authorizeCronRequest(request).ok) {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 

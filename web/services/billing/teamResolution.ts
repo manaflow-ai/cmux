@@ -70,6 +70,20 @@ export function billingPlanIdFromMetadata(metadata: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+/**
+ * Paid seats on a team (`cmuxSeats`, written from the Stripe subscription
+ * quantity by syncTeamPlanMetadata). Null when absent or malformed; callers
+ * treat that as a single seat. Teams recorded before seats were written are
+ * backfilled without a migration: the billing-reconcile cron re-applies every
+ * stored subscription through the same sync, so `cmuxSeats` lands on its next
+ * pass (and on the next Stripe subscription event, whichever is first).
+ */
+export function billingSeatsFromMetadata(metadata: unknown): number | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const value = (metadata as { cmuxSeats?: unknown }).cmuxSeats;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 function hasActiveBillingPlan(metadata: unknown): boolean {
   const planId = billingPlanIdFromMetadata(metadata);
   return !!planId && planId !== "free";

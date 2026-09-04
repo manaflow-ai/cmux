@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 
 import "../../env";
 import { readBoundedJsonObject } from "../../../services/apns/routePolicy";
+import { reportMissingRateLimitRule } from "../../../services/rateLimitObservability";
 import {
   CLIENT_CONFIG_FLAGS_TIMEOUT_MS,
   MAX_CLIENT_CONFIG_REQUEST_BYTES,
@@ -19,6 +20,9 @@ export async function POST(request: Request): Promise<Response> {
   // An unset rule id means no rate limiting; a deleted rule (not-found) fails
   // open rather than making client config unavailable for every app boot.
   const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
+  if (process.env.VERCEL === "1" && !rateLimitId) {
+    void reportMissingRateLimitRule({ route: "/api/client-config", reason: "unset" });
+  }
   if (process.env.VERCEL === "1" && rateLimitId) {
     try {
       const { error, rateLimited } = await checkRateLimit(rateLimitId, { request });
@@ -26,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
         return json({ error: "rate_limited" }, 429);
       }
       if (error === "not-found") {
-        console.warn("client-config.route.rate_limit_not_found; failing open", rateLimitId);
+        void reportMissingRateLimitRule({ route: "/api/client-config", reason: "not-found" });
       } else if (error) {
         console.error("client-config.route.rate_limit_error", { failure: "check_error" });
         return json({ error: "client_config_unavailable" }, 503);

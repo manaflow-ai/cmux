@@ -18,6 +18,7 @@ import { jsonResponse } from "../../../services/vms/routeHelpers";
 import {
   unauthorized,
   verifyRequest,
+  verifyRequestFromSnapshot,
   type AuthedUser,
 } from "../../../services/vms/auth";
 import { requestedVmTeamIdFromRequest } from "../../../services/vms/routeHelpers";
@@ -31,6 +32,11 @@ import {
 } from "../../../services/account/deletionLock";
 import { sanitizeServerPublishedRoutes } from "../../../services/iroh/publicationPolicy";
 import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
+import {
+  presenceTouchIntervalMs,
+  registrationIsUnchanged,
+} from "../../../services/devices/registrationNoOp";
+import { recordRegistrationNoOp } from "../../../services/auth/authTelemetry";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
 
 
@@ -141,9 +147,8 @@ export async function POST(request: Request): Promise<Response> {
   if (rateLimitResponse) return rateLimitResponse;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
-    user = await verifyRequest(request, {
+    user = await verifyRequestFromSnapshot(request, {
       requestedTeamId: requestedVmTeamIdFromRequest(request),
-      allowCookie: false,
     });
   } catch (error) {
     return authProviderErrorResponse(error, "devices.post.auth");
@@ -210,13 +215,59 @@ export async function POST(request: Request): Promise<Response> {
   const db = cloudDb();
   const now = new Date();
 
-  let registered: { error: "device_not_owned" | "too_many_devices" | "too_many_instances" | null };
+  let registered: {
+    error: "device_not_owned" | "too_many_devices" | "too_many_instances" | null;
+    unchanged?: boolean;
+  };
   try {
     registered = await db.transaction(async (tx) => {
       await assertAccountDeletionUserMutationAllowed(tx, user.id);
       // Serialize concurrent registrations for the same team so the per-team cap
       // is enforced without a race (mirrors the device-tokens advisory lock).
       await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${team.teamId}, 7))`);
+
+      // A Mac re-registers whenever its advertised route set changes, and it
+      // compares route hints that carry observation timestamps. This route
+      // strips those before storing, so a shipped Mac re-POSTs byte-identical
+      // rows for as long as it runs, and no client update can change that.
+      // Answer it here, under the lock so the comparison is against the row a
+      // concurrent registration cannot be mid-way through changing, and skip
+      // the two upserts and their WAL.
+      const [stored] = await tx
+        .select({
+          userId: devices.userId,
+          platform: devices.platform,
+          displayName: devices.displayName,
+          labels: devices.labels,
+          instanceRoutes: deviceAppInstances.routes,
+          instanceLabels: deviceAppInstances.labels,
+          lastSeenAt: deviceAppInstances.lastSeenAt,
+        })
+        .from(devices)
+        .innerJoin(deviceAppInstances, eq(deviceAppInstances.deviceId, devices.id))
+        .where(and(
+          eq(devices.teamId, team.teamId),
+          eq(devices.deviceUuid, deviceUuid),
+          eq(deviceAppInstances.tag, tag),
+        ))
+        .limit(1);
+      if (
+        registrationIsUnchanged({
+          stored: stored ?? null,
+          incoming: {
+            userId: user.id,
+            platform,
+            displayName,
+            labels: deviceLabels,
+            instanceRoutes: routes,
+            instanceLabels,
+          },
+          now,
+          touchIntervalMs: presenceTouchIntervalMs(),
+        })
+      ) {
+        return { error: null, unchanged: true as const };
+      }
 
       // Device identity is per team: a row keyed by (teamId, deviceUuid). The
       // same cmux device UUID registering under a different team is a separate,
@@ -335,6 +386,7 @@ export async function POST(request: Request): Promise<Response> {
   if (registered.error === "too_many_instances") {
     return jsonResponse({ error: "too_many_instances" }, 429);
   }
+  if (registered.unchanged) recordRegistrationNoOp();
 
   return jsonResponse({ ok: true, deviceId: deviceUuid, teamId: team.teamId, tag });
 }
@@ -357,9 +409,8 @@ export async function GET(request: Request): Promise<Response> {
   if (rateLimitResponse) return rateLimitResponse;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
-    user = await verifyRequest(request, {
+    user = await verifyRequestFromSnapshot(request, {
       requestedTeamId: requestedVmTeamIdFromRequest(request),
-      allowCookie: false,
     });
   } catch (error) {
     return authProviderErrorResponse(error, "devices.get.auth");
@@ -434,6 +485,9 @@ export async function DELETE(request: Request): Promise<Response> {
   if (rateLimitResponse) return rateLimitResponse;
   let user: Awaited<ReturnType<typeof verifyRequest>>;
   try {
+    // Unregistering a device removes a row other members of the team can see,
+    // so it verifies live rather than trusting an identity snapshot that could
+    // be up to a TTL behind a team removal. It is user-initiated and rare.
     user = await verifyRequest(request, {
       requestedTeamId: requestedVmTeamIdFromRequest(request),
       allowCookie: false,

@@ -39,7 +39,7 @@ describe("VM DB read model", () => {
       )
       values (
         'user-db-read-model',
-        'e2b',
+        'freestyle',
         'read-model-provider-vm-1',
         'cmuxd-ws:test',
         '2026-04-25.1',
@@ -52,7 +52,7 @@ describe("VM DB read model", () => {
       insert into cloud_vms (user_id, provider, provider_vm_id, image_id, status, idempotency_key)
       values
         ('user-db-read-model', 'freestyle', 'read-model-provider-vm-2', 'sc-test', 'failed', 'read-model-idem-2'),
-        ('other-user', 'e2b', 'read-model-provider-vm-other', 'cmuxd-ws:test', 'running', 'read-model-idem-other')
+        ('other-user', 'freestyle', 'read-model-provider-vm-other', 'cmuxd-ws:test', 'running', 'read-model-idem-other')
     `;
     await sql`
       insert into cloud_vm_usage_events (user_id, vm_id, event_type, provider, image_id, metadata)
@@ -61,7 +61,7 @@ describe("VM DB read model", () => {
           'user-db-read-model',
           ${runningVm.id},
           'vm.created',
-          'e2b',
+          'freestyle',
           'cmuxd-ws:test',
           '{"source":"read-model-test"}'::jsonb
         ),
@@ -69,7 +69,7 @@ describe("VM DB read model", () => {
           'user-db-read-model',
           ${runningVm.id},
           'vm.attach',
-          'e2b',
+          'freestyle',
           'cmuxd-ws:test',
           '{"source":"read-model-test"}'::jsonb
         ),
@@ -77,7 +77,7 @@ describe("VM DB read model", () => {
           'other-user',
           null,
           'vm.created',
-          'e2b',
+          'freestyle',
           'cmuxd-ws:test',
           '{"source":"read-model-test"}'::jsonb
         )

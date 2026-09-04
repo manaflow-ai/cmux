@@ -190,6 +190,22 @@ pub fn prepare(frame: &mut Frame, area: Rect, palette: RailPalette) {
     }
 }
 
+/// Draw a compact informational readout on the rail's top pad row, right
+/// aligned and dimmed so it reads as chrome rather than as a selectable
+/// entry. Skipped entirely when the rail is too narrow to show it whole.
+pub fn header_readout(frame: &mut Frame, area: Rect, text: &str, palette: RailPalette) {
+    if area.width < 3 || area.height == 0 {
+        return;
+    }
+    let content_width = usize::from(area.width.saturating_sub(1));
+    let width = unicode_width::UnicodeWidthStr::width(text);
+    if width == 0 || width + 2 > content_width {
+        return;
+    }
+    let x = area.x + (content_width - width - 1) as u16;
+    frame.buffer_mut().set_stringn(x, area.y, text, width, palette.dim);
+}
+
 pub struct Entry<'a> {
     pub name: &'a str,
     pub subtitle: &'a str,

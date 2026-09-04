@@ -2,10 +2,7 @@ import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
 } from "../vms/routeHelpers";
-import {
-  subrouterAllowedTeamIds,
-  type AuthedUser,
-} from "../vms/auth";
+import type { AuthedUser } from "../vms/auth";
 import { HostedSubrouterError } from "./hostedClient";
 
 export type TeamResolution =
@@ -26,15 +23,22 @@ export type AuthorizedSubrouterTeam = {
   readonly personal: boolean;
 };
 
+// Access to Subrouter and coderouter is team membership only. Every member of
+// a team (and every user in their personal team) may use it and manage its
+// accounts; there is no Stack permission, team allow-list, or plan gate. The
+// capability fields stay on the wire so hosted tenant exchange and clients
+// keep their shape.
+const MEMBER_CAPABILITIES = { use: true, manageAccounts: true } as const;
+
 export function normalizeAccountId(raw: string): string | null {
   const accountId = raw.trim();
   return accountId && accountId.length <= 200 ? accountId : null;
 }
 
-export async function resolveTeam(
+export function resolveTeam(
   request: Request,
   user: AuthedUser,
-): Promise<TeamResolution> {
+): TeamResolution {
   const requested = requestedVmTeamIdFromRequest(request);
   let teamId: string;
   if (requested) {
@@ -43,12 +47,6 @@ export async function resolveTeam(
       return {
         ok: false,
         response: jsonResponse({ error: "team_not_found" }, 403),
-      };
-    }
-    if (!subrouterTeamAllowed(requested)) {
-      return {
-        ok: false,
-        response: jsonResponse({ error: "team_not_allowed" }, 403),
       };
     }
     teamId = requested;
@@ -60,30 +58,20 @@ export async function resolveTeam(
       };
     }
     teamId = user.selectedTeamId;
-    if (!subrouterTeamAllowed(teamId)) {
-      return {
-        ok: false,
-        response: jsonResponse({ error: "team_not_allowed" }, 403),
-      };
-    }
   }
 
-  const permissions = await user.resolveSubrouterPermissions(teamId);
   return {
     ok: true,
     teamId,
     teamName: teamDisplayName(user, teamId),
-    ...permissions,
+    ...MEMBER_CAPABILITIES,
   };
 }
 
-const SUBROUTER_PERMISSION_CONCURRENCY = 8;
-
-// Resolve team permissions only for Subrouter callers. A small worker pool
-// avoids serial Stack round trips without creating unbounded request fanout.
-export async function authorizedSubrouterTeams(
+/** Every team the user belongs to plus their personal team, each with full capabilities. */
+export function authorizedSubrouterTeams(
   user: AuthedUser,
-): Promise<readonly AuthorizedSubrouterTeam[]> {
+): readonly AuthorizedSubrouterTeam[] {
   const candidates = [
     ...user.teams.map((team) => ({
       teamId: team.id,
@@ -97,66 +85,11 @@ export async function authorizedSubrouterTeams(
     },
   ];
   const seen = new Set<string>();
-  const uniqueCandidates = candidates.filter((candidate) => {
-    if (
-      seen.has(candidate.teamId) ||
-      !subrouterTeamAllowed(candidate.teamId)
-    ) {
-      return false;
-    }
+  return candidates.flatMap((candidate) => {
+    if (seen.has(candidate.teamId)) return [];
     seen.add(candidate.teamId);
-    return true;
+    return [{ ...candidate, ...MEMBER_CAPABILITIES }];
   });
-  const resolved = await mapWithConcurrency(
-    uniqueCandidates,
-    SUBROUTER_PERMISSION_CONCURRENCY,
-    async (candidate) => {
-      const permissions = await user.resolveSubrouterPermissions(
-        candidate.teamId,
-      );
-      if (
-        (!permissions.use && !permissions.manageAccounts)
-      ) {
-        return null;
-      }
-      return { ...candidate, ...permissions };
-    },
-  );
-  return resolved.filter(
-    (team): team is AuthorizedSubrouterTeam => team !== null,
-  );
-}
-
-async function mapWithConcurrency<T, U>(
-  values: readonly T[],
-  concurrency: number,
-  transform: (value: T) => Promise<U>,
-): Promise<readonly U[]> {
-  const results = new Array<U>(values.length);
-  let nextIndex = 0;
-  const worker = async () => {
-    while (true) {
-      const index = nextIndex;
-      nextIndex += 1;
-      if (index >= values.length) return;
-      results[index] = await transform(values[index]);
-    }
-  };
-  await Promise.all(
-    Array.from(
-      { length: Math.min(concurrency, values.length) },
-      () => worker(),
-    ),
-  );
-  return results;
-}
-
-export function subrouterTeamAllowed(
-  teamId: string,
-  raw = process.env.SUBROUTER_ALLOWED_TEAM_IDS,
-): boolean {
-  const allowed = subrouterAllowedTeamIds(raw);
-  return allowed === "*" || allowed.has(teamId);
 }
 
 export function teamDisplayName(user: AuthedUser, teamId: string): string {

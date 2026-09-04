@@ -25,6 +25,9 @@ const JOURNAL_DURABLE_WAIT: Duration = Duration::from_secs(2);
 const JOURNAL_COMMIT_RESULT_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_WRITER_SHUTDOWN_WAIT: Duration = Duration::from_secs(1);
 const JOURNAL_SQLITE_RETRY_SLICE: Duration = Duration::from_millis(100);
+const JOURNAL_RETRY_INITIAL_DELAY: Duration = Duration::from_millis(100);
+const JOURNAL_RETRY_MAX_DELAY: Duration = Duration::from_secs(1);
+const JOURNAL_NONRETRYABLE_RETRY_DELAY: Duration = Duration::from_millis(10);
 const COMMIT_PENDING: u8 = 0;
 const COMMIT_ADMITTED: u8 = 1;
 const COMMIT_CANCELED: u8 = 2;
@@ -166,7 +169,26 @@ pub(crate) enum JournalIngressEvent {
     },
 }
 
+/// Which bounded ingress lane an event travels on. Terminal bytes and their
+/// barriers never wait behind producers, and producers never wait behind a
+/// large output burst.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JournalLane {
+    Terminal,
+    Durable,
+}
+
 impl JournalIngressEvent {
+    pub(crate) fn lane(&self) -> JournalLane {
+        match self {
+            Self::TerminalBarrier
+            | Self::TerminalOutput { .. }
+            | Self::TerminalResize { .. }
+            | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
+            Self::Frontend { .. } | Self::Producer { .. } => JournalLane::Durable,
+        }
+    }
+
     fn estimated_bytes(&self) -> usize {
         match self {
             Self::TerminalBarrier => 0,
@@ -408,6 +430,7 @@ pub(crate) enum JournalIngressTrySendError {
 
 #[derive(Default)]
 struct JournalIngressState {
+    stats: crate::diagnostics::JournalWriterStats,
     failure: Mutex<Option<String>>,
     enqueue_admission: Mutex<()>,
     closed: AtomicBool,
@@ -599,6 +622,7 @@ impl JournalIngressSender {
             return Err(JournalIngressTrySendError::Failed { event: Box::new(event), error });
         }
         let space_epoch = self.state.queue_space_epoch();
+        self.state.stats.enqueued(JournalLane::Terminal);
         match sender.try_send(QueuedJournalEvent { event, completion: None }) {
             Ok(()) => {
                 if let Some(wake) = &self.wake_sender {
@@ -610,12 +634,16 @@ impl JournalIngressSender {
                 Ok(())
             }
             Err(TrySendError::Full(queued)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
                 Err(JournalIngressTrySendError::Full { event: Box::new(queued.event), space_epoch })
             }
-            Err(TrySendError::Disconnected(queued)) => Err(JournalIngressTrySendError::Failed {
-                event: Box::new(queued.event),
-                error: self.writer_error(),
-            }),
+            Err(TrySendError::Disconnected(queued)) => {
+                self.state.stats.enqueue_failed(JournalLane::Terminal);
+                Err(JournalIngressTrySendError::Failed {
+                    event: Box::new(queued.event),
+                    error: self.writer_error(),
+                })
+            }
         }
     }
 
@@ -648,12 +676,15 @@ impl JournalIngressSender {
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        self.wait_for_commit_result(
+        let waited = Instant::now();
+        let outcome = self.wait_for_commit_result(
             result,
             deadline,
             &commit_fence,
             "waiting for session journal durability",
-        )
+        );
+        self.state.stats.receipt_waited(waited.elapsed());
+        outcome
     }
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
@@ -694,12 +725,15 @@ impl JournalIngressSender {
             deadline,
         )
         .map_err(anyhow::Error::msg)?;
-        self.wait_for_commit_result(
+        let waited = Instant::now();
+        let outcome = self.wait_for_commit_result(
             result,
             deadline,
             &commit_fence,
             "waiting for a session journal producer receipt",
-        )
+        );
+        self.state.stats.receipt_waited(waited.elapsed());
+        outcome
     }
 
     pub(crate) const fn enabled(&self) -> bool {
@@ -804,11 +838,16 @@ impl JournalIngressSender {
         *self.state.enqueue_full_notifier.lock().unwrap() = Some(notifier);
     }
 
+    pub(crate) fn stats(&self) -> &crate::diagnostics::JournalWriterStats {
+        &self.state.stats
+    }
+
     fn enqueue(
         &self,
         sender: &SyncSender<QueuedJournalEvent>,
         event: QueuedJournalEvent,
     ) -> Result<(), String> {
+        let lane = event.event.lane();
         let mut pending = event;
         loop {
             let space_epoch = self.state.queue_space_epoch();
@@ -817,6 +856,9 @@ impl JournalIngressSender {
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
+                // Count before the event is visible to the writer, which may
+                // drain it before `try_send` returns.
+                self.state.stats.enqueued(lane);
                 sender.try_send(pending)
             };
             match result {
@@ -829,8 +871,14 @@ impl JournalIngressSender {
                     }
                     return Ok(());
                 }
-                Err(TrySendError::Full(event)) => pending = event,
-                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+                Err(TrySendError::Full(event)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    pending = event;
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    return Err(self.writer_error());
+                }
             }
             #[cfg(test)]
             self.state.notify_enqueue_full_for_test();
@@ -844,6 +892,7 @@ impl JournalIngressSender {
         event: QueuedJournalEvent,
         deadline: Instant,
     ) -> Result<(), String> {
+        let lane = event.event.lane();
         let mut pending = event;
         loop {
             if Instant::now() >= deadline {
@@ -864,6 +913,9 @@ impl JournalIngressSender {
                 if let Some(error) = self.state.admission_error() {
                     return Err(error);
                 }
+                // Count before the event is visible to the writer, which may
+                // drain it before `try_send` returns.
+                self.state.stats.enqueued(lane);
                 sender.try_send(pending)
             };
             match result {
@@ -876,8 +928,14 @@ impl JournalIngressSender {
                     }
                     return Ok(());
                 }
-                Err(TrySendError::Full(event)) => pending = event,
-                Err(TrySendError::Disconnected(_)) => return Err(self.writer_error()),
+                Err(TrySendError::Full(event)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    pending = event;
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    self.state.stats.enqueue_failed(lane);
+                    return Err(self.writer_error());
+                }
             }
             self.state.wait_for_queue_space_until(space_epoch, deadline)?;
         }
@@ -954,7 +1012,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
         while let Some(mut batch) = pending.pop_front() {
-            let mut delay = Duration::from_millis(10);
+            let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
+            let mut nonretryable_delay = JOURNAL_NONRETRYABLE_RETRY_DELAY;
             let mut reported_error = None;
             let mut uncompleted_nonretryable_failures = 0_usize;
             let retry_deadline = batch
@@ -969,6 +1028,12 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     for pending_batch in pending {
                         complete_batch_error(&pending_batch, error.clone());
                     }
+                    // The final Mux owner can disappear while this writer is
+                    // in a retry wait. Drain both ingress lanes so receipts
+                    // for events that never entered the active batch cannot
+                    // remain unresolved forever.
+                    let _admission = receivers.state.enqueue_admission.lock().unwrap();
+                    complete_queued_error(&receivers, &error);
                     return;
                 };
                 if Instant::now() >= retry_deadline {
@@ -989,10 +1054,17 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 ) {
                     Ok(commits) => {
+                        let terminal_events =
+                            events.iter().filter(|e| e.lane() == JournalLane::Terminal).count();
+                        receivers
+                            .state
+                            .stats
+                            .batch_committed(terminal_events, events.len() - terminal_events);
                         complete_batch_success(&batch, commits);
                         break;
                     }
                     Err(error) => {
+                        receivers.state.stats.commit_failed();
                         let summary = format!("{error:#}");
                         if reported_error.as_deref() != Some(summary.as_str()) {
                             eprintln!("cmux-tui: append session journal batch: {summary}");
@@ -1010,9 +1082,8 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             return;
                         }
                         if retryable_sqlite_error(&error) {
-                            let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay.min(remaining));
-                            delay = (delay * 2).min(Duration::from_secs(1));
+                            wait_for_journal_retry(mux, delay.min(remaining));
+                            delay = next_journal_retry_delay(delay);
                             continue;
                         }
                         if batch.len() > 1 {
@@ -1028,11 +1099,11 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             if receivers.state.pause_nonretryable_failure_for_test() {
                                 continue;
                             }
-                            let epoch = mux.journal_event_epoch();
-                            mux.wait_for_journal_event(epoch, delay);
-                            delay = (delay * 2).min(Duration::from_secs(1));
+                            wait_for_journal_retry(mux, nonretryable_delay.min(remaining));
+                            nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
                             continue;
                         } else if batch[0].completion.is_none() {
+                            let _admission = receivers.state.enqueue_admission.lock().unwrap();
                             let failure = receivers.state.fail(format!(
                                 "session journal writer failed permanently: {summary}"
                             ));
@@ -1043,6 +1114,7 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                             for pending_batch in pending {
                                 complete_batch_error(&pending_batch, failure.clone());
                             }
+                            complete_queued_error(&receivers, &failure);
                             return;
                         } else {
                             complete_batch_error(&batch, summary);
@@ -1053,6 +1125,32 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
             }
         }
     }
+}
+
+fn wait_for_journal_retry(mux: Arc<Mux>, timeout: Duration) {
+    wait_for_journal_retry_after_release(mux, timeout, || {});
+}
+
+fn wait_for_journal_retry_after_release(
+    mux: Arc<Mux>,
+    timeout: Duration,
+    after_release: impl FnOnce(),
+) {
+    // Do not retain the owning mux while sleeping. Shutdown and drop must be
+    // able to release the writer even when SQLite stays locked.
+    let journal = mux.shared_journal_handle();
+    let epoch = journal.epoch();
+    drop(mux);
+    after_release();
+    journal.wait(epoch, timeout);
+}
+
+fn next_journal_retry_delay(delay: Duration) -> Duration {
+    delay.saturating_mul(2).min(JOURNAL_RETRY_MAX_DELAY)
+}
+
+fn next_nonretryable_retry_delay(delay: Duration) -> Duration {
+    next_journal_retry_delay(delay)
 }
 
 fn admit_batch_commit(
@@ -1081,6 +1179,8 @@ fn stop_writer_after_retry_deadline(
     pending: VecDeque<Vec<QueuedJournalEvent>>,
     detail: &str,
 ) {
+    let _admission = receivers.state.enqueue_admission.lock().unwrap();
+    receivers.state.stats.deadline_expired();
     let failure = receivers.state.fail(format!(
         "session journal writer timed out after {} ms: {detail}",
         JOURNAL_DURABLE_WAIT.as_millis()
@@ -1096,16 +1196,19 @@ fn stop_writer_after_retry_deadline(
 }
 
 fn complete_queued_error(receivers: &JournalIngressReceivers, error: &str) {
-    let mut drained = false;
+    let mut terminal_drained = 0;
     while let Ok(queued) = receivers.terminal.try_recv() {
-        drained = true;
+        terminal_drained += 1;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
+    let mut durable_drained = 0;
     while let Ok(queued) = receivers.durable.try_recv() {
-        drained = true;
+        durable_drained += 1;
         complete_batch_error(std::slice::from_ref(&queued), error.to_string());
     }
-    if drained {
+    receivers.state.stats.drained(JournalLane::Terminal, terminal_drained);
+    receivers.state.stats.drained(JournalLane::Durable, durable_drained);
+    if terminal_drained + durable_drained != 0 {
         receivers.state.publish_queue_space();
     }
 }
@@ -1121,15 +1224,17 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         while receivers.wake.try_recv().is_ok() {}
         let mut batch =
             Vec::with_capacity(JOURNAL_TERMINAL_BATCH_CHUNKS + JOURNAL_DURABLE_QUEUE_CAPACITY);
-        let mut drained =
+        let terminal_drained =
             drain_lane(&receivers.terminal, &mut batch, JOURNAL_TERMINAL_BATCH_CHUNKS, usize::MAX);
-        drained |= drain_lane(
+        let durable_drained = drain_lane(
             &receivers.durable,
             &mut batch,
             JOURNAL_DURABLE_QUEUE_CAPACITY,
             JOURNAL_DURABLE_BATCH_BYTES,
         );
-        if drained {
+        receivers.state.stats.drained(JournalLane::Terminal, terminal_drained);
+        receivers.state.stats.drained(JournalLane::Durable, durable_drained);
+        if terminal_drained + durable_drained != 0 {
             receivers.state.publish_queue_space();
         }
         if !batch.is_empty() {
@@ -1149,7 +1254,7 @@ fn drain_lane(
     batch: &mut Vec<QueuedJournalEvent>,
     limit: usize,
     byte_limit: usize,
-) -> bool {
+) -> usize {
     let mut drained = 0;
     let mut drained_bytes = 0_usize;
     while drained < limit && drained_bytes < byte_limit {
@@ -1167,7 +1272,7 @@ fn drain_lane(
             batch.push(next);
         }
     }
-    drained != 0
+    drained
 }
 
 fn retryable_sqlite_error(error: &anyhow::Error) -> bool {
@@ -1235,6 +1340,55 @@ mod tests {
         parse: impl FnOnce(String) -> Result<T, crate::resource::ResourceError>,
     ) -> T {
         parse(format!("{prefix}_{value:032x}")).unwrap()
+    }
+
+    #[test]
+    fn retry_schedule_has_bounded_exponential_spacing() {
+        let mut delay = JOURNAL_RETRY_INITIAL_DELAY;
+        for expected in [100, 200, 400, 800, 1000, 1000] {
+            assert_eq!(delay.as_millis(), expected);
+            delay = next_journal_retry_delay(delay);
+        }
+        let mut nonretryable_delay = JOURNAL_NONRETRYABLE_RETRY_DELAY;
+        for expected in [10, 20, 40, 80, 160, 320, 640, 1000, 1000] {
+            assert_eq!(nonretryable_delay.as_millis(), expected);
+            nonretryable_delay = next_nonretryable_retry_delay(nonretryable_delay);
+        }
+        assert_eq!(next_journal_retry_delay(Duration::MAX), JOURNAL_RETRY_MAX_DELAY);
+        let remaining = Duration::from_millis(3);
+        assert_eq!(JOURNAL_NONRETRYABLE_RETRY_DELAY.min(remaining), remaining);
+    }
+
+    #[test]
+    fn retry_wait_releases_mux_before_waiting() {
+        let mux = Mux::new("journal-retry-wait-drop", crate::SurfaceOptions::default());
+        let journal = mux.shared_journal_handle();
+        let (released_tx, released_rx) = sync_channel(1);
+        let (proceed_tx, proceed_rx) = sync_channel(1);
+        let (done_tx, done_rx) = sync_channel(1);
+        let waiter_mux = Arc::clone(&mux);
+        let waiter = std::thread::spawn(move || {
+            wait_for_journal_retry_after_release(waiter_mux, Duration::from_secs(60), || {
+                released_tx.send(()).unwrap();
+                proceed_rx.recv().unwrap();
+            });
+            done_tx.send(()).unwrap();
+        });
+
+        // Keep one caller-owned Arc so Mux::drop cannot wake the journal wait
+        // while the test observes that the waiter released its own Arc.
+        let released = released_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        let strong_count = Arc::strong_count(&mux);
+
+        let _ = proceed_tx.send(());
+        journal.wake_waiters();
+        let completed = done_rx.recv_timeout(Duration::from_secs(5)).is_ok();
+        let joined = waiter.join().is_ok();
+
+        assert!(released, "retry wait did not reach the release gate");
+        assert_eq!(strong_count, 1, "retry wait retained the owning mux");
+        assert!(completed, "retry wait did not return after its wake");
+        assert!(joined, "retry wait thread panicked");
     }
 
     #[test]
@@ -1417,6 +1571,58 @@ mod tests {
             output.terminal_output.as_deref(),
             Some(b"persist before shutdown returns".as_slice())
         );
+        drop(blocker);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn retryable_sqlite_wait_releases_mux_before_backoff() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-terminal-journal-retry-release-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "terminal-journal-retry-release",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let database_path = std::fs::read_dir(&root)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("workspace-registry.sqlite3"))
+            .find(|path| path.is_file())
+            .expect("persistent journal database");
+        let blocker = rusqlite::Connection::open(database_path).unwrap();
+        blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+
+        mux.journal_terminal_output(
+            Arc::new(public_id("term", 16, TerminalPublicId::parse)),
+            Arc::from("retry-release-generation"),
+            b"retry while sqlite is locked".to_vec(),
+        );
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Arc::strong_count(&mux) > 1 && Instant::now() < deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            Arc::strong_count(&mux),
+            1,
+            "retryable SQLite backoff must not retain the owning Mux"
+        );
+
+        blocker.execute_batch("ROLLBACK;").unwrap();
+        mux.flush_terminal_journal().unwrap();
+        let records = mux.session_journal_after(0, 1024).unwrap().records;
+        assert!(records.iter().any(|record| {
+            record.kind == "terminal.output"
+                && record.terminal_output.as_deref()
+                    == Some(b"retry while sqlite is locked".as_slice())
+        }));
+
         drop(blocker);
         drop(mux);
         std::fs::remove_dir_all(root).unwrap();
@@ -2544,6 +2750,65 @@ mod tests {
         completion_receiver
             .recv_timeout(Duration::from_millis(500))
             .expect("journal writer waited for its own completion during Mux::drop");
+    }
+
+    #[test]
+    fn mux_shutdown_completes_receipts_left_in_ingress_queues() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.expect("journal receivers");
+        let (completion_sender, completion_receiver) = sync_channel(1);
+        let deadline = Instant::now() + JOURNAL_DURABLE_WAIT;
+        let queued = QueuedJournalEvent {
+            event: JournalIngressEvent::TerminalBarrier,
+            completion: Some(JournalIngressCompletion::Durable {
+                sender: completion_sender,
+                deadline,
+                commit_fence: Arc::new(AtomicU8::new(COMMIT_PENDING)),
+            }),
+        };
+        receivers.state.stats.enqueued(JournalLane::Terminal);
+        sender.terminal_sender.as_ref().unwrap().try_send(queued).unwrap();
+        receivers.state.stats.enqueued(JournalLane::Durable);
+        sender
+            .durable_sender
+            .as_ref()
+            .unwrap()
+            .try_send(QueuedJournalEvent {
+                event: JournalIngressEvent::TerminalBarrier,
+                completion: None,
+            })
+            .unwrap();
+
+        complete_queued_error(&receivers, "session journal stopped");
+
+        let result = completion_receiver.recv_timeout(Duration::from_millis(100)).unwrap();
+        assert!(result.is_err(), "shutdown must resolve queued durable receipts");
+        let snapshot = receivers.state.stats.snapshot();
+        assert_eq!((snapshot.terminal_queued, snapshot.durable_queued), (0, 0));
+    }
+
+    #[test]
+    fn failed_admission_fence_blocks_enqueue_after_shutdown_drain() {
+        let (sender, receivers) = JournalIngressSender::new(true);
+        let receivers = receivers.expect("journal receivers");
+        let _admission = receivers.state.enqueue_admission.lock().unwrap();
+        let terminal_id = Arc::new(public_id("term", 13, TerminalPublicId::parse));
+        let enqueue = std::thread::spawn(move || {
+            sender.try_send(JournalIngressEvent::TerminalOutput {
+                terminal_id,
+                generation: Arc::from("shutdown-fence"),
+                occurred_at_ms: 1,
+                bytes: b"must not enqueue".to_vec(),
+            })
+        });
+
+        let failure = receivers.state.fail("session journal stopped".into());
+        complete_queued_error(&receivers, &failure);
+        drop(_admission);
+        let result = enqueue.join().expect("admission sender must not panic");
+        assert!(matches!(result, Err(JournalIngressTrySendError::Failed { .. })));
+        let snapshot = receivers.state.stats.snapshot();
+        assert_eq!((snapshot.terminal_queued, snapshot.durable_queued), (0, 0));
     }
 
     #[test]

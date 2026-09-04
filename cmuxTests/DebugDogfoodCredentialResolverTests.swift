@@ -161,7 +161,7 @@ import Testing
             readFile: { path in
                 switch path {
                 case "/secrets/cmuxterm-dev.env":
-                    return "# no stack creds here\nE2B_API_KEY=abc\n"
+                    return "# no stack creds here\nFREESTYLE_API_KEY=abc\n"
                 case "/secrets/cmux.env":
                     return """
                     CMUX_UITEST_STACK_EMAIL=agent@manaflow.ai

@@ -26,7 +26,10 @@ struct RemoteDaemonRPCClientKeepaliveTests {
     private func strings() -> RemoteDaemonStrings {
         RemoteDaemonStrings(
             missingPersistentPTYCapability: "missing persistent PTY",
-            missingRequiredFunctionality: "missing functionality"
+            missingRequiredFunctionality: "missing functionality",
+            cloudNotificationClearWorkspaceInvalid: "invalid workspace",
+            cloudNotificationClearWorkspaceDenied: "workspace denied",
+            cloudNotificationClearSurfaceInvalid: "invalid surface"
         )
     }
 
