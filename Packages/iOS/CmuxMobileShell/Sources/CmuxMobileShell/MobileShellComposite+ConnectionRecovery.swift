@@ -760,13 +760,6 @@ extension MobileShellComposite {
             return .failed(.unsupportedRoute)
         }
         let supportedKinds = runtime?.supportedRouteKinds ?? []
-        let hasIrohRoute = routes.contains { $0.kind == .iroh }
-        let hasTailscaleRoute = routes.contains { $0.kind == .tailscale }
-        let shouldUseAuthorizedTailscaleRoute = resolvedMethod == .tailscale
-            || (resolvedMethod == .automatic
-                && !hasIrohRoute
-                && hasTailscaleRoute
-                && !legacyTailscaleRoutes.isEmpty)
         var pinnedRoutes = Self.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
