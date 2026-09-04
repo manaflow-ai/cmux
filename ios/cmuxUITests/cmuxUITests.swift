@@ -4701,8 +4701,8 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// The Composer pill scroller must keep readable intrinsic widths while
-    /// scrolling beneath its neighboring controls. Its UIKit-owned alpha mask
-    /// dissolves pills through both fixed control edges on every iOS version.
+    /// staying between its neighboring fixed controls. Its UIKit-owned alpha
+    /// mask dissolves pills at both viewport edges on every iOS version.
     @MainActor
     func testTaskComposerComposerPillScrollerUsesScrollEdgeEffect() throws {
         let app = launchApp(mockData: false, environment: [
@@ -4720,15 +4720,15 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(scroller.waitForExistence(timeout: 3))
         XCTAssertTrue(submit.waitForExistence(timeout: 3))
 
-        XCTAssertLessThanOrEqual(
-            scroller.frame.minX,
-            options.frame.minX,
-            "The scroller must extend beneath the leading controls"
-        )
         XCTAssertGreaterThanOrEqual(
+            scroller.frame.minX,
+            options.frame.maxX,
+            "The scroller must begin after the leading controls"
+        )
+        XCTAssertLessThanOrEqual(
             scroller.frame.maxX,
-            submit.frame.maxX,
-            "The scroller must extend beneath the trailing control"
+            submit.frame.minX,
+            "The scroller must end before the trailing control"
         )
 
         let agentPill = app.buttons["MobileTaskComposerAgentPill"]
@@ -4740,8 +4740,8 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(modelPill.waitForExistence(timeout: 3))
         tap(modelPill, in: app)
         tapMenuItem(app.buttons["Claude Opus 4.8"], in: app)
-        XCTAssertLessThanOrEqual(scroller.frame.minX, options.frame.minX)
-        XCTAssertGreaterThanOrEqual(scroller.frame.maxX, submit.frame.maxX)
+        XCTAssertGreaterThanOrEqual(scroller.frame.minX, options.frame.maxX)
+        XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
         XCTAssertGreaterThanOrEqual(modelPill.frame.minX, scroller.frame.minX)
         XCTAssertGreaterThan(
             modelPill.frame.width,
@@ -5056,19 +5056,27 @@ final class cmuxUITests: XCTestCase {
         } else {
             leadingFixedControl = options
         }
-        XCTAssertLessThanOrEqual(
-            scroller.frame.minX,
-            leadingFixedControl.frame.minX,
-            "The pill viewport must extend beneath the leading controls"
-        )
         XCTAssertGreaterThanOrEqual(
+            scroller.frame.minX,
+            leadingFixedControl.frame.maxX,
+            "The pill viewport must begin after the leading controls"
+        )
+        XCTAssertLessThanOrEqual(
             scroller.frame.maxX,
-            create.frame.maxX,
-            "The pill viewport must extend beneath the submit control"
+            create.frame.minX,
+            "The pill viewport must end before the submit control"
         )
 
-        XCTAssertGreaterThanOrEqual(model.frame.midX, scroller.frame.minX)
-        XCTAssertLessThanOrEqual(model.frame.maxX, scroller.frame.maxX)
+        XCTAssertLessThan(
+            model.frame.minX,
+            scroller.frame.maxX,
+            "The selected model must intersect the bounded pill viewport"
+        )
+        XCTAssertGreaterThan(
+            model.frame.maxX,
+            scroller.frame.minX,
+            "The selected model must intersect the bounded pill viewport"
+        )
         XCTAssertTrue(model.isHittable)
 
         let navigationBar = app.navigationBars.firstMatch
@@ -5099,7 +5107,7 @@ final class cmuxUITests: XCTestCase {
     }
 
     /// The fully populated production row must group its two leading utilities
-    /// while the pill content scrolls beneath both edge controls.
+    /// while the pill viewport stays between both edge controls.
     @MainActor
     func testTaskComposerAccessibilityXXXLKeepsAttachmentAndEdgeControlsVisible() throws {
         let app = launchApp(
@@ -5146,8 +5154,8 @@ final class cmuxUITests: XCTestCase {
             1,
             "Task Options and Add Attachment should read as one compact utility group"
         )
-        XCTAssertLessThanOrEqual(scroller.frame.minX, options.frame.minX)
-        XCTAssertGreaterThanOrEqual(scroller.frame.maxX, submit.frame.maxX)
+        XCTAssertGreaterThanOrEqual(scroller.frame.minX, attachment.frame.maxX)
+        XCTAssertLessThanOrEqual(scroller.frame.maxX, submit.frame.minX)
         XCTAssertGreaterThan(scroller.frame.width, 0)
 
         print(

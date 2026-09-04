@@ -199,6 +199,7 @@ struct TaskComposerLayout: View {
                 submitButton
             }
             .frame(height: 44)
+            .padding(.horizontal, 16)
         }
         // Blend into the canvas like the reference composer; the keyboard
         // provides the visual boundary below.
