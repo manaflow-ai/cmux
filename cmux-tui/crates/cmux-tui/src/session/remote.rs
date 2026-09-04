@@ -82,10 +82,13 @@ impl PrivateDumpEmissionBudget {
         self.remaining_files > 0 && self.remaining_bytes > 0
     }
 
-    fn commit(&mut self, bytes: u64) {
-        debug_assert!(self.can_fit(bytes));
+    fn reserve(&mut self, bytes: u64) -> bool {
+        if !self.can_fit(bytes) {
+            return false;
+        }
         self.remaining_files = self.remaining_files.saturating_sub(1);
         self.remaining_bytes = self.remaining_bytes.saturating_sub(bytes);
+        true
     }
 }
 
@@ -3726,7 +3729,9 @@ impl Drop for RemoteSession {
                 let mirror_name = format!("mirror-{}.txt", surface.id);
                 let mirror = dump_mirror(surface);
                 let mirror_bytes = mirror.len() as u64;
-                if emission_budget.can_fit(mirror_bytes) {
+                // Reserve before opening the temporary file so failed writes
+                // cannot turn teardown into an unbounded retry loop.
+                if emission_budget.reserve(mirror_bytes) {
                     if let Err(error) = write_private_dump(&directory, &mirror_name, |file| {
                         file.write_all(mirror.as_bytes())
                     }) {
@@ -3734,8 +3739,6 @@ impl Drop for RemoteSession {
                             "mux-dump",
                             &format!("cannot write private dump {mirror_name}: {error}"),
                         );
-                    } else {
-                        emission_budget.commit(mirror_bytes);
                     }
                 } else {
                     emission_budget_exhausted = true;
@@ -3748,7 +3751,7 @@ impl Drop for RemoteSession {
                     .fold(0_u64, |total, line| {
                         total.saturating_add((line.len() as u64).saturating_add(1))
                     });
-                if emission_budget.can_fit(frame_bytes) {
+                if emission_budget.reserve(frame_bytes) {
                     if let Err(error) = write_private_dump(&directory, &frames_name, |file| {
                         for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
                             writeln!(file, "{line}")?;
@@ -3759,8 +3762,6 @@ impl Drop for RemoteSession {
                             "mux-dump",
                             &format!("cannot write private dump {frames_name}: {error}"),
                         );
-                    } else {
-                        emission_budget.commit(frame_bytes);
                     }
                 } else {
                     emission_budget_exhausted = true;
@@ -5398,16 +5399,14 @@ mod tests {
     fn private_dump_emission_budget_enforces_file_and_byte_caps() {
         let mut budget = PrivateDumpEmissionBudget::with_limits(2, 10);
 
-        assert!(budget.can_fit(4));
-        budget.commit(4);
+        assert!(budget.reserve(4));
         assert_eq!(budget.remaining_files, 1);
         assert_eq!(budget.remaining_bytes, 6);
 
-        assert!(budget.can_fit(6));
-        budget.commit(6);
+        assert!(budget.reserve(6));
         assert_eq!(budget.remaining_files, 0);
         assert_eq!(budget.remaining_bytes, 0);
-        assert!(!budget.can_fit(0));
+        assert!(!budget.reserve(0));
     }
 
     #[cfg(unix)]
