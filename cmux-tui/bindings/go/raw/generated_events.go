@@ -775,9 +775,16 @@ func (value *DaemonShutdownEvent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode DaemonShutdownEvent: expected object")
 	}
 	var fields struct {
+		Event *string `json:"event"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode DaemonShutdownEvent: %w", err)
+	}
+	if fields.Event == nil {
+		return fmt.Errorf("decode DaemonShutdownEvent: required field event is missing or null")
+	}
+	if *fields.Event != "daemon-shutdown" {
+		return fmt.Errorf("decode DaemonShutdownEvent.event: invalid value %q", *fields.Event)
 	}
 	type wire DaemonShutdownEvent
 	var decoded wire

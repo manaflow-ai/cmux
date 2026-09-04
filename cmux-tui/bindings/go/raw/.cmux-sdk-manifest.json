@@ -7,8 +7,8 @@
     },
     {
       "path": "generated_events.go",
-      "sha256": "1ddbbc5a26e9947c4d76c358250b3d23ea9c5a221f251a99d46505ae688ad200",
-      "size": 110913
+      "sha256": "b762ea53e7011bc6e64e4e04707cc1dbc6e12a7a83468b9e81ff1840509add43",
+      "size": 111197
     },
     {
       "path": "generated_metadata.go",
