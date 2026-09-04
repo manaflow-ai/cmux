@@ -8071,7 +8071,11 @@ pub struct App {
     mux_recovery_generation: Arc<AtomicU64>,
     drag: Option<Drag>,
     active_pointer_buttons: HashSet<MouseButton>,
-    ignored_pty_mouse_buttons: HashSet<MouseButton>,
+    /// Pointer buttons pressed while another button already owned the
+    /// interaction. Their drag and release samples are ignored until the
+    /// physical button is released, so one gesture cannot be split between
+    /// two owners.
+    ignored_pointer_buttons: HashSet<MouseButton>,
     #[cfg(test)]
     timeout_drain_hook: Option<TimeoutDrainHook>,
     encoder: KeyEncoder,
@@ -10831,7 +10835,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         mux_recovery_generation,
         drag: None,
         active_pointer_buttons: HashSet::new(),
-        ignored_pty_mouse_buttons: HashSet::new(),
+        ignored_pointer_buttons: HashSet::new(),
         #[cfg(test)]
         timeout_drain_hook: None,
         encoder,
@@ -14283,7 +14287,7 @@ impl App {
         self.pending_session_completions.clear();
         self.drag = None;
         self.active_pointer_buttons.clear();
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         self.encode_buf.clear();
     }
 
@@ -19011,7 +19015,7 @@ impl App {
         self.deferred_input.retain(|input| !matches!(&input.event, TerminalInput::Mouse(_)));
         self.pending_pointer_motion = None;
         self.active_pointer_buttons.clear();
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         self.reset_selection_click_sequence();
     }
 
@@ -24311,16 +24315,34 @@ impl App {
                 return Ok(RenderAction::None);
             }
         }
-        // This TUI tracks one active pointer button. Ignore additional presses
-        // until its release so a second button cannot orphan the inner app's
-        // pressed state.
-        if let MouseEventKind::Down(button) = mouse.kind
-            && let Some(Drag::PtyMouse { button: active, .. }) = &self.drag
+        // This TUI tracks one active pointer button. Ignore additional
+        // presses until their release so a second button cannot orphan the
+        // current native or inner-app gesture. Native sidebar drags have no
+        // button field, because they are all left-button gestures.
+        if let MouseEventKind::Drag(button) | MouseEventKind::Up(button) = mouse.kind
+            && self.ignored_pointer_buttons.contains(&button)
         {
-            if button != *active {
-                self.ignored_pty_mouse_buttons.insert(button);
+            if matches!(mouse.kind, MouseEventKind::Up(_)) {
+                self.ignored_pointer_buttons.remove(&button);
             }
             return Ok(RenderAction::None);
+        }
+        if let MouseEventKind::Down(button) = mouse.kind {
+            let another_button_active = self
+                .active_pointer_buttons
+                .iter()
+                .any(|active| *active != button)
+                || self.drag.as_ref().is_some_and(|drag| {
+                    let active = match drag {
+                        Drag::PtyMouse { button, .. } => *button,
+                        _ => MouseButton::Left,
+                    };
+                    active != button
+                });
+            if another_button_active {
+                self.ignored_pointer_buttons.insert(button);
+                return Ok(RenderAction::None);
+            }
         }
         match mouse.kind {
             MouseEventKind::Down(button) => {
@@ -24561,7 +24583,7 @@ impl App {
             position: (logical_x, logical_y),
             modifiers,
         });
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         PtyMousePressResult::Started
     }
 
@@ -24709,13 +24731,13 @@ impl App {
         let (surface, handle, reservation_id, fallback, content, button) =
             (*surface, handle.clone(), *reservation_id, release_bytes.clone(), *content, *button);
         if reported_button != button {
-            self.ignored_pty_mouse_buttons.remove(&reported_button);
+            self.ignored_pointer_buttons.remove(&reported_button);
             return true;
         }
         let (content, x, y) = self.current_pty_pointer(surface, x, y).unwrap_or((content, x, y));
         let release = self.capture_pty_mouse_release(surface, content, x, y, button, modifiers);
         self.drag = None;
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
@@ -24833,7 +24855,7 @@ impl App {
             }
         }
         self.active_pointer_buttons.clear();
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         menu_scrollbar_dragged || pointer_dragged
     }
 
@@ -24866,7 +24888,7 @@ impl App {
         let release = self
             .capture_pty_mouse_release(surface, content, position.0, position.1, button, modifiers);
         self.drag = None;
-        self.ignored_pty_mouse_buttons.clear();
+        self.ignored_pointer_buttons.clear();
         match release {
             PtyMouseReleaseCapture::Bytes(bytes) => {
                 if !self.enqueue_pty_release(surface, handle, reservation_id, bytes) {
@@ -44705,6 +44727,69 @@ mod tests {
     }
 
     #[test]
+    fn secondary_pointer_button_cannot_orphan_native_sidebar_capture() {
+        let temp = test_temp_dir("secondary-sidebar-pointer-button");
+        for index in 0..6 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("secondary-sidebar-pointer-button-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 6,
+            visible_rows: 2,
+            anchor_y: 2,
+            anchor_offset: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let offset = app.sidebar_files.scroll_offset();
+        let event = |kind| MouseEvent {
+            kind,
+            column: 20,
+            row: 4,
+            modifiers: KeyModifiers::SHIFT,
+        };
+
+        assert_eq!(
+            app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right))).unwrap(),
+            RenderAction::None
+        );
+        assert_eq!(
+            app.handle_mouse(event(MouseEventKind::Drag(MouseButton::Right))).unwrap(),
+            RenderAction::None
+        );
+        assert_eq!(
+            app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right))).unwrap(),
+            RenderAction::None
+        );
+
+        assert!(
+            app.menu.is_none(),
+            "a secondary button must not open a menu during a native drag"
+        );
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert_eq!(app.sidebar_files.scroll_offset(), offset);
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        assert!(!app.active_pointer_buttons.contains(&MouseButton::Right));
+
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
+        assert!(
+            app.drag.is_none(),
+            "the owning button must still be able to finish its drag"
+        );
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn sidebar_view_toggle_cancels_old_pointer_capture_before_host_mode_change() {
         let temp = test_temp_dir("sidebar-view-pointer-boundary");
         for index in 0..5 {
@@ -53600,7 +53685,7 @@ mod tests {
             mux_recovery_generation: Arc::new(AtomicU64::new(0)),
             drag: None,
             active_pointer_buttons: HashSet::new(),
-            ignored_pty_mouse_buttons: HashSet::new(),
+            ignored_pointer_buttons: HashSet::new(),
             timeout_drain_hook: None,
             encoder: KeyEncoder::new().unwrap(),
             encode_buf: Vec::new(),
