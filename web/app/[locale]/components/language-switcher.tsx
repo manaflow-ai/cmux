@@ -1,39 +1,21 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { usePathname as useRawPathname } from "next/navigation";
 import { useLocale } from "next-intl";
-import { useRouter, usePathname } from "../../../i18n/navigation";
+import { usePathname } from "../../../i18n/navigation";
 import { locales, localeNames, type Locale } from "../../../i18n/routing";
 
 export function LanguageSwitcher() {
   const locale = useLocale() as Locale;
-  const router = useRouter();
   const pathname = usePathname();
-  const rawPathname = useRawPathname();
-  const pendingLocale = useRef<Locale | null>(null);
-  const lastRawPathname = useRef(rawPathname);
-
-  useEffect(() => {
-    if (lastRawPathname.current === rawPathname) return;
-    lastRawPathname.current = rawPathname;
-    if (pendingLocale.current === null) return;
-
-    // Locale changes can pass through the instant-navigation cache (and the
-    // default-locale redirect from /en to /). Refresh after next-intl has
-    // committed the new locale so server-rendered content and metadata come
-    // from the same locale as the URL, even when the client layout persists.
-    pendingLocale.current = null;
-    router.refresh();
-  }, [rawPathname, router]);
 
   function onChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const newLocale = e.target.value as Locale;
     const qs = typeof window !== "undefined"
       ? window.location.search + window.location.hash
       : "";
-    pendingLocale.current = newLocale;
-    router.replace(pathname + qs, { locale: newLocale });
+    const prefix = newLocale === "en" ? "" : `/${newLocale}`;
+    const localizedPathname = pathname === "/" ? prefix || "/" : `${prefix}${pathname}`;
+    window.location.assign(localizedPathname + qs);
   }
 
   return (
