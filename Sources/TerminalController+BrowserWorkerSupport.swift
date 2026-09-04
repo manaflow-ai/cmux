@@ -5,11 +5,19 @@ extension TerminalController {
         _ context: V2BrowserPanelContext,
         adding fields: [String: Any] = [:]
     ) -> [String: Any] {
+        let engineAndEndpoint = v2MainSync {
+            (
+                context.browserPanel.engineKind.rawValue,
+                context.browserPanel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString
+            )
+        }
         var result: [String: Any] = [
             "workspace_id": context.workspaceId.uuidString,
             "workspace_ref": v2Ref(kind: .workspace, uuid: context.workspaceId),
             "surface_id": context.surfaceId.uuidString,
             "surface_ref": v2Ref(kind: .surface, uuid: context.surfaceId),
+            "engine": engineAndEndpoint.0,
+            "cdp_endpoint": v2OrNull(engineAndEndpoint.1),
         ]
         fields.forEach { result[$0.key] = $0.value }
         return result
