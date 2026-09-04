@@ -215,6 +215,7 @@ public actor MobileIrxRuntimeComposition {
                     reachability: reachability,
                     onPathChange: {
                         await lanPeerDiscovery.pathDidChange()
+                        await self.invalidateCachedDirectRoutesForNetworkChange()
                     }
                 )
             }
@@ -914,6 +915,24 @@ public actor MobileIrxRuntimeComposition {
             direct.isEmpty ? (existing?.directAddresses ?? []) : direct
         )
         return (binding, discovery)
+    }
+
+    /// A network generation change invalidates every cached direct coordinate.
+    /// The next automatic dial rebuilds public candidates from authenticated
+    /// broker discovery and LAN candidates from the new Bonjour generation.
+    /// Clearing the combined cache is deliberate: retaining a public hint is
+    /// safe but would make it possible for a stale private coordinate to be
+    /// retried when broker discovery is temporarily unavailable.
+    private func invalidateCachedDirectRoutesForNetworkChange() {
+        guard !routesByPeer.isEmpty else { return }
+        for peerHex in routesByPeer.keys {
+            guard let route = routesByPeer[peerHex] else { continue }
+            routesByPeer[peerHex] = (route.relayURL, [])
+        }
+        Self.journal.record(
+            "client-runtime", "direct-routes-invalidated",
+            ["reason": "network-path-change"]
+        )
     }
 
     private func engine(forPeer peerHex: String) -> IrxPeerEngine {
