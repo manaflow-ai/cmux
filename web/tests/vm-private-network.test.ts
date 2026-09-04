@@ -245,6 +245,9 @@ function newRepoCalls(): RepoCalls {
 describe("WireGuard public key validation", () => {
   test("accepts a base64 32-byte key and rejects everything else", () => {
     expect(isWireGuardPublicKey(CLIENT_KEY)).toBe(true);
+    // RFC 4648 Base64 allows digits in the final sextet. This is a real
+    // CryptoKit-generated public key from the Nightly dogfood Mac.
+    expect(isWireGuardPublicKey("/LP04D7GGKWfqnFrgW+y1f0UvH2OyvSccKvHGQnkR08=")).toBe(true);
     expect(isWireGuardPublicKey(`  ${CLIENT_KEY}  `)).toBe(true);
     expect(isWireGuardPublicKey("")).toBe(false);
     expect(isWireGuardPublicKey("not-a-key")).toBe(false);
