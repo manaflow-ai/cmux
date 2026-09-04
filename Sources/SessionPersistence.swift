@@ -1836,6 +1836,34 @@ struct SessionCanvasPaneSnapshot: Codable, Equatable, Sendable {
 struct SessionCloudVMBindingSnapshot: Codable, Sendable, Equatable {
     var vmID: String
     var isBase: Bool
+    /// Stable cmux-tui workspace id, absent in older session manifests.
+    var remoteWorkspaceID: String?
+
+    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
+        self.vmID = vmID
+        self.isBase = isBase
+        self.remoteWorkspaceID = remoteWorkspaceID
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case vmID
+        case isBase
+        case remoteWorkspaceID
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        vmID = try container.decode(String.self, forKey: .vmID)
+        isBase = try container.decode(Bool.self, forKey: .isBase)
+        remoteWorkspaceID = try container.decodeIfPresent(String.self, forKey: .remoteWorkspaceID)
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(vmID, forKey: .vmID)
+        try container.encode(isBase, forKey: .isBase)
+        try container.encodeIfPresent(remoteWorkspaceID, forKey: .remoteWorkspaceID)
+    }
 }
 
 struct SessionWorkspaceSnapshot: Codable, Sendable {

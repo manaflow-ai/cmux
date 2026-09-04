@@ -192,6 +192,31 @@ import Testing
         #expect(CmuxTuiSnapshotParser.resourceRevision(from: [:]) == nil)
     }
 
+    @Test func cloudRenameCursorAndReceiptAreVersioned() throws {
+        let snapshot: [String: Any] = [
+            "cursor": ["generation": "g1", "revision": "42"],
+        ]
+        let cursor = try #require(CmuxTuiSnapshotParser.cursor(from: snapshot))
+        #expect(cursor == CloudVMCursor(generation: "g1", revision: 42))
+        #expect(cursor.isNewer(than: CloudVMCursor(generation: "g1", revision: 41)))
+        #expect(!cursor.isNewer(than: CloudVMCursor(generation: "g1", revision: 42)))
+        #expect(!cursor.isNewer(than: CloudVMCursor(generation: "other", revision: 1)))
+        #expect(CmuxTuiSnapshotParser.snapshotContainsCursor(snapshot))
+        #expect(!CmuxTuiSnapshotParser.snapshotContainsCursor(["workspaces": []]))
+
+        let receipt = try #require(
+            CmuxTuiSnapshotParser.mutationCursor(
+                from: Data(#"{"result":{"revision":"43","generation":"g1","value":{"id":"ws_main","name":"renamed"}}}"#.utf8)
+            )
+        )
+        #expect(receipt == CloudVMCursor(generation: "g1", revision: 43))
+        #expect(
+            CmuxTuiSnapshotParser.mutationCursor(
+                from: Data(#"{"revision":true,"generation":"g1"}"#.utf8)
+            ) == nil
+        )
+    }
+
     @Test func resourceKindWireFormAcceptsTheOldScreenName() throws {
         #expect(SurfaceResourceKind(wire: "display") == .display)
         #expect(SurfaceResourceKind(wire: "screen") == .display, "pre-rename apps and persisted sessions say screen")
@@ -272,6 +297,15 @@ import Testing
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: [:], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminals(fromSnapshot: ["workspaces": [["name": "no id"]]], machine: Self.machine).isEmpty)
         #expect(CmuxTuiSnapshotParser.terminal(fromSnapshotEntry: ["title": "no id"], machine: Self.machine) == nil)
+        #expect(!CmuxTuiSnapshotParser.hasCompleteVersionedGraph([
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [],
+        ]))
+        #expect(CmuxTuiSnapshotParser.hasCompleteVersionedGraph([
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [], "screens": [], "panes": [], "tabs": [],
+            "terminals": [], "browsers": [], "agents": [],
+        ]))
     }
 
     @Test func mutationResultsAndLinkLinesParse() {
@@ -334,6 +368,8 @@ import Testing
         // Rename takes the name via --name (verified live; positional is usage.invalid).
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
+        #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work", expectedRevision: "42") ==
+            ["--socket", "/k.sock", "--json", "--expected-revision", "42", "workspace", "ws_main", "rename", "--name", "backend work"])
         // Verified live: the flat `set-default-colors` verb is `usage.invalid` in the v2
         // resource CLI; the session-scoped form below is the one machines accept.
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "#d8dee9", background: "#171b2e") ==

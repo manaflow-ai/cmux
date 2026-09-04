@@ -92,6 +92,73 @@ struct CmuxTuiSnapshotParser: Sendable {
         return nil
     }
 
+    /// Returns the complete generation/revision cursor from a snapshot, or nil for a
+    /// legacy snapshot that does not expose ordering metadata.
+    static func cursor(from snapshot: [String: Any]) -> CloudVMCursor? {
+        CloudVMCursor(snapshot: snapshot)
+    }
+
+    /// Whether a snapshot included a cursor value.  This distinguishes a legacy document
+    /// (safe to display, but not to mutate with compare-and-swap) from a malformed current one.
+    static func snapshotContainsCursor(_ snapshot: [String: Any]) -> Bool {
+        guard let raw = snapshot["cursor"] else { return false }
+        return !(raw is NSNull)
+    }
+
+    /// A versioned session snapshot must carry every graph collection. Treating
+    /// a missing collection as an empty one would let a truncated response erase
+    /// live workspace/resource rows while still advancing the cursor fence.
+    /// Cursorless legacy snapshots remain permissive for read-only display.
+    static func hasCompleteVersionedGraph(_ snapshot: [String: Any]) -> Bool {
+        guard snapshotContainsCursor(snapshot) else { return true }
+        return ["workspaces", "screens", "panes", "tabs", "terminals", "browsers", "agents"]
+            .allSatisfy { snapshot[$0] is [[String: Any]] }
+    }
+
+    /// Reads the cursor returned by a mutation command.  cmux-tui versions have emitted both
+    /// a top-level envelope and a nested `result` envelope, so the parser accepts either while
+    /// requiring a generation and an unsigned revision.
+    static func mutationCursor(from data: Data, fallbackGeneration: String? = nil) -> CloudVMCursor? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return nil
+        }
+        var candidates: [[String: Any]] = [root]
+        if let result = root["result"] as? [String: Any] { candidates.append(result) }
+        if let value = root["value"] as? [String: Any] { candidates.append(value) }
+        if let result = root["result"] as? [String: Any],
+           let value = result["value"] as? [String: Any] {
+            candidates.append(value)
+        }
+        for candidate in candidates {
+            if let cursor = candidate["cursor"] as? [String: Any],
+               let parsed = CloudVMCursor(wire: cursor) {
+                return parsed
+            }
+            guard let revision = unsignedRevision(candidate["revision"]),
+                  let generation = (candidate["generation"] as? String)
+                    ?? fallbackGeneration else {
+                continue
+            }
+            return CloudVMCursor(generation: generation, revision: revision)
+        }
+        return nil
+    }
+
+    private static func unsignedRevision(_ raw: Any?) -> UInt64? {
+        if raw is Bool { return nil }
+        if let value = raw as? UInt64 { return value }
+        if let value = raw as? Int { return value >= 0 ? UInt64(value) : nil }
+        if let value = raw as? String { return UInt64(value) }
+        guard let number = raw as? NSNumber,
+              CFGetTypeID(number) != CFBooleanGetTypeID(),
+              number.doubleValue.isFinite,
+              number.doubleValue >= 0,
+              number.doubleValue.rounded() == number.doubleValue else {
+            return nil
+        }
+        return UInt64(number.stringValue)
+    }
+
     /// Decodes the snapshot used by a detached-terminal projection away from
     /// the UI actor. The returned revision is the same cursor that guards the
     /// subsequent topology mutation.

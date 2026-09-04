@@ -345,6 +345,13 @@ extension TerminalController {
             if let destination {
                 projections = try await catalog.projectGroup(group.resources, into: destination, focus: focus)
                 workspaceID = destination.workspaceID
+                await MainActor.run {
+                    CloudWorkspaceRenameWriteThrough.bind(
+                        localWorkspaceID: workspaceID,
+                        machine: machine,
+                        remoteWorkspaceID: workspace.id
+                    )
+                }
             } else {
                 let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                     group.resources,
@@ -354,6 +361,13 @@ extension TerminalController {
                 )
                 workspaceID = opened.workspaceID
                 projections = opened.projections
+                await MainActor.run {
+                    CloudWorkspaceRenameWriteThrough.bind(
+                        localWorkspaceID: workspaceID,
+                        machine: machine,
+                        remoteWorkspaceID: workspace.id
+                    )
+                }
             }
             return [
                 "machine": machine.rawValue,

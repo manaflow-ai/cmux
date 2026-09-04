@@ -192,7 +192,13 @@ extension Workspace {
             progress: progressSnapshot,
             gitBranch: gitBranchSnapshot,
             remote: remoteConfiguration?.sessionSnapshot(),
-            cloudVM: cloudVMBinding.map { SessionCloudVMBindingSnapshot(vmID: $0.vmID, isBase: $0.isBase) },
+            cloudVM: cloudVMBinding.map {
+                SessionCloudVMBindingSnapshot(
+                    vmID: $0.vmID,
+                    isBase: $0.isBase,
+                    remoteWorkspaceID: $0.remoteWorkspaceID
+                )
+            },
             surfaceProjections: surfaceProjectionRecordsForSession,
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
@@ -2479,9 +2485,29 @@ struct WorkspaceCloudVMBinding: Equatable, Sendable {
     let vmID: String
     /// Base is the single persistent cloud workspace the sidebar cloud button reuses.
     let isBase: Bool
+    /// Stable cmux-tui workspace id represented by this local workspace. Optional for
+    /// manifests written before cloud workspace placement was persisted.
+    let remoteWorkspaceID: String?
+
+    init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
+        self.vmID = vmID
+        self.isBase = isBase
+        self.remoteWorkspaceID = Self.normalizedRemoteWorkspaceID(remoteWorkspaceID)
+    }
 
     /// Machine ids are provider handles (`vivid-newt`, `sc-…`): letters, digits, `.`, `_`, `-`.
     static func normalizedVMID(_ raw: String?) -> String? {
+        guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty,
+              trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
+            return nil
+        }
+        return trimmed
+    }
+
+    /// Normalizes a daemon workspace id without accepting an empty or delimiter-bearing
+    /// value that could make a later rename target ambiguous.
+    static func normalizedRemoteWorkspaceID(_ raw: String?) -> String? {
         guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmed.isEmpty,
               trimmed.range(of: "^[A-Za-z0-9._-]{1,128}$", options: .regularExpression) != nil else {
@@ -2963,12 +2989,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// session snapshot (`SessionWorkspaceSnapshot.cloudVM`); the pane's one-shot link is
     /// not replayed on restore, only the binding is.
     @Published var cloudVMBinding: WorkspaceCloudVMBinding?
+    /// Monotonic local-title edit token used to fence an asynchronous cloud
+    /// write-through rollback. It is intentionally not persisted: a restored
+    /// workspace starts a new in-process edit lane.
+    var cloudRenameEditSequence: UInt64 = 0
 
     /// The binding a session snapshot restores, or nil when the snapshot has none or its
     /// machine id is malformed.
     static func restoredCloudVMBinding(from snapshot: SessionCloudVMBindingSnapshot?) -> WorkspaceCloudVMBinding? {
         guard let snapshot, let vmID = WorkspaceCloudVMBinding.normalizedVMID(snapshot.vmID) else { return nil }
-        return WorkspaceCloudVMBinding(vmID: vmID, isBase: snapshot.isBase)
+        return WorkspaceCloudVMBinding(
+            vmID: vmID,
+            isBase: snapshot.isBase,
+            remoteWorkspaceID: WorkspaceCloudVMBinding.normalizedRemoteWorkspaceID(snapshot.remoteWorkspaceID)
+        )
     }
     @Published var remoteConnectionState: WorkspaceRemoteConnectionState = .disconnected
     @Published var remoteConnectionDetail: String?

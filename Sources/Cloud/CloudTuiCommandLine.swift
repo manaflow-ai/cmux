@@ -89,8 +89,18 @@ struct CloudTuiCommandLine: Sendable {
 
     /// `workspace <ws_id> rename --name <name>` (verified live: the positional
     /// form is `usage.invalid`; the name rides the `--name` flag).
-    static func renameWorkspaceArguments(socketPath: String, workspaceID: String, name: String) -> [String] {
-        ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
+    static func renameWorkspaceArguments(
+        socketPath: String,
+        workspaceID: String,
+        name: String,
+        expectedRevision: String? = nil
+    ) -> [String] {
+        var arguments = ["--socket", socketPath, "--json"]
+        if let expectedRevision, !expectedRevision.isEmpty {
+            arguments += ["--expected-revision", expectedRevision]
+        }
+        arguments += ["workspace", workspaceID, "rename", "--name", name]
+        return arguments
     }
 
     /// `terminal <term_id> write --text <text>` (spec `terminal.input.write`): the bytes
