@@ -294,6 +294,8 @@ export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
+  /** The provider can mint a browser preview URL for a machine port. */
+  readonly ports: boolean;
 }
 
 /** A private network that every machine belonging to one user shares. */
@@ -383,8 +385,9 @@ export interface VMProvider {
   readonly privateNetworking?: VMPrivateNetworking;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
-   * throw NotImplementedError declares that here; `fork` defaults to whether the method
-   * exists. Everything omitted defaults to supported.
+   * throw NotImplementedError declares that here; `fork` and `ports` default
+   * to whether their methods exist. Everything omitted defaults to supported where a
+   * legacy client needs that compatibility behavior.
    */
   readonly capabilities?: Partial<VmCapabilities>;
 

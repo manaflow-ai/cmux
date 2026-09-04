@@ -18,6 +18,33 @@ cmux auth status
 cmux vm ls --json
 cmux vm route --json
 cmux vm tree --json
+cmux auth status                       # signed in?
+cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
+cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt, capabilities: {ports, …}}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
+cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
+cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
+cmux vpn down                          # take this build's tunnel down (sudo)
+cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
+cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
+cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
+cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
+cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs (drop a workspace row onto a pane)
+cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane (CLI placement)
+cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
+cmux vm workspace rename <id> <ws-id> <name>   # rename that workspace (the row's "Rename…")
+cmux vm workspace close <id> <ws-id>   # CLI-only: close that workspace but keep its terminals running in the Terminals pool
+cmux vm workspace rm <id> <ws-id>      # close that workspace AND kill every terminal in it (the row's "Close Workspace…" / hover ×). Permanent.
+cmux vm terminal close <id> <term-id>  # end one terminal on the machine (the sidebar's ×); its local panes close too
+cmux vm terminal send <id> <term-id> [text] [--keys enter,ctrl+c,…]   # type into the terminal headlessly (as-is, no newline), then press named keys (chords join with +); no pane, no focus
+cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + rows, cols, cursor)
+cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
+cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
+cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
+cmux vm status <id>                    # provider, status, image
+cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
+cmux vm tools <id>                     # which tools are installed
+cmux vm ports <id>                     # listening TCP ports inside the machine
+cmux vm handoff <id>                   # short attach block to paste to a human or another agent
 ```
 
 Only then choose `vm run`/`vm agent` (router-managed work), `vm base open`

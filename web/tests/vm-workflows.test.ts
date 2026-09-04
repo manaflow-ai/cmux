@@ -46,6 +46,7 @@ import {
   approveVmCmuxRemoteEnrollment,
   openBaseVm,
   openAttachEndpoint,
+  openVmPort,
   openVmCmuxRemote,
   openVmSession,
   revokeExpiredIdentityLeases,
@@ -132,6 +133,43 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("rejects an unsupported port before attempting to resume a paused VM", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000130",
+      userId: "user-workflow-port-unsupported",
+      providerVmId: "provider-vm-port-unsupported",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: vm.providerVmId! });
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      openVmPort({
+        userId: vm.userId,
+        providerVmId: vm.providerVmId!,
+        port: 8000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toMatchObject({
+      _tag: "VmOperationUnsupportedError",
+      operation: "openPort",
+    });
+    expect(resumeCalls).toBe(0);
+    expect(observedStatuses).toHaveLength(0);
+    expect(usageEvents).toHaveLength(0);
+  });
+
   test("exec resumes a paused VM, retries once, and records one usage event", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000101",
