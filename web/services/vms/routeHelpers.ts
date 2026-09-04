@@ -61,7 +61,13 @@ import {
   vmIdFromRequestPath,
   type VmRequestContext,
 } from "./requestContext";
-import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy, vmUnsupportedOperationKey } from "./vmErrorMessages";
+import {
+  vmRequestLocale,
+  vmRequiresProCopy,
+  vmSharedResourceCopy,
+  vmUnsupportedCopy,
+  vmUnsupportedOperationKey,
+} from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -510,7 +516,7 @@ export function vmActiveLimitExceededResponse(input: {
 }
 
 /** Translate a plan-wide resource pool rejection into a stable client error. */
-export function vmSharedResourceLimitExceededResponse(
+export async function vmSharedResourceLimitExceededResponse(
   err: {
     readonly resource: "vcpus" | "memoryMb" | "diskMb";
     readonly used: number;
@@ -519,7 +525,8 @@ export function vmSharedResourceLimitExceededResponse(
     readonly phase?: VmLifecyclePhase;
   },
   phase: VmLifecyclePhase = err.phase ?? "create",
-): Response {
+  locale: Locale = "en",
+): Promise<Response> {
   const resource = err.resource === "vcpus"
     ? "vCPU"
     : err.resource === "memoryMb"
@@ -530,11 +537,15 @@ export function vmSharedResourceLimitExceededResponse(
     : err.resource === "memoryMb"
       ? "MB of memory"
       : "MB of disk";
+  const copy = await vmSharedResourceCopy(locale, {
+    resource,
+    oversized: err.requested > err.limit,
+  });
   return vmErrorResponse({
     error: "vm_shared_resource_limit_exceeded",
     status: 409,
-    message: `The shared Cloud VM ${resource} pool is full.`,
-    action: "Delete an unused Cloud VM, then retry.",
+    message: copy.message,
+    action: copy.action,
     phase,
     retryable: false,
     details: {
@@ -555,14 +566,15 @@ export type VmCreateLikeOperation = "fork" | "restore";
  * Operation-specific retry guidance stays at the route boundary, while the response
  * shape and billing errors remain centralized here.
  */
-export function vmCreateLikeErrorResponse(
+export async function vmCreateLikeErrorResponse(
   err: unknown,
   input: {
     readonly operation: VmCreateLikeOperation;
     readonly planId: string;
     readonly retryAction: string;
+    readonly locale?: Locale;
   },
-): Response | null {
+): Promise<Response | null> {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -589,7 +601,7 @@ export function vmCreateLikeErrorResponse(
     });
   }
   if (isVmSharedResourceLimitExceededError(err)) {
-    return vmSharedResourceLimitExceededResponse(err, "create");
+    return vmSharedResourceLimitExceededResponse(err, "create", input.locale ?? "en");
   }
   if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
@@ -689,7 +701,7 @@ export async function vmWorkflowErrorResponse(
   }
 
   if (isVmSharedResourceLimitExceededError(workflowError)) {
-    return vmSharedResourceLimitExceededResponse(workflowError);
+    return vmSharedResourceLimitExceededResponse(workflowError, workflowError.phase ?? "create", options.locale ?? "en");
   }
 
   if (isVmResizeInvalidError(workflowError)) {

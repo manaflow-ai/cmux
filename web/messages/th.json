@@ -22,6 +22,11 @@
       "title": "ต้องใช้ cmux Pro",
       "message": "Cloud VM ต้องใช้แผน cmux Pro",
       "action": "อัปเกรดเป็น cmux Pro ที่ {upgradeUrl} เพื่อสร้าง Cloud VM"
+    },
+    "sharedResource": {
+      "message": "พูลทรัพยากร {resource} ของ Cloud VM ที่ใช้ร่วมกันเต็มแล้ว",
+      "action": "ลบ Cloud VM ที่ไม่ได้ใช้งาน แล้วลองอีกครั้ง",
+      "oversizedAction": "ขอขนาด {resource} ของ Cloud VM ที่เล็กลงและอยู่ภายในพูลที่ใช้ร่วมกัน"
     }
   },
   "billingRecovery": {

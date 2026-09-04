@@ -31,6 +31,11 @@
       "title": "cmux Pro が必要です",
       "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
       "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    },
+    "sharedResource": {
+      "message": "共有 Cloud VM の {resource} リソースプールが上限に達しています。",
+      "action": "使用していない Cloud VM を削除してから、もう一度お試しください。",
+      "oversizedAction": "共有プールに収まる、より小さい Cloud VM の {resource} サイズを指定してください。"
     }
   },
   "ios": {

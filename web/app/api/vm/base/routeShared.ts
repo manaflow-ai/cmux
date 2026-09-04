@@ -187,7 +187,7 @@ async function baseWorkflowErrorResponse(
     });
   }
   if (isVmSharedResourceLimitExceededError(err)) {
-    return vmSharedResourceLimitExceededResponse(err, "create");
+    return vmSharedResourceLimitExceededResponse(err, "create", locale);
   }
   if (isVmCreateCreditsInsufficientError(err)) {
     return vmErrorResponse({

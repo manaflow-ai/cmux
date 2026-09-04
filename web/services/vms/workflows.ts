@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import * as Either from "effect/Either";
+import * as Exit from "effect/Exit";
 import type { CreateOptions } from "./drivers/types";
 import * as Layer from "effect/Layer";
 import type {
@@ -444,8 +445,11 @@ export function createVm(input: {
     const beginInput = isPaidVmPlan(input.billingPlanId)
       ? {
         ...input,
-        // Reserve the logical plan profile, not a provider snapshot's often
-        // larger baked shape. The provider may overprovision that snapshot.
+        // Reserve the logical plan profile, not the provider snapshot shape.
+        // Freestyle's nearest ladder image can be larger than the advertised
+        // 5 vCPU / 20 GB profile, and that overprovisioning is an implementation
+        // detail rather than extra customer capacity. Including it here would
+        // reject the default paid create before the provider call.
         resourceReservation: input.resourceReservation ?? vmResourceReservationForCreate({
           memoryMb: input.memoryMb,
         }),
@@ -2108,8 +2112,25 @@ export function resizeVm(input: {
         previousDiskMb: reservation.previousDiskMb,
       }).pipe(Effect.catchAll(() => Effect.void))
       : Effect.void;
+    const rollbackIfProviderDidNotGrow = (
+      exit: Exit.Exit<void, VmProviderOperationError | VmOperationUnsupportedError>,
+    ) => {
+      if (!reservation || !repo.restoreVmResize || Exit.isSuccess(exit)) return Effect.void;
+      // A provider request can complete and lose its response before the
+      // caller observes success. Release the claim only when a fresh provider
+      // read proves that the disk is still at its pre-resize size. If the read
+      // fails or reports growth, keep the larger claim as a safe upper bound.
+      return providers.getStats!(vm.provider, input.providerVmId).pipe(
+        Effect.flatMap((stats) =>
+          typeof stats.diskTotalMb === "number" && stats.diskTotalMb <= currentMb
+            ? rollbackReservation()
+            : Effect.void,
+        ),
+        Effect.catchAll(() => Effect.void),
+      );
+    };
     yield* providers.resize(vm.provider, input.providerVmId, { storageMb: input.storageMb }).pipe(
-      Effect.tapError(() => rollbackReservation()),
+      Effect.onExit(rollbackIfProviderDidNotGrow),
     );
     const updated = yield* providers.getStats(vm.provider, input.providerVmId);
     yield* repo.recordUsageEvent({

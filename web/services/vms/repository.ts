@@ -531,21 +531,26 @@ function reservedResourceFields() {
 
 async function reservedResourceTotals(
   tx: CloudDbTransaction,
-  billingTeamId: string,
-  excludeVmId?: string,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly excludeVmId?: string;
+  },
 ): Promise<VmResourceReservation> {
-  // CPU and memory are shared ceilings across the team's machines. Disk is
-  // persistent storage, so each live reservation consumes additional pool.
+  // Every resource is an aggregate claim across the account's live machines.
+  // Personal rows may have a NULL billing_team_id, so use the same account
+  // scope predicate as ownership and list queries instead of matching a
+  // synthetic user id in the team column.
   const fields = reservedResourceFields();
   const predicates = [
     inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
-    eq(cloudVms.billingTeamId, billingTeamId),
+    accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
   ];
-  if (excludeVmId) predicates.push(ne(cloudVms.id, excludeVmId));
+  if (input.excludeVmId) predicates.push(ne(cloudVms.id, input.excludeVmId));
   const [row] = await tx
     .select({
-      vcpus: sql<number>`coalesce(max(${fields.vcpus}), 0)`,
-      memoryMb: sql<number>`coalesce(max(${fields.memoryMb}), 0)`,
+      vcpus: sql<number>`coalesce(sum(${fields.vcpus}), 0)`,
+      memoryMb: sql<number>`coalesce(sum(${fields.memoryMb}), 0)`,
       diskMb: sql<number>`coalesce(sum(${fields.diskMb}), 0)`,
     })
     .from(cloudVms)
@@ -573,6 +578,7 @@ function sharedResourceCapacityForInput(
 async function assertSharedResourceCapacity(
   tx: CloudDbTransaction,
   input: {
+    readonly userId: string;
     readonly billingTeamId: string;
     readonly maxActiveVms: number | null;
     readonly resourceReservation?: VmResourceReservation;
@@ -587,7 +593,11 @@ async function assertSharedResourceCapacity(
   if (input.resourceReservation === undefined && input.sharedResourceCapacity === undefined) return;
   const reservation = resourceReservationForInput(input.resourceReservation);
   const capacity = sharedResourceCapacityForInput(input.maxActiveVms, input.sharedResourceCapacity);
-  const used = await reservedResourceTotals(tx, input.billingTeamId, input.excludeVmId);
+  const used = await reservedResourceTotals(tx, {
+    userId: input.userId,
+    billingTeamId: input.billingTeamId,
+    excludeVmId: input.excludeVmId,
+  });
   const exceeded = firstExceededSharedResource({ used, requested: reservation, capacity });
   if (!exceeded) return;
   throw new VmSharedResourceLimitExceededError({
@@ -928,6 +938,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               });
             }
             await assertSharedResourceCapacity(tx, {
+              userId: input.userId,
               billingTeamId: input.billingTeamId,
               maxActiveVms: input.maxActiveVms,
               resourceReservation: input.resourceReservation,
@@ -1038,6 +1049,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
               });
             }
             await assertSharedResourceCapacity(tx, {
+              userId: input.userId,
               billingTeamId: input.billingTeamId,
               maxActiveVms: input.maxActiveVms,
               resourceReservation: input.resourceReservation,
@@ -1251,6 +1263,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             });
           }
           await assertSharedResourceCapacity(tx, {
+            userId: input.userId,
             billingTeamId: input.billingTeamId,
             maxActiveVms: input.maxActiveVms,
             resourceReservation: input.resourceReservation,
@@ -1614,12 +1627,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             // shrink. The workflow already validates grow-only semantics.
             diskMb: Math.max(previousDiskMb, input.storageMb),
           };
-          const billingTeamId = current.billingTeamId ?? requestedTeamId ?? input.userId;
+          const billingTeamId = current.billingTeamId ?? requestedTeamId;
           const capacity = sharedResourceCapacityForInput(
             input.maxActiveVms ?? null,
             input.sharedResourceCapacity,
           );
-          const used = await reservedResourceTotals(tx, billingTeamId, current.id);
+          const used = await reservedResourceTotals(tx, {
+            userId: current.userId,
+            billingTeamId,
+            excludeVmId: current.id,
+          });
           const exceeded = firstExceededSharedResource({
             used,
             requested: reserved,
@@ -1628,7 +1645,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           if (exceeded) {
             throw new VmSharedResourceLimitExceededError({
               kind: "shared_resources",
-              billingTeamId,
+              billingTeamId: billingTeamId ?? current.userId,
               phase: "resize",
               resource: exceeded.resource,
               used: exceeded.used,

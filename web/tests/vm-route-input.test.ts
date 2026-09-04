@@ -138,7 +138,7 @@ describe("Cloud VM route error adapters", () => {
       requested: 32768,
       limit: 204800,
     });
-    const direct = vmSharedResourceLimitExceededResponse(error, "resize");
+    const direct = await vmSharedResourceLimitExceededResponse(error, "resize");
     expect(direct.status).toBe(409);
     const directPayload = await responseBody(direct);
     expect(directPayload.error).toBe("vm_shared_resource_limit_exceeded");
@@ -146,11 +146,25 @@ describe("Cloud VM route error adapters", () => {
     expect(directPayload.retryable).toBe(false);
     expect((directPayload.details as Record<string, unknown>).shared).toBe(true);
 
+    const oversized = await vmSharedResourceLimitExceededResponse({
+      ...error,
+      used: 0,
+      requested: 262144,
+      limit: 204800,
+    }, "resize", "en");
+    const oversizedPayload = await responseBody(oversized);
+    expect(oversizedPayload.action).toContain("smaller");
+    expect(oversizedPayload.action).not.toContain("Delete");
+
+    const japanese = await vmSharedResourceLimitExceededResponse(error, "resize", "ja");
+    const japanesePayload = await responseBody(japanese);
+    expect(japanesePayload.message).toContain("共有 Cloud VM");
+
     const workflow = await vmWorkflowErrorResponse(error);
     expect(workflow?.status).toBe(409);
     expect((await responseBody(workflow!)).error).toBe("vm_shared_resource_limit_exceeded");
 
-    const fork = vmCreateLikeErrorResponse(error, {
+    const fork = await vmCreateLikeErrorResponse(error, {
       operation: "fork",
       planId: "pro",
       retryAction: "fork retry",
@@ -161,12 +175,12 @@ describe("Cloud VM route error adapters", () => {
 
   test("keeps fork and restore provisioning guidance distinct", async () => {
     const error = { _tag: "VmCreateFailedError", idempotencyKey: "key" };
-    const fork = vmCreateLikeErrorResponse(error, {
+    const fork = await vmCreateLikeErrorResponse(error, {
       operation: "fork",
       planId: "free",
       retryAction: "fork retry",
     });
-    const restore = vmCreateLikeErrorResponse(error, {
+    const restore = await vmCreateLikeErrorResponse(error, {
       operation: "restore",
       planId: "free",
       retryAction: "restore retry",

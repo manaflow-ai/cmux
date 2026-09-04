@@ -150795,7 +150795,25 @@
             "state": "translated",
             "value": "Pro では最大 50 台の Cloud VM で、合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有します。Team では同じ上限と共有容量がユーザーごとに含まれます。新しい VM のディスクは 32 GB で開始し、共有プールの範囲内で拡張できます。従量課金や超過料金はありません。"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "da": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "km": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "th": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } }
       }
     },
     "pricing.native.sizes.colRate": {
@@ -150863,7 +150881,25 @@
             "state": "translated",
             "value": "Cloud VM 間で共有するリソース"
           }
-        }
+        },
+        "ar": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "km": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "th": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "Shared Cloud VM resources" } }
       }
     },
     "pricing.native.status.billingUnavailable": {

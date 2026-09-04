@@ -3,10 +3,12 @@
  *
  * The count allowance and the resource pool are separate limits. Postgres
  * records each machine's reservation, and the VM repository checks the live
- * claims while holding the billing-team lock. CPU and memory are shared
- * ceilings, so the largest claim wins; disk is persistent storage, so claims
- * add. Keeping the policy here gives pricing tests, workflows, and provider
- * sizing one source of truth.
+ * claims while holding the billing-team lock. Every logical vCPU, memory, and
+ * disk reservation consumes the shared pool, so claims add across live
+ * machines. A provider image can be overprovisioned to the nearest baked
+ * shape; that physical shape is not extra plan capacity.
+ * Keeping the policy here gives pricing tests, workflows, and provider sizing
+ * one source of truth.
  *
  * This module stays dependency-free so provider drivers can size a machine
  * without pulling the billing graph into their module.
@@ -60,11 +62,9 @@ export function vcpusForMemoryMb(memoryMb: number): number {
 }
 
 /**
- * The resources reserved for a newly-created machine. A sized image carries
- * its provider shape; a size-less image uses the requested plan profile. The
- * create workflow intentionally omits `imageSize` when claiming the shared
- * plan pool because provider snapshots can be overprovisioned to a catalog
- * shape.
+ * The provider shape represented by a create reservation. Callers that enforce
+ * the paid shared pool intentionally omit `imageSize` and reserve the logical
+ * plan profile because a baked image may be larger than that entitlement.
  */
 export function vmResourceReservationForCreate(input: {
   readonly memoryMb?: number;
@@ -125,13 +125,16 @@ export function firstExceededSharedResource(input: {
   return null;
 }
 
-/** CPU and memory are one shared ceiling; persistent disk is additive. */
+/** Every resource claim is additive within the shared plan pool. */
 export function sharedResourceUsage(
   resource: VmSharedResourceName,
   used: number,
   requested: number,
 ): number {
-  return resource === "diskMb" ? used + requested : Math.max(used, requested);
+  // Keep the resource argument in the signature so callers and diagnostics
+  // retain the resource name. All three resources are aggregate claims.
+  void resource;
+  return used + requested;
 }
 
 /** Read a persisted reservation, falling back safely for legacy VM rows. */
