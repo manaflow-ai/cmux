@@ -170,12 +170,7 @@ extension CMUXCLI {
     ) throws -> (id: String?, title: String?, cwd: String?) {
         let windowID = try normalizeWindowHandle(invocation.window, client: client)
         if let rawWorkspace = invocation.workspace {
-            let workspaceID = try resolveWorkspaceId(
-                rawWorkspace,
-                client: client,
-                windowHandle: windowID
-            )
-            let summary = try workspaceSummary(workspaceID: workspaceID, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
+            let summary = try workspaceSummary(workspaceSelector: rawWorkspace, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
             guard summary.id != nil else {
                 throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
             }
@@ -183,8 +178,7 @@ extension CMUXCLI {
         }
         if invocation.workspace == nil, invocation.window == nil,
            let caller = ProcessInfo.processInfo.environment["CMUX_WORKSPACE_ID"] {
-            let workspaceID = try resolveWorkspaceId(caller, client: client)
-            let summary = try workspaceSummary(workspaceID: workspaceID, windowID: nil, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
+            let summary = try workspaceSummary(workspaceSelector: caller, windowID: nil, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
             guard summary.id != nil else {
                 throw CLIError(message: String(localized: "cli.localTmux.error.workspaceNotFound", defaultValue: "local-tmux workspace target was not found"))
             }
@@ -192,9 +186,8 @@ extension CMUXCLI {
         }
 
         if let persistedWorkspaceID = record.workspaceID {
-            let workspaceID = try resolveWorkspaceId(persistedWorkspaceID, client: client)
             let summary = try workspaceSummary(
-                workspaceID: workspaceID,
+                workspaceSelector: persistedWorkspaceID,
                 windowID: windowID,
                 client: client,
                 fallbackTitle: record.workspaceTitle,
@@ -216,13 +209,13 @@ extension CMUXCLI {
         if let windowID { currentParams["window_id"] = windowID }
         if let current = try? client.sendV2(method: "workspace.current", params: currentParams),
            let workspaceID = current["workspace_id"] as? String {
-            return try workspaceSummary(workspaceID: workspaceID, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
+            return try workspaceSummary(workspaceSelector: workspaceID, windowID: windowID, client: client, fallbackTitle: record.workspaceTitle, fallbackCwd: record.cwd)
         }
         return (nil, record.workspaceTitle, record.cwd)
     }
 
     private func workspaceSummary(
-        workspaceID: String,
+        workspaceSelector: String,
         windowID: String?,
         client: SocketClient,
         fallbackTitle: String?,
@@ -249,13 +242,25 @@ extension CMUXCLI {
             workspaces = allWorkspaces
         }
         if let item = workspaces.first(where: {
-            guard let candidateID = $0["id"] as? String else { return false }
-            return localTmuxWorkspaceIDsMatch(candidateID, workspaceID)
+            localTmuxWorkspaceSelectorMatches(workspaceSelector, item: $0)
         }) {
-            let resolvedID = item["id"] as? String ?? workspaceID
+            let resolvedID = item["id"] as? String ?? item["ref"] as? String ?? workspaceSelector
             return (resolvedID, item["title"] as? String ?? fallbackTitle, item["current_directory"] as? String ?? fallbackCwd)
         }
         return (nil, fallbackTitle, fallbackCwd)
+    }
+
+    private func localTmuxWorkspaceSelectorMatches(
+        _ selector: String,
+        item: [String: Any]
+    ) -> Bool {
+        let trimmed = selector.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let index = Int(trimmed), intFromAny(item["index"]) == index {
+            return true
+        }
+        return [item["id"] as? String, item["ref"] as? String]
+            .compactMap { $0 }
+            .contains { localTmuxWorkspaceIDsMatch($0, trimmed) }
     }
 
     private func localTmuxWorkspaceIDsMatch(_ lhs: String, _ rhs: String) -> Bool {
