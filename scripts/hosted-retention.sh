@@ -709,6 +709,8 @@ cmux_hosted_retention_run_impl() (
     [[ "$candidate_commit" =~ ^[0-9a-f]{40}$ ]] || continue
     candidate_dir="$artifact_root/$candidate_commit"
     [[ -d "$candidate_dir" && ! -L "$candidate_dir" && -O "$candidate_dir" ]] || continue
+    candidate_binary="$candidate_dir/cmux-tui"
+    [[ -f "$candidate_binary" && ! -L "$candidate_binary" && -O "$candidate_binary" ]] || continue
     if ! candidate_mtime="$(cmux_hosted_retention_mtime "$candidate_dir")"; then
       candidate_scan_error=1
       continue

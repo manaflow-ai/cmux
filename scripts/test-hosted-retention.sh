@@ -607,9 +607,8 @@ expect_failure 2
 assert_exists "$active_commit"
 assert_exists "$old_commit"
 
-# A symlinked cleanup binary can make lsof report its target outside the
-# artifact tree. Fail closed instead of deleting that artifact when another
-# candidate produces a valid activity record.
+# A symlinked cleanup binary is not a valid candidate. Leave it untouched
+# instead of passing its target to lsof or deleting it.
 make_baseline
 mv "$test_root/$old_commit/cmux-tui" "$tmp/external-binary"
 ln -s "$tmp/external-binary" "$test_root/$old_commit/cmux-tui"
@@ -618,7 +617,7 @@ test_dry_run=0
 test_confirm=1
 test_lsof_mode=active
 test_active_commit="$active_commit"
-expect_failure 2
+expect_success
 assert_exists "$old_commit"
 assert_exists "$active_commit"
 
