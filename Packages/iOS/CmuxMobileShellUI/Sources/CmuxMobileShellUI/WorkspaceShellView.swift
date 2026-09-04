@@ -835,7 +835,8 @@ struct WorkspaceShellView: View {
                 for: store.selectedWorkspaceID,
                 createWorkspace: createWorkspaceIfConnected,
                 canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
-                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible
+                safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
+                toggleSidebar: toggleSplitSidebar
             )
         }
         .navigationSplitViewStyle(.balanced)
@@ -1002,6 +1003,12 @@ struct WorkspaceShellView: View {
             ),
             Int64(unreadCount)
         )
+    }
+
+    private func toggleSplitSidebar() {
+        withAnimation {
+            splitColumnVisibility = splitColumnVisibility == .detailOnly ? .all : .detailOnly
+        }
     }
 
     private var splitSidebarDestinationSelection: Binding<MobilePrimaryTab> {
@@ -1622,7 +1629,8 @@ struct WorkspaceShellView: View {
         createWorkspace: @escaping () -> Void,
         canCreateWorkspaceForSelection: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
-        backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil
+        backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil,
+        toggleSidebar: (() -> Void)? = nil
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
@@ -1635,7 +1643,8 @@ struct WorkspaceShellView: View {
             closeWorkspace: closeWorkspaceClosure,
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
-            signOut: signOut
+            signOut: signOut,
+            toggleSidebar: toggleSidebar
         )
     }
 }

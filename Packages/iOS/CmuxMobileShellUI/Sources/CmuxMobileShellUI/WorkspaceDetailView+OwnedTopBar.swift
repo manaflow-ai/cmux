@@ -10,6 +10,19 @@ extension WorkspaceDetailView {
     /// detail column's layout and only changes its available title width.
     var workspaceOwnedTopBar: some View {
         HStack(spacing: 13) {
+            if let toggleSidebar {
+                Button(action: toggleSidebar) {
+                    Image(systemName: "sidebar.left")
+                        .frame(width: 22, height: 22)
+                }
+                .accessibilityLabel(
+                    L10n.string("mobile.sidebar.toggle", defaultValue: "Show or Hide Sidebar")
+                )
+                .accessibilityIdentifier("MobileSplitSidebarToggle")
+                .ownedBarGlassButton()
+                .fixedSize()
+            }
+
             if backButtonConfiguration != nil {
                 workspaceBackToolbarButton
                     .frame(minWidth: 17, minHeight: 22)

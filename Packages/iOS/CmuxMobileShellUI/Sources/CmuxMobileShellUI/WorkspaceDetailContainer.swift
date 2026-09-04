@@ -21,6 +21,7 @@ struct WorkspaceDetailContainer: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
+    var toggleSidebar: (() -> Void)? = nil
     @State private var routeWorkspaceSnapshot: MobileWorkspacePreview?
 
     private var workspace: MobileWorkspacePreview? {
@@ -56,7 +57,8 @@ struct WorkspaceDetailContainer: View {
                     sendTerminalInput: store.sendTerminalRawInput,
                     safeAreaContext: safeAreaContext,
                     backButtonConfiguration: backButtonConfiguration,
-                    signOut: signOut
+                    signOut: signOut,
+                    toggleSidebar: toggleSidebar
                 )
                 .onAppear {
                     rememberRouteWorkspace(workspace)

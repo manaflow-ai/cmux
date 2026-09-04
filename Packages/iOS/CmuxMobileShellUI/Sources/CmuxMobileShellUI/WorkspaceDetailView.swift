@@ -46,6 +46,9 @@ struct WorkspaceDetailView: View {
     let safeAreaContext: MobileTerminalSafeAreaContext
     let backButtonConfiguration: WorkspaceBackButtonConfiguration?
     let signOut: (@MainActor @Sendable () -> Void)?
+    /// Regular-width split owner action. Compact navigation leaves this nil
+    /// and continues to use its existing back-button/system-toolbar path.
+    var toggleSidebar: (() -> Void)? = nil
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore
