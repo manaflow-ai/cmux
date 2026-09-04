@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -362,10 +363,10 @@ struct CloudPortOpenRegressionTests {
             selectLocalWorkspace: { _ in },
             onWillMutate: { _ in },
             onDidMutate: { completion.yield(()) },
-            onFailure: { message in Issue.record(message) },
+            onFailure: { message in Issue.record(Comment(rawValue: message)) },
             refresh: {}
         )
-        actions.project(port.id, .split, true)
+        actions.project(port.id, SurfacePlacement.split, true)
         var iterator = completionStream.makeAsyncIterator()
         _ = await iterator.next()
         completion.finish()

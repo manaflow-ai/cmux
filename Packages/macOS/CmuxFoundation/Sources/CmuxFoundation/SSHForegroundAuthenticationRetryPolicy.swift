@@ -99,6 +99,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
     /// syscalls. After `SIGTERM`, the helper waits for the
     /// per-attempt completion FIFO emitted by the authentication wrapper, then
     /// records descendants that still hold the attempt's marker descriptor.
+    /// The initial identity-fenced tree is retained separately; if process
+    /// pressure prevents the graceful snapshot loop from completing, a bounded
+    /// direct STOP/force pass reaps its already-validated members without
+    /// spawning another process-table scanner.
     /// Failed snapshots never trigger an unverified signal. This keeps cleanup
     /// bounded when the runner cannot fork and avoids killing a reused PID.
     ///
@@ -670,6 +674,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_dynamic_members="$cmux_ssh_auth_state_dir/dynamic-members"
           cmux_ssh_auth_marker_holders="$cmux_ssh_auth_state_dir/marker-holders"
           cmux_ssh_auth_marker_lsof_output="$cmux_ssh_auth_state_dir/marker-lsof"
+          # Keep the first identity-fenced tree separate from the working
+          # snapshot. The graceful walk can overwrite the members file while a
+          # fork-starved host is running out of time; the emergency force pass
+          # must still have the complete tree captured before that walk.
+          cmux_ssh_auth_initial_members="$cmux_ssh_auth_state_dir/initial-members"
           cmux_ssh_auth_root_identity=
           cmux_ssh_auth_event_token="${4:-${CMUX_SSH_AUTH_EVENT_TOKEN:-}}"
           case "$cmux_ssh_auth_event_token" in
@@ -1227,22 +1236,39 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_portable_signal_input="$2"
             cmux_ssh_auth_portable_signal_output="${3:-/dev/null}"
             cmux_ssh_auth_portable_filter_stopped="${4:-1}"
+            cmux_ssh_auth_portable_skip_snapshot="$5"
             case "$cmux_ssh_auth_portable_signal_name" in
               STOP) cmux_ssh_auth_portable_require_stopped=0 ;;
               TERM|KILL) cmux_ssh_auth_portable_require_stopped=1 ;;
               CONT) cmux_ssh_auth_portable_require_stopped="$cmux_ssh_auth_portable_filter_stopped" ;;
               *) return 2 ;;
             esac
-            cmux_ssh_auth_portable_candidates="$cmux_ssh_auth_state_dir/portable-candidates"
-            : > "$cmux_ssh_auth_portable_candidates" || return 1
-            if ! cmux_ssh_auth_filter_current_records \
-              "$cmux_ssh_auth_portable_signal_input" \
-              "$cmux_ssh_auth_portable_candidates" \
-              "$cmux_ssh_auth_portable_require_stopped"; then
-              return 1
-            fi
+            case "$cmux_ssh_auth_portable_skip_snapshot" in
+              ""|0)
+                cmux_ssh_auth_portable_candidates="$cmux_ssh_auth_state_dir/portable-candidates"
+                : > "$cmux_ssh_auth_portable_candidates" || return 1
+                if ! cmux_ssh_auth_filter_current_records \
+                  "$cmux_ssh_auth_portable_signal_input" \
+                  "$cmux_ssh_auth_portable_candidates" \
+                  "$cmux_ssh_auth_portable_require_stopped"; then
+                  return 1
+                fi
+                cmux_ssh_auth_portable_remove_candidates=1
+                ;;
+              1)
+                # The caller has already captured and identity-fenced this
+                # record set. Avoid another whole process-table snapshot in
+                # the bounded force phase; the Perl signaler still validates
+                # PID, parent, group, and start identity for every row.
+                cmux_ssh_auth_portable_candidates="$cmux_ssh_auth_portable_signal_input"
+                cmux_ssh_auth_portable_remove_candidates=0
+                ;;
+              *) return 2 ;;
+            esac
             if [ -z "$cmux_ssh_auth_perl_command" ]; then
-              /bin/rm -f "$cmux_ssh_auth_portable_candidates" 2>/dev/null || true
+              if [ "$cmux_ssh_auth_portable_remove_candidates" = 1 ]; then
+                /bin/rm -f "$cmux_ssh_auth_portable_candidates" 2>/dev/null || true
+              fi
               return 1
             fi
             "$cmux_ssh_auth_perl_command" -e '
@@ -1387,7 +1413,9 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             ' "$cmux_ssh_auth_signal_name" "$cmux_ssh_auth_portable_candidates" \
               "$cmux_ssh_auth_portable_signal_output" "$cmux_ssh_auth_portable_require_stopped"
             cmux_ssh_auth_portable_status=$?
-            /bin/rm -f "$cmux_ssh_auth_portable_candidates" 2>/dev/null || true
+            if [ "$cmux_ssh_auth_portable_remove_candidates" = 1 ]; then
+              /bin/rm -f "$cmux_ssh_auth_portable_candidates" 2>/dev/null || true
+            fi
             [ "$cmux_ssh_auth_portable_status" -eq 0 ]
           }
 
@@ -1595,13 +1623,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_signal_input="$2"
             cmux_ssh_auth_signal_output="${3:-/dev/null}"
             cmux_ssh_auth_signal_filter_stopped="${4:-1}"
+            cmux_ssh_auth_signal_skip_snapshot="$5"
             if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
               if [ -n "$cmux_ssh_auth_perl_command" ]; then
                 cmux_ssh_auth_signal_portable_batch \
                   "$cmux_ssh_auth_signal_name" \
                   "$cmux_ssh_auth_signal_input" \
                   "$cmux_ssh_auth_signal_output" \
-                  "$cmux_ssh_auth_signal_filter_stopped"
+                  "$cmux_ssh_auth_signal_filter_stopped" \
+                  "$cmux_ssh_auth_signal_skip_snapshot"
               else
                 cmux_ssh_auth_signal_procfs_batch \
                   "$cmux_ssh_auth_signal_name" \
@@ -1811,6 +1841,64 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_kernel_journal "$cmux_ssh_auth_resume_path"
           }
 
+          # Emergency cleanup for a fork-starved host. The first process-table
+          # snapshot is retained before the graceful walk starts. A direct
+          # identity-aware STOP pass records only rows whose PID, parent,
+          # process group, and start token still match. Once those rows are
+          # stopped, the shell-builtin force pass is fork-free: a stopped
+          # process cannot exit and have its PID reused between STOP and KILL.
+          # This path is used only when the normal bounded walk cannot finish.
+          cmux_ssh_auth_force_initial_tree() {
+            cmux_ssh_auth_force_input="$1"
+            [ -s "$cmux_ssh_auth_force_input" ] || return 1
+            # Preserve rows that an earlier STOP pass already acquired. A
+            # second identity-aware STOP intentionally does not journal a row
+            # that is already stopped, so dropping the existing journal here
+            # would strand those processes frozen.
+            cmux_ssh_auth_force_existing="$cmux_ssh_auth_state_dir/force-existing"
+            : > "$cmux_ssh_auth_force_existing" || return 1
+            while IFS=' ' read -r cmux_ssh_auth_force_depth cmux_ssh_auth_force_pid \
+              cmux_ssh_auth_force_parent cmux_ssh_auth_force_group \
+              cmux_ssh_auth_force_state cmux_ssh_auth_force_started; do
+              case "$cmux_ssh_auth_force_state" in
+                T) ;;
+                *) printf '%s\n' \
+                  "$cmux_ssh_auth_force_depth $cmux_ssh_auth_force_pid $cmux_ssh_auth_force_parent $cmux_ssh_auth_force_group $cmux_ssh_auth_force_state $cmux_ssh_auth_force_started" \
+                  >> "$cmux_ssh_auth_force_existing" || return 1 ;;
+              esac
+            done < "$cmux_ssh_auth_owned"
+            : > "$cmux_ssh_auth_pending" || return 1
+            cmux_ssh_auth_signal_verified_batch STOP \
+              "$cmux_ssh_auth_force_input" "$cmux_ssh_auth_pending" 0 1 || true
+            while IFS= read -r cmux_ssh_auth_force_existing_line; do
+              printf '%s\n' "$cmux_ssh_auth_force_existing_line" >> "$cmux_ssh_auth_pending" || return 1
+            done < "$cmux_ssh_auth_force_existing"
+            [ -s "$cmux_ssh_auth_pending" ] || return 1
+            cmux_ssh_auth_force_pid_list=
+            while IFS=' ' read -r cmux_ssh_auth_force_depth cmux_ssh_auth_force_pid \
+              cmux_ssh_auth_force_parent cmux_ssh_auth_force_group \
+              cmux_ssh_auth_force_state cmux_ssh_auth_force_started; do
+              case "$cmux_ssh_auth_force_pid" in
+                [1-9][0-9]*) cmux_ssh_auth_force_pid_list="$cmux_ssh_auth_force_pid_list $cmux_ssh_auth_force_pid" ;;
+              esac
+            done < "$cmux_ssh_auth_pending"
+            [ -n "$cmux_ssh_auth_force_pid_list" ] || return 1
+            # Repeat STOP with the shell builtin so the subsequent KILL does
+            # not depend on another process-table scan or a successful fork.
+            # The identity-aware pass above is the ownership fence for this
+            # bounded PID list.
+            # shellcheck disable=SC2086
+            kill -STOP -- $cmux_ssh_auth_force_pid_list >/dev/null 2>&1 || true
+            # shellcheck disable=SC2086
+            kill -KILL -- $cmux_ssh_auth_force_pid_list >/dev/null 2>&1 || true
+            # A queued STOP can leave a target briefly stopped after KILL; CONT
+            # is harmless for gone processes and prevents a delayed STOP from
+            # stranding a target if the KILL raced process teardown.
+            # shellcheck disable=SC2086
+            kill -CONT -- $cmux_ssh_auth_force_pid_list >/dev/null 2>&1 || true
+            return 0
+          }
+
           # Re-read the process table once immediately before each signal
           # batch. Every row carries PID, PPID, PGID, and a kernel-start token.
           # The stable key uses PID, PGID, and that token because PPID changes
@@ -1886,8 +1974,10 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               "$cmux_ssh_auth_live" "$cmux_ssh_auth_term" \
               "$cmux_ssh_auth_term_candidates" "$cmux_ssh_auth_stop_candidates" \
               "$cmux_ssh_auth_kill_candidates" \
+              "$cmux_ssh_auth_state_dir/force-existing" \
               "$cmux_ssh_auth_root_identity_file" "$cmux_ssh_auth_root_identity_candidate" \
-              "$cmux_ssh_auth_dynamic_members" "$cmux_ssh_auth_marker_holders" \
+              "$cmux_ssh_auth_initial_members" "$cmux_ssh_auth_dynamic_members" \
+              "$cmux_ssh_auth_marker_holders" \
               "$cmux_ssh_auth_marker_lsof_output" \
               2>/dev/null || true
             /bin/rmdir "$cmux_ssh_auth_state_dir" 2>/dev/null || true
@@ -1900,6 +1990,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Validate the known root parent and build the first breadth-first
           # member list. The root is stopped first in that order.
           if ! cmux_ssh_auth_take_snapshot || ! cmux_ssh_auth_extract_tree; then exit 0; fi
+          # Preserve this identity-fenced tree before subsequent snapshots can
+          # replace the working member file. It is the bounded force-cleanup
+          # input if process pressure prevents the graceful walk from freezing
+          # every level.
+          : > "$cmux_ssh_auth_initial_members" || exit 0
+          while IFS= read -r cmux_ssh_auth_initial_line; do
+            printf '%s\n' "$cmux_ssh_auth_initial_line" >> "$cmux_ssh_auth_initial_members" || exit 0
+          done < "$cmux_ssh_auth_members"
           cmux_ssh_auth_start_cleanup_clock
           # The authentication wrapper derives this same path from the fresh
           # per-attempt nonce. A pre-existing path is never removed or reused,
@@ -1959,7 +2057,14 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
             cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
           done
-          [ "$cmux_ssh_auth_tree_frozen" = 1 ] || exit 0
+          if [ "$cmux_ssh_auth_tree_frozen" != 1 ]; then
+            if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
+            exit 0
+          fi
 
           # Signal leaves first. This preserves TERM handlers that restore the
           # terminal or launch a short-lived replacement process.
@@ -2108,14 +2213,29 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
             cmux_ssh_auth_force_attempt=$((cmux_ssh_auth_force_attempt + 1))
           done
-          [ "$cmux_ssh_auth_force_frozen" = 1 ] || exit 0
+          if [ "$cmux_ssh_auth_force_frozen" != 1 ]; then
+            # A discovery-tool failure after TERM must not discard the
+            # identity-fenced tree captured before the walk. Reuse the same
+            # fork-free emergency pass used when initial freezing times out.
+            if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
+            exit 0
+          fi
 
           # `live` came from the confirming snapshot and contains only stable,
           # stopped identities. Do not fall back to a raw PID list if that
           # snapshot was unavailable.
           if ! cmux_ssh_auth_filter_current_records \
             "$cmux_ssh_auth_live" "$cmux_ssh_auth_kill_candidates" 1; then
-            cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+            if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
             exit 0
           fi
           cmux_ssh_auth_kill_failed=0
@@ -2125,7 +2245,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
              [ "$cmux_ssh_auth_dynamic_discovery_failed" = 0 ]; then
             cmux_ssh_auth_cleanup_complete=1
           else
-            cmux_ssh_auth_cleanup_needs_root_abort=1
+            if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
           fi
         )
         """#
