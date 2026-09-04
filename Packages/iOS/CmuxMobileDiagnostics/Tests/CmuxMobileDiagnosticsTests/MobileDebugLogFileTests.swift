@@ -151,6 +151,28 @@ import Testing
         """)
     }
 
+    @Test func clearPersistedLogRemovesGenerationsAndReopensLogging() async throws {
+        let logURL = makeLogURL()
+        defer { removeLogFiles(at: logURL) }
+        try FileManager.default.createDirectory(
+            at: logURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        let sink = MobileDebugLogSink(
+            fileURL: logURL,
+            fileHeader: "h"
+        )
+        await sink.append("before clear")
+        await sink.clearPersistedLog()
+        await sink.append("after clear")
+
+        let current = try String(contentsOf: logURL, encoding: .utf8)
+        #expect(!current.contains("before clear"))
+        #expect(current.contains("after clear"))
+        #expect(!FileManager.default.fileExists(atPath: rotatedLogURL(for: logURL).path))
+    }
+
     private func makeLogURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-mobile-debug-log-tests-\(UUID().uuidString)")

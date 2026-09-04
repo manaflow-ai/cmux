@@ -27518,55 +27518,114 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+            "value": "Export includes app events and networking diagnostics. Terminal contents and credentials are never written."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "アプリログはアプリ内のアクティビティを記録し、ネットワークログは接続診断を記録します。ターミナルの内容や認証情報が書き込まれることはありません。"
+            "value": "エクスポートにはアプリイベントとネットワーク診断が含まれます。ターミナルの内容や認証情報が書き込まれることはありません。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Das App-Protokoll zeichnet In-App-Aktivitäten auf; Das Netzwerkprotokoll zeichnet Verbindungsdiagnosen auf. Terminalinhalte und Anmeldeinformationen werden niemals geschrieben."
+            "value": "Der Export enthält App-Ereignisse und Netzwerkdiagnosen. Terminalinhalte und Anmeldeinformationen werden niemals geschrieben."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le journal de l'application enregistre l'activité dans l'application ; le journal réseau enregistre les diagnostics de connexion. Le contenu du terminal et les informations d'identification ne sont jamais écrits."
+            "value": "L’exportation inclut les événements de l’app et les diagnostics réseau. Le contenu du terminal et les informations d’identification ne sont jamais écrits."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يسجل سجل التطبيق النشاط داخل التطبيق؛ يسجل سجل الشبكة تشخيصات الاتصال. لا تتم كتابة محتويات المحطة وبيانات الاعتماد أبدًا."
+            "value": "يتضمن التصدير أحداث التطبيق وتشخيصات الشبكة. لا تتم كتابة محتويات المحطة وبيانات الاعتماد أبدًا."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "El registro de aplicaciones registra la actividad dentro de la aplicación; el Registro de red registra los diagnósticos de conexión. El contenido y las credenciales del terminal nunca se escriben."
+            "value": "La exportación incluye eventos de la aplicación y diagnósticos de red. El contenido y las credenciales del terminal nunca se escriben."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "應用程式日誌記錄應用程式內的活動；網路日誌記錄連線診斷。終端內容和憑證永遠不會被寫入。"
+            "value": "匯出內容包含應用程式事件和網路診斷。終端內容和憑證永遠不會被寫入。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "应用程序日志记录应用程序内的活动；网络日志记录连接诊断。终端内容和凭据永远不会被写入。"
+            "value": "导出内容包含应用程序事件和网络诊断。终端内容和凭据永远不会被写入。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "앱 로그는 인앱 활동을 기록합니다. 네트워크 로그는 연결 진단을 기록합니다. 터미널 내용과 자격 증명은 기록되지 않습니다."
+            "value": "내보내기에는 앱 이벤트와 네트워크 진단이 포함됩니다. 터미널 내용과 자격 증명은 기록되지 않습니다."
+          }
+        }
+      }
+    },
+    "mobile.settings.diagnostics.export": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export Logs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ログを書き出す"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protokolle exportieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporter les journaux"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تصدير السجلات"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar registros"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯出日誌"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出日志"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그 내보내기"
           }
         }
       }

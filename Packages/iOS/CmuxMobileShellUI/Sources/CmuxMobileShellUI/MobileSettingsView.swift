@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
 import CmuxMobileSupport
@@ -866,8 +867,8 @@ struct MobileSettingsView: View {
 private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
-    @State private var appLogURLs: [URL] = []
-    @State private var networkLogURLs: [URL] = []
+    @Environment(\.mobileAppLog) private var appLog
+    @State private var logExportURL: URL?
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -876,33 +877,17 @@ private struct MobileSettingsDiagnosticsSection: View {
 
     var body: some View {
         Section {
-            if !appLogURLs.isEmpty {
-                ShareLink(items: appLogURLs) {
+            if let logExportURL {
+                ShareLink(item: logExportURL) {
                     Label(
                         L10n.string(
-                            "mobile.settings.diagnostics.shareAppLog",
-                            defaultValue: "Share App Log"
+                            "mobile.settings.diagnostics.export",
+                            defaultValue: "Export Logs"
                         ),
-                        systemImage: "doc.text"
+                        systemImage: "square.and.arrow.up"
                     )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .accessibilityIdentifier("MobileSettingsShareAppLog")
-            }
-            if !networkLogURLs.isEmpty {
-                ShareLink(items: networkLogURLs) {
-                    Label(
-                        L10n.string(
-                            "mobile.settings.diagnostics.shareNetworkLog",
-                            defaultValue: "Share Network Log"
-                        ),
-                        systemImage: "network"
-                    )
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .accessibilityIdentifier("MobileSettingsShareNetworkLog")
+                .accessibilityIdentifier("MobileSettingsExportLogs")
             }
             if let model = irohSettingsModel {
                 Toggle(isOn: Binding(
@@ -923,73 +908,48 @@ private struct MobileSettingsDiagnosticsSection: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 }
-                if let verboseLogShareURL = model.verboseLogShareURL {
-                    ShareLink(item: verboseLogShareURL) {
-                        Label(
-                            L10n.string(
-                                "mobile.iroh.diagnostics.shareVerboseLog",
-                                defaultValue: "Share Verbose Log"
-                            ),
-                            systemImage: "doc.text"
-                        )
-                    }
-                    .accessibilityIdentifier("MobileIrohShareVerboseLog")
-                    .simultaneousGesture(TapGesture().onEnded {
-                        diagnosticLog?.recordAppEvent(.verboseDiagnosticsShared)
-                    })
-                }
-                ShareLink(item: model.diagnosticExportText) {
-                    Label(
-                        L10n.string("mobile.iroh.diagnostics.share", defaultValue: "Share Safe Report"),
-                        systemImage: "square.and.arrow.up"
-                    )
-                }
-                .disabled(model.diagnosticExportText.isEmpty)
-                .accessibilityIdentifier("MobileIrohShareDiagnosticReport")
-                .simultaneousGesture(TapGesture().onEnded {
-                    diagnosticLog?.recordAppEvent(.irohDiagnosticsShared)
-                })
                 Button(role: .destructive) {
                     showsClearConfirmation = true
                 } label: {
                     Label(
-                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"),
+                        L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Logs"),
                         systemImage: "trash"
                     )
                 }
-                .disabled(model.diagnosticReport.events.isEmpty)
-                .accessibilityIdentifier("MobileIrohClearDiagnosticReport")
+                .accessibilityIdentifier("MobileSettingsClearLogs")
             }
         } header: {
             Text(L10n.string("mobile.settings.diagnostics", defaultValue: "Diagnostics"))
         } footer: {
             Text(L10n.string(
                 "mobile.settings.diagnostics.footer",
-                defaultValue: "The App Log records in-app activity; the Network Log records connection diagnostics. Terminal contents and credentials are never written."
+                defaultValue: "Export includes app events and networking diagnostics. Terminal contents and credentials are never written."
             ))
         }
         .confirmationDialog(
-            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear this diagnostic report?"),
+            L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear all diagnostic logs?"),
             isPresented: $showsClearConfirmation,
             titleVisibility: .visible
         ) {
-            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Report"), role: .destructive) {
-                Task { await irohSettingsModel?.clearDiagnosticReport() }
+            Button(L10n.string("mobile.iroh.diagnostics.clear", defaultValue: "Clear Logs"), role: .destructive) {
+                Task {
+                    await irohSettingsModel?.clearDiagnosticReport()
+                    await diagnosticLog?.clear()
+                    await appLog?.clear()
+                    await MobileDebugLog.shared.clearPersistedLog()
+                    await refreshLogExport()
+                }
             }
             Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
         } message: {
             Text(L10n.string(
                 "mobile.iroh.diagnostics.clear.message",
-                defaultValue: "This permanently removes the connection timeline stored on this device."
+                defaultValue: "This permanently removes the app, networking, verbose, and connection logs stored on this device."
             ))
         }
         .task {
-            let urls = await Task.detached(priority: .utility) {
-                (AppLog.appLogFileURLs, AppLog.networkLogFileURLs)
-            }.value
+            await refreshLogExport()
             guard !Task.isCancelled else { return }
-            appLogURLs = urls.0
-            networkLogURLs = urls.1
             guard let irohSettingsController else { return }
             // Reuse the model but restart observation on every appearance;
             // the previous observe loop died with the previous task.
@@ -1001,6 +961,16 @@ private struct MobileSettingsDiagnosticsSection: View {
             await model.observe(recordingScreenEvents: false)
         }
         .onDisappear { irohSettingsModel?.cancelOperations() }
+    }
+
+    @MainActor
+    private func refreshLogExport() async {
+        let previousURL = logExportURL
+        let nextURL = await appLog?.exportLogs()
+        logExportURL = nextURL
+        if let previousURL, previousURL != nextURL {
+            try? FileManager.default.removeItem(at: previousURL)
+        }
     }
 }
 #endif

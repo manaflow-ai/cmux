@@ -46,6 +46,12 @@ public actor AppLog {
 
     public static let appLogFileName = "cmux-app.log"
     public static let networkLogFileName = "cmux-network.log"
+    /// The ZIP member names used by the single diagnostics export. The
+    /// directory prefix makes the archive open as a folder in Files while
+    /// keeping the archive to exactly two file members.
+    public static let exportDirectoryName = "cmux-diagnostics"
+    public static let exportAppFileName = "app-events.log"
+    public static let exportNetworkFileName = "networking.log"
     /// The approximate size of one active generation in production.
     public static let defaultMaxFileBytes = 5_000_000
     /// Number of timestamped generations retained in addition to the active
@@ -67,17 +73,17 @@ public actor AppLog {
         defaultFileURL(named: networkLogFileName)
     }
 
-    /// All available generations for the app log, newest first after the
-    /// active file. Settings passes this collection to the share UI so a
-    /// diagnostic export includes the bounded history, not only the active
-    /// generation.
+    /// All available generations for the app log, with the active file first.
+    /// Retained for callers that need to inspect raw generations; user-facing
+    /// exports should use ``exportLogs()``.
     public static var appLogFileURLs: [URL] {
         guard let url = defaultAppLogFileURL else { return [] }
         return logFileURLs(for: url)
     }
 
     /// All available generations for the network log, with the active file
-    /// first. See ``appLogFileURLs``.
+    /// first. See ``appLogFileURLs``. User-facing exports should use
+    /// ``exportLogs()`` so rotation history is merged into one member.
     public static var networkLogFileURLs: [URL] {
         guard let url = defaultNetworkLogFileURL else { return [] }
         return logFileURLs(for: url)
@@ -199,6 +205,8 @@ public actor AppLog {
     private enum Entry: Sendable {
         case event(DiagnosticEvent, wall: Date)
         case appLine(String, wall: Date)
+        case barrier(CheckedContinuation<Void, Never>)
+        case clear(CheckedContinuation<Void, Never>)
     }
 
     private struct LogFile {
@@ -386,6 +394,17 @@ public actor AppLog {
             try? handle?.close()
             handle = nil
         }
+
+        /// Removes this file and every retained generation, then starts a new
+        /// active generation with the normal header.
+        mutating func clear() {
+            close()
+            let fileManager = FileManager.default
+            for generation in AppLog.logFileURLs(for: url) {
+                try? fileManager.removeItem(at: generation)
+            }
+            _ = openFreshGeneration()
+        }
     }
 
     /// One in-progress run of coalescible frame events.
@@ -497,7 +516,167 @@ public actor AppLog {
         case .appLine(let line, let wall):
             flushPendingFrameRun()
             appFile?.append("\(timestampFormatter.string(from: wall)) \(line)")
+        case .barrier(let acknowledgement):
+            flushPendingFrameRun()
+            acknowledgement.resume()
+        case .clear(let acknowledgement):
+            pendingFrameRun = nil
+            appFile?.clear()
+            networkFile?.clear()
+            acknowledgement.resume()
         }
+    }
+
+    /// Waits until all entries admitted before the call have reached disk, then
+    /// creates one shareable ZIP containing only `app-events.log` and
+    /// `networking.log` under a `cmux-diagnostics/` folder.
+    ///
+    /// The active file and retained generations are merged into their domain's
+    /// member, so rotation history never turns into extra files in the export.
+    public func exportLogs() async -> URL? {
+        await withCheckedContinuation { acknowledgement in
+            ingress.yield(.barrier(acknowledgement))
+        }
+
+        let appData = mergedData(for: appFile?.url)
+        let networkData = mergedData(for: networkFile?.url)
+        return Self.writeZipArchive(entries: [
+            ("\(Self.exportDirectoryName)/\(Self.exportAppFileName)", appData),
+            ("\(Self.exportDirectoryName)/\(Self.exportNetworkFileName)", networkData),
+        ])
+    }
+
+    /// Clears the structured log files, including all retained generations.
+    /// Entries already admitted before this call are drained first, so a clear
+    /// cannot be undone by an older write still waiting in the ingress stream.
+    public func clear() async {
+        await withCheckedContinuation { acknowledgement in
+            ingress.yield(.clear(acknowledgement))
+        }
+    }
+
+    private func mergedData(for fileURL: URL?) -> Data {
+        guard let fileURL else { return Data() }
+        let generations = Self.logFileURLs(for: fileURL).reversed()
+        var merged = Data()
+        for generation in generations {
+            guard let data = try? Data(contentsOf: generation) else { continue }
+            merged.append(data)
+        }
+        return merged
+    }
+
+    private struct ZipEntry {
+        let name: String
+        let byteCount: UInt32
+        let crc32: UInt32
+        let localHeaderOffset: UInt32
+    }
+
+    /// Writes a minimal ZIP32 archive using the store method. Logs are already
+    /// bounded by AppLog's retention policy, and avoiding a second compression
+    /// pass keeps export responsive on older iPhones.
+    private static func writeZipArchive(
+        entries: [(name: String, data: Data)]
+    ) -> URL? {
+        let directory = FileManager.default.temporaryDirectory
+        let archiveURL = directory.appendingPathComponent(
+            "cmux-diagnostics-\(UUID().uuidString).zip"
+        )
+        var archive = Data()
+        var centralEntries: [ZipEntry] = []
+        centralEntries.reserveCapacity(entries.count)
+
+        for entry in entries {
+            guard let nameData = entry.name.data(using: .utf8),
+                  entry.data.count <= Int(UInt32.max),
+                  archive.count <= Int(UInt32.max) else {
+                return nil
+            }
+            let offset = UInt32(archive.count)
+            let checksum = crc32(entry.data)
+            appendUInt32(0x0403_4b50, to: &archive)
+            appendUInt16(20, to: &archive) // version needed to extract
+            appendUInt16(0x0800, to: &archive) // UTF-8 names
+            appendUInt16(0, to: &archive) // stored, no compression
+            appendUInt16(0, to: &archive) // DOS time
+            appendUInt16(0, to: &archive) // DOS date
+            appendUInt32(checksum, to: &archive)
+            appendUInt32(UInt32(entry.data.count), to: &archive)
+            appendUInt32(UInt32(entry.data.count), to: &archive)
+            appendUInt16(UInt16(nameData.count), to: &archive)
+            appendUInt16(0, to: &archive) // extra field length
+            archive.append(nameData)
+            archive.append(entry.data)
+            centralEntries.append(ZipEntry(
+                name: entry.name,
+                byteCount: UInt32(entry.data.count),
+                crc32: checksum,
+                localHeaderOffset: offset
+            ))
+        }
+
+        guard archive.count <= Int(UInt32.max) else { return nil }
+        let centralDirectoryOffset = UInt32(archive.count)
+        for entry in centralEntries {
+            guard let nameData = entry.name.data(using: .utf8) else { return nil }
+            appendUInt32(0x0201_4b50, to: &archive)
+            appendUInt16(20, to: &archive) // version made by
+            appendUInt16(20, to: &archive) // version needed to extract
+            appendUInt16(0x0800, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt16(0, to: &archive)
+            appendUInt32(entry.crc32, to: &archive)
+            appendUInt32(entry.byteCount, to: &archive)
+            appendUInt32(entry.byteCount, to: &archive)
+            appendUInt16(UInt16(nameData.count), to: &archive)
+            appendUInt16(0, to: &archive) // extra field length
+            appendUInt16(0, to: &archive) // comment length
+            appendUInt16(0, to: &archive) // disk number
+            appendUInt16(0, to: &archive) // internal attributes
+            appendUInt32(0, to: &archive) // external attributes
+            appendUInt32(entry.localHeaderOffset, to: &archive)
+            archive.append(nameData)
+        }
+
+        let centralDirectorySize = UInt32(archive.count) - centralDirectoryOffset
+        appendUInt32(0x0605_4b50, to: &archive)
+        appendUInt16(0, to: &archive) // disk number
+        appendUInt16(0, to: &archive) // central directory disk
+        appendUInt16(UInt16(centralEntries.count), to: &archive)
+        appendUInt16(UInt16(centralEntries.count), to: &archive)
+        appendUInt32(centralDirectorySize, to: &archive)
+        appendUInt32(centralDirectoryOffset, to: &archive)
+        appendUInt16(0, to: &archive) // archive comment length
+
+        do {
+            try archive.write(to: archiveURL, options: .atomic)
+            return archiveURL
+        } catch {
+            return nil
+        }
+    }
+
+    private static func appendUInt16(_ value: UInt16, to data: inout Data) {
+        data.append(UInt8(truncatingIfNeeded: value))
+        data.append(UInt8(truncatingIfNeeded: value >> 8))
+    }
+
+    private static func appendUInt32(_ value: UInt32, to data: inout Data) {
+        appendUInt16(UInt16(truncatingIfNeeded: value), to: &data)
+        appendUInt16(UInt16(truncatingIfNeeded: value >> 16), to: &data)
+    }
+
+    private static func crc32(_ data: Data) -> UInt32 {
+        var checksum: UInt32 = 0xffff_ffff
+        for byte in data {
+            checksum ^= UInt32(byte)
+            for _ in 0..<8 {
+                checksum = (checksum >> 1) ^ (0xedb8_8320 &* (checksum & 1))
+            }
+        }
+        return ~checksum
     }
 
     private func writeEvent(_ event: DiagnosticEvent, wall: Date) {

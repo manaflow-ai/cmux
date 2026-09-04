@@ -57,6 +57,12 @@ public struct MobileDebugLog: Sendable {
         return accepted
     }
 
+    /// Clears both the in-memory buffer and the durable verbose-log file.
+    public func clearPersistedLog() async {
+        await sink.clear()
+        await sink.clearPersistedLog()
+    }
+
     /// File location for the durable iOS debug log.
     ///
     /// All builds resolve `Application Support/cmux-debug.log` inside the app
