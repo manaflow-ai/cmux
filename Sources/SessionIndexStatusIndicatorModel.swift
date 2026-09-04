@@ -49,25 +49,20 @@ nonisolated struct SessionIndexStatusIndicatorModel: Equatable, Sendable {
         isActive ? .green : Color.secondary.opacity(0.55)
     }
 
-    /// A process-derived status is authoritative whenever it is available.
-    /// This matters for a pane whose agent exited or whose restore command
-    /// failed: the pane can remain open at a shell, but the session is no
-    /// longer active and must use the inactive treatment. A missing status is
-    /// the only case where the in-pane snapshot is used as a fallback.
+    /// A known-running pane is authoritative while the process index catches
+    /// up after a resume. The parent supplies this flag only for panes whose
+    /// shell reports a foreground command, so a pane that has returned to its
+    /// shell after an exit cannot remain green. Indexed rows use the
+    /// process-derived status when no active pane is known.
     nonisolated static func make(
         isInPane: Bool,
         liveStatus: VaultSessionLiveStatus?
     ) -> SessionIndexStatusIndicatorModel {
-        if let liveStatus {
-            if liveStatus.isActiveForIndicator {
-                return SessionIndexStatusIndicatorModel(
-                    state: isInPane ? .activeInPane : .active
-                )
-            }
-            return SessionIndexStatusIndicatorModel(state: .inactive)
-        }
         if isInPane {
             return SessionIndexStatusIndicatorModel(state: .activeInPane)
+        }
+        if liveStatus?.isActiveForIndicator == true {
+            return SessionIndexStatusIndicatorModel(state: .active)
         }
         return SessionIndexStatusIndicatorModel(state: .inactive)
     }

@@ -75,12 +75,12 @@ struct VaultSessionLiveStatusTests {
             isInPane: true,
             liveStatus: .exited
         )
-        #expect(!exitedInPane.isActive)
+        #expect(exitedInPane.isActive)
         #expect(
             exitedInPane.label
                 == String(
-                    localized: "sessionIndex.status.inactiveIndicator",
-                    defaultValue: "Inactive"
+                    localized: "sessionIndex.status.activeInPane",
+                    defaultValue: "Active in pane"
                 )
         )
 

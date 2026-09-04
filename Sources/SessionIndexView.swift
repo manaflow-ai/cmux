@@ -37,6 +37,7 @@ enum SessionEntryResumeCoordinator {
         for workspace in tabManager.tabs {
             if let panel = workspace.restoredAgentSnapshotsByPanelId.first(where: { panelID, snapshot in
                 workspace.panels[panelID] != nil
+                    && workspace.panelShellActivityStates[panelID] == .commandRunning
                     && snapshot.kind.rawValue == entry.agent.rawValue
                     && ManagedAgentSessionIdentity.sessionIDsMatch(
                         kind: entry.agent.rawValue,
@@ -68,14 +69,16 @@ enum SessionEntryResumeCoordinator {
         return (match.0.workspaceId, match.0.panelId)
     }
 
-    /// Returns the managed-session identities currently represented by real
-    /// panes. This is a read-only presentation snapshot; it never focuses or
-    /// selects a workspace and is safe to hand across the Vault row boundary.
+    /// Returns managed-session identities whose agent command is currently
+    /// running in a real pane. A shell-idle pane is intentionally excluded so
+    /// a failed restore or a quit cannot keep the Vault row green merely from
+    /// retaining its historical snapshot.
     static func inPaneSessionKeys(tabManager: TabManager) -> Set<String> {
         var keys: Set<String> = []
         for workspace in tabManager.tabs {
             for (panelID, snapshot) in workspace.restoredAgentSnapshotsByPanelId
-                where workspace.panels[panelID] != nil {
+                where workspace.panels[panelID] != nil
+                    && workspace.panelShellActivityStates[panelID] == .commandRunning {
                 keys.insert(
                     VaultLiveSessionKeys.key(
                         kind: snapshot.kind.rawValue,
