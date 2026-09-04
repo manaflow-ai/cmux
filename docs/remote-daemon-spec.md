@@ -29,9 +29,19 @@ because they can forward a remote command to a local cmux socket. Cloud images
 must point `cmux` at the VM-local daemon socket, omit the host socket and host
 environment, and reject any `CMUX_SOCKET_PATH` that names a host relay. Cloud
 topology actions use the machine-scoped workspace lease and remote resource IDs
-from [the Cloud Rust system design](cloud-rust-system-design.md). A Cloud
-session must fail closed if the VM-local daemon is unavailable; it must never
-fall back to the legacy relay.
+from [the Cloud Rust system design](cloud-rust-system-design.md). The exact
+allowlist is in
+[the Cloud guest command policy](cloud-guest-command-policy.md). Protocol
+capability probes are compatibility handshakes only. They do not grant an
+action and are not a public Cloud discovery workflow. A Cloud session must
+fail closed if the VM-local daemon is unavailable; it must never fall back to
+the legacy relay.
+
+The Mac starts every Cloud link. Its network accepts only replies for that
+established flow. A VM cannot use legacy reverse forwarding, proxy RPC, route
+advertisement, or a forged source to start a Mac connection. This rule is
+enforced outside the VM so it still holds after VM root replaces the guest
+CLI, daemon, and firewall.
 
 ## 3. Current State (Implemented)
 

@@ -8,7 +8,8 @@ leased VM workspace and may open VM files, diffs, Markdown, and browser URLs.
 It may not use host IDs, `local`, host paths, host browser profiles, host
 clipboard, host keychain, SSH-agent forwarding, reverse relays, or
 `CMUX_SOCKET_PATH`. A host projection is display-only and is created by the
-host user. Use `cmux vm pull` for an explicit, bounded VM-to-host transfer.
+host user. VM topology can mirror only inside that host-attached container.
+Use `cmux vm pull` for an explicit, bounded VM-to-host transfer.
 
 ## 0. Decide and route (every task starts here)
 
@@ -17,7 +18,7 @@ cmux vm route --json                  # {machine, created, reason, would_provisi
 cmux vm tree                          # what is already running where (terminals, agents, open panes)
 ```
 
-- Reuse the routed machine when `would_provision` is false — its checkout and deps are warm.
+- Reuse the routed machine when `would_provision` is false: its checkout and deps are warm.
 - `would_provision: true` means a new machine slot; check `cmux vm ls` (plan meter, free window) and prefer Base or an idle machine before creating.
 - Long-running or interactive work → `vm agent` / a session terminal, not `exec`.
 
@@ -52,11 +53,12 @@ echo "$term" | jq -r '.reattach'                                  # cmux vm open
 cmux vm tree "$(echo "$term" | jq -r '.machine')"                 # [agent claude running] … (open: surface:N)
 ```
 
-The agent runs as a detached terminal in the machine's cmux-tui session: it keeps going if the pane closes, and `cmux vm open <reattach address>` brings it back (reusing the pane if one already shows it). Fan out by calling `vm agent` once per task with `--machine` pinned to different machines (or forks, §4) and watch them all in `cmux vm tree`.
+The agent runs as a detached terminal in the machine's cmux-tui session. It keeps going if the pane closes, and `cmux vm open <reattach address>` brings it back (reusing the pane if one already shows it). Fan out by calling `vm agent` once per task with `--machine` pinned to different machines (or forks, §4) and watch them all in `cmux vm tree`.
 
-Inside the machine, `vm agent` receives a short-lived, machine-scoped
-CodeRouter route authority. It is injected for the action and is not written
-under `/root` or into the image. Never copy the user's tokens onto a machine.
+Inside the machine, `vm agent` receives a VM-local CodeRouter endpoint. The
+managed edge binds model requests to machine and session identity outside the
+VM. No reusable bearer is written under `/root`, placed in the environment, or
+baked into the image. Never copy the user's tokens onto a machine.
 
 ## 3. Repo with history (private repos, no credentials on the machine)
 
@@ -78,7 +80,7 @@ cmux vm exec <id> -- tail -n 30 /tmp/$run.log
 cmux vm pull <id> work/app/dist ./dist-from-cloud
 ```
 
-Report the real outcome from the log — a finished poll is not a passed test.
+Report the real outcome from the log: a finished poll is not a passed test.
 
 ## 5. Parallel experiments with checkpoints and forks
 
@@ -108,13 +110,17 @@ network traffic in the VM:
 ```bash
 cmux browser open http://127.0.0.1:3000
 cmux browser <browser-id> navigate http://127.0.0.1:3000
-cmux browser <browser-id> input --text "search"
+cmux browser <browser-id> snapshot --interactive
+cmux browser <browser-id> fill <selector-or-ref> "search"
+cmux browser <browser-id> click <selector-or-ref>
 ```
 
-The browser may reach VM loopback, VM interfaces, and exact directed VPC peer
-addresses. It may not reach the Mac gateway, the host LAN, metadata services,
-or an unscoped private address. Do not replace this with a host WebView or a
-raw URL handoff.
+The browser may reach VM loopback, VM interfaces, declared same-project
+application services, and exact peer grants. It may not reach the Mac gateway,
+the host LAN, metadata services, daemon ports, or an undeclared private
+address. Public Internet access needs a host-selected policy. Do not replace
+this with a host WebView or a raw URL handoff. Prefer an expiring lease grant
+limited to the required domain suffixes.
 
 ## 7. Showing the human
 
@@ -135,4 +141,4 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
   stopped. Older machines may still be asleep; opening or running a command wakes them, so
   leaving one for the user to inspect is fine (say so in your handoff).
 - Delete forks and scratch machines you created once their purpose is served.
-- Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.
+- Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation: both discard data permanently.

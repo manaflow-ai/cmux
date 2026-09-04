@@ -35,6 +35,8 @@ or a guest. The Rust client and backend must converge on the contract in
 [docs/cloud-rust-system-design.md](cloud-rust-system-design.md), with the
 vertical slices tracked in
 [plans/feat-cloud-rust-cli/DESIGN.md](../plans/feat-cloud-rust-cli/DESIGN.md).
+The exact in-VM boundary is
+[docs/cloud-guest-command-policy.md](cloud-guest-command-policy.md).
 Before a Cloud command is marked ready, the backend must provide:
 
 - a versioned facade and generated request and response fixtures;
@@ -52,6 +54,17 @@ Before a Cloud command is marked ready, the backend must provide:
   including URL-first output, labelled DNS instructions, generated-name
   defaults, and the sign-in or denial flow;
 - a package and hosted behavior check that does not open the desktop app.
+- a signed guest lease with workspace closure, project root, effects, peer
+  grants, limits, generation, nonce, and expiry;
+- declared `project-app` service routes, exact grants for stronger peer work,
+  and a hard deny for every Mac and daemon-control destination;
+- source-machine-bound peer and model authority that cannot be copied to a
+  second VM;
+- stateful host access that admits replies to a Mac-started flow and rejects
+  every new VM-to-Mac connection, reverse forward, route advertisement, and
+  spoofed source;
+- hostile-VM tests that repeat the boundary checks after VM root replaces the
+  guest CLI, daemon, and firewall.
 
 Deployment SDKs, DNS, TLS, billing, and secret custody stay in backend
 services. Adding a web route without a Rust fixture, action check, and headless
@@ -61,13 +74,14 @@ acceptance test is an incomplete slice.
 
 ### Fast machine creation gate
 
-- [ ] Keep a scrubbed warm machine pool by region, size, image family, and
-  persistence profile.
+- [ ] Keep a clean, single-claim warm machine pool by region, size, image
+  family, and persistence profile. Each slot is built from the pinned image,
+  has never had a tenant, and is destroyed after its one tenant releases it.
 - [ ] Keep separate warm storage profiles for ephemeral and persistent
   machines. A persistent claim must attach an unused encrypted home volume.
-- [ ] Claim a warm machine in one idempotent transaction, reset daemon state,
-  bind a new owner, apply the display label, and return only after one
-  daemon-ready probe.
+- [ ] Claim a warm machine in one idempotent transaction, assign its first
+  tenant generation and daemon identity, bind the owner, apply the display
+  label, and return only after one daemon-ready probe.
 - [ ] Return a cold-create operation immediately when the warm pool has no
   healthy slot. The Rust client follows it to readiness by default;
   `--no-wait` returns the operation immediately.
@@ -75,8 +89,9 @@ acceptance test is an incomplete slice.
   target is p50 under 3 seconds and p95 under 10 seconds on the warm path.
 - [ ] Measure ready-to-open separately. Local pane projection must not delay the
   create receipt or make a ready machine look unready.
-- [ ] Prove that a claimed slot contains no prior files, routes, credentials,
-  publications, or event cursors before assigning it to a new owner.
+- [ ] Prove that a claimed slot has never had a tenant and contains no tenant
+  disk, files, routes, credentials, publications, or event cursors. Do not
+  return a used tenant machine to the warm pool.
 
 - [x] Create AWS IAM migration roles trusted by GitHub OIDC for the two Cloud VM environments.
 - [x] Add GitHub Environment secret `AWS_MIGRATION_ROLE_ARN` to both `cloud-vm-staging` and `cloud-vm-production`.
@@ -150,8 +165,9 @@ These are already configured in Vercel for development, preview, and production:
   - `OTEL_SERVICE_NAME`
   - `OTEL_EXPORTER_OTLP_ENDPOINT`
   - `OTEL_EXPORTER_OTLP_HEADERS`
-- [ ] Make `POST /api/vm` a hybrid fast-create endpoint. It claims a scrubbed warm
-  machine and returns ready within the short request budget. If no warm slot is
+- [ ] Make `POST /api/vm` a hybrid fast-create endpoint. It claims a clean,
+  single-claim warm machine and returns ready within the short request budget.
+  If no warm slot is
   available, it returns `202` with an operation and never holds the request on
   cold boot. The Rust client follows that operation by default; `--no-wait`
   returns it to the caller.
@@ -284,6 +300,29 @@ Phase 1 should keep exact image IDs in Vercel env vars. This gives simple rollba
   - leases are scoped to one VM and one session
   - proxy cannot become an arbitrary public open proxy
   - target host/port policy is explicit and tested
+- [ ] Enforce the Cloud guest command policy at the daemon and managed-network
+  boundaries:
+  - authenticate the lease before selector, path, URL, or argv parsing
+  - restrict every guest action to the workspace closure
+  - expose only declared same-project application services by default
+  - require exact grants for peer shell, exec, push, pull, raw ports, UDP, and
+    cross-project routes
+  - reject the Mac, host gateway, metadata, link-local, unapproved private, and
+    daemon-control destinations
+  - deny host sockets, paths, browsers, raw RPC, reverse relay, and fallback
+    transport with non-enumerating errors
+- [ ] Implement the VM-local peer broker. Combine every grant with source
+  machine identity outside the VM, and reject replay from a second machine.
+- [ ] Replace the guest-held model-route compatibility token with a VM-local
+  endpoint plus external machine identity. Prove that VM root can use only its
+  machine allowance and cannot export model or Cloud authority.
+- [ ] Run URL, DNS, redirect, subresource, projection-parser, lease-revoke,
+  peer-revoke, model-replay, and Mac-denial tests from a VM-root process.
+- [ ] Give projected surfaces host-owned machine and project identity. Prove VM
+  frames cannot cover it or use host autofill, password managers, clipboard,
+  drag and drop, automatic audio, or global input.
+- [ ] Bind host input to one projection ID, remote surface ID, and input epoch.
+  Prove guest focus, close, and replacement cannot redirect queued input.
 - [ ] Add a production emergency cleanup procedure:
   - list VMs by user
   - destroy by backend machine id

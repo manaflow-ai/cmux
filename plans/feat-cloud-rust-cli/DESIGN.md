@@ -2,6 +2,8 @@
 
 Status: proposed execution plan. This plan implements the
 [canonical Cloud Rust system design](../../docs/cloud-rust-system-design.md).
+The normative in-VM allowlist is
+[the Cloud guest command policy](../../docs/cloud-guest-command-policy.md).
 It is intentionally vertical. Every slice must be useful to an agent before
 the next slice expands the command surface.
 
@@ -19,22 +21,22 @@ auth login
 → team use
 → cloud vm list
 → cloud vm create
-→ cloud vm exec or ssh
-→ cloud session attach
+→ cloud vm <machine> exec or ssh
+→ cloud session <session> attach
 → cloud agent run through CodeRouter
 → cloud domains verify example.com
 → cloud domains publish <vm> 3000 --domain app.example.com --access team
 → verify the published URL and access policy
 → disconnect and resume
 → snapshot
-→ cloud vm destroy
+→ cloud vm <machine> destroy
 ~~~
 
 A parser, help screen, Swift subprocess wrapper, or headless daemon without
 this path is not a release.
 
 The implementation must preserve this authority flow: create a ready VM and
-leased workspace, launch Claude with a model-only route, run the normal cmux
+leased workspace, launch Claude with a VM-local model endpoint, run the normal cmux
 viewer and topology verbs against the VM daemon, mirror events into one local
 Cloud workspace, and reconnect without changing resource IDs. A failed host
 attachment never changes the guest target or falls back to the local socket.
@@ -47,9 +49,10 @@ requirement without making package tests depend on a user's DNS service.
 
 ## Fixed architectural decisions
 
-1. `cloud <resource> <action>` is the canonical public grammar. `vm` and the
-   established `vm agent` and `vm domains` spellings resolve to canonical
-   cloud actions and preserve existing scripts.
+1. `cloud <resource> [selector] <action>` is the canonical public grammar.
+   `vm` is a permanent alias for `cloud vm`. The established `vm agent` and
+   `vm domains` spellings resolve to canonical cloud actions and preserve
+   existing scripts.
 2. Rust owns wire models, authentication, team context, Cloud API behavior,
    errors, retries, operations, and command semantics.
 3. Swift calls the same Rust contract during migration. It does not retain a
@@ -76,11 +79,14 @@ requirement without making package tests depend on a user's DNS service.
 14. Rust owns network policy and userspace WireGuard. Small native adapters
     may call NetworkExtension and platform keyrings, but they cannot own
     Cloud behavior or policy.
-15. Machine creation claims a scrubbed warm machine first. The warm path targets
-    p50 under 3 seconds and p95 under 10 seconds to daemon readiness. `cloud vm
-    create` waits for readiness by default; a cold path returns an operation
-    immediately and the Rust client follows it with progress and a bounded
-    deadline. `--no-wait` opts into asynchronous control.
+15. Machine creation claims a clean, single-claim warm machine first. A warm
+    slot has never had a tenant and is destroyed after its one tenant releases
+    it. The warm path targets p50 under 3 seconds and p95 under 10 seconds to
+    daemon readiness. `cloud vm create` waits for readiness by default; a cold
+    path returns an operation immediately and the Rust client follows it with
+    progress and a bounded deadline. `--no-wait` opts into asynchronous
+    control. This uses more standby compute and avoids an unprovable
+    cross-tenant erasure claim.
 16. Action checks are automatic. There is no required capabilities command;
     `--help --json` describes one action and unsupported actions return a typed
     replacement or upgrade hint.
@@ -93,6 +99,39 @@ requirement without making package tests depend on a user's DNS service.
     Cloud workspace. A remote agent cannot request a host file, host browser,
     host path, or host socket. Local-file sharing is a separate user-only flow
     with a short-lived, bounded copy.
+19. Guest context comes from an authenticated daemon handshake, not an
+    environment flag. The parser and daemon use one allowlist, while managed
+    network and host controls remain outside the VM-root boundary.
+20. The Mac can start an exact VM session and receive established replies. New
+    VM-to-Mac flows, reverse forwards, route advertisements, and spoofed sources
+    are denied outside the guest.
+21. Same-project machines can reach only declared `project-app` services by
+    default. Peer shell, exec, push, pull, raw ports, and cross-project access
+    need exact grants.
+22. One VM belongs to one project trust domain. A workspace lease is an API
+    boundary, not a process or file isolation boundary.
+23. Every atomic action declares its complete effect set and one result shape.
+    Layout close detaches resources. A resource-specific close ends them.
+24. Peer actions use a VM-local broker. The managed network combines the grant
+    with source machine identity, so no portable peer bearer enters the guest.
+25. A guest gets a VM-local model endpoint. Source machine identity adds model
+    authority outside the VM. Root can spend its machine allowance but cannot
+    export it.
+26. Every projection has host-owned machine and project identity. VM frames
+    cannot cover it. Host autofill, password managers, clipboard, drag and drop,
+    automatic audio, and global input are disabled.
+27. Revisioned browser snapshots plus typed click, fill, press, wait, get, find,
+    and screenshot are the primary agent path. Pointer input and eval are
+    VM-only fallbacks under the same network policy.
+28. Host input is bound to one projection ID, remote surface ID, and input
+    epoch. Guest focus cannot retarget it. Closing or replacing the target
+    revokes the input lease and drops later input.
+29. Text typed into a selected projection is an explicit transfer to the VM
+    and is visible to VM root. Trusted chrome and disabled host integrations
+    reduce accidental disclosure but do not change that fact.
+30. The action registry is shared for consistency, but three independent deny
+    cores protect the daemon, host projection, and managed network from one
+    common metadata error.
 
 ## Ownership and dependency graph
 
@@ -106,7 +145,8 @@ requirement without making package tests depend on a user's DNS service.
 | CLI frontend | cmux-tui/src/cli/cloud and command dispatch | Contract, client |
 | Remote data plane | cmux-remote, cmux-terminal-client | Contract, enrollment |
 | Remote topology and projection bridge | VM resource broker, local placement adapter, and native viewer adapters | Auth, remote session, workspace lease, local approval policy |
-| Private network | cmux-wg and Swift NetworkExtension bridge | Auth, grants, route API |
+| Guest authorization | generated action registry, lease verifier, daemon authorizer | Cloud contract, remote session |
+| Private network | cmux-wg, peer broker, and Swift NetworkExtension bridge | Auth, grants, route API, project services |
 | Backend facade | web/app/api, web/services/vms, CodeRouter services | Contract fixtures |
 | Guest runtime | image manifest, daemon supervisor, adapters | Action checks, machine principal |
 | Desktop bridge | Sources/Cloud and Swift CLI compatibility files | Rust client, generated models |
@@ -123,6 +163,7 @@ C0 schema and errors
 → C4 create, base, snapshot, fork, restore
 → C5 remote sessions, terminal, exec, transfer
 → C5a scoped remote topology and projection boundary
+→ C5b guest command registry and peer boundary
 → C6 VPN, private routes, ports, domains
 → C7 project environments and layouts
 → C8 agents and CodeRouter
@@ -150,7 +191,7 @@ names as the public CLI:
 | remote enrollment and sessions | attach-endpoint, cmux-remote approve, sessions | grants, daemon generation, cursors, replay and snapshot recovery |
 | project and routing | vm route, project and environment services | work key, manifest, plan, sync receipt, pool policy |
 | domains and publications | vm domains and publications routes | the exact cloud domains verbs and Ben Swerdlow flow |
-| CodeRouter | coderouter session, Claude upstream, VM usage routes | model-plane session, account policy, route authority, usage attribution |
+| CodeRouter | coderouter session, model accounts, VM usage routes | model-plane session, account policy, source-bound model access, usage attribution |
 | events and notifications | daemon event lanes and Cloud notification services | durable cursor, acknowledgement, gap recovery |
 
 For each row, add a fixture that exercises the current route and the new
@@ -161,6 +202,14 @@ migration because it can preserve names while changing authorization or
 cleanup semantics.
 
 ## C0. Freeze the contract first
+
+Record the current Rust help as the migration baseline. It already has the
+correct noun-first, selector-before-action form for local resources. It does
+not yet expose Cloud lifecycle, auth, teams, projects, VPN, CodeRouter,
+viewer, diff, Markdown, desktop, process, peer, or semantic browser commands.
+Remove its legacy deployment-authority root from public help. Add each missing
+root only with offline human and JSON help, an action registry entry, behavior
+fixtures, and one real owner.
 
 Create the Cloud contract and CodeRouter contract as pure, versioned artifacts.
 The Cloud contract lives in `cmux-cloud-protocol`; the model-plane contract
@@ -195,6 +244,20 @@ cancellation, transport, and renderer. Generated action metadata supplies
 action preconditions and option information, while reviewed handwritten projections keep
 human UX, especially the existing domain flow, legible.
 
+Use the local Rust selector-before-action grammar for remote data resources:
+
+~~~text
+cmux pane <pane> split
+cmux cloud vm <machine> pane <pane> split
+cmux cloud pane <globally-typed-pane-id> split
+~~~
+
+The `cloud` prefix changes graph resolution and transport, not the resource
+verbs. A typed ID can omit ancestors. A name or `current` needs its complete
+parent path. Use `show` for one resource; keep `get` only as a migration alias.
+Map legacy Swift action-first paths to the same action ID. An out-of-scope ID
+and an unknown ID return the same non-enumerating error.
+
 Expert review question: would an API owner accept these fixtures as the
 versioned contract? If not, stop and fix the schema before adding commands.
 A generic serde model without fixture ownership is a lazy choice because it
@@ -210,6 +273,8 @@ Acceptance:
   backend, and indeterminate-effect failures.
 - Public Cloud docs and generated help pass the deployment-neutral vocabulary
   check; implementation-only identifiers are not emitted.
+- Top-level Rust help contains the new Cloud and viewer roots and no legacy
+  deployment-authority root.
 
 ## C1. Auth, profiles, and team context
 
@@ -277,7 +342,8 @@ not part of the normal create or attach path.
 When `--idempotency-key` is absent, Rust generates one before network work and
 includes it in the operation receipt. A local deadline returns the operation
 ID and key without canceling backend work; the receipt points to
-`cloud operation wait`. Cancellation is explicit and separately recorded.
+`cloud operation <operation> wait`. Cancellation is explicit and separately
+recorded.
 
 Expert review question: can a timeout create two machines or two publications?
 If the answer depends on a caller remembering a flag, the client is unsafe.
@@ -297,9 +363,10 @@ Acceptance:
 Implement:
 
 ~~~text
-cmux cloud vm list|get|status|stats|wait|wake|sleep|rename|destroy
+cmux cloud vm list
+cmux cloud vm <machine> show|status|stats|wait|wake|sleep|rename|destroy
 cmux cloud vm create [--no-wait] [--timeout <seconds>] [--detach]
-cmux cloud operation get|wait|watch|cancel
+cmux cloud operation <operation> show|wait|watch|cancel
 ~~~
 
 Support filters for team, project, state, image family, pool, and freshness. A
@@ -307,24 +374,41 @@ display name is never an identity. Ambiguous names return all candidate IDs.
 Include image, daemon, route, billing, and action-specific state in machine
 detail.
 
-Machine creation first claims a scrubbed warm machine matching region, size,
-image family, and persistence profile. The claim resets daemon state, binds a
-new machine ID, attaches a clean encrypted home volume when persistence is
-requested, and waits for one daemon-ready probe before returning. Target p50 is
-under 3 seconds and p95 is under 10 seconds. If no healthy warm machine is
-available, the backend starts the cold path and returns an operation without
-blocking the request. The Rust client follows that operation by default, so
-`cloud vm create` still returns a ready machine. `--no-wait` returns the
-operation for asynchronous callers. `--timeout` bounds the default ten-minute
-follow. `--detach` keeps the ready receipt headless and suppresses local pane
-projection; it does not change the wait or machine lifecycle. A display name is
-part of the create mutation, so a second rename call is not on the fast path.
-No separate action-definition call is allowed on this hot path.
+Machine creation first claims a clean, single-claim warm machine matching
+region, size, image family, and persistence profile. The slot was booted from
+the pinned immutable image and has never had a tenant. The claim assigns its
+first tenant machine ID and daemon identity, attaches a new encrypted home
+volume when persistence is requested, and waits for one daemon-ready probe
+before returning. Target p50 is under 3 seconds and p95 is under 10 seconds. If
+no healthy warm machine is available, the backend starts the cold path and
+returns an operation without blocking the request. The Rust client follows that
+operation by default, so `cloud vm create` still returns a ready machine.
+`--no-wait` returns the operation for asynchronous callers. `--timeout` bounds
+the default ten-minute follow. `--detach` keeps the ready receipt headless and
+suppresses local pane projection; it does not change the wait or machine
+lifecycle. A display name is part of the create mutation, so a second rename
+call is not on the fast path. No separate action-definition call is allowed on
+this hot path.
 
-Warm-pool refill runs asynchronously. The claim transaction locks one slot and
-invalidates stale leases, so concurrent creates receive distinct slots or take
-the cold-operation path. Refill scrubs a slot before it becomes claimable and
-never delays a ready receipt.
+The claim creates one initial daemon session and remote workspace. A ready
+receipt returns the machine, session, and workspace IDs together. A caller can
+attach immediately without a list or discovery request. First-session and
+first-workspace time are part of the creation latency target.
+
+Warm-pool refill creates replacement instances asynchronously. The claim
+transaction locks one slot, so concurrent creates receive distinct slots or
+take the cold-operation path. Refill never delays a ready receipt.
+
+A warm slot waits in a fenced parked state with no tenant disk, network, or
+reusable daemon identity. Refill writes image-provenance and clean-state
+attestation receipts. Claim assigns the first tenant generation and daemon
+identity before it admits tenant traffic. A released or destroyed tenant slot
+is destroyed and never returns to the pool. The pool controller sizes each
+region, size, image-family, and persistence cell from recent arrival rate and
+p95 refill time, with a bounded burst reserve. Single-claim slots use more idle
+compute and remove cross-tenant disk-erasure ambiguity. Measure queue, claim,
+identity assignment, storage mount, route, daemon, and first-workspace time
+separately. A fast total cannot hide a slow stage.
 
 Wake, sleep, restore, publication, and destroy return operations when backend
 work can outlive a request. Implement progress, poll-after hints, cancellation
@@ -342,9 +426,14 @@ Acceptance:
 - Sleep and wake preserve stable machine ID and report changed action state.
 - Concurrent warm claims cannot return one slot to two callers, and refill is
   never required for the hot-path receipt.
+- A warm slot without current image-provenance and clean-state attestation
+  receipts is never claimable. A slot can serve only one tenant. Old daemon
+  identities and tenant routes fail.
 - A cold create returns a usable ready machine by default, or a durable
   operation with `--no-wait`; a killed client can recover that operation by its
   idempotency key.
+- A ready receipt contains valid machine, session, and workspace IDs, and its
+  attach command works without another discovery call.
 - Destroy requires explicit confirmation and cleans dependent resources.
 
 ## C4. Bases, snapshots, forks, and restore
@@ -353,9 +442,9 @@ Implement:
 
 ~~~text
 cmux cloud vm base open|reset
-cmux cloud vm snapshot list|create|get|delete
-cmux cloud vm fork <snapshot>
-cmux cloud vm restore <snapshot> <machine>
+cmux cloud vm <machine> snapshot list|create
+cmux cloud snapshot <snapshot> show|delete|fork
+cmux cloud vm <machine> restore <snapshot>
 ~~~
 
 Define the difference between the persistent base machine, immutable
@@ -383,15 +472,30 @@ Acceptance:
 Use cmux-remote for live data. Implement:
 
 ~~~text
-cmux cloud vm route|ssh|shell|exec|run|push|pull
-cmux cloud session list|create|get|attach|detach|resume|close|events
-cmux cloud workspace list|create|get|rename|close|delete
-cmux cloud workspace layout export|apply
-cmux cloud terminal list|get|send|read|wait|resize|signal|close
-cmux cloud process list|get|wait|events|cancel
-cmux cloud projection list|attach|move|detach
-cmux cloud vm repo clone
+cmux cloud vm <machine> route|ssh|shell|exec|run|push|pull
+cmux cloud session list|create
+cmux cloud session <session> show|attach|detach|resume|close|events
+cmux cloud workspace list|create
+cmux cloud workspace <workspace> show|rename|close|delete
+cmux cloud workspace <workspace> layout export|apply
+cmux cloud screen|pane|tab|surface <same selector-before-action grammar as local>
+cmux cloud terminal list
+cmux cloud terminal <terminal> show|write|keys|move|attach|close
+cmux cloud terminal <terminal> screen read|wait
+cmux cloud terminal <terminal> resize|signal
+cmux cloud process list
+cmux cloud process <process> show|wait|events|cancel
+cmux cloud projection list
+cmux cloud projection attach <remote-workspace|resource> [--follow-focus]
+cmux cloud projection <projection> move|detach
+cmux cloud vm <machine> repo clone
 ~~~
+
+The `cloud` prefix changes graph resolution and transport. The resource suffix
+uses the local Rust grammar. A typed remote ID can omit ancestors. A name or
+`current` needs its full `cloud vm <machine> ...` parent path. Every response
+returns that canonical path. Legacy Swift action-first paths map to the same
+Rust action and remain aliases only.
 
 Keep contracts separate:
 
@@ -441,12 +545,22 @@ workspace plus workspaces created by the same lease. A new workspace joins the
 lease. Adopting a pre-existing workspace requires a host or orchestrator grant.
 This prevents agents in one VM from mutating each other's layouts.
 
-V1 creates one dedicated local Cloud workspace for each attached remote
-workspace. It contains only projections of resources owned by that VM. A local
-user can move the whole projection workspace. A remote agent can move only
-remote resources in its lease. Existing host-only placement may show a remote
-resource in a local workspace, but it uses a separate remote region. Remote
-control of mixed local and remote layouts is deferred.
+V1 creates one host-owned projection container for each attached remote
+workspace. It is a dedicated Cloud workspace or a bounded pane subtree and
+contains only resources owned by that VM workspace. A local user can move or
+close the complete container. Remote create, move, reorder, focus, attach, and
+detach events can change only its descendants. A guest-created workspace
+appears in the Cloud tree and stays closed until the host attaches it. The
+guest cannot cross the container, select a local workspace, create a top-level
+Mac surface, or change Mac focus. Remote control of mixed local and remote
+layouts is deferred.
+
+Layout mirrors by default and remote focus does not. A host can enable
+follow-focus for one container, where it can select only a descendant and
+cannot activate another Mac window or take keyboard focus. Guest `open`,
+`diff`, `markdown open`, and `browser open` keep the local placement grammar,
+but resolve the caller and destination inside the leased VM workspace. They
+return a durable VM resource ID when no host is attached.
 
 Reuse the local placement and viewer rendering code behind a typed projection
 adapter. Do not reuse host authority. A projection binding maps a remote
@@ -487,6 +601,7 @@ Remote file and viewer commands execute in VM context:
 
 ~~~text
 cmux open ./file
+cmux viewer <viewer> show|reload|close
 cmux diff --repo .
 cmux markdown open ./plan.md
 cmux browser open http://127.0.0.1:3000
@@ -503,20 +618,32 @@ VM-owned viewer surface and returns its remote ID when no host is attached. A
 later attach restores it from a revisioned snapshot. Remote link clicks return
 to the VM resolver. File links open VM viewer surfaces, HTTP links open the VM
 browser, and custom schemes are rejected. Diff mutations use expected blob
-hashes and affect only the VM repository.
+hashes and affect only the VM repository. Diff and Markdown viewers are
+read-only. An edit uses a separate VM process action. File, diff, Markdown,
+image, and video resources share the `viewer` lifecycle. Video decode stays in
+the VM, and a guest-started projection is muted until the local user enables
+audio.
 
 The browser process and network stack run in the VM. The local pane is a pixel
 and input viewer, not a host WebView. Agent DOM, JavaScript, cookies, storage,
 downloads, and browser profiles stay in the VM. `file:` is limited to the VM
 project grant. HTTP access allows the VM's loopback and assigned interface
-addresses plus exact VPC peer IPs from directed grants. The default agent
-policy is `vm-vpc`; public egress and the machine's published domain are
-explicit machine policies. The VM firewall and browser proxy enforce
-this policy for DNS, redirects, subresources, WebSockets, and WebRTC, and
-block the host gateway, Mac LAN, link-local, metadata, and private ranges
-unless a directed peer grant allows them. Address checks canonicalize IPv4,
-IPv6, mapped, integer, and DNS forms before every connection. VPC reachability
-never grants cmux control of another VM.
+addresses, same-project `project-app` services, and exact peer grants. The
+default agent policy is `project`; public egress and the machine's published
+domain are explicit machine policies. The managed network outside guest control
+enforces this policy for DNS, redirects, subresources, WebSockets, WebRTC, and
+downloads. It blocks the host gateway, Mac LAN, link-local, metadata, and
+private ranges unless an exact peer grant allows the destination. Address
+checks canonicalize IPv4, IPv6, mapped, integer, and DNS forms before every
+connection. Peer reachability never grants cmux control of another VM.
+
+Implement revisioned browser snapshots and typed `click`, `fill`, `press`,
+`wait`, `get`, `find`, and `screenshot` actions before raw pointer input or
+`eval`. References expire when the document or frame revision changes. All
+semantic, pointer, JavaScript, dialog, and download actions use the same
+managed destination policy. Profile import, host cookie import, host browser
+state, network interception, extension management, and debug endpoints are not
+part of the first guest surface.
 
 The daemon control endpoint is not exposed as a peer service. Bind it to VM
 loopback when possible. If a private listener is required, its firewall admits
@@ -524,16 +651,30 @@ only the authenticated host or relay route, and cmux-remote still performs its
 end-to-end handshake. A directed peer grant may expose an application port,
 never the daemon control port.
 
-Use `vm-vpc` as the default agent egress policy. It permits the VM's loopback,
-assigned interface addresses, and exact peer IP and port grants. `internet` is
-an explicit user or team policy that adds public destinations. An own published
-domain must be separately allowlisted if the agent needs to test it. Every
-policy keeps host, metadata, and unapproved private ranges blocked. The guest
-firewall and browser proxy enforce the policy.
+Use `project` as the default agent egress policy. It permits VM loopback,
+assigned interfaces, declared same-project services, and exact peer grants.
+`machine-only` removes peer access. `internet` is
+an expiring, lease-scoped host grant that adds public destinations and can be
+limited with repeated exact domain suffixes. Team policy can forbid or narrow
+it. An own published domain must be separately allowlisted if the agent needs
+to test it. Every policy keeps host, metadata, and unapproved private ranges
+blocked. The managed network is the hard boundary. Guest checks add defense in
+depth.
 
-Browser downloads stay in the VM. A host-side `cloud vm pull` with a selected
+Browser downloads stay in the VM. A host-side `cloud vm <machine> pull` with a selected
 destination is the only path to the Mac. Drag, drop, paste, camera, and
 microphone never create implicit host shares.
+
+Browser and desktop pointer input includes the VM frame sequence used to select
+coordinates. Stale input fails. Every projected surface has host-owned machine
+and project identity that VM frames cannot cover. Disable host autofill,
+password managers, clipboard, drag and drop, automatic audio, and global input.
+Guest focus changes VM logical state only.
+
+Host input is an explicit lease bound to one projection ID, remote surface ID,
+and input epoch. Guest focus never changes that target. Closing or replacing
+the surface revokes the lease and drops later input. Moving the surface keeps
+input only when the same remote surface ID and projection binding survive.
 
 Local files and the local browser are not remote agent targets. If a user wants
 to provide a host file, the user starts a local `cmux open` action or performs
@@ -550,15 +691,22 @@ Acceptance:
   local workspace or a resource owned by another machine.
 - VM file, diff, and Markdown paths reject traversal and symlink escapes and
   produce bounded, inert snapshots.
-- A VM browser can reach its own loopback, interface addresses, and an exact
-  granted VPC peer, but not the host gateway, Mac LAN, metadata service, or
-  private range; redirects and DNS rebinding are rechecked.
+- A VM browser can reach its own loopback, interface addresses, declared
+  same-project application services, and an exact granted peer service. It
+  cannot reach the host gateway, Mac LAN, metadata service, or undeclared
+  private range. Redirects and DNS rebinding are rechecked.
 - The host renders VM browser frames without loading the URL in a host browser,
   and no host cookie, DOM, pixel, path, clipboard, or keychain data returns.
+- Revisioned snapshots and semantic browser actions work inside the VM and fail
+  cleanly when their document revision is stale.
+- Projected content cannot cover host identity or use host autofill, password
+  managers, clipboard, drag and drop, audio, or global input.
+- Guest focus, close, or replacement cannot redirect queued host input to a
+  different surface.
 - Revoking a session or destroying a machine invalidates projection bindings,
   browser streams, input leases, and peer grants.
 
-VNC, noVNC, and browser frame streams are VM-to-host only. The host never sends
+VNC, noVNC, and browser frames are responses on a host-started circuit. The host never sends
 desktop, accessibility, camera, or microphone frames to a VM. Computer-use
 input from a remote agent terminates at the VM display adapter.
 
@@ -566,12 +714,98 @@ input from a remote agent terminates at the VM display adapter.
 
 The first secure vertical slice contains one machine, one leased workspace,
 remote terminal and topology control, VM file/diff/Markdown snapshots, VM
-browser frames and input, explicit VPC peer rules, and automatic local
-projection. It rejects host paths, host browser control, host socket access,
+browser snapshots and semantic input, declared same-project services plus exact
+peer grants, and one host-attached local projection. It rejects host paths,
+host browser control, host socket access,
 mixed-layout remote control, recursive host mounts, and implicit clipboard or
 download transfers. Public domain publication remains in the release, but it
 publishes only a VM port through the managed edge and never changes the host
 browser or host route table.
+
+## C5b. Guest command registry and peer boundary
+
+Implement the complete allowlist in
+[the Cloud guest command policy](../../docs/cloud-guest-command-policy.md). Do
+not derive it by removing commands from the host tree.
+
+Generate one registry entry per atomic action with:
+
+- accepted authenticated contexts;
+- selector and lease scope;
+- complete effect set;
+- primary result shape;
+- typed input and output;
+- revision, sequence, deadline, idempotency, and grant requirements;
+- `host_authority: false` for every guest action;
+- an optional VM projection event that a host-selected subscription can mirror;
+- byte, rate, resource, and time limits.
+
+Use the same registry for guest help, parser dispatch, daemon authorization,
+projection filtering, and behavior fixtures. A composite command declares its
+ordered action plan and union of effects before execution. Do not expose the
+registry as a network capabilities API. Agents use local `--help --json`,
+`cmux context --json`, `cmux tree --json`, and typed errors.
+
+Do not trust the registry as the only authority check. Add three independent
+fail-closed rules: the daemon rejects guest use of host selectors, host effects,
+and Cloud control prefixes; the host projection accepts only its small typed
+event schema; and the managed network evaluates machine identity and grants
+without guest metadata. Keep a hand-written deny suite outside generated
+fixtures so one bad registry edit cannot approve itself at every layer.
+
+The daemon authenticates `GuestLease` before it parses a selector, path, URL,
+or argv. The lease contains machine, session, workspace closure, project root,
+effects, peer grants, limits, generation, nonce, and expiry. Reject a forged
+environment, alternate socket, stale generation, replay, or expired lease. The
+guest image contains no host socket, profile, credential, mount, device, Docker
+socket, or SSH agent. There is no fallback transport.
+
+Peer implementation rules:
+
+1. `project-app` exposes only application services declared by one project.
+2. `peer list` and `peer resolve` return only the current lease view.
+3. `peer forward` binds source-VM loopback and returns a forward ID and typed
+   URL. It never binds a Mac or public listener.
+4. Peer shell, exec, push, pull, raw ports, UDP, and cross-project access need
+   an exact, expiring grant.
+5. Peer actions use a VM-local broker. The managed network combines the grant
+   with source machine identity. No portable destination bearer enters the VM.
+6. The Mac, gateways, metadata, link-local ranges, and daemon ports are never
+   valid peer destinations.
+7. The router cannot place a second project trust domain in the VM.
+
+Projection implementation rules:
+
+1. The Mac starts the authenticated circuit and selects the subscription and
+   placement.
+2. The guest can send only typed VM frames and state receipts. It cannot choose
+   a host endpoint or ask the host to fetch a path or URL.
+3. A sandboxed parser has no host file, process, browser, clipboard, keychain,
+   device, or general network authority.
+4. Host-owned chrome shows machine and project identity. VM pixels cannot cover
+   it. Host autofill, password managers, clipboard, drag and drop, automatic
+   audio, and global input are disabled.
+5. Text typed into the selected projection is an explicit transfer to the VM.
+   It is bound to one projection, remote surface, and input epoch. The UI states
+   that VM root can read it. No implicit input source enters the circuit.
+
+Acceptance:
+
+- Guest help has only the normative allowlist. The daemon denies every host
+  action with a non-enumerating typed error.
+- `context` and `tree` contain no host or unleased resource.
+- Same-project declared services work. Daemon ports, undeclared ports,
+  cross-project peers, the Mac, and copied grants do not.
+- The denials still hold after test code gains VM root, replaces the guest CLI
+  and daemon, changes the guest firewall, and sends raw packets.
+- Revisioned browser references and semantic actions work in the VM and cannot
+  escape managed destination policy.
+- Host projection cannot expose host identity, files, browser state, devices,
+  credentials, global input, or trusted chrome to the guest.
+- A bad registry entry cannot enable a host selector, projection message,
+  control-plane action, or network route.
+- Lease revoke closes projections, input leases, peer routes, viewers, browser
+  streams, and transfers. Replay fails.
 
 ## C6. VPN, private routes, ports, and domains
 
@@ -579,26 +813,53 @@ Implement separate resources and commands:
 
 ~~~text
 cmux cloud network status|peers|routes|connect|disconnect
+cmux cloud network grant list|create
+cmux cloud network grant <grant> show|revoke
+cmux cloud network egress <session> show
+cmux cloud network egress <session> set <machine-only|project|internet> [--ttl <duration>] [--domain <suffix>...]
 cmux vpn status|up|down|revoke|hosts
 cmux cloud port list|open|close|forward
 cmux cloud domains list|zones|verify|publish|access|rm
-cmux cloud vm link|unlink
+cmux cloud vm link|unlink    # compatibility aliases
 ~~~
 
-The system VPN serves operating-system traffic and may require Network
-Extension or root. cmux-wg provides an authenticated userspace link for
-attach, remote terminal, and selected clients without root. A Mac hub and iOS
-in-process tunnel must share route generations and peer-grant policy.
+`grant create <source> <destination> --service web --allow connect --ttl 1h`
+grants one declared service. `--endpoint tcp:3000` is the exceptional raw-port
+form. `--allow shell|exec|push|pull` grants one strong peer action. Wildcards
+and port ranges are invalid. Transfer grants also carry exact path roots,
+direction, bytes, digest, and deadline.
+
+When a guest browser requests a public origin without a grant, return
+`network.egress_denied`, the origin, and the exact host command that grants only
+that suffix for a bounded time. The guest cannot approve it. After the host
+changes the lease, the original action can be retried without a new session.
+
+The system VPN serves host-to-VM operating-system traffic and may require
+Network Extension or root. Its packet filter admits a VM packet only when it
+matches a flow that the Mac started. It advertises no Mac route or service.
+cmux-wg provides an authenticated userspace link for attach, remote terminal,
+and selected clients without root. A local egress broker and the iOS
+in-process tunnel share route generations, peer-grant policy, and the same
+one-way initiation rule. The broker has no VM-reachable listener.
 
 Private ports return tokened endpoints and probe bind reachability. Public
 publication is a separate verified-zone resource with TLS, access mode, health
 state, and cleanup. Domain operations never become an alias for port open.
-Machine-to-machine routes require directed grants naming the destination machine,
-IP, port, and protocol, not team membership alone. `cloud network` changes
+Machine-to-machine routes use `project-app` for declared services in one
+project. Stronger actions use exact grants naming source, destination, effect,
+service or endpoint, and expiry. A VM-local broker combines the grant with
+source machine identity outside guest control. The route allocator rejects the
+Mac, gateway, metadata, link-local, and daemon ports. `cloud network` changes
 Cloud routes only. `vpn up|down` changes host routes and is host-user-only.
 OpenSSH fallback disables agent forwarding and host keychain access unless a
 user explicitly chooses an isolated key. Local port forwarding binds loopback
 by default and never auto-opens a host browser.
+
+Host private access is asymmetric. The Mac can start an exact attach, SSH,
+projection, or loopback forward. The managed network admits return traffic for
+that established flow and denies all new VM-to-Mac connections, reverse
+forwards, route advertisements, and spoofed sources. The Mac publishes no VPC
+service record.
 
 Public custom-domain publication is a managed-edge action. The Rust client
 validates the zone, access mode, and machine route in the publish request and
@@ -698,18 +959,21 @@ Acceptance:
 Implement declarative agent adapters and:
 
 ~~~text
-cmux cloud agent list|run|get|wait|logs|stop|resume|fan-out
+cmux cloud agent list|run
+cmux cloud agent <run> show|wait|logs|stop|resume|fan-out
 cmux cloud agent adapter list|describe|install|remove
 cmux coderouter status
+cmux coderouter auth login|status|logout
 cmux coderouter session open|close|status
 cmux coderouter usage team|machine|agent
 cmux coderouter account list|add|enable|disable|remove|clear
-cmux coderouter agent list|configure
+cmux coderouter model list
+cmux coderouter run <agent> -- <args>
 ~~~
 
 ### Shared CodeRouter implementation
 
-Create a public `coderouter-core` repository with four small layers:
+Create a public `coderouter-core` Rust workspace with five small layers:
 
 1. `coderouter-contract` contains the versioned JSON Schema, action IDs,
    request and response envelopes, error codes, usage records, route-authority
@@ -718,54 +982,65 @@ Create a public `coderouter-core` repository with four small layers:
 2. `coderouter-client` is an async, transport-neutral Rust client. Inject the
    HTTP transport, auth adapter, clock, team scope, retry policy, and event
    sink. Keep account, session, usage, model, and route operations here.
-3. `coderouter-handoff` implements secure handoff v2, short-lived route
-   authority, environment scrubbing, and an agent invocation plan. It must not
-   spawn a process or own a VM.
-4. Frontends adapt the shared result to their product. The standalone binary
-   owns TTY, local keyring, config, terminal UI, and local process launch. The
-   cmux frontend owns cmux profile and team context, Cloud session selectors,
-   and human or JSON rendering.
+3. `coderouter-handoff` implements secure handoff v2, VM-local endpoint
+   configuration, environment scrubbing, and an agent invocation plan. It must
+   not spawn a process, own a VM, or place a reusable bearer in a guest.
+4. `coderouter-command` owns the reusable noun-action parser fragment, help,
+   validation, action dispatch, normalized results, and human, JSON, and JSONL
+   renderers. It receives auth, terminal, and process adapters. It owns none of
+   them.
+5. Frontends adapt authority and process ownership. The standalone binary owns
+   its TTY, keyring, config, terminal UI, and local process adapter. The cmux
+   frontend owns its Cloud profile, team and session context, and local or
+   remote process adapter.
 
 The current npm and PyPI CodeRouter distributions are native launchers. They
-are not SDKs and cannot be imported by cmux. The cmux build must consume public
-released core artifacts, never a private source repository or an installed
-binary on `PATH`. This adds a release and fixture pipeline, but avoids two
-independent auth and error implementations.
+are not SDKs and cannot be imported by cmux. Publish the shared Rust crates as
+versioned public artifacts. The cmux build must pin those artifacts and their
+checksums, never a private source repository or an installed binary on `PATH`.
+This adds a release and fixture pipeline, but avoids two command, auth, render,
+and error implementations.
 
 Both frontends map to the same action IDs:
 
 | Standalone command | cmux command | Action ID |
 | --- | --- | --- |
-| `coderouter accounts` | `cmux coderouter account list` | `coderouter.account.list` |
-| `coderouter add|remove|enable|disable` | `cmux coderouter account add|remove|enable|disable` | `coderouter.account.mutate` |
-| `coderouter usage` | `cmux coderouter usage team|machine|agent` | `coderouter.usage.get` |
-| `coderouter <agent>` | `cmux cloud agent run --agent <agent>` | `coderouter.session.open` plus `cloud.agent.run` |
-| `coderouter login` | `cmux auth login` | `auth.session.get` |
+| `coderouter auth login` | `cmux coderouter auth login` (alias: `cmux auth login`) | `auth.session.open` |
+| `coderouter status` | `cmux coderouter status` | `coderouter.status` |
+| `coderouter account list` | `cmux coderouter account list` | `coderouter.account.list` |
+| `coderouter account add|remove|enable|disable` | `cmux coderouter account add|remove|enable|disable` | `coderouter.account.mutate` |
+| `coderouter session open|close|status` | `cmux coderouter session open|close|status` | `coderouter.session.mutate` or `coderouter.session.get` |
+| `coderouter model list` | `cmux coderouter model list` | `coderouter.model.list` |
+| `coderouter usage team|machine|agent` | `cmux coderouter usage team|machine|agent` | `coderouter.usage.get` |
+| `coderouter run <agent>` | `cmux coderouter run <agent>` | `coderouter.session.open` |
 
-Keep `cmux coderouter machines` and `cmux coderouter claude ...` as aliases
-during migration. The final Rust namespace must not search `PATH` or silently
-spawn another executable. An explicit, one-release compatibility flag may
-delegate, and must label the result, preserve the exit code, and report the
-contract version.
+Keep the standalone `accounts`, `add`, and direct agent spellings, plus
+`cmux coderouter machines` and `cmux coderouter claude ...`, as aliases during
+migration. `cmux cloud agent run --agent <agent>` composes machine selection
+with `coderouter run`; it is not a second CodeRouter command implementation.
+The final Rust namespace must not search `PATH` or silently spawn another
+executable. An explicit, one-release compatibility flag may delegate, and must
+label the result, preserve the exit code, and report the contract version.
 
 Use separate namespaced keyring entries and auth traits. cmux profile tokens
 and standalone CodeRouter tokens are never copied between config files. A
-service-side one-time exchange may create a model-only token when the user
-links accounts. Team ID is explicit in every team-scoped request.
+service-side one-time exchange may create a model-only token for one frontend
+keyring when the user links accounts. It is never copied to the other frontend
+or sent to a VM. Team ID is explicit in every team-scoped request.
 
-The shared client is asynchronous. The standalone binary uses a blocking
-adapter, while cmux uses its existing async runtime. Shared fixtures test both
-adapters, including token expiry, rate limits, cooldown, retry, redaction,
-handoff replay, and usage attribution. Human output, JSON, and JSONL are
-renderers over one envelope containing `contract_version`, `action_id`,
-`request_id`, and redaction metadata.
+The shared client and command engine are asynchronous. The standalone binary
+uses a blocking entry adapter, while cmux uses its existing async runtime.
+Shared fixtures run the same parsed command through both frontends and compare
+action ID, request, result, human text, JSON, JSONL, exit code, redaction,
+expiry, rate-limit, retry, handoff, and usage behavior.
 
 Separate compute ownership from model routing. The machine owns the process
 and workspace. CodeRouter owns upstream account selection, model route,
-affinity, cooldown/failover, and usage attribution. A short-lived VM-bound
-route token is edge-injected and is never written to the image or guest
-credential file. Its audience, machine ID, session ID, expiry, and allowed
-model actions are checked on every request. Agent launch removes host socket,
+affinity, cooldown/failover, and usage attribution. The guest calls a VM-local
+model endpoint. The managed edge verifies source machine and session identity,
+then adds short-lived model authority outside guest control. VM root can spend
+the machine allowance, but it cannot read or replay a portable credential.
+Agent launch removes host socket,
 host filesystem, clipboard, keychain, and SSH-agent variables from the guest
 environment.
 
@@ -939,10 +1214,17 @@ Do not promise arbitrary external plugins, unrestricted fan-out, infrastructure
 commands, or process continuity across restore before their action and
 policy tests exist. These are explicit exclusions, not hidden TODOs.
 
-## Open decisions requiring product input
+## Defaults that do not block the build
 
-- Should vm remain a documented alias indefinitely, or expire after migration?
-- Which OS keyring fallback modes are allowed in CI and managed environments?
-- Which desktop-only actions must have a headless equivalent before Swift Cloud
-  commands are removed?
-- What cost and concurrency limits apply to fan-out and long-running agents?
+- Keep `cmux vm` as a permanent documented alias for `cmux cloud vm`. Remove
+  only old action-first paths after usage reaches the published migration gate.
+- Use the platform keyring by default. Linux can use a mode-0600 encrypted file
+  only after explicit opt-in. CI accepts a token through standard input and
+  never persists it.
+- Require a headless path for every Cloud and remote action except local
+  projection, system VPN installation, and explicit human approval. Userspace
+  private links cover headless attach.
+- Read fan-out, active-machine, runtime, and budget limits from team policy.
+  `fan-out` plans the complete set, shows cost in human and JSON output, and
+  fails before starting work when the server cannot reserve the complete
+  bounded request. The client does not invent a hidden concurrency default.

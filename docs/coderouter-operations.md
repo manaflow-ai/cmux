@@ -15,25 +15,43 @@ must not combine their credentials or failure states.
 
 The standalone `coderouter` binary and `cmux coderouter` use the same public
 `coderouter-core` artifacts: a versioned schema, generated Rust protocol,
-transport-neutral async client, and secure handoff library. The shared layers
-own action IDs, envelopes, auth traits, retries, deadlines, redaction, and
-usage fixtures. They do not own a TTY, keyring, config file, or process.
+transport-neutral async client, secure handoff library, and a reusable command
+engine. The command engine owns the canonical noun-action parser fragment,
+validation, action dispatch, normalized results, and human, JSON, and JSONL
+renderers. The shared layers also own action IDs, envelopes, auth traits,
+retries, deadlines, redaction, and usage fixtures. They do not own a keyring,
+config file, terminal selection, or process lifecycle.
 
 The npm and PyPI CodeRouter packages are native-binary launchers, not SDKs.
-cmux links released core artifacts and never imports an npm package, searches
+cmux links released Rust crates and never imports an npm package, searches
 `PATH`, or depends on a private source repository. The standalone frontend
-keeps local keyring and TTY behavior. cmux keeps Cloud profile, team, session,
-and renderer behavior. A one-release legacy delegation requires an explicit
-flag and reports the delegated binary and contract version.
+keeps local keyring and TTY behavior. cmux keeps its Cloud profile, team,
+session, and terminal context. Both frontends call the same command engine. A
+one-release legacy delegation requires an explicit flag and reports the
+delegated binary and contract version.
 
 Both frontends map to the same actions:
 
 ~~~text
-coderouter accounts       = cmux coderouter account list
-coderouter usage          = cmux coderouter usage team|machine|agent
-coderouter <agent>        = cmux cloud agent run --agent <agent>
-coderouter login          = cmux auth login
+coderouter status                         = cmux coderouter status
+coderouter account list                   = cmux coderouter account list
+coderouter session open|close|status      = cmux coderouter session open|close|status
+coderouter usage team|machine|agent       = cmux coderouter usage team|machine|agent
+coderouter run <agent>                    = cmux coderouter run <agent>
+coderouter auth login                     = cmux coderouter auth login
 ~~~
+
+The standalone `accounts`, `add`, `remove`, and direct agent spellings remain
+aliases during migration. New verbs are identical after the optional `cmux`
+prefix. This lets one parser fragment, help tree, fixture set, and renderer
+serve both binaries.
+
+`cmux auth login` is an ergonomic alias for `cmux coderouter auth login`
+because the cmux Cloud profile supplies CodeRouter auth.
+
+`cmux cloud agent run --agent <agent>` composes machine selection, a remote
+session, and the same `coderouter run` action. It is a compute workflow, not a
+second CodeRouter parser.
 
 CodeRouter cannot create machines, change network policy, or own terminal
 processes. `cmux cloud agent run` composes those compute actions with a model
@@ -53,9 +71,13 @@ cmux cloud agent run|get|wait|logs|stop|resume
 
 The existing Swift commands remain compatibility entrypoints until these Rust
 commands produce equivalent JSON, authorization, retry, and usage behavior.
-The guest receives only edge-injected, short-lived route authority. It never
-receives a user's Stack or infrastructure refresh token. A model route cannot grant
+The guest calls a VM-local model endpoint. The managed edge binds each request
+to source machine and session identity, then adds short-lived model authority
+outside guest control. A guest never receives a reusable route bearer, a user
+refresh token, or infrastructure credentials. Model access cannot grant
 machine creation, destruction, snapshot, billing, or team-account authority.
+VM root can spend its machine allowance or relay work through that machine. It
+cannot replay the authority from another machine.
 
 ## Access
 

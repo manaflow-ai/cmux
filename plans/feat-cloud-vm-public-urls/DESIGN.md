@@ -28,6 +28,11 @@ aliases, output order, DNS checklist, and access-page states below. The desktop
 and Swift commands are compatibility callers of the same backend behavior.
 The broader Rust ownership and migration plan is in
 [docs/cloud-rust-system-design.md](../../docs/cloud-rust-system-design.md).
+The Cloud guest boundary is in
+[docs/cloud-guest-command-policy.md](../../docs/cloud-guest-command-policy.md).
+Domain verification, publication, access policy, and removal are host
+control-plane actions. A VM agent cannot call them. A published route can
+target only a port on a VM and never creates a route to the Mac.
 The rm command keeps its shipped one-command, no-prompt behavior during this
 compatibility window; safety comes from exact owner and hostname checks plus
 ordered edge cleanup.

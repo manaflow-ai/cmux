@@ -12,6 +12,8 @@ Cloud lifecycle and account operations use the versioned Cloud contract in
 [docs/cloud-rust-system-design.md](../../docs/cloud-rust-system-design.md)
 and the staged implementation plan in
 [plans/feat-cloud-rust-cli/DESIGN.md](../../plans/feat-cloud-rust-cli/DESIGN.md).
+The complete guest allowlist and security boundary are normative in
+[docs/cloud-guest-command-policy.md](../../docs/cloud-guest-command-policy.md).
 They share opaque resource IDs, revisions, action preconditions, errors,
 operations, and receipts with this local contract, but they do not require a local socket
 or a desktop app.
@@ -19,10 +21,23 @@ or a desktop app.
 The target Rust command grammar is:
 
 ~~~text
-cmux cloud <resource> <action>
-cmux vm <action>                 # compatibility alias
+cmux cloud <resource> [selector] <action>
+cmux vm <action>                 # permanent short alias for cloud vm
 cmux coderouter <action>         # model-plane actions, same action IDs as coderouter
 ~~~
+
+Cloud data resources keep the local selector-before-action suffix. The
+`cloud` prefix changes graph resolution and transport:
+
+```text
+cmux pane <pane> split
+cmux cloud vm <machine> pane <pane> split
+cmux cloud pane <globally-typed-pane-id> split
+```
+
+A typed Cloud ID can omit ancestors. Names and `current` need the complete
+parent path. `show` is the canonical one-resource read verb. `get` and legacy
+Swift action-first paths are migration aliases for the same action ID.
 
 The current public scope list is not a claim that Cloud control-plane
 commands are implemented. Add a scope only with its schema fixture, backend
@@ -30,12 +45,13 @@ mapping, action check, JSON output, exit behavior, and a headless
 acceptance test. The remote daemon remains the data-plane owner for live
 terminal, workspace, process, and event traffic.
 
-`cmux coderouter` uses the public CodeRouter contract and Rust client. It shares
-action IDs, error envelopes, retry rules, and secure handoff fixtures with the
-standalone `coderouter` binary, while keeping cmux profile, team, TTY, and
-session context local to this frontend. Protocol negotiation is automatic. Do
-not add a user-facing capability catalog or require a discovery request before
-an action.
+`cmux coderouter` uses the public CodeRouter contract, Rust client, and command
+engine. After the optional `cmux` prefix, it shares noun-action grammar, help,
+validation, action IDs, result renderers, error envelopes, retry rules, and
+handoff fixtures with the standalone `coderouter` binary. Keyrings, config,
+terminal context, and process adapters remain separate. Protocol negotiation
+is automatic. Do not add a user-facing capability catalog or require a
+discovery request before an action.
 
 The domain scope is an intentional compatibility exception to generic
 resource nesting. Use cloud domains with the verbs list, zones, verify,
@@ -44,17 +60,28 @@ make publication a port-open alias. Preserve the URL-first output, labelled
 DNS checklist, generated-name default, access modes, and sign-in or denial
 flow documented in the shared domain contract.
 
-In a Cloud guest, the same noun-first verbs operate on the leased VM graph:
+In a Cloud guest, the same noun-first verbs operate on the leased VM graph.
+This is the complete command family; the guest policy defines exact subpaths,
+effects, result shapes, grants, and denials:
 
 ```text
-cmux workspace list|create|rename|move|close
-cmux tab list|create|rename|move|close
-cmux pane list|create|split|move|close
-cmux surface list|open|move|close
+cmux context|tree
+cmux machine self show|status|stats
+cmux server status
+cmux session current show|snapshot|ping|events|journal read
+cmux workspace|screen|pane|tab|surface <lease-scoped action>
+cmux terminal|process <lease-scoped action>
+cmux run|exec -- <argv...>
 cmux open <vm-relative-path>
+cmux viewer list|show|reload|close|media
 cmux diff --repo <vm-relative-repo>
 cmux markdown open <vm-relative-path>
-cmux browser open|navigate|input|close
+cmux desktop list|show|snapshot|accessibility|input|attach|detach
+cmux browser list|open|show|navigate|snapshot|screenshot|wait|get|find|is|select|scroll|viewport|input|eval|attach|close|download
+cmux peer list|show|resolve|forward|shell|exec|push|pull
+cmux agent|event|notification <guest action>
+cmux coderouter status|model list|usage self
+cmux coderouter session current show|status
 ```
 
 The guest command set returns remote IDs and revisions. It does not expose
@@ -62,6 +89,10 @@ host placement selectors. Host-side `cloud projection` commands are the only
 way to choose local placement. File arguments are encoded as a VM grant ID plus
 a normalized relative path, not as a host path or a raw cross-boundary `file:`
 URL.
+Guest focus is VM logical state. Layout close detaches a resource, while a
+resource-specific terminal, browser, or viewer close ends it. The guest cannot
+call auth, team, VM lifecycle, domains, VPN, host projection, remote, or raw
+actions.
 
 ## Process modes
 
@@ -165,9 +196,15 @@ The public resource roots are:
 
 ```text
 server   machine  session  client  workspace  screen  pane  tab
-terminal browser  notification  agent  sidebar
-pairing  projection  provider  raw
+terminal process browser viewer desktop notification agent peer
+sidebar pairing projection raw
+auth team project cloud coderouter vpn
+open diff markdown context tree
 ```
+
+Some roots above are target Cloud and viewer additions. Their inclusion is a
+contract obligation, not an implementation claim. Each must land with offline
+help, one action registry entry, its real owner, and behavior fixtures.
 
 Structural resources may be addressed directly by opaque ID or through their
 parents:
@@ -210,7 +247,7 @@ socket from a different session.
 One endpoint describes exactly one local mux session. `machine list`,
 `machine get`, `session list`, `session get`, and `session open` expose that
 local route. Cloud cross-machine discovery and lifecycle use the versioned
-Cloud contract above; the local machine-provider protocol remains for local
+Cloud contract above; the local machine connector protocol remains for local
 socket and connector targets.
 
 ## Output
@@ -317,8 +354,8 @@ session <selector> terminal defaults set
 
 agent list
 agent report --terminal <selector> --state <state> --source <source>
-agent hook emit --source <provider> --event <native-event> [--terminal <id>]
-agent hook install|uninstall|status [provider...]
+agent hook emit --source <adapter> --event <native-event> [--terminal <id>]
+agent hook install|uninstall|status [adapter...]
 
 client list
 client <selector> show|detach
@@ -372,8 +409,6 @@ projection <selector> show|put
 sidebar view show|ensure|attach|input|resize|reload
 sidebar plugin list|install|use|update|remove
 
-provider authority install
-
 ```
 
 `terminal <selector> output read` returns a bounded plain-text window of the
@@ -424,15 +459,23 @@ The default agent lease contains one remote workspace. `workspace create` adds
 the new workspace to the same lease. `workspace list` hides pre-existing
 workspaces until a host or orchestrator grants one explicitly.
 
-The desktop creates one local Cloud projection workspace for each attached
-remote workspace. Projection bindings map remote resource IDs to local
-placements internally. The host broker accepts typed remote actions, checks the
-machine, session, workspace, revision, nonce, expiry, idempotency, and limits,
-then applies them to the projection. It never forwards the local socket or
-returns a host ID. A remote move or close therefore cannot affect a local
-resource. Existing host-only placement may show a remote resource in a local
-workspace, but it uses a separate remote region. Remote control of a mixed
-layout is not a first-release surface.
+The desktop creates one host-owned projection container for each attached
+remote workspace. The container is a dedicated Cloud workspace or a bounded
+pane subtree. Projection bindings map remote resource IDs to local placements
+inside it. The host broker checks machine, session, workspace, revision, nonce,
+expiry, idempotency, and limits before it reconciles a typed VM event. It never
+forwards the local socket or returns a host ID. Remote tab, pane, and surface
+changes can affect only descendants of that container. A guest-created
+workspace appears in the Cloud tree and stays closed until the host attaches
+it. Remote control of a mixed layout is not a first-release surface.
+
+Host input uses a lease bound to one projection ID, remote surface ID, and
+input epoch. Guest focus cannot retarget it. Closing or replacing the target
+revokes the lease and drops later input. A move keeps input only when the same
+remote surface ID and projection binding survive.
+Text that a user sends to the selected projection is visible to VM root. Host
+identity chrome and disabled autofill, password managers, clipboard, and global
+input reduce accidental disclosure. They do not keep sent text local.
 
 File, diff, Markdown, and browser verbs run in the VM context:
 
@@ -455,22 +498,35 @@ a later attach restores the surface from a revisioned snapshot.
 The guest image points `cmux` at the VM-local daemon socket. The host socket,
 host profile directory, and host environment are absent from the image. The
 remote command set therefore keeps the familiar verbs while changing their
-authority: `workspace current`, `tab move`, `surface project`, `open`, `diff`,
+authority: `workspace current`, `tab move`, `surface attach`, `open`, `diff`,
 `markdown`, and `browser` operate on the leased VM graph. Host-only browser
 actions such as profile import, host cookie access, host storage, and raw
 automation are rejected as `scope.denied` with the denied resource class in
 `details`.
 
+`cmux context --json` and `cmux tree --json` expose only the signed lease
+closure. The compiled guest registry assigns every action a complete effect set
+and one result shape. The daemon checks the same registry and independently
+rejects host selectors, host effects, and Cloud control actions. The projection
+parser and managed network use separate deny rules. There is no user-facing
+Cloud capabilities command.
+
 `file:` is limited to the VM project grant. HTTP access allows the VM's own
-loopback and assigned interface addresses plus exact VPC peer IPs from directed
-grants. The VM firewall and browser proxy enforce the policy for DNS, redirects,
-subresources, WebSockets, and WebRTC, blocking the
-host gateway, Mac LAN, metadata, link-local, and private ranges unless a
-directed peer grant allows them. The default agent policy is `vm-vpc`; public
-internet and a machine's published domain require an explicit machine policy.
+loopback and assigned interfaces, declared same-project `project-app` services,
+and exact peer grants. Managed network policy outside guest control enforces
+the rule for DNS, redirects, subresources, WebSockets, WebRTC, and downloads.
+It blocks the host gateway, Mac LAN, metadata, link-local, unapproved private
+ranges, and daemon ports. The default agent policy is `project`;
+`machine-only` removes peer access. Public Internet and a machine's published
+domain require explicit host policy.
 Address checks canonicalize IPv4, IPv6, mapped, integer, and DNS forms before
 each connection.
 VPC network access does not grant another VM's cmux control.
+
+Revisioned browser snapshots return stable VM element references. Typed click,
+fill, press, wait, get, find, and screenshot are the normal agent path. Pointer
+input and eval are VM-only fallbacks. File, diff, Markdown, image, and video
+resources share a typed viewer lifecycle. Diff and Markdown are read-only.
 
 The VM daemon control endpoint is not a peer service. It binds to loopback or
 to a private listener that admits only the authenticated host or relay route.
@@ -485,15 +541,18 @@ receive a host viewer handle. A future host-browser handoff requires a
 disposable profile, origin policy, visible approval, and a separate audit
 contract.
 
+The Mac starts every attach and projection circuit. The managed network admits
+only replies to that established flow and rejects new VM-to-Mac connections,
+reverse forwards, route advertisements, and spoofed sources. Each projection
+has host-owned machine and project identity that VM frames cannot cover. Host
+autofill, password managers, clipboard, drag and drop, automatic audio, and
+global input are disabled.
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They
 never open a protocol connection or send a plugin ID to a session. Optional
 plugin names are slugs matching `[a-z0-9-_]+`.
-
-`provider authority install` is a local Linux host-administration action. It
-installs the credential for an already running externally managed session and is
-not a transported resource operation or cross-machine discovery API.
 
 ## Raw access
 

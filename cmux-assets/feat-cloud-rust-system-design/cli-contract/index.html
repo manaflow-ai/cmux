@@ -92,11 +92,13 @@
 <main>
   <header>
     <p class="kicker">cmux Cloud · Rust CLI · design contract</p>
-    <h1>One command surface, two trust domains</h1>
-    <p class="lede">A Claude process in a Cloud VM can operate its leased cmux workspaces and viewers. It can show those resources on the Mac through a narrow projection stream. It cannot read or control the Mac.</p>
+    <h1>One CLI, one resource graph, a hard Mac boundary</h1>
+    <p class="lede">A Claude process in a Cloud VM can control its leased workspace, use declared project peers, and operate VM files, diffs, Markdown, video, desktop, and browser surfaces. It cannot start a Mac connection or name a Mac resource.</p>
     <nav aria-label="Sections">
       <a href="#boundary">Boundary</a>
+      <a href="#projection">Projection</a>
       <a href="#verbs">Verbs</a>
+      <a href="#cloud-tree">Cloud tree</a>
       <a href="#viewers">Viewers</a>
       <a href="#browser">Browser network</a>
       <a href="#domains">Domains</a>
@@ -104,61 +106,142 @@
       <a href="#build">Build</a>
     </nav>
     <div class="grid">
-      <div class="card decision"><strong>VM owns remote state</strong><p>Workspace, tab, pane, terminal, browser, file, diff, and Markdown resources live in the VM daemon. The lease limits the agent to one task scope.</p></div>
-      <div class="card decision"><strong>Mac renders a projection</strong><p>The Mac reconciles remote events into a dedicated Cloud workspace. A projection is not a shared folder, host browser, or host socket.</p></div>
-      <div class="card warning"><strong>Host actions stay explicit</strong><p>Only the user can attach, move, or detach a projection, or pull a selected VM file to a selected local destination.</p></div>
+      <div class="card decision"><strong>VM owns remote state</strong><p>Workspace, tab, pane, terminal, browser, and viewer resources live in the VM daemon. One lease starts with one workspace.</p></div>
+      <div class="card decision"><strong>Mac renders a projection</strong><p>The Mac can mirror one remote workspace inside one host-attached container. The VM never gets its local IDs.</p></div>
+      <div class="card decision"><strong>Peers use named services</strong><p>Same-project application services are declared. Shell, exec, transfer, raw ports, and cross-project access need exact grants.</p></div>
+      <div class="card warning"><strong>Assume VM root is hostile</strong><p>Mac denial, peer admission, model authority, and destination rules run outside the VM.</p></div>
     </div>
   </header>
 
   <section id="boundary">
     <h2>Trust boundary</h2>
-    <p>Assume every process in a VM is compromised. The only inbound authority is a lease for a machine, session, and remote workspace. The host starts the authenticated outbound stream and never exposes its local cmux socket.</p>
+    <p>Assume every process in a VM has root. The guest authority is one machine, daemon session, lease, explicit workspace set, project-root file grant, effect limits, peer grants, generation, nonce, and expiry. The host starts the authenticated circuit and never exposes its local cmux socket.</p>
     <table>
       <thead><tr><th>Principal</th><th>Allowed</th><th>Denied</th></tr></thead>
       <tbody>
-        <tr><td><span class="tag">guest</span> Claude in VM</td><td>List, create, rename, move, reorder, and close VM resources in its lease. Read VM files. Run the VM browser. Use exact approved VPC peers.</td><td>Mac IDs, other leases, host paths, host URLs, host browser profiles, clipboard, keychain, SSH agent, host focus, local processes, and reverse relays.</td></tr>
+        <tr><td><span class="tag">guest</span> Claude in VM</td><td>Control leased VM topology and processes. Use VM viewers and browser. Use declared project services and exact peer grants.</td><td>Mac IDs, account machine list, other leases, host paths, browser profiles, clipboard, keychain, SSH agent, host focus, local processes, and reverse relays.</td></tr>
         <tr><td><span class="tag">host</span> Cloud client</td><td>Authenticate, manage machines, sessions, domains, VPN enrollment, and projection bindings. Send explicit user input to a VM projection.</td><td>Resolve a VM path on the Mac, load a VM URL in a Mac WebView, or silently import a VM file.</td></tr>
         <tr><td><span class="tag">local</span> Mac client</td><td>Manage local workspaces, panes, browsers, and files.</td><td>Receive a remote agent request that names a local resource.</td></tr>
+        <tr><td><span class="tag">network</span> managed fabric</td><td>Bind source machine identity, admit declared peer services, and pass replies for host-started flows.</td><td>New VM-to-Mac flows, spoofed sources, reverse forwards, Mac route or service advertisements, metadata, and daemon ports.</td></tr>
       </tbody>
     </table>
-    <pre>remote Claude
-  → VM-local cmux daemon
-  → lease and revision check
-  → VM event or bounded snapshot
-  → host projection reconciler
-  → dedicated local Cloud workspace</pre>
+    <pre>remote Claude -&gt; VM-local daemon -&gt; leased VM state
+Mac -&gt; authenticated attach -&gt; VM event or bounded frame -&gt; projection container
+VM -X-&gt; Mac socket, file, browser, process, device, or new network flow</pre>
     <div class="card danger"><strong>Fail closed</strong><p>A guest with no VM daemon or no matching lease gets <code>transport.unavailable</code> or <code>scope.denied</code>. It never tries a host socket or a local fallback.</p></div>
+    <div class="card warning"><strong>Internet trade-off</strong><p>The default <code>project</code> policy has no public Internet. If a user enables <code>internet</code>, cmux still blocks known Mac routes and identities, but it cannot prove that an unrelated public address is not a user device.</p></div>
+  </section>
+
+  <section id="projection">
+    <h2>Remote control without host control</h2>
+    <p>The user attaches one remote workspace to one local projection container. That container can be a dedicated Cloud workspace or a bounded pane subtree. The guest controls the remote layout. The host owns placement around the container.</p>
+    <div class="flow">
+      <div><p><strong>Host attaches.</strong> The Mac selects the machine, remote workspace, local destination, and presentation policy.</p></div>
+      <div><p><strong>Guest arranges.</strong> Claude creates, moves, reorders, focuses, attaches, or detaches VM tabs, panes, and surfaces.</p></div>
+      <div><p><strong>Host reconciles.</strong> Revisioned VM events update only descendants of that projection container. Layout mirrors by default. Guest focus does not.</p></div>
+      <div><p><strong>Host stays authoritative.</strong> A new guest workspace appears in the Cloud tree but does not open on the Mac. The guest cannot move the container or change Mac focus.</p></div>
+    </div>
+    <p>The host can enable follow-focus for one container. It can select only a descendant and cannot activate another Mac window or take keyboard focus. Host input stays bound to one projection ID, remote surface ID, and input epoch. Guest focus cannot retarget it. Closing or replacing the target drops later input. Guest <code>open</code>, <code>diff</code>, <code>markdown open</code>, and <code>browser open</code> use familiar placement rules inside the VM workspace and return durable VM resource IDs even when no host is attached.</p>
+    <p>Every projected surface keeps host-owned machine and project identity outside the VM frame. Remote content cannot cover it. Host autofill, password managers, clipboard, drag and drop, automatic audio, and global input are disabled.</p>
+    <div class="card warning"><strong>Typed text enters the VM</strong><p>Text sent to the selected projection is visible to VM root. The input lease stops hidden retargeting, but it cannot protect a secret after the user sends it.</p></div>
   </section>
 
   <section id="verbs">
     <h2>Command contract</h2>
-    <p>Use familiar noun-first verbs. The same Rust protocol models power the standalone packages, the desktop app, and the in-VM client. Host-only placement options are separate from guest topology.</p>
+    <p>Use noun-first verbs. The authenticated daemon handshake selects guest context. A flag or environment variable cannot select it. The parser hides host commands, and the daemon checks the action again. The <a class="link" href="../../../docs/cloud-guest-command-policy.md">guest command policy</a> is the complete allowlist.</p>
+    <pre>cmux pane &lt;pane&gt; split
+cmux cloud vm &lt;machine&gt; pane &lt;pane&gt; split
+cmux cloud pane &lt;globally-typed-pane-id&gt; split</pre>
+    <p>The <code>cloud</code> prefix changes graph resolution and transport. Resource suffixes stay the same. Typed IDs can omit ancestors. Names and <code>current</code> need the full parent path. Use <code>show</code> for one resource. <code>get</code> is a migration alias.</p>
     <table>
-      <thead><tr><th>Guest command</th><th>Effect</th><th>Result</th></tr></thead>
+      <thead><tr><th>Guest family</th><th>Allowed work</th><th>Primary result</th></tr></thead>
       <tbody>
-        <tr><td><code>cmux workspace list|create|rename|move|close</code></td><td>Manage leased VM workspaces.</td><td>Remote workspace ID and revision.</td></tr>
-        <tr><td><code>cmux tab list|create|rename|move|close</code></td><td>Manage tabs in a leased workspace.</td><td>Remote tab ID and revision.</td></tr>
-        <tr><td><code>cmux pane list|create|split|move|close</code></td><td>Manage pane topology in a leased workspace.</td><td>Remote pane ID and revision.</td></tr>
-        <tr><td><code>cmux surface list|open|move|close</code></td><td>Manage terminals, browsers, and viewers owned by the VM.</td><td>Remote surface ID and revision.</td></tr>
-        <tr><td><code>cmux open ./file</code></td><td>Open one VM file as an immutable viewer surface.</td><td>Bounded snapshot, digest, and remote surface ID.</td></tr>
-        <tr><td><code>cmux diff --repo .</code></td><td>Render structured VM repository hunks.</td><td>Hunks and expected blob hashes. Mutations stay in the VM repository.</td></tr>
-        <tr><td><code>cmux markdown open ./plan.md</code></td><td>Render inert Markdown from the VM.</td><td>Safe render model. Scripts and host fetches are disabled.</td></tr>
-        <tr><td><code>cmux browser open &lt;url&gt;</code></td><td>Start a browser process inside the VM.</td><td>Remote browser surface. DOM, cookies, storage, and downloads stay in the VM.</td></tr>
+        <tr><td><code>context</code>, <code>tree</code>, <code>machine self</code>, <code>session current</code></td><td>Read only the lease closure, current machine, current session, and bounded event cursors.</td><td>Result or stream.</td></tr>
+        <tr><td><code>workspace</code>, <code>screen</code>, <code>pane</code>, <code>tab</code>, <code>surface</code></td><td>Create and arrange VM topology inside the lease. Layout close detaches the resource.</td><td>Revisioned receipt.</td></tr>
+        <tr><td><code>terminal</code>, <code>process</code>, <code>run</code>, <code>exec</code></td><td>Start work, read screens, send input, wait, signal, attach, and end an exact VM resource.</td><td>Result, receipt, stream, or interactive handle.</td></tr>
+        <tr><td><code>open</code>, <code>viewer</code>, <code>diff</code>, <code>markdown</code></td><td>Open VM-rooted files, structured diffs, inert Markdown, images, and video.</td><td>Viewer ID, digest, revision, and bounded render model.</td></tr>
+        <tr><td><code>desktop</code></td><td>Read the VM display and accessibility tree, then send frame-bound input to that VM display.</td><td>Frame snapshot or stream receipt.</td></tr>
+        <tr><td><code>browser</code></td><td>Run a VM browser. Use revisioned semantic actions first. Pointer and JavaScript are VM-only fallbacks.</td><td>Browser ID, document revision, element refs, frame, or result.</td></tr>
+        <tr><td><code>peer</code></td><td>Use declared project services. Exact grants add peer forward, shell, exec, push, or pull.</td><td>Result, interactive handle, or transfer receipt.</td></tr>
+        <tr><td><code>agent</code>, <code>event</code>, <code>notification</code></td><td>Report untrusted VM agent state and use bounded, inert events.</td><td>Receipt or cursor stream.</td></tr>
+        <tr><td><code>coderouter status|model list|usage self</code></td><td>Read this machine's model status through its local endpoint.</td><td>Redacted result.</td></tr>
       </tbody>
     </table>
-    <p class="small">A remote move emits a revisioned event. The host moves only the matching remote projection. It never moves a local tab or pane.</p>
+    <p class="small">Every atomic action has a complete effect set. Every command has one primary shape: result, receipt, operation, stream, interactive, or transfer. The local action registry drives help and authorization. It is not a user-facing capabilities command. Independent daemon, projection, and network deny rules stop one bad registry entry from widening authority.</p>
+    <pre>cmux context --json
+cmux workspace create --name review
+cmux pane &lt;pane&gt; split
+cmux run -- bun test
+cmux open ./README.md
+cmux diff --repo .
+cmux markdown open ./docs/plan.md
+cmux browser open http://127.0.0.1:3000
+cmux peer list --json</pre>
+  </section>
+
+  <section id="cloud-tree">
+    <h2>Host Cloud command tree</h2>
+    <p>Rust owns this tree. Swift is a temporary compatibility caller. <code>cmux vm</code> remains the short alias for <code>cmux cloud vm</code>. A guest cannot call any command in this section.</p>
+    <pre>cmux auth login|status|logout
+cmux team list|current|use
+cmux project list|show|dev|sync|env
+
+cmux cloud operation &lt;operation&gt; show|wait|watch|cancel
+cmux cloud vm list|create
+cmux cloud vm &lt;machine&gt; show|status|stats|wait|wake|sleep|rename|destroy
+cmux cloud vm base open|reset
+cmux cloud vm &lt;machine&gt; snapshot list|create
+cmux cloud snapshot &lt;snapshot&gt; show|delete|fork
+cmux cloud vm &lt;machine&gt; restore|route|ssh|shell|exec|run|push|pull|repo clone|dev
+cmux cloud vm pool list
+
+cmux cloud session list|create
+cmux cloud session &lt;session&gt; show|attach|detach|resume|close|events
+cmux cloud workspace|screen|pane|tab|surface &lt;same resource verbs as local&gt;
+cmux cloud terminal &lt;terminal&gt; show|write|keys|screen read|screen wait|resize|signal|close
+cmux cloud process &lt;process&gt; show|wait|events|cancel
+
+cmux cloud network status|peers|routes|connect|disconnect
+cmux cloud network grant list|create
+cmux cloud network grant &lt;grant&gt; show|revoke
+cmux cloud network egress &lt;session&gt; show|set
+cmux vpn status|up|down|revoke|hosts
+cmux cloud port list|open|close|forward
+cmux cloud domains list|zones|verify|publish|access|rm
+
+cmux cloud agent list|run
+cmux cloud agent &lt;run&gt; show|wait|logs|stop|resume|fan-out
+cmux cloud agent adapter list|describe|install|remove
+cmux coderouter auth|status|session|account|model|usage|run
+cmux cloud desktop list|open
+cmux cloud desktop &lt;desktop&gt; show|status|snapshot|accessibility|attach|detach
+cmux cloud browser list|open
+cmux cloud browser &lt;browser&gt; show|navigate|snapshot|screenshot|wait|get|find|is|click|fill|press|select|scroll|viewport|input|attach|close
+cmux cloud projection list|attach
+cmux cloud projection &lt;projection&gt; move|detach
+cmux cloud event stream|read
+cmux cloud notification list|read|ack
+cmux cloud usage team|machine|agent</pre>
+    <div class="grid">
+      <div class="card"><strong>Result</strong><p>One bounded read. It leaves no hidden work.</p></div>
+      <div class="card"><strong>Receipt</strong><p>A committed mutation with stable IDs, revision, and idempotency record.</p></div>
+      <div class="card"><strong>Operation</strong><p>Long work with an ID, progress, wait, watch, cancel, and recovery.</p></div>
+      <div class="card"><strong>Stream or interactive</strong><p>Cursor and gap rules for events, or an explicit input lease and detach rule.</p></div>
+      <div class="card"><strong>Transfer</strong><p>Direction, path grants, digest, byte limit, progress, and final receipt.</p></div>
+    </div>
   </section>
 
   <section id="viewers">
-    <h2>Files, diff, Markdown, and desktop</h2>
+    <h2>Files, diff, Markdown, video, and desktop</h2>
     <div class="grid">
       <div class="card"><strong>File viewer</strong><p>Canonicalize against the VM project grant. Reject traversal, unsafe symlinks, host paths, and oversized payloads. Send a bounded immutable snapshot.</p></div>
-      <div class="card"><strong>Diff viewer</strong><p>Send structured hunks and expected blob hashes. A click or edit returns to the VM repository. The Mac does not open the path.</p></div>
+      <div class="card"><strong>Diff viewer</strong><p>Send structured hunks and blob hashes. It is read-only. An edit uses a separate process action in the VM.</p></div>
       <div class="card"><strong>Markdown viewer</strong><p>Render an inert model. Block scripts, active HTML, remote subresources, custom schemes, and host file access.</p></div>
-      <div class="card"><strong>Desktop viewer</strong><p>VNC or noVNC frames travel VM to Mac. Input is explicit Mac to VM. The VM never receives Mac screen, camera, microphone, or accessibility data.</p></div>
+      <div class="card"><strong>Media viewer</strong><p>Decode in a bounded VM process or send VM-rendered frames. Remote video starts muted. Only the local user can enable host audio.</p></div>
+      <div class="card"><strong>Desktop viewer</strong><p>Frames are replies on a host-started circuit. Frame-bound input returns to the VM. The VM never receives Mac screen, camera, microphone, or accessibility data.</p></div>
     </div>
     <h3>Local file rule</h3>
-    <p>A remote agent cannot request a Mac picker or receive a host file handle. The user may choose one file, the host scans and bounds it, and an expiring guest path plus digest is sent to the VM. A directory mount is not part of the first release.</p>
+    <p>A remote agent cannot request a Mac picker or receive a host file handle. The user may choose one file, the host scans and bounds it, and an expiring guest path plus digest is sent to the VM. A VM file reaches the Mac only after a host-started pull with a selected destination. A directory mount is not part of the first release.</p>
     <pre>user selects local file
   → host creates one-time transfer grant
   → VM receives guest path + digest
@@ -169,21 +252,31 @@
   <section id="browser">
     <h2>Browser network policy</h2>
     <p>The local cmux pane is a pixel and input viewer. It is never a Mac WebView that loads the remote URL. The browser process, DOM, JavaScript, cookies, storage, downloads, and network stack stay in the VM.</p>
+    <pre>cmux browser open http://127.0.0.1:3000
+cmux browser &lt;id&gt; snapshot --interactive
+cmux browser &lt;id&gt; click &lt;selector-or-ref&gt;
+cmux browser &lt;id&gt; fill &lt;selector-or-ref&gt; "query"
+cmux browser &lt;id&gt; wait --text "Done"
+cmux browser &lt;id&gt; screenshot</pre>
+    <p>Snapshots return element references bound to one document and frame revision. Click, fill, press, select, wait, get, find, and state checks are the normal agent path. Stale references fail. Pointer input and JavaScript remain VM-only fallbacks.</p>
     <table>
       <thead><tr><th>Destination</th><th>Default</th><th>Rule</th></tr></thead>
       <tbody>
         <tr><td>VM loopback and assigned interfaces</td><td>Allow</td><td>Used for local servers and the VM desktop.</td></tr>
-        <tr><td>VPC peer</td><td>Deny</td><td>Allow only an exact machine, IP, port, and protocol grant.</td></tr>
-        <tr><td>Public internet</td><td>Deny</td><td>Enable only with an explicit machine or team <code>internet</code> policy.</td></tr>
-        <tr><td>Mac gateway, LAN, link-local, metadata, unscoped private ranges</td><td>Deny</td><td>Block after canonicalizing IPv4, IPv6, mapped, integer, and DNS forms.</td></tr>
+        <tr><td>Declared same-project application service</td><td>Allow</td><td>The project manifest names the service, protocol, port, and peer policy.</td></tr>
+        <tr><td>Other peer action or service</td><td>Deny</td><td>Allow only with an exact source, destination, action, service or endpoint, and expiry grant.</td></tr>
+        <tr><td>Public internet</td><td>Deny</td><td>Enable with an expiring, lease-scoped host grant. Optional domain suffixes narrow it. Team policy can forbid it.</td></tr>
+        <tr><td>Mac identity, gateway, LAN, link-local, metadata, daemon ports, undeclared private ranges</td><td>Deny</td><td>Block outside the VM after canonicalizing IPv4, IPv6, mapped, integer, and DNS forms.</td></tr>
       </tbody>
     </table>
-    <p>Apply the check before every redirect, subresource, WebSocket, WebRTC, DNS result, and download. VPC reachability gives network access only. It does not give another VM's cmux authority.</p>
+    <pre>cmux cloud network egress &lt;session&gt; set internet --ttl 1h --domain example.com</pre>
+    <p>A denied public navigation returns that exact host action. The VM cannot approve it. The user changes the lease, then the agent retries. Nothing widens access automatically.</p>
+    <p>Apply the check before every redirect, subresource, WebSocket, WebRTC, DNS result, and download. A VM-local peer broker combines each grant with source machine identity outside guest control. No portable peer bearer enters the VM. Peer reachability does not give another VM's cmux authority.</p>
   </section>
 
   <section id="domains">
     <h2>Domains and publication</h2>
-    <p>Keep the established Ben Swerdlow domain verbs and order. A domain is a publication resource, not a port-open alias.</p>
+    <p>Keep the established Ben Swerdlow domain verbs, defaults, output order, DNS checklist, and access flow. A domain is a host control-plane publication resource, not a port-open alias. A VM agent cannot publish, change access, or remove it.</p>
     <pre>cmux cloud domains list
 cmux cloud domains zones
 cmux cloud domains verify example.com
@@ -197,47 +290,58 @@ cmux cloud domains rm app.example.com</pre>
       <div><p><strong>Use.</strong> Human output starts with the URL. Protected viewers show sign-in or denial.</p></div>
       <div><p><strong>Remove.</strong> <code>rm</code> takes the hostname and removes the route and certificate binding in one no-prompt migration command.</p></div>
     </div>
+    <p>A publication maps one hostname to one VM port at the managed edge. It never creates a route to the Mac.</p>
   </section>
 
   <section id="reuse">
     <h2>Code reuse without authority leaks</h2>
-    <p>Put pure protocol and model code in shared Rust crates. Keep authority adapters separate.</p>
+    <p>Put protocol, command, and render behavior in shared Rust crates. Inject authority and process ownership at each frontend.</p>
     <table>
       <thead><tr><th>Shared crate</th><th>Frontends</th><th>Must stay separate</th></tr></thead>
       <tbody>
-        <tr><td>Result envelopes, action IDs, typed errors, request IDs, JSON and JSONL render models</td><td><code>cmux</code>, desktop app, npm launcher, PyPI launcher</td><td>TTY presentation and host UI focus rules</td></tr>
+        <tr><td>Result envelopes, action IDs, typed errors, request IDs, effects, result shapes, JSON Schema</td><td><code>cmux</code>, desktop app, npm launcher, PyPI launcher</td><td>Authority stores and process owners</td></tr>
         <tr><td>Cloud API client, auth refresh, team context, VM models, domains, leases, retries, idempotency</td><td>cmux Cloud client and control-plane services</td><td>Keyring namespaces and local config paths</td></tr>
-        <tr><td>CodeRouter model-plane client, account/session schemas, usage fixtures</td><td>Standalone <code>coderouter</code> package and <code>cmux coderouter</code></td><td>Compute, VM lifecycle, terminal authority, and credential storage</td></tr>
+        <tr><td>CodeRouter parser fragment, help, validation, dispatch, renderers, model client, account and session schemas, usage fixtures</td><td>Standalone <code>coderouter</code> package and <code>cmux coderouter</code></td><td>Keyring, config, TTY, process adapter, compute, and VM lifecycle</td></tr>
         <tr><td>Remote resource IDs, revisions, snapshots, projection events</td><td>VM daemon, host reconciler, mobile data-plane client</td><td>VM authority versus host placement authority</td></tr>
       </tbody>
     </table>
-    <p class="small">The standalone CodeRouter command and the cmux namespace must produce the same action IDs, envelopes, errors, and usage fixtures. They may use different TTY frontends and separate keyring entries.</p>
+    <pre>coderouter account list
+cmux coderouter account list
+
+coderouter run claude -- --resume
+cmux coderouter run claude -- --resume</pre>
+    <p class="small">The command tree after the optional <code>cmux</code> prefix is identical. Both binaries call <code>coderouter-command</code>. Standalone CodeRouter owns its keyring and local process adapter. cmux owns its Cloud profile and local or remote process adapter. <code>cmux cloud agent run</code> composes machine selection with the shared <code>coderouter run</code> action.</p>
   </section>
 
   <section id="build">
-    <h2>Build target</h2>
-    <p>This page is the implementation target. The first complete path should work from a clean npm or PyPI install and does not require the desktop app:</p>
+    <h2>Secure 80/20 build target</h2>
+    <p>This path covers normal remote agent work from a clean npm or PyPI install. Headless work does not require the desktop app. Projection is an optional host view:</p>
     <pre>cmux auth login
 cmux cloud vm list
-cmux cloud vm create
-cmux cloud session attach &lt;session&gt;
+cmux cloud vm create                 # returns ready machine, session, and workspace IDs
+cmux cloud session &lt;returned-session&gt; attach
 cmux workspace create --name task
+cmux run -- bun test
 cmux open ./README.md
 cmux diff --repo .
 cmux browser open http://127.0.0.1:3000
-cmux coderouter status
-disconnect → reconnect → cmux vm pull → cmux cloud vm destroy</pre>
+cmux peer list
+cmux coderouter run claude
+disconnect -&gt; reconnect -&gt; cmux vm pull -&gt; cmux cloud vm &lt;machine&gt; destroy</pre>
     <div class="grid">
-      <div class="card decision"><strong>Fast create</strong><p>Claim a scrubbed warm machine. Readiness means the daemon, private route, and initial workspace lease are usable.</p></div>
+      <div class="card decision"><strong>Fast create</strong><p>Claim a clean, single-claim warm machine that has never had a tenant. Destroy it after that tenant releases it. Target p50 under 3 seconds and p95 under 10 seconds to daemon-ready. A cold path returns an operation immediately.</p></div>
       <div class="card decision"><strong>Reconnect</strong><p>Keep VM sessions and viewer state durable. Resume by event cursor or request a bounded snapshot. Never spawn a replacement shell silently.</p></div>
       <div class="card decision"><strong>Revoke</strong><p>Session revoke or machine destroy invalidates projection bindings, input leases, browser streams, transfer grants, and peer grants.</p></div>
+      <div class="card decision"><strong>No discovery ceremony</strong><p>Use local <code>--help --json</code>, <code>context</code>, action-specific state, and typed errors. Do not add a Cloud capabilities command.</p></div>
     </div>
     <h3>Deliberate first-release limits</h3>
-    <p>Do not ship host browser handoff, recursive host mounts, mixed local and remote layout control, implicit clipboard transfers, or raw host socket relays. These features add a host data channel before the resource contract is safe.</p>
+    <p>Do not ship host browser handoff, recursive host mounts, mixed local and remote layout control, implicit clipboard transfers, profile import, or raw host socket relays. These features add a host data channel before the resource contract is safe.</p>
+    <h3>Included in the same release</h3>
+    <p>Auth, team context, fast VM lifecycle, base and snapshots, SSH and exec, transfer, sessions, remote topology, safe viewers, VM browser and desktop, private networking, VPN, VM peers, CodeRouter, agents, events, public ports, and the exact custom-domain flow are release work. The 80/20 path sets implementation order. It does not remove parity scope.</p>
   </section>
 
   <footer>
-    <p>Source documents: <a class="link" href="../../../docs/cli-contract.md">CLI contract</a>, <a class="link" href="../../../docs/cloud-rust-system-design.md">Cloud Rust system design</a>, <a class="link" href="../../../plans/feat-cloud-rust-cli/DESIGN.md">Rust CLI plan</a>.</p>
+    <p>Source documents: <a class="link" href="../../../docs/cli-contract.md">CLI contract</a>, <a class="link" href="../../../docs/cloud-guest-command-policy.md">guest command policy</a>, <a class="link" href="../../../docs/cloud-rust-system-design.md">Cloud Rust system design</a>, <a class="link" href="../../../plans/feat-cloud-rust-cli/DESIGN.md">Rust CLI plan</a>.</p>
     <p>Design update is tracked in <a class="link" href="https://github.com/manaflow-ai/cmux/pull/11896">PR 11896 by Lawrence Chen</a>. This page describes the target contract. Runtime implementation and behavior tests remain to be built.</p>
   </footer>
 </main>

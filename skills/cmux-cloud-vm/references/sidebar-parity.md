@@ -2,7 +2,7 @@
 
 Every verb in the Cloud sidebar has a host CLI verb that goes through the
 **same socket method** and the same app code path (`SurfaceCatalog`, the
-machine's `CmuxTuiSurfaceProvider`). A host agent can do what a person can do
+machine's `CmuxTuiSurfaceAdapter`). A host agent can do what a person can do
 from the sidebar, and a sidebar action never does something the host CLI
 cannot. This table does not grant those host actions to an agent inside a
 Cloud VM. A guest receives only VM-owned IDs in its explicit workspace lease
@@ -14,9 +14,9 @@ host placement, and projection bindings never cross into the VM. Ids come from
 Sidebar (human) | CLI (agent) | Socket method | Verified
 --- | --- | --- | ---
 **Machines panel ＋ / palette "New Cloud Machine…"** (name, Desktop/Base, size; Create closes the sheet and `MachineCreateCoordinator` follows the operation off the UI thread) | `cmux vm new [--desktop\|--base] [--size 8g] [--name <label>] [--focus false] [--detach] [--no-wait] [--json]` | `vm.create` | ✅ the pending row in the tree ("Creating…", then failure with Retry / Show Error / Dismiss) is `MachineCreateCoordinator`; `--focus false` prevents focus change, `--detach` returns the ready receipt without a pane, and `--no-wait` is the operation-only nonblocking form
-**Open Base / Set Up Base** (first setup closes its sheet immediately and continues in the background) | `cmux vm base open [--desktop\|--base] [--focus false]` — the sheet passes `--focus false` | `vm.base_open` | ✅ pending row reads "Setting up Base…"
+**Open Base / Set Up Base** (first setup closes its sheet immediately and continues in the background) | `cmux vm base open [--desktop\|--base] [--focus false]`: the sheet passes `--focus false` | `vm.base_open` | ✅ pending row reads "Setting up Base…"
 Control bar › **Open Cloud Agent** (Claude/Codex/OpenCode) | `cmux vm prompt --open <agent>` | `vm.cloud_agent_open` | ✅ installs the bundled cmux-cloud skill file (`~/.config/cmux/skills/cmux-cloud.md`), opens a local agent terminal with the kickoff prompt
-Control bar › **Copy Cloud Prompt** | `cmux vm prompt` | `vm.cloud_prompt` | ✅ prints the same prompt (skill path on stderr) — bootstraps ANY agent/harness
+Control bar › **Copy Cloud Prompt** | `cmux vm prompt` | `vm.cloud_prompt` | ✅ prints the same prompt (skill path on stderr): bootstraps ANY agent/harness
 Machine row › **Open Shell** / click | `cmux surface new-terminal --machine <m>` (into the current workspace, like the row) · `cmux vm open <m> [--workspace <ref>]` (a shell, its own workspace by default) | `vm.terminal_new` / `workspace.cloud_vm_terminal_ready` | ✅
 Machine row › **New Workspace**, Workspaces ＋ | `cmux vm workspace new <m> [--name n]` | `vm.workspace_new` | ✅
 Machine row › **Open Desktop**, VNC Displays › Open Desktop, screen row click (one row per screen, `display:1`, …) | `cmux vm open <m>:desktop` / `cmux surface open <m>/display/display:1` | `vm.desktop_open` / `surface.project` | ✅
@@ -30,13 +30,13 @@ Machine row › **Delete…** | `cmux vm rm <m>` | `vm.destroy` | ✅
 Terminals / Workspaces group › **New Terminal** | `cmux surface new-terminal --machine <m> [-- <cmd>]` | `vm.terminal_new` | ✅
 Workspace row › **New Terminal Here** | `cmux surface new-terminal --machine <m> --remote-workspace <ws>` | `vm.terminal_new {workspace_id}` | ✅
 Workspace row › **Go to Workspace** (the open verb's label once the workspace is showing locally), click, Return | `cmux workspace select <local-id>` (host-user-only local projection workspace from `vm tree --json`) | `workspace.select` | ✅ one open verb; never opens a second copy
-Workspace row › **Open Workspace** (not open yet), click, Return | `cmux vm workspace open <m> <ws>` — every member of the workspace (terminals, browsers, pinned displays) as its own local workspace | `vm.workspace_open` | ✅ resolved exactly like the row (`ws_…` id or an unambiguous name; every view counted, so a terminal viewed in two workspaces opens from both); an empty workspace opens nothing (D9) — the CLI says so and names `cmux vm open <m>/<ws>`
-(no menu verb — one terminal, not the whole workspace) | `cmux vm open <m>/<ws>` — the workspace's focused/first live terminal, or a new shell in it when nothing is running | `surface.project` / `surface.new_terminal` | ✅ same id-or-unambiguous-name resolution; this is the verb that creates in an empty workspace
-(no menu verb — drop onto the current pane) | `cmux vm workspace open <m> <ws> --here [--workspace <local>]` | `vm.workspace_open {here}` | ✅
-(no menu verb — CLI placement only) | `cmux vm workspace open <m> <ws> --tabs [--pane <p>]` | `vm.workspace_open {here, placement: tab}` | ✅
+Workspace row › **Open Workspace** (not open yet), click, Return | `cmux vm workspace open <m> <ws>`: every member of the workspace (terminals, browsers, pinned displays) as its own local workspace | `vm.workspace_open` | ✅ resolved exactly like the row (`ws_…` id or an unambiguous name; every view counted, so a terminal viewed in two workspaces opens from both); an empty workspace opens nothing (D9): the CLI says so and names `cmux vm open <m>/<ws>`
+(no menu verb: one terminal, not the whole workspace) | `cmux vm open <m>/<ws>`: the workspace's focused/first live terminal, or a new shell in it when nothing is running | `surface.project` / `surface.new_terminal` | ✅ same id-or-unambiguous-name resolution; this is the verb that creates in an empty workspace
+(no menu verb: drop onto the current pane) | `cmux vm workspace open <m> <ws> --here [--workspace <local>]` | `vm.workspace_open {here}` | ✅
+(no menu verb: CLI placement only) | `cmux vm workspace open <m> <ws> --tabs [--pane <p>]` | `vm.workspace_open {here, placement: tab}` | ✅
 Drag a workspace row onto a pane edge | `cmux vm workspace open <m> <ws> --pane <p> --left\|--right\|--up\|--down` | `vm.workspace_open {here, pane_id, direction}` | ✅
-Workspace row › **Close Workspace…**, hover × (confirms when it has terminals) | `cmux vm workspace rm <m> <ws>` | `vm.workspace_delete` | ✅ same `CloudTreeNodeActions.deleteWorkspaceAndTerminals`: kills every terminal viewed there, then closes it — a closed workspace never leaves stray pool rows
-(no menu verb — CLI only) | `cmux vm workspace close <m> <ws>` | `vm.workspace_close` | ✅ the protocol's keep-terminals close: they keep running (only `terminal close` kills) and, their workspace being gone, show in Terminals greyed as "detached"
+Workspace row › **Close Workspace…**, hover × (confirms when it has terminals) | `cmux vm workspace rm <m> <ws>` | `vm.workspace_delete` | ✅ same `CloudTreeNodeActions.deleteWorkspaceAndTerminals`: kills every terminal viewed there, then closes it: a closed workspace never leaves stray pool rows
+(no menu verb: CLI only) | `cmux vm workspace close <m> <ws>` | `vm.workspace_close` | ✅ the protocol's keep-terminals close: they keep running (only `terminal close` kills) and, their workspace being gone, show in Terminals greyed as "detached"
 Workspace row › **Rename…** | `cmux vm workspace rename <m> <ws> <name>` | `vm.workspace_rename` | ✅ same machine-daemon rename action
 Workspace row › **Copy Workspace ID** | `cmux vm tree --json` (`remote_workspace.id`) | `vm.tree` | ✅
 Terminal / browser / display row click, **Open** | `cmux surface open <resource>` (reuses an open pane) / `cmux vm open <m>/<ws>/<term>` | `surface.project` | ✅
@@ -44,7 +44,7 @@ Row › **Open in New Tab** | `cmux surface open <resource> --pane <p> --tab` | 
 Row › **Open in New Pane** (a second pane) | `cmux surface open <resource> --new` | `surface.project {reuse: false}` | ✅
 Drag a row onto a pane edge | `cmux surface open <resource> --pane <p> --left\|…` | `surface.project {pane_id, direction}` | ✅
 Terminal row › **Kill Terminal…**, hover × | `cmux vm terminal close <m> <term>` | `vm.terminal_close` | ✅ also closes every local pane showing it
-Terminals › detached row (greyed, "detached": still running, no tab on the machine shows it, so it is in no workspace folder); click re-attaches it in a pane, right-click › **Kill Terminal…** | `cmux vm tree` lists it in the final `terminals/` section, under its `(detached — …)` subgroup (`remote_views: []` in `--json`), `cmux surface open <m>/terminal/<term>` / `cmux vm terminal close <m> <term>` | `surface.project` / `vm.terminal_close` | ✅
+Terminals › detached row (greyed, "detached": still running, no tab on the machine shows it, so it is in no workspace folder); click re-attaches it in a pane, right-click › **Kill Terminal…** | `cmux vm tree` lists it in the final `terminals/` section, under its `(detached: …)` subgroup (`remote_views: []` in `--json`), `cmux surface open <m>/terminal/<term>` / `cmux vm terminal close <m> <term>` | `surface.project` / `vm.terminal_close` | ✅
 Row › **Copy Surface ID** / **Copy Port** | `cmux surface ls --json` (`id`, `port`) | `surface.ls` | ✅
 Port row (when shown) click | `cmux vm open <m>:port/<n>` / `cmux vm open <m> <n> [--print]` | `vm.port_open` | ✅
 
@@ -56,8 +56,10 @@ Rules that keep it 1:1:
 - `--focus false` means the same on `vm new`, `vm base open`, and `vm open`: open the surface where it belongs, never select its workspace or move keyboard focus out of the workspace the person is in (a pane is still focused when its workspace is the one already on screen). The New Machine / Set Up Base sheets always create this way; the success notification's click goes to the new workspace.
 - Placement flags mean the same everywhere: `--pane <p>` + side = split that pane on that side; `--tab` / `--tabs` = tabs in that pane; nothing = the focused pane of the current (or `--workspace`) local workspace; `--new` = never reuse a pane that already shows the surface.
 - Ports are a first-class group in the tree when a machine exposes listening ports; the CLI and sidebar use the same port-open path.
-- Agent-only primitives (`cmux vm terminal send|read|wait` → `vm.terminal_write|read|wait`, plus `exec`, `push`, `pull`, `route`, `run`, `agent`) have no sidebar verb by design: a person does those things by typing into a pane. They still go through the machine's `CmuxTuiSurfaceProvider`, so what an agent types headlessly shows up in every pane projecting that terminal.
+- Agent-only primitives (`cmux vm terminal send|read|wait` → `vm.terminal_write|read|wait`, plus `exec`, `push`, `pull`, `route`, `run`, `agent`) have no sidebar verb by design: a person does those things by typing into a pane. They still go through the machine's `CmuxTuiSurfaceAdapter`, so what an agent types headlessly shows up in every pane projecting that terminal.
 - Guest topology mutations use the VM daemon and a lease-bound revision. They
-  can move VM tabs, panes, and surfaces, but cannot move a host projection or
-  a resource in another lease. `scope.denied` is fail-closed behavior, not a
-  prompt to try the local socket.
+  can move VM tabs, panes, and surfaces. The host mirrors those changes only
+  inside the exact projection container that it attached to that remote
+  workspace. A guest cannot open a new host workspace, cross the container,
+  move a host projection, change Mac focus, or use a resource in another lease.
+  `scope.denied` is fail-closed behavior, not a prompt to try the local socket.
