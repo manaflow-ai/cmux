@@ -603,24 +603,27 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
           cmux_ssh_auth_capture_root_termination_identity
 
-          # Use Perl's monotonic clock for the shared cleanup budget. This is
-          # independent of shell extensions such as bash's SECONDS, which are
-          # absent from common POSIX shells. A failed clock probe stops the
-          # cleanup pass; the bounded pass count is the final fallback.
-          cmux_ssh_auth_cleanup_clock_command="$cmux_ssh_auth_perl_command"
+          # Use Perl's monotonic clock for the shared cleanup budget. Start it
+          # only after the initial process snapshot is captured below; process
+          # discovery can exceed two seconds on a fork-starved runner.
+          cmux_ssh_auth_cleanup_clock_command=
           cmux_ssh_auth_cleanup_deadline_millis=
-          if [ -n "$cmux_ssh_auth_cleanup_clock_command" ]; then
-            cmux_ssh_auth_cleanup_deadline_millis=$(
-              "$cmux_ssh_auth_cleanup_clock_command" \
-                -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
-                -e 'printf "%d\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
-                2>/dev/null
-            ) || cmux_ssh_auth_cleanup_deadline_millis=
-            case "$cmux_ssh_auth_cleanup_deadline_millis" in
-              ''|*[!0-9]*) cmux_ssh_auth_cleanup_deadline_millis= ;;
-              *) cmux_ssh_auth_cleanup_deadline_millis=$((cmux_ssh_auth_cleanup_deadline_millis + 2000)) ;;
-            esac
-          fi
+          cmux_ssh_auth_start_cleanup_clock() {
+            cmux_ssh_auth_cleanup_clock_command="$cmux_ssh_auth_perl_command"
+            cmux_ssh_auth_cleanup_deadline_millis=
+            if [ -n "$cmux_ssh_auth_cleanup_clock_command" ]; then
+              cmux_ssh_auth_cleanup_deadline_millis=$(
+                "$cmux_ssh_auth_cleanup_clock_command" \
+                  -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC \
+                  -e 'printf "%d\n", int(clock_gettime(CLOCK_MONOTONIC) * 1000)' \
+                  2>/dev/null
+              ) || cmux_ssh_auth_cleanup_deadline_millis=
+              case "$cmux_ssh_auth_cleanup_deadline_millis" in
+                ''|*[!0-9]*) cmux_ssh_auth_cleanup_deadline_millis= ;;
+                *) cmux_ssh_auth_cleanup_deadline_millis=$((cmux_ssh_auth_cleanup_deadline_millis + 2000)) ;;
+              esac
+            fi
+          }
           cmux_ssh_auth_cleanup_fallback_checks=0
           cmux_ssh_auth_get_remaining_millis() {
             if [ -n "$cmux_ssh_auth_cleanup_deadline_millis" ]; then
@@ -1897,6 +1900,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # Validate the known root parent and build the first breadth-first
           # member list. The root is stopped first in that order.
           if ! cmux_ssh_auth_take_snapshot || ! cmux_ssh_auth_extract_tree; then exit 0; fi
+          cmux_ssh_auth_start_cleanup_clock
           # The authentication wrapper derives this same path from the fresh
           # per-attempt nonce. A pre-existing path is never removed or reused,
           # so a stale process cannot receive an event from this attempt.
