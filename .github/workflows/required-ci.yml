@@ -8,7 +8,7 @@ on:
   pull_request_target:
     branches:
       - main
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, edited, synchronize, reopened, ready_for_review]
 
 permissions:
   actions: read

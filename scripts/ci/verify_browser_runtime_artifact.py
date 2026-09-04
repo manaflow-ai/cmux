@@ -77,6 +77,8 @@ def is_browser_engine_path(path: str) -> bool:
     # merely because their directory name contains "browser".
     if lower.startswith(("ios/", "packages/ios/")):
         return False
+    if lower.startswith(".github/workflows/"):
+        return True
     # Browser panes are composed through the macOS app target, not only the
     # files whose names mention Browser/Chromium. Route the complete macOS
     # source/test surface and all CI/build control-plane edits through the

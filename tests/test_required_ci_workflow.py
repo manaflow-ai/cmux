@@ -147,6 +147,7 @@ def test_repository_polling_uses_injected_wait_and_cancellation() -> None:
 def test_workflow_runs_from_base_and_checks_exact_head() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "pull_request_target:" in workflow
+    assert "types: [opened, edited, synchronize, reopened, ready_for_review]" in workflow
     assert "ref: ${{ github.event.pull_request.base.sha }}" in workflow
     assert "EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}" in workflow
     assert "verify_required_ci_run.py" in workflow
