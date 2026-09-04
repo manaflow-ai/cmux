@@ -11,9 +11,9 @@ const scriptPath = fileURLToPath(new URL("./load-dev-env.sh", import.meta.url));
 function sourceDevEnv({
   downloadedKeyID = "",
   downloadedPrivateKey = "",
-  keyFileContents,
+  keyFileContents = "",
   localKeyID = "",
-}) {
+} = {}) {
   const home = mkdtempSync(path.join(tmpdir(), "cmux-load-dev-env-"));
   const secrets = path.join(home, ".secrets");
   const envFile = path.join(secrets, "cmuxterm-dev.env");
@@ -38,7 +38,7 @@ function sourceDevEnv({
       "bash",
       [
         "-c",
-        `source "$1"; printf '%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}"`,
+        `source "$1"; printf '%s\\0%s\\0%s' "\${CMUX_RELAY_POLICY_KEY_ID-}" "\${CMUX_RELAY_POLICY_PRIVATE_KEY_PEM-}" "\${CMUX_LOCAL_DEV_PRO-}"`,
         "bash",
         scriptPath,
       ],
@@ -47,6 +47,7 @@ function sourceDevEnv({
         env: {
           ...process.env,
           HOME: home,
+          CMUX_LOCAL_DEV_PRO: "",
           CMUXTERM_ENV_FILE: envFile,
           CMUX_RELAY_POLICY_KEY_ID: "",
           CMUX_RELAY_POLICY_PRIVATE_KEY_PEM: "",
@@ -102,4 +103,9 @@ test("custom local fallback key id remains coupled to its private key", () => {
 
   assert.equal(keyID, "custom-local-key-id");
   assert.equal(loadedPrivateKey, privateKey);
+});
+
+test("development backends default to Pro VM access", () => {
+  const [, , developmentPro] = sourceDevEnv();
+  assert.equal(developmentPro, "1");
 });
