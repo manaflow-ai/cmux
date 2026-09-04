@@ -5818,12 +5818,15 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
+                let nonEmpty: (String?) -> String? = { value in value?.isEmpty == false ? value : nil }
                 let rows: [(String, String, String, String, String)] = vms.map { vm in
-                    (
-                        (vm["id"] as? String) ?? "?",
-                        (vm["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["id"] as? String) ?? "?",
+                    let id = (vm["id"] as? String) ?? "?"
+                    let label = nonEmpty(vm["displayName"] as? String)
+                        ?? nonEmpty(vm["slug"] as? String)
+                        ?? id
+                    return (
+                        id,
+                        label,
                         (vm["status"] as? String) ?? "unknown",
                         (vm["provider"] as? String) ?? "?",
                         (vm["image"] as? String) ?? "?"
