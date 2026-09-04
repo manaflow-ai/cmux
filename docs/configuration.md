@@ -7,8 +7,8 @@ Global app preferences live in `~/.config/cmux/cmux.json`.
 `cmuxOnly` allows the cmux CLI and programs started from cmux terminals. This
 uses the process ancestry of the caller, so a program launched inside a cmux
 terminal is trusted even when it later starts another process or leaves the
-terminal's original process group. Use `password` or another restrictive mode
-when untrusted code may run inside a cmux terminal. `allowAll` also grants
+terminal's original process group. Use `password` or `cmuxOnly` when untrusted
+code may run inside a cmux terminal. `allowAll` also grants
 access to other local macOS users and is unsafe on a shared Mac.
 
 ## `mobile.artifactFolderAccess`
