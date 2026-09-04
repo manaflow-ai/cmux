@@ -424,6 +424,20 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: ./scripts/strip-release-bundle.sh "build-universal/Build/Products/Release/cmux.app"
 
+      - name: Verify Cloud tunnel engine before signing
+        if: steps.guard_release_assets.outputs.skip_all != 'true'
+        run: |
+          set -euo pipefail
+          app="build-universal/Build/Products/Release/cmux.app"
+          sysext="$(find "$app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
+          if [[ -z "$sysext" ]]; then
+            echo "::notice::No Cloud tunnel system extension is present; signing will use the wg-quick fallback"
+            exit 0
+          fi
+          executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$sysext/Contents/Info.plist")"
+          binary="$sysext/Contents/MacOS/$executable"
+          ./scripts/verify-tunnel-extension-engine.sh "$binary"
+
       - name: Codesign app
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
