@@ -479,6 +479,89 @@ import Testing
         #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the child must be reaped before run returns")
     }
 
+    @Test func cancellingLinkConnectStopsItsChildBeforeReturning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-connect-cancel-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pidFile = root.appendingPathComponent("link.pid")
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        echo $$ > '\(pidFile.path)'
+        exec /bin/sleep 30
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: client,
+            paths: CloudTuiClientPaths(home: root)
+        )
+        let task = Task {
+            try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", invitationURI: nil)
+        }
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let pid = try #require(Int32(try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer { _ = Darwin.kill(pid, SIGKILL) }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("a cancelled link connect must throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("a cancelled link connect returned \(error) instead of CancellationError")
+        }
+        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the link child must be reaped before connect returns")
+    }
+
+    @Test func disconnectStopsLinkAndEventChildrenBeforeReturning() async throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-disconnect-\(UUID().uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let linkPIDFile = root.appendingPathComponent("link.pid")
+        let eventPIDFile = root.appendingPathComponent("event.pid")
+        let client = root.appendingPathComponent("fake-cmux-tui")
+        try """
+        #!/bin/sh
+        if [ "$1" = "remote" ]; then
+          echo $$ > '\(linkPIDFile.path)'
+          echo '{"event":"connection-snapshot","local_socket":"/tmp/fake-cloud-link.sock","connection":{}}'
+        else
+          echo $$ > '\(eventPIDFile.path)'
+        fi
+        exec /bin/sleep 30
+        """.write(to: client, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: client.path)
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: client,
+            paths: CloudTuiClientPaths(home: root)
+        )
+        _ = try await link.connect(route: "ws://10.0.0.1:1337/v1/link", session: "main", invitationURI: nil)
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: eventPIDFile.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let linkPID = try #require(Int32(try String(contentsOf: linkPIDFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        let eventPID = try #require(Int32(try String(contentsOf: eventPIDFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer {
+            _ = Darwin.kill(linkPID, SIGKILL)
+            _ = Darwin.kill(eventPID, SIGKILL)
+        }
+
+        await link.disconnect()
+
+        #expect(Darwin.kill(linkPID, 0) == -1 && errno == ESRCH, "disconnect must reap the link child")
+        #expect(Darwin.kill(eventPID, 0) == -1 && errno == ESRCH, "disconnect must reap the event child")
+    }
+
     @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {
         var snapshot = Self.sessionSnapshot
         var tabs = snapshot["tabs"] as! [[String: Any]]
