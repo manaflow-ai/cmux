@@ -11409,6 +11409,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// off the connection startup path.
     public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
         macCompatPolicy = policy
+        let requiredMacVersion = policy
+            .tier(forIOSVersion: versionGateIOSAppVersion)?
+            .stableMinVersion
+            .description
+        MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersion(requiredMacVersion)
     }
 
     func noteMacVersionUpdateRequired(for macDeviceID: String) {

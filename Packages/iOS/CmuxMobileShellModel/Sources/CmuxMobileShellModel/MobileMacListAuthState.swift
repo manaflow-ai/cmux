@@ -76,6 +76,12 @@ public final class MobileMacListAuthState {
     /// Account-level minimum Mac version from the latest directory fact.
     public private(set) var minimumSupportedMacVersion: String?
 
+    /// The current iOS build's policy floor, when the shell has installed one.
+    /// This takes precedence over the legacy directory fact because the same
+    /// account can be viewed by multiple iOS builds with different floors.
+    private var policyMinimumSupportedMacVersion: String?
+    private var hasPolicyMinimumSupportedMacVersion = false
+
     public init() {}
 
     public func replace(
@@ -83,10 +89,42 @@ public final class MobileMacListAuthState {
         entriesByDeviceID: [String: Entry],
         minimumSupportedMacVersion: String? = nil
     ) {
-        self.entriesByEndpointID = entriesByEndpointID
-        self.entriesByDeviceID = entriesByDeviceID
-        self.minimumSupportedMacVersion = minimumSupportedMacVersion
+        let effectiveMinimum = hasPolicyMinimumSupportedMacVersion
+            ? policyMinimumSupportedMacVersion
+            : minimumSupportedMacVersion
+        let shouldOverride = hasPolicyMinimumSupportedMacVersion
+            || minimumSupportedMacVersion != nil
+        self.entriesByEndpointID = Self.entries(
+            entriesByEndpointID,
+            withMinimumSupportedVersion: effectiveMinimum,
+            shouldOverride: shouldOverride
+        )
+        self.entriesByDeviceID = Self.entries(
+            entriesByDeviceID,
+            withMinimumSupportedVersion: effectiveMinimum,
+            shouldOverride: shouldOverride
+        )
+        self.minimumSupportedMacVersion = effectiveMinimum
         hasSnapshot = true
+    }
+
+    /// Installs the minimum Mac version for this iOS build and reapplies it to
+    /// already-projected rows. A `nil` value is an intentional fail-open policy
+    /// with no tier for the running iOS version.
+    public func applyPolicyMinimumSupportedMacVersion(_ minimum: String?) {
+        policyMinimumSupportedMacVersion = minimum
+        hasPolicyMinimumSupportedMacVersion = true
+        entriesByEndpointID = Self.entries(
+            entriesByEndpointID,
+            withMinimumSupportedVersion: minimum,
+            shouldOverride: true
+        )
+        entriesByDeviceID = Self.entries(
+            entriesByDeviceID,
+            withMinimumSupportedVersion: minimum,
+            shouldOverride: true
+        )
+        minimumSupportedMacVersion = minimum
     }
 
     public func clear() {
@@ -102,6 +140,19 @@ public final class MobileMacListAuthState {
 
     public func entry(deviceID: String) -> Entry? {
         entriesByDeviceID[deviceID]
+    }
+
+    private static func entries(
+        _ entries: [String: Entry],
+        withMinimumSupportedVersion minimum: String?,
+        shouldOverride: Bool
+    ) -> [String: Entry] {
+        guard shouldOverride else { return entries }
+        return entries.mapValues { entry in
+            var updated = entry
+            updated.minimumSupportedVersion = minimum
+            return updated
+        }
     }
 
     /// Whether the directory still has a seeded overlay for this Mac. This is
