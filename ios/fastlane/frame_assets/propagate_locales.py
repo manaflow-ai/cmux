@@ -90,7 +90,9 @@ def main():
         raise SystemExit(f"missing source mapping for App Store locales: {missing_mapping}")
     # Snapshot can be intentionally partial for verification runs. Capture the
     # available source sets before clearing destination dirs, then fall back to
-    # en-US for any omitted language instead of mixing stale and fresh files.
+    # the canonical fresh set for any omitted language instead of mixing stale
+    # and fresh files. Full release runs always include en-US, while a focused
+    # locale run may provide only (for example) de-DE.
     source_dirs = sorted(set(SOURCE_LOCALE.values()))
     with tempfile.TemporaryDirectory(prefix="cmux-locale-raws-") as staged:
         available = {}
@@ -105,21 +107,24 @@ def main():
                 shutil.copy2(os.path.join(src, f), os.path.join(dst, f))
             available[source] = files
 
-        if "en-US" not in available:
-            raise SystemExit(f"no en-US raws in {os.path.join(ss, 'en-US')}; run capture first")
-        expected = set(available["en-US"])
+        if not available:
+            raise SystemExit(f"no localized raws in {ss}; run capture first")
+        canonical = "en-US" if "en-US" in available else sorted(available)[0]
+        if canonical != "en-US":
+            print(f"no en-US raws; using {canonical} as the canonical focused capture")
+        expected = set(available[canonical])
         incomplete = {
             source: sorted(set(files) ^ expected)
             for source, files in available.items()
             if set(files) != expected
         }
         if incomplete:
-            raise SystemExit(f"localized capture sets differ from en-US: {incomplete}")
+            raise SystemExit(f"localized capture sets differ from {canonical}: {incomplete}")
 
         counts = {}
         for loc in LOCALES:
             preferred = SOURCE_LOCALE[loc]
-            source = preferred if preferred in available else "en-US"
+            source = preferred if preferred in available else canonical
             dst = os.path.join(ss, loc)
             os.makedirs(dst, exist_ok=True)
             clear_pngs(dst)
