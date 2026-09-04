@@ -150566,13 +150566,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk"
+            "value": "Up to 50 Cloud VMs, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 50 台の Cloud VM、すべての VM で合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有"
+            "value": "最大 50 台の Cloud VM、すべての VM で合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有。標準サイズは 8 GB RAM / 32 GB ディスクで、容量の範囲内で RAM 4～64 GB のサイズを選べます"
           }
         }
       }
@@ -150787,13 +150787,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing."
+            "value": "Pro includes up to 50 Cloud VMs sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same shared pool per user. The default VM size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available as capacity allows. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pro では最大 50 台の Cloud VM で、合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有します。Team では同じ上限と共有容量がユーザーごとに含まれます。新しい VM のディスクは 32 GB で開始し、共有プールの範囲内で拡張できます。従量課金や超過料金はありません。"
+            "value": "Pro では最大 50 台の Cloud VM で、合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有します。Team では同じ共有プールがユーザーごとに含まれます。標準 VM サイズは 8 GB RAM / 32 GB ディスクで、容量の範囲内で RAM 4～64 GB のサイズを選べます。新しい VM のディスクは 32 GB で開始し、共有プールの範囲内で拡張できます。従量課金や超過料金はありません。"
           }
         },
         "ar": { "stringUnit": { "state": "translated", "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. New VM disks start at 32 GB and can grow within the shared pool. There is no metering or overage billing." } },
@@ -151010,13 +151010,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 50 Cloud VMs per user, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk"
+            "value": "Up to 50 Cloud VMs per user, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーごとに最大 50 台の Cloud VM、すべての VM で合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有"
+            "value": "ユーザーごとに最大 50 台の Cloud VM、すべての VM で合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有。標準サイズは 8 GB RAM / 32 GB ディスクで、容量の範囲内で RAM 4～64 GB のサイズを選べます"
           }
         }
       }
@@ -273386,6 +273386,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイズ"
+          }
+        }
+      }
+    },
+    "machines.new.size.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GB RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM %d GB"
+          }
+        }
+      }
+    },
+    "machines.new.size.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GB disk included"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク %d GB を含む"
           }
         }
       }

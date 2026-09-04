@@ -62,6 +62,15 @@ const tuiInstallerHeaderRules = [
 
 const nextConfig: NextConfig = {
   poweredByHeader,
+  typescript: {
+    // The full project typecheck runs as its own CI job. Keep test and tool
+    // files out of Next's production-build check so the same work is not done
+    // twice and application errors still fail the build.
+    tsconfigPath:
+      process.env.NODE_ENV === "production"
+        ? "tsconfig.next.json"
+        : "tsconfig.json",
+  },
   allowedDevOrigins: directDevBackendAllowedHost
     ? [directDevBackendAllowedHost]
     : undefined,
@@ -69,6 +78,10 @@ const nextConfig: NextConfig = {
   partialPrefetching: true,
   experimental: {
     exposeTestingApiInProductionBuild: process.env.NEXT_INSTANT_TEST === "1",
+    // Vercel restores .next/cache between deployments. Local and CI builds do
+    // not have a durable cache, so avoid writing and compacting a large cache
+    // database that cannot be reused by the next build.
+    turbopackFileSystemCacheForBuild: process.env.VERCEL === "1",
     instantInsights: {
       validationLevel: "warning",
     },

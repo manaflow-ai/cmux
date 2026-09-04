@@ -14,6 +14,7 @@ import {
   PLAN_SHARED_DISK_MB,
   PLAN_SHARED_MEMORY_MB,
   PLAN_SHARED_VCPU,
+  PLAN_MACHINE_MEMORY_MB,
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   firstExceededSharedResource,
   sharedResourceUsage,
@@ -98,18 +99,21 @@ describe("pricing plans", () => {
 });
 
 describe("pricing copy matches the plan policy", () => {
-  // The public pricing copy states the VM allowance and shared capacity as
-  // prose. Pin the shared pool to its product contract and pin the provider
-  // starting disk to its runtime constant so the two policies stay distinct.
+  // The public pricing copy states both the shared pool and the selectable
+  // machine default. Pin each number to the policy constants so copy and
+  // enforcement cannot drift independently.
   const sharedVcpus = PLAN_SHARED_VCPU;
   const sharedMemoryGb = PLAN_SHARED_MEMORY_MB / 1024;
   const sharedDiskGb = PLAN_SHARED_DISK_MB / 1024;
+  const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
   const startingDiskGb = VM_DISK_MB_DEFAULT / 1024;
 
-  test("the shared Cloud VM capacity is 5 vCPU, 20 GB RAM, 200 GB disk, up to 50 machines", () => {
+  test("the default machine and shared Cloud VM capacity match the plan", () => {
     expect(sharedVcpus).toBe(5);
     expect(sharedMemoryGb).toBe(20);
     expect(sharedDiskGb).toBe(200);
+    expect(memoryGb).toBe(8);
+    expect(startingDiskGb).toBe(32);
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
   });
 
@@ -198,11 +202,11 @@ describe("pricing copy matches the plan policy", () => {
     [
       "en",
       enMessages,
-      "all sharing a total of",
+      "all sharing a total pool of",
       "each with",
       "Resources shared across Cloud VMs",
-      "Each user's VMs share a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk",
-      "up to 50 Cloud VMs per user",
+      "Pro includes up to 50 machines sharing a total pool of 5 vCPU, 20 GB of RAM, and 200 GB of disk",
+      "same shared pool for each user",
       "New VM disks start at 32 GB",
     ],
     [
@@ -211,8 +215,8 @@ describe("pricing copy matches the plan policy", () => {
       "すべての VM で合計",
       "各 5 vCPU",
       "Cloud VM 間で共有するリソース",
-      "各ユーザーの VM は合計 5 vCPU、20 GB の RAM、200 GB のディスクを共有",
-      "ユーザーごとに最大 50 台の Cloud VM",
+      "Pro では最大 50 台のマシンで合計 5 vCPU、20 GB の RAM、200 GB のディスクを共有",
+      "Team では、ユーザーごとに最大 50 台のマシンと同じ共有プール",
       "新しい VM のディスクは 32 GB で開始",
     ],
   ] as const) {
@@ -224,6 +228,8 @@ describe("pricing copy matches the plan policy", () => {
       expect(proFeatures).toContain(`${sharedMemoryGb} GB`);
       expect(proFeatures).toContain(`${sharedDiskGb} GB`);
       expect(proFeatures).toContain(sharedPhrase);
+      expect(proFeatures).toContain(`${memoryGb} GB`);
+      expect(proFeatures).toContain(`${startingDiskGb} GB`);
       expect(proFeatures).not.toContain(stalePerVmPhrase);
 
       const vmRow = pricing.compare.rows.find((row) =>
@@ -234,9 +240,13 @@ describe("pricing copy matches the plan policy", () => {
       expect(capacityRow?.pro).toContain(`${sharedVcpus} vCPU`);
       expect(capacityRow?.pro).toContain(`${sharedMemoryGb} GB`);
       expect(capacityRow?.pro).toContain(`${sharedDiskGb} GB`);
+      expect(capacityRow?.pro).toContain(`${memoryGb} GB`);
+      expect(capacityRow?.pro).toContain(`${startingDiskGb} GB`);
       expect(capacityRow?.team).toContain(`${sharedVcpus} vCPU`);
       expect(capacityRow?.team).toContain(`${sharedMemoryGb} GB`);
       expect(capacityRow?.team).toContain(`${sharedDiskGb} GB`);
+      expect(capacityRow?.team).toContain(`${memoryGb} GB`);
+      expect(capacityRow?.team).toContain(`${startingDiskGb} GB`);
       const teamCapacity = capacityRow?.team ?? "";
       expect(locale === "en" ? teamCapacity.toLowerCase() : teamCapacity).toContain(
         locale === "en" ? "per user" : "ユーザーごとに",
@@ -270,13 +280,13 @@ describe("pricing copy matches the plan policy", () => {
       const messages = await loadMessages(locale) as unknown as typeof enMessages;
       const pricing = messages.pricing;
       const proFeatures = pricing.pro.features.join("\n");
-      expect(proFeatures).toContain("all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk");
+      expect(proFeatures).toContain("all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk");
       expect(proFeatures).not.toContain("each with 5 vCPU");
       const capacityRow = pricing.compare.rows.find((row) => row.label === "Resources shared across Cloud VMs");
-      expect(capacityRow?.pro).toBe("5 vCPU, 20 GB RAM, 200 GB disk total");
-      expect(capacityRow?.team).toBe("Per user: 5 vCPU, 20 GB RAM, and 200 GB disk total");
+      expect(capacityRow?.pro).toBe("5 vCPU, 20 GB RAM, 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows");
+      expect(capacityRow?.team).toBe("Per user: 5 vCPU, 20 GB RAM, and 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows");
       const faq = pricing.faq.items.map((item) => item.a).join("\n");
-      expect(faq).toContain("Each user's VMs share a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk");
+      expect(faq).toContain("Pro includes up to 50 machines sharing a total pool of 5 vCPU, 20 GB of RAM, and 200 GB of disk");
     }
   });
 });

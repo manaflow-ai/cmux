@@ -42,6 +42,12 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+mock.module("../i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
+}));
+
 mock.module("../app/[locale]/components/site-header", () => ({
   SiteHeader: () => <header />,
 }));
@@ -242,7 +248,7 @@ describe("localized pricing page", () => {
     expect(html).toContain("$50");
     expect(html).toContain("$60");
     expect(html).toContain(
-      "Up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk",
+      "Up to 50 Cloud VMs, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
     );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");

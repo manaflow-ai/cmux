@@ -1,5 +1,7 @@
 /**
- * The provider sizing profile and the plan-wide Cloud VM resource policy.
+ * The plan machine and the plan-wide Cloud VM resource policy. Every paid
+ * plan gets up to PAID_MAX_ACTIVE_VMS_DEFAULT machines. Machine size options
+ * are defined in `entitlements.ts`; the default is the 8 GB / 32 GB tier.
  *
  * The count allowance and the resource pool are separate limits. Postgres
  * records each machine's reservation, and the VM repository checks the live
@@ -14,7 +16,7 @@
  * without pulling the billing graph into their module.
  */
 export const PAID_MAX_ACTIVE_VMS_DEFAULT = 50;
-export const PLAN_MACHINE_MEMORY_MB = 20480;
+export const PLAN_MACHINE_MEMORY_MB = 8192;
 export const VM_MEMORY_MB_PER_VCPU = 4096;
 export const PLAN_SHARED_VCPU = 5;
 export const PLAN_SHARED_MEMORY_MB = 20 * 1024;
@@ -56,7 +58,7 @@ export const DEFAULT_VM_RESOURCE_RESERVATION: VmResourceReservation = {
 
 export const VM_RESOURCE_RESERVATION_METADATA_KEY = "cmuxResourceReservation";
 
-/** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up (20 GB → 5). */
+/** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up. */
 export function vcpusForMemoryMb(memoryMb: number): number {
   return Math.max(1, Math.ceil(memoryMb / VM_MEMORY_MB_PER_VCPU));
 }

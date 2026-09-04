@@ -142,6 +142,9 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // Generated three-word name; clients show it when no displayName is
+        // set. Null on rows created before names were assigned.
+        slug: entry.slug,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
@@ -164,6 +167,7 @@ export async function GET(request: Request): Promise<Response> {
               : earliest === null ? vm.freeAccessExpiresAt : Math.min(earliest, vm.freeAccessExpiresAt),
             null,
           ),
+          memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
           // Kinds a client may request (and the image each resolves to) for the
           // default provider, so a "new machine" dialog offers only kinds that work.
           imageKinds: listVmImageKinds(defaultProviderId(), process.env, {
@@ -398,8 +402,10 @@ export async function POST(request: Request): Promise<Response> {
         const memoryOptionsMb = memoryOptionsMbForPlan(entitlements.planId, process.env);
         const planMemoryMb = defaultMemoryMbForPlan(entitlements.planId, process.env);
         const requestedMemoryMb = candidate.memoryMb as number | undefined;
-        // Every plan uses one provider sizing profile, so a size the plan does
-        // not offer resolves to that profile instead of failing the create.
+        // The server owns the supported size ladder. A stale client request
+        // that is not on the ladder resolves to the plan default instead of
+        // failing the create. The paid plan's 5 vCPU / 20 GB RAM / 200 GB
+        // shared pool is enforced separately by the repository.
         // Clients ship their own size table and always trail the server: the
         // 2026-09-02 pricing change (#11610) left every installed nightly
         // sending its old 24 GB default and the server rejecting each create
@@ -555,6 +561,8 @@ export async function POST(request: Request): Promise<Response> {
           kind: imageSelection.kind,
           ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
+          displayName: created.displayName,
+          slug: created.slug,
         });
       }
     },

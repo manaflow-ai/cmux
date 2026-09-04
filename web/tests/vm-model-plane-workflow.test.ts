@@ -50,6 +50,7 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     provider: "freestyle",
     providerVmId: null,
     displayName: null,
+    slug: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
