@@ -39,7 +39,10 @@ import {
 } from "../services/vms/errors";
 import { accountDeletionUserHash } from "../services/account/deletionLock";
 import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
-import { VM_RESOURCE_RESIZE_PENDING_METADATA_KEY } from "../services/vms/machineSpec";
+import {
+  PLAN_SHARED_DISK_MB,
+  VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+} from "../services/vms/machineSpec";
 import {
   createVm,
   destroyVm,
@@ -233,6 +236,53 @@ describe("VM Effect workflows", () => {
       expectedDiskMb: 65536,
       confirmedDiskMb: 73728,
     }]);
+  });
+
+  test("fails a paid resize when its reservation confirmation loses the race", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000143",
+      userId: "user-workflow-resize-confirmation-race",
+      billingTeamId: "team-workflow-resize-confirmation-race",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-resize-confirmation-race",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    let statsCalls = 0;
+    const repo = {
+      ...testWorkflowRepo({ vm, usageEvents }),
+      reserveVmResize: () => Effect.succeed({
+        previousDiskMb: 32768,
+        reservedDiskMb: 204800,
+        requestedDiskMb: 65536,
+        operationId: "resize-operation-one",
+      }),
+      confirmVmResize: () => Effect.succeed(false),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.sync(() => ({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        diskTotalMb: ++statsCalls === 1 ? 32768 : 73728,
+      })),
+      resize: () => Effect.void,
+    };
+
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        storageMb: 65536,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toBeInstanceOf(VmDatabaseError);
+    expect(usageEvents).toHaveLength(0);
   });
 
   test("rejects a disk shrink before calling the provider", async () => {
@@ -2653,6 +2703,7 @@ describe("VM Effect workflows", () => {
       previousDiskMb: 32768,
       reservedDiskMb: 200 * 1024,
       requestedDiskMb: 65536,
+      operationId: expect.any(String),
     });
     const [pending] = await sql<{ pending: boolean }[]>`
       select provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending
@@ -2683,6 +2734,7 @@ describe("VM Effect workflows", () => {
       expectedDiskMb: reservation!.reservedDiskMb,
       minimumDiskMb: reservation!.requestedDiskMb,
       confirmedDiskMb: 73728,
+      operationId: reservation!.operationId,
     }));
     expect(confirmed).toBe(true);
     const [cleared] = await sql<{ pending: boolean }[]>`
@@ -2711,6 +2763,216 @@ describe("VM Effect workflows", () => {
       where id = ${vmId}
     `;
     expect(stored?.diskMb).toBe(73728);
+  });
+
+  dbTest("rejects a second resize while the first resize marker is pending", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000148";
+    const teamId = "team-workflow-resize-in-progress";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-workflow-resize-in-progress', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-in-progress', 'snapshot-test', 'running',
+        ${sql.json({
+          cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
+          cmuxResourceResizePending: {
+            operationId: "resize-operation-existing",
+            requestedDiskMb: 65536,
+            previousDiskMb: 32768,
+          },
+        })}
+      )
+    `;
+
+    const error = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.reserveVmResize!({
+          id: vmId,
+          userId: "user-workflow-resize-in-progress",
+          billingTeamId: teamId,
+          providerVmId: "provider-vm-resize-in-progress",
+          currentDiskMb: 32768,
+          storageMb: 73728,
+          maxActiveVms: 50,
+        });
+      }).pipe(Effect.flip, Effect.provide(VmRepositoryLive)),
+    );
+
+    expect(error).toMatchObject({ _tag: "VmResizeInProgressError", vmId });
+  });
+
+  dbTest("confirms only the resize generation that owns the pending marker", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000149";
+    const teamId = "team-workflow-resize-generation";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-workflow-resize-generation', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-generation', 'snapshot-test', 'running',
+        ${sql.json({ cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 } })}
+      )
+    `;
+
+    const runRepo = <T,>(operation: (repo: VmRepositoryShape) => Effect.Effect<T, unknown>) =>
+      Effect.runPromise(
+        Effect.gen(function* () {
+          const repo = yield* VmRepository;
+          return yield* operation(repo);
+        }).pipe(Effect.provide(VmRepositoryLive)),
+      );
+    const first = await runRepo((repo) => repo.reserveVmResize!({
+      id: vmId,
+      userId: "user-workflow-resize-generation",
+      billingTeamId: teamId,
+      providerVmId: "provider-vm-resize-generation",
+      currentDiskMb: 32768,
+      storageMb: 65536,
+      maxActiveVms: 50,
+    }));
+    expect(first?.operationId).toEqual(expect.any(String));
+
+    await sql`
+      update cloud_vms
+      set provider_metadata = jsonb_set(
+        provider_metadata,
+        '{cmuxResourceResizePending,operationId}',
+        '"resize-operation-newer"'::jsonb,
+        true
+      )
+      where id = ${vmId}
+    `;
+    const stale = await runRepo((repo) => repo.confirmVmResize!({
+      id: vmId,
+      expectedDiskMb: first!.reservedDiskMb,
+      minimumDiskMb: first!.requestedDiskMb,
+      confirmedDiskMb: 73728,
+      operationId: first!.operationId,
+    }));
+    expect(stale).toBe(false);
+    const [stillPending] = await sql<{ operationId: string }[]>`
+      select provider_metadata->'cmuxResourceResizePending'->>'operationId' as "operationId"
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(stillPending?.operationId).toBe("resize-operation-newer");
+
+    const current = await runRepo((repo) => repo.confirmVmResize!({
+      id: vmId,
+      expectedDiskMb: first!.reservedDiskMb,
+      minimumDiskMb: first!.requestedDiskMb,
+      confirmedDiskMb: 73728,
+      operationId: "resize-operation-newer",
+    }));
+    expect(current).toBe(true);
+  });
+
+  dbTest("recovers a completed pending resize before checking a paid create", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const oldVmId = "00000000-0000-4000-8000-000000000150";
+    const teamId = "team-workflow-resize-recovery";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${oldVmId}, 'user-workflow-resize-recovery-old', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-recovery-old', 'snapshot-test', 'running',
+        ${sql.json({
+          cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: PLAN_SHARED_DISK_MB },
+          cmuxResourceResizePending: {
+            operationId: "resize-operation-recovery",
+            requestedDiskMb: 65536,
+            previousDiskMb: 32768,
+          },
+        })}
+      )
+    `;
+
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: (_provider, providerVmId) => {
+        expect(providerVmId).toBe("provider-vm-resize-recovery-old");
+        return Effect.succeed({
+          state: "awake" as const,
+          sampledAt: Date.now(),
+          cpus: 2,
+          memoryTotalMb: 8192,
+          diskTotalMb: 73728,
+        });
+      },
+      create: (_provider, options) => Effect.succeed({
+        provider: "freestyle" as const,
+        providerVmId: "provider-vm-resize-recovery-new",
+        status: "running" as const,
+        image: options.image,
+        createdAt: Date.now(),
+      }),
+    };
+
+    const created = await Effect.runPromise(
+      createVm({
+        userId: "user-workflow-resize-recovery-new",
+        billingCustomerType: "team",
+        billingTeamId: teamId,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: "snapshot-test",
+        idempotencyKey: "resize-recovery-create",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(created.providerVmId).toBe("provider-vm-resize-recovery-new");
+    const [oldRow] = await sql<{ diskMb: number; pending: boolean }[]>`
+      select
+        (provider_metadata->'cmuxResourceReservation'->>'diskMb')::integer as "diskMb",
+        provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending
+      from cloud_vms
+      where id = ${oldVmId}
+    `;
+    expect(oldRow).toEqual({ diskMb: 73728, pending: false });
+  });
+
+  dbTest("uses the shared disk pool for snapshot events without a recorded size", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vm_usage_events (
+        user_id, billing_team_id, billing_plan_id, event_type, provider, image_id, metadata
+      ) values (
+        'user-workflow-legacy-snapshot', 'team-workflow-legacy-snapshot', 'pro',
+        'vm.snapshot.created', 'freestyle', 'snapshot-test',
+        ${sql.json({ snapshotId: "legacy-snapshot-without-size" })}
+      )
+    `;
+
+    const reservation = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.ownedSnapshotResourceReservation!({
+          userId: "user-workflow-legacy-snapshot",
+          billingTeamId: "team-workflow-legacy-snapshot",
+          provider: "freestyle",
+          snapshotId: "legacy-snapshot-without-size",
+        });
+      }).pipe(Effect.provide(VmRepositoryLive)),
+    );
+
+    expect(reservation).toEqual({
+      vcpus: 5,
+      memoryMb: 20 * 1024,
+      diskMb: PLAN_SHARED_DISK_MB,
+    });
   });
 
   dbTest("resets Base by retaining the previous generation when capacity allows", async () => {

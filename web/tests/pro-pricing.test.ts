@@ -121,7 +121,7 @@ describe("pricing copy matches the plan policy", () => {
     expect(startingDiskGb).toBe(32);
   });
 
-  test("the shared pool scales by paid seat, shares CPU and memory, and adds disk", () => {
+  test("the shared pool scales by paid seat and sums every resource claim", () => {
     expect(sharedResourceCapacityForMaxActiveVms(PAID_MAX_ACTIVE_VMS_DEFAULT)).toEqual({
       vcpus: PLAN_SHARED_VCPU,
       memoryMb: PLAN_SHARED_MEMORY_MB,
@@ -150,18 +150,18 @@ describe("pricing copy matches the plan policy", () => {
       requested: 2,
       limit: PLAN_SHARED_DISK_MB,
     });
-    expect(sharedResourceUsage("vcpus", PLAN_SHARED_VCPU, 1)).toBe(PLAN_SHARED_VCPU);
-    expect(sharedResourceUsage("memoryMb", PLAN_SHARED_MEMORY_MB, 1)).toBe(PLAN_SHARED_MEMORY_MB);
+    expect(sharedResourceUsage("vcpus", PLAN_SHARED_VCPU, 1)).toBe(PLAN_SHARED_VCPU + 1);
+    expect(sharedResourceUsage("memoryMb", PLAN_SHARED_MEMORY_MB, 1)).toBe(PLAN_SHARED_MEMORY_MB + 1);
     expect(sharedResourceUsage("diskMb", PLAN_SHARED_DISK_MB - 1, 2)).toBe(PLAN_SHARED_DISK_MB + 1);
     expect(firstExceededSharedResource({
       used: {
-        vcpus: PLAN_SHARED_VCPU,
-        memoryMb: PLAN_SHARED_MEMORY_MB,
+        vcpus: PLAN_SHARED_VCPU - 1,
+        memoryMb: PLAN_SHARED_MEMORY_MB - 1,
         diskMb: VM_DISK_MB_DEFAULT,
       },
       requested: {
-        vcpus: PLAN_SHARED_VCPU,
-        memoryMb: PLAN_SHARED_MEMORY_MB,
+        vcpus: 1,
+        memoryMb: 1,
         diskMb: VM_DISK_MB_DEFAULT,
       },
       capacity: {
@@ -170,6 +170,20 @@ describe("pricing copy matches the plan policy", () => {
         diskMb: PLAN_SHARED_DISK_MB,
       },
     })).toBeNull();
+    expect(firstExceededSharedResource({
+      used: { vcpus: PLAN_SHARED_VCPU - 1, memoryMb: 0, diskMb: 0 },
+      requested: { vcpus: 2, memoryMb: 1, diskMb: 1 },
+      capacity: {
+        vcpus: PLAN_SHARED_VCPU,
+        memoryMb: PLAN_SHARED_MEMORY_MB,
+        diskMb: PLAN_SHARED_DISK_MB,
+      },
+    })).toEqual({
+      resource: "vcpus",
+      used: PLAN_SHARED_VCPU - 1,
+      requested: 2,
+      limit: PLAN_SHARED_VCPU,
+    });
   });
 
   test("a size-less plan reservation follows requested memory", () => {
