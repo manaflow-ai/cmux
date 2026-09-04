@@ -1090,7 +1090,7 @@ extension ReconnectRouteSelectionTests {
         clock.advance(by: 61)
         store.resumeForegroundRefresh()
 
-        let recovered = try await pollUntil(attempts: 100) {
+        let recovered = try await pollUntil {
             guard let current = box.get() else { return false }
             return current !== firstTransport
                 && store.connectionState == .connected
