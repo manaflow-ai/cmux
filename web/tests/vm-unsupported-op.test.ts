@@ -1,22 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
-import { BlaxelRetryExhaustedError } from "../services/vms/drivers/blaxel";
-import { BlaxelProvider } from "../services/vms/drivers/blaxel";
+import { getProvider, vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "../services/vms/errors";
 import { isOperatorFaultVmError } from "../services/vms/observability";
 import { vmWorkflowErrorResponse } from "../services/vms/routeHelpers";
 import { vmRequestLocale } from "../services/vms/vmErrorMessages";
 import { locales } from "../i18n/routing";
 
-// Blaxel snapshot/restore throw VmOperationUnsupportedError. Before this mapping they
-// surfaced as 502 vm_cloud_service_unavailable retryable:true, telling users
-// to retry an operation the provider will never perform.
+// A driver that cannot perform an operation raises VmOperationUnsupportedError.
+// Before this mapping it surfaced as 502 vm_cloud_service_unavailable
+// retryable:true, telling users to retry an operation the provider will never
+// perform. `fork` is the live case today: no driver implements it.
 describe("unsupported provider operations", () => {
   test("the structured driver error maps to an honest non-retryable 501", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
-      provider: "blaxel",
+      provider: "freestyle",
       operation: "snapshot",
-      cause: new VmOperationUnsupportedError({ provider: "blaxel", operation: "snapshot" }),
+      cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "snapshot" }),
     }));
     expect(response).not.toBeNull();
     expect(response!.status).toBe(501);
@@ -39,15 +39,15 @@ describe("unsupported provider operations", () => {
     });
     const raw = JSON.stringify(payload);
     // No provider or implementation leaks, and the copy must not invite a retry.
-    expect(raw).not.toMatch(/blaxel|not implemented|NotImplemented/i);
+    expect(raw).not.toMatch(/freestyle|not implemented|NotImplemented/i);
     expect(String(payload.action)).toMatch(/^Do not retry/);
   });
 
   test("restore gets restore-phase copy", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
-      provider: "blaxel",
+      provider: "freestyle",
       operation: "restore",
-      cause: new VmOperationUnsupportedError({ provider: "blaxel", operation: "restore" }),
+      cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "restore" }),
     }));
     expect(response!.status).toBe(501);
     const payload = await response!.json() as { error: string; phase: string; message: string };
@@ -58,7 +58,7 @@ describe("unsupported provider operations", () => {
 
   test("a provider message containing the capability phrase stays retryable", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
-      provider: "e2b",
+      provider: "freestyle",
       operation: "snapshot",
       cause: new Error("Cloud VM snapshots are not supported by this provider gateway"),
     }));
@@ -68,23 +68,20 @@ describe("unsupported provider operations", () => {
     expect(payload.retryable).toBe(true);
   });
 
-  test("Blaxel throws the structured error for unsupported operations", async () => {
-    const provider = new BlaxelProvider();
-    await expect(provider.snapshot("vm-1")).rejects.toMatchObject({
-      _tag: "VmOperationUnsupportedError",
-      provider: "blaxel",
-      operation: "snapshot",
-    });
-    await expect(provider.restore("snapshot-1")).rejects.toMatchObject({
-      _tag: "VmOperationUnsupportedError",
-      provider: "blaxel",
-      operation: "restore",
-    });
+  test("a driver without fork reports the capability as false, so clients hide the verb", () => {
+    // vmCapabilitiesFor derives `fork` from the method's existence; the gateway
+    // raises VmOperationUnsupportedError when a caller asks anyway.
+    for (const provider of ["freestyle"] as const) {
+      const capabilities = vmCapabilitiesFor(provider);
+      expect(capabilities.fork).toBe(typeof getProvider(provider).fork === "function");
+      expect(capabilities.snapshot).toBe(true);
+      expect(capabilities.restore).toBe(true);
+    }
   });
 
   test("transient provider failures keep the retryable 502 path", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
-      provider: "blaxel",
+      provider: "freestyle",
       operation: "snapshot",
       cause: new Error("INTERNAL_ERROR: Internal server error"),
     }));
@@ -94,38 +91,30 @@ describe("unsupported provider operations", () => {
     expect(payload.retryable).toBe(true);
   });
 
-  test("hides provider retry details from the public response", async () => {
+  test("hides upstream provider detail from the public response", async () => {
     const response = await vmWorkflowErrorResponse(new VmProviderOperationError({
-      provider: "blaxel",
+      provider: "freestyle",
       operation: "create",
-      cause: new BlaxelRetryExhaustedError(
-        "GET",
-        "https://api.blaxel.test/workspaces/private",
-        4,
-        "503: private upstream details",
-      ),
+      cause: new Error("INTERNAL_ERROR: private upstream details from https://api.freestyle.test/v5/vms"),
     }));
     const payload = await response!.json() as Record<string, unknown>;
     const raw = JSON.stringify(payload);
     expect(response!.status).toBe(502);
-    expect(payload.reason).toBe("The Cloud VM service is temporarily unavailable.");
-    expect(payload.details).toMatchObject({
-      operation: "create",
-      retryable: true,
-      providerCode: "provider_retry_exhausted",
-    });
-    expect(payload.details).not.toHaveProperty("providerMessage");
-    expect(raw).not.toContain("blaxel");
-    expect(raw).not.toContain("api.blaxel.test");
+    expect(payload.details).toMatchObject({ operation: "create", retryable: true });
+    // The sanitizer collapses the upstream text to a category, so neither the
+    // provider name, its endpoint, nor the upstream body reaches the client.
+    expect(payload.details).toMatchObject({ providerMessage: "internal service error" });
+    expect(raw).not.toContain("freestyle");
+    expect(raw).not.toContain("api.freestyle.test");
     expect(raw).not.toContain("private upstream details");
   });
 
   test("resolves unsupported-operation copy from the requested locale", async () => {
     const response = await vmWorkflowErrorResponse(
       new VmProviderOperationError({
-        provider: "blaxel",
+        provider: "freestyle",
         operation: "restore",
-        cause: new VmOperationUnsupportedError({ provider: "blaxel", operation: "restore" }),
+        cause: new VmOperationUnsupportedError({ provider: "freestyle", operation: "restore" }),
       }),
       { locale: "ja" },
     );

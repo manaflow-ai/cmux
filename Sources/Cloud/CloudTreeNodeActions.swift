@@ -68,23 +68,27 @@ struct CloudTreeNodeActions {
             }
             return .workspace(id: workspaceID, placement: placement)
         }
-        let openingLabel: (SurfaceMachineID) -> String = { machine in
-            String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"), machine.isLocal
-                ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
-                : machine.rawValue)
-        }
+        // `catalog()` is a plain synchronous accessor, so resolving the
+        // machine's real name is safe here even though the mutation itself
+        // runs on a later Task.
         let machineName: (SurfaceMachineID) -> String = { machine in
-            machine.isLocal ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac") : machine.rawValue
+            Self.resolvedMachineName(machine, snapshot: catalog().snapshot)
+        }
+        let openingLabel: (SurfaceMachineID) -> String = { machine in
+            String(format: String(localized: "cloudTree.operation.project", defaultValue: "Opening on %@\u{2026}"), machineName(machine))
         }
         let startingLabel: (SurfaceMachineID) -> String = { machine in
-            String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machine.isLocal
-                ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac")
-                : machine.rawValue)
+            String(format: String(localized: "cloudTree.operation.newTerminal", defaultValue: "Starting a terminal on %@\u{2026}"), machineName(machine))
         }
         return CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
+                    let (projection, _) = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
+                    // `focus: true` above puts input focus on the created pane, but a
+                    // pane opened as an additional tab does not by itself become the
+                    // SELECTED tab in its column — explicitly select it too, so
+                    // clicking a sidebar row always lands you looking at it.
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                 }
             },
             projectInLocalWorkspace: { resource, workspaceID in
@@ -102,7 +106,8 @@ struct CloudTreeNodeActions {
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                    _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                    let (projection, _) = try await catalog.project(resource.id, into: try destination(.tab), focus: true, reuseExisting: true)
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                 }
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
@@ -110,7 +115,8 @@ struct CloudTreeNodeActions {
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                        _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                        let (projection, _) = try await catalog.project(resource.id, into: try destination(.tab), focus: true, reuseExisting: true)
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
@@ -124,13 +130,13 @@ struct CloudTreeNodeActions {
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
                         _ = try await catalog.projectGroupAsNewLocalWorkspace(
-                            [resource.id], title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
+                            [resource.id], title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group), focus: true, host: .app
                         )
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
                         _ = try await catalog.projectGroupAsNewLocalWorkspace(
-                            group.resources, title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
+                            group.resources, title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group), focus: true, host: .app
                         )
                     }
                 }
@@ -185,17 +191,32 @@ struct CloudTreeNodeActions {
             copyToPasteboard: { text in
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
-                pasteboard.setString(text, forType: .string)
+                let ok = pasteboard.setString(text, forType: .string)
+                #if DEBUG
+                cmuxDebugLog("cloudTree.copyToPasteboard ok=\(ok) chars=\(text.count)")
+                #endif
             },
             refresh: refresh
         )
     }
 
-    /// "<machine>: <workspace>" — the local workspace a remote one opens as.
-    static func localWorkspaceTitle(machine: SurfaceMachineID, group: SurfaceResourceGroup) -> String {
+    /// The local workspace's title: the remote workspace's own name — what a
+    /// person actually named it, or typed into its terminal — never the
+    /// machine's raw provider id. `hostName` (the machine's friendly label)
+    /// only shows up when the workspace itself has no name to show.
+    static func localWorkspaceTitle(hostName: String, group: SurfaceResourceGroup) -> String {
         let name = group.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let host = machine.isLocal ? String(localized: "cloudTree.machine.local", defaultValue: "This Mac") : machine.rawValue
-        return name.isEmpty ? host : "\(host): \(name)"
+        return name.isEmpty ? hostName : name
+    }
+
+    /// The machine's friendly label — `SurfaceMachineInfo.name` (the same
+    /// preferred name its own sidebar row shows), never the raw provider VM
+    /// id. Shared by every caller that needs a machine's name in
+    /// user-visible text (progress labels, a compound workspace title).
+    static func resolvedMachineName(_ machine: SurfaceMachineID, snapshot: SurfaceCatalogSnapshot) -> String {
+        if machine.isLocal { return String(localized: "cloudTree.machine.local", defaultValue: "This Mac") }
+        let name = snapshot.machines.first(where: { $0.id == machine })?.name
+        return name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? name! : machine.rawValue
     }
 
     /// The machine's ⌘N, shared by the sidebar's ＋ and the socket's `vm.workspace_new`:
@@ -229,7 +250,7 @@ struct CloudTreeNodeActions {
         let group = SurfaceResourceGroup(title: workspace.name, resources: [terminal.id])
         let opened = try await catalog.projectGroupAsNewLocalWorkspace(
             group.resources,
-            title: localWorkspaceTitle(machine: machine, group: group),
+            title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
             host: .app
         )

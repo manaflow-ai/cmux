@@ -85,7 +85,7 @@ describe("Cloud VM route input", () => {
   });
 
   test("uses the same provider allow-list for restore input and defaults", async () => {
-    expect(providerField({ provider: "blaxel" })).toEqual({ ok: true, provider: "blaxel" });
+    expect(providerField({ provider: "freestyle" })).toEqual({ ok: true, provider: "freestyle" });
     expect(providerField({})).toEqual({ ok: true });
     const invalid = providerField({ provider: "aws" });
     expect(invalid.ok).toBe(false);

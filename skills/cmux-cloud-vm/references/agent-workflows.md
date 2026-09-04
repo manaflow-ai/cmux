@@ -106,6 +106,8 @@ Pair with `cmux notify` so they know why a pane appeared. Prefer `--print`/`--de
 
 ## 8. Cleanup etiquette
 
-- Machines sleep on their own — idle machines cost nothing while asleep, so leaving one for the user to inspect is fine (say so in your handoff).
+- New cmux machines have no idle timeout and remain available until explicitly paused or
+  stopped. Older/provider-managed machines may still be asleep; opening or running a command
+  wakes them, so leaving one for the user to inspect is fine (say so in your handoff).
 - Delete forks and scratch machines you created once their purpose is served.
 - Never `vm rm` or `vm base reset` a machine you didn't create without explicit user confirmation — both discard data permanently.

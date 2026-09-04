@@ -169,7 +169,10 @@ struct DetectedSSHSession: Equatable {
         if !Self.hasSSHOptionKey(sshOptions, key: "StrictHostKeyChecking") {
             args += ["-o", "StrictHostKeyChecking=accept-new"]
         }
-        for option in sshOptions {
+        let nonInteractiveSSHOptions = SSHAgentSocketResolver().nonInteractiveOptions(
+            from: sshOptions
+        )
+        for option in nonInteractiveSSHOptions {
             args += ["-o", option]
         }
 

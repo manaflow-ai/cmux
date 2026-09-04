@@ -60,6 +60,15 @@
     "genericBody": "Bitte versuche es erneut. Wenn das Problem bestehen bleibt, wende dich an den Support.",
     "backToSignIn": "Zur Anmeldung"
   },
+  "cloudPublicationAccess": {
+    "title": "Du hast keinen Zugriff",
+    "signIn": "Bei cmux anmelden",
+    "signedInAs": "Angemeldet als {identity}",
+    "switchAccount": "Konto wechseln",
+    "invalidTitle": "Dieser Zugriffslink ist ungültig",
+    "invalidBody": "Kehre zur Website zurück und versuche es erneut.",
+    "footer": "Der Zugriff wird von cmux verwaltet."
+  },
   "common": {
     "downloadForMac": "Für Mac herunterladen",
     "viewOnGitHub": "Auf GitHub ansehen",
@@ -261,7 +270,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gemeinsam genutzte KI-Konten verwalten und Anfragen mit coderouter verteilen.",
       "title": "coderouter",
-      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten."
+      "description": "coderouter verteilt LLM-Anfragen mit Failover und nutzungsabhängiger Planung über Anbieter-Konten.",
+      "machines": {
+        "title": "Maschinen",
+        "description": "coderouter-Nutzung pro Maschine für {team} in den letzten {days} Tagen.",
+        "machineColumn": "Maschine",
+        "tokensColumn": "Token gesamt",
+        "apiEquivalentColumn": "API-Gegenwert",
+        "unnamed": "Unbenannte Maschine",
+        "empty": "In den letzten {days} Tagen hat keine Maschine coderouter genutzt.",
+        "unavailable": "Die Nutzung pro Maschine ist vorübergehend nicht verfügbar.",
+        "estimateNote": "Der API-Gegenwert ist eine Schätzung auf Basis öffentlicher Listenpreise, keine tatsächlichen Ausgaben."
+      }
     },
     "accountMenu": {
       "label": "Kontomenü",

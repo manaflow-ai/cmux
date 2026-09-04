@@ -45,6 +45,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
 
+# Distribution archives, including the INTERNAL TestFlight lane, are always
+# production-level artifacts. These values are exported for the cloud archive
+# serializer and repeated as xcodebuild settings in the local fallback.
+export CMUX_IOS_AUTH_ENV=production
+export CMUX_API_BASE_URL=https://cmux.com
+export CMUX_IROH_BROKER_BASE_URL=https://cmux.com
+export CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
+PRODUCTION_RUNTIME_BUILD_ARGS=(
+  CMUX_IOS_AUTH_ENV=production
+  CMUX_API_BASE_URL=https://cmux.com
+  CMUX_IROH_BROKER_BASE_URL=https://cmux.com
+  CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
+)
+
 LANE="beta"
 TAG="beta"
 # TestFlight orders by marketing version FIRST: uploading below the testers'
@@ -253,6 +267,7 @@ build_archive_local() {
       ${LANE_DISPLAY_NAME:+PRODUCT_DISPLAY_NAME="$LANE_DISPLAY_NAME"} \
       CURRENT_PROJECT_VERSION="$build_number" \
       ${MARKETING_VERSION_OVERRIDE:+MARKETING_VERSION="$MARKETING_VERSION_OVERRIDE"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
