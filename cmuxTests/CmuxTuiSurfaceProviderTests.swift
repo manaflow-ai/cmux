@@ -975,6 +975,7 @@ import Testing
             "revision": "7",
             "future_cursor_field": ["lease": "keep-me"],
         ]
+        snapshot["future_scalar"] = true
         snapshot["clients"] = [["id": "client-1", "session_id": "session-1", "transport": "unix"]]
         snapshot["notifications"] = [["id": "notice-1", "title": "Build", "body": "done"]]
         let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: Self.machine))
@@ -987,6 +988,8 @@ import Testing
         #expect(state.entities(kind: "tabs").count == 4)
         #expect(state.entities(kind: "cursor").isEmpty)
         #expect(!state.otherEntities.contains { $0.kind == "cursor" })
+        let futureScalar = try #require(state.otherEntities.first { $0.kind == "future_scalar" })
+        #expect(state.agentEntityObject(futureScalar) as? Bool == true)
         #expect(state.snapshotObject()?["clients"] as? [[String: Any]] != nil)
 
         let deltaObject: [String: Any] = [
