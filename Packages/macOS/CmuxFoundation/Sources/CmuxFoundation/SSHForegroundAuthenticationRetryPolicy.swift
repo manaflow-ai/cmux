@@ -2011,7 +2011,11 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             /bin/rmdir "$cmux_ssh_auth_state_dir" 2>/dev/null || true
           }
           trap 'cmux_ssh_auth_cleanup' EXIT
-          trap 'exit 129' HUP
+          # The authentication tree shares a process group with this helper
+          # on non-interactive shells. Killing a group member can deliver HUP
+          # back to the helper; cleanup must remain alive long enough to finish
+          # its identity-fenced force pass instead of aborting mid-tree.
+          trap '' HUP
           trap 'exit 130' INT
           trap 'exit 143' TERM
 
