@@ -1,5 +1,6 @@
 import AppKit
 import CMUXAgentLaunch
+import CmuxComputerUseVisuals
 import CmuxFoundation
 import CmuxSettings
 import CmuxTerminal
@@ -1255,21 +1256,16 @@ struct ComputerUseUXTests {
 
         let contentBounds = window.contentView?.bounds ?? .zero
         let layoutRect = window.contentLayoutRect
-        let visibleContentRect = CGRect(
-            x: layoutRect.minX,
-            y: contentBounds.height - layoutRect.maxY,
-            width: layoutRect.width,
-            height: layoutRect.height
+        let geometry = ComputerUseWindowContentGeometry(
+            contentBounds: contentBounds,
+            contentLayoutRect: layoutRect
         )
-        let compactLogoFrame = CGRect(
-            x: (contentBounds.width - ComputerUsePermissionCompanionLayout.size.width) / 2,
-            y: (contentBounds.height - ComputerUsePermissionCompanionLayout.size.height) / 2,
-            width: ComputerUsePermissionCompanionLayout.size.width,
-            height: ComputerUsePermissionCompanionLayout.size.height
+        let compactLogoFrame = geometry.centeredFrame(
+            for: ComputerUsePermissionCompanionLayout.size
         )
 
         #expect(
-            abs(compactLogoFrame.midY - visibleContentRect.midY) <= 0.5,
+            abs(compactLogoFrame.midY - geometry.visibleContentRect.midY) <= 0.5,
             "compact logo must be centered below the title bar"
         )
     }

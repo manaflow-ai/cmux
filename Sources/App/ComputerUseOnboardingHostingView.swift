@@ -1,14 +1,32 @@
 import AppKit
+import CmuxComputerUseVisuals
 import SwiftUI
 
 /// Hosts onboarding without allowing SwiftUI measurements to resize its AppKit window.
 @MainActor
 final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
-    private let zeroSafeAreaLayoutGuide = NSLayoutGuide()
+    /// The visible content rect expressed in this hosting view's flipped space.
+    /// A titled full-size-content window still reserves its title bar in
+    /// `contentLayoutRect`; the shared geometry value performs the coordinate
+    /// conversion instead of relying on a fixed title-bar height.
+    override var safeAreaRect: NSRect {
+        guard let window else { return super.safeAreaRect }
+        return ComputerUseWindowContentGeometry(
+            contentBounds: bounds,
+            contentLayoutRect: window.contentLayoutRect
+        ).visibleContentRect
+    }
 
-    override var safeAreaInsets: NSEdgeInsets { NSEdgeInsetsZero }
-    override var safeAreaRect: NSRect { bounds }
-    override var safeAreaLayoutGuide: NSLayoutGuide { zeroSafeAreaLayoutGuide }
+    /// Derives edge insets from the same measured visible rect used by SwiftUI.
+    override var safeAreaInsets: NSEdgeInsets {
+        let rect = safeAreaRect
+        return NSEdgeInsets(
+            top: max(0, rect.minY - bounds.minY),
+            left: max(0, rect.minX - bounds.minX),
+            bottom: max(0, bounds.maxY - rect.maxY),
+            right: max(0, bounds.maxX - rect.maxX)
+        )
+    }
 
     override func setFrameSize(_ newSize: NSSize) {
         var size = newSize
@@ -26,15 +44,7 @@ final class ComputerUseOnboardingHostingView: NSHostingView<AnyView> {
     required init(rootView: AnyView) {
         super.init(rootView: rootView)
         sizingOptions = []
-        safeAreaRegions = []
         autoresizingMask = [.width, .height]
-        addLayoutGuide(zeroSafeAreaLayoutGuide)
-        NSLayoutConstraint.activate([
-            zeroSafeAreaLayoutGuide.leadingAnchor.constraint(equalTo: leadingAnchor),
-            zeroSafeAreaLayoutGuide.trailingAnchor.constraint(equalTo: trailingAnchor),
-            zeroSafeAreaLayoutGuide.topAnchor.constraint(equalTo: topAnchor),
-            zeroSafeAreaLayoutGuide.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
     }
 
     @available(*, unavailable)
