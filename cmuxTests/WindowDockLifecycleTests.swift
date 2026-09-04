@@ -413,7 +413,8 @@ struct WindowDockLifecycleTests {
     @Test("Recoverable context replacement preserves and re-adopts the window Dock")
     @MainActor
     func recoverableContextReplacementPreservesWindowDock() async throws {
-        try await AppContextSerialGate.withExclusiveAppContext {
+        let _: Void = try await AppContextSerialGate.withExclusiveAppContext {
+            () async throws -> Void in
             _ = NSApplication.shared
             let previousAppDelegate = AppDelegate.shared
             let previousActiveManager =
@@ -465,15 +466,8 @@ struct WindowDockLifecycleTests {
             #expect(appDelegate.existingWindowDocks.contains { $0 === dock })
             #expect(
                 appDelegate.recoverableMainWindowRoute(windowId: windowId)?
-                    .windowDock === dock
+                    .liveWindowDock === dock
             )
-            let recoverableSnapshot = try #require(
-                appDelegate.sessionSnapshotForTesting()?.windows.first(where: {
-                    $0.windowId == windowId
-                })
-            )
-            #expect(recoverableSnapshot.dock != nil)
-
             appDelegate.registerMainWindow(
                 replacementWindow,
                 windowId: windowId,
@@ -487,6 +481,13 @@ struct WindowDockLifecycleTests {
             #expect(appDelegate.recoverableMainWindowRoute(windowId: windowId) == nil)
             #expect(!dock.isRetired)
             #expect(dock.containsPanel(panel.id))
+
+            let recoveredSnapshot = try #require(
+                appDelegate.sessionSnapshotForTesting()?.windows.first(where: {
+                    $0.windowId == windowId
+                })
+            )
+            #expect(recoveredSnapshot.dock != nil)
 
             appDelegate.unregisterMainWindowContextForTesting(windowId: windowId)
             #expect(!dock.isRetired)

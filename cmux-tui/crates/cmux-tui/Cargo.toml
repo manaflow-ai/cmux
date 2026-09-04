@@ -46,12 +46,15 @@ parking_lot.workspace = true
 sha2.workspace = true
 uuid.workspace = true
 wait-timeout.workspace = true
-fs4.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 tokio.workspace = true
+# Machine spend readout: one small JSON GET every few minutes from inside a
+# Cloud VM. Both crates are already in the graph via chatmux-relay and iroh.
+reqwest.workspace = true
+rustls.workspace = true
 url.workspace = true
 async-trait.workspace = true
 

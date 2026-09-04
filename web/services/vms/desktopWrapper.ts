@@ -14,11 +14,14 @@
  * token's expiry, so a lapsed pane shows an honest "reopen from cmux" screen
  * instead of a silent white one.
  *
- * DORMANT: no driver implements `openPort`, so nothing produces an upstream URL
- * for this wrapper today. It is kept as the seam for Freestyle desktop support
- * (public Freestyle serves arbitrary ports through a TLS rule on a verified
- * domain). Whoever wires that up sets DESKTOP_UPSTREAM_TOKEN_PARAM and the host
- * suffix to whatever that edge actually uses.
+ * DORMANT on today's driver: Freestyle's `openPort` returns the machine's
+ * private VPC address (`http://10.x.x.x:6901/...`, reachable only over the
+ * owner's WireGuard tunnel; web/services/vms/drivers/freestyle.ts), which
+ * needs no gateway token and no wrapper, so `desktopWrapperUrl` returns null
+ * for it and the open-port route hands the private URL through untouched. It
+ * is kept as the seam for a public desktop edge (a TLS rule on a verified
+ * domain); whoever wires that up sets DESKTOP_UPSTREAM_TOKEN_PARAM and the
+ * host suffix to whatever that edge actually uses.
  */
 
 /** Hosts the wrapper will agree to send a pane to: the cmux-branded machine domain. */

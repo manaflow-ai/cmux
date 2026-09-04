@@ -5658,7 +5658,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     private func copyCurrentGhosttySelectionToClipboard(surface: ghostty_surface_t) -> Bool {
-        let copyAction = "copy_to_clipboard"
+        let copyAction = GhosttyApp.shared.configuredCopyToClipboardAction
         let formattedRepresentations = GhosttyApp.terminalPasteboard
             .captureNextStandardClipboardRepresentations {
                 performBindingActionImmediately(copyAction)
@@ -5713,7 +5713,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         }
 
         return ghosttyConsumeMenuAction(
-            "copy_to_clipboard",
+            GhosttyApp.shared.configuredCopyToClipboardAction,
             for: event,
             surface: surface
         )
@@ -5884,7 +5884,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 
     @IBAction func copy(_ sender: Any?) {
         guard let surface else {
-            _ = performBindingActionImmediately("copy_to_clipboard")
+            _ = performBindingActionImmediately(
+                GhosttyApp.shared.configuredCopyToClipboardAction
+            )
             return
         }
         if keyboardCopyModeActive {
@@ -6886,7 +6888,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return handled
     }
 
-    private func sendGhosttyMouseButton(
+    func sendGhosttyMouseButton(
         _ surface: ghostty_surface_t,
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,

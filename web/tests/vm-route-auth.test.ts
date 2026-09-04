@@ -1,10 +1,21 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import manifestJson from "../services/vms/images/manifest.json";
+import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
 
-// The manifest is the only source of truth for images: the base default is what
-// a create with no image (and no kind) resolves to, in every environment.
-const MANIFEST_BASE_DEFAULT = (manifestJson.images as Array<{ imageId: string; version: string; kind?: string; defaultForKind?: boolean }>)
-  .find((entry) => (entry.kind ?? "base") === "base" && entry.defaultForKind)!;
+// The manifest is the only source of truth for images: the base default at the
+// plan's memory is what a create with no image (and no kind) resolves to, in
+// every environment. The manifest keeps one snapshot per Freestyle size, and
+// the pro plan machine (8 GiB, `memoryMb: 8192` below) boots the smallest
+// size with at least that much memory.
+const PRO_PLAN_MEMORY_MB = 8192;
+const PRO_PLAN_SIZE = pickVmImageSizeForMemory(PRO_PLAN_MEMORY_MB)!.name;
+const MANIFEST_BASE_DEFAULT = (manifestJson.images as Array<{
+  imageId: string;
+  version: string;
+  kind?: string;
+  defaultForKind?: boolean;
+  size?: { name: string };
+}>).find((entry) => (entry.kind ?? "base") === "base" && entry.defaultForKind && entry.size?.name === PRO_PLAN_SIZE)!;
 
 const getUser = mock(async () => null);
 const runVmWorkflow = mock(async () => {
@@ -24,6 +35,10 @@ const approveVmCmuxRemoteEnrollment = mock(() => ({ workflow: "cmux-remote-appro
 const restoreVm = mock(() => ({ workflow: "restore" }));
 const snapshotVm = mock(() => ({ workflow: "snapshot" }));
 const revokeUserVmAccess = mock(() => ({ workflow: "revoke-access" }));
+const deleteVmPublicationsForVmDeletion = mock(async () => ({
+  publications: 0,
+  providerRules: 0,
+}));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_FREESTYLE_ENABLED",
@@ -68,6 +83,11 @@ const realRunVmWorkflow = workflowsModule.runVmWorkflow;
 const realSnapshotVm = workflowsModule.snapshotVm;
 const realRevokeUserVmAccess = workflowsModule.revokeUserVmAccess;
 const realVmWorkflowLive = workflowsModule.VmWorkflowLive;
+const vmPublicationDeletionModule = await import(
+  "../services/vm-publications/vmDeletion"
+);
+const realDeleteVmPublicationsForVmDeletion =
+  vmPublicationDeletionModule.deleteVmPublicationsForVmDeletion;
 const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
@@ -128,6 +148,15 @@ mock.module("../services/vms/workflows", () => ({
     useWorkflowStubs ? callMock(revokeUserVmAccess, args) : realRevokeUserVmAccess(...args)) as typeof realRevokeUserVmAccess,
 }));
 
+mock.module("../services/vm-publications/vmDeletion", () => ({
+  ...vmPublicationDeletionModule,
+  deleteVmPublicationsForVmDeletion: ((...args: Parameters<
+    typeof realDeleteVmPublicationsForVmDeletion
+  >) => useWorkflowStubs
+    ? callMock(deleteVmPublicationsForVmDeletion, args)
+    : realDeleteVmPublicationsForVmDeletion(...args)) as typeof realDeleteVmPublicationsForVmDeletion,
+}));
+
 // Self-shield from other suites' process-global db mocks AND from the real
 // pool: the VM route's Pro-plan reconcile calls cloudDb(), and without this
 // stub the real client can sit retrying a connection (hang) or another
@@ -172,11 +201,15 @@ const {
   VmCreateCreditsInsufficientError,
   VmCreateDisabledError,
   VmCreateFailedError,
+  VmModelPlaneError,
   VmProviderOperationError,
 } = await import("../services/vms/errors");
 const { verifyRequest, clearNativeAuthCacheForTests } = await import("../services/vms/auth");
 const { withAuthedVmApiRoute } = await import("../services/vms/routeHelpers");
 const { accountDeletionUserHash } = await import("../services/account/deletionLock");
+const { VmPublicationProviderError } = await import(
+  "../services/vm-publications/provider"
+);
 
 beforeAll(() => {
   useWorkflowStubs = true;
@@ -215,6 +248,11 @@ beforeEach(() => {
   restoreVm.mockClear();
   snapshotVm.mockClear();
   revokeUserVmAccess.mockClear();
+  deleteVmPublicationsForVmDeletion.mockClear();
+  deleteVmPublicationsForVmDeletion.mockResolvedValue({
+    publications: 0,
+    providerRules: 0,
+  });
 });
 
 afterEach(() => {
@@ -415,7 +453,7 @@ describe("VM REST auth", () => {
       image: "snapshot-test",
       imageVersion: null,
       idempotencyKey: "idem-1",
-      memoryMb: 20480,
+      memoryMb: 8192,
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
@@ -481,7 +519,12 @@ describe("VM REST auth", () => {
     }));
   });
 
-  test("a kind the provider cannot serve fails with an actionable image config error", async () => {
+  test("a plan size the manifest ladder cannot serve fails with an actionable image config error", async () => {
+    // Both kinds have a manifest ladder, so the only way nothing resolves is a
+    // plan machine above the ladder's largest snapshot (2xl, 64 GiB). The
+    // route must 503 with a config error rather than boot a smaller machine.
+    process.env.CMUX_VM_PLAN_PRO_MAX_MEMORY_MB = "131072";
+    process.env.CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB = "131072";
     getUser.mockResolvedValue(authedStackUser());
 
     const create = await POST(
@@ -500,7 +543,9 @@ describe("VM REST auth", () => {
         imageRequested: false,
         kind: "desktop",
         source: "default",
-        allowedKinds: ["base"],
+        // What the provider serves at its smallest size, so a client can still
+        // offer both kinds.
+        allowedKinds: ["desktop", "base"],
       },
     });
     expectNoCloudVmImplementationLeaks(createPayload);
@@ -533,11 +578,21 @@ describe("VM REST auth", () => {
       vms: Array<{ id: string; kind: string }>;
       limits: { imageKinds: Array<{ kind: string; image: string }> };
     };
-    // No image is a desktop image today, so every machine echoes kind "base".
+    // Neither stored image is a manifest desktop image, so both echo kind "base".
     expect(payload.vms).toMatchObject([{ id: "devbox", kind: "base" }, { id: "base", kind: "base" }]);
     const { listVmImageKinds } = await import("../services/vms/images/resolver");
     const { defaultProviderId } = await import("../services/vms/drivers");
-    expect(payload.limits.imageKinds).toEqual(listVmImageKinds(defaultProviderId()));
+    const { defaultMemoryMbForPlan } = await import("../services/vms/entitlements");
+    // Kinds are listed at the plan's memory, so the image each names is the
+    // snapshot size a create would actually boot.
+    expect(payload.limits.imageKinds).toEqual(
+      listVmImageKinds(defaultProviderId(), process.env, { memoryMb: defaultMemoryMbForPlan("pro", process.env) }),
+    );
+    expect(payload.limits.imageKinds.map((entry) => entry.kind)).toEqual(["desktop", "base"]);
+    expect(payload.limits.imageKinds.map((entry) => entry.image)).toEqual([
+      MANIFEST_BASE_DEFAULT.imageId,
+      MANIFEST_BASE_DEFAULT.imageId,
+    ]);
     for (const entry of payload.limits.imageKinds) {
       expect(["desktop", "base"]).toContain(entry.kind);
       expect(typeof entry.image).toBe("string");
@@ -590,12 +645,12 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 20480 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
   test("resolves a legacy client's oversized memory request to the plan machine", async () => {
     // Nightlies built before the 2026-09-02 pricing change send their old
-    // 24 GB default on every create; the server must still hand them the
+    // 128 GB default on every create; the server must still hand them the
     // plan machine instead of failing every New Machine until they update.
     process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
     getUser.mockResolvedValue(freePlanStackUser());
@@ -611,12 +666,12 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 24576 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 131072 }),
       }),
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 20480 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
   test("resolves a memory request below the plan machine to the plan machine", async () => {
@@ -639,7 +694,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 20480 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
   test("rejects malformed memory sizes before billing or provider work", async () => {
@@ -1102,6 +1157,33 @@ describe("VM REST auth", () => {
       details: { amount: 1 },
       message: "This team has no Cloud VM create credits left.",
     });
+  });
+
+  test("maps a coderouter outage during create to a retryable 503 without leaking the cause", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    rejectRunVmWorkflowWith(
+      new VmModelPlaneError({ kind: "unavailable", cause: new Error("Freestyle database connection refused") }),
+    );
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { "idempotency-key": "idem-model-plane", origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.headers.get("retry-after")).toBe("30");
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      error: "vm_model_plane_unavailable",
+      phase: "create",
+      retryable: true,
+      ui: { severity: "warning", retryable: true },
+    });
+    expect(payload.action).toContain("retry");
+    expectNoCloudVmImplementationLeaks(payload);
   });
 
   test("credit exhaustion on user-scoped billing names the account, not a team", async () => {
@@ -1660,7 +1742,18 @@ describe("VM REST auth", () => {
       billingTeamId: "team-1",
       teamIds: ["team-1"],
       providerVmId: "provider-vm-team-1",
+      modelPlane: expect.objectContaining({}),
     });
+    expect(deleteVmPublicationsForVmDeletion).toHaveBeenCalledWith({
+      requesterUserId: "user-1",
+      billingTeamId: "team-1",
+      teamIds: ["team-1"],
+      providerVmId: "provider-vm-team-1",
+    });
+    // Token revocation runs inside the workflow: the route only supplies the revoker.
+    const destroyCalls = (destroyVm as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const destroyInput = destroyCalls.at(-1)?.[0] as { modelPlane?: { revoke?: unknown } } | undefined;
+    expect(typeof destroyInput?.modelPlane?.revoke).toBe("function");
 
     runVmWorkflow.mockResolvedValue({
       transport: "websocket",
@@ -1704,6 +1797,34 @@ describe("VM REST auth", () => {
       command: "true",
       timeoutMs: 30_000,
     });
+  });
+
+  test("does not destroy a VM when publication ingress teardown is ambiguous", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    (deleteVmPublicationsForVmDeletion as unknown as {
+      mockImplementation(next: () => Promise<never>): void;
+    }).mockImplementation(async () => {
+      throw new VmPublicationProviderError({
+        operation: "deleteTlsRulesForHostname",
+        cause: new Error("provider unavailable"),
+      });
+    });
+
+    const response = await DELETE(
+      new Request("https://cmux.test/api/vm/provider-vm-team-1", {
+        method: "DELETE",
+        headers: { origin: "https://cmux.test" },
+      }),
+      { params: Promise.resolve({ id: "provider-vm-team-1" }) },
+    );
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toMatchObject({
+      error: "vm_publication_provider_unavailable",
+      retryable: true,
+    });
+    expect(destroyVm).not.toHaveBeenCalled();
+    expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
   test("blocks authenticated cookie mutations from cross-site origins before workflow", async () => {
@@ -2310,10 +2431,12 @@ describe("VM REST auth", () => {
   });
 
   test("omits image from image config errors when no image was resolved", async () => {
-    // No desktop default is recorded in the manifest, so a desktop request is
-    // the shape where nothing resolves; the error must not name an image.
+    // A plan machine above the manifest ladder is the shape where nothing
+    // resolves; the error must not name an image.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_PLAN_PRO_MAX_MEMORY_MB = "131072";
+    process.env.CMUX_VM_PLAN_PRO_DEFAULT_MEMORY_MB = "131072";
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(

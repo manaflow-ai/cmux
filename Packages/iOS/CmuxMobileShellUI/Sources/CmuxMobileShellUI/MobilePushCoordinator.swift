@@ -1293,7 +1293,7 @@ public final class MobilePushCoordinator {
               ) else {
                 // The LOCAL topology says the target is gone, but a suspended
                 // snapshot is not authoritative — the Mac's resolution is.
-                // Relay and let the shared terminal.input path decide there.
+                // Relay and let the shared terminal.paste path decide there.
                 await relayPendingReply(pending)
                 return
             }
@@ -1317,8 +1317,8 @@ public final class MobilePushCoordinator {
         }
 
         replySendInFlight = true
-        let sent = await store.sendTerminalInput(
-            ready.text + "\r",
+        let sent = await store.sendTerminalPaste(
+            ready.text,
             workspaceID: workspaceTarget,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceId)
         )
@@ -1328,7 +1328,7 @@ public final class MobilePushCoordinator {
             // its original createdAt, so the lifetime still bounds the total
             // retry window; a reply parked mid-send wins instead), then hand
             // it straight to the relay — the channel just proved unreliable.
-            mobilePushLog.error("inline reply terminal input failed; relaying")
+            mobilePushLog.error("inline reply terminal paste failed; relaying")
             diagnosticLog?.recordAppEvent(
                 .pushReplyFailed,
                 failure: .connectionClosed
@@ -1350,7 +1350,7 @@ public final class MobilePushCoordinator {
 
     /// The reliable lane: park the reply in the presence worker's inbox with
     /// one HTTPS POST; the Mac fetches and types it through the same shared
-    /// terminal.input path as a direct send. Consumes the reply on acceptance.
+    /// terminal.paste path as a direct send. Consumes the reply on acceptance.
     /// A reply whose push carried no Mac claim cannot be routed by the inbox
     /// (and a Mac old enough to omit the claim cannot sweep it either), so it
     /// stays parked for a late direct send within its lifetime.
@@ -1367,7 +1367,8 @@ public final class MobilePushCoordinator {
             macDeviceId: macDeviceId,
             workspaceId: pending.workspaceId,
             surfaceId: surfaceId,
-            text: pending.text
+            text: pending.text,
+            retargetsToLiveSurfaceOwner: pending.retargetsToLiveSurfaceOwner
         ))
         replySendInFlight = false
         guard accepted else {
@@ -1505,7 +1506,7 @@ public final class MobilePushCoordinator {
     /// `cmux` userInfo schema as a Mac-forwarded APNs push, addressed at the
     /// currently selected workspace/terminal. The notification-center response
     /// path cannot tell local from remote, so the inline-reply UX and its full
-    /// handling chain (action routing, reply parking, `terminal.input` RPC back
+    /// handling chain (action routing, reply parking, `terminal.paste` RPC back
     /// to the Mac) are verifiable on a device without any APNs transport — dev
     /// web deployments have no push service configured. Fires after a short
     /// delay so the tester can lock the phone or background the app first.

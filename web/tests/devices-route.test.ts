@@ -259,6 +259,55 @@ describe("device registry route", () => {
     expect(list.devices[0].instances[0].routes[0].endpoint.host).toBe("100.9.9.9");
   });
 
+  dbTest("an unchanged re-registration is answered without touching the rows", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const body = {
+      deviceId: DEVICE_A,
+      platform: "mac",
+      displayName: "Registry Mac",
+      tag: "default",
+      routes: [privateIrohRoute],
+    };
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    const [first] = await sql<{ updated_at: Date; last_seen_at: Date }[]>`
+      select updated_at, last_seen_at from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+
+    // The Mac republishes the same route set: its own dedupe key includes hint
+    // timestamps this route strips before storing, so it re-POSTs identical
+    // rows. The server must answer without writing.
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    const [second] = await sql<{ updated_at: Date; last_seen_at: Date }[]>`
+      select updated_at, last_seen_at from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+    expect(second.updated_at.getTime()).toBe(first.updated_at.getTime());
+    expect(second.last_seen_at.getTime()).toBe(first.last_seen_at.getTime());
+
+    // A genuinely changed route set still writes through immediately.
+    const changed = await POST(registerRequest({
+      ...body,
+      routes: [legacyTailscaleRoute],
+    }));
+    expect(changed.status).toBe(200);
+    const [third] = await sql<{ routes: unknown[] }[]>`
+      select routes from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+    expect((third.routes[0] as { kind: string }).kind).toBe("tailscale");
+  }, 30_000);
+
+  // 26 sequential registrations, each a full HTTP + transaction round trip
+  // against a containerized Postgres. The assertion is the instance cap, not
+  // latency, and the default 5s budget leaves no headroom for a cold pool.
   dbTest("caps app instances per device when the tag varies", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -290,7 +339,7 @@ describe("device registry route", () => {
       registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "tag-0", routes: [] }),
     );
     expect(reRegister.status).toBe(200);
-  });
+  }, 30_000);
 
   dbTest("drops structurally invalid route entries on register", async () => {
     if (!sql) throw new Error("test database not initialized");

@@ -50,7 +50,7 @@ extension Workspace {
 #endif
         Task { @MainActor in
             do {
-                _ = try await catalog.projectGroup(group.resources, into: target, focus: true)
+                _ = try await catalog.projectGroup(group, into: target, focus: true)
             } catch {
 #if DEBUG
                 cmuxDebugLog("surfaces.drop.failed group=\(group.title) error=\(error)")
