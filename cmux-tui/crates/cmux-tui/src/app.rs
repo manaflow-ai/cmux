@@ -4317,10 +4317,8 @@ pub(crate) fn projection_row_spans(
         // Projection trees stay dense by design. Agent rows opt into their
         // herdr-style second line through `row_lines`; other resource rows
         // remain one line even when the built-in rail height is two.
-        let height = row
-            .agent_state
-            .as_ref()
-            .map_or(1, |_| usize::from(spec.row_lines.max(1).min(2)));
+        let height =
+            row.agent_state.as_ref().map_or(1, |_| usize::from(spec.row_lines.max(1).min(2)));
         spans.push(crate::ui::rail::RowSpan::new(total, height));
         total = total.saturating_add(height);
         if index + 1 < rows.len() {
@@ -4374,9 +4372,7 @@ fn projection_navigation_index(
 
 fn rail_page_size(area: Option<Rect>, metrics: crate::ui::rail::RailMetrics) -> usize {
     area.map_or(1, |area| {
-        usize::from(area.height.saturating_sub(1))
-            .saturating_div(metrics.stride.max(1))
-            .max(1)
+        usize::from(area.height.saturating_sub(1)).saturating_div(metrics.stride.max(1)).max(1)
     })
 }
 
@@ -12493,10 +12489,7 @@ impl App {
             // layout means the solver mounted no view, so an old hit is stale.
             return self.outer_size == (0, 0);
         }
-        self.sidebar_layout
-            .ordered
-            .iter()
-            .any(|placement| placement.view_index == index)
+        self.sidebar_layout.ordered.iter().any(|placement| placement.view_index == index)
     }
 
     fn projection_sidebar_page_cells(
@@ -12525,9 +12518,7 @@ impl App {
             None,
             spec.actions_position,
         );
-        usize::from(viewport.body.height)
-            .saturating_add(usize::from(viewport.footer.height))
-            .max(1)
+        usize::from(viewport.body.height).saturating_add(usize::from(viewport.footer.height)).max(1)
     }
 
     pub(crate) fn workspace_sidebar_action_rows(&self) -> Vec<SidebarActionRow> {
@@ -20694,10 +20685,8 @@ impl App {
     fn workspace_rail_page_size(&self) -> usize {
         let Some(area) = self.sidebar_layout.workspace else { return 1 };
         let metrics = crate::ui::rail::RailMetrics::for_app(self);
-        let recoverable = self
-            .machine_ui
-            .as_ref()
-            .map_or(0, |ui| ui.recoverable_workspaces().len());
+        let recoverable =
+            self.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspaces().len());
         let body_rows = (self.tree.workspaces().len() + recoverable) * metrics.stride;
         let footer_rows = self.workspace_sidebar_action_rows().len();
         let mut body_offset = self.workspace_rail_scroll;
@@ -20718,9 +20707,7 @@ impl App {
             (usize::from(viewport.body.height) + metrics.stride.saturating_sub(1))
                 / metrics.stride.max(1)
         };
-        visible_body
-            .saturating_add(usize::from(viewport.footer.height))
-            .max(1)
+        visible_body.saturating_add(usize::from(viewport.footer.height)).max(1)
     }
 
     fn workspace_rail_target(&self) -> Option<WorkspaceRailTarget> {
@@ -21223,10 +21210,8 @@ impl App {
                     ProjectionNavigationTarget::Row(0)
                 }
             });
-        let current = navigation
-            .iter()
-            .position(|item| item.target == current_target)
-            .unwrap_or_default();
+        let current =
+            navigation.iter().position(|item| item.target == current_target).unwrap_or_default();
         // Resolve the active item from the navigation table. This keeps the
         // keyboard reducer aligned with the visual order for both action
         // positions, and fails closed if a saved selection no longer exists.
@@ -21790,10 +21775,8 @@ impl App {
         }
         let targets = self.sidebar_tab_targets();
         self.tabs_rail_selection = self.tabs_rail_selection.min(targets.len().saturating_sub(1));
-        let page = rail_page_size(
-            self.sidebar_layout.tabs,
-            crate::ui::rail::RailMetrics::for_app(self),
-        );
+        let page =
+            rail_page_size(self.sidebar_layout.tabs, crate::ui::rail::RailMetrics::for_app(self));
         if let Some(next) =
             rail_navigation_index(key, self.tabs_rail_selection, targets.len(), page)
         {
@@ -25481,7 +25464,7 @@ impl App {
                             (self.rail_kind_for_view(index) == RailKind::Workspace
                                 && sidebar_view_token(view) == view_token
                                 && self.sidebar_view_token_matches(index, view_token))
-                                .then_some(index)
+                            .then_some(index)
                         })
                     else {
                         if self.sidebar_view == SidebarView::Files {
@@ -27620,11 +27603,8 @@ impl App {
                 return Ok(RenderAction::None);
             };
             let rows = self.projection_rows(view_index);
-            let (_, projected_body_rows) = projection_row_spans(
-                &rows,
-                &spec,
-                crate::ui::rail::RailMetrics::for_app(self),
-            );
+            let (_, projected_body_rows) =
+                projection_row_spans(&rows, &spec, crate::ui::rail::RailMetrics::for_app(self));
             let body_rows = projected_body_rows.max(usize::from(rows.is_empty()));
             if spec.includes(SidebarResourceKind::Agents) && rail_area.height > 1 {
                 rail_area = Rect { y: rail_area.y + 1, height: rail_area.height - 1, ..rail_area };
@@ -52399,7 +52379,7 @@ mod tests {
             tabs_rail_selection: 0,
             tabs_rail_scroll: 0,
             tabs_footer_scroll: 0,
-        sidebar_presentation: super::SidebarPresentationState::default(),
+            sidebar_presentation: super::SidebarPresentationState::default(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
             agent_focus_stamps: HashMap::new(),

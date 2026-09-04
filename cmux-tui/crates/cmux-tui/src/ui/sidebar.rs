@@ -477,10 +477,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         hits.push((rail::row(area, y), Hit::ConnectMachine));
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Machine)));
-    hits.push((
-        rail::divider(area),
-        Hit::RailResize { kind: RailKind::Machine, view_token },
-    ));
+    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Machine, view_token }));
     app.hits.extend(hits);
 }
 
@@ -553,10 +550,7 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         }
     }
     app.hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Tabs)));
-    app.hits.push((
-        rail::divider(area),
-        Hit::RailResize { kind: RailKind::Tabs, view_token },
-    ));
+    app.hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Tabs, view_token }));
 }
 
 /// Render one configurable resource path as a dense native tree column.
@@ -1090,13 +1084,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Workspace)));
-    hits.push((
-        rail::divider(area),
-        Hit::RailResize {
-            kind: RailKind::Workspace,
-            view_token,
-        },
-    ));
+    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Workspace, view_token }));
     app.hits.extend(hits);
 }
 
@@ -1367,12 +1355,8 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             }
             crate::app::SidebarActionTarget::Run(_) => {
                 if let Some(view) = app.view_index_for_rail(RailKind::Workspace) {
-                    let view_token = app
-                        .config
-                        .sidebar
-                        .views
-                        .get(view)
-                        .map_or(0, sidebar_view_token);
+                    let view_token =
+                        app.config.sidebar.views.get(view).map_or(0, sidebar_view_token);
                     hits.push((
                         rail::row(area, y),
                         Hit::SidebarAction { view, view_token, action: action.target },
@@ -1381,13 +1365,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             }
         }
     }
-    hits.push((
-        rail::divider(area),
-        Hit::RailResize {
-            kind: RailKind::Workspace,
-            view_token,
-        },
-    ));
+    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Workspace, view_token }));
     app.hits.extend(hits);
     input_cursor
 }
