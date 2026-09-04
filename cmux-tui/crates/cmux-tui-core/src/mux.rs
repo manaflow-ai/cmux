@@ -23148,13 +23148,13 @@ mod tests {
         drop(mux);
         let reopened =
             Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
-        let reopened_record = &reopened.list_agents(Some(surface.id), None)[0];
-        assert_eq!(reopened_record.source, AgentSource::Socket);
-        assert_eq!(reopened_record.session.as_deref(), Some("new-socket-session"));
-        assert_eq!(
-            crate::resource_api::public_session_snapshot(&reopened).unwrap()["agents"][0]["source_session"],
-            "new-socket-session"
+        assert!(
+            reopened.list_agents(None, None).is_empty(),
+            "a detached terminal must not remain in the live agent cache"
         );
+        let public = crate::resource_api::public_session_snapshot(&reopened).unwrap();
+        assert_eq!(public["agents"][0]["source"], "socket");
+        assert_eq!(public["agents"][0]["source_session"], "new-socket-session");
         reopened.shutdown();
         std::fs::remove_dir_all(root).unwrap();
     }
