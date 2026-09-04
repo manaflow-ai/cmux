@@ -59,7 +59,10 @@ final class SystemExtensionActivationDelegate: NSObject, OSSystemExtensionReques
         let nsError = error as NSError
         guard nsError.domain == OSSystemExtensionErrorDomain,
               let code = OSSystemExtensionError.Code(rawValue: nsError.code) else {
-            return error
+            return CloudTunnelError.startFailed(String(
+                localized: "cloudTunnel.error.genericFailure",
+                defaultValue: "cmux could not start the Cloud VPN. Try again."
+            ))
         }
         switch code {
         case .unsupportedParentBundleLocation:

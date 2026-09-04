@@ -238,11 +238,11 @@ actor CloudMachineLinkManager {
     /// private network for the tunnel's idle policy.
     var connectedMachineCount: Int {
         get async {
-            var count = 0
+            var machineIDs = Set(connecting.keys)
             for link in links.values where await link.isConnected {
-                count += 1
+                machineIDs.insert(await link.machineID)
             }
-            return count
+            return machineIDs.count
         }
     }
 
