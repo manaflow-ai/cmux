@@ -16,6 +16,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
     /// The schema version this build creates and migrates to.
     public static let currentSchemaVersion: Int32 = 12
 
+    /// Keep route-removal suppression bounded while retaining ample history for
+    /// normal Tailscale endpoint churn. Explicit pairing can restore any route.
+    static let routeRemovalTombstoneLimit = 256
+
     private let dbPath: String
     // `nonisolated(unsafe)` only so the (Swift 6 nonisolated) `deinit` can close
     // the handle. Every other access goes through actor-isolated methods, and
@@ -749,6 +753,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 .text(removed.kind.rawValue),
                 .text(encoded),
             ])
+            try compactRouteRemovalTombstones(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            )
             try upsertMacRow(
                 macDeviceID: macDeviceID,
                 ownerKey: ownerKey,

@@ -373,6 +373,31 @@ extension MobilePairedMacStore {
         return removedKeys
     }
 
+    /// Retain only the newest endpoint tombstones for a paired-Mac scope so
+    /// repeated route churn cannot make refresh cost grow without bound.
+    func compactRouteRemovalTombstones(
+        macDeviceID: String,
+        ownerKey: String
+    ) throws {
+        try exec("""
+            DELETE FROM mac_route_removals
+            WHERE mac_device_id = ? AND owner_key = ?
+              AND id NOT IN (
+                  SELECT id
+                  FROM mac_route_removals
+                  WHERE mac_device_id = ? AND owner_key = ?
+                  ORDER BY id DESC
+                  LIMIT ?
+              );
+        """, binding: [
+            .text(macDeviceID),
+            .text(ownerKey),
+            .text(macDeviceID),
+            .text(ownerKey),
+            .int(Int64(MobilePairedMacStore.routeRemovalTombstoneLimit)),
+        ])
+    }
+
     func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
         let removedKeys = try fetchRouteRemovalKeys(
             macDeviceID: macDeviceID,
