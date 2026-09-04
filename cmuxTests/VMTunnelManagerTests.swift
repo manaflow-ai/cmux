@@ -378,4 +378,26 @@ struct VMTunnelManagerTests {
         // The browser role has no config here; it never reads the terminal role's.
         #expect(VMTunnelManager(home: home).configuredRoutes() == [])
     }
+
+    @Test
+    func tunnelDecoderAcceptsPayloadFromOlderCloudBackend() throws {
+        let endpoint = try VMClient.decodeTunnelEndpoint([
+            "tunnelId": "provider-tunnel-1",
+            "provider": "freestyle",
+            "deviceFingerprint": "mac-old-client",
+            "clientConfig": "[Interface]\nPrivateKey = \n",
+            "clientPublicKey": "client-public-key",
+            "serverPublicKey": "server-public-key",
+            "endpointPort": 51820,
+            "routes": ["10.0.0.0/8"],
+            "address": ["ipv4": "100.64.0.2"],
+            "network": ["id": "network-1", "cidr": "10.0.0.0/24"],
+        ], fallbackPurpose: "browser")
+
+        // The pre-access-grant endpoint did not send these fields. They are
+        // local metadata during the additive rollout, not credentials.
+        #expect(endpoint.accessGrantId == "provider-tunnel-1")
+        #expect(endpoint.tunnelPurpose == "browser")
+        #expect(endpoint.networkCidr == "10.0.0.0/24")
+    }
 }

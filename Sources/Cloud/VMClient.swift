@@ -1560,7 +1560,10 @@ actor VMClient {
         CloudAccessRevocationRequest(path: "/api/vm/tunnel", deviceID: deviceID)
     }
 
-    private nonisolated static func decodeTunnelEndpoint(_ obj: [String: Any]) throws -> VMTunnelEndpoint {
+    nonisolated static func decodeTunnelEndpoint(
+        _ obj: [String: Any],
+        fallbackPurpose: String = "browser"
+    ) throws -> VMTunnelEndpoint {
         guard let accessGrantId = obj["accessGrantId"] as? String,
               let tunnelId = obj["tunnelId"] as? String,
               let provider = obj["provider"] as? String,
