@@ -37,12 +37,12 @@ public actor InMemoryArtifactRepository: ArtifactStoring {
                 guard let canonical = identity.canonicalURL(value) else { throw ArtifactStoreError.unsupportedKind("url") }
                 return (.url, identity.key(kind: .url, value: canonical, ownership: request.ownership), .url(canonical))
             case .html(let value):
-                return (.html, identity.key(kind: .html, value: value), .inlineHTML(value))
+                return (.html, identity.key(kind: .html, value: value, ownership: request.ownership), .inlineHTML(value))
             case .text(let value):
                 let kind = request.kind ?? .text
-                return (kind, identity.key(kind: kind, value: value), .inlineText(value))
+                return (kind, identity.key(kind: kind, value: value, ownership: request.ownership), .inlineText(value))
             case .directory(let url):
-                return (.directory, identity.key(kind: .directory, value: url.path), .directory(path: url.path))
+                return (.directory, identity.key(kind: .directory, value: url.path, ownership: request.ownership), .directory(path: url.path))
             case .file, .data:
                 throw ArtifactStoreError.unsupportedKind("file in in-memory repository")
             }
@@ -113,7 +113,8 @@ public actor InMemoryArtifactRepository: ArtifactStoring {
                 ownership: ownership,
                 source: .migratedLink,
                 title: link.fetchedTitle,
-                metadata: ["sourcePanelID": link.sourcePanelID?.uuidString ?? "", "sourceSurfaceTitle": link.sourceSurfaceTitle ?? ""]
+                metadata: ["sourcePanelID": link.sourcePanelID?.uuidString ?? "", "sourceSurfaceTitle": link.sourceSurfaceTitle ?? ""],
+                authorization: .automatic(allowedRoots: [])
             )
             let record = try await ingest(request, capturedAt: link.lastSeen)
             result.append(record)
