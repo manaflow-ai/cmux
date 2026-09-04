@@ -158,7 +158,7 @@ extension VMTunnelManager {
             // A stale route for this same utun is harmless (for example after
             // a killed wg-quick process).  Treat that one case as success,
             // but let a real route-install failure abort wg-quick's bring-up.
-            return "\(key) = /sbin/route -q -n add -\(family) \(quotedRoute) -interface %i -ifscope %i || /sbin/route -n get -\(family) -ifscope %i \(quotedRoute) >/dev/null 2>&1"
+            return "\(key) = /sbin/route -q -n add -\(family) \(quotedRoute) -interface %i -ifscope %i || /sbin/route -n get -\(family) -ifscope %i \(quotedRoute) 2>&1 | /usr/bin/grep -q 'interface: %i'"
         }
         return "\(key) = /sbin/route -q -n delete -\(family) -ifscope %i \(quotedRoute) || true"
     }
