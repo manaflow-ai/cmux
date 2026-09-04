@@ -151132,13 +151132,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"
+            "value": "Up to 50 Cloud VMs, each with 8 GB RAM and 32 GB disk by default; sizes from 4 to 64 GB RAM are available"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク"
+            "value": "最大 50 台の Cloud VM、各 8 GB RAM / 32 GB ディスク（標準）。4～64 GB RAM のサイズを利用できます"
           }
         }
       }
@@ -151353,13 +151353,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
+            "value": "Every Cloud VM has a configurable size: 4, 8, 16, 24, 32, or 64 GB RAM with 16, 32, 64, 96, or 128 GB disk. Pro and Team include up to 50 machines with no metering or overages."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべての Cloud VM は 5 vCPU / 20 GB RAM / 200 GB ディスクです。Pro と Team には最大 50 台のマシンが含まれ、従量課金や超過料金はありません。"
+            "value": "すべての Cloud VM はサイズを選択できます。RAM は 4、8、16、24、32、64 GB、ディスクは 16、32、64、96、128 GB です。Pro と Team には最大 50 台のマシンが含まれ、従量課金や超過料金はありません。"
           }
         }
       }
@@ -273916,6 +273916,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "サイズ"
+          }
+        }
+      }
+    },
+    "machines.new.size.option": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GB RAM"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAM %d GB"
+          }
+        }
+      }
+    },
+    "machines.new.size.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%d GB disk included"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディスク %d GB を含む"
           }
         }
       }
