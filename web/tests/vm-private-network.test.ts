@@ -321,6 +321,43 @@ describe("resolveOwnerNetwork", () => {
 });
 
 describe("enrollVmTunnel", () => {
+  test("holds the physical Mac mutation lease through provider enrollment", async () => {
+    const events: string[] = [];
+    const repo = {
+      ...testRepo(),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      createTunnel: (_provider: string, options: CreateProviderTunnelOptions) =>
+        Effect.sync(() => {
+          events.push("provider-create");
+          return providerTunnel({ clientPublicKey: options.clientPublicKey });
+        }),
+    } as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "device-1",
+        tunnelPurpose: "terminal",
+        stackSessionId: "session-1",
+        sessionIssuedAt: new Date("2026-09-03T12:00:00Z"),
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    );
+
+    expect(events).toEqual(["claim", "provider-create", "release"]);
+  });
+
   test("first enrollment creates a provider tunnel keyed to the device", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();
@@ -530,6 +567,50 @@ describe("readVmTunnel / revokeVmTunnel", () => {
 });
 
 describe("Cloud VM access grant revocation", () => {
+  test("holds the physical Mac mutation lease through provider deletion", async () => {
+    const events: string[] = [];
+    const row = tunnelRow();
+    const repo = {
+      ...testRepo({ tunnel: row }),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+      revokeTunnel: () => Effect.sync(() => {
+        events.push("row-revoke");
+        return true;
+      }),
+      revokeAccessGrant: () => Effect.sync(() => {
+        events.push("grant-revoke");
+        return true;
+      }),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      deleteTunnel: () => Effect.sync(() => {
+        events.push("provider-delete");
+      }),
+    } as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      revokeVmAccessGrant({
+        userId: "user-1",
+        accessGrantId: accessGrantRow().id,
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    );
+
+    expect(events).toEqual([
+      "claim",
+      "provider-delete",
+      "row-revoke",
+      "grant-revoke",
+      "release",
+    ]);
+  });
+
   test("revokes every tunnel role for one Mac", async () => {
     const deleted: string[] = [];
     const revoked: string[] = [];
