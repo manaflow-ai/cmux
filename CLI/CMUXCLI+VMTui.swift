@@ -475,6 +475,21 @@ extension CMUXCLI {
                 )
                 terminalId = opened["terminal_id"] as? String
                 remoteWorkspaceId = opened["remote_workspace_id"] as? String
+                if let remoteWorkspaceId,
+                   !remoteWorkspaceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    // The first bind establishes the machine immediately; this second
+                    // write records the exact daemon workspace once the shared open path
+                    // has resolved it, so local renames remain addressable after restore.
+                    _ = try client.sendV2(
+                        method: "workspace.cloud_vm_bind",
+                        params: [
+                            "workspace_id": workspaceId,
+                            "vm_id": vmId,
+                            "base": options.pinAsBase,
+                            "remote_workspace_id": remoteWorkspaceId,
+                        ]
+                    )
+                }
                 let newSurface = (opened["surface_id"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 if let placeholder = terminalSurfaceId, !placeholder.isEmpty, placeholder != newSurface {
                     _ = try? client.sendV2(method: "surface.close", params: ["workspace_id": workspaceId, "surface_id": placeholder])

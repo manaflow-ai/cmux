@@ -121,6 +121,12 @@ struct CloudTreeNodeActions {
                 } else {
                     run(openingLabel(machine)) { catalog in
                         _ = try await catalog.projectGroup(group.resources, into: try destination(placement), focus: true)
+                        if let workspaceID = selectedWorkspaceID() {
+                            CloudWorkspaceRenameWriteThrough.reconcileBinding(
+                                localWorkspaceID: workspaceID,
+                                catalog: catalog
+                            )
+                        }
                     }
                 }
             },
@@ -129,14 +135,24 @@ struct CloudTreeNodeActions {
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                             [resource.id], title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group), focus: true, host: .app
+                        )
+                        CloudWorkspaceRenameWriteThrough.bind(
+                            localWorkspaceID: opened.workspaceID,
+                            machine: machine,
+                            remoteWorkspaceID: resource.remoteWorkspace?.id ?? remoteWorkspaceID
                         )
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
-                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                             group.resources, title: Self.localWorkspaceTitle(hostName: machineName(machine), group: group), focus: true, host: .app
+                        )
+                        CloudWorkspaceRenameWriteThrough.bind(
+                            localWorkspaceID: opened.workspaceID,
+                            machine: machine,
+                            remoteWorkspaceID: remoteWorkspaceID
                         )
                     }
                 }
@@ -253,6 +269,11 @@ struct CloudTreeNodeActions {
             title: localWorkspaceTitle(hostName: resolvedMachineName(machine, snapshot: catalog.snapshot), group: group),
             focus: focus,
             host: .app
+        )
+        CloudWorkspaceRenameWriteThrough.bind(
+            localWorkspaceID: opened.workspaceID,
+            machine: machine,
+            remoteWorkspaceID: workspace.id
         )
         return (workspace, terminal, opened)
     }

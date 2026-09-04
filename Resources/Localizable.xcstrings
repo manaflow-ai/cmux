@@ -61958,6 +61958,159 @@
         }
       }
     },
+    "cloudTree.error.renameWorkspaceEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cloud workspace name cannot be empty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドワークスペース名を空にすることはできません。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameLocalUnsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Only cloud workspaces can be renamed through this path."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この経路で名前を変更できるのはクラウドワークスペースのみです。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameWorkspaceMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace %@ on %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（%@上のワークスペース）"
+          }
+        }
+      }
+    },
+    "cloudTree.error.snapshotOnlyRename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This machine uses an older cmux-tui protocol and cannot safely rename a workspace. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このマシンは古い cmux-tui プロトコルを使用しているため、安全にワークスペース名を変更できません。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.invalidSnapshot": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui returned an invalid session snapshot for %@. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-tui が %@ の無効なセッションスナップショットを返しました。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.invalidRenameReceipt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cloud rename receipt was invalid. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドの名称変更レシートが無効です。更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameRevisionConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cloud workspace changed elsewhere. Refresh and retry so a newer name is not overwritten."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このクラウドワークスペースは別の場所で変更されました。新しい名前を上書きしないよう更新して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameAmbiguous": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This workspace maps to more than one cloud workspace. Rename it from the Cloud machine row."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースは複数のクラウドワークスペースに対応しています。Cloud マシンの行から名前を変更してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.error.renameUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cloud workspace is not connected. Refresh the machine and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このクラウドワークスペースは接続されていません。マシンを更新して再試行してください。"
+          }
+        }
+      }
+    },
     "cloudTree.rename.confirm": {
       "extractionState": "manual",
       "localizations": {

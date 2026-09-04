@@ -89,6 +89,16 @@ final class SurfaceCatalog {
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
     private(set) var projections: Set<SurfaceProjection> = []
+    /// The last accepted revision for each cloud daemon.  A snapshot with an older
+    /// revision is never allowed to replace the rows that a newer snapshot published.
+    private var cloudCursors: [SurfaceMachineID: CloudVMCursor] = [:]
+    /// Local write intents stay in the catalog until a remote snapshot confirms them.  This
+    /// is deliberately keyed by stable machine/workspace ids, never by a display name.
+    private var cloudWorkspaceRenameIntents: [CloudWorkspaceRenameKey: CloudWorkspaceRenameIntent] = [:]
+    private var nextCloudWorkspaceRenameSequence: UInt64 = 0
+    /// One serialized lane per remote identity, shared by the tree, socket, and local-title
+    /// entry points.
+    let cloudWorkspaceRenameCoordinator = CloudWorkspaceRenameCoordinator()
     /// Resource IDs grouped by machine so providers can answer presence checks
     /// without sorting the full catalog snapshot on every refresh.
     private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
@@ -144,7 +154,11 @@ final class SurfaceCatalog {
             }
         }
         providers[provider.machine] = provider
-        machines[provider.machine] = provider.info
+        var info = provider.info
+        if !provider.machine.isLocal {
+            overlayPendingCloudWorkspaceRenames(machine: provider.machine, info: &info)
+        }
+        machines[provider.machine] = info
         notifyChange()
     }
 
@@ -180,6 +194,8 @@ final class SurfaceCatalog {
         let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
         for record in pending { pendingRestoredProjections[record] = nil }
         projections = projections.filter { $0.resource.machine != machine }
+        cloudCursors[machine] = nil
+        cloudWorkspaceRenameIntents = cloudWorkspaceRenameIntents.filter { $0.key.machine != machine }
         notifyChange()
     }
 
@@ -222,12 +238,172 @@ final class SurfaceCatalog {
 
     // MARK: Resources (called by providers)
 
+    /// Returns the last accepted daemon cursor for `machine`, if the provider has published
+    /// a versioned snapshot.  A missing cursor means the connected daemon is legacy and cannot
+    /// safely accept a compare-and-swap rename.
+    func cloudCursor(for machine: SurfaceMachineID) -> CloudVMCursor? {
+        cloudCursors[machine]
+    }
+
+    /// Records a user rename intent and applies it to every catalog projection immediately.
+    /// The returned token is required to commit or roll the intent back; an older completion
+    /// can therefore never undo a newer edit.
+    @discardableResult
+    func beginCloudWorkspaceRename(
+        machine: SurfaceMachineID,
+        workspaceID: String,
+        name: String
+    ) throws -> CloudWorkspaceRenameToken {
+        guard case .cloud = machine else {
+            throw SurfaceCatalogError.unsupported(String(
+                localized: "cloudTree.error.renameLocalUnsupported",
+                defaultValue: "Only cloud workspaces can be renamed through this path."
+            ))
+        }
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw SurfaceCatalogError.unsupported(String(
+                localized: "cloudTree.error.renameWorkspaceEmpty",
+                defaultValue: "A cloud workspace name cannot be empty."
+            ))
+        }
+        guard let previousName = remoteWorkspaceName(machine: machine, workspaceID: workspaceID) else {
+            throw SurfaceCatalogError.destinationNotFound(
+                String(
+                    format: String(
+                        localized: "cloudTree.error.renameWorkspaceMissing",
+                        defaultValue: "workspace %@ on %@"
+                    ),
+                    workspaceID,
+                    machine.rawValue
+                )
+            )
+        }
+        nextCloudWorkspaceRenameSequence &+= 1
+        let key = CloudWorkspaceRenameKey(machine: machine, workspaceID: workspaceID)
+        let token = CloudWorkspaceRenameToken(
+            key: key,
+            sequence: nextCloudWorkspaceRenameSequence,
+            previousName: previousName,
+            baselineCursor: cloudCursors[machine]
+        )
+        cloudWorkspaceRenameIntents[key] = CloudWorkspaceRenameIntent(
+            sequence: token.sequence,
+            name: normalized,
+            previousName: previousName,
+            baselineCursor: token.baselineCursor,
+            receiptCursor: nil,
+            observedGeneration: nil,
+            observedRevision: nil
+        )
+        applyRemoteWorkspaceName(machine: machine, workspaceID: workspaceID, name: normalized)
+        return token
+    }
+
+    /// Marks a submitted rename as accepted at `receipt`, while retaining its optimistic
+    /// overlay until a complete snapshot confirms the graph.  A malformed or regressive receipt
+    /// is ignored by the caller before this method is reached.
+    func commitCloudWorkspaceRename(_ token: CloudWorkspaceRenameToken, receipt: CloudVMCursor?) {
+        if let receipt,
+           let current = cloudCursors[token.key.machine],
+           current.generation == receipt.generation,
+           receipt.revision >= current.revision {
+            // The receipt is a complete daemon commit position.  Advancing the CAS base here
+            // lets a queued rename use the new revision without pretending that unrelated row
+            // details are already refreshed; the following snapshot supplies those details.
+            cloudCursors[token.key.machine] = receipt
+        }
+        guard var intent = cloudWorkspaceRenameIntents[token.key], intent.sequence == token.sequence else { return }
+        intent.receiptCursor = receipt
+        cloudWorkspaceRenameIntents[token.key] = intent
+        applyRemoteWorkspaceName(
+            machine: token.key.machine,
+            workspaceID: token.key.workspaceID,
+            name: intent.name
+        )
+    }
+
+    /// Whether a rename token is still the newest local intent for its identity.
+    func isCurrentCloudWorkspaceRename(_ token: CloudWorkspaceRenameToken) -> Bool {
+        cloudWorkspaceRenameIntents[token.key]?.sequence == token.sequence
+    }
+
+    /// Rolls an intent back only when it is still the newest intent for its identity.
+    func rollbackCloudWorkspaceRename(_ token: CloudWorkspaceRenameToken) {
+        guard let intent = cloudWorkspaceRenameIntents[token.key], intent.sequence == token.sequence else { return }
+        cloudWorkspaceRenameIntents[token.key] = nil
+        applyRemoteWorkspaceName(
+            machine: token.key.machine,
+            workspaceID: token.key.workspaceID,
+            name: intent.previousName
+        )
+    }
+
+    /// Returns the optimistic name currently held for an identity, if any.
+    func pendingCloudWorkspaceRenameName(machine: SurfaceMachineID, workspaceID: String) -> String? {
+        cloudWorkspaceRenameIntents[CloudWorkspaceRenameKey(machine: machine, workspaceID: workspaceID)]?.name
+    }
+
+    /// Installs a complete cloud snapshot as one transaction.  The cursor fence is applied
+    /// before any row is removed, and pending local names are merged into all projections before
+    /// the catalog publishes its single change notification.
+    @discardableResult
+    func replaceCloudResources(
+        _ list: [SurfaceResource],
+        on machine: SurfaceMachineID,
+        info: SurfaceMachineInfo,
+        cursor: CloudVMCursor?,
+        from source: (any SurfaceProvider)? = nil
+    ) -> Bool {
+        guard accepts(writeFor: machine, from: source) else { return false }
+        guard case .cloud = machine else {
+            return replaceResources(list, on: machine, info: info, from: source)
+        }
+        // Once a versioned graph has been observed, a cursorless or older read is a stale
+        // compatibility response, not permission to erase the current graph.
+        if let current = cloudCursors[machine] {
+            guard let cursor else { return false }
+            if cursor.generation == current.generation, cursor.revision < current.revision {
+                return false
+            }
+        }
+
+        var mergedInfo = info
+        var mergedResources = list
+        reconcilePendingCloudWorkspaceRenames(
+            machine: machine,
+            cursor: cursor,
+            info: &mergedInfo,
+            resources: &mergedResources
+        )
+
+        for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
+        resourceIDsByMachine[machine] = nil
+        for resource in mergedResources {
+            precondition(
+                resource.machine == machine,
+                "resource " + resource.id.rawValue + " reported by the wrong provider"
+            )
+            resources[resource.id] = resource
+            resourceIDsByMachine[machine, default: []].insert(resource.id)
+        }
+        machines[machine] = mergedInfo
+        if let cursor { cloudCursors[machine] = cursor }
+        resolvePendingRestoredProjections(on: machine)
+        CloudWorkspaceRenameWriteThrough.reconcileRemoteProjections(catalog: self)
+        notifyChange()
+        return true
+    }
+
     /// Replace everything the catalog knows about one machine. Projections whose resource
     /// disappeared are kept only if the pane still exists (the pane shows an exited/unknown
     /// terminal until it is closed); the caller prunes dead panes through `endProjection`.
     /// `from` identifies the provider that produced the snapshot, when one is available.
     @discardableResult
     func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil, from source: (any SurfaceProvider)? = nil) -> Bool {
+        if !machine.isLocal, let info {
+            return replaceCloudResources(list, on: machine, info: info, cursor: nil, from: source)
+        }
         guard accepts(writeFor: machine, from: source) else { return false }
         for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
         resourceIDsByMachine[machine] = nil
@@ -246,7 +422,11 @@ final class SurfaceCatalog {
     /// result from a retired provider cannot overwrite a replacement registration.
     func upsert(_ resource: SurfaceResource, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: resource.machine, from: source) else { return }
-        resources[resource.id] = resource
+        var adjusted = resource
+        if !resource.machine.isLocal {
+            overlayPendingCloudWorkspaceRenames(machine: resource.machine, resource: &adjusted)
+        }
+        resources[resource.id] = adjusted
         resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
         resolvePendingRestoredProjections(on: resource.machine)
         notifyChange()
@@ -266,8 +446,221 @@ final class SurfaceCatalog {
     /// Update machine metadata, optionally validating the provider registration that supplied it.
     func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
         guard accepts(writeFor: info.id, from: source) else { return }
-        machines[info.id] = info
+        var adjusted = info
+        if !info.id.isLocal {
+            overlayPendingCloudWorkspaceRenames(machine: info.id, info: &adjusted)
+        }
+        machines[info.id] = adjusted
+        if !info.id.isLocal {
+            CloudWorkspaceRenameWriteThrough.reconcileRemoteProjections(catalog: self)
+        }
         notifyChange()
+    }
+
+    /// Finds a workspace name from the machine projection first, then from resource views.
+    /// Both paths are keyed by the daemon id and intentionally refuse name-based matching.
+    private func remoteWorkspaceName(machine: SurfaceMachineID, workspaceID: String) -> String? {
+        if let matches = machines[machine]?.remoteWorkspaces?.filter({ $0.id == workspaceID }), !matches.isEmpty {
+            guard matches.count == 1 else { return nil }
+            return matches[0].name
+        }
+        var names = Set<String>()
+        for id in resourceIDsByMachine[machine] ?? [] {
+            for workspace in resources[id]?.remoteWorkspaces ?? [] where workspace.id == workspaceID {
+                names.insert(workspace.name)
+            }
+        }
+        guard names.count == 1 else { return nil }
+        return names.first
+    }
+
+    /// Applies one canonical workspace name to the machine metadata and every nested resource
+    /// view.  This is the only fan-out mutation; views never maintain a second copy.
+    private func applyRemoteWorkspaceName(machine: SurfaceMachineID, workspaceID: String, name: String) {
+        var changed = false
+        if var info = machines[machine], let workspaces = info.remoteWorkspaces {
+            let updated = workspaces.map { workspace -> SurfaceRemoteWorkspace in
+                guard workspace.id == workspaceID, workspace.name != name else { return workspace }
+                var renamed = workspace
+                renamed.name = name
+                changed = true
+                return renamed
+            }
+            if updated != workspaces {
+                info.remoteWorkspaces = updated
+                machines[machine] = info
+            }
+        }
+        for id in resourceIDsByMachine[machine] ?? [] {
+            guard var resource = resources[id] else { continue }
+            var resourceChanged = false
+            if var workspace = resource.remoteWorkspace, workspace.id == workspaceID, workspace.name != name {
+                workspace.name = name
+                resource.remoteWorkspace = workspace
+                resourceChanged = true
+            }
+            if let views = resource.remoteViews {
+                let updatedViews = views.map { view -> SurfaceRemoteView in
+                    guard view.workspace.id == workspaceID, view.workspace.name != name else { return view }
+                    var renamed = view
+                    renamed.workspace.name = name
+                    resourceChanged = true
+                    return renamed
+                }
+                if updatedViews != views {
+                    resource.remoteViews = updatedViews
+                }
+            }
+            if resourceChanged {
+                resources[id] = resource
+                changed = true
+            }
+        }
+        if changed {
+            CloudWorkspaceRenameWriteThrough.reconcileRemoteProjections(catalog: self)
+            notifyChange()
+        }
+    }
+
+    /// Overlays pending intents on a metadata update that has no ordering cursor (for example
+    /// a fleet status update). This never clears an intent because the update cannot prove a
+    /// newer daemon graph.
+    private func overlayPendingCloudWorkspaceRenames(
+        machine: SurfaceMachineID,
+        info: inout SurfaceMachineInfo
+    ) {
+        let intents = cloudWorkspaceRenameIntents.filter { $0.key.machine == machine }
+        guard !intents.isEmpty else { return }
+        for (key, intent) in intents {
+            guard key.machine == machine else { continue }
+            info.remoteWorkspaces = info.remoteWorkspaces?.map { workspace in
+                guard workspace.id == key.workspaceID else { return workspace }
+                var renamed = workspace
+                renamed.name = intent.name
+                return renamed
+            }
+        }
+    }
+
+    private func overlayPendingCloudWorkspaceRenames(
+        machine: SurfaceMachineID,
+        resource: inout SurfaceResource
+    ) {
+        for (key, intent) in cloudWorkspaceRenameIntents where key.machine == machine {
+            if var workspace = resource.remoteWorkspace, workspace.id == key.workspaceID {
+                workspace.name = intent.name
+                resource.remoteWorkspace = workspace
+            }
+            resource.remoteViews = resource.remoteViews?.map { view in
+                guard view.workspace.id == key.workspaceID else { return view }
+                var adjusted = view
+                adjusted.workspace.name = intent.name
+                return adjusted
+            }
+        }
+    }
+
+    /// Merges pending intents into an incoming snapshot and retires them only when the incoming
+    /// cursor proves that the daemon has observed the write. A first snapshot from a new daemon
+    /// generation is held once; a later revision in that generation is authoritative.
+    private func reconcilePendingCloudWorkspaceRenames(
+        machine: SurfaceMachineID,
+        cursor: CloudVMCursor?,
+        info: inout SurfaceMachineInfo,
+        resources: inout [SurfaceResource]
+    ) {
+        let keys = cloudWorkspaceRenameIntents.keys.filter { $0.machine == machine }
+        for key in keys {
+            guard var intent = cloudWorkspaceRenameIntents[key] else { continue }
+            let incomingName = Self.remoteWorkspaceName(
+                workspaceID: key.workspaceID,
+                info: info,
+                resources: resources
+            )
+            var overlay = true
+            var clear = false
+            if let cursor {
+                let baseline = intent.receiptCursor ?? intent.baselineCursor
+                if let baseline, cursor.generation == baseline.generation {
+                    if cursor.revision > baseline.revision {
+                        // A newer graph is authoritative. It confirms our name or records a
+                        // later remote writer; either way the local intent is complete.
+                        overlay = false
+                        clear = true
+                    } else if cursor.revision == baseline.revision, incomingName == intent.name {
+                        overlay = false
+                        clear = true
+                    }
+                } else if intent.observedGeneration == cursor.generation {
+                    if cursor.revision > (intent.observedRevision ?? 0) {
+                        overlay = false
+                        clear = true
+                    }
+                } else if incomingName == intent.name {
+                    overlay = false
+                    clear = true
+                } else {
+                    // First read after reconnect: retain the local name until one subsequent
+                    // revision can prove that a different writer won.
+                    intent.observedGeneration = cursor.generation
+                    intent.observedRevision = cursor.revision
+                    cloudWorkspaceRenameIntents[key] = intent
+                }
+            }
+            if overlay {
+                Self.applyRemoteWorkspaceName(
+                    workspaceID: key.workspaceID,
+                    name: intent.name,
+                    info: &info,
+                    resources: &resources
+                )
+            }
+            if clear { cloudWorkspaceRenameIntents[key] = nil }
+        }
+    }
+
+    private static func remoteWorkspaceName(
+        workspaceID: String,
+        info: SurfaceMachineInfo,
+        resources: [SurfaceResource]
+    ) -> String? {
+        if let matches = info.remoteWorkspaces?.filter({ $0.id == workspaceID }), !matches.isEmpty {
+            guard matches.count == 1 else { return nil }
+            return matches[0].name
+        }
+        var names = Set<String>()
+        for resource in resources {
+            names.formUnion(resource.remoteWorkspaces.filter { $0.id == workspaceID }.map(\.name))
+        }
+        return names.count == 1 ? names.first : nil
+    }
+
+    private static func applyRemoteWorkspaceName(
+        workspaceID: String,
+        name: String,
+        info: inout SurfaceMachineInfo,
+        resources: inout [SurfaceResource]
+    ) {
+        info.remoteWorkspaces = info.remoteWorkspaces?.map { workspace in
+            guard workspace.id == workspaceID else { return workspace }
+            var renamed = workspace
+            renamed.name = name
+            return renamed
+        }
+        resources = resources.map { resource in
+            var adjusted = resource
+            if var workspace = adjusted.remoteWorkspace, workspace.id == workspaceID {
+                workspace.name = name
+                adjusted.remoteWorkspace = workspace
+            }
+            adjusted.remoteViews = adjusted.remoteViews?.map { view in
+                guard view.workspace.id == workspaceID else { return view }
+                var adjustedView = view
+                adjustedView.workspace.name = name
+                return adjustedView
+            }
+            return adjusted
+        }
     }
 
     // MARK: Projections
@@ -702,6 +1095,12 @@ final class SurfaceCatalog {
     /// existing pane such as a local terminal the app created on its own).
     func record(_ projection: SurfaceProjection) {
         insertSupersedingLocalPlaceholder(projection)
+        if !projection.resource.machine.isLocal {
+            CloudWorkspaceRenameWriteThrough.reconcileBinding(
+                localWorkspaceID: projection.workspaceID,
+                catalog: self
+            )
+        }
         notifyChange()
     }
 
@@ -743,6 +1142,7 @@ final class SurfaceCatalog {
             projection.workspaceID = workspaceID
             projections.insert(projection)
         }
+        CloudWorkspaceRenameWriteThrough.reconcileBinding(localWorkspaceID: workspaceID, catalog: self)
         notifyChange()
     }
 
@@ -772,6 +1172,12 @@ final class SurfaceCatalog {
                 pendingRestoredProjections[record] = workspaceID
             }
         }
+        for record in records where !record.resource.machine.isLocal {
+            CloudWorkspaceRenameWriteThrough.reconcileBinding(
+                localWorkspaceID: workspaceID,
+                catalog: self
+            )
+        }
         notifyChange()
     }
 
@@ -800,6 +1206,12 @@ final class SurfaceCatalog {
         for (record, workspaceID) in pendingRestoredProjections where record.resource.machine == machine {
             guard resources[record.resource] != nil else { continue }
             insertSupersedingLocalPlaceholder(SurfaceProjection(resource: record.resource, workspaceID: workspaceID, panelID: record.panelID))
+            if !record.resource.machine.isLocal {
+                CloudWorkspaceRenameWriteThrough.reconcileBinding(
+                    localWorkspaceID: workspaceID,
+                    catalog: self
+                )
+            }
             pendingRestoredProjections[record] = nil
         }
     }

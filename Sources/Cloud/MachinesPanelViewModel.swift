@@ -442,6 +442,7 @@ final class MachinesPanelViewModel: ObservableObject {
     private var authSignOutObserver: NSObjectProtocol?
     private var treeChangeObserver: NSObjectProtocol?
     private var createChangeObserver: NSObjectProtocol?
+    private var renameFailureObserver: NSObjectProtocol?
     private var treeTask: Task<Void, Never>?
     private static let statsInterval: Duration = .seconds(20)
 
@@ -475,6 +476,17 @@ final class MachinesPanelViewModel: ObservableObject {
         ) { [weak self] _ in
             // Delivered on the main queue (`queue: .main`), which is the main actor.
             MainActor.assumeIsolated { self?.scheduleCatalogRead() }
+        }
+        renameFailureObserver = NotificationCenter.default.addObserver(
+            forName: CloudWorkspaceRenameWriteThrough.didFailNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            let message = notification.userInfo?["message"] as? String
+            MainActor.assumeIsolated {
+                guard let self, let message, !message.isEmpty else { return }
+                self.treeErrorDescription = message
+            }
         }
     }
 
@@ -519,6 +531,9 @@ final class MachinesPanelViewModel: ObservableObject {
         if let createChangeObserver {
             NotificationCenter.default.removeObserver(createChangeObserver)
         }
+        if let renameFailureObserver {
+            NotificationCenter.default.removeObserver(renameFailureObserver)
+        }
     }
 
     /// Mirrors the coordinator's rows. A completion also re-reads the fleet so
@@ -543,6 +558,7 @@ final class MachinesPanelViewModel: ObservableObject {
     /// Publishes the catalog's current value and the local workspace list. Cheap
     /// (a value read), so every change notification may call it.
     func readCatalog() {
+        CloudWorkspaceRenameWriteThrough.reconcileRemoteProjections(catalog: SurfaceCatalog.shared)
         catalog = SurfaceCatalog.shared.snapshot
         localWorkspaces = localWorkspacesProvider()
     }

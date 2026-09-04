@@ -154,6 +154,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         case machineAsleep(String)
         case noWorkspaceOnMachine(String)
         case terminalNotCreated(String)
+        case invalidSnapshot(String)
+        case snapshotOnly(String)
+        case invalidRenameResponse(String)
+        case revisionConflict(String)
         case badURL(String)
 
         var errorDescription: String? {
@@ -166,6 +170,38 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return "\(id) has no cmux-tui workspace yet."
             case .terminalNotCreated(let detail):
                 return "cmux-tui did not report the new terminal: \(detail)"
+            case .invalidSnapshot(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.invalidSnapshot",
+                        defaultValue: "cmux-tui returned an invalid session snapshot for %@. Refresh and retry."
+                    ),
+                    id
+                )
+            case .snapshotOnly(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.snapshotOnlyRename",
+                        defaultValue: "%@ uses an older cmux-tui protocol and cannot safely rename a workspace. Refresh the machine and retry."
+                    ),
+                    id
+                )
+            case .invalidRenameResponse(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.invalidRenameReceipt",
+                        defaultValue: "cmux-tui did not return a valid rename receipt for %@. Refresh and retry."
+                    ),
+                    id
+                )
+            case .revisionConflict(let id):
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.renameRevisionConflict",
+                        defaultValue: "The cloud workspace %@ changed elsewhere. Refresh and retry so a newer name is not overwritten."
+                    ),
+                    id
+                )
             case .badURL(let url):
                 return "The control plane returned an unusable URL: \(url)"
             }
@@ -275,8 +311,15 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         }
         guard isCurrentLifecycleGeneration(generation) else { return }
         guard isAwake, let client = VMClient.shared else {
-            info = Self.info(from: summary, linkState: .asleep, linkError: nil, stats: nil)
-            catalog.replaceResources(resources, on: machine, info: info, from: self)
+            info = Self.info(
+                from: summary,
+                linkState: .asleep,
+                linkError: nil,
+                stats: nil,
+                remoteWorkspaces: info.remoteWorkspaces
+            )
+            catalog.updateMachine(info, from: self)
+            _ = catalog.replaceResources(resources, on: machine, info: info, from: self)
             return
         }
         // The display opens over the HTTPS preview and never needs the link, so a
@@ -293,6 +336,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var linkState: SurfaceLinkState = .connected
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
+        var snapshotCursor: CloudVMCursor?
         do {
             guard isCurrentLifecycleGeneration(generation) else { return }
             let connected = try await links.connected(machineID: machineID)
@@ -302,14 +346,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             watchChanges(link: link, generation: generation)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             guard generation == lifecycleGeneration else { return }
-            if let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                resources = CmuxTuiSnapshotParser.mergingDisplays(
-                    pool: resources,
-                    parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
-                )
-                tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
-                remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
+            guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw ProviderError.invalidSnapshot(machineID)
             }
+            if CmuxTuiSnapshotParser.snapshotContainsCursor(object) {
+                guard let cursor = CmuxTuiSnapshotParser.cursor(from: object) else {
+                    throw ProviderError.invalidSnapshot(machineID)
+                }
+                snapshotCursor = cursor
+            }
+            resources = CmuxTuiSnapshotParser.mergingDisplays(
+                pool: resources,
+                parsed: CmuxTuiSnapshotParser.terminals(fromSnapshot: object, machine: machine)
+            )
+            tabByTerminal = CmuxTuiSnapshotParser.tabByTerminal(fromSnapshot: object)
+            remoteWorkspaces = CmuxTuiSnapshotParser.workspaces(fromSnapshot: object)
             let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
                 && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
                     || manualMirrorSessions.values.contains { $0.phase == .disconnected })
@@ -350,6 +401,27 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 let directURL = privateAddress.map { CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port) }
                 resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL))
             }
+        } catch let error as ProviderError {
+            guard isCurrentLifecycleGeneration(generation) else { return }
+            if case .invalidSnapshot = error {
+                let retainedWorkspaces = catalog.snapshot.machines.first(where: { $0.id == machine })?.remoteWorkspaces
+                info = Self.info(
+                    from: summary,
+                    linkState: .error,
+                    linkError: error.errorDescription,
+                    stats: await stats,
+                    remoteWorkspaces: retainedWorkspaces
+                )
+                catalog.updateMachine(info, from: self)
+                return
+            }
+            let status = await links.status(machineID: machineID)
+            guard isCurrentLifecycleGeneration(generation) else { return }
+            linkState = status?.state ?? .error
+            linkError = status?.error ?? CloudMachineLink.errorText(error)
+            #if DEBUG
+            cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
+            #endif
         } catch {
             guard isCurrentLifecycleGeneration(generation) else { return }
             let status = await links.status(machineID: machineID)
@@ -370,8 +442,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard isCurrentLifecycleGeneration(generation) else { return }
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
         guard isCurrentLifecycleGeneration(generation) else { return }
-        let accepted = catalog.replaceResources(resources, on: machine, info: info, from: self)
-        guard accepted, isCurrentLifecycleGeneration(generation) else { return }
+        let accepted = catalog.replaceCloudResources(
+            resources,
+            on: machine,
+            info: info,
+            cursor: snapshotCursor,
+            from: self
+        )
+        guard accepted, isCurrentLifecycleGeneration(generation) else {
+            if !accepted,
+               let retained = catalog.snapshot.machines.first(where: { $0.id == machine }) {
+                info.remoteWorkspaces = retained.remoteWorkspaces
+            }
+            if !accepted { catalog.updateMachine(info, from: self) }
+            return
+        }
         reprojectRestoredPanes(generation: generation)
     }
 
@@ -615,16 +700,78 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     func renameRemoteWorkspace(id: String, name: String) async throws {
-        let connected = try await links.connected(machineID: machineID)
-        guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-        _ = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(socketPath: connected.socketPath, workspaceID: id, name: name))
-        info.remoteWorkspaces = info.remoteWorkspaces?.map { workspace in
-            var renamed = workspace
-            if workspace.id == id { renamed.name = name }
-            return renamed
+        try Task.checkCancellation()
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else {
+            throw SurfaceCatalogError.unsupported(String(
+                localized: "cloudTree.error.renameWorkspaceEmpty",
+                defaultValue: "A cloud workspace name cannot be empty."
+            ))
         }
-        catalog.updateMachine(info, from: self)
-        scheduleRefresh()
+
+        // Establish the compare-and-swap base from the last accepted graph before recording
+        // the optimistic intent.  Applying the intent synchronously is what keeps the cloud
+        // tree and local projections in lockstep while the network request is in flight.
+        guard let cursor = catalog.cloudCursor(for: machine),
+              let current = remoteWorkspace(id: id) else {
+            throw ProviderError.snapshotOnly(machineID)
+        }
+        if current.name == normalized { return }
+        let token = try catalog.beginCloudWorkspaceRename(
+            machine: machine,
+            workspaceID: id,
+            name: normalized
+        )
+        let key = token.key
+        do {
+            try await catalog.cloudWorkspaceRenameCoordinator.enqueue(key: key) { [weak self] in
+                guard let self else { throw ProviderError.machineAsleep("cloud") }
+                guard let latestCursor = self.catalog.cloudCursor(for: self.machine),
+                      latestCursor.generation == cursor.generation else {
+                    throw ProviderError.revisionConflict(id)
+                }
+                let connected = try await self.links.connected(machineID: self.machineID)
+                guard let link = await self.links.link(machineID: self.machineID) else {
+                    throw ProviderError.machineAsleep(self.machineID)
+                }
+                let data = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(
+                    socketPath: connected.socketPath,
+                    workspaceID: id,
+                    name: normalized,
+                    expectedRevision: String(latestCursor.revision)
+                ))
+                guard let receipt = CmuxTuiSnapshotParser.mutationCursor(
+                    from: data,
+                    fallbackGeneration: latestCursor.generation
+                ), receipt.generation == latestCursor.generation,
+                      receipt.revision >= latestCursor.revision else {
+                    throw ProviderError.invalidRenameResponse(self.machineID)
+                }
+                self.catalog.commitCloudWorkspaceRename(token, receipt: receipt)
+                // The receipt makes the write durable; this read confirms every derived row
+                // and clears the optimistic overlay when the daemon catches up.
+                if self.catalog.isCurrentCloudWorkspaceRename(token) {
+                    await self.refresh(force: true)
+                }
+            }
+        } catch {
+            catalog.rollbackCloudWorkspaceRename(token)
+            throw error
+        }
+    }
+
+    /// Resolves a workspace by its stable daemon id from the catalog's current projection.
+    private func remoteWorkspace(id: String) -> SurfaceRemoteWorkspace? {
+        if let workspace = catalog.snapshot.machines.first(where: { $0.id == machine })?.remoteWorkspaces?
+            .first(where: { $0.id == id }) {
+            return workspace
+        }
+        var matches: [SurfaceRemoteWorkspace] = []
+        for resource in catalog.snapshot.resources(on: machine) {
+            matches.append(contentsOf: resource.remoteWorkspaces.filter { $0.id == id })
+        }
+        let names = Dictionary(matches.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return names[id]
     }
 
     /// The terminal lives in the machine's session; only the local pane went away.

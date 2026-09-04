@@ -947,4 +947,152 @@ struct SurfaceCatalogTests {
         #expect(provider.closedTerminals.isEmpty)
         #expect(provider.closedRemoteWorkspaces == ["ws_empty"])
     }
+
+    @Test func `Cloud workspace rename updates every projection and rejects stale snapshots`() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+
+        let original = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 1, focused: false)
+        var terminal = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_main"),
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: original,
+            port: nil,
+            url: nil
+        )
+        terminal.remoteViews = [SurfaceRemoteView(tabID: "tab_main", workspace: original)]
+        var unrelated = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_other"),
+            title: "other",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: other,
+            port: nil,
+            url: nil
+        )
+        unrelated.remoteViews = [SurfaceRemoteView(tabID: "tab_other", workspace: other)]
+        let initialInfo = SurfaceMachineInfo(
+            id: machine,
+            name: "vivid-newt",
+            status: "running",
+            image: nil,
+            hasDesktop: false,
+            memoryMb: nil,
+            diskMb: nil,
+            linkState: .connected,
+            linkError: nil,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil,
+            remoteWorkspaces: [original, other]
+        )
+        let generation = "daemon-generation"
+        #expect(catalog.replaceCloudResources(
+            [terminal, unrelated],
+            on: machine,
+            info: initialInfo,
+            cursor: CloudVMCursor(generation: generation, revision: 10)
+        ))
+
+        let token = try catalog.beginCloudWorkspaceRename(
+            machine: machine,
+            workspaceID: original.id,
+            name: "Renamed"
+        )
+        let optimistic = catalog.snapshot
+        #expect(optimistic.machines.first?.remoteWorkspaces?.first { $0.id == original.id }?.name == "Renamed")
+        #expect(optimistic.resources.first { $0.id == terminal.id }?.remoteWorkspace?.name == "Renamed")
+        #expect(optimistic.resources.first { $0.id == terminal.id }?.remoteViews?.first?.workspace.name == "Renamed")
+        #expect(optimistic.resources.first { $0.id == unrelated.id }?.remoteWorkspace?.name == "other")
+
+        let staleInfo = initialInfo
+        var staleTerminal = terminal
+        staleTerminal.remoteWorkspace = original
+        staleTerminal.remoteViews = [SurfaceRemoteView(tabID: "tab_main", workspace: original)]
+        #expect(!catalog.replaceCloudResources(
+            [staleTerminal, unrelated],
+            on: machine,
+            info: staleInfo,
+            cursor: CloudVMCursor(generation: generation, revision: 9)
+        ))
+        #expect(catalog.snapshot.resources.first { $0.id == terminal.id }?.remoteWorkspace?.name == "Renamed")
+
+        catalog.commitCloudWorkspaceRename(
+            token,
+            receipt: CloudVMCursor(generation: generation, revision: 11)
+        )
+        var confirmedInfo = initialInfo
+        let confirmed = SurfaceRemoteWorkspace(id: original.id, name: "Renamed", index: 0, focused: true)
+        confirmedInfo.remoteWorkspaces = [confirmed, other]
+        var confirmedTerminal = terminal
+        confirmedTerminal.remoteWorkspace = confirmed
+        confirmedTerminal.remoteViews = [SurfaceRemoteView(tabID: "tab_main", workspace: confirmed)]
+        #expect(catalog.replaceCloudResources(
+            [confirmedTerminal, unrelated],
+            on: machine,
+            info: confirmedInfo,
+            cursor: CloudVMCursor(generation: generation, revision: 11)
+        ))
+        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: original.id) == nil)
+        #expect(!catalog.replaceCloudResources(
+            [staleTerminal, unrelated],
+            on: machine,
+            info: staleInfo,
+            cursor: CloudVMCursor(generation: generation, revision: 10)
+        ))
+        #expect(catalog.snapshot.resources.first { $0.id == terminal.id }?.remoteWorkspace?.name == "Renamed")
+    }
+
+    @Test func `An older cloud rename completion cannot roll back a newer intent`() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        catalog.register(FakeProvider(machine: machine))
+        let workspace = SurfaceRemoteWorkspace(id: "ws_main", name: "main", index: 0, focused: true)
+        let info = SurfaceMachineInfo(
+            id: machine,
+            name: "vivid-newt",
+            status: "running",
+            image: nil,
+            hasDesktop: false,
+            memoryMb: nil,
+            diskMb: nil,
+            linkState: .connected,
+            linkError: nil,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil,
+            remoteWorkspaces: [workspace]
+        )
+        let resource = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term"),
+            title: "shell",
+            detail: nil,
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: workspace,
+            port: nil,
+            url: nil
+        )
+        #expect(catalog.replaceCloudResources(
+            [resource],
+            on: machine,
+            info: info,
+            cursor: CloudVMCursor(generation: "g", revision: 1)
+        ))
+        let first = try catalog.beginCloudWorkspaceRename(machine: machine, workspaceID: workspace.id, name: "first")
+        let second = try catalog.beginCloudWorkspaceRename(machine: machine, workspaceID: workspace.id, name: "second")
+        catalog.rollbackCloudWorkspaceRename(first)
+        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: workspace.id) == "second")
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "second")
+        catalog.rollbackCloudWorkspaceRename(second)
+        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: workspace.id) == nil)
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "first")
+    }
 }
