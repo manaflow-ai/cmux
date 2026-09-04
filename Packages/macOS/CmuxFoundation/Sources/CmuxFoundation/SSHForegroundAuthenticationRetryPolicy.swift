@@ -612,6 +612,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # discovery can exceed two seconds on a fork-starved runner.
           cmux_ssh_auth_cleanup_clock_command=
           cmux_ssh_auth_cleanup_deadline_millis=
+          cmux_ssh_auth_deadline_expired=0
           cmux_ssh_auth_start_cleanup_clock() {
             cmux_ssh_auth_cleanup_clock_command="$cmux_ssh_auth_perl_command"
             cmux_ssh_auth_cleanup_deadline_millis=
@@ -655,7 +656,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             return 1
           }
           cmux_ssh_auth_cleanup_has_time() {
-            cmux_ssh_auth_get_remaining_millis
+            if cmux_ssh_auth_get_remaining_millis; then
+              return 0
+            fi
+            # A failed clock/probe is itself a degraded cleanup condition. The
+            # caller must take the retained-tree force path rather than
+            # declaring success after a partial scan.
+            if [ -n "$cmux_ssh_auth_cleanup_deadline_millis" ]; then
+              cmux_ssh_auth_deadline_expired=1
+            fi
+            return 1
           }
           umask 077 || cmux_ssh_auth_setup_abort
           cmux_ssh_auth_state_dir=$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/cmux-ssh-auth-tree.XXXXXX") || cmux_ssh_auth_setup_abort
@@ -2278,7 +2288,8 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_signal_verified_batch KILL \
             "$cmux_ssh_auth_kill_candidates" /dev/null || cmux_ssh_auth_kill_failed=1
           if [ "$cmux_ssh_auth_kill_failed" = 0 ] &&
-             [ "$cmux_ssh_auth_dynamic_discovery_failed" = 0 ]; then
+             [ "$cmux_ssh_auth_dynamic_discovery_failed" = 0 ] &&
+             [ "$cmux_ssh_auth_deadline_expired" != 1 ]; then
             cmux_ssh_auth_cleanup_complete=1
           else
             cmux_ssh_auth_debug "final kill failed or dynamic discovery failed; emergency pass"
