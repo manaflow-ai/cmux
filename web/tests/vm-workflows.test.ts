@@ -1919,13 +1919,16 @@ describe("VM Effect workflows", () => {
     const requested = testCloudVmRow({
       status: "provisioning",
       providerVmId: null,
+      slug: "sleepy-teal-otter",
     });
     const running = testCloudVmRow({
       status: "running",
       providerVmId: "provider-vm-usage-events",
       imageVersion: "test-version",
+      slug: "sleepy-teal-otter",
     });
     let providerCreateCalls = 0;
+    let providerDisplayName: string | undefined;
     let providerMemoryMb: number | undefined;
     let providerImageSize: { name: string; cpu: number; memoryMb: number; storageMb: number } | null = null;
     let usageEventAttempts = 0;
@@ -1969,6 +1972,7 @@ describe("VM Effect workflows", () => {
       create: (_provider, options) =>
         Effect.sync(() => {
           providerCreateCalls += 1;
+          providerDisplayName = options.displayName;
           providerMemoryMb = options.memoryMb;
           providerImageSize = options.imageSize ?? null;
           return {
@@ -2008,7 +2012,10 @@ describe("VM Effect workflows", () => {
     );
 
     expect(created.providerVmId).toBe("provider-vm-usage-events");
+    expect(created.slug).toBe("sleepy-teal-otter");
     expect(providerCreateCalls).toBe(1);
+    // The row's generated name is what the provider console shows too.
+    expect(providerDisplayName).toBe("sleepy-teal-otter");
     expect(providerMemoryMb).toBe(3072);
     // A sized image reaches the driver as the shape to boot at, never to resize to.
     expect(providerImageSize).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 });
@@ -4709,6 +4716,7 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     provider: "freestyle",
     providerVmId: null,
     displayName: null,
+    slug: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
