@@ -5303,6 +5303,36 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn private_dump_file_waits_for_directory_lock_before_creation() {
+        use std::os::fd::AsRawFd;
+        use std::sync::mpsc::channel;
+        use std::time::Duration;
+
+        let root = tempfile::tempdir().unwrap();
+        let dump_path = root.path().join("dumps");
+        let directory = private_dump_directory(&dump_path).unwrap();
+        let temporary_path = dump_path.join(".cmux-dump-files/.cmux-dump-tmp");
+        let temp_path = temporary_path.join(".mirror-1.txt.tmp-99999999-1");
+        assert_eq!(unsafe { libc::flock(directory.temporary.as_raw_fd(), libc::LOCK_EX) }, 0);
+        let (created_tx, created_rx) = channel();
+        let worker = std::thread::spawn(move || {
+            let temporary = fs::File::open(&temporary_path).unwrap();
+            let file = private_dump_file(&temporary, ".mirror-1.txt.tmp-99999999-1").unwrap();
+            created_tx.send(()).unwrap();
+            (temporary, file)
+        });
+
+        assert!(created_rx.recv_timeout(Duration::from_millis(100)).is_err());
+        assert!(!temp_path.exists());
+        assert_eq!(unsafe { libc::flock(directory.temporary.as_raw_fd(), libc::LOCK_UN) }, 0);
+        created_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        let (temporary, file) = worker.join().unwrap();
+        drop(file);
+        drop(temporary);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn private_dump_directory_preserves_unowned_matching_files() {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
