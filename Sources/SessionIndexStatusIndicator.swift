@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Shared 6×6 status circle used by full Vault rows and their popovers.
+/// Active sessions are green; inactive history is gray in every grouping.
 struct SessionStatusIndicator: View {
     let model: SessionIndexStatusIndicatorModel
 

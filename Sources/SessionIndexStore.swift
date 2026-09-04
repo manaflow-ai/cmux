@@ -144,10 +144,9 @@ struct IndexSection: Identifiable, Equatable {
     /// This is a presentation snapshot supplied by `SessionIndexView`; the
     /// store itself remains independent of the tab manager.
     let activeEntryIDs: Set<String>
-    /// Extra per-row display facts (live status, and for Recent rows
-    /// folder/branch detail) keyed by `SessionEntry.id`. Every grouping gets
-    /// live status so the compact circle is the same in Recent, Agent, Folder,
-    /// and search. Agent and Folder omit the detail subtitle.
+    /// Extra per-row display facts (live status and folder/branch detail)
+    /// keyed by `SessionEntry.id`. Every grouping gets the same accessory so
+    /// Recent, Agent, Folder, and search projections stay visually aligned.
     let accessories: [String: VaultSessionRowAccessory]
 
     init(
@@ -399,8 +398,7 @@ final class SessionIndexStore: ObservableObject {
                     accessories: VaultRecencySections.accessories(
                         for: entries,
                         liveKeys: liveSessionKeys,
-                        now: now,
-                        includeDetail: false
+                        now: now
                     )
                 )
             }
@@ -434,8 +432,7 @@ final class SessionIndexStore: ObservableObject {
                         accessories: VaultRecencySections.accessories(
                             for: entries,
                             liveKeys: liveSessionKeys,
-                            now: now,
-                            includeDetail: false
+                            now: now
                         )
                     )
                 }

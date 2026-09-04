@@ -165,6 +165,10 @@ struct SessionIndexView: View {
     /// Day sections whose "Show more" expanded them inline (day buckets have
     /// no popover — their key space doesn't map to a popover search scope).
     @State private var expandedDaySections: Set<SectionKey> = []
+    /// Persisted row-density preference shared by every Vault presentation.
+    /// Default view is deliberately the information-rich layout shown in the
+    /// Recent grouping; Compact view hides only the repository/branch line.
+    @AppStorage("sessionIndex.compactView") private var isCompactView = false
     let onResume: ((SessionEntry) -> Void)?
     /// Launches the indexed session in a new split in the selected workspace.
     let onOpen: ((SessionEntry) -> Void)?
@@ -212,6 +216,10 @@ struct SessionIndexView: View {
         !trimmedSearchText.isEmpty
     }
 
+    private var showsDetails: Bool {
+        !isCompactView
+    }
+
     /// Search results use the same section builder as the unfiltered list.
     /// Keeping this projection in the parent view means table rows continue
     /// to receive immutable snapshots and the AppKit controller can preserve
@@ -238,7 +246,9 @@ struct SessionIndexView: View {
                 title: section.title,
                 icon: section.icon,
                 entries: section.entries,
-                accessories: section.accessories,
+                accessories: section.accessories.mapValues {
+                    $0.withDetailVisibility(showsDetails)
+                },
                 activeEntryIDs: activeEntryIDs
             )
         }
@@ -254,6 +264,7 @@ struct SessionIndexView: View {
                 // hidden until the query is cleared.
                 showsSortAndFilter: store.grouping == .recency && !isShowingSearchResults,
                 searchText: $searchText,
+                isCompactView: $isCompactView,
                 onPeekTopResult: { peekTopSearchResult() },
                 onResumeTopResult: { resumeTopSearchResult() }
             )
@@ -374,7 +385,8 @@ struct SessionIndexView: View {
         let statusSnapshot = SessionIndexStatusSnapshot(
             activeSessionKeys: activeSessionKeys,
             liveSessionKeys: store.liveSessionKeys,
-            now: .now
+            now: .now,
+            showsDetails: showsDetails
         )
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
@@ -929,9 +941,9 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
-    /// Extra display facts (status for the compact circle; recency rows also
-    /// carry a folder/branch subtitle). Agent and Folder rows still receive
-    /// live status so every Vault grouping uses the same indicator.
+    /// Shared display facts for the status circle and optional repository /
+    /// branch subtitle. Every Vault grouping receives the same projection;
+    /// compact mode removes only the subtitle before this row is built.
     var accessory: VaultSessionRowAccessory?
     let isPreviewPresented: Bool
     let beginSessionDrag: SessionDragBeginAction
@@ -2807,23 +2819,35 @@ private struct PopoverRow: View, Equatable {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
-            SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
-            // Flatten newlines so titles containing `<command-message>…\n…`
-            // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
-            // always constrain a Text that has hard line breaks in the
-            // source string.
-            Text(Self.flatten(entry.displayTitle))
-                .cmuxFont(size: 12)
-                .foregroundColor(.primary.opacity(0.92))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            SessionStatusIndicator(
-                isInPane: isActive,
-                liveStatus: accessory?.liveStatus
-            )
-            modifiedText
+        VStack(alignment: .leading, spacing: 1) {
+            HStack(spacing: 6) {
+                SessionIndexSectionIconImage(icon: .agent(entry.agent), size: 12)
+                // Flatten newlines so titles containing `<command-message>…\n…`
+                // envelopes stay single-line; SwiftUI's `lineLimit(1)` doesn't
+                // always constrain a Text that has hard line breaks in the
+                // source string.
+                Text(Self.flatten(entry.displayTitle))
+                    .cmuxFont(size: 12)
+                    .foregroundColor(.primary.opacity(0.92))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 8)
+                SessionStatusIndicator(
+                    isInPane: isActive,
+                    liveStatus: accessory?.liveStatus
+                )
+                modifiedText
+            }
+            if let detail = accessory?.detail {
+                Text(Self.flatten(detail))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    // The icon is 12 points wide and the title starts after
+                    // the six-point row spacing.
+                    .padding(.leading, 18)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 5)

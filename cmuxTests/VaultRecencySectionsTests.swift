@@ -221,12 +221,11 @@ struct VaultRecencySectionsTests {
         let accessory = sections[0].accessories[entry.id]
         #expect(accessory?.liveStatus == .live)
         #expect(accessory?.detail == "cmux · main")
-        #expect(accessory?.messageCount == 12)
         #expect(accessory?.hasSubtitle == true)
     }
 
     @Test
-    func messageCountAloneDoesNotCreateACompactRowSubtitle() {
+    func messageCountNeverCreatesACompactRowSubtitle() {
         let entry = makeEntry(
             id: "count-only",
             cwd: nil,
@@ -234,13 +233,12 @@ struct VaultRecencySectionsTests {
             messageCount: 12
         )
         let accessory = build([entry]).first?.accessories[entry.id]
-        #expect(accessory?.messageCount == 12)
         #expect(accessory?.detail == nil)
         #expect(accessory?.hasSubtitle == false)
     }
 
     @Test
-    func compactGroupingAccessoriesOmitFolderDetail() {
+    func explicitCompactGroupingAccessoriesOmitFolderDetail() {
         let entry = makeEntry(
             id: "compact",
             cwd: "/Users/dev/projects/cmux",
@@ -257,7 +255,44 @@ struct VaultRecencySectionsTests {
         #expect(accessory?.liveStatus == .exited)
         #expect(accessory?.detail == nil)
         #expect(accessory?.hasSubtitle == false)
-        #expect(accessory?.messageCount == 4)
+    }
+
+    @Test
+    func defaultGroupingAccessoriesIncludeFolderAndBranchDetail() {
+        let entry = makeEntry(
+            id: "default-detail",
+            cwd: "/Users/dev/projects/cmux",
+            branch: "feature/vault",
+            modified: now
+        )
+        let accessory = VaultRecencySections.accessories(
+            for: [entry],
+            liveKeys: [],
+            now: now
+        )[entry.id]
+
+        #expect(accessory?.detail == "cmux · feature/vault")
+        #expect(accessory?.hasSubtitle == true)
+    }
+
+    @Test
+    func detailVisibilityCanBeToggledWithoutChangingStatus() {
+        let entry = makeEntry(
+            id: "toggle",
+            cwd: "/Users/dev/projects/cmux",
+            branch: "main",
+            modified: now
+        )
+        let accessory = VaultRecencySections.accessories(
+            for: [entry],
+            liveKeys: [],
+            now: now
+        )[entry.id]
+        let compact = accessory?.withDetailVisibility(false)
+        #expect(compact?.detail == nil)
+        #expect(compact?.liveStatus == accessory?.liveStatus)
+        #expect(compact?.hasSubtitle == false)
+        #expect(accessory?.withDetailVisibility(true).detail == "cmux · main")
     }
 
     @Test
@@ -269,6 +304,7 @@ struct VaultRecencySectionsTests {
             liveSessionKeys: [VaultLiveSessionKeys.key(for: paged)],
             now: now
         )
+        #expect(snapshot.showsDetails)
 
         // A directory/search popover can page in `paged` after the initial
         // section projection was created. Its status must still come from the
@@ -279,6 +315,15 @@ struct VaultRecencySectionsTests {
 
         let initialPresentation = snapshot.presentation(for: initial)
         #expect(initialPresentation.isActive)
+        #expect(initialPresentation.accessory.detail == "cmux")
+
+        let compactSnapshot = SessionIndexStatusSnapshot(
+            activeSessionKeys: [],
+            liveSessionKeys: [],
+            now: now,
+            showsDetails: false
+        )
+        #expect(compactSnapshot.presentation(for: initial).accessory.detail == nil)
     }
 
     @Test

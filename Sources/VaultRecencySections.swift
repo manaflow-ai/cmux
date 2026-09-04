@@ -161,18 +161,31 @@ struct VaultSessionFilter: Equatable, Sendable {
 // MARK: - Row accessory
 
 /// Extra display facts a Vault row shows beyond the base `SessionEntry`
-/// (which stays a pure disk-index record). Live status is present in every
-/// grouping; folder/branch detail is recency-only.
+/// (which stays a pure disk-index record). Every grouping shares the same
+/// live status and repository/branch detail projection.
 struct VaultSessionRowAccessory: Equatable, Sendable {
     let liveStatus: VaultSessionLiveStatus
     let detail: String?
-    /// Retained for Vault socket/API consumers; compact rows do not render it.
+    /// Wire/API metadata retained for non-UI consumers. It is intentionally
+    /// never rendered in either Default or Compact Vault view.
     let messageCount: Int?
 
-    /// True when the row renders a second (subtitle) line. Message counts are
-    /// intentionally omitted from the compact row, so the table height
-    /// calculator must agree with `SessionRow`'s detail-only layout.
+    /// True when the row renders a second (subtitle) line.
     var hasSubtitle: Bool { detail != nil }
+
+    /// Returns the same status accessory with the optional subtitle hidden.
+    /// Keeping this transformation on the value type lets the parent project
+    /// compact rows without giving a list child access to mutable state.
+    func withDetailVisibility(_ showsDetails: Bool) -> VaultSessionRowAccessory {
+        guard showsDetails else {
+            return VaultSessionRowAccessory(
+                liveStatus: liveStatus,
+                detail: nil,
+                messageCount: messageCount
+            )
+        }
+        return self
+    }
 
     nonisolated static func detailText(for entry: SessionEntry) -> String? {
         var parts: [String] = []
@@ -261,9 +274,9 @@ enum VaultRecencySections {
         }
     }
 
-    /// Accessory map for a batch of rows. Recency includes folder/branch
-    /// detail; Agent and Folder groupings pass `includeDetail: false` so they
-    /// keep a compact single line while still sharing the status circle.
+    /// Accessory map for a batch of rows. Every grouping includes the same
+    /// folder/branch detail by default; callers can opt into the compact
+    /// projection with `includeDetail: false`.
     nonisolated static func accessories(
         for entries: [SessionEntry],
         liveKeys: Set<String>,

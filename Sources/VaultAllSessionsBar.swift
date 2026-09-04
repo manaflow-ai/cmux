@@ -1,15 +1,18 @@
 import SwiftUI
 
-/// Chrome row shown for every Vault grouping: session search field
-/// plus sort and filter menus. Mounted directly by `SessionIndexView` above
-/// the table boundary, mirroring the existing control bar (safe to observe
-/// the store here — never inside table rows).
+/// Chrome row shown for every Vault grouping: session search, view density,
+/// and the recency-only sort/filter menus. Mounted directly by
+/// `SessionIndexView` above the table boundary, mirroring the existing control
+/// bar (safe to observe the store here — never inside table rows).
 struct VaultAllSessionsBar: View {
     @ObservedObject var store: SessionIndexStore
     /// Sort and filters act on the recency ("All") sections; other groupings
     /// keep only the search field.
     let showsSortAndFilter: Bool
     @Binding var searchText: String
+    /// Shared row-density preference. Default view shows repository/branch
+    /// details; compact view hides that second line in every Vault grouping.
+    @Binding var isCompactView: Bool
     /// Enter — peek the top search result.
     let onPeekTopResult: () -> Void
     /// Cmd+Enter — resume the top search result.
@@ -37,6 +40,7 @@ struct VaultAllSessionsBar: View {
                 sortMenu
                 filterMenu
             }
+            viewMenu
         }
         // Keep the same 28-point rhythm and 4/6-point outer insets as the
         // mode bar, but let this toolbar flow into the session list without a
@@ -193,6 +197,59 @@ struct VaultAllSessionsBar: View {
         .help(String(localized: "sessionIndex.allSessions.filterTooltip", defaultValue: "Filter sessions"))
         .accessibilityIdentifier("VaultAllSessionsFilterMenu")
         .titlebarInteractiveControl()
+    }
+
+    /// View-density menu kept beside search so it is discoverable in every
+    /// grouping, including Agent and Folder where the sort/filter menus are
+    /// intentionally hidden.
+    private var viewMenu: some View {
+        Menu {
+            Picker(
+                String(localized: "sessionIndex.view.title", defaultValue: "Session view"),
+                selection: $isCompactView
+            ) {
+                Text(String(localized: "sessionIndex.view.default", defaultValue: "Default view"))
+                    .tag(false)
+                Text(String(localized: "sessionIndex.view.compact", defaultValue: "Compact view"))
+                    .tag(true)
+            }
+            .pickerStyle(.inline)
+        } label: {
+            VaultToolbarIcon(
+                systemName: isCompactView
+                    ? "eye.slash"
+                    : "eye",
+                isActive: isCompactView
+            )
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .contentShape(Rectangle())
+        .help(viewMenuTooltip)
+        .accessibilityLabel(
+            Text(String(localized: "sessionIndex.view.title", defaultValue: "Session view"))
+        )
+        .accessibilityHint(
+            Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view"))
+        )
+        .accessibilityValue(viewSelectionLabel)
+        .accessibilityIdentifier("VaultSessionViewMenu")
+        .titlebarInteractiveControl()
+    }
+
+    private var viewMenuTooltip: String {
+        if isCompactView {
+            return String(localized: "sessionIndex.view.showDetails", defaultValue: "Show details")
+        }
+        return String(localized: "sessionIndex.view.hideDetails", defaultValue: "Hide details")
+    }
+
+    private var viewSelectionLabel: String {
+        if isCompactView {
+            return String(localized: "sessionIndex.view.compact", defaultValue: "Compact view")
+        }
+        return String(localized: "sessionIndex.view.default", defaultValue: "Default view")
     }
 
 }

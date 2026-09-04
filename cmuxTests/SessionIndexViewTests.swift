@@ -407,7 +407,9 @@ struct SessionIndexViewTests {
             #expect(sections.allSatisfy { section in
                 section.entries.allSatisfy { entry in
                     let accessory = section.accessories[entry.id]
-                    return accessory != nil && accessory?.detail == nil && accessory?.hasSubtitle == false
+                    return accessory != nil
+                        && accessory?.detail == entry.cwdBasename
+                        && accessory?.hasSubtitle == true
                 }
             })
         }
@@ -449,7 +451,9 @@ struct SessionIndexViewTests {
             #expect(sections.allSatisfy { section in
                 section.entries.allSatisfy { entry in
                     let accessory = section.accessories[entry.id]
-                    return accessory != nil && accessory?.detail == nil && accessory?.hasSubtitle == false
+                    return accessory != nil
+                        && accessory?.detail == entry.cwdBasename
+                        && accessory?.hasSubtitle == true
                 }
             })
         }
@@ -659,7 +663,8 @@ struct SessionIndexViewTests {
         let keys = [
             "sessionIndex.agentOrder",
             "sessionIndex.directoryOrder",
-            "sessionIndex.grouping"
+            "sessionIndex.grouping",
+            "sessionIndex.compactView"
         ]
         let previousValues = keys.map { (key: $0, value: defaults.object(forKey: $0)) }
         defer {

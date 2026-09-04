@@ -1147,6 +1147,48 @@
         "ja": { "stringUnit": { "state": "translated", "value": "検索をクリア" } }
       }
     },
+    "sessionIndex.view.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Session view" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション表示" } }
+      }
+    },
+    "sessionIndex.view.default": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Default view" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "標準表示" } }
+      }
+    },
+    "sessionIndex.view.compact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Compact view" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "コンパクト表示" } }
+      }
+    },
+    "sessionIndex.view.tooltip": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose session view" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション表示を選択" } }
+      }
+    },
+    "sessionIndex.view.showDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Show details" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "詳細を表示" } }
+      }
+    },
+    "sessionIndex.view.hideDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hide details" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "詳細を非表示" } }
+      }
+    },
     "socket.vault.unknownAgent": {
       "extractionState": "manual",
       "localizations": {
