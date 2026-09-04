@@ -119,14 +119,24 @@ struct CloudTreeNodeActions {
                     SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                     }
                 } else {
+                    // Capture the destination before the async materialization. The
+                    // selected local workspace can change while a remote group is
+                    // opening; binding the post-open selection would associate the
+                    // cloud identity with an unrelated workspace.
+                    let targetWorkspaceID = selectedWorkspaceID()
                     run(openingLabel(machine)) { catalog in
-                        _ = try await catalog.projectGroup(group.resources, into: try destination(placement), focus: true)
-                        if let workspaceID = selectedWorkspaceID() {
-                            CloudWorkspaceRenameWriteThrough.reconcileBinding(
-                                localWorkspaceID: workspaceID,
-                                catalog: catalog
-                            )
+                        guard let targetWorkspaceID else {
+                            throw SurfaceCatalogError.destinationNotFound("no selected workspace")
                         }
+                        _ = try await catalog.projectGroup(
+                            group.resources,
+                            into: .workspace(id: targetWorkspaceID, placement: placement),
+                            focus: true
+                        )
+                        CloudWorkspaceRenameWriteThrough.reconcileBinding(
+                            localWorkspaceID: targetWorkspaceID,
+                            catalog: catalog
+                        )
                     }
                 }
             },

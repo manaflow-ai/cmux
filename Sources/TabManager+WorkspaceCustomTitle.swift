@@ -62,7 +62,8 @@ extension TabManager {
             CloudWorkspaceRenameWriteThrough.propagate(
                 workspace: tabs[index],
                 localTitle: title,
-                previousCustomTitle: previousCustomTitle
+                previousCustomTitle: previousCustomTitle,
+                editSequence: tabs[index].cloudRenameEditSequence
             )
         }
         return applied

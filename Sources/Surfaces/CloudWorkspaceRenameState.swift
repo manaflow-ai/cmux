@@ -105,10 +105,12 @@ struct CloudWorkspaceRenameIntent: Sendable {
     let sequence: UInt64
     let name: String
     let previousName: String
-    let baselineCursor: CloudVMCursor?
+    /// Cursor that must still be current when this intent reaches the daemon.
+    /// A queued newer intent is advanced to the predecessor's receipt after that
+    /// predecessor commits; an unrelated remote revision never gets silently
+    /// rebased over.
+    var baselineCursor: CloudVMCursor?
     var receiptCursor: CloudVMCursor?
-    var observedGeneration: String?
-    var observedRevision: UInt64?
 }
 
 /// A token for an optimistic rename.  Rollback is valid only while this token is current;

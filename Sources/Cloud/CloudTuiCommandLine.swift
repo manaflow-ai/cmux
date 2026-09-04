@@ -95,10 +95,11 @@ struct CloudTuiCommandLine: Sendable {
         name: String,
         expectedRevision: String? = nil
     ) -> [String] {
-        var arguments = ["--socket", socketPath, "--json", "workspace", workspaceID, "rename", "--name", name]
+        var arguments = ["--socket", socketPath, "--json"]
         if let expectedRevision, !expectedRevision.isEmpty {
             arguments += ["--expected-revision", expectedRevision]
         }
+        arguments += ["workspace", workspaceID, "rename", "--name", name]
         return arguments
     }
 

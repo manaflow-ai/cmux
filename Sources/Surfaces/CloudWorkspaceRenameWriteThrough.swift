@@ -66,14 +66,20 @@ enum CloudWorkspaceRenameWriteThrough {
     static func propagate(
         workspace: Workspace,
         localTitle: String?,
-        previousCustomTitle: String?
+        previousCustomTitle: String?,
+        editSequence: UInt64
     ) {
-        guard let localTitle, !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return
-        }
         let catalog = SurfaceCatalog.shared
         let snapshot = catalog.snapshot
         guard isCloudCandidate(workspace: workspace, snapshot: snapshot) else { return }
+        guard let localTitle else { return }
+        guard !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            reject(workspace: workspace, previousCustomTitle: previousCustomTitle, message: String(
+                localized: "cloudTree.error.renameWorkspaceEmpty",
+                defaultValue: "A cloud workspace name cannot be empty."
+            ))
+            return
+        }
         guard let target = target(for: workspace, snapshot: snapshot) else {
             reject(workspace: workspace, previousCustomTitle: previousCustomTitle, message: String(
                 localized: "cloudTree.error.renameAmbiguous",
@@ -103,7 +109,8 @@ enum CloudWorkspaceRenameWriteThrough {
                 try await provider.renameRemoteWorkspace(id: target.workspaceID, name: name)
             } catch {
                 guard let workspace,
-                      workspace.customTitle == expectedTitle else {
+                      workspace.customTitle == expectedTitle,
+                      workspace.cloudRenameEditSequence == editSequence else {
                     return
                 }
                 _ = manager.setCustomTitle(
@@ -162,9 +169,9 @@ enum CloudWorkspaceRenameWriteThrough {
     }
 
     /// Reconciles all local projections with the names in the catalog's latest accepted cloud
-    /// graph.  A bound projection always follows its remote name; a legacy unbound projection
-    /// is changed only when its current title is the old generated name, so a mixed workspace
-    /// cannot have an unrelated local title silently overwritten.
+    /// graph. A bound projection always follows its remote name; an unbound
+    /// projection is upgraded only when its placement proves one identity, so an
+    /// unrelated local title is never silently overwritten.
     @MainActor
     static func reconcileRemoteProjections(catalog suppliedCatalog: SurfaceCatalog? = nil) {
         let catalog = suppliedCatalog ?? SurfaceCatalog.shared
@@ -175,11 +182,25 @@ enum CloudWorkspaceRenameWriteThrough {
                       let remoteName = remoteWorkspaceName(target, snapshot: snapshot) else {
                     continue
                 }
+                if workspace.cloudVMBinding?.remoteWorkspaceID == nil {
+                    // A restored legacy projection may have enough identity in its
+                    // resource views even though the old session manifest did not
+                    // persist remoteWorkspaceID. Record that exact relationship
+                    // before changing its title so future edits never infer by name.
+                    bind(
+                        localWorkspaceID: workspace.id,
+                        machine: target.machine,
+                        remoteWorkspaceID: target.workspaceID
+                    )
+                }
                 let current = workspace.title.trimmingCharacters(in: .whitespacesAndNewlines)
                 let bound = workspace.cloudVMBinding?.remoteWorkspaceID == target.workspaceID
                     && workspace.cloudVMBinding?.vmID == target.machine.cloudMachineID
-                let generated = current.hasPrefix(target.machine.rawValue + ": ")
-                guard bound || generated || current == remoteName else { continue }
+                // An unbound title is not enough evidence to distinguish a
+                // generated machine prefix from an intentional user title.
+                // The binding above is the safe upgrade path; otherwise only
+                // an already-equal value is a no-op.
+                guard bound || current == remoteName else { continue }
                 guard current != remoteName else { continue }
                 _ = manager.setCustomTitle(
                     tabId: workspace.id,
@@ -199,22 +220,46 @@ enum CloudWorkspaceRenameWriteThrough {
         if let binding = workspace.cloudVMBinding,
            let remoteID = binding.remoteWorkspaceID,
            let machine = WorkspaceCloudVMBinding.normalizedVMID(binding.vmID) {
-            return Target(machine: .cloud(machine), workspaceID: remoteID)
+            let target = Target(machine: .cloud(machine), workspaceID: remoteID)
+            // A persisted binding is an identity hint, not permission to send
+            // a command to an absent or replaced machine. Validate it against
+            // the latest catalog graph so detached/restored state fails closed
+            // until the exact workspace is observed again.
+            guard snapshot.machines.contains(where: { $0.id == target.machine }),
+                  remoteWorkspaceName(target, snapshot: snapshot) != nil else {
+                return nil
+            }
+            return target
         }
         let projections = snapshot.projections.filter { $0.workspaceID == workspace.id }
         let resources = Dictionary(
             snapshot.resources.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
+        // An unbound local workspace that mixes local panes with cloud panes has
+        // no single authoritative remote owner. Do not rename whichever cloud
+        // resource happens to sort first.
+        guard projections.allSatisfy({ resources[$0.resource]?.machine.isLocal == false }) else {
+            return nil
+        }
         var targets = Set<Target>()
         for projection in projections {
             guard let resource = resources[projection.resource], !resource.machine.isLocal else { continue }
             let candidates = Set(resource.remoteWorkspaces.map { Target(machine: resource.machine, workspaceID: $0.id) })
-            guard candidates.count <= 1 else { return nil }
+            guard candidates.count == 1 else { return nil }
             targets.formUnion(candidates)
         }
         guard targets.count == 1 else { return nil }
-        return targets.first
+        guard let target = targets.first else { return nil }
+        if let binding = workspace.cloudVMBinding,
+           let boundVMID = WorkspaceCloudVMBinding.normalizedVMID(binding.vmID),
+           target.machine.cloudMachineID != boundVMID {
+            // A persisted machine choice is authoritative even while its
+            // remote workspace id is still being recovered. Never rebind a
+            // moved/stale projection to another machine by inference.
+            return nil
+        }
+        return target
     }
 
     /// Converts a local title into a daemon name.  The old generated machine prefix is removed
@@ -244,11 +289,12 @@ enum CloudWorkspaceRenameWriteThrough {
 
     @MainActor
     private static func remoteWorkspaceName(_ target: Target, snapshot: SurfaceCatalogSnapshot) -> String? {
-        if let info = snapshot.machines.first(where: { $0.id == target.machine }),
-           let workspace = info.remoteWorkspaces?.first(where: { $0.id == target.workspaceID }) {
-            return workspace.name
-        }
         var names = Set<String>()
+        if let info = snapshot.machines.first(where: { $0.id == target.machine }),
+           let matches = info.remoteWorkspaces?.filter({ $0.id == target.workspaceID }) {
+            guard matches.count <= 1 else { return nil }
+            names.formUnion(matches.map(\.name))
+        }
         for resource in snapshot.resources(on: target.machine) {
             names.formUnion(resource.remoteWorkspaces.filter { $0.id == target.workspaceID }.map(\.name))
         }

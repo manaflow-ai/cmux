@@ -183,6 +183,10 @@ extension Workspace {
             customTitleSource = source
             self.title = trimmed
         }
+        // Every accepted title mutation invalidates older asynchronous cloud
+        // failure handlers, including a remote reconciliation or a user edit
+        // that happens to return to the same text.
+        cloudRenameEditSequence &+= 1
 #if DEBUG
         cmuxDebugLog(
             "workspace.customTitle.write workspace=\(id.uuidString.prefix(8)) " +

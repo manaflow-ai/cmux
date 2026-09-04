@@ -360,7 +360,7 @@ import Testing
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work") ==
             ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work"])
         #expect(CloudTuiCommandLine.renameWorkspaceArguments(socketPath: "/k.sock", workspaceID: "ws_main", name: "backend work", expectedRevision: "42") ==
-            ["--socket", "/k.sock", "--json", "workspace", "ws_main", "rename", "--name", "backend work", "--expected-revision", "42"])
+            ["--socket", "/k.sock", "--json", "--expected-revision", "42", "workspace", "ws_main", "rename", "--name", "backend work"])
         // Verified live: the flat `set-default-colors` verb is `usage.invalid` in the v2
         // resource CLI; the session-scoped form below is the one machines accept.
         #expect(CloudTuiCommandLine.setDefaultColorsArguments(socketPath: "/k.sock", foreground: "#d8dee9", background: "#171b2e") ==

@@ -2971,6 +2971,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// session snapshot (`SessionWorkspaceSnapshot.cloudVM`); the pane's one-shot link is
     /// not replayed on restore, only the binding is.
     @Published var cloudVMBinding: WorkspaceCloudVMBinding?
+    /// Monotonic local-title edit token used to fence an asynchronous cloud
+    /// write-through rollback. It is intentionally not persisted: a restored
+    /// workspace starts a new in-process edit lane.
+    var cloudRenameEditSequence: UInt64 = 0
 
     /// The binding a session snapshot restores, or nil when the snapshot has none or its
     /// machine id is malformed.

@@ -701,6 +701,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     func renameRemoteWorkspace(id: String, name: String) async throws {
         try Task.checkCancellation()
+        let operationGeneration = lifecycleGeneration
+        guard isCurrentLifecycleGeneration(operationGeneration), isRegisteredInCatalog() else {
+            throw ProviderError.machineAsleep(machineID)
+        }
         let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {
             throw SurfaceCatalogError.unsupported(String(
@@ -716,7 +720,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               let current = remoteWorkspace(id: id) else {
             throw ProviderError.snapshotOnly(machineID)
         }
-        if current.name == normalized { return }
+        if current.name == normalized,
+           catalog.pendingCloudWorkspaceRenameName(
+               machine: machine,
+               workspaceID: id
+           ) == nil {
+            return
+        }
         let token = try catalog.beginCloudWorkspaceRename(
             machine: machine,
             workspaceID: id,
@@ -726,36 +736,72 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         do {
             try await catalog.cloudWorkspaceRenameCoordinator.enqueue(key: key) { [weak self] in
                 guard let self else { throw ProviderError.machineAsleep("cloud") }
-                guard let latestCursor = self.catalog.cloudCursor(for: self.machine),
-                      latestCursor.generation == cursor.generation else {
+                guard self.isCurrentLifecycleGeneration(operationGeneration),
+                      self.isRegisteredInCatalog(),
+                      self.catalog.hasCloudWorkspaceRename(token),
+                      let expectedCursor = self.catalog.cloudWorkspaceRenameSubmissionCursor(token),
+                      expectedCursor.generation == cursor.generation else {
                     throw ProviderError.revisionConflict(id)
                 }
                 let connected = try await self.links.connected(machineID: self.machineID)
+                guard self.isCurrentLifecycleGeneration(operationGeneration),
+                      self.isRegisteredInCatalog() else {
+                    throw ProviderError.revisionConflict(id)
+                }
                 guard let link = await self.links.link(machineID: self.machineID) else {
                     throw ProviderError.machineAsleep(self.machineID)
+                }
+                // The link/connect await can interleave a refresh or another
+                // client write. Re-check the fence immediately before sending;
+                // never rebase this token over an intervening revision.
+                guard let latestCursor = self.catalog.cloudWorkspaceRenameSubmissionCursor(token),
+                      latestCursor == expectedCursor else {
+                    throw ProviderError.revisionConflict(id)
                 }
                 let data = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(
                     socketPath: connected.socketPath,
                     workspaceID: id,
                     name: normalized,
-                    expectedRevision: String(latestCursor.revision)
+                    expectedRevision: String(expectedCursor.revision)
                 ))
+                guard self.isCurrentLifecycleGeneration(operationGeneration),
+                      self.isRegisteredInCatalog() else {
+                    throw ProviderError.revisionConflict(id)
+                }
                 guard let receipt = CmuxTuiSnapshotParser.mutationCursor(
                     from: data,
-                    fallbackGeneration: latestCursor.generation
-                ), receipt.generation == latestCursor.generation,
-                      receipt.revision >= latestCursor.revision else {
+                    fallbackGeneration: expectedCursor.generation
+                ), receipt.generation == expectedCursor.generation,
+                      receipt.revision >= expectedCursor.revision else {
                     throw ProviderError.invalidRenameResponse(self.machineID)
+                }
+                // A snapshot/event may have advanced the daemon cursor while the
+                // command was in flight. The receipt is only safe to apply when
+                // the compare-and-swap base is still the graph we submitted
+                // against; otherwise report a conflict and let reconciliation
+                // keep the newer writer's name.
+                guard self.catalog.cloudCursor(for: self.machine) == expectedCursor else {
+                    throw ProviderError.revisionConflict(id)
                 }
                 self.catalog.commitCloudWorkspaceRename(token, receipt: receipt)
                 // The receipt makes the write durable; this read confirms every derived row
                 // and clears the optimistic overlay when the daemon catches up.
-                if self.catalog.isCurrentCloudWorkspaceRename(token) {
+                if self.catalog.isCurrentCloudWorkspaceRename(token),
+                   self.isCurrentLifecycleGeneration(operationGeneration),
+                   self.isRegisteredInCatalog() {
                     await self.refresh(force: true)
                 }
             }
         } catch {
-            catalog.rollbackCloudWorkspaceRename(token)
+            // A transport failure can arrive after the daemon committed the
+            // mutation but before its receipt reached us. Re-read first; only a
+            // same-cursor result is allowed to roll the optimistic value back.
+            if !Task.isCancelled,
+               isCurrentLifecycleGeneration(operationGeneration),
+               isRegisteredInCatalog() {
+                await refresh(force: true)
+                catalog.resolveFailedCloudWorkspaceRename(token)
+            }
             throw error
         }
     }
