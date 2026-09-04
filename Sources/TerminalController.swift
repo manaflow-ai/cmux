@@ -8712,40 +8712,42 @@ class TerminalController {
                 )
             }
             return v2BrowserWithPanelContext(params: params) { ctx in
-                guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
-                        ctx.webView.backForwardList.currentItem != nil else {
-                    return .err(
-                        code: "timeout",
-                        message: String(
-                            localized: "browser.automation.error.documentReadinessTimedOut",
-                            defaultValue: "Timed out waiting for the browser document to become ready"
-                        ),
-                        data: ["surface_id": ctx.surfaceId.uuidString]
-                    )
-                }
+                MainActor.assumeIsolated {
+                    guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
+                            ctx.webView.backForwardList.currentItem != nil else {
+                        return .err(
+                            code: "timeout",
+                            message: String(
+                                localized: "browser.automation.error.documentReadinessTimedOut",
+                                defaultValue: "Timed out waiting for the browser document to become ready"
+                            ),
+                            data: ["surface_id": ctx.surfaceId.uuidString]
+                        )
+                    }
 
-                switch ctx.webView.replayBrowserKeyboardEvent(event, action: action) {
-                case .delivered:
-                    var payload: [String: Any] = [
-                        "workspace_id": ctx.workspaceId.uuidString,
-                        "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                        "surface_id": ctx.surfaceId.uuidString,
-                        "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
-                    ]
-                    v2BrowserAppendPostSnapshot(params: params, surfaceId: ctx.surfaceId, payload: &payload)
-                    return .ok(payload)
-                case .unsupported, .eventCreationFailed:
-                    // The descriptor was resolved before entering this branch;
-                    // a failed native delivery must not silently become an
-                    // untrusted page-world KeyboardEvent.
-                    return .err(
-                        code: "internal_error",
-                        message: String(
-                            localized: "cli.browser.error.operationFailed",
-                            defaultValue: "Browser operation failed"
-                        ),
-                        data: ["surface_id": ctx.surfaceId.uuidString]
-                    )
+                    switch ctx.webView.replayBrowserKeyboardEvent(event, action: action) {
+                    case .delivered:
+                        var payload: [String: Any] = [
+                            "workspace_id": ctx.workspaceId.uuidString,
+                            "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                            "surface_id": ctx.surfaceId.uuidString,
+                            "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
+                        ]
+                        v2BrowserAppendPostSnapshot(params: params, surfaceId: ctx.surfaceId, payload: &payload)
+                        return .ok(payload)
+                    case .unsupported, .eventCreationFailed:
+                        // The descriptor was resolved before entering this branch;
+                        // a failed native delivery must not silently become an
+                        // untrusted page-world KeyboardEvent.
+                        return .err(
+                            code: "internal_error",
+                            message: String(
+                                localized: "cli.browser.error.operationFailed",
+                                defaultValue: "Browser operation failed"
+                            ),
+                            data: ["surface_id": ctx.surfaceId.uuidString]
+                        )
+                    }
                 }
             }
         }
