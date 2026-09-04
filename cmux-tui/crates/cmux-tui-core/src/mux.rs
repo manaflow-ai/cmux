@@ -17753,6 +17753,18 @@ mod tests {
         Mux::new_for_test("test", SurfaceOptions::default())
     }
 
+    fn open_persistent_test_mux(session: &str, state_root: &Path) -> Arc<Mux> {
+        let registry = WorkspaceRegistry::open(state_root, session).unwrap();
+        Mux::from_workspace_registry(
+            session.to_owned(),
+            SurfaceOptions::default(),
+            registry,
+            ProviderWorkspaceState::default(),
+            true,
+        )
+        .unwrap()
+    }
+
     /// A machine resume reconnects every hosted terminal at once. Checkpoint
     /// capture can lose its consistency race while those reconnects append to
     /// the journal, but the skipped optimization is recovered by replaying
@@ -23024,7 +23036,7 @@ mod tests {
     fn sessionless_legacy_hook_identity_survives_restart() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-legacy-marker-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux = Mux::open_persistent("legacy-marker", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("legacy-marker", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let ingress = |event: &str| {
@@ -23044,7 +23056,7 @@ mod tests {
         mux.shutdown();
         drop(mux);
 
-        let mux = Mux::open_persistent("legacy-marker", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("legacy-marker", &root);
         assert_eq!(
             mux.agent_hook_fences.lock().unwrap()[&terminal_id].session_id,
             first_session_id
@@ -23124,8 +23136,7 @@ mod tests {
     fn new_non_hook_session_can_start_after_hook_session_end() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-hook-restart-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux =
-            Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("agent-hook-restart", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let hook = |event: &str| {
@@ -23161,8 +23172,7 @@ mod tests {
 
         mux.shutdown();
         drop(mux);
-        let reopened =
-            Mux::open_persistent("agent-hook-restart", SurfaceOptions::default(), &root).unwrap();
+        let reopened = open_persistent_test_mux("agent-hook-restart", &root);
         assert!(
             reopened.list_agents(None, None).is_empty(),
             "a detached terminal must not remain in the live agent cache"
@@ -23404,8 +23414,7 @@ mod tests {
     fn persistent_hook_watermark_restores_from_journal() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-watermark-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux =
-            Mux::open_persistent("agent-watermark", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("agent-watermark", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = mux.with_state(|state| {
             match state.resource_indexes.content_ids.get(&surface.id).unwrap() {
@@ -23470,8 +23479,7 @@ mod tests {
     fn reopened_ended_hook_fence_rejects_late_transitions() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-ended-reopen-{}", crate::workspace_registry::new_uuid_v4()));
-        let mux =
-            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
+        let mux = open_persistent_test_mux("agent-ended-reopen", &root);
         let surface = mux.new_workspace(None, None).unwrap();
         let terminal_id = surface.terminal_public_id().cloned().expect("workspace terminal");
         let ingress = |event: &str, session_id: Option<&str>| {
@@ -23491,8 +23499,7 @@ mod tests {
         mux.shutdown();
         drop(mux);
 
-        let reopened =
-            Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
+        let reopened = open_persistent_test_mux("agent-ended-reopen", &root);
         assert!(reopened.list_agents(None, None).is_empty());
         let fence = reopened.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
         assert_eq!(fence.session_id, "ended-session");
