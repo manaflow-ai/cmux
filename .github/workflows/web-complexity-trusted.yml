@@ -28,7 +28,7 @@ jobs:
     name: Web complexity
     # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
     # hosted runner and never allow a repository variable to select the host.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04 # github-hosted-required: trusted policy checks execute PR source
     timeout-minutes: 10
     steps:
       - name: Checkout trusted policy revision
