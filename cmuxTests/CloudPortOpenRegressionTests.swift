@@ -245,6 +245,23 @@ struct CloudPortOpenRegressionTests {
         #expect(clearedPort.remoteViews == nil)
     }
 
+    @Test("Duplicate daemon views merge once and preserve canonical tab order")
+    func duplicatePortViewsAreDeduplicated() throws {
+        let first = discoveredPort(8000, in: workspace)
+        var second = discoveredPort(8000, in: workspace)
+        second.remoteViews = [
+            SurfaceRemoteView(tabID: "tab_port_8000", workspace: workspace),
+            SurfaceRemoteView(tabID: "tab_port_second", workspace: workspace),
+        ]
+        let merged = CmuxTuiSurfaceProvider.mergeSnapshotResources(
+            pool: [first],
+            parsed: [first, second],
+            privateAddress: "10.0.0.7"
+        )
+        let port = try #require(merged.first { $0.id.isForwardedPort })
+        #expect(port.remoteViews?.map(\.tabID) == ["tab_port_8000", "tab_port_second"])
+    }
+
     @Test("Unavailable scans retain ports while an authoritative empty scan retires them")
     func portScanCompletenessControlsRefresh() throws {
         #expect(CmuxTuiSurfaceProvider.ports(from: VMExecResult(exitCode: 127, stdout: "", stderr: "ss unavailable")) == nil)

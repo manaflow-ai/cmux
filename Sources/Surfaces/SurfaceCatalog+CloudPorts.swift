@@ -215,12 +215,15 @@ extension SurfaceCatalog {
         for projection in projections where relatedIDs.contains(projection.resource) {
             projectionCounts[projection.workspaceID, default: 0] += 1
         }
-        let orderedCounts = projectionCounts.sorted(by: { lhs, rhs in
+        // Select the same highest-count/lowest-UUID winner as
+        // `CloudTreeNodeBuilder.localWorkspaceShowing`, but in one pass. This
+        // path runs for every port-row open, so sorting all local workspaces
+        // needlessly turns a linear vote into O(W log W).
+        return projectionCounts.max { lhs, rhs in
             lhs.value != rhs.value
-                ? lhs.value > rhs.value
-                : lhs.key.uuidString < rhs.key.uuidString
-        })
-        return orderedCounts.first?.key ?? fallback
+                ? lhs.value < rhs.value
+                : lhs.key.uuidString > rhs.key.uuidString
+        }?.key ?? fallback
     }
 
     /// Keeps a port that was added or reopened while a provider refresh was
@@ -334,6 +337,10 @@ extension CmuxTuiSurfaceProvider {
         var parsedPortIDs = Set<SurfaceResourceID>()
         var parsedResources: [SurfaceResource] = []
         var portIndexes: [SurfaceResourceID: Int] = [:]
+        // Keep one deduplication set per canonical port while folding multiple
+        // daemon browser records. Rebuilding a Set from the accumulated array
+        // for each duplicate made refresh cost quadratic in the number of views.
+        var remoteViewKeysByPort: [SurfaceResourceID: Set<String>] = [:]
 
         for resource in parsed {
             guard resource.kind == .browser,
@@ -359,7 +366,9 @@ extension CmuxTuiSurfaceProvider {
             parsedPortIDs.insert(id)
             if let index = portIndexes[id] {
                 var merged = parsedResources[index]
-                mergeRemoteViews(from: resource, into: &merged)
+                var seen = remoteViewKeysByPort[id] ?? []
+                mergeRemoteViews(from: resource, into: &merged, seen: &seen)
+                remoteViewKeysByPort[id] = seen
                 parsedResources[index] = merged
                 continue
             }
@@ -385,7 +394,9 @@ extension CmuxTuiSurfaceProvider {
             // Membership comes from this snapshot, never from the prior pass.
             canonical.remoteWorkspace = nil
             canonical.remoteViews = nil
-            mergeRemoteViews(from: resource, into: &canonical)
+            var seen: Set<String> = []
+            mergeRemoteViews(from: resource, into: &canonical, seen: &seen)
+            remoteViewKeysByPort[id] = seen
             portIndexes[id] = parsedResources.count
             parsedResources.append(canonical)
         }
@@ -416,11 +427,11 @@ extension CmuxTuiSurfaceProvider {
     /// live resource with no views (`[]`).
     private nonisolated static func mergeRemoteViews(
         from source: SurfaceResource,
-        into destination: inout SurfaceResource
+        into destination: inout SurfaceResource,
+        seen: inout Set<String>
     ) {
         if let incoming = source.remoteViews {
             var combined = destination.remoteViews ?? []
-            var seen = Set(combined.map { "\($0.tabID)|\($0.workspace.id)" })
             for view in incoming where seen.insert("\(view.tabID)|\(view.workspace.id)").inserted {
                 combined.append(view)
             }
