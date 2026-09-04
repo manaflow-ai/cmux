@@ -3,6 +3,12 @@ import {
   markAccountCooldown,
   selectAccountForSession,
 } from "./repository";
+import {
+  CLAUDE_PLANE_PROVIDERS,
+  type AnthropicApiKeyCredential,
+  type ClaudeCredential,
+  type CodeRouterCredential,
+} from "./types";
 import { freshCredential } from "./refresh";
 import { bearerToken, jsonError, rateLimitDelay } from "./codexProxy";
 import { captureCoderouterEvent } from "./analytics";
@@ -208,7 +214,7 @@ async function proxyClaudeRequestWith(
   for (let attempt = 0; attempt < 8; attempt++) {
     const account = await dependencies.select({
       teamId: identity.teamId,
-      provider: "claude",
+      provider: CLAUDE_PLANE_PROVIDERS,
       sessionKey,
       excludedAccountIds: attempted,
     });
@@ -239,7 +245,7 @@ async function proxyClaudeRequestWith(
       }
       throw error;
     }
-    if (credential.provider !== "claude") continue;
+    if (!isClaudePlaneCredential(credential)) continue;
     try {
       upstream = await sendClaude(target, request, forwardedHeaders, bodyBytes, credential);
     } catch (error) {
@@ -275,7 +281,7 @@ async function proxyClaudeRequestWith(
           expectedRevision: account.vaultRevision,
           force: true,
         });
-        if (refreshed.provider !== "claude") continue;
+        if (!isClaudePlaneCredential(refreshed)) continue;
         upstream = await sendClaude(
           target,
           request,
@@ -341,7 +347,7 @@ async function proxyClaudeRequestWith(
       "no_usable_account",
       503,
       { "retry-after": "15" },
-      "No healthy Claude subscription is currently available for this team. Add one in cmux or retry shortly.",
+      "No Claude account is connected for your team right now. On your Mac, run `cmux ai-accounts upload claude` (a Claude login) or `cmux ai-accounts upload anthropic-key --key sk-ant-…`, then retry.",
       true,
     );
   }
@@ -403,19 +409,33 @@ async function discardBody(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
 }
 
+type ClaudePlaneCredential = ClaudeCredential | AnthropicApiKeyCredential;
+
+function isClaudePlaneCredential(
+  credential: CodeRouterCredential,
+): credential is ClaudePlaneCredential {
+  return credential.provider === "claude" || credential.provider === "anthropic-apikey";
+}
+
 async function sendClaude(
   target: ClaudeMessagesTarget,
   request: Request,
   forwardedHeaders: Headers,
   bodyBytes: ArrayBuffer,
-  credential: { accessToken: string },
+  credential: ClaudePlaneCredential,
 ): Promise<Response> {
   const headers = new Headers(forwardedHeaders);
-  headers.set("authorization", `Bearer ${credential.accessToken}`);
-  // The client's own credential header must never reach the provider; the
-  // OAuth beta capability must always be present alongside the bearer token.
+  // The client's own credential header never reaches the provider: the
+  // account decides how the upstream is authenticated.
   headers.delete("x-api-key");
-  ensureCommaHeaderValue(headers, "anthropic-beta", CLAUDE_OAUTH_BETA);
+  headers.delete("authorization");
+  if (credential.provider === "anthropic-apikey") {
+    headers.set("x-api-key", credential.apiKey);
+  } else {
+    // The OAuth beta capability must always be present alongside the bearer.
+    headers.set("authorization", `Bearer ${credential.accessToken}`);
+    ensureCommaHeaderValue(headers, "anthropic-beta", CLAUDE_OAUTH_BETA);
+  }
   // The caller's abort propagates upstream so a disconnected machine does not
   // keep a provider request streaming to nobody.
   return await fetch(upstreamUrl(target, request.url), {

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   findAccountByProviderIdentity,
   deleteAccount,
@@ -143,6 +143,23 @@ export const removeAccount = createAccountRemover({
 export function parseCredential(value: unknown): CodeRouterCredential | null {
   if (!isRecord(value)) return null;
   const provider = value.provider;
+  if (provider === "anthropic-apikey" || provider === "openai-apikey") {
+    const apiKey = boundedString(value.apiKey, 4_096);
+    if (!apiKey) return null;
+    // A directly added key is identified by the key itself, never by a
+    // caller-chosen id: the same key connected twice is one account (and one
+    // free-tier slot). Mirrored keys carry their app-side id, but they are
+    // built by the mirror, not parsed here.
+    const accountId = apiKeyAccountId(apiKey);
+    const email = boundedString(value.email, 320) ??
+      boundedString(value.label, 320) ??
+      accountId;
+    const key = { apiKey, accountId, email };
+    // Spelled out per provider so the literal narrows into the credential union.
+    return provider === "anthropic-apikey"
+      ? { provider: "anthropic-apikey", ...key }
+      : { provider: "openai-apikey", ...key };
+  }
   const accessToken = boundedString(value.accessToken, 32_768);
   const refreshToken = boundedString(value.refreshToken, 32_768);
   const accountId = boundedString(value.accountId, 512);
@@ -161,6 +178,7 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
   }
   if (provider === "codex") {
     const idToken = boundedString(value.idToken, 32_768);
+    const chatgptAccountId = optionalBoundedString(value.chatgptAccountId, 512);
     return idToken
       ? {
         provider,
@@ -168,6 +186,7 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
         refreshToken,
         idToken,
         accountId,
+        ...(chatgptAccountId ? { chatgptAccountId } : {}),
         email,
         expiresAt,
       }
@@ -200,6 +219,14 @@ export function parseCredential(value: unknown): CodeRouterCredential | null {
     };
   }
   return null;
+}
+
+/**
+ * A key's dedupe identity within a team: the same key connected twice is one
+ * account, and the key itself never appears in an identifier or a log line.
+ */
+export function apiKeyAccountId(apiKey: string): string {
+  return `key:${createHash("sha256").update(apiKey).digest("hex").slice(0, 32)}`;
 }
 
 function boundedString(value: unknown, max: number): string | null {

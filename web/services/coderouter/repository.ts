@@ -14,6 +14,7 @@ import type {
   CodeRouterCredential,
   CodeRouterProvider,
 } from "./types";
+import { credentialExpiryDate } from "./types";
 
 const ROUTE_TOKEN_LIFETIME_MS = 30 * 24 * 60 * 60 * 1_000;
 const VAULT_LEASE_MS = 30_000;
@@ -274,7 +275,7 @@ export async function insertAccountWithCredential(input: {
         label,
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         updatedAt: new Date(),
       })
       .onConflictDoNothing({
@@ -318,7 +319,7 @@ export async function replaceAccountCredential(input: {
         label: credentialLabel(input.credential),
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         refreshLeaseId: null,
         refreshLeaseExpiresAt: null,
         lastFailureCode: null,
@@ -368,7 +369,7 @@ export async function importEncryptedCredential(input: {
       .set({
         label: credentialLabel(input.credential),
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         updatedAt: new Date(),
       })
       .where(and(
@@ -401,7 +402,7 @@ export async function upsertAccountMetadata(input: {
       label,
       state: "active",
       vaultRevision: input.vaultRevision,
-      credentialExpiresAt: new Date(input.credential.expiresAt),
+      credentialExpiresAt: credentialExpiryDate(input.credential),
       updatedAt: new Date(),
     })
     .onConflictDoUpdate({
@@ -414,7 +415,7 @@ export async function upsertAccountMetadata(input: {
         label,
         state: "active",
         vaultRevision: input.vaultRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         lastFailureCode: null,
         updatedAt: new Date(),
       },
@@ -471,7 +472,7 @@ const SESSION_BINDING_LOAD_WINDOW = "6 hours";
 /** Bindings idle longer than this are pruned opportunistically. */
 const SESSION_BINDING_RETENTION = "7 days";
 
-async function sweepExpiredRefreshLeases(teamId: string): Promise<void> {
+export async function sweepExpiredRefreshLeases(teamId: string): Promise<void> {
   const now = new Date();
   await cloudDb()
     .update(coderouterAccounts)
@@ -493,9 +494,30 @@ async function sweepExpiredRefreshLeases(teamId: string): Promise<void> {
  * Bumps the binding's last-seen time and the account's last-used time so
  * new-session placement steers away from accounts with live traffic.
  */
+/**
+ * Which account kinds a data plane may route over. A single provider id, or
+ * a list whose first entry is the plane's own id: session bindings are keyed
+ * on that id, so a session stays pinned to one account regardless of which
+ * kind it landed on (see CLAUDE_PLANE_PROVIDERS / CODEX_PLANE_PROVIDERS).
+ */
+export type ProviderSelector = CodeRouterProvider | readonly CodeRouterProvider[];
+
+function planeOf(selector: ProviderSelector): CodeRouterProvider {
+  if (typeof selector === "string") return selector;
+  const [plane] = selector;
+  if (!plane) throw new Error("provider selector is empty");
+  return plane;
+}
+
+function providersOf(selector: ProviderSelector): readonly CodeRouterProvider[] {
+  if (typeof selector === "string") return [selector];
+  if (selector.length === 0) throw new Error("provider selector is empty");
+  return selector;
+}
+
 export async function findSessionAccount(
   teamId: string,
-  provider: CodeRouterProvider,
+  provider: ProviderSelector,
   sessionKey: string,
   excludedAccountIds: readonly string[] = [],
 ): Promise<RoutedAccount | null> {
@@ -503,7 +525,7 @@ export async function findSessionAccount(
   try {
     result = await findSessionAccountStatement(
       teamId,
-      provider,
+      planeOf(provider),
       sessionKey,
       excludedAccountIds,
     );
@@ -559,22 +581,23 @@ async function findSessionAccountStatement(
  */
 export async function claimAccountForPlacement(
   teamId: string,
-  provider: CodeRouterProvider,
+  provider: ProviderSelector,
   excludedAccountIds: readonly string[] = [],
 ): Promise<RoutedAccount | null> {
+  const providers = providersOf(provider);
   try {
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, true);
+    return await claimWithOrdering(teamId, providers, excludedAccountIds, true);
   } catch (error) {
     // The session table's migration has not been applied yet. Claim without
     // the session-load ordering term rather than failing the request.
     if (!isMissingSessionTableError(error)) throw error;
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, false);
+    return await claimWithOrdering(teamId, providers, excludedAccountIds, false);
   }
 }
 
 async function claimWithOrdering(
   teamId: string,
-  provider: CodeRouterProvider,
+  provider: readonly CodeRouterProvider[],
   excludedAccountIds: readonly string[],
   withSessionLoad: boolean,
 ): Promise<RoutedAccount | null> {
@@ -602,7 +625,7 @@ async function claimWithOrdering(
 
 async function claimStatement(
   teamId: string,
-  provider: CodeRouterProvider,
+  providers: readonly CodeRouterProvider[],
   excludedAccountIds: readonly string[],
   skipLocked: boolean,
   withSessionLoad: boolean,
@@ -612,7 +635,7 @@ async function claimStatement(
       select account."id"
       from "coderouter_accounts" as account
       where account."team_id" = ${teamId}
-        and account."provider" = ${provider}
+        and account."provider" in (${sql.join(providers.map((id) => sql`${id}`), sql`, `)})
         and account."state" = 'active'
         and (account."cooldown_until" is null or account."cooldown_until" <= now())
         ${accountExclusion(sql`account."id"`, excludedAccountIds)}
@@ -716,7 +739,7 @@ export function createSessionAccountSelector(
   dependencies: SessionAccountSelectorDependencies,
 ): (input: {
   teamId: string;
-  provider: CodeRouterProvider;
+  provider: ProviderSelector;
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
 }) => Promise<StickyRoutedAccount | null> {
@@ -741,7 +764,7 @@ export function createSessionAccountSelector(
     if (input.sessionKey) {
       await dependencies.bind(
         input.teamId,
-        input.provider,
+        planeOf(input.provider),
         input.sessionKey,
         placed.id,
       );
@@ -759,7 +782,7 @@ export const selectAccountForSession = createSessionAccountSelector({
 
 export async function selectAccountForRequest(
   teamId: string,
-  provider: CodeRouterProvider,
+  provider: ProviderSelector,
   excludedAccountIds: readonly string[] = [],
 ): Promise<RoutedAccount | null> {
   await sweepExpiredRefreshLeases(teamId);
@@ -863,7 +886,7 @@ export async function completeRefreshLease(input: {
       .set({
         state: "active",
         vaultRevision: input.encrypted.credentialRevision,
-        credentialExpiresAt: new Date(input.credential.expiresAt),
+        credentialExpiresAt: credentialExpiryDate(input.credential),
         refreshLeaseId: null,
         refreshLeaseExpiresAt: null,
         lastFailureCode: null,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseCredential } from "../services/coderouter/accounts";
+import { apiKeyAccountId, parseCredential } from "../services/coderouter/accounts";
 import { parseVault } from "../services/coderouter/vault";
 
 const codex = {
@@ -38,6 +38,23 @@ describe("coderouter vault", () => {
     expect(
       parseCredential({ ...claude, subscriptionType: undefined })?.provider,
     ).toBe("claude");
+  });
+
+  test("accepts provider API keys, deriving a hashed identity and a label", () => {
+    const parsed = parseCredential({ provider: "anthropic-apikey", apiKey: "sk-ant-api03-secret", label: "work" });
+    expect(parsed).toEqual({
+      provider: "anthropic-apikey",
+      apiKey: "sk-ant-api03-secret",
+      accountId: apiKeyAccountId("sk-ant-api03-secret"),
+      email: "work",
+    });
+    expect(apiKeyAccountId("sk-ant-api03-secret")).not.toContain("secret");
+    expect(parseCredential({ provider: "openai-apikey", apiKey: "sk-x" })?.email).toBe(apiKeyAccountId("sk-x"));
+    // A caller-chosen id cannot make the same key a second account.
+    expect(parseCredential({ provider: "openai-apikey", apiKey: "sk-x", accountId: "mine" })?.accountId)
+      .toBe(apiKeyAccountId("sk-x"));
+    expect(parseCredential({ provider: "openai-apikey", apiKey: "" })).toBeNull();
+    expect(parseCredential({ provider: "openai-apikey" })).toBeNull();
   });
 
   test("rejects incomplete secrets before they reach Stack", () => {

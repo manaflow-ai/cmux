@@ -157,7 +157,7 @@ await step(
 const pins = devboxAgentPins();
 await step(
   "agents",
-  `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && mise reshim && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")}`,
+  `npm install -g --foreground-scripts ${pins.map((pin) => `'${pin.spec}'`).join(" ")} && mise reshim && ${pins.map((pin) => `${pin.binary} --version`).join(" && ")} && cr --version`,
 );
 
 await step(

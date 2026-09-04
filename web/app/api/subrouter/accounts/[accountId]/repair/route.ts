@@ -6,6 +6,7 @@ import {
 } from "../../../../../../services/subrouter/routeHelpers";
 import { jsonResponse } from "../../../../../../services/vms/routeHelpers";
 import { captureCoderouterEvent } from "../../../../../../services/coderouter/analytics";
+import { mirrorConnectedAccount } from "../../../../../../services/coderouter/accountMirror";
 
 
 type RouteContext = {
@@ -39,6 +40,13 @@ export async function POST(
       accountId,
       input.value,
     );
+    // A repair hands over fresh tokens; the machines' vault copy follows them.
+    const vmPlane = await mirrorConnectedAccount({
+      teamId: context.team.teamId,
+      stackUserId: context.user.id,
+      input: input.value,
+      created: account,
+    });
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: context.user.id,
@@ -49,7 +57,7 @@ export async function POST(
         already_exists: true,
       },
     });
-    return jsonResponse({ teamId: context.team.teamId, account });
+    return jsonResponse({ teamId: context.team.teamId, account, vmPlane });
   } catch (err) {
     return subrouterErrorResponse(err);
   }

@@ -13,10 +13,14 @@ let cooldowns: string[] = [];
 let upstreamStatuses: number[] = [];
 let credentialBusyBudgets = new Map<string, number>();
 let credentialCalls: string[] = [];
+let apiKeyAccounts = new Set<string>();
+let upstreamCalls: { url: string; headers: Headers }[] = [];
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
-  globalThis.fetch = mock(async () => {
+  globalThis.fetch = mock(async (...args: unknown[]) => {
+    const [url, init] = args as [string | URL | Request, RequestInit | undefined];
+    upstreamCalls.push({ url: String(url), headers: new Headers(init?.headers) });
     const status = upstreamStatuses.shift() ?? 200;
     return new Response("data: done\n\n", {
       status,
@@ -56,6 +60,14 @@ const proxy = createCodexResponsesProxy({
       throw Object.assign(new Error("busy"), { _tag: "CodeRouterRefreshBusy" });
     }
     credentialCalls.push(accountId);
+    if (apiKeyAccounts.has(accountId)) {
+      return {
+        provider: "openai-apikey",
+        apiKey: `sk-openai-${accountId}`,
+        accountId: `key:${accountId}`,
+        email: "work key",
+      };
+    }
     return {
       provider: "codex",
       accessToken: `access-${accountId}`,
@@ -78,6 +90,8 @@ beforeEach(() => {
   upstreamStatuses = [];
   credentialBusyBudgets = new Map();
   credentialCalls = [];
+  apiKeyAccounts = new Set();
+  upstreamCalls = [];
 });
 
 function responsesRequest(headers: Record<string, string> = {}): Request {
@@ -100,7 +114,29 @@ describe("codex responses proxy session routing", () => {
     expect(selectInputs).toHaveLength(1);
     expect(selectInputs[0]?.sessionKey).toBe("session-abc");
     expect(selectInputs[0]?.teamId).toBe("team-1");
-    expect(selectInputs[0]?.provider).toBe("codex");
+    expect(selectInputs[0]?.provider).toEqual(["codex", "openai-apikey"]);
+  });
+
+  test("an OpenAI API key account is forwarded to the public Responses API with only its bearer", async () => {
+    accountsToServe = [{ id: "key-1", sticky: false }];
+    apiKeyAccounts = new Set(["key-1"]);
+    const response = await proxy(responsesRequest({ session_id: "session-key" }));
+    expect(response.status).toBe(200);
+    const call = upstreamCalls[0]!;
+    expect(call.url).toBe("https://api.openai.com/v1/responses");
+    expect(call.headers.get("authorization")).toBe("Bearer sk-openai-key-1");
+    expect(call.headers.get("chatgpt-account-id")).toBeNull();
+    expect(call.headers.get("originator")).toBeNull();
+  });
+
+  test("a ChatGPT subscription account still goes to the Codex backend with its account id", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: false }];
+    await proxy(responsesRequest());
+    const call = upstreamCalls[0]!;
+    expect(call.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+    expect(call.headers.get("authorization")).toBe("Bearer access-acct-1");
+    expect(call.headers.get("chatgpt-account-id")).toBe("chatgpt-account");
+    expect(call.headers.get("originator")).toBe("coderouter");
   });
 
   test("selects without a session key when the header is missing", async () => {

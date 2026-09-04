@@ -84,25 +84,37 @@ struct CloudTreeNodeActions {
         return CloudTreeNodeActions(
             project: { resource, placement, reuseExisting in
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(resource, into: try destination(placement), focus: true, reuseExisting: reuseExisting)
+                    let (projection, _) = try await catalog.project(
+                        resource,
+                        into: try destination(placement),
+                        focus: true,
+                        reuseExisting: reuseExisting
+                    )
+                    // A newly-created tab can have input focus without becoming the
+                    // selected tab in its Bonsplit column. Re-run the canonical focus
+                    // path with the projection's exact workspace so a sidebar click
+                    // always lands on the cloud surface it opened.
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                 }
             },
             projectInLocalWorkspace: { resource, workspaceID in
                 run(openingLabel(resource.machine)) { catalog in
-                    _ = try await catalog.project(
+                    let (projection, _) = try await catalog.project(
                         resource,
                         into: .workspace(id: workspaceID, placement: .split),
                         focus: true,
                         reuseExisting: true,
                         reuseInWorkspace: workspaceID
                     )
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                 }
             },
             newTerminal: { machine, remoteWorkspaceID in
                 run(startingLabel(machine)) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                     let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                    _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                    let (projection, _) = try await catalog.project(resource.id, into: try destination(.tab), focus: true, reuseExisting: true)
+                    SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                 }
             },
             openGroup: { machine, group, placement, remoteWorkspaceID in
@@ -110,11 +122,15 @@ struct CloudTreeNodeActions {
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                        _ = try await catalog.project(resource.id, into: try destination(.split), focus: true, reuseExisting: true)
+                        let (projection, _) = try await catalog.project(resource.id, into: try destination(.tab), focus: true, reuseExisting: true)
+                        SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
-                        _ = try await catalog.projectGroup(group.resources, into: try destination(placement), focus: true)
+                        let projections = try await catalog.projectGroup(group.resources, into: try destination(placement), focus: true)
+                        if let first = projections.first {
+                            SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
+                        }
                     }
                 }
             },
@@ -123,22 +139,31 @@ struct CloudTreeNodeActions {
                     run(startingLabel(machine)) { catalog in
                         guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
                         let resource = try await provider.createTerminal(command: nil, cwd: nil, name: nil, remoteWorkspaceID: remoteWorkspaceID)
-                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                             [resource.id], title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
                         )
+                        if let first = opened.projections.first {
+                            SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
+                        }
                     }
                 } else {
                     run(openingLabel(machine)) { catalog in
-                        _ = try await catalog.projectGroupAsNewLocalWorkspace(
+                        let opened = try await catalog.projectGroupAsNewLocalWorkspace(
                             group.resources, title: Self.localWorkspaceTitle(machine: machine, group: group), focus: true, host: .app
                         )
+                        if let first = opened.projections.first {
+                            SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
+                        }
                     }
                 }
             },
             newWorkspace: { machine in
                 run(String(format: String(localized: "cloudTree.operation.newWorkspace", defaultValue: "Creating a workspace on %@\u{2026}"), machineName(machine))) { catalog in
                     guard let provider = catalog.provider(for: machine) else { throw SurfaceCatalogError.noProvider(machine) }
-                    _ = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true)
+                    let opened = try await Self.createWorkspaceAndOpenLocally(machine: machine, provider: provider, catalog: catalog, name: nil, focus: true)
+                    if let first = opened.opened.projections.first {
+                        SurfacePaneFactory.focus(panelID: first.panelID, in: first.workspaceID)
+                    }
                 }
             },
             closeTerminal: { resource in

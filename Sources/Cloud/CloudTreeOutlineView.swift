@@ -852,11 +852,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
 /// Menu item carrying its own closure; the outline's context menu is rebuilt
 /// per click from the clicked node, so items never outlive their target.
 final class CloudTreeMenuItem: NSMenuItem {
-    private let performAction: @MainActor () -> Void
+    private let runAction: @MainActor () -> Void
 
     init(title: String, action: @escaping @MainActor () -> Void) {
-        performAction = action
-        super.init(title: title, action: #selector(perform(_:)), keyEquivalent: "")
+        runAction = action
+        // `perform:` collides with NSObject's Objective-C perform machinery and
+        // can leave a menu item looking enabled while its closure is never run.
+        // Use a dedicated selector and an explicit target for deterministic menu
+        // dispatch (the same shape as the main sidebar menu items).
+        super.init(title: title, action: #selector(execute), keyEquivalent: "")
+        target = self
     }
 
     @available(*, unavailable)
@@ -864,8 +869,11 @@ final class CloudTreeMenuItem: NSMenuItem {
         fatalError("init(coder:) has not been implemented")
     }
 
-    @objc @MainActor private func perform(_ sender: Any?) {
-        performAction()
+    @objc @MainActor private func execute() {
+        #if DEBUG
+        cmuxDebugLog("cloudTree.menu.execute title=\(title)")
+        #endif
+        runAction()
     }
 }
 

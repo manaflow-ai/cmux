@@ -10,7 +10,7 @@ import {
   encryptCredential,
   type EncryptedCredential,
 } from "./encryption";
-import type { CodeRouterCredential } from "./types";
+import { credentialExpiresAt, isApiKeyCredential, type CodeRouterCredential } from "./types";
 import { addCoderouterBreadcrumb, reportCoderouterFailure } from "./observability";
 import {
   CLAUDE_OAUTH_BETA,
@@ -75,7 +75,7 @@ export function createCredentialRefresher(
     reportCoderouterFailure("credential_decrypt", error);
     throw error;
   }
-  if (!input.force && before.credential.expiresAt > Date.now() + REFRESH_SKEW_MS) {
+  if (!input.force && credentialExpiresAt(before.credential) > Date.now() + REFRESH_SKEW_MS) {
     return before.credential;
   }
 
@@ -96,7 +96,7 @@ export function createCredentialRefresher(
     const current = await dependencies.read(input.teamId, input.accountId);
     if (
       !input.force &&
-      current.credential.expiresAt > Date.now() + REFRESH_SKEW_MS
+      credentialExpiresAt(current.credential) > Date.now() + REFRESH_SKEW_MS
     ) {
       await dependencies.release(input.accountId, leaseId);
       return current.credential;
@@ -172,6 +172,12 @@ async function readCredential(teamId: string, accountId: string) {
 export async function refreshProviderCredential(
   credential: CodeRouterCredential,
 ): Promise<CodeRouterCredential> {
+  if (isApiKeyCredential(credential)) {
+    // A key has nothing to rotate. Reaching here means the provider rejected
+    // it (the planes only force a refresh on 401), so the account is parked
+    // as broken rather than retried forever.
+    throw new ProviderRefreshError(401, "api_key_rejected");
+  }
   if (credential.provider === "codex") {
     const token = await postForm("https://auth.openai.com/oauth/token", {
       grant_type: "refresh_token",
@@ -290,7 +296,7 @@ function providerErrorCode(value: unknown): string | undefined {
 export function isTerminalRefreshError(error: unknown): boolean {
   return error instanceof ProviderRefreshError &&
     (error.status === 400 || error.status === 401) &&
-    /invalid|expired|reused|revoked|not_found/i.test(error.code);
+    /invalid|expired|reused|revoked|not_found|rejected/i.test(error.code);
 }
 
 function refreshFailureCode(error: unknown): string {

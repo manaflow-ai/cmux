@@ -36,7 +36,7 @@ beforeEach(async () => {
 
 async function insertAccounts(
   count: number,
-  provider: "codex" | "claude" = "codex",
+  provider: "codex" | "claude" | "anthropic-apikey" | "openai-apikey" = "codex",
 ): Promise<string[]> {
   if (!sql) throw new Error("no sql client");
   const ids: string[] = [];
@@ -109,6 +109,42 @@ describe("coderouter routing db behavior", () => {
       sessionKey: "codex-session",
     });
     expect(codex).toBeNull();
+  });
+
+  dbTest("API-key accounts are claimable through a plane's kind list (provider CHECK admits the key kinds)", async () => {
+    // The inserts exercise the widened CHECKs; the selections exercise a
+    // plane routing over several kinds while binding the session on the
+    // plane itself.
+    const [anthropicKey] = await insertAccounts(1, "anthropic-apikey");
+    const [openaiKey] = await insertAccounts(1, "openai-apikey");
+    const claude = await selectAccountForSession({
+      teamId: TEAM,
+      provider: ["claude", "anthropic-apikey"],
+      sessionKey: "key-session",
+    });
+    expect(claude?.id).toBe(anthropicKey ?? "");
+    const again = await selectAccountForSession({
+      teamId: TEAM,
+      provider: ["claude", "anthropic-apikey"],
+      sessionKey: "key-session",
+    });
+    expect(again?.id).toBe(anthropicKey ?? "");
+    expect(again?.sticky).toBe(true);
+    if (!sql) throw new Error("no sql client");
+    const [binding] = await sql`
+      select provider from coderouter_session_accounts
+      where team_id = ${TEAM} and session_key = 'key-session'
+    `;
+    expect(binding?.provider).toBe("claude");
+    // The Codex plane sees only its own kinds; a bare "claude" selector
+    // never lands on a key.
+    const codex = await selectAccountForSession({
+      teamId: TEAM,
+      provider: ["codex", "openai-apikey"],
+      sessionKey: "codex-key-session",
+    });
+    expect(codex?.id).toBe(openaiKey ?? "");
+    expect(await claimAccountForPlacement(TEAM, "claude", [])).toBeNull();
   });
 
   dbTest("concurrent new sessions do not all land on one account", async () => {

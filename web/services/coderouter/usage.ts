@@ -1,3 +1,4 @@
+import { chatgptAccountId } from "./types";
 import {
   listAccounts,
   listEncryptedCredentials,
@@ -64,7 +65,7 @@ async function loadAccountsWithUsage(teamId: string) {
           ? fetch(CODEX_USAGE_URL, {
             headers: {
               authorization: `Bearer ${credential.accessToken}`,
-              "chatgpt-account-id": credential.accountId,
+              "chatgpt-account-id": chatgptAccountId(credential),
               "user-agent": "coderouter/0.2",
             },
             cache: "no-store",

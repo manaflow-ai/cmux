@@ -26,6 +26,8 @@ import {
   cmuxTuiInstallCommand,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
+import { guestCliInstallCommand } from "../services/vms/guestCli";
+import { guestCoderouterInstallCommand } from "../services/vms/guestCoderouter";
 import { devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
 
 const pins = devboxAgentPins();
@@ -46,6 +48,9 @@ const CHECKS: readonly string[] = [
     .map((pin) => `echo "$ls" | grep -F ' ${pin.spec}'`)
     .join(" && ")} && echo agent-pins-ok`,
   ...pins.map((pin) => `${pin.binary} --version`),
+  // The npm package publishes both names; keep the short alias available in
+  // the non-login daemon shells too.
+  "cr --version",
   // Toolchain: mise shims first on PATH for exec shells too.
   "node --version; npm --version; python --version; python3 --version; bun --version; uv --version",
   "test \"$(command -v node)\" = /opt/mise/shims/node && mise --version && echo mise-shims-ok",
@@ -90,6 +95,7 @@ const DAEMON_CHECKS: readonly string[] = [
   `env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null && echo daemon-status-ok`,
   "awk '$2 ~ /:0539$/ && $4 == \"0A\" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo daemon-port-1337-ok",
   "test \"$(readlink /usr/local/bin/cmux-tui)\" = /root/.cmux/bin/cmux-tui && echo cmux-tui-symlink-ok",
+  "test -x /usr/local/bin/cmux && cmux --help >/dev/null && test -x /usr/local/bin/coderouter && test -x /usr/local/bin/cr && echo guest-cli-tools-ok",
 ];
 
 type Exec = (cmd: string, timeoutMs?: number) => Promise<{ exitCode: number; output: string }>;
@@ -125,6 +131,14 @@ async function bootstrapDaemon(
   const install = await exec(cmuxTuiInstallCommand(source), 5 * 60 * 1000);
   if (install.exitCode !== 0) {
     throw new Error(`cmux-tui install failed: ${install.output.slice(-2000)}`);
+  }
+  const guestCli = await exec(guestCliInstallCommand(), 30_000);
+  if (guestCli.exitCode !== 0) {
+    throw new Error(`in-VM cmux CLI install failed: ${guestCli.output.slice(-2000)}`);
+  }
+  const guestCoderouter = await exec(guestCoderouterInstallCommand(), 120_000);
+  if (guestCoderouter.exitCode !== 0) {
+    throw new Error(`in-VM CodeRouter CLI install failed: ${guestCoderouter.output.slice(-2000)}`);
   }
   await startDaemon();
   for (let attempt = 0; attempt < 45; attempt += 1) {

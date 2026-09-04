@@ -135,17 +135,27 @@ enum SurfacePaneFactory {
         guard let workspace = workspace(id: workspaceID) else { throw FactoryError.workspaceNotFound(workspaceID) }
         let controller = TerminalController.shared
         let routing = routing(workspaceID: workspaceID)
-        switch destination {
-        case .tab(_, let paneID, _):
-            guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
-        case .workspace(_, .tab):
-            return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
-        case .split(_, let paneID, let direction):
-            let anchor = try anchorSurface(paneID: paneID, in: workspace)
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
-        case .workspace(_, .split):
-            return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+        // The create/split handlers honor a focus request only inside a socket
+        // command whose policy allows focus. Catalog/sidebar opens happen outside
+        // that stack, so without a frame they create a pane but leave the old
+        // workspace selected. Carry the caller's explicit intent into the shared
+        // handler; an existing outer frame still wins, preserving focus:false for
+        // background socket commands. App activation remains suppressed by the
+        // normal socket-focus policy.
+        let outerAllowsFocus = TerminalController.currentSocketCommandFocusAllowanceStack().last ?? true
+        return try TerminalController.withSocketCommandPolicyStack([focus && outerAllowsFocus]) {
+            switch destination {
+            case .tab(_, let paneID, _):
+                guard let requestedPane = UUID(uuidString: paneID) else { throw FactoryError.paneNotFound(paneID) }
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: requestedPane, focus: focus)
+            case .workspace(_, .tab):
+                return try tab(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, requestedPane: nil, focus: focus)
+            case .split(_, let paneID, let direction):
+                let anchor = try anchorSurface(paneID: paneID, in: workspace)
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: direction, anchor: anchor, focus: focus)
+            case .workspace(_, .split):
+                return try split(controller: controller, routing: routing, typeRaw: typeRaw, url: url, initialCommand: initialCommand, workingDirectory: workingDirectory, direction: .right, anchor: nil, focus: focus)
+            }
         }
     }
 

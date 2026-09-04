@@ -24,6 +24,9 @@ import {
   type VMStatus,
 } from "./types";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
+import { guestCliInstallCommand } from "../guestCli";
+import { guestCoderouterInstallCommand } from "../guestCoderouter";
+import { guestModelPlaneInstallCommand } from "../guestAgentConfig";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
@@ -256,7 +259,20 @@ export function renderFreestyleModelPlaneEnvFile(envs: Readonly<Record<string, s
     `export OPENAI_BASE_URL=${quote(baseUrl)}`,
   ];
   if (envs.OPENAI_API_KEY) lines.push(`export OPENAI_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
-  if (envs.CMUX_CODEROUTER_URL) lines.push(`export CMUX_CODEROUTER_URL=${quote(envs.CMUX_CODEROUTER_URL)}`);
+  const coderouterURL = envs.CMUX_CODEROUTER_URL?.trim();
+  if (coderouterURL) {
+    lines.push(`export CMUX_CODEROUTER_URL=${quote(coderouterURL)}`);
+    // Keep Claude usable when a VM was created from an older devbox snapshot
+    // whose agent-config.sh predates the derived Anthropic stanza. The route
+    // token is already present in OPENAI_API_KEY for this legacy model-plane
+    // contract; exposing the same value under Claude's standard names makes
+    // the persisted file self-sufficient across resurrection and image drift.
+    lines.push(`export ANTHROPIC_BASE_URL=${quote(coderouterURL)}`);
+    if (envs.OPENAI_API_KEY) {
+      lines.push(`export ANTHROPIC_AUTH_TOKEN=${quote(envs.OPENAI_API_KEY)}`);
+      lines.push(`export ANTHROPIC_API_KEY=${quote(envs.OPENAI_API_KEY)}`);
+    }
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -323,6 +339,34 @@ export function freestyleStartDaemonCommand(): string {
 
 function isNotFound(err: unknown): boolean {
   return err instanceof FreestyleApiError && (err.status === 404 || err.code === "NOT_FOUND");
+}
+
+function isConflict(err: unknown): boolean {
+  return err instanceof FreestyleApiError && (err.status === 409 || err.code === "CONFLICT");
+}
+
+/**
+ * Recover a provider tunnel whose create response was lost after the provider
+ * committed it. This is intentionally a small seam: the workflow can repair a
+ * missing local row without rotating a key that another running app may still
+ * be using.
+ */
+export async function recoverFreestyleTunnelAfterConflict(
+  tunnels: Pick<Freestyle["tunnels"], "get" | "attachVpc">,
+  options: CreateProviderTunnelOptions,
+  clientPublicKey: string,
+): Promise<ProviderTunnel> {
+  let existing = await tunnels.get(options.slug);
+  if (existing.clientPublicKey.trim() !== clientPublicKey) {
+    throw new ProviderError(
+      "freestyle",
+      `tunnel ${options.slug} already exists with a different client key; use the original installation or revoke it before re-enrolling`,
+    );
+  }
+  if (!existing.attachments.some((entry) => entry.vpcId === options.networkId)) {
+    existing = await tunnels.attachVpc(existing.tunnelId ?? existing.id, options.networkId);
+  }
+  return mapFreestyleTunnel(existing, options.networkId);
 }
 
 /**
@@ -406,11 +450,12 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         "cmux.vm.network.id": options.networkId,
       },
       async (span) => {
+        const fs = freestyleClient();
         try {
           // clientPublicKey is always supplied, so the platform never mints or
           // holds a private key: the config comes back with a blank PrivateKey
           // for the Mac to fill in from its own Keychain.
-          const data = await freestyleClient().tunnels.create({
+          const data = await fs.tunnels.create({
             slug: options.slug,
             displayName: options.displayName,
             clientPublicKey,
@@ -420,6 +465,32 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
           return tunnel;
         } catch (err) {
+          // A previous request can commit the provider tunnel and lose the
+          // response before our database row is inserted (the exact recovery
+          // case after a local DB reset). Treat the provider's slug conflict as
+          // an idempotent success by reading that tunnel back and attaching the
+          // requested network. The slug is a hash of the authenticated user and
+          // device, so this cannot select another account's tunnel by accident;
+          // a key mismatch is still rejected rather than rotating a live
+          // Nightly/dev connection out from under it.
+          if (isConflict(err)) {
+            try {
+              const tunnel = await recoverFreestyleTunnelAfterConflict(
+                fs.tunnels,
+                options,
+                clientPublicKey,
+              );
+              setSpanAttributes(span, {
+                "cmux.vm.tunnel.id": tunnel.id,
+                "cmux.vm.tunnel.created": false,
+                "cmux.vm.tunnel.recovered": true,
+              });
+              return tunnel;
+            } catch (recoveryError) {
+              if (recoveryError instanceof ProviderError) throw recoveryError;
+              throw new ProviderError("freestyle", `recoverTunnel(${options.slug})`, recoveryError);
+            }
+          }
           throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
         }
       },
@@ -826,8 +897,12 @@ export class FreestyleProvider implements VMProvider {
     await this.execOrThrow(vm, vmId, cmuxTuiInstallCommand(source), CMUX_TUI_INSTALL_TIMEOUT_MS)
       .catch((err: unknown) => {
         throw new ProviderError("freestyle", `cmux-tui install in ${vmId} failed: ${errorMessage(err)}`);
-      });
+    });
     if (envs) await this.writeModelPlaneEnv(vm, vmId, envs);
+    // Older snapshots contain the coding agents but not the in-VM command
+    // shims. Install both before the daemon starts so the very first shell a
+    // user sees has `cmux`, `coderouter`, and `cr` on its PATH.
+    await this.installGuestTools(vm, vmId);
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
   }
@@ -861,6 +936,9 @@ export class FreestyleProvider implements VMProvider {
    * bake boots the daemon on 0.0.0.0, which the public-IPv6 route cannot reach.
    */
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
+    // Run this before the health fast-path: a daemon can be healthy on a
+    // legacy image while its guest command tools are still absent.
+    await this.installGuestTools(vm, vmId);
     const healthy = await this.execResult(vm, freestyleDaemonHealthyCommand());
     if (healthy?.exitCode === 0) return;
     const source = await resolveCmuxTuiSource("freestyle");
@@ -873,6 +951,30 @@ export class FreestyleProvider implements VMProvider {
     }
     await this.execOrThrow(vm, vmId, freestyleStartDaemonCommand(), 60_000);
     await waitForCmuxTuiReady(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+  }
+
+  /**
+   * Repair the guest command contract on every create/attach. The command is
+   * idempotent and writes only system paths; a failure is surfaced on the
+   * attach path instead of handing out a shell in which the advertised tools
+   * are silently missing.
+   */
+  private async installGuestTools(vm: Vm, vmId: string): Promise<void> {
+    const command = [
+      "export HOME=/root",
+      "export PATH=\"/opt/mise/shims:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH\"",
+      // Repair the shell contract before the short-circuiting coderouter
+      // installer. This is what upgrades persistent VMs created from an
+      // older image whose agent-config.sh lacks Claude/identity exports.
+      guestModelPlaneInstallCommand(vmId),
+      guestCliInstallCommand(),
+      guestCoderouterInstallCommand(),
+    ].join(" && ");
+    const result = await this.execResult(vm, command, 150_000);
+    if (!result || result.exitCode !== 0) {
+      const detail = result ? (result.stderr || result.stdout).trim().slice(0, 500) : "provider exec failed";
+      throw new ProviderError("freestyle", `guest CLI tools install in ${vmId} failed: ${detail}`);
+    }
   }
 
   private async execResult(vm: Vm, command: string, timeoutMs = EXEC_DEFAULT_TIMEOUT_MS): Promise<ExecResult | null> {

@@ -81,8 +81,11 @@ make revocation scope the whole user, not the machine.
 **Neither.** The split is:
 
 - **Agents on the VM speak to the serving origin directly** with the route
-  token — plain HTTPS to `/v1/*`. No local daemon, no `cr` binary required on
-  the machine, no Mac in the hot path (a phone-initiated VM works the same).
+  token — plain HTTPS to `/v1/*`. No local daemon or interactive `cr login` is
+  needed on the machine, and no Mac sits in the hot path (a phone-initiated VM
+  works the same). The image still installs `coderouter`/`cr` so diagnostics
+  such as `cr capabilities --json` and agent tooling have a stable command;
+  the VM model-plane environment, rather than a user login, is the auth path.
 - **The web control plane is the broker**: it mints at `POST /api/vm`,
   and owns rotation/revocation. The Mac app's only involvement is being the
   authenticated caller of `POST /api/vm`.
@@ -166,15 +169,25 @@ No new UI. No Swift changes. Local (non-cloud) agent launch paths untouched.
 ## Connect once, every machine works
 
 The user-facing contract is in `docs/cloud-ai-accounts.md`: connect an AI
-account once from the Mac (`cmux ai-accounts upload claude`, which reads the
-Claude Code login already on the machine, or the dashboard) and every cloud
-machine routes over it. That path stores accounts in the hosted Subrouter
-store; `web/services/coderouter/accountMirror.ts` mirrors the providers the
-machine plane serves (Claude) into the coderouter vault on connect and removes
-them on disconnect, best-effort and idempotent, so normal connects keep the two
-stores in step (a vault outage is reported and heals on the next connect).
-Codex reaches the vault through `cr add codex` today;
-mirroring it too is a follow-up (its dedupe key is the ChatGPT account id).
+account once from the Mac (`cmux ai-accounts upload <claude|codex|anthropic-key|openai-key>`,
+or the dashboard) and every cloud machine routes over it. That path stores
+accounts in the hosted Subrouter store; `web/services/coderouter/accountMirror.ts`
+mirrors **every** kind into the coderouter vault on connect and repair, and
+removes it on disconnect, best-effort and idempotent. The vault carries five
+kinds: `claude`, `codex`, `opencode-go` (OAuth, refreshed server-side) and
+`anthropic-apikey`, `openai-apikey` (keys; nothing rotates, a provider 401
+parks the account as broken).
+
+Each plane routes over a *list* of kinds (`CLAUDE_PLANE_PROVIDERS`,
+`CODEX_PLANE_PROVIDERS` in `types.ts`); session bindings are keyed on the
+plane so a session stays pinned to one account whichever kind it landed on.
+The Claude plane authenticates a key upstream with `x-api-key` (no OAuth
+beta); the Codex plane forwards a key to `api.openai.com/v1/responses` with
+only its bearer. `opencode` gets the planes as its `anthropic`/`openai`
+providers from `GET /api/coderouter/opencode/config`, so it works off the
+same accounts with no OpenCode Go subscription. `GET /v1/status`
+(route-token scoped, `planeStatus.ts`) tells a machine per agent whether it
+will work and the Mac command to run when it will not.
 
 ## Incremental plan (follow-ups, in order)
 
@@ -192,11 +205,13 @@ mirroring it too is a follow-up (its dedupe key is the ChatGPT account id).
 3. **Quota in the cloud tree.** After #11061: a `modelPlane` summary on
    `GET /api/vm` (per-team account health/usage from `accountsWithUsage`)
    rendered in the machine rows.
-4. **Claude account onboarding UX.** `cr add claude` in the coderouter repo
-   (provider OAuth on the user's machine, upload via the existing accounts
-   endpoint) and/or the dashboard add-account flow; the server side accepts
-   claude credentials as of this PR. An `anthropic-apikey` provider variant
-   can follow the same shape.
+4. **Onboarding where the user is.** The server side now takes every kind
+   (`claude`, `codex`, API keys) through the one connect path. What remains
+   is surfacing it: a first-machine prompt in the Mac app that offers the
+   local Claude/Codex logins, a dynamic Cloud welcome fed by `GET /v1/status`,
+   and an agent wrapper on the machine that asks the owning Mac to connect
+   (through the cloud CLI bridge, which stays deny-by-default) instead of
+   printing a command.
 5. **Per-session credentials.** Wire the cmux-tui `spawn-process` `env` map
    through the Swift `createTerminal` path (files owned by #11061 today) for
    session-scoped tokens instead of machine-scoped, if/when isolation between

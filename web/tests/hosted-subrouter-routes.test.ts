@@ -48,10 +48,7 @@ mock.module("../services/coderouter/analytics", () => ({
 }));
 // The VM-plane mirror is exercised in coderouter-account-mirror.test.ts; here
 // only the wiring (called with the connected account, result surfaced) matters.
-const mirrorConnectedAccount = mock(async (...args: unknown[]) => {
-  const [call] = args as [{ readonly input: { readonly provider: string } }];
-  return call.input.provider === "claude" ? ("mirrored" as const) : ("not_applicable" as const);
-});
+const mirrorConnectedAccount = mock(async (..._args: unknown[]) => "mirrored" as const);
 const unmirrorConnectedAccount = mock(async () => "removed" as const);
 // bun module mocks are process-global, so the stubs only take effect while
 // this file's tests run; every other suite (coderouter-account-mirror.test.ts)
@@ -301,8 +298,8 @@ describe("hosted Subrouter account routes", () => {
         kind: "openai-apikey",
         label: "work",
       },
-      // API-key accounts have no machine-plane provider to mirror into.
-      vmPlane: "not_applicable",
+      // API-key accounts mirror into the machines' vault plane like logins do.
+      vmPlane: "mirrored",
     });
     expect(calls[0]?.headers.get("authorization")).toBe("Bearer cookie-access");
     expect(calls[1]?.body).toEqual({

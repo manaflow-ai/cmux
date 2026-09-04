@@ -454,7 +454,7 @@ function lifecycleSource(value: unknown): string | null {
 }
 
 function routeProvider(value: unknown): string | null {
-  return enumValue(value, ["codex", "opencode-go", "claude", "unknown"]);
+  return enumValue(value, ["codex", "opencode-go", "claude", "anthropic-apikey", "openai-apikey", "unknown"]);
 }
 
 function aiProvider(value: AnalyticsScalar | null | undefined): string {

@@ -37,6 +37,19 @@ const account = (id: string) => ({
 });
 
 describe("coderouter session account selector", () => {
+  test("a kind list claims across every kind but binds the session on the plane", async () => {
+    const { calls, dependencies } = makeDependencies({ bound: null, placed: account("key-1") });
+    const select = createSessionAccountSelector(dependencies);
+    await select({
+      teamId: "team-1",
+      provider: ["claude", "anthropic-apikey"],
+      sessionKey: "session-k",
+    });
+    expect(calls[1]?.args).toEqual(["team-1", ["claude", "anthropic-apikey"], "session-k", []]);
+    expect(calls[2]?.args).toEqual(["team-1", ["claude", "anthropic-apikey"], []]);
+    expect(calls[3]?.args).toEqual(["team-1", "claude", "session-k", "key-1"]);
+  });
+
   test("honors an existing usable binding and does not place", async () => {
     const { calls, dependencies } = makeDependencies({ bound: account("acct-1") });
     const select = createSessionAccountSelector(dependencies);

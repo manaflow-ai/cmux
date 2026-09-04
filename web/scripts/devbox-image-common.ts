@@ -37,6 +37,10 @@ const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = 
   { arg: "CMUX_IMAGE_OPENCODE_VERSION", pkg: "opencode-ai", binary: "opencode" },
   { arg: "CMUX_IMAGE_PI_VERSION", pkg: "@earendil-works/pi-coding-agent", binary: "pi" },
   { arg: "CMUX_IMAGE_AGENT_BROWSER_VERSION", pkg: "agent-browser", binary: "agent-browser" },
+  // The standalone CLI exposes both `coderouter` and its documented `cr`
+  // alias. Keep the canonical binary here so the pin is included in bake
+  // metadata and the verifier can assert the package is present.
+  { arg: "CMUX_IMAGE_CODEROUTER_VERSION", pkg: "coderouter", binary: "coderouter" },
 ];
 
 export type AgentPin = { pkg: string; version: string; binary: string; spec: string };

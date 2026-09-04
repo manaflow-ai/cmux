@@ -12,9 +12,18 @@ import {
   reportCoderouterFailure,
 } from "./observability";
 import { observeModelUsage, type ModelUsage } from "./responseUsage";
+import {
+  CODEX_PLANE_PROVIDERS,
+  chatgptAccountId,
+  type CodeRouterCredential,
+  type CodexCredential,
+  type OpenAiApiKeyCredential,
+} from "./types";
 
 const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex/responses";
 const CODEX_MODELS_UPSTREAM = "https://chatgpt.com/backend-api/codex/models";
+const OPENAI_RESPONSES_UPSTREAM = "https://api.openai.com/v1/responses";
+const OPENAI_MODELS_UPSTREAM = "https://api.openai.com/v1/models";
 const ALLOWED_REQUEST_HEADERS = [
   "accept",
   "content-encoding",
@@ -158,7 +167,7 @@ async function proxyCodexRequestWith(
   for (let attempt = 0; attempt < 8; attempt++) {
     const account = await dependencies.select({
       teamId: identity.teamId,
-      provider: "codex",
+      provider: CODEX_PLANE_PROVIDERS,
       sessionKey,
       excludedAccountIds: attempted,
     });
@@ -189,7 +198,7 @@ async function proxyCodexRequestWith(
       }
       throw error;
     }
-    if (credential.provider !== "codex") continue;
+    if (!isCodexPlaneCredential(credential)) continue;
     try {
       upstream = await sendCodex(request.clone(), forwardedHeaders, credential);
     } catch (error) {
@@ -222,7 +231,7 @@ async function proxyCodexRequestWith(
           expectedRevision: account.vaultRevision,
           force: true,
         });
-        if (refreshed.provider !== "codex") continue;
+        if (!isCodexPlaneCredential(refreshed)) continue;
         upstream = await sendCodex(
           request.clone(),
           forwardedHeaders,
@@ -270,7 +279,7 @@ async function proxyCodexRequestWith(
       "no_usable_account",
       503,
       { "retry-after": "15" },
-      "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+      "No Codex account is connected for your team right now. On your Mac, run `cmux ai-accounts upload codex` (a ChatGPT login) or `cmux ai-accounts upload openai-key --key sk-…`, then retry. (`cr add codex` also works.)",
       true,
     );
   }
@@ -360,7 +369,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
     for (let attempt = 0; attempt < 8; attempt++) {
       const account = await dependencies.select(
         identity.teamId,
-        "codex",
+        CODEX_PLANE_PROVIDERS,
         attempted,
       );
       if (!account) break;
@@ -375,18 +384,27 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
       } catch {
         continue;
       }
-      if (credential.provider !== "codex") continue;
-      const upstreamUrl = new URL(CODEX_MODELS_UPSTREAM);
+      if (!isCodexPlaneCredential(credential)) continue;
+      // Same split as the responses plane: a ChatGPT login lists the Codex
+      // backend's models with its account id, an API key lists the public
+      // API's models with nothing but the bearer.
+      const upstreamUrl = new URL(
+        credential.provider === "openai-apikey" ? OPENAI_MODELS_UPSTREAM : CODEX_MODELS_UPSTREAM,
+      );
       upstreamUrl.search = new URL(request.url).search;
+      const userAgent = request.headers.get("user-agent") ?? "coderouter";
+      const headers: Record<string, string> = credential.provider === "openai-apikey"
+        ? { authorization: `Bearer ${credential.apiKey}`, "user-agent": userAgent }
+        : {
+          authorization: `Bearer ${credential.accessToken}`,
+          "chatgpt-account-id": chatgptAccountId(credential),
+          originator: "codex_cli_rs",
+          "user-agent": userAgent,
+        };
       try {
         upstream = await dependencies.providerRead(() =>
           fetch(upstreamUrl, {
-            headers: {
-              authorization: `Bearer ${credential.accessToken}`,
-              "chatgpt-account-id": credential.accountId,
-              originator: "codex_cli_rs",
-              "user-agent": request.headers.get("user-agent") ?? "coderouter",
-            },
+            headers,
             cache: "no-store",
             signal: AbortSignal.timeout(5_000),
           }),
@@ -400,6 +418,12 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         continue;
       }
       if (upstream.status === 429) {
+        // Like the responses plane: the rate-limited response is never
+        // handed to the caller, so an exhausted pool answers
+        // no_usable_account rather than a sibling's 429.
+        const limited = upstream;
+        await limited.body?.cancel().catch(() => undefined);
+        upstream = null;
         reportCoderouterFailure(
           "provider_rate_limit",
           new Error("rate limited"),
@@ -410,7 +434,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         );
         await dependencies.cooldown(
           account.id,
-          rateLimitDelay(upstream.headers),
+          rateLimitDelay(limited.headers),
         );
         continue;
       }
@@ -421,7 +445,7 @@ export function createCodexModelsProxy(dependencies: CodexModelsDependencies) {
         "no_usable_account",
         503,
         { "retry-after": "15" },
-        "No healthy Codex subscription is currently available. Check `cr`, add an account with `cr add`, or retry shortly.",
+        "No Codex account is connected for your team right now. On your Mac, run `cmux ai-accounts upload codex` (a ChatGPT login) or `cmux ai-accounts upload openai-key --key sk-…`, then retry. (`cr add codex` also works.)",
         true,
       );
     }
@@ -444,16 +468,34 @@ export const proxyCodexModels = createCodexModelsProxy({
   providerRead: fetchProviderRead,
 });
 
+type CodexPlaneCredential = CodexCredential | OpenAiApiKeyCredential;
+
+function isCodexPlaneCredential(
+  credential: CodeRouterCredential,
+): credential is CodexPlaneCredential {
+  return credential.provider === "codex" || credential.provider === "openai-apikey";
+}
+
 async function sendCodex(
   request: Request,
   forwardedHeaders: Headers,
-  credential: { accessToken: string; accountId: string },
+  credential: CodexPlaneCredential,
 ): Promise<Response> {
   const headers = new Headers(forwardedHeaders);
-  headers.set("authorization", `Bearer ${credential.accessToken}`);
-  headers.set("chatgpt-account-id", credential.accountId);
-  headers.set("originator", "coderouter");
-  return await fetch(CODEX_UPSTREAM, {
+  // Same Responses-API body either way; only the upstream and its auth differ.
+  // A ChatGPT subscription goes to the Codex backend with its account id, an
+  // OpenAI API key goes to the public API with nothing but the bearer.
+  const upstream = credential.provider === "openai-apikey"
+    ? OPENAI_RESPONSES_UPSTREAM
+    : CODEX_UPSTREAM;
+  if (credential.provider === "openai-apikey") {
+    headers.set("authorization", `Bearer ${credential.apiKey}`);
+  } else {
+    headers.set("authorization", `Bearer ${credential.accessToken}`);
+    headers.set("chatgpt-account-id", chatgptAccountId(credential));
+    headers.set("originator", "coderouter");
+  }
+  return await fetch(upstream, {
     method: "POST",
     headers,
     body: request.body,
@@ -485,7 +527,11 @@ export function bearerToken(request: Request): string | null {
   if (routed) return routed;
   const authorization = request.headers.get("authorization")?.trim() ?? "";
   const match = /^Bearer[ \t]+(.+)$/i.exec(authorization);
-  return match?.[1]?.trim() || null;
+  if (match?.[1]?.trim()) return match[1].trim();
+  // Anthropic-SDK clients (opencode's `anthropic` provider) carry their key
+  // as x-api-key; a route token there is still the machine's route token.
+  const apiKey = request.headers.get("x-api-key")?.trim();
+  return apiKey?.startsWith("crt_") ? apiKey : null;
 }
 
 export function jsonError(

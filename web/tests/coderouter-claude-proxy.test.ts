@@ -21,6 +21,7 @@ let cooldownReasons: (string | undefined)[] = [];
 let upstreamStatuses: number[] = [];
 let upstreamCalls: UpstreamCall[] = [];
 let credentialCalls: { accountId: string; force?: boolean }[] = [];
+let apiKeyAccounts = new Set<string>();
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -69,6 +70,18 @@ const proxy = createClaudeMessagesProxy({
   },
   credential: async ({ accountId, force }) => {
     credentialCalls.push({ accountId, ...(force ? { force } : {}) });
+    if (apiKeyAccounts.has(accountId)) {
+      if (force) {
+        // A key has nothing to rotate: the refresher parks it as broken.
+        throw Object.assign(new Error("broken"), { _tag: "CodeRouterCredentialBroken" });
+      }
+      return {
+        provider: "anthropic-apikey",
+        apiKey: `sk-ant-key-${accountId}`,
+        accountId: `key:${accountId}`,
+        email: "work key",
+      };
+    }
     return {
       provider: "claude",
       accessToken: `claude-access-${accountId}${force ? "-forced" : ""}`,
@@ -92,6 +105,7 @@ beforeEach(() => {
   upstreamStatuses = [];
   upstreamCalls = [];
   credentialCalls = [];
+  apiKeyAccounts = new Set();
 });
 
 function messagesRequest(
@@ -132,6 +146,45 @@ describe("claude messages proxy", () => {
     expect(call.body).toMatchObject({ model: "claude-sonnet-5" });
   });
 
+  test("an Anthropic API key account authenticates upstream with x-api-key and no OAuth beta", async () => {
+    accountsToServe = [{ id: "key-1", sticky: false }];
+    apiKeyAccounts = new Set(["key-1"]);
+    const response = await proxy(messagesRequest({ "anthropic-beta": "context-1m-2025-08-07" }));
+    expect(response.status).toBe(200);
+    const call = upstreamCalls[0]!;
+    expect(call.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(call.headers.get("x-api-key")).toBe("sk-ant-key-key-1");
+    expect(call.headers.get("authorization")).toBeNull();
+    expect(call.headers.get("anthropic-beta")).toBe("context-1m-2025-08-07");
+  });
+
+  test("a rejected API key fails over to the next account instead of retrying the key", async () => {
+    accountsToServe = [{ id: "key-1", sticky: false }, { id: "acct-2", sticky: false }];
+    apiKeyAccounts = new Set(["key-1"]);
+    upstreamStatuses = [401, 200];
+    const response = await proxy(messagesRequest());
+    expect(response.status).toBe(200);
+    expect(upstreamCalls.map((call) => call.headers.get("x-api-key") ?? call.headers.get("authorization")))
+      .toEqual(["sk-ant-key-key-1", "Bearer claude-access-acct-2"]);
+    expect(credentialCalls).toEqual([
+      { accountId: "key-1" },
+      { accountId: "key-1", force: true },
+      { accountId: "acct-2" },
+    ]);
+  });
+
+  test("accepts the route token as x-api-key (how Anthropic-SDK clients such as opencode send it)", async () => {
+    accountsToServe = [{ id: "acct-1", sticky: true }];
+    const request = new Request("https://coderouter.dev/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": "crt_token", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-5", messages: [] }),
+    });
+    expect((await proxy(request)).status).toBe(200);
+    expect(upstreamCalls[0]?.headers.get("x-api-key")).toBeNull();
+    expect(upstreamCalls[0]?.headers.get("authorization")).toBe("Bearer claude-access-acct-1");
+  });
+
   test("the caller's abort propagates to the provider request", async () => {
     accountsToServe = [{ id: "acct-1", sticky: true }];
     const controller = new AbortController();
@@ -167,7 +220,7 @@ describe("claude messages proxy", () => {
     const response = await proxy(messagesRequest());
     expect(response.status).toBe(200);
     expect(selectInputs).toHaveLength(1);
-    expect(selectInputs[0]?.provider).toBe("claude");
+    expect(selectInputs[0]?.provider).toEqual(["claude", "anthropic-apikey"]);
     expect(selectInputs[0]?.teamId).toBe("team-1");
     expect(selectInputs[0]?.sessionKey).toBe("user_abc_account_def_session_123");
   });

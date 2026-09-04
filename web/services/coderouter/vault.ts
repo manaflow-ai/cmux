@@ -111,6 +111,11 @@ export function parseVault(value: unknown): CodeRouterVault {
 
 function isCredential(value: unknown): value is CodeRouterCredential {
   if (!isRecord(value)) return false;
+  if (value.provider === "anthropic-apikey" || value.provider === "openai-apikey") {
+    return nonEmptyString(value.apiKey) &&
+      nonEmptyString(value.accountId) &&
+      nonEmptyString(value.email);
+  }
   const common =
     nonEmptyString(value.accessToken) &&
     nonEmptyString(value.refreshToken) &&
@@ -119,6 +124,9 @@ function isCredential(value: unknown): value is CodeRouterCredential {
     typeof value.expiresAt === "number";
   if (!common) return false;
   if (value.provider === "codex") return nonEmptyString(value.idToken);
+  if (value.provider === "claude") {
+    return value.subscriptionType === undefined || typeof value.subscriptionType === "string";
+  }
   return value.provider === "opencode-go" &&
     (value.orgId === undefined || typeof value.orgId === "string") &&
     (value.orgName === undefined || typeof value.orgName === "string");

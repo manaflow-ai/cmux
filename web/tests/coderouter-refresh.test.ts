@@ -8,7 +8,13 @@ import {
   type CredentialRefreshDependencies,
 } from "../services/coderouter/refresh";
 import type { EncryptedCredential } from "../services/coderouter/encryption";
-import type { ClaudeCredential, CodexCredential } from "../services/coderouter/types";
+import {
+  isApiKeyCredential,
+  type ApiKeyCredential,
+  type ClaudeCredential,
+  type CodeRouterCredential,
+  type CodexCredential,
+} from "../services/coderouter/types";
 
 const expiredClaude: ClaudeCredential = {
   provider: "claude",
@@ -42,6 +48,19 @@ const envelope: EncryptedCredential = {
   kmsKeyId: "kms-key",
 };
 
+/** The rotating (OAuth) view of a credential; API keys never reach these cases. */
+function rotating(credential: CodeRouterCredential): Exclude<CodeRouterCredential, ApiKeyCredential> {
+  if (isApiKeyCredential(credential)) throw new Error("expected an OAuth credential");
+  return credential;
+}
+
+const anthropicKey: ApiKeyCredential = {
+  provider: "anthropic-apikey",
+  apiKey: "sk-ant-api03-secret",
+  accountId: "key:abc",
+  email: "work key",
+};
+
 describe("coderouter credential refresh coordination", () => {
   test("only one simultaneous refresh claims an account", async () => {
     let leaseAvailable = true;
@@ -70,7 +89,7 @@ describe("coderouter credential refresh coordination", () => {
     await didClaim;
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     releaseProvider();
-    expect((await first).refreshToken).toBe("new-refresh");
+    expect(rotating(await first).refreshToken).toBe("new-refresh");
   });
 
   test("an abandoned lease becomes claimable after expiry", async () => {
@@ -86,7 +105,7 @@ describe("coderouter credential refresh coordination", () => {
     const refresh = createCredentialRefresher(dependencies);
     await expect(refresh(input())).rejects.toBeInstanceOf(CodeRouterRefreshBusy);
     now = 1_001;
-    expect((await refresh(input())).accessToken).toBe("new-access");
+    expect(rotating(await refresh(input())).accessToken).toBe("new-access");
   });
 
   test("persists a rotated provider refresh token at the next revision", async () => {
@@ -99,8 +118,8 @@ describe("coderouter credential refresh coordination", () => {
       },
     }));
     const result = await refresh(input());
-    expect(result.refreshToken).toBe("new-refresh");
-    expect(completed?.credential.refreshToken).toBe("new-refresh");
+    expect(rotating(result).refreshToken).toBe("new-refresh");
+    expect(completed && rotating(completed.credential).refreshToken).toBe("new-refresh");
     expect(completed?.encrypted.credentialRevision).toBe(2);
   });
 
@@ -222,6 +241,35 @@ describe("coderouter provider refresh responses", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("api key credentials", () => {
+  test("a key is served as-is without ever claiming a refresh lease", async () => {
+    let claims = 0;
+    const refresh = createCredentialRefresher(fakeDependencies({
+      read: async () => ({ envelope: { ...envelope, provider: "anthropic-apikey" }, credential: anthropicKey }),
+      claim: async () => {
+        claims += 1;
+        return "lease-1";
+      },
+    }));
+    expect(await refresh(input())).toEqual(anthropicKey);
+    expect(claims).toBe(0);
+  });
+
+  test("a forced refresh (the provider rejected the key) parks the account as broken", async () => {
+    let terminalFailure: boolean | undefined;
+    const refresh = createCredentialRefresher(fakeDependencies({
+      read: async () => ({ envelope: { ...envelope, provider: "anthropic-apikey" }, credential: anthropicKey }),
+      refresh: refreshProviderCredential,
+      isTerminal: isTerminalRefreshError,
+      fail: async (_accountId, _leaseId, terminal) => {
+        terminalFailure = terminal;
+      },
+    }));
+    await expect(refresh({ ...input(), force: true })).rejects.toBeInstanceOf(CodeRouterCredentialBroken);
+    expect(terminalFailure).toBe(true);
   });
 });
 
