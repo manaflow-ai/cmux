@@ -43999,10 +43999,7 @@ mod tests {
                 matches!(
                     hit,
                     super::Hit::ProjectionRow {
-                        target: crate::sidebar_projection::ProjectionTarget::Workspace {
-                            index: 0,
-                            ..
-                        },
+                        target: ProjectionTarget::Workspace { index: 0, .. },
                         ..
                     }
                 )
@@ -44028,10 +44025,7 @@ mod tests {
         let mut app = test_app(Session::Local(mux.clone()));
         app.replace_tree(app.session.tree());
 
-        let target = crate::sidebar_projection::ProjectionTarget::Workspace {
-            index: 0,
-            id: app.tree.workspaces()[0].id,
-        };
+        let target = ProjectionTarget::Workspace { index: 0, id: app.tree.workspaces()[0].id };
         app.tree.workspaces_mut().swap(0, 1);
         app.activate_projection_target(target).unwrap();
 
@@ -44046,11 +44040,9 @@ mod tests {
         }
     }
 
-    fn target_id(
-        target: crate::sidebar_projection::ProjectionTarget,
-    ) -> cmux_tui_core::WorkspaceId {
+    fn target_id(target: ProjectionTarget) -> cmux_tui_core::WorkspaceId {
         match target {
-            crate::sidebar_projection::ProjectionTarget::Workspace { id, .. } => id,
+            ProjectionTarget::Workspace { id, .. } => id,
             _ => unreachable!("workspace target expected"),
         }
     }
@@ -44165,10 +44157,7 @@ mod tests {
         assert!(app.projection_rows(0).iter().any(|row| {
             row.resource == SidebarResourceKind::Workspaces
                 && row.active
-                && matches!(
-                    row.target,
-                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 1, .. }
-                )
+                && matches!(row.target, ProjectionTarget::Workspace { index: 1, .. })
         }));
 
         app.select_workspace_for_client(Some(0), None);
@@ -44176,10 +44165,7 @@ mod tests {
         assert!(app.projection_rows(0).iter().any(|row| {
             row.resource == SidebarResourceKind::Workspaces
                 && row.active
-                && matches!(
-                    row.target,
-                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
-                )
+                && matches!(row.target, ProjectionTarget::Workspace { index: 0, .. })
         }));
 
         for surface in [first, second] {
@@ -44204,7 +44190,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                    ProjectionTarget::Pane { pane, .. }
                         if pane == second_pane
                 )
         }));
@@ -44216,7 +44202,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                    ProjectionTarget::Pane { pane, .. }
                         if pane == first_pane
                 )
         }));
@@ -44244,7 +44230,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    ProjectionTarget::Surface { surface, .. }
                         if surface == second.id
                 )
         }));
@@ -44256,7 +44242,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    ProjectionTarget::Surface { surface, .. }
                         if surface == first.id
                 )
         }));
@@ -44268,7 +44254,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Surface { surface, .. }
+                    ProjectionTarget::Surface { surface, .. }
                         if surface == second.id
                 )
         }));
@@ -44295,7 +44281,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                    ProjectionTarget::Pane { pane, .. }
                         if pane == second_screen_pane
                 )
         }));
@@ -44314,7 +44300,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                    ProjectionTarget::Pane { pane, .. }
                         if pane == first_screen_pane
                 )
         }));
@@ -44340,7 +44326,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                    ProjectionTarget::Pane { pane, .. }
                         if pane == second_pane
                 )
         }));
@@ -44352,7 +44338,7 @@ mod tests {
                 }
             }
         }
-        app.activate_projection_target(crate::sidebar_projection::ProjectionTarget::Pane {
+        app.activate_projection_target(ProjectionTarget::Pane {
             workspace: 0,
             screen: 0,
             pane: first_pane,
@@ -44364,7 +44350,7 @@ mod tests {
                 && row.active
                 && matches!(
                     row.target,
-                    crate::sidebar_projection::ProjectionTarget::Pane { pane, .. }
+                    ProjectionTarget::Pane { pane, .. }
                         if pane == first_pane
                 )
         }));
@@ -44385,10 +44371,7 @@ mod tests {
         assert!(app.projection_rows(0).iter().any(|row| {
             row.resource == SidebarResourceKind::Workspaces
                 && row.active
-                && matches!(
-                    row.target,
-                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
-                )
+                && matches!(row.target, ProjectionTarget::Workspace { index: 0, .. })
         }));
 
         // Simulate a stale completion. The workspace index is still valid, but
@@ -44402,10 +44385,7 @@ mod tests {
         assert!(app.projection_rows(0).iter().any(|row| {
             row.resource == SidebarResourceKind::Workspaces
                 && row.active
-                && matches!(
-                    row.target,
-                    crate::sidebar_projection::ProjectionTarget::Workspace { index: 0, .. }
-                )
+                && matches!(row.target, ProjectionTarget::Workspace { index: 0, .. })
         }));
 
         mux.close_surface(first.id).unwrap();
@@ -44787,7 +44767,7 @@ mod tests {
                 matches!(
                     hit,
                     super::Hit::ProjectionRow {
-                        target: crate::sidebar_projection::ProjectionTarget::Surface {
+                        target: ProjectionTarget::Surface {
                             surface: hit_surface,
                             ..
                         },
@@ -44826,7 +44806,7 @@ mod tests {
         assert!(!app.hits.iter().any(|(_, hit)| matches!(
             hit,
             super::Hit::ProjectionRow {
-                target: crate::sidebar_projection::ProjectionTarget::Surface {
+                target: ProjectionTarget::Surface {
                     surface: hit_surface,
                     ..
                 },
