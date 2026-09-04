@@ -503,6 +503,160 @@
         "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントがありません。" } }
       }
     },
+    "cli.automation.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux automation <list|show|test|enable|disable|logs|reload> [args]\n\nRules live in ~/.cmuxterm/automations.json.\nExamples:\n  cmux automation list\n  cmux automation show surface-needs-input\n  cmux automation test surface-needs-input --event '{\"name\":\"agent.needs_input\"}'\n  cmux automation enable surface-needs-input\n  cmux automation disable surface-needs-input\n  cmux automation logs [--limit <n>]\n  cmux automation reload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用法: cmux automation <list|show|test|enable|disable|logs|reload> [引数]\n\nルールは ~/.cmuxterm/automations.json に保存されます。\n例:\n  cmux automation list\n  cmux automation show surface-needs-input\n  cmux automation test surface-needs-input --event '{\"name\":\"agent.needs_input\"}'\n  cmux automation enable surface-needs-input\n  cmux automation disable surface-needs-input\n  cmux automation logs [--limit <n>]\n  cmux automation reload" } }
+      }
+    },
+    "automation.error.encodeRPC": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Could not prepare the automation action. Check the rule configuration and try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化アクションを準備できませんでした。ルール設定を確認して、もう一度お試しください。" } }
+      }
+    },
+    "automation.error.engineUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation is unavailable. Check ~/.cmuxterm/automations.json, then run cmux automation reload." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化を利用できません。~/.cmuxterm/automations.json を確認して、cmux automation reload を実行してください。" } }
+      }
+    },
+    "automation.error.focusSuppressed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This automation action requires permission to focus or select a surface. Update the rule to allow focus, then try again." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "この自動化アクションにはサーフェスをフォーカスまたは選択する権限が必要です。ルールでフォーカスを許可して、もう一度お試しください。" } }
+      }
+    },
+    "automation.error.unsupportedVersion": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unsupported automation configuration version %lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サポートされていない自動化設定バージョン %lld です" } }
+      }
+    },
+    "automation.error.invalidRule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Invalid automation rule: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効な自動化ルール: %@" } }
+      }
+    },
+    "automation.error.fileTooLarge": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation configuration is larger than 4 MiB" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化設定が 4 MiB を超えています" } }
+      }
+    },
+    "automation.error.missingRuleID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Missing automation rule id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルール ID がありません" } }
+      }
+    },
+    "automation.error.ruleNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation rule not found: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールが見つかりません: %@" } }
+      }
+    },
+    "automation.error.testEventObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "automation.test requires event object" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "automation.test にはイベントオブジェクトが必要です" } }
+      }
+    },
+    "cli.automation.error.eventFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "automation test requires --event <json>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "automation test には --event <json> が必要です" } }
+      }
+    },
+    "cli.automation.error.eventObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "automation test event must be a JSON object" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "automation test のイベントは JSON オブジェクトである必要があります" } }
+      }
+    },
+    "cli.automation.error.workspaceTagsRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "offline automation test requires workspace tags in the event payload" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "オフラインの自動化テストにはイベントペイロードのワークスペースタグが必要です" } }
+      }
+    },
+    "cli.automation.output.noRules": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No automation rules" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化ルールはありません" } }
+      }
+    },
+    "cli.automation.output.rule": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%1$@ [%2$@] when %3$@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%1$@ [%2$@] 条件: %3$@" } }
+      }
+    },
+    "cli.automation.output.reloadRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Automation configuration reload requested" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "自動化設定の再読み込みを要求しました" } }
+      }
+    },
+    "cli.automation.output.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enabled %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を有効にしました" } }
+      }
+    },
+    "cli.automation.output.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Disabled %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を無効にしました" } }
+      }
+    },
+    "cli.automation.output.enableRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Enable request queued for %@. Run cmux automation logs to verify completion." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ の有効化要求をキューに追加しました。完了を確認するには cmux automation logs を実行してください。" } }
+      }
+    },
+    "cli.automation.output.disableRequested": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Disable request queued for %@. Run cmux automation logs to verify completion." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ の無効化要求をキューに追加しました。完了を確認するには cmux automation logs を実行してください。" } }
+      }
+    },
+    "cli.automation.state.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "enabled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "有効" } }
+      }
+    },
+    "cli.automation.state.disabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "disabled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "無効" } }
+      }
+    },
     "debug.menu.notification.all": {
       "extractionState": "manual",
       "localizations": {

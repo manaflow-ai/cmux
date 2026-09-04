@@ -87,7 +87,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
 
@@ -104,7 +104,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
         #expect(!coordinator.isDragging)
@@ -137,7 +137,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
         #expect(coordinator.isDragging)
@@ -167,7 +167,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: session,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
         #expect(SurfaceResourceDragRegistry.shared.group(id: replacementWriter.dragID) != nil)
@@ -199,7 +199,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: firstSession,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
         coordinator.prepareForNativeDragBoundary(on: outline)
@@ -212,13 +212,13 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: secondSession,
-            willBeginAt: .zero,
+            willBeginAt: NSPoint.zero,
             forItems: [node]
         )
         coordinator.outlineView(
             outline,
             draggingSession: secondSession,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
 
@@ -229,7 +229,7 @@ struct CloudTreeNativeDragOwnershipTests {
         coordinator.outlineView(
             outline,
             draggingSession: firstSession,
-            endedAt: .zero,
+            endedAt: NSPoint.zero,
             operation: []
         )
         #expect(SurfaceResourceDragRegistry.shared.group(id: pendingWriter.dragID) != nil)
@@ -266,6 +266,7 @@ struct CloudTreeNativeDragOwnershipTests {
         runCommand: { _, _ in },
         confirmDelete: { _ in },
         promptRename: { _, _ in },
+        resizeDisk: { _, _ in },
         promptUpgrade: {}
     )
 
