@@ -1,4 +1,5 @@
 import AppKit
+import CmuxComputerUseVisuals
 import SwiftUI
 import Testing
 
