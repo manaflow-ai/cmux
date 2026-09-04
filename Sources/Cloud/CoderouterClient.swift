@@ -349,7 +349,7 @@ actor CoderouterClient {
 }
 
 private func coderouterClientLocalized(_ key: String, _ defaultValue: String) -> String {
-    String(localized: key, defaultValue: defaultValue)
+    Bundle.main.localizedString(forKey: key, value: defaultValue, table: nil)
 }
 
 private func coderouterClientFormatted(_ key: String, _ defaultValue: String, _ arguments: CVarArg...) -> String {
