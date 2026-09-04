@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { NotFoundLink } from "./not-found-link";
 
 type TerminalProps = {
@@ -53,11 +53,11 @@ const ART_FRAME_B = [
 
 const MONOKAI = {
   background: "#272822",
-  foreground: "#fdfff1",
+  foreground: "#fcfff1",
   cursor: "#c0c1b5",
   cursorAccent: "#8d8e82",
   selectionBackground: "#57584f",
-  selectionForeground: "#fdfff1",
+  selectionForeground: "#fcfff1",
   black: "#272822",
   red: "#f92672",
   green: "#a6e22e",
@@ -65,7 +65,7 @@ const MONOKAI = {
   blue: "#66d9ef",
   magenta: "#ae81ff",
   cyan: "#a6e22e",
-  white: "#fdfff1",
+  white: "#fcfff1",
   brightBlack: "#75715e",
   brightRed: "#f92672",
   brightGreen: "#a6e22e",
@@ -77,11 +77,65 @@ const MONOKAI = {
 };
 
 function colorizeArt(art: string) {
-  const colors = ["#66d9ef", "#66d9ef", "#ae81ff", "#ae81ff", "#66d9ef", "#ae81ff", "#66d9ef"];
+  const colors = ["#43d1fc", "#44b2f7", "#4d93f2", "#5a75ee", "#6c56ec", "#7848ea", "#833ae9"];
   return art
     .split("\n")
     .map((line, index) => `\x1b[38;2;${hexRgb(colors[index])}m${line}\x1b[0m`)
     .join("\r\n");
+}
+
+const ANSI = {
+  gray: "\x1b[38;2;146;148;139m",
+  white: "\x1b[38;2;252;255;241m",
+  purple: "\x1b[38;2;178;129;252m",
+  green: "\x1b[38;2;165;225;62m",
+  cyan: "\x1b[38;2;116;214;237m",
+  yellow: "\x1b[38;2;226;220;122m",
+  pink: "\x1b[38;2;243;59;117m",
+  bold: "\x1b[1m",
+  reset: "\x1b[0m",
+};
+
+function colorizeWelcome(welcome: string, art: string) {
+  return welcome
+    .replace(ART_FRAME_A, colorizeArt(art))
+    .split("\n")
+    .map((line) => {
+      if (line.trim() === "Shortcuts" || line.trim() === "ショートカット") {
+        return `${ANSI.bold}${ANSI.white}${line}${ANSI.reset}`;
+      }
+      const shortcut = line.match(/^(\s+[⌘⌥⇧A-Za-z]+)(\s+)(.+)$/);
+      if (shortcut) {
+        return `${ANSI.white}${shortcut[1]}${ANSI.gray}${shortcut[2]}${shortcut[3]}${ANSI.reset}`;
+      }
+      const link = line.match(/^(\s+(?:Docs|Discord|GitHub|Email))(\s+)(.+)$/);
+      if (link) {
+        return `${ANSI.white}${link[1]}${ANSI.gray}${link[2]}${link[3]}${ANSI.reset}`;
+      }
+      const run = line.match(/^(\s+Run )([^ ]+)(.*)$/);
+      if (run) {
+        return `${ANSI.gray}${run[1]}${ANSI.bold}${ANSI.white}${run[2]}${ANSI.reset}${ANSI.gray}${run[3]}${ANSI.reset}`;
+      }
+      return `${ANSI.gray}${line}${ANSI.reset}`;
+    })
+    .join("\r\n");
+}
+
+function renderFallbackWelcome(welcome: string, frame: number) {
+  const art = frame ? ART_FRAME_B : ART_FRAME_A;
+  const lines = welcome.replace(ART_FRAME_A, art).split("\n");
+  return lines.map((line, index) => {
+    const isArt = index < ART_FRAME_A.split("\n").length;
+    const color = isArt
+      ? ["#43d1fc", "#44b2f7", "#4d93f2", "#5a75ee", "#6c56ec", "#7848ea", "#833ae9"][index]
+      : "#92948b";
+    return (
+      <Fragment key={`${index}-${line}`}>
+        <span style={{ color }}>{line}</span>
+        {index < lines.length - 1 ? "\n" : null}
+      </Fragment>
+    );
+  });
 }
 
 function hexRgb(color: string) {
@@ -90,14 +144,11 @@ function hexRgb(color: string) {
 }
 
 function atlasTranscript(welcome: string, art: string, command: string) {
-  const gray = "\x1b[38;2;117;113;94m";
-  const cyan = "\x1b[38;2;102;217;239m";
-  const yellow = "\x1b[38;2;230;219;116m";
-  const reset = "\x1b[0m";
   const readableWelcome = welcome
     .replace(" (please leave a star ⭐)", "\n                      (please leave a star ⭐)")
     .replace(" (スターをお願いします ⭐)", "\n                      (スターをお願いします ⭐)");
-  return `\x1b[2J\x1b[H${gray}Last login: Fri Sep  4 03:23:17 on ttys179${reset}\r\n${cyan}cmux%${reset} ${yellow}${command}${reset}\r\n${readableWelcome.replace(ART_FRAME_A, colorizeArt(art)).replaceAll("\n", "\r\n")}\r\n${cyan}user in ~/workspace on feat/better-404 ● ● λ${reset}`;
+  const prompt = `${ANSI.purple}user${ANSI.gray} in ${ANSI.green}~/workspace${ANSI.gray} on ${ANSI.cyan}feat/better-404 ${ANSI.yellow}●${ANSI.gray} ${ANSI.pink}●${ANSI.gray} ${ANSI.purple}λ${ANSI.reset}`;
+  return `\x1b[2J\x1b[H${ANSI.gray}Last login: Fri Sep  4 03:23:17 on ttys179${ANSI.reset}\r\n${ANSI.cyan}cmux%${ANSI.reset} ${ANSI.yellow}${command}${ANSI.reset}\r\n${colorizeWelcome(readableWelcome, art)}\r\n${prompt}`;
 }
 
 function startAtlasTerminal(
@@ -204,7 +255,7 @@ export function NotFoundTerminal({
 
   return (
     <div
-      className="relative mx-auto w-full max-w-[38rem] lg:mx-0"
+      className="relative mx-auto w-full max-w-[52rem] lg:mx-0"
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
       <div className="overflow-hidden rounded-[0.9rem] border border-[#3a3f4b] bg-[#272822] shadow-[0_30px_80px_-28px_rgba(0,0,0,0.75)]">
@@ -229,7 +280,7 @@ export function NotFoundTerminal({
           <div className={atlasActive ? "invisible" : undefined}>
             <p className="text-[#aeb4c0]">Last login: Fri Sep  4 03:23:17 on ttys179</p>
             <p><span className="text-[#66d9ef]">cmux%</span> <span className="text-[#f8d477]">{command}</span></p>
-            <pre className="mt-3 whitespace-pre-wrap text-[#e7eaf0]">{welcome.replace(" (please leave a star ⭐)", "\n                      (please leave a star ⭐)").replace(" (スターをお願いします ⭐)", "\n                      (スターをお願いします ⭐)").replace(ART_FRAME_A, artFrame ? ART_FRAME_B : ART_FRAME_A)}</pre>
+            <pre className="mt-3 whitespace-pre-wrap text-[#e7eaf0]">{renderFallbackWelcome(welcome.replace(" (please leave a star ⭐)", "\n                      (please leave a star ⭐)").replace(" (スターをお願いします ⭐)", "\n                      (スターをお願いします ⭐)"), artFrame)}</pre>
             <p className="mt-3"><span className="text-[#66d9ef]">user in ~/workspace on feat/404 ● ● λ</span> <span className="animate-blink inline-block h-3 w-1.5 bg-[#f2f4f8] align-[-1px]" /></p>
           </div>
           <div className="relative mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-[#2c3039] pt-3 text-[10px] text-[#9ddcff] sm:text-[11px]">

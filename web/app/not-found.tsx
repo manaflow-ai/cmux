@@ -44,7 +44,7 @@ export default async function NotFound() {
           }}
         />
 
-        <div className="relative mx-auto flex w-full max-w-5xl flex-col">
+        <div className="relative mx-auto flex w-full max-w-7xl flex-col">
           <header className="flex items-center justify-between">
             <a
               href={homeHref}
@@ -63,7 +63,7 @@ export default async function NotFound() {
             <span className="font-mono text-xs text-muted">404</span>
           </header>
 
-          <section className="my-auto grid items-center gap-12 py-16 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,0.88fr)] lg:gap-16">
+          <section className="my-auto grid items-center gap-12 py-16 lg:grid-cols-[minmax(0,0.78fr)_minmax(34rem,1.22fr)] lg:gap-16">
             <div>
               <p className="mb-5 font-mono text-xs font-medium uppercase tracking-[0.18em] text-[var(--cmux-product-blue-on-background)]">
                 {t("eyebrow")}
