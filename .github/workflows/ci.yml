@@ -1,18 +1,10 @@
 name: CI
 
 on:
-  # Keep the full suite available for explicit validation, while always
-  # running the lightweight GhosttyKit provenance check when its pointer,
-  # checksum, or helper changes in a PR.
+  # Run the router for every pull request. It keeps provenance-only and other
+  # cheap changes on their narrow lanes, while ensuring app changes reach the
+  # macOS Release compile gate before they can merge to main.
   pull_request:
-    paths:
-      - ghostty
-      - scripts/download-prebuilt-ghosttykit.sh
-      - scripts/validate-xcframework-archive.py
-      - scripts/ghosttykit-checksums.txt
-      - tests/test_ci_ghosttykit_release_check.sh
-      - tests/test_ci_change_areas.py
-      - .github/workflows/ci.yml
   workflow_dispatch:
 
 permissions:
@@ -293,6 +285,9 @@ jobs:
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly failure summary behavior
+        run: node ./tests/test_nightly_failure_summary.js
+
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 
@@ -313,6 +308,9 @@ jobs:
 
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
+
+      - name: Validate cmux-tui client download retry guard
+        run: ./tests/test_ci_cmux_tui_client_download.sh
 
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
@@ -379,8 +377,9 @@ jobs:
     name: GhosttyKit release check
     permissions:
       contents: read
-    # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
-    # workflow_dispatch keeps the same guard available for explicit CI runs.
+    # Run this lightweight provenance check on pull requests before the router
+    # selects the expensive lanes; workflow_dispatch keeps it available for
+    # explicit CI runs as well.
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10

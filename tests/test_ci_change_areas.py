@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Behavioral tests for the CI path filter."""
+"""Behavioral tests for CI routing and its macOS compile gate."""
 
 from __future__ import annotations
 
@@ -125,6 +125,29 @@ def test_ios_only_skips_main_macos_ci() -> None:
 
 def test_app_source_runs_macos() -> None:
     assert_areas(["Sources/AppDelegate.swift"], macos=True, web=False)
+
+
+def test_nightly_workspace_group_sources_run_macos() -> None:
+    # These are the exact files that produced the nightly Swift 6 compile
+    # failure.  Keep the classifier's app-source behavior explicit so a future
+    # routing refactor cannot silently classify them as a cheap-only change.
+    for path in [
+        "Sources/TerminalController+ControlWorkspaceGroupContext.swift",
+        "Sources/TerminalController+WorkspaceGroupAction.swift",
+    ]:
+        assert_areas([path], macos=True, web=False)
+
+
+def test_pull_request_router_runs_for_every_pr() -> None:
+    # The changes job is the cost-control boundary: it already keeps docs and
+    # provenance-only PRs on cheap lanes.  A workflow-level paths filter runs
+    # before that job and can skip the entire CI workflow for an app-source PR,
+    # allowing an unbuildable revision to merge and fail only in Nightly.
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    trigger = workflow.split("\njobs:\n", 1)[0]
+    assert "\n  pull_request:\n" in trigger
+    assert "\n    paths:" not in trigger
+    assert "\n    paths-ignore:" not in trigger
 
 
 def test_workflow_changes_run_everything() -> None:
