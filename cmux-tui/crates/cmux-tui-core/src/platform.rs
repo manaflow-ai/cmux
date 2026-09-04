@@ -1534,6 +1534,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn windows_verbatim_path_guard_requires_drive_or_unc_root() {
+        for path in [r"C:\state", r"\\server\share\state"] {
+            let wide = path.encode_utf16().collect::<Vec<_>>();
+            assert!(windows_absolute_path_is_verbatim_safe(&wide), "{path}");
+        }
+        for path in [r"C:state", r"\state", "state"] {
+            let wide = path.encode_utf16().collect::<Vec<_>>();
+            assert!(!windows_absolute_path_is_verbatim_safe(&wide), "{path}");
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn normalize_long_windows_trailing_dot_or_space_paths_preserve_component_semantics() {
