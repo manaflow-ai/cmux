@@ -180,7 +180,8 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
     let (shown, tail_parts, profiles_fit) = candidates
         .into_iter()
         .find_map(|(profiles, tail)| {
-            fits(&profiles, &tail).then_some((profiles, tail, profiles.len() == labels.len()))
+            let profiles_fit = profiles.len() == labels.len();
+            fits(&profiles, &tail).then_some((profiles, tail, profiles_fit))
         })
         .unwrap_or_else(|| (Vec::new(), vec![manage.to_string()], false));
 
@@ -596,7 +597,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             .then_some(state.selected_action)
             .flatten()
             .map(|index| rail::RowSpan::new(index, 1));
-        let viewport = rail::viewport(
+        let viewport = rail::viewport_positioned(
             area,
             body_rows.max(usize::from(rows.is_empty())),
             actions.len(),
@@ -604,6 +605,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             &mut state.footer_scroll,
             selected_body,
             selected_footer,
+            spec.actions_position,
         );
         (selected, viewport)
     };

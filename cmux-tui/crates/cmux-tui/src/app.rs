@@ -24883,22 +24883,25 @@ impl App {
                     self.focus_rail(kind);
                 }
                 Hit::SidebarAction { view, action } => {
+                    let Some(action_index) = self
+                        .sidebar_action_rows(view)
+                        .iter()
+                        .position(|candidate| candidate.target == action)
+                    else {
+                        // A rendered hit can outlive a config reload or an
+                        // availability change. Fail closed instead of
+                        // invoking a command that is no longer rendered.
+                        if self.sidebar_view == SidebarView::Files
+                            && self.rail_kind_for_view(view) == RailKind::Workspace
+                        {
+                            self.set_files_rail_selection(FilesRailSelection::File);
+                        }
+                        return Ok(RenderAction::Draw);
+                    };
                     let kind = self.rail_kind_for_view(view);
                     match kind {
                         RailKind::Workspace => {
                             if self.sidebar_view == SidebarView::Files {
-                                if !self
-                                    .workspace_sidebar_action_rows()
-                                    .iter()
-                                    .any(|candidate| candidate.target == action)
-                                {
-                                    // The rendered hit can outlive a config
-                                    // reload. A stale Files action must not
-                                    // invoke a command that is no longer in
-                                    // the active host definition.
-                                    self.set_files_rail_selection(FilesRailSelection::File);
-                                    return Ok(RenderAction::Draw);
-                                }
                                 self.set_files_rail_selection(FilesRailSelection::Action(action));
                                 self.reveal_files_action_selection();
                             } else {
@@ -24908,11 +24911,6 @@ impl App {
                             }
                         }
                         RailKind::Projection(_) => {
-                            let action_index = self
-                                .sidebar_action_rows(view)
-                                .iter()
-                                .position(|candidate| candidate.target == action)
-                                .unwrap_or_default();
                             let state = self.projection_rail_state_mut(view);
                             state.selected_action = Some(action_index);
                             state.follow_selection = true;
@@ -26512,6 +26510,10 @@ impl App {
                 }
                 self.ensure_files_mode_supported();
                 self.rebuild_projection_surface_indexes();
+                if changed {
+                    self.cancel_sidebar_layout_drag();
+                    self.advance_pointer_focus_generation();
+                }
                 changed
             }
             SidebarPresentationCommand::SetViewPinned { profile, view, pinned } => {
@@ -26521,11 +26523,16 @@ impl App {
                     return false;
                 }
                 let state = self.sidebar_presentation.profiles.entry(profile).or_default();
-                if pinned {
+                let changed = if pinned {
                     state.pinned_views.insert(view)
                 } else {
                     state.pinned_views.remove(&view)
+                };
+                if changed {
+                    self.cancel_sidebar_layout_drag();
+                    self.advance_pointer_focus_generation();
                 }
+                changed
             }
         }
     }
@@ -48496,6 +48503,126 @@ mod tests {
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
         }
+    }
+
+    #[test]
+    fn projection_actions_position_top_mounts_actions_above_the_body() {
+        let (mux, surface) = test_mux("projection-top-actions-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("top-actions-agent".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "top-agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::RenameWorkspace)],
+            actions_position: crate::config::ActionsPosition::Top,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rail =
+            app.sidebar_layout.rail(RailKind::Projection(0)).expect("Agents projection rail");
+        let action = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarAction { view: 0, .. }).then_some(*rect)
+            })
+            .expect("top action hit");
+        let row = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(
+                    hit,
+                    super::Hit::ProjectionRow {
+                        target: crate::sidebar_projection::ProjectionTarget::Surface {
+                            surface: hit_surface,
+                            ..
+                        },
+                        ..
+                    } if *hit_surface == surface.id
+                )
+                .then_some(*rect)
+            })
+            .expect("agent row hit");
+
+        assert!(action.y > rail.y, "the Agents header must stay above actions");
+        assert!(action.y < row.y, "top actions must precede the projection body");
+        assert!(buffer_text(terminal.backend().buffer()).contains("rename workspace"));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn stale_projection_action_hit_fails_closed_after_action_removal() {
+        let (mux, surface) = test_mux("projection-stale-action-hit-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "stale-action".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: vec![crate::config::SidebarActionSpec::plain(Action::RenameWorkspace)],
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: SidebarViewScope::Workspace,
+            sort: AgentSortMode::Priority,
+            filter: AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let action = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarAction { view: 0, .. }).then_some(*rect)
+            })
+            .expect("rendered action hit");
+
+        app.config.sidebar.views[0].actions.clear();
+        app.handle_left_down(action.x, action.y, KeyModifiers::NONE).unwrap();
+
+        assert!(app.prompt.is_none(), "a removed action must not open its old command");
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn sidebar_visibility_and_pin_changes_cancel_captured_layout_drags() {
+        let mux = Mux::new("sidebar-layout-drag-invalidation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((100, 24));
+
+        app.drag = Some(Drag::RailResize(RailKind::Projection(2)));
+        app.set_sidebar_view_visible(2, false);
+        assert!(app.drag.is_none(), "hiding a rail cancels its captured resize");
+
+        app.set_sidebar_view_visible(2, true);
+        app.drag = Some(Drag::RailResize(RailKind::Projection(2)));
+        app.set_sidebar_view_pinned(2, false);
+        assert!(app.drag.is_none(), "unpinning a rail cancels its captured resize");
     }
 
     #[test]
