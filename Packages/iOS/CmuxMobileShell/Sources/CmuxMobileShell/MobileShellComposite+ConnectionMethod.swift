@@ -94,9 +94,10 @@ extension MobileShellComposite {
     /// The method-pinned Iroh dial allowlist for one pairing, or `nil` when the
     /// pairing's effective method places no address pin on the Iroh dial.
     ///
-    /// Direct pins the dial to the user-enabled addresses. Tailscale Only uses
-    /// its exact authorized raw route through the normal route selector, so it
-    /// returns `nil` here and cannot be converted into an Iroh dial.
+    /// Direct pins the dial to the user-enabled addresses. Tailscale Only does
+    /// not pin an Iroh dial: it selects the authorized raw Tailscale route, or
+    /// fails closed when that route is unavailable. Automatic remains the only
+    /// method that can select Iroh.
     ///
     /// An empty array means the method is pinned with nothing dialable:
     /// callers must fail closed and never substitute another path. Entries
@@ -129,6 +130,7 @@ extension MobileShellComposite {
             return nil
         }
     }
+
 
     /// Zero-touch discovery yields Iroh candidates only. It is pointless only
     /// when the app default is Tailscale AND no stored pairing opted back into

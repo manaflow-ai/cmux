@@ -6362,6 +6362,11 @@ impl cmux_pty::Child for StartupChild {
     fn process_id(&self) -> Option<u32> {
         None
     }
+
+    #[cfg(windows)]
+    fn as_raw_handle(&self) -> Option<std::os::windows::io::RawHandle> {
+        None
+    }
 }
 
 impl PtySurface {
