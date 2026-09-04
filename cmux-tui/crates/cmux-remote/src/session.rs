@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -9,11 +10,15 @@ use cmux_remote_protocol::{
     FrameDecodeError, FrameFlags, Lane, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES, SessionId,
     WireFrame,
 };
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::task::{AbortHandle, JoinHandle};
+use tokio_util::sync::CancellationToken;
 
 use crate::link::{FrameLink, LinkError};
 
 const RECONNECT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(2);
+const SCHEDULER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+const SCHEDULER_ABORT_WAIT_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[derive(Debug, Clone, Copy)]
 pub struct SessionLimits {
@@ -137,7 +142,7 @@ impl ReliableSession {
             limits,
             transition: Arc::new(tokio::sync::RwLock::new(())),
             lane_sends: std::array::from_fn(|_| tokio::sync::Mutex::new(())),
-            outbound_progress: std::array::from_fn(|_| tokio::sync::Notify::new()),
+            outbound_progress: std::array::from_fn(|_| Notify::new()),
             state: Mutex::new(ReliabilityState::new()),
         });
         Self::from_parts(shared, link, 0)
@@ -147,12 +152,13 @@ impl ReliableSession {
         let scheduler = ScheduledSender::spawn(link.clone(), shared.limits);
         let ack_senders = Lane::ALL.map(|lane| {
             let (sender, receiver) = mpsc::channel(1);
-            tokio::spawn(run_ack_sender(
+            scheduler.spawn_tracked(run_ack_sender(
                 shared.clone(),
-                scheduler.clone(),
+                Arc::downgrade(&scheduler.inner),
                 generation,
                 lane,
                 receiver,
+                scheduler.cancel_token(),
             ));
             sender
         });
@@ -520,7 +526,16 @@ impl ReliableSession {
         for progress in &self.shared.outbound_progress {
             progress.notify_waiters();
         }
-        self.link.close().await.map_err(SessionError::Link)
+        // Stop ACK production first. Lane writers keep an already admitted
+        // frame in flight, then observe cancellation after the link closes.
+        self.scheduler.request_shutdown();
+        let link_result = self.link.close().await.map_err(SessionError::Link);
+        let scheduler_result = self.scheduler.wait_for_shutdown().await;
+        match (link_result, scheduler_result) {
+            (Err(error), _) => Err(error),
+            (Ok(()), Err(())) => Err(SessionError::SchedulerClosed),
+            (Ok(()), Ok(())) => Ok(()),
+        }
     }
 }
 
@@ -545,15 +560,23 @@ fn encode_ack(shared: &SharedState, generation: u64, lane: Lane) -> Result<Bytes
 
 async fn run_ack_sender(
     shared: Arc<SharedState>,
-    scheduler: ScheduledSender,
+    scheduler: Weak<ScheduledSenderInner>,
     generation: u64,
     lane: Lane,
     mut requested: mpsc::Receiver<()>,
+    cancel: CancellationToken,
 ) {
-    while requested.recv().await.is_some() {
+    loop {
+        let request = tokio::select! {
+            _ = cancel.cancelled() => return,
+            requested = requested.recv() => requested,
+        };
+        if request.is_none() {
+            return;
+        }
         while requested.try_recv().is_ok() {}
         let Ok(encoded) = encode_ack(&shared, generation, lane) else { return };
-        if scheduler.send(lane, encoded).await.is_err() {
+        if ScheduledSender::send_from_weak(&scheduler, lane, encoded).await.is_err() {
             return;
         }
     }
@@ -564,7 +587,7 @@ struct SharedState {
     limits: SessionLimits,
     transition: Arc<tokio::sync::RwLock<()>>,
     lane_sends: [tokio::sync::Mutex<()>; 4],
-    outbound_progress: [tokio::sync::Notify; 4],
+    outbound_progress: [Notify; 4],
     state: Mutex<ReliabilityState>,
 }
 
@@ -732,9 +755,53 @@ struct DeliveryEntry {
 
 #[derive(Clone)]
 struct ScheduledSender {
+    inner: Arc<ScheduledSenderInner>,
+}
+
+struct ScheduledSenderInner {
     queues: Arc<QueueSenders>,
     budgets: Arc<[AtomicUsize; 4]>,
     limits: SessionLimits,
+    cancel: CancellationToken,
+    tasks: Mutex<Option<Vec<JoinHandle<()>>>>,
+    task_abort_handles: Mutex<Vec<AbortHandle>>,
+    shutdown_join: Mutex<Option<JoinHandle<()>>>,
+    join_started: AtomicBool,
+    shutdown_forced: Arc<AtomicBool>,
+    shutdown_complete: CancellationToken,
+    active_tasks: AtomicUsize,
+}
+
+impl Drop for ScheduledSenderInner {
+    fn drop(&mut self) {
+        self.cancel.cancel();
+        let tasks = match self.tasks.get_mut() {
+            Ok(tasks) => tasks,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if let Some(tasks) = tasks {
+            for task in tasks {
+                task.abort();
+            }
+        }
+        let abort_handles = match self.task_abort_handles.lock() {
+            Ok(mut abort_handles) => std::mem::take(&mut *abort_handles),
+            Err(poisoned) => {
+                let mut abort_handles = poisoned.into_inner();
+                std::mem::take(&mut *abort_handles)
+            }
+        };
+        for abort_handle in abort_handles {
+            abort_handle.abort();
+        }
+        let join = match self.shutdown_join.lock() {
+            Ok(mut join) => join.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(join) = join {
+            join.abort();
+        }
+    }
 }
 
 impl ScheduledSender {
@@ -751,6 +818,20 @@ impl ScheduledSender {
         });
         let budgets = Arc::new(std::array::from_fn(|_| AtomicUsize::new(0)));
         let (failed_tx, failed_rx) = tokio::sync::watch::channel(false);
+        let inner = Arc::new(ScheduledSenderInner {
+            queues,
+            budgets,
+            limits,
+            cancel: CancellationToken::new(),
+            tasks: Mutex::new(Some(Vec::with_capacity(8))),
+            task_abort_handles: Mutex::new(Vec::with_capacity(8)),
+            shutdown_join: Mutex::new(None),
+            join_started: AtomicBool::new(false),
+            shutdown_forced: Arc::new(AtomicBool::new(false)),
+            shutdown_complete: CancellationToken::new(),
+            active_tasks: AtomicUsize::new(0),
+        });
+        let scheduler = Self { inner };
         // Each lane owns an independent physical send loop. LaneMuxLink can
         // therefore progress dedicated carriers concurrently; a FrameLink
         // backed by one writer may still serialize inside its implementation.
@@ -760,30 +841,162 @@ impl ScheduledSender {
             (Lane::Bulk, bulk_rx),
             (Lane::Tunnel, tunnel_rx),
         ] {
-            tokio::spawn(run_lane_sender(
+            scheduler.spawn_tracked(run_lane_sender(
                 link.clone(),
                 lane,
                 receiver,
-                budgets.clone(),
+                scheduler.inner.budgets.clone(),
                 failed_tx.clone(),
                 failed_rx.clone(),
+                scheduler.cancel_token(),
             ));
         }
-        Self { queues, budgets, limits }
+        scheduler
     }
 
-    async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
-        let budget = &self.budgets[lane_index(lane)];
+    fn spawn_tracked<F>(&self, future: F)
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        self.inner.active_tasks.fetch_add(1, Ordering::AcqRel);
+        let inner = Arc::downgrade(&self.inner);
+        let task = tokio::spawn(async move {
+            future.await;
+            if let Some(inner) = inner.upgrade() {
+                inner.active_tasks.fetch_sub(1, Ordering::AcqRel);
+            }
+        });
+        let abort_handle = task.abort_handle();
+        let mut tasks = self.inner.tasks.lock().unwrap();
+        if let Some(tasks) = tasks.as_mut() {
+            tasks.push(task);
+            self.inner.task_abort_handles.lock().unwrap().push(abort_handle);
+        } else {
+            task.abort();
+        }
+    }
+
+    async fn send_from_weak(
+        scheduler: &Weak<ScheduledSenderInner>,
+        lane: Lane,
+        frame: Bytes,
+    ) -> Result<(), ScheduleError> {
+        let Some(inner) = scheduler.upgrade() else {
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        };
+        let queues = inner.queues.clone();
+        let budgets = inner.budgets.clone();
+        let limits = inner.limits;
+        let cancel = inner.cancel.clone();
+        drop(inner);
+
+        if cancel.is_cancelled() {
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        }
+        let budget = &budgets[lane_index(lane)];
         budget
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current
                     .checked_add(frame.len())
-                    .filter(|next| *next <= self.limits.queued_bytes_per_lane)
+                    .filter(|next| *next <= limits.queued_bytes_per_lane)
             })
             .map_err(|_| ScheduleError::Unscheduled(SessionError::QueueFull(lane)))?;
         let bytes = frame.len();
         let (completion, result) = oneshot::channel();
-        if self.queues.get(lane).send(ScheduledFrame { lane, frame, completion }).await.is_err() {
+        let queued = tokio::select! {
+            _ = cancel.cancelled() => {
+                budget.fetch_sub(bytes, Ordering::AcqRel);
+                return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+            }
+            result = queues.get(lane).send(ScheduledFrame { lane, frame, completion }) => result,
+        };
+        if queued.is_err() {
+            budget.fetch_sub(bytes, Ordering::AcqRel);
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        }
+        match result.await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(message)) => Err(ScheduleError::Ambiguous(SessionError::LinkMessage(message))),
+            Err(_) => Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed)),
+        }
+    }
+
+    fn cancel_token(&self) -> CancellationToken {
+        self.inner.cancel.clone()
+    }
+
+    fn request_shutdown(&self) {
+        self.inner.cancel.cancel();
+    }
+
+    async fn wait_for_shutdown(&self) -> Result<(), ()> {
+        self.request_shutdown();
+        if self
+            .inner
+            .join_started
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok()
+        {
+            let mut tasks = self.inner.tasks.lock().unwrap().take().unwrap_or_default();
+            let shutdown_complete = self.inner.shutdown_complete.clone();
+            let abort_handles = self.inner.task_abort_handles.lock().unwrap().clone();
+            let shutdown_forced = self.inner.shutdown_forced.clone();
+            let join = tokio::spawn(async move {
+                let timed_out = tokio::time::timeout(SCHEDULER_SHUTDOWN_TIMEOUT, async {
+                    for task in &mut tasks {
+                        let _ = task.await;
+                    }
+                })
+                .await
+                .is_err();
+                if timed_out {
+                    shutdown_forced.store(true, Ordering::Release);
+                    for abort_handle in abort_handles {
+                        abort_handle.abort();
+                    }
+                    let _ = tokio::time::timeout(SCHEDULER_ABORT_WAIT_TIMEOUT, async {
+                        for task in tasks {
+                            // Tasks awaited before the shutdown deadline have
+                            // already consumed their JoinHandle completion.
+                            // Tokio panics if such a handle is polled again.
+                            if task.is_finished() {
+                                continue;
+                            }
+                            let _ = task.await;
+                        }
+                    })
+                    .await;
+                }
+                shutdown_complete.cancel();
+            });
+            self.inner.shutdown_join.lock().unwrap().replace(join);
+        }
+        self.inner.shutdown_complete.cancelled().await;
+        if self.inner.shutdown_forced.load(Ordering::Acquire) { Err(()) } else { Ok(()) }
+    }
+
+    async fn send(&self, lane: Lane, frame: Bytes) -> Result<(), ScheduleError> {
+        if self.inner.cancel.is_cancelled() {
+            return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+        }
+        let budget = &self.inner.budgets[lane_index(lane)];
+        budget
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+                current
+                    .checked_add(frame.len())
+                    .filter(|next| *next <= self.inner.limits.queued_bytes_per_lane)
+            })
+            .map_err(|_| ScheduleError::Unscheduled(SessionError::QueueFull(lane)))?;
+        let bytes = frame.len();
+        let (completion, result) = oneshot::channel();
+        let queued = tokio::select! {
+            _ = self.inner.cancel.cancelled() => {
+                budget.fetch_sub(bytes, Ordering::AcqRel);
+                return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
+            }
+            result = self.inner.queues.get(lane).send(ScheduledFrame { lane, frame, completion }) => result,
+        };
+        if queued.is_err() {
             budget.fetch_sub(bytes, Ordering::AcqRel);
             return Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed));
         }
@@ -802,12 +1015,19 @@ async fn run_lane_sender(
     budgets: Arc<[AtomicUsize; 4]>,
     failed_tx: tokio::sync::watch::Sender<bool>,
     mut failed_rx: tokio::sync::watch::Receiver<bool>,
+    cancel: CancellationToken,
 ) {
     loop {
         let scheduled = tokio::select! {
             biased;
+            _ = cancel.cancelled() => {
+                receiver.close();
+                fail_pending(&mut receiver, &budgets, "scheduler closed");
+                return;
+            }
             changed = failed_rx.changed() => {
                 if changed.is_ok() && *failed_rx.borrow() {
+                    receiver.close();
                     fail_pending(&mut receiver, &budgets, "physical link failed");
                     return;
                 }
@@ -951,7 +1171,7 @@ mod tests {
     use std::sync::atomic::AtomicBool;
 
     use async_trait::async_trait;
-    use tokio::sync::{Mutex as AsyncMutex, Semaphore, oneshot};
+    use tokio::sync::{Barrier, Mutex as AsyncMutex, Semaphore, oneshot};
 
     use super::*;
     use crate::link::{LaneMuxLink, LinkRoute, test_support};
@@ -973,6 +1193,15 @@ mod tests {
     struct GatedAckLink {
         incoming: AsyncMutex<mpsc::UnboundedReceiver<Bytes>>,
         send_entered: Semaphore,
+    }
+
+    struct ConcurrentCloseLink {
+        close_barrier: Barrier,
+    }
+
+    struct CloseJoinGateLink {
+        send_entered: Semaphore,
+        send_release: Semaphore,
     }
 
     #[async_trait]
@@ -1038,6 +1267,55 @@ mod tests {
 
         async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
             Ok(self.incoming.lock().await.recv().await)
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for ConcurrentCloseLink {
+        fn description(&self) -> &str {
+            "concurrent-close"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            std::future::pending().await
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.close_barrier.wait().await;
+            Ok(())
+        }
+    }
+
+    #[async_trait]
+    impl FrameLink for CloseJoinGateLink {
+        fn description(&self) -> &str {
+            "close-join-gate"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            128 * 1024
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            self.send_entered.add_permits(1);
+            self.send_release.acquire().await.unwrap().forget();
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            std::future::pending().await
         }
 
         async fn close(&self) -> Result<(), LinkError> {
@@ -1122,6 +1400,250 @@ mod tests {
         first.await.unwrap().unwrap();
         let sent = link.sent.lock().await.clone();
         assert_eq!(sent, [Lane::Interactive, Lane::Bulk]);
+    }
+
+    #[tokio::test]
+    async fn close_waits_for_lane_and_ack_tasks_without_dropping_in_flight_frame() {
+        let link = Arc::new(GatedRecordingLink::new());
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([14; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Bulk, 1, Bytes::from_static(b"in flight"), FrameFlags::empty())
+                    .await
+            }
+        });
+        link.entered.acquire().await.unwrap().forget();
+
+        session.close().await.unwrap();
+        assert_eq!(send.await.unwrap().unwrap(), 1);
+        drop(session);
+        drop(link);
+        assert!(weak_link.upgrade().is_none(), "session tasks retained the link after close");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+    async fn concurrent_close_calls_all_observe_worker_shutdown() {
+        const CLOSE_CALLS: usize = 64;
+        const ROUNDS: usize = 256;
+
+        tokio::time::timeout(Duration::from_secs(10), async {
+            for round in 0..ROUNDS {
+                let link =
+                    Arc::new(ConcurrentCloseLink { close_barrier: Barrier::new(CLOSE_CALLS) });
+                let session = ReliableSession::new(
+                    SessionId([(round % 256) as u8; 16]),
+                    link,
+                    SessionLimits::default(),
+                );
+                let mut closes = Vec::with_capacity(CLOSE_CALLS);
+                for _ in 0..CLOSE_CALLS {
+                    let session = session.clone();
+                    closes.push(tokio::spawn(async move { session.close().await }));
+                }
+                for close in closes {
+                    close.await.unwrap().unwrap();
+                }
+            }
+        })
+        .await
+        .expect("concurrent close calls missed scheduler completion");
+    }
+
+    #[tokio::test]
+    async fn dropping_session_aborts_worker_tasks_without_close() {
+        let link = Arc::new(GatedRecordingLink::new());
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([18; 16]), link.clone(), SessionLimits::default());
+
+        drop(session);
+        drop(link);
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while weak_link.upgrade().is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("session workers retained the link after session drop");
+    }
+
+    #[tokio::test]
+    async fn shutdown_rejects_send_waiting_for_queue_without_orphaning_completion() {
+        let link = Arc::new(GatedRecordingLink::new());
+        let limits = SessionLimits { queued_frames_per_lane: 1, ..SessionLimits::default() };
+        let session = ReliableSession::new(SessionId([19; 16]), link.clone(), limits);
+        fn encode(sequence: u64, payload: &'static [u8]) -> Bytes {
+            Bytes::from(
+                WireFrame {
+                    session: SessionId([19; 16]),
+                    generation: 0,
+                    lane: Lane::Bulk,
+                    flags: FrameFlags::RELIABLE,
+                    sequence,
+                    acknowledgement: 0,
+                    stream: 1,
+                    payload: payload.to_vec(),
+                }
+                .encode()
+                .unwrap(),
+            )
+        }
+
+        let first = tokio::spawn({
+            let scheduler = session.scheduler.clone();
+            async move { scheduler.send(Lane::Bulk, encode(1, b"first")).await }
+        });
+        link.entered.acquire().await.unwrap().forget();
+
+        let second = tokio::spawn({
+            let scheduler = session.scheduler.clone();
+            async move { scheduler.send(Lane::Bulk, encode(2, b"second")).await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while session.scheduler.inner.budgets[lane_index(Lane::Bulk)].load(Ordering::Acquire)
+                == 0
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("second frame was not admitted to the bounded lane queue");
+
+        let third = tokio::spawn({
+            let scheduler = session.scheduler.clone();
+            async move { scheduler.send(Lane::Bulk, encode(3, b"third")).await }
+        });
+        session.scheduler.request_shutdown();
+        let third_result = tokio::time::timeout(Duration::from_secs(1), third)
+            .await
+            .expect("send waiting for queue did not observe shutdown")
+            .unwrap();
+        assert!(matches!(
+            third_result,
+            Err(ScheduleError::Ambiguous(SessionError::SchedulerClosed))
+        ));
+
+        link.release.add_permits(1);
+        let _ = first.await;
+        let _ = second.await;
+    }
+
+    #[tokio::test]
+    async fn cancelled_close_does_not_poison_later_shutdown_waiters() {
+        let link = Arc::new(CloseJoinGateLink {
+            send_entered: Semaphore::new(0),
+            send_release: Semaphore::new(0),
+        });
+        let session =
+            ReliableSession::new(SessionId([20; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Bulk, 1, Bytes::from_static(b"in flight"), FrameFlags::empty())
+                    .await
+            }
+        });
+        link.send_entered.acquire().await.unwrap().forget();
+
+        let first_close = tokio::spawn({
+            let session = session.clone();
+            async move { session.close().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !session.scheduler.inner.join_started.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("first close did not begin scheduler shutdown");
+        first_close.abort();
+        let _ = first_close.await;
+
+        link.send_release.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), session.close())
+            .await
+            .expect("later close waited forever after cancelled shutdown")
+            .unwrap();
+        assert_eq!(send.await.unwrap().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn dropping_cancelled_close_aborts_joined_workers() {
+        let link = Arc::new(CloseJoinGateLink {
+            send_entered: Semaphore::new(0),
+            send_release: Semaphore::new(0),
+        });
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([21; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session
+                    .send(Lane::Bulk, 1, Bytes::from_static(b"in flight"), FrameFlags::empty())
+                    .await
+            }
+        });
+        link.send_entered.acquire().await.unwrap().forget();
+
+        let first_close = tokio::spawn({
+            let session = session.clone();
+            async move { session.close().await }
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !session.scheduler.inner.join_started.load(Ordering::Acquire) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("first close did not begin scheduler shutdown");
+        first_close.abort();
+        let _ = first_close.await;
+        send.abort();
+        let _ = send.await;
+        drop(session);
+        drop(link);
+
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while weak_link.upgrade().is_some() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("cancelled close retained a worker and its link");
+    }
+
+    #[tokio::test]
+    async fn close_aborts_a_worker_stuck_in_link_send() {
+        let link = Arc::new(CloseJoinGateLink {
+            send_entered: Semaphore::new(0),
+            send_release: Semaphore::new(0),
+        });
+        let weak_link = Arc::downgrade(&link);
+        let session =
+            ReliableSession::new(SessionId([22; 16]), link.clone(), SessionLimits::default());
+        let send = tokio::spawn({
+            let session = session.clone();
+            async move {
+                session.send(Lane::Bulk, 1, Bytes::from_static(b"stuck"), FrameFlags::empty()).await
+            }
+        });
+        link.send_entered.acquire().await.unwrap().forget();
+
+        let close = tokio::time::timeout(Duration::from_secs(4), session.close())
+            .await
+            .expect("close exceeded the bounded scheduler shutdown timeout");
+        assert!(matches!(close, Err(SessionError::SchedulerClosed)));
+        send.abort();
+        let _ = send.await;
+        drop(session);
+        drop(link);
+        assert!(weak_link.upgrade().is_none(), "close retained the stuck worker link");
     }
 
     #[tokio::test]
