@@ -590,6 +590,41 @@ for arg in "\$@"; do
   esac
 done
 
+# vpn owns its own narrowly-scoped sudo calls.  If a user prefixes the shim
+# itself with sudo, the secure PATH can otherwise select an installed/stable
+# CLI and lose the originating build's HOME and socket identity before the
+# binary gets a chance to explain the mistake.
+if [[ "\${EUID:-\$(id -u)}" == "0" ]]; then
+  CMUX_SHIM_COMMAND=""
+  CMUX_SHIM_EXPECT_VALUE=0
+  for CMUX_SHIM_ARG in "\$@"; do
+    if [[ "\$CMUX_SHIM_EXPECT_VALUE" == "1" ]]; then
+      CMUX_SHIM_EXPECT_VALUE=0
+      continue
+    fi
+    case "\$CMUX_SHIM_ARG" in
+      --socket|--id-format|--window|--password)
+        CMUX_SHIM_EXPECT_VALUE=1
+        ;;
+      --json|-v|--version|-h|--help)
+        ;;
+      --)
+        break
+        ;;
+      -*)
+        ;;
+      *)
+        CMUX_SHIM_COMMAND="\$CMUX_SHIM_ARG"
+        break
+        ;;
+    esac
+  done
+  if [[ "\$CMUX_SHIM_COMMAND" == "vpn" ]]; then
+    echo "error: run 'cmux vpn' without sudo; cmux invokes sudo for the tunnel and /etc/hosts." >&2
+    exit 1
+  fi
+fi
+
 ${socket_probe_function}
 
 cli_bundle_for_path() {
