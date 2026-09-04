@@ -1151,7 +1151,7 @@ struct SurfaceCatalogTests {
         // The first read at the receipt cursor is stale, but the optimistic overlay
         // keeps the UI correct. A later canonical read at that same cursor must still
         // be accepted and retire the intent.
-        #expect(catalog.replaceCloudResources(
+        #expect(!catalog.replaceCloudResources(
             [beforeResource],
             on: machine,
             info: beforeInfo,
