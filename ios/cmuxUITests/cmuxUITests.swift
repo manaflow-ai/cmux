@@ -4061,7 +4061,10 @@ final class cmuxUITests: XCTestCase {
         let activityList = app.otherElements["ActivityListView"]
         let shareSheetPresented = activityList.waitForExistence(timeout: 4)
             || app.sheets.firstMatch.exists
-        XCTAssertTrue(shareSheetPresented, "Tapping Export Logs must present the share sheet.")
+        XCTAssertTrue(
+            shareSheetPresented,
+            "Tapping Export Logs must present the share sheet."
+        )
         if app.buttons["Cancel"].exists {
             app.buttons["Cancel"].tap()
         } else if activityList.exists {
