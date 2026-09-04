@@ -899,6 +899,16 @@ private actor MobileIrohCooldownBroker:
         totalRequests += 1
     }
 
+    func revokeStale(bindingID _: String) async throws {
+        totalRequests += 1
+        throw MobileIrohCooldownTestError.unavailable
+    }
+
+    func forgetMac(bindingID _: String) async throws {
+        totalRequests += 1
+        throw MobileIrohCooldownTestError.unavailable
+    }
+
     func issueRelayBootstrap(
         endpointID _: CmxIrohPeerIdentity
     ) async throws -> CmxIrohRelayBootstrapResponse {
