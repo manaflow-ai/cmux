@@ -3,7 +3,9 @@ import Foundation
 /// One create the person started from the sheet, alive from the moment the
 /// CLI run launches until the machine exists (then the real fleet row takes
 /// over) or the create fails (then the row stays, red, until retried or
-/// dismissed). Rendered by the Machines panel as a pending machine row.
+/// dismissed). A running operation can be cancelled from the row without
+/// waiting for the provider. Rendered by the Machines panel as a pending
+/// machine row.
 struct MachineCreateOperation: Identifiable, Equatable {
     enum Phase: Equatable {
         case running

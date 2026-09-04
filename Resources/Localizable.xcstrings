@@ -67281,19 +67281,70 @@
         }
       }
     },
+    "command.cloudVM.failed.action.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh the Machines list and retry. A machine that no longer exists is removed from the list automatically. To see the full output, run `cmux vm rm <id>` in a terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン一覧を更新して再試行してください。存在しないマシンは一覧から自動的に削除されます。完全な出力はターミナルで `cmux vm rm <id>` を実行して確認できます。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry, or run the Cloud VM command in a terminal to see the full output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行するか、ターミナルで Cloud VM コマンドを実行して完全な出力を確認してください。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A label is printable text of at most 64 characters. Retry, or run `cmux vm rename <id> <label>` in a terminal to see the full output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベルは 64 文字以内の印刷可能なテキストにしてください。再試行するか、ターミナルで `cmux vm rename <id> <label>` を実行して完全な出力を確認してください。"
+          }
+        }
+      }
+    },
     "command.cloudVM.failed.action.launch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm base open` in a terminal and send us the output."
+            "value": "Reload cmux so its command-line tools are available, then retry. If it still fails, run the Cloud VM command in a terminal and send us the output."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バンドルされた CLI を使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで `cmux vm base open` を実行して出力を送ってください。"
+            "value": "コマンドラインツールを使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで Cloud VM コマンドを実行して出力を送ってください。"
           }
         }
       }
@@ -67304,13 +67355,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm base open` in a terminal to see the full error."
+            "value": "Install or reload a fresh cmux build, then retry. You can also run the Cloud VM command in a terminal to see the full error."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから、Start Cloud VM をもう一度試してください。ターミナルで `cmux vm base open` を実行すると完全なエラーも確認できます。"
+            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから再試行してください。ターミナルで Cloud VM コマンドを実行すると完全なエラーも確認できます。"
           }
         }
       }
@@ -67355,13 +67406,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open exited with status %d."
+            "value": "The Cloud VM command exited with status %d."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open がステータス %d で終了しました。"
+            "value": "Cloud VM コマンドがステータス %d で終了しました。"
           }
         }
       }
@@ -67372,13 +67423,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open could not be launched."
+            "value": "The Cloud VM command could not be launched."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open を起動できませんでした。"
+            "value": "Cloud VM コマンドを起動できませんでした。"
           }
         }
       }
@@ -67415,6 +67466,62 @@
             "value": "Cloud VMを開始できませんでした"
           }
         }
+      }
+    },
+    "command.cloudVM.failed.title.checkpoint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Checkpoint Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンをチェックポイントできませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Delete Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンを削除できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Fork Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンをフォークできませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud VM Command Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud VM コマンドに失敗しました" } }
+      }
+    },
+    "command.cloudVM.failed.title.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Open Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンを開けませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Rename Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの名前を変更できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Restore Checkpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントを復元できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Read Machine Status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの状態を読み取れませんでした" } }
       }
     },
     "command.cloudVM.failed.whatToTry": {
@@ -273293,6 +273400,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Base を設定できませんでした"
+          }
+        }
+      }
+    },
+    "machines.pending.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成をキャンセル"
           }
         }
       }

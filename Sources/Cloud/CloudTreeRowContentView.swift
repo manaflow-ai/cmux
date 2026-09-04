@@ -815,18 +815,24 @@ struct CloudTreeRowHoverButtons: View {
                 machineActions.confirmDelete(machine.id)
             }
         case .pendingMachine(let operation):
-            // A failed create can be retried or dropped from the row itself; a
-            // running one has no verb (the CLI is still working).
+            // A running create can be cancelled from the row; a failed create
+            // can be retried or dropped.
             HStack(spacing: 4) {
-                MachinesChromeIconButton(
-                    symbolName: "arrow.counterclockwise",
-                    accessibilityLabel: String(localized: "machines.pending.retry", defaultValue: "Retry Create"),
-                    isBusy: false
-                ) {
-                    machineActions.create.retry(operation.id)
-                }
-                xmark(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) {
-                    machineActions.create.dismiss(operation.id)
+                if operation.isRunning {
+                    xmark(String(localized: "machines.pending.cancel", defaultValue: "Cancel Create")) {
+                        machineActions.create.cancel(operation.id)
+                    }
+                } else {
+                    MachinesChromeIconButton(
+                        symbolName: "arrow.counterclockwise",
+                        accessibilityLabel: String(localized: "machines.pending.retry", defaultValue: "Retry Create"),
+                        isBusy: false
+                    ) {
+                        machineActions.create.retry(operation.id)
+                    }
+                    xmark(String(localized: "machines.pending.dismiss", defaultValue: "Dismiss")) {
+                        machineActions.create.dismiss(operation.id)
+                    }
                 }
             }
         case .localMachine:
@@ -874,8 +880,8 @@ struct CloudTreeRowHoverButtons: View {
         switch kind {
         case .machine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace:
             return true
-        case .pendingMachine(let operation):
-            return !operation.isRunning
+        case .pendingMachine:
+            return true
         case .terminal(let row):
             return !row.resource.machine.isLocal
         default:
