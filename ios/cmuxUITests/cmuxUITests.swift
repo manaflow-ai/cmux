@@ -6519,12 +6519,17 @@ final class cmuxUITests: XCTestCase {
     /// the same leading guide, so the two bottom-dock controls read as one
     /// aligned column when the keyboard is visible.
     @MainActor
-    func testTerminalKeyboardToggleAlignsWithComposerAttachment() async throws {
-        let server = try MobileSyncMockHostServer()
-        let port = try await server.start()
-        defer { server.stop() }
+    func testTerminalKeyboardToggleAlignsWithComposerAttachment() throws {
+        // Use the deterministic workspace-detail fixture instead of a mock
+        // network attach, so this geometry assertion is isolated from pairing
+        // and simulator loopback timing.
+        let app = launchApp(mockData: false, environment: [
+            "CMUX_UITEST_WORKSPACE_DETAIL_DELAYED_TERMINAL": "1",
+            "CMUX_MOBILE_SOAK_OPEN_SELECTED_WORKSPACE": "1",
+        ])
+        defer { app.terminate() }
 
-        let app = try launchConnectedApp(port: port)
+        XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 12))
         let keyboardToggle = app.buttons["terminal.inputAccessory.hideKeyboard"]
         let attachment = app.descendants(matching: .any)[Composer.attachButton]
         XCTAssertTrue(keyboardToggle.waitForExistence(timeout: 8))
