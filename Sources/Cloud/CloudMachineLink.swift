@@ -85,6 +85,7 @@ actor CloudMachineLink {
     var isConnected: Bool { connected != nil && state == .connected }
 
     /// Spawns the headless client against `route` and waits for its local socket.
+    /// A grant is written to an owner-only temporary file, never placed in argv.
     func connect(route: String, session: String, invitationURI: String?, grant: String? = nil, timeout: Duration = .seconds(60)) async throws -> Connected {
         if let connected, state == .connected { return connected }
         try paths.ensureStateDir()

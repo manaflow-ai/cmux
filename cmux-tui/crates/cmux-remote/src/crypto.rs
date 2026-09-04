@@ -272,6 +272,7 @@ struct ClientPrelude {
     protocol: u8,
     auth: AuthKind,
     invitation_id: Option<String>,
+    #[serde(default)]
     grant: Option<String>,
     session: SessionId,
     lane: Lane,

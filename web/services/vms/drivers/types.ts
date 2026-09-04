@@ -180,17 +180,16 @@ export type AttachTransport = "ssh" | "websocket" | "cmux-remote";
 /**
  * Attach through the cmux-tui remote daemon running in the VM
  * (docs/cloud-cmux-tui-daemon.md). The route
- * is the provider's tokenized ingress to the daemon's `/v1/link` listener; the
- * token only gates reachability — session auth is the daemon's Noise device
- * enrollment. `invitation` is present when the caller's device is not yet
- * enrolled: the client connects with `remote connect --invite-file`, then asks
- * the control plane to approve the pending enrollment it minted.
+ * is the provider's `/v1/link` listener. Private routes carry no provider
+ * capability in the URL. The control plane returns a short-lived signed grant
+ * that the daemon verifies during the Noise handshake. Public legacy routes may
+ * still return an enrollment invitation during the migration window.
  */
 export type CmuxRemoteEndpoint = {
   transport: "cmux-remote";
   /** `wss://<host>/v1/link?<provider-token>` — carries the ingress token, so it is never embedded in an invitation. */
   route: string;
-  /** Ingress token (hashed into the lease ledger, never persisted raw). */
+  /** Lease handle (hashed into the ledger, never persisted raw). */
   token: string;
   expiresAtUnix: number;
   /** Short-lived server-signed authorization for a private daemon. */

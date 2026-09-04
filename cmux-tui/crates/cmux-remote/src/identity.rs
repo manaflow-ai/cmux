@@ -34,6 +34,7 @@ const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
 const CLOUD_GRANT_SCOPE: &str = "cmux.cloud.attach";
 const CLOUD_GRANT_TYP: &str = "cmux-cloud-vm-grant+jwt";
 const CLOUD_GRANT_PUBLIC_KEY_ENV: &str = "CMUX_REMOTE_GRANT_PUBLIC_KEY_SPKI_BASE64";
+const CLOUD_GRANT_KEY_ID_ENV: &str = "CMUX_REMOTE_GRANT_KEY_ID";
 const CLOUD_GRANT_INSTANCE_FILE_ENV: &str = "CMUX_VM_INSTANCE_ID_FILE";
 const DEFAULT_CLOUD_GRANT_INSTANCE_FILE: &str = "/etc/cmux/daemon-instance-id";
 const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 4_096;
@@ -978,6 +979,7 @@ pub struct AuthDatabase {
 #[derive(Clone)]
 struct CloudGrantVerifier {
     key: VerifyingKey,
+    key_id: String,
     instance_file: PathBuf,
 }
 
@@ -1008,10 +1010,14 @@ impl CloudGrantVerifier {
         const SPKI_PREFIX: &[u8] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
         let raw = der.strip_prefix(SPKI_PREFIX)?;
         let key = VerifyingKey::from_bytes(raw.try_into().ok()?).ok()?;
+        let key_id = std::env::var(CLOUD_GRANT_KEY_ID_ENV).ok()?.trim().to_owned();
+        if key_id.is_empty() {
+            return None;
+        }
         let instance_file = std::env::var(CLOUD_GRANT_INSTANCE_FILE_ENV)
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_CLOUD_GRANT_INSTANCE_FILE));
-        Some(Self { key, instance_file })
+        Some(Self { key, key_id, instance_file })
     }
 
     fn verify(
@@ -1030,7 +1036,7 @@ impl CloudGrantVerifier {
         };
         let header: CloudGrantHeader = serde_json::from_slice(&decode(parts[0])?)
             .map_err(|_| "cloud grant header is invalid".to_string())?;
-        if header.alg != "EdDSA" || header.typ != CLOUD_GRANT_TYP || header.kid.is_empty() {
+        if header.alg != "EdDSA" || header.typ != CLOUD_GRANT_TYP || header.kid != self.key_id {
             return Err("cloud grant header is not supported".into());
         }
         let signature_bytes = decode(parts[2])?;
@@ -2514,6 +2520,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use cmux_remote_protocol::{Lane, SessionId};
+    use ed25519_dalek::{Signer, SigningKey};
     use zeroize::Zeroizing;
 
     use super::*;
@@ -2523,6 +2530,58 @@ mod tests {
     use crate::link::test_support;
 
     struct PersistenceReleaseGuard(Arc<PersistenceTestHooks>);
+
+    #[tokio::test]
+    async fn signed_cloud_grant_authorizes_only_matching_vm_and_device() {
+        let temp = tempfile::tempdir().unwrap();
+        let instance_file = temp.path().join("instance-id");
+        fs::write(&instance_file, "vm-123\n").unwrap();
+        let signing = SigningKey::from_bytes(&[7; 32]);
+        let database = AuthDatabase::load_or_create(temp.path().join("state"), "daemon", false).unwrap();
+        let verifier = CloudGrantVerifier {
+            key: signing.verifying_key(),
+            key_id: "test".into(),
+            instance_file,
+        };
+        // Keep the mutation explicit. No production constructor accepts a
+        // public key from an untrusted caller.
+        let mut database = database;
+        Arc::get_mut(&mut database).unwrap().cloud_grant_verifier = Some(verifier);
+        let client = StaticIdentity::generate().unwrap();
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"alg":"EdDSA","typ":"cmux-cloud-vm-grant+jwt","kid":"test"}"#);
+        let claims = serde_json::json!({
+            "jti": "grant-1",
+            "iat": unix_time().unwrap(),
+            "nbf": unix_time().unwrap(),
+            "exp": unix_time().unwrap() + 60,
+            "scope": CLOUD_GRANT_SCOPE,
+            "vm_id": "vm-123",
+            "device_fingerprint": public_key_fingerprint(&client.public_key()),
+        });
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&claims).unwrap());
+        let signing_input = format!("{header}.{payload}");
+        let signature = signing.sign(signing_input.as_bytes());
+        let token = format!(
+            "{signing_input}.{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes())
+        );
+        let request = AuthRequest {
+            mode: AuthKind::Grant,
+            invitation_id: None,
+            grant: Some(token),
+            device_public_key: client.public_key(),
+            device_name: "cloud-client".into(),
+            session: SessionId([1; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tcp),
+        };
+        let authorized = database.authorize(request).await.unwrap();
+        assert!(authorized.device_id.starts_with("cloud-grant:"));
+    }
 
     impl PersistenceReleaseGuard {
         fn new(hooks: Arc<PersistenceTestHooks>) -> Self {

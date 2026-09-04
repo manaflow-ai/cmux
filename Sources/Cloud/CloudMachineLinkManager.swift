@@ -6,10 +6,10 @@ import Foundation
 /// control plane wakes a machine on attach — and torn down when the machine is deleted
 /// or the account signs out.
 ///
-/// Enrollment mirrors the pane path: the control plane mints the route (and, for a
-/// device this machine has not seen, an invitation); the link claims it while the
-/// manager approves the pending enrollment through the control plane and stores the
-/// device fingerprint beside the CLI's (`vm-tui-devices.json`).
+/// Private enrollment uses a short-lived signed grant returned with the route.
+/// The daemon verifies it locally, so a normal link does not run guest commands
+/// or wait for a control-plane approval. Public legacy routes keep the invitation
+/// path until those machines are replaced.
 actor CloudMachineLinkManager {
     struct LinkStatus: Sendable, Equatable {
         let state: SurfaceLinkState
