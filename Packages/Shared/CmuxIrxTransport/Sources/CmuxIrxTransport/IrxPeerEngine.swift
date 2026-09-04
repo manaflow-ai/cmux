@@ -200,9 +200,21 @@ public actor IrxPeerEngine {
         } catch let denial as IrxAdmissionDenied {
             guard dialGeneration == generation else { throw denial }
             dialTask = nil
-            parkedCode = denial.code.rawValue
             setState(.closed(code: denial.code.rawValue))
-            record("dial-denied", ["code": denial.code.rawValue])
+            if denial.code == .admissionTimeout {
+                // A missing admission response is a transient transport
+                // failure, not an authorization denial. Keep the owner alive
+                // through the normal bounded retry schedule.
+                lastDialError = denial
+                record("dial-failed", [
+                    "trigger": trigger,
+                    "error": String(describing: denial),
+                ])
+                scheduleRedial()
+            } else {
+                parkedCode = denial.code.rawValue
+                record("dial-denied", ["code": denial.code.rawValue])
+            }
             throw denial
         } catch {
             guard dialGeneration == generation else { throw error }
