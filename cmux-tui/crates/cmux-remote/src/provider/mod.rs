@@ -4,9 +4,11 @@
 //! encryption, authorization, replay, and application services remain above
 //! this boundary, so a relay or a TLS terminator is never an authority.
 
+mod dial;
 #[cfg(feature = "iroh-transport")]
 mod iroh;
 mod relay;
+pub(crate) mod socks;
 mod ssh;
 mod stream;
 #[cfg(unix)]
@@ -38,8 +40,12 @@ pub use ssh::{SshProvider, SshProviderConfig};
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
 pub use unix::UnixProvider;
+#[cfg(feature = "wireguard-transport")]
+pub use dial::WireGuardDialer;
+pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
 pub use websocket::{
     AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
+    connect_websocket_via,
 };
 
 /// Non-authoritative facts learned from the carrier.
