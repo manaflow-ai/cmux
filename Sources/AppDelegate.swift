@@ -2463,13 +2463,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 routedParams = params
             }
             switch TerminalController.shared.v2MobileTerminalPaste(params: routedParams) {
-            case .ok(let result):
+            case .ok:
                 // The host's paste result includes whether the named submit
                 // key was accepted. Older hosts may omit it while still
                 // acknowledging the paste, which is the success contract they
                 // exposed before this field existed.
-                let submitted = (result as? [String: Any])?["submitted"] as? Bool ?? true
-                return submitted ? .delivered : .retryable
+                // `terminal.paste` applies the text before it attempts the
+                // named key. A false `submitted` flag is therefore a partial
+                // success, not a safe invitation to replay the whole reply:
+                // doing so would duplicate text in the agent prompt. The
+                // accepted paste is the durable delivery boundary; the user
+                // can press Return manually if the key was rejected.
+                return .delivered
             case .err(let code, _, _):
                 // `not_found` is transient here, not proof the target is gone:
                 // the sweep can run while session restore is still loading the

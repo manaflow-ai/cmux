@@ -113,10 +113,13 @@ extension AppDelegate {
             "text": text,
             "submit_key": "return",
         ]) {
-        case .ok(let result):
-            // `submitted` was added with terminal.paste. Treat a missing field
-            // as success for an older host that only acknowledged the paste.
-            return (result as? [String: Any])?["submitted"] as? Bool ?? true
+        case .ok:
+            // The text is applied before the named key. A false `submitted`
+            // flag is still a successful paste, and returning false here would
+            // reopen the notification with text already sitting in the prompt.
+            // Treat a missing field as success for older hosts that only
+            // acknowledged the paste.
+            return true
         case .err:
             return false
         }
