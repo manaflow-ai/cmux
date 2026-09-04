@@ -60,7 +60,7 @@ struct VaultSessionLiveStatusTests {
     func compactIndicatorTreatsEveryRowAsActiveOrInactive() {
         let inPane = SessionIndexStatusIndicatorModel.make(
             isInPane: true,
-            liveStatus: .exited
+            liveStatus: .live
         )
         #expect(inPane.isActive)
         #expect(
@@ -68,6 +68,19 @@ struct VaultSessionLiveStatusTests {
                 == String(
                     localized: "sessionIndex.status.activeInPane",
                     defaultValue: "Active in pane"
+                )
+        )
+
+        let exitedInPane = SessionIndexStatusIndicatorModel.make(
+            isInPane: true,
+            liveStatus: .exited
+        )
+        #expect(!exitedInPane.isActive)
+        #expect(
+            exitedInPane.label
+                == String(
+                    localized: "sessionIndex.status.inactiveIndicator",
+                    defaultValue: "Inactive"
                 )
         )
 

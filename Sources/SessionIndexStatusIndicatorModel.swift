@@ -49,17 +49,25 @@ nonisolated struct SessionIndexStatusIndicatorModel: Equatable, Sendable {
         isActive ? .green : Color.secondary.opacity(0.55)
     }
 
-    /// In-pane sessions stay active even if their process is currently idle.
-    /// Indexed rows use the recent-activity status when it is available.
+    /// A process-derived status is authoritative whenever it is available.
+    /// This matters for a pane whose agent exited or whose restore command
+    /// failed: the pane can remain open at a shell, but the session is no
+    /// longer active and must use the inactive treatment. A missing status is
+    /// the only case where the in-pane snapshot is used as a fallback.
     nonisolated static func make(
         isInPane: Bool,
         liveStatus: VaultSessionLiveStatus?
     ) -> SessionIndexStatusIndicatorModel {
+        if let liveStatus {
+            if liveStatus.isActiveForIndicator {
+                return SessionIndexStatusIndicatorModel(
+                    state: isInPane ? .activeInPane : .active
+                )
+            }
+            return SessionIndexStatusIndicatorModel(state: .inactive)
+        }
         if isInPane {
             return SessionIndexStatusIndicatorModel(state: .activeInPane)
-        }
-        if liveStatus?.isActiveForIndicator == true {
-            return SessionIndexStatusIndicatorModel(state: .active)
         }
         return SessionIndexStatusIndicatorModel(state: .inactive)
     }
