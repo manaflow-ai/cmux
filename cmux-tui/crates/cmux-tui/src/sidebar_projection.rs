@@ -681,11 +681,8 @@ mod tests {
         assert!(!agent_row_passes_filter(&filter, None, "blocked", false));
 
         // The seen criterion is its own AND leg.
-        let unseen_only = AgentRowFilter {
-            agents: Vec::new(),
-            states: Vec::new(),
-            seen: Some(false),
-        };
+        let unseen_only =
+            AgentRowFilter { agents: Vec::new(), states: Vec::new(), seen: Some(false) };
         assert!(agent_row_passes_filter(&unseen_only, Some("claude"), "idle", false));
         assert!(!agent_row_passes_filter(&unseen_only, Some("claude"), "idle", true));
 
@@ -931,9 +928,9 @@ mod tests {
     #[test]
     fn all_scope_agents_sweep_workspaces_by_priority() {
         let tree = tree_from_workspaces(vec![
-                workspace(1, "alpha", 10, [11, 12]),
-                workspace(2, "beta", 20, [21, 22]),
-            ]);
+            workspace(1, "alpha", 10, [11, 12]),
+            workspace(2, "beta", 20, [21, 22]),
+        ]);
         let agents = vec![
             AgentInfo {
                 surface: 11,
@@ -987,9 +984,9 @@ mod tests {
     #[test]
     fn workspace_scope_keeps_the_selected_workspace_filter() {
         let tree = tree_from_workspaces(vec![
-                workspace(1, "alpha", 10, [11, 12]),
-                workspace(2, "beta", 20, [21, 22]),
-            ]);
+            workspace(1, "alpha", 10, [11, 12]),
+            workspace(2, "beta", 20, [21, 22]),
+        ]);
         let agents = vec![
             AgentInfo {
                 surface: 11,
@@ -1064,9 +1061,9 @@ mod tests {
     #[test]
     fn agents_view_priority_ranks_blocked_unseen_working_seen_with_recency_ties() {
         let tree = tree_from_workspaces(vec![
-                workspace(1, "alpha", 10, [11, 12]),
-                workspace(2, "beta", 20, [21, 22]),
-            ]);
+            workspace(1, "alpha", 10, [11, 12]),
+            workspace(2, "beta", 20, [21, 22]),
+        ]);
         let agent = |surface: SurfaceId, state: &str, updated_at_ms: u64| AgentInfo {
             surface,
             state: state.into(),
@@ -1115,9 +1112,9 @@ mod tests {
     #[test]
     fn selection_reconciles_by_surface_when_agent_recency_reorders_rows() {
         let tree = tree_from_workspaces(vec![
-                workspace(1, "alpha", 10, [11, 12]),
-                workspace(2, "beta", 20, [21, 22]),
-            ]);
+            workspace(1, "alpha", 10, [11, 12]),
+            workspace(2, "beta", 20, [21, 22]),
+        ]);
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         let initial_agents = vec![

@@ -497,7 +497,8 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             Hit::SidebarAction { view: view_index, action: action.target },
         ));
     }
-    app.hits.push((rail::row(rail_area, rail_area.y), Hit::RailPad(RailKind::Projection(view_index))));
+    app.hits
+        .push((rail::row(rail_area, rail_area.y), Hit::RailPad(RailKind::Projection(view_index))));
     app.hits.push((rail::divider(rail_area), Hit::RailResize(RailKind::Projection(view_index))));
 }
 
