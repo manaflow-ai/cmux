@@ -229,6 +229,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// reader. Remote generations are opaque, so a response from an older
     /// request must not replace a generation installed later in the same turn.
     private var cloudStateInstallVersion: UInt64 = 0
+    /// Generations accepted by this provider instance. Generation identifiers
+    /// are opaque, but a repeated identifier after a reconnect is still proof
+    /// that a response came from an older link. Keeping this set prevents a
+    /// delayed old snapshot from time-travelling the canonical graph.
+    private var acceptedCloudGenerations: Set<String> = []
     /// A failed event feed is a transport warning, separate from the freshness of the last
     /// accepted snapshot. Agents can read the exact graph and the warning in one export.
     private var eventsFeedWarning: String?
@@ -282,6 +287,21 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let tabID: String?
     }
     private var pendingRemoteCreations: [SurfaceResourceID: PendingRemoteCreation] = [:]
+    /// Rename receipts are transient read-your-write fences. They are keyed by
+    /// daemon identity, not by a local title or projection, because one remote
+    /// tab can be shown in several windows. The canonical graph remains the
+    /// only source of remote values.
+    private enum PendingRemoteRenameKey: Hashable {
+        case workspace(String)
+        case tab(String)
+    }
+
+    private struct PendingRemoteRename {
+        var name: String
+        var receipt: CloudVMCursor
+    }
+
+    private var pendingRemoteRenames: [PendingRemoteRenameKey: PendingRemoteRename] = [:]
 
     init(
         summary: VMSummary,
@@ -354,6 +374,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         for task in remoteTerminalProjectionTasks.values { task.cancel() }
         remoteTerminalProjectionTasks.removeAll()
         pendingRemoteCreations.removeAll()
+        pendingRemoteRenames.removeAll()
+        acceptedCloudGenerations.removeAll()
     }
 
     /// Whether this provider is still registered for its machine. Suspended
@@ -484,7 +506,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // that a malformed or misconfigured daemon returned the same graph.
             // A newer event can also win the race while this snapshot is in
             // flight; the final install-version check below covers that case.
-            snapshotEstablishedCurrentGraph = installed || cloudState == incoming
+            snapshotEstablishedCurrentGraph = installed
             // Derive compatibility maps from the graph that won the install race.
             // The event reader may have advanced it while this snapshot was in flight.
             let authoritative = cloudState?.snapshotObject() ?? object
@@ -613,6 +635,25 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     @discardableResult
     private func installSnapshotIfNewer(_ incoming: CloudVMState, requestVersion: UInt64? = nil) -> Bool {
+        guard acceptsIncomingGeneration(incoming.cursor) else {
+            #if DEBUG
+            cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=old-generation")
+            #endif
+            return false
+        }
+        // A snapshot with the exact installed cursor is a valid no-op only when
+        // its graph and every pending receipt agree. This is important after a
+        // rename: a delayed equal-cursor predecessor must not look current.
+        if let current = cloudState, current.cursor == incoming.cursor {
+            guard current == incoming, incomingPassesPendingRenameFence(incoming) else {
+                #if DEBUG
+                cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=equal-cursor-conflict")
+                #endif
+                return false
+            }
+            retirePendingRemoteRenames(observed: incoming)
+            return true
+        }
         switch CloudVMStateSyncDecision.forSnapshot(
             incoming: incoming.cursor,
             current: cloudState?.cursor
@@ -625,14 +666,99 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                let incomingCursor = incoming.cursor,
                currentCursor.generation != incomingCursor.generation,
                let requestVersion,
-               requestVersion != cloudStateInstallVersion {
+                requestVersion != cloudStateInstallVersion {
+                return false
+            }
+            guard incomingPassesPendingRenameFence(incoming) else {
+                #if DEBUG
+                cmuxDebugLog("cloud.state.snapshotIgnored machine=\(machineID) reason=pending-rename-fence")
+                #endif
                 return false
             }
             cloudState = incoming
             cloudStateInstallVersion &+= 1
+            if let generation = incoming.cursor?.generation {
+                acceptedCloudGenerations.insert(generation)
+            }
+            retirePendingRemoteRenames(observed: incoming)
             return true
         case .fetchSnapshot:
             return false
+        }
+    }
+
+    /// A daemon generation is opaque, but this provider remembers every
+    /// generation accepted by the current link lifetime. A response carrying a
+    /// previously seen generation after another generation was accepted is an
+    /// old-link response and cannot replace the graph.
+    private func acceptsIncomingGeneration(_ cursor: CloudVMCursor?) -> Bool {
+        guard let cursor else { return true }
+        switch CloudVMGenerationAcceptanceDecision.resolve(
+            incoming: cursor.generation,
+            current: cloudState?.cursor?.generation,
+            accepted: acceptedCloudGenerations
+        ) {
+        case .accept: return true
+        case .rejectStale: return false
+        }
+    }
+
+    /// Checks all in-flight rename receipts before a graph becomes visible.
+    /// Rejecting the whole graph keeps unrelated rows from being published with
+    /// a target row known to be stale at the same cursor.
+    private func incomingPassesPendingRenameFence(_ incoming: CloudVMState) -> Bool {
+        for (key, pending) in pendingRemoteRenames {
+            let targetMatches: Bool
+            switch key {
+            case .workspace(let id):
+                targetMatches = incoming.lookupIndex.workspace(id: id)?.name == pending.name
+            case .tab(let id):
+                targetMatches = (incoming.lookupIndex.tab(id: id)?.name ?? "") == pending.name
+            }
+            switch CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: pending.receipt,
+                incoming: incoming.cursor,
+                targetMatches: targetMatches
+            ) {
+            case .accept:
+                continue
+            case .rejectStale, .rejectConflict:
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Retires receipts only after an accepted graph proves that the daemon has
+    /// reached them. A later same-generation cursor belongs to the canonical
+    /// remote writer, even if it changed the requested name again.
+    private func retirePendingRemoteRenames(observed state: CloudVMState) {
+        guard let cursor = state.cursor else { return }
+        var completed: [PendingRemoteRenameKey] = []
+        for (key, pending) in pendingRemoteRenames {
+            let shouldRetire: Bool
+            if cursor.generation != pending.receipt.generation {
+                // `acceptsIncomingGeneration` already rejected known old
+                // generations, so a different accepted generation is current.
+                shouldRetire = true
+            } else if cursor.revision > pending.receipt.revision {
+                shouldRetire = true
+            } else if cursor.revision == pending.receipt.revision {
+                switch key {
+                case .workspace(let id):
+                    shouldRetire = state.lookupIndex.workspace(id: id)?.name == pending.name
+                case .tab(let id):
+                    shouldRetire = (state.lookupIndex.tab(id: id)?.name ?? "") == pending.name
+                }
+            } else {
+                shouldRetire = false
+            }
+            if shouldRetire {
+                completed.append(key)
+            }
+        }
+        for key in completed {
+            pendingRemoteRenames.removeValue(forKey: key)
         }
     }
 
@@ -814,16 +940,46 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     private func pendingMutationMetadata() -> [CloudVMPendingMutation] {
-        pendingRemoteCreations
-            .map { resourceID, pending in
-                CloudVMPendingMutation(
-                    kind: .terminalCreate,
-                    resource: resourceID,
-                    remoteTabID: pending.tabID,
+        var writes = pendingRemoteCreations.map { resourceID, pending in
+            CloudVMPendingMutation(
+                kind: .terminalCreate,
+                resource: resourceID,
+                remoteWorkspaceID: pending.resource.remoteWorkspace?.id,
+                remoteTabID: pending.tabID,
+                name: pending.resource.remoteViews?.first?.name,
+                receipt: pending.receipt
+            )
+        }
+        writes.append(contentsOf: pendingRemoteRenames.map { key, pending in
+            switch key {
+            case .workspace(let id):
+                return CloudVMPendingMutation(
+                    kind: .workspaceRename,
+                    resource: nil,
+                    remoteWorkspaceID: id,
+                    remoteTabID: nil,
+                    name: pending.name,
+                    receipt: pending.receipt
+                )
+            case .tab(let id):
+                return CloudVMPendingMutation(
+                    kind: .tabRename,
+                    resource: nil,
+                    remoteWorkspaceID: nil,
+                    remoteTabID: id,
+                    name: pending.name,
                     receipt: pending.receipt
                 )
             }
-            .sorted { $0.resource.rawValue < $1.resource.rawValue }
+        })
+        return writes.sorted { left, right in
+            if left.kind.rawValue != right.kind.rawValue {
+                return left.kind.rawValue < right.kind.rawValue
+            }
+            let leftID = left.resource?.rawValue ?? left.remoteWorkspaceID ?? left.remoteTabID ?? ""
+            let rightID = right.resource?.rawValue ?? right.remoteWorkspaceID ?? right.remoteTabID ?? ""
+            return leftID < rightID
+        }
     }
 
     private func observationWithPendingWrites(
@@ -833,6 +989,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let pending = pendingMutationMetadata()
         observation.pendingWrites = pending.isEmpty ? nil : pending
         return observation
+    }
+
+    private func publishPendingMutationMetadata() {
+        catalog.updateCloudPendingWrites(
+            on: machine,
+            writes: pendingMutationMetadata(),
+            from: self
+        )
     }
 
     private func pendingCreation(for resourceID: SurfaceResourceID) -> PendingRemoteCreation? {
@@ -860,6 +1024,35 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             }
             pendingRemoteCreations[resourceID] = pending
         }
+        publishPendingMutationMetadata()
+    }
+
+    private func recordPendingRemoteRename(
+        workspaceID: String,
+        name: String,
+        receipt: CloudVMCursor
+    ) {
+        pendingRemoteRenames[.workspace(workspaceID)] = PendingRemoteRename(
+            name: name,
+            receipt: receipt
+        )
+        publishPendingMutationMetadata()
+    }
+
+    private func recordPendingRemoteRename(
+        tabID: String,
+        name: String,
+        receipt: CloudVMCursor
+    ) {
+        pendingRemoteRenames[.tab(tabID)] = PendingRemoteRename(
+            name: name,
+            receipt: receipt
+        )
+        publishPendingMutationMetadata()
+    }
+
+    private func pendingRemoteRename(for key: PendingRemoteRenameKey) -> PendingRemoteRename? {
+        pendingRemoteRenames[key]
     }
 
     /// Builds forwarded-port rows with the same direct private route used by
@@ -1153,6 +1346,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             tabID: created.tabID
         )
         catalog.upsert(resource, from: self)
+        publishPendingMutationMetadata()
         scheduleRefresh()
         return resource
     }
@@ -1204,12 +1398,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         try Task.checkCancellation()
         do {
-            _ = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(
+            let receipt = try await sendRenameWorkspace(
+                link: link,
                 socketPath: connected.socketPath,
                 workspaceID: id,
                 name: normalizedName,
                 expectedRevision: observedCursor.revision
-            ))
+            )
+            recordPendingRemoteRename(workspaceID: id, name: normalizedName, receipt: try validatedReceipt(receipt, against: observedCursor))
         } catch {
             // A revision can advance for an unrelated event. Retry once only
             // when this workspace still has the name we observed. If another
@@ -1222,12 +1418,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                   current.name == previous.name else { throw error }
             let retryConnected = try await links.connected(machineID: machineID)
             guard let retryLink = await links.link(machineID: machineID) else { throw error }
-            _ = try await retryLink.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(
+            let retryReceipt = try await sendRenameWorkspace(
+                link: retryLink,
                 socketPath: retryConnected.socketPath,
                 workspaceID: id,
                 name: normalizedName,
                 expectedRevision: latestCursor.revision
-            ))
+            )
+            recordPendingRemoteRename(workspaceID: id, name: normalizedName, receipt: try validatedReceipt(retryReceipt, against: latestCursor))
         }
         // The command response is not the source of truth. Wait for the next
         // accepted snapshot/event so every local projection sees the same name.
@@ -1246,16 +1444,24 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // trails it. The receipt's revision is a CAS fence, not a timing guess.
         let refreshEstablishedCurrentGraph = await refresh(force: true)
         try Task.checkCancellation()
-        let pending = pendingCreation(forTabID: id)
+        let pendingCreation = pendingCreation(forTabID: id)
+        let pendingRename = pendingRemoteRename(for: .tab(id))
         let observed = cloudState
         let previous = observed?.tabs.first(where: { $0.id == id })
         let observedCursor = observed?.cursor
+        let pendingReceipt = [pendingCreation?.receipt, pendingRename?.receipt]
+            .compactMap { $0 }
+            .filter { receipt in
+                guard let observedCursor else { return true }
+                return receipt.generation == observedCursor.generation
+            }
+            .max { $0.revision < $1.revision }
         let authority = CloudVMRemoteMutationAuthority.resolve(
             refreshEstablishedCurrentGraph: refreshEstablishedCurrentGraph,
             hasAcceptedState: observed != nil,
             targetVisible: previous != nil,
             hasVersionedCursor: observedCursor != nil,
-            hasPendingReceipt: pending?.tabID == id && pending?.receipt != nil
+            hasPendingReceipt: pendingReceipt != nil
         )
         switch authority {
         case .currentGraph:
@@ -1263,12 +1469,14 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 throw ProviderError.stateUnavailable(machineID)
             }
             do {
-                let commitRevision = try await sendRenameTab(
+                let receipt = try await sendRenameTab(
                     id: id,
                     name: normalizedName,
                     expectedRevision: observedCursor.revision
                 )
-                recordPendingRename(tabID: id, name: normalizedName, revision: commitRevision)
+                let validated = try validatedReceipt(receipt, against: observedCursor)
+                recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
+                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
             } catch {
                 guard Self.isRevisionConflict(error),
                       await refresh(force: true),
@@ -1276,23 +1484,27 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                       let current = latest.tabs.first(where: { $0.id == id }),
                       let latestCursor = latest.cursor,
                       (current.name ?? "") == (previous.name ?? "") else { throw error }
-                let commitRevision = try await sendRenameTab(
+                let receipt = try await sendRenameTab(
                     id: id,
                     name: normalizedName,
                     expectedRevision: latestCursor.revision
                 )
-                recordPendingRename(tabID: id, name: normalizedName, revision: commitRevision)
+                let validated = try validatedReceipt(receipt, against: latestCursor)
+                recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
+                recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
             }
         case .pendingReceipt:
-            guard let pending, pending.tabID == id, let receipt = pending.receipt else {
+            guard let receipt = pendingReceipt else {
                 throw ProviderError.stateUnavailable(machineID)
             }
-            let commitRevision = try await sendRenameTab(
+            let committed = try await sendRenameTab(
                 id: id,
                 name: normalizedName,
                 expectedRevision: receipt.revision
             )
-            recordPendingRename(tabID: id, name: normalizedName, revision: commitRevision)
+            let validated = try validatedReceipt(committed, against: receipt)
+            recordPendingRemoteRename(tabID: id, name: normalizedName, receipt: validated)
+            recordPendingRename(tabID: id, name: normalizedName, revision: validated.revision)
         case .snapshotOnly:
             throw ProviderError.snapshotOnly(machineID)
         case .unavailable:
@@ -1375,28 +1587,23 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         let pendingTargets = targets.filter { $0.previousName != normalizedName }
         if pendingTargets.isEmpty { return }
 
-        var lastCommitRevision = observedCursor.revision
-        var renamedTabs: [(tabID: String, previousName: String, commitRevision: UInt64)] = []
+        var lastCommitCursor = observedCursor
+        var renamedTabs: [(tabID: String, previousName: String, commitCursor: CloudVMCursor)] = []
         var mutationOutcomeUncertain = false
         do {
             for target in pendingTargets {
                 try Task.checkCancellation()
                 do {
-                    let commitRevision = try await sendRenameTab(
+                    let receipt = try await sendRenameTab(
                         id: target.tabID,
                         name: normalizedName,
-                        expectedRevision: lastCommitRevision
+                        expectedRevision: lastCommitCursor.revision
                     )
-                    guard commitRevision >= lastCommitRevision else {
-                        mutationOutcomeUncertain = true
-                        throw RemoteRenameError.nonMonotonicRevision(
-                            expectedAtLeast: lastCommitRevision,
-                            received: commitRevision
-                        )
-                    }
-                    renamedTabs.append((target.tabID, target.previousName, commitRevision))
-                    lastCommitRevision = commitRevision
-                    recordPendingRename(tabID: target.tabID, name: normalizedName, revision: commitRevision)
+                    let validated = try validatedReceipt(receipt, against: lastCommitCursor)
+                    renamedTabs.append((target.tabID, target.previousName, validated))
+                    lastCommitCursor = validated
+                    recordPendingRemoteRename(tabID: target.tabID, name: normalizedName, receipt: validated)
+                    recordPendingRename(tabID: target.tabID, name: normalizedName, revision: validated.revision)
                 } catch {
                     // A revision conflict is a known refusal before this step
                     // commits. Transport or malformed-response errors are
@@ -1417,25 +1624,23 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                let latest = cloudState,
                let latestCursor = latest.cursor,
                latestCursor.generation == observedCursor.generation,
-               latestCursor.revision == lastCommitRevision,
+               latestCursor == lastCommitCursor,
                renamedTabs.allSatisfy({ entry in
                    latest.lookupIndex.tab(id: entry.tabID)?.name == normalizedName
                }) {
                 compensated = true
-                var compensationRevision = latestCursor.revision
+                var compensationCursor = latestCursor
                 for entry in renamedTabs.reversed() {
                     do {
-                        let revision = try await sendRenameTab(
+                        let receipt = try await sendRenameTab(
                             id: entry.tabID,
                             name: entry.previousName,
-                            expectedRevision: compensationRevision
+                            expectedRevision: compensationCursor.revision
                         )
-                        guard revision >= compensationRevision else {
-                            compensated = false
-                            break
-                        }
-                        compensationRevision = revision
-                        recordPendingRename(tabID: entry.tabID, name: entry.previousName, revision: revision)
+                        let validated = try validatedReceipt(receipt, against: compensationCursor)
+                        compensationCursor = validated
+                        recordPendingRemoteRename(tabID: entry.tabID, name: entry.previousName, receipt: validated)
+                        recordPendingRename(tabID: entry.tabID, name: entry.previousName, revision: validated.revision)
                     } catch {
                         compensated = false
                         break
@@ -1456,7 +1661,26 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     }
 
     @discardableResult
-    private func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> UInt64 {
+    private func sendRenameWorkspace(
+        link: CloudMachineLink,
+        socketPath: String,
+        workspaceID: String,
+        name: String,
+        expectedRevision: UInt64?
+    ) async throws -> CloudVMCursor? {
+        let data = try await link.run(arguments: CloudTuiCommandLine.renameWorkspaceArguments(
+            socketPath: socketPath,
+            workspaceID: workspaceID,
+            name: name,
+            expectedRevision: expectedRevision
+        ))
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw RemoteRenameError.invalidResponse
+        }
+        return CmuxTuiSnapshotParser.mutationCursor(fromResult: object)
+    }
+
+    private func sendRenameTab(id: String, name: String, expectedRevision: UInt64? = nil) async throws -> CloudVMCursor {
         let connected = try await links.connected(machineID: machineID)
         guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
         let data = try await link.run(arguments: CloudTuiCommandLine.renameTabArguments(
@@ -1465,21 +1689,43 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             name: name,
             expectedRevision: expectedRevision
         ))
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let revision = CloudWireNumber.unsigned(object["revision"]) else {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw RemoteRenameError.invalidResponse
         }
-        return revision
+        guard let receipt = CmuxTuiSnapshotParser.mutationCursor(fromResult: object) else {
+            throw RemoteRenameError.invalidResponse
+        }
+        return receipt
+    }
+
+    private func validatedReceipt(
+        _ receipt: CloudVMCursor?,
+        against expected: CloudVMCursor
+    ) throws -> CloudVMCursor {
+        guard let receipt else { throw RemoteRenameError.invalidResponse }
+        guard receipt.generation == expected.generation else {
+            throw RemoteRenameError.generationChanged(expected: expected.generation, received: receipt.generation)
+        }
+        guard receipt.revision > expected.revision else {
+            throw RemoteRenameError.nonMonotonicRevision(
+                expectedAtLeast: expected.revision == UInt64.max ? UInt64.max : expected.revision + 1,
+                received: receipt.revision
+            )
+        }
+        return receipt
     }
 
     private enum RemoteRenameError: Error, LocalizedError {
         case invalidResponse
+        case generationChanged(expected: String, received: String)
         case nonMonotonicRevision(expectedAtLeast: UInt64, received: UInt64)
 
         var errorDescription: String? {
             switch self {
             case .invalidResponse:
                 return String(localized: "cloudTree.error.renameTerminalResponse", defaultValue: "The remote rename response was invalid. Refresh and retry.")
+            case .generationChanged:
+                return String(localized: "cloudTree.error.renameTerminalGeneration", defaultValue: "The remote rename came from a different VM session. Refresh and retry.")
             case .nonMonotonicRevision(let expected, let received):
                 return String(format: String(localized: "cloudTree.error.renameTerminalRevision", defaultValue: "The remote rename returned revision %2$llu after revision %1$llu. Refresh and retry."), expected, received)
             }
@@ -1737,8 +1983,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     return
                 }
                 let next = application.state
+                guard acceptsIncomingGeneration(next.cursor),
+                      incomingPassesPendingRenameFence(next) else {
+                    // A contiguous delta that still precedes or contradicts a
+                    // mutation receipt is a synchronization barrier. Keep the
+                    // last accepted graph and ask for one complete snapshot.
+                    scheduleStateRecoveryRefresh()
+                    return
+                }
                 cloudState = next
                 cloudStateInstallVersion &+= 1
+                acceptedCloudGenerations.insert(cursor.generation)
+                retirePendingRemoteRenames(observed: next)
                 eventsFeedWarning = nil
                 clearStateRecovery()
                 await link.setEventsCursor(next.cursor)

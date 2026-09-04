@@ -1011,8 +1011,10 @@ extension TerminalController {
         let pendingWrites: [[String: Any]] = (observation.pendingWrites ?? []).map { pending in
             [
                 "kind": pending.kind.rawValue,
-                "resource": pending.resource.rawValue,
+                "resource": pending.resource?.rawValue ?? NSNull(),
+                "remote_workspace_id": pending.remoteWorkspaceID ?? NSNull(),
                 "remote_tab_id": pending.remoteTabID ?? NSNull(),
+                "name": pending.name ?? NSNull(),
                 "receipt": pending.receipt.map {
                     ["generation": $0.generation, "revision": String($0.revision)] as [String: Any]
                 } ?? NSNull(),

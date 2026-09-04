@@ -62350,6 +62350,23 @@
         }
       }
     },
+    "cloudTree.error.renameTerminalGeneration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The remote rename came from a different VM session. Refresh and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモート名称変更が別の VM セッションから返されました。更新して再試行してください。"
+          }
+        }
+      }
+    },
     "cloudTree.error.renameTerminalRevision": {
       "extractionState": "manual",
       "localizations": {

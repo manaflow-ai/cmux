@@ -488,6 +488,24 @@ final class SurfaceCatalog {
         notifyChange()
     }
 
+    /// Updates only transient mutation metadata for an already accepted cloud
+    /// graph. The daemon document and derived rows remain unchanged. This lets
+    /// an agent see a committed write receipt during the refresh that will
+    /// confirm it, without treating the receipt as remote state.
+    func updateCloudPendingWrites(
+        on machine: SurfaceMachineID,
+        writes: [CloudVMPendingMutation],
+        from source: (any SurfaceProvider)? = nil
+    ) {
+        guard accepts(writeFor: machine, from: source), cloudStates[machine] != nil else { return }
+        var observation = cloudStateObservations[machine] ?? .current
+        let pending = writes.isEmpty ? nil : writes
+        guard observation.pendingWrites != pending else { return }
+        observation.pendingWrites = pending
+        cloudStateObservations[machine] = observation
+        notifyChange()
+    }
+
     /// Installs one complete cloud graph and all of its derived resource rows as
     /// one catalog transaction. Equal rows are retained, so observers can never
     /// see a new cursor paired with resource rows from the previous revision and

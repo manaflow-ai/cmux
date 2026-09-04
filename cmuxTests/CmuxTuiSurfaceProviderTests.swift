@@ -781,6 +781,22 @@ import Testing
         #expect(created?.cursor == CloudVMCursor(generation: "g1", revision: 42))
         #expect(CmuxTuiSnapshotParser.mutationCursor(fromResult: ["generation": "g1", "revision": true]) == nil)
         #expect(CmuxTuiSnapshotParser.mutationCursor(fromResult: ["terminal_id": "term_bare"]) == nil)
+        #expect(
+            CmuxTuiSnapshotParser.mutationCursor(
+                fromResult: ["result": ["value": [:], "generation": "g2", "revision": "7"]]
+            ) == CloudVMCursor(generation: "g2", revision: 7)
+        )
+        #expect(
+            CmuxTuiSnapshotParser.mutationCursor(
+                fromResult: ["cursor": ["generation": "g3", "revision": "8"]]
+            ) == CloudVMCursor(generation: "g3", revision: 8)
+        )
+        #expect(
+            CmuxTuiSnapshotParser.mutationCursor(
+                fromResult: ["revision": "9"],
+                fallbackGeneration: "g4"
+            ) == CloudVMCursor(generation: "g4", revision: 9)
+        )
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["terminal_id": "term_bare"])?.terminalID == "term_bare")
         #expect(CmuxTuiSnapshotParser.createdTerminal(fromRunResult: ["value": ["kind": "terminal"]]) == nil)
         #expect(CmuxTuiSnapshotParser.createdWorkspace(fromResult: ["value": ["workspace_id": "ws_9"]]) == "ws_9")
@@ -1439,6 +1455,77 @@ import Testing
                 hasVersionedCursor: true,
                 hasPendingReceipt: false
             ) == .targetMissing
+        )
+    }
+
+    @Test func remoteMutationReceiptsFenceDelayedGraphs() {
+        let receipt = CloudVMCursor(generation: "daemon-a", revision: 8)
+        #expect(
+            CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: receipt,
+                incoming: CloudVMCursor(generation: "daemon-a", revision: 7),
+                targetMatches: false
+            ) == .rejectStale
+        )
+        #expect(
+            CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: receipt,
+                incoming: CloudVMCursor(generation: "daemon-a", revision: 8),
+                targetMatches: false
+            ) == .rejectConflict
+        )
+        #expect(
+            CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: receipt,
+                incoming: CloudVMCursor(generation: "daemon-a", revision: 8),
+                targetMatches: true
+            ) == .accept
+        )
+        #expect(
+            CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: receipt,
+                incoming: CloudVMCursor(generation: "daemon-a", revision: 9),
+                targetMatches: false
+            ) == .accept
+        )
+        #expect(
+            CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: receipt,
+                incoming: nil,
+                targetMatches: true
+            ) == .rejectStale
+        )
+        #expect(
+            CloudVMRemoteMutationReceiptDecision.resolve(
+                receipt: receipt,
+                incoming: CloudVMCursor(generation: "daemon-b", revision: 1),
+                targetMatches: false
+            ) == .accept
+        )
+    }
+
+    @Test func repeatedDaemonGenerationIsRecognizedAsAnOldLink() {
+        let accepted = Set(["daemon-a", "daemon-b"])
+        #expect(
+            CloudVMGenerationAcceptanceDecision.resolve(
+                incoming: "daemon-a",
+                current: "daemon-b",
+                accepted: accepted
+            ) == .rejectStale
+        )
+        #expect(
+            CloudVMGenerationAcceptanceDecision.resolve(
+                incoming: "daemon-c",
+                current: "daemon-b",
+                accepted: accepted
+            ) == .accept
+        )
+        #expect(
+            CloudVMGenerationAcceptanceDecision.resolve(
+                incoming: "daemon-b",
+                current: "daemon-b",
+                accepted: accepted
+            ) == .accept
         )
     }
 

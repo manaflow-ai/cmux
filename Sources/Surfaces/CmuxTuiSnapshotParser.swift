@@ -1561,12 +1561,36 @@ struct CmuxTuiSnapshotParser: Sendable {
         )
     }
 
-    /// The v2 mutation envelope puts the commit cursor beside `value`.
-    /// Missing fields remain a compatibility path for older clients; a partial
-    /// or malformed envelope is never converted into a made-up cursor.
-    static func mutationCursor(fromResult result: [String: Any]) -> CloudVMCursor? {
-        guard result["generation"] != nil || result["revision"] != nil else { return nil }
-        return CloudVMCursor(wire: result)
+    /// Reads the commit cursor from the mutation envelope. Current clients get
+    /// `{value, generation, revision}`, while transport adapters may wrap that
+    /// object in `result` or put the cursor under `cursor`. Accept those
+    /// equivalent shapes, but never invent a generation or revision from a
+    /// partial response.
+    static func mutationCursor(
+        fromResult result: [String: Any],
+        fallbackGeneration: String? = nil
+    ) -> CloudVMCursor? {
+        var candidates: [[String: Any]] = [result]
+        if let nested = result["result"] as? [String: Any] { candidates.append(nested) }
+        if let nested = result["value"] as? [String: Any] { candidates.append(nested) }
+        if let nested = (result["result"] as? [String: Any])?["value"] as? [String: Any] {
+            candidates.append(nested)
+        }
+        for candidate in candidates {
+            if let cursor = candidate["cursor"] as? [String: Any],
+               let parsed = CloudVMCursor(wire: cursor) {
+                return parsed
+            }
+            guard let revision = CloudWireNumber.unsigned(candidate["revision"]),
+                  let generation = (candidate["generation"] as? String)
+                    .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+                    .flatMap({ $0.isEmpty ? nil : $0 })
+                    ?? fallbackGeneration else {
+                continue
+            }
+            return CloudVMCursor(generation: generation, revision: revision)
+        }
+        return nil
     }
 
     /// The workspace a `workspace create` mutation created.

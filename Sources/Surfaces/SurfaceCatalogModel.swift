@@ -1256,6 +1256,52 @@ struct CloudVMStateObservation: Hashable, Codable, Sendable {
     }
 }
 
+/// Decides whether a complete graph is allowed to cross a pending remote
+/// mutation receipt. A receipt carries a daemon generation and revision, so a
+/// same-generation graph before the receipt is stale. At the exact receipt
+/// cursor, the named value must match. A later cursor is authoritative even
+/// when another writer changed the value after our mutation.
+enum CloudVMRemoteMutationReceiptDecision: Equatable, Sendable {
+    case accept
+    case rejectStale
+    case rejectConflict
+
+    static func resolve(
+        receipt: CloudVMCursor,
+        incoming: CloudVMCursor?,
+        targetMatches: Bool
+    ) -> Self {
+        guard let incoming else { return .rejectStale }
+        guard incoming.generation == receipt.generation else {
+            // Generations are opaque. The caller must separately reject a
+            // generation already known to be from an older link; an unseen
+            // generation is a new daemon lineage and retires this receipt.
+            return .accept
+        }
+        if incoming.revision < receipt.revision { return .rejectStale }
+        if incoming.revision == receipt.revision, !targetMatches {
+            return .rejectConflict
+        }
+        return .accept
+    }
+}
+
+/// Decides whether a cursor belongs to a generation that this provider may
+/// still install. A generation is opaque, so the only safe old-link signal is
+/// that the same identifier was already accepted before another generation.
+enum CloudVMGenerationAcceptanceDecision: Equatable, Sendable {
+    case accept
+    case rejectStale
+
+    static func resolve(
+        incoming: String,
+        current: String?,
+        accepted: Set<String>
+    ) -> Self {
+        accepted.contains(incoming) && current != incoming ? .rejectStale : .accept
+    }
+}
+
 /// Authority available for a remote rename after one forced refresh. A stale
 /// graph is useful for display and export, but it never authorizes a mutation.
 /// A pending creation receipt is valid only when that same refresh established
@@ -1297,11 +1343,17 @@ enum CloudVMRemoteMutationAuthority: Equatable, Sendable {
 struct CloudVMPendingMutation: Hashable, Codable, Sendable {
     enum Kind: String, Codable, Sendable {
         case terminalCreate = "terminal_create"
+        case workspaceRename = "workspace_rename"
+        case tabRename = "tab_rename"
     }
 
     var kind: Kind
-    var resource: SurfaceResourceID
+    /// A terminal creation has a resource id. Rename receipts use the stable
+    /// daemon id fields below instead, so this is optional by design.
+    var resource: SurfaceResourceID?
+    var remoteWorkspaceID: String?
     var remoteTabID: String?
+    var name: String?
     var receipt: CloudVMCursor?
 }
 
