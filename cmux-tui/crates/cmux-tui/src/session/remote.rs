@@ -5349,9 +5349,13 @@ mod tests {
 
         assert_eq!(error.kind(), io::ErrorKind::Other);
         assert_eq!(fs::read(&final_path).unwrap(), b"previous");
-        assert!(fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(|entry| {
-            entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
-        }));
+        assert!(
+            fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(
+                |entry| {
+                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+                }
+            )
+        );
     }
 
     #[cfg(unix)]
@@ -5405,9 +5409,13 @@ mod tests {
 
         assert!(matches!(error.raw_os_error(), Some(libc::EISDIR) | Some(libc::ENOTEMPTY)));
         assert!(final_path.is_dir());
-        assert!(fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(|entry| {
-            entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
-        }));
+        assert!(
+            fs::read_dir(dump_path.join(".cmux-dump-files")).unwrap().filter_map(Result::ok).all(
+                |entry| {
+                    entry.file_name() == "mirror.txt" || entry.file_name() == ".cmux-dump-tmp"
+                }
+            )
+        );
     }
 
     #[test]
