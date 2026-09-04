@@ -9,7 +9,10 @@ import {
   parseClaudeUpstreamInput,
   removeAllClaudeAccounts,
 } from "../../../../services/coderouter/claudeUpstream";
-import { probeClaudeCredential } from "../../../../services/coderouter/claudeCredentialProbe";
+import {
+  CREDENTIAL_REJECTED_MESSAGE,
+  probeClaudeCredential,
+} from "../../../../services/coderouter/claudeCredentialProbe";
 import {
   resolveCoderouterUsageTeam,
   resolveCodeRouterRequestContext,
@@ -88,7 +91,7 @@ export function makeClaudeUpstreamHandlers(
         return Response.json(
           {
             error: "credential_rejected",
-            message: `The upstream rejected this credential (HTTP ${probe.status}): ${probe.message}. Nothing was stored.`,
+            message: `${CREDENTIAL_REJECTED_MESSAGE} Nothing was stored.`,
             upstreamStatus: probe.status,
             retryable: false,
           },

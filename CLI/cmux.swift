@@ -5024,7 +5024,7 @@ struct CMUXCLI {
         )
     }
 
-    func run() throws {
+    func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
         var explicitSocketPath: String? = nil
@@ -6567,7 +6567,7 @@ struct CMUXCLI {
             try runAIAccountsCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "coderouter":
-            try runCoderouterCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+            try await runCoderouterCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
 
         case "mobile":
             let sub = commandArgs.first?.lowercased()
@@ -41264,7 +41264,7 @@ private enum CMUXCLIOutput {
 
 @main
 struct CMUXTermMain {
-    static func main() {
+    static func main() async {
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
@@ -41273,7 +41273,7 @@ struct CMUXTermMain {
             initialSIGPIPEInspectionPayload: initialSIGPIPEInspectionPayload
         )
         do {
-            try cli.run()
+            try await cli.run()
         } catch {
             if !cli.shouldSuppressSSHPTYAttachRetryError(error) {
                 CMUXCLIOutput.writeStandardError("Error: \(error)\n")

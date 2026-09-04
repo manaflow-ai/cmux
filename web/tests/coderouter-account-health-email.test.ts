@@ -30,6 +30,7 @@ function harness(input: {
   subscriptions?: BrokenAccountNotice[];
   recipients?: (notice: BrokenAccountNotice) => readonly { email: string; name: string | null }[];
   failSendTo?: string;
+  onRecipients?: () => void;
 }) {
   const sent: AccountHealthEmail[] = [];
   const notified: { ids: string[]; at: Date }[] = [];
@@ -39,7 +40,10 @@ function harness(input: {
     markNotified: async (notices, at) => {
       notified.push({ ids: notices.map((n) => n.accountId), at });
     },
-    recipients: async (n) => input.recipients?.(n) ?? [{ email: "owner@example.com", name: "Lawrence Chen" }],
+    recipients: async (n) => {
+      input.onRecipients?.();
+      return input.recipients?.(n) ?? [{ email: "owner@example.com", name: "Lawrence Chen" }];
+    },
     teamName: async () => "manaflow",
     send: async (email) => {
       if (input.failSendTo && email.to === input.failSendTo) throw new Error("resend down");
@@ -52,8 +56,8 @@ function harness(input: {
 }
 
 describe("account health email copy", () => {
-  test("says what broke, why, and exactly how to fix it, once", () => {
-    const email = buildAccountHealthEmail({
+  test("says what broke, why, and exactly how to fix it, once", async () => {
+    const email = await buildAccountHealthEmail({
       from: "coderouter@cmux.com",
       recipient: { email: "owner@example.com", name: "Lawrence Chen" },
       notices: [
@@ -66,6 +70,7 @@ describe("account health email copy", () => {
     expect(email.from).toBe("cmux coderouter <coderouter@cmux.com>");
     expect(email.to).toBe("owner@example.com");
     expect(email.replyTo).toBe("support@cmux.com");
+    expect(email.idempotencyKey).toMatch(/^coderouter-account-health-[a-f0-9]{64}$/);
     expect(email.text).toContain("Hi Lawrence,");
     // What and why, per account.
     expect(email.text).toContain("Claude Code token sk-ant-oat01-...HIJ (work) in manaflow, id 11111111");
@@ -90,11 +95,11 @@ describe("account health email copy", () => {
     expect(noticeSection(notice({ label: "with space" }), null).fix[1]).toBe("cmux coderouter accounts add claude --label 'with space'");
   });
 
-  test("uses a singular subject for one account and counts teams when several are involved", () => {
-    const one = buildAccountHealthEmail({ from: "f@cmux.com", recipient: { email: "a@b.c", name: null }, notices: [notice()], teamNames: new Map() });
+  test("uses a singular subject for one account and counts teams when several are involved", async () => {
+    const one = await buildAccountHealthEmail({ from: "f@cmux.com", recipient: { email: "a@b.c", name: null }, notices: [notice()], teamNames: new Map() });
     expect(one.subject).toBe("Action needed: a coderouter account stopped working in your team");
     expect(one.text).toContain("Hi,");
-    const two = buildAccountHealthEmail({
+    const two = await buildAccountHealthEmail({
       from: "f@cmux.com",
       recipient: { email: "a@b.c", name: null },
       notices: [notice(), notice({ teamId: "team-2", accountId: "22222222-2222-4222-8222-222222222222" })],
@@ -103,6 +108,17 @@ describe("account health email copy", () => {
     expect(two.subject).toBe("Action needed: 2 coderouter accounts stopped working in 2 of your teams");
     expect(two.text).toContain("team=team-1");
     expect(two.text).toContain("team=team-2");
+  });
+
+  test("uses the recipient locale when Stack provides one", async () => {
+    const email = await buildAccountHealthEmail({
+      from: "f@cmux.com",
+      recipient: { email: "a@b.c", name: "Lawrence Chen", locale: "ja" },
+      notices: [notice()],
+      teamNames: new Map([["team-1", "manaflow"]]),
+    });
+    expect(email.subject).toContain("対応が必要です");
+    expect(email.text).toContain("動作しなくなったアカウント");
   });
 });
 
@@ -130,6 +146,35 @@ describe("account health notification run", () => {
     const result = await runAccountHealthNotifications(dependencies);
     expect(result.emails).toBe(2);
     expect(sent.map((email) => email.to).sort()).toEqual(["a@x.dev", "b@x.dev"]);
+  });
+
+  test("caches team recipient lookup for several subscription notices", async () => {
+    let lookups = 0;
+    const first = notice({ source: "subscription", kind: "codex", createdBy: null });
+    const second = notice({ source: "subscription", kind: "opencode", createdBy: null, accountId: "22222222-2222-4222-8222-222222222222" });
+    const { dependencies, sent } = harness({
+      subscriptions: [first, second],
+      onRecipients: () => { lookups += 1; },
+    });
+    await runAccountHealthNotifications(dependencies);
+    expect(lookups).toBe(1);
+    expect(sent).toHaveLength(1);
+  });
+
+  test("uses a different idempotency key when the account batch changes", async () => {
+    const one = await buildAccountHealthEmail({
+      from: "f@cmux.com",
+      recipient: { email: "owner@example.com", name: null },
+      notices: [notice()],
+      teamNames: new Map(),
+    });
+    const two = await buildAccountHealthEmail({
+      from: "f@cmux.com",
+      recipient: { email: "owner@example.com", name: null },
+      notices: [notice(), notice({ accountId: "22222222-2222-4222-8222-222222222222" })],
+      teamNames: new Map(),
+    });
+    expect(two.idempotencyKey).not.toBe(one.idempotencyKey);
   });
 
   test("a failed send leaves the account unmarked so the next run retries it", async () => {

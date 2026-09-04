@@ -1,3 +1,4 @@
+import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxControlSocket
 import Foundation
@@ -79,15 +80,29 @@ actor CoderouterClient {
     @MainActor private(set) static var shared: CoderouterClient!
 
     @MainActor
-    static func bootstrap(auth: AuthCoordinator, session: URLSession = .shared) {
-        shared = CoderouterClient(session: session, auth: auth)
+    static func bootstrap(auth: AuthCoordinator, session: URLSession? = nil) {
+        if let session {
+            // A caller-provided URLSession is a test seam. Production uses the
+            // cookie-free redirect-rejecting transport below.
+            shared = CoderouterClient(session: session, auth: auth)
+        } else {
+            shared = CoderouterClient(auth: auth)
+        }
     }
 
-    private let session: URLSession
+    private let session: URLSession?
+    private let credentialedSession: CmxCredentialedHTTPSession?
     private let auth: AuthCoordinator
 
-    init(session: URLSession = .shared, auth: AuthCoordinator) {
+    init(auth: AuthCoordinator) {
+        self.session = nil
+        self.credentialedSession = CmxCredentialedHTTPSession()
+        self.auth = auth
+    }
+
+    init(session: URLSession, auth: AuthCoordinator) {
         self.session = session
+        self.credentialedSession = nil
         self.auth = auth
     }
 
@@ -240,7 +255,13 @@ actor CoderouterClient {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try await session.data(for: req)
+            if let session {
+                (data, response) = try await session.data(for: req)
+            } else if let credentialedSession {
+                (data, response) = try await credentialedSession.data(for: req)
+            } else {
+                throw CoderouterClientError.malformedResponse("HTTP transport is unavailable")
+            }
         } catch let error as URLError {
             switch error.code {
             case .cannotConnectToHost, .cannotFindHost, .timedOut, .networkConnectionLost, .notConnectedToInternet:
@@ -271,27 +292,30 @@ actor CoderouterClient {
         return obj
     }
 
-    private static func redactedServerMessage(_ body: String) -> String {
-        guard let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let message = object["message"] as? String else { return "" }
-        return AIAccountsClient.redactSecrets(message)
-    }
-
     static func formatHTTPError(status: Int, body: String) -> String {
         if status == 401 {
-            return "Not signed in or session expired. Run `cmux auth login`, then retry."
+            return coderouterClientLocalized(
+                "cli.coderouter.http.notSignedIn",
+                "Not signed in or session expired. Run `cmux auth login`, then retry."
+            )
         }
         if status == 403 {
-            return "This account cannot manage the team's coderouter settings."
+            return coderouterClientLocalized(
+                "cli.coderouter.http.forbidden",
+                "This account cannot manage the team's coderouter settings."
+            )
         }
         if status == 404 {
-            return "No account with that id exists on this team. Run `cmux coderouter accounts`."
+            return coderouterClientLocalized(
+                "cli.coderouter.http.notFound",
+                "No account with that id exists on this team. Run `cmux coderouter accounts`."
+            )
         }
         if status == 422 {
-            let detail = redactedServerMessage(body)
-            let lead = detail.isEmpty ? "The upstream rejected this credential; nothing was stored." : detail
-            return "\(lead) Check that the key or token is current, or pass --no-validate to store it anyway."
+            return coderouterClientLocalized(
+                "cli.coderouter.http.credentialRejected",
+                "The provider rejected this credential; nothing was stored. Check that the key or token is current, or pass --no-validate to store it anyway."
+            )
         }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         var serverError: String?
@@ -303,10 +327,31 @@ actor CoderouterClient {
         }
         if let serverError = serverError.map(AIAccountsClient.redactSecrets), !serverError.isEmpty {
             if status == 400 {
-                return "coderouter rejected the request (HTTP 400): \(serverError). Check the credential format and retry."
+                return coderouterClientFormatted(
+                    "cli.coderouter.http.badRequest",
+                    "coderouter rejected the request (HTTP 400): %@. Check the credential format and retry.",
+                    serverError
+                )
             }
-            return "coderouter request failed (HTTP \(status)): \(serverError)"
+            return coderouterClientFormatted(
+                "cli.coderouter.http.failedWithReason",
+                "coderouter request failed (HTTP %lld): %@",
+                Int64(status),
+                serverError
+            )
         }
-        return "coderouter request failed (HTTP \(status))."
+        return coderouterClientFormatted(
+            "cli.coderouter.http.failed",
+            "coderouter request failed (HTTP %lld).",
+            Int64(status)
+        )
     }
+}
+
+private func coderouterClientLocalized(_ key: String, _ defaultValue: String) -> String {
+    String(localized: key, defaultValue: defaultValue)
+}
+
+private func coderouterClientFormatted(_ key: String, _ defaultValue: String, _ arguments: CVarArg...) -> String {
+    String(format: coderouterClientLocalized(key, defaultValue), locale: Locale.current, arguments: arguments)
 }

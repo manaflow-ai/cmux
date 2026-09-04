@@ -2,6 +2,7 @@
 // became broken or expired since the last run, one email per recipient,
 // one notice per account, ever. See services/coderouter/accountHealthEmail.ts.
 import { runAccountHealthNotifications } from "../../../../services/coderouter/accountHealthEmail";
+import { reportCoderouterFailure } from "../../../../services/coderouter/observability";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
 export async function GET(request: Request): Promise<Response> {
@@ -12,6 +13,11 @@ export async function GET(request: Request): Promise<Response> {
   if (request.headers.get("authorization") !== `Bearer ${cronSecret}`) {
     return jsonResponse({ error: "unauthorized" }, 401);
   }
-  const result = await runAccountHealthNotifications();
-  return jsonResponse(result);
+  try {
+    const result = await runAccountHealthNotifications();
+    return jsonResponse(result);
+  } catch (error) {
+    reportCoderouterFailure("account_health_email", error, { operation: "cron" });
+    return jsonResponse({ error: "coderouter_account_health_failed", retryable: true }, 500);
+  }
 }

@@ -28,14 +28,14 @@ describe("claude credential probe", () => {
     expect(await probeClaudeCredential({ kind: "anthropic_api_key", apiKey: "sk-ant-api03-test" }, badRequest)).toEqual({ ok: true, email: null });
   });
 
-  test("a rejected key reports the upstream status and message", async () => {
+  test("a rejected key reports a safe status and message", async () => {
     const { dependencies } = fetchStub(() =>
       Response.json({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, { status: 401 }));
     expect(await probeClaudeCredential({ kind: "anthropic_api_key", apiKey: "sk-ant-api03-dead" }, dependencies)).toEqual({
       ok: false,
       reason: "rejected",
       status: 401,
-      message: "invalid x-api-key",
+      message: "The provider rejected this credential.",
     });
   });
 
@@ -79,7 +79,7 @@ describe("claude credential probe", () => {
     expect(await probeClaudeCredential({ kind: "anthropic_api_key", apiKey: "sk-ant-api03-test" }, dependencies)).toEqual({
       ok: false,
       reason: "unreachable",
-      message: "fetch failed",
+      message: "The provider could not be reached.",
     });
   });
 });

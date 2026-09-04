@@ -5,11 +5,18 @@
 // a `broken_notified_at` that is set when its notice has been sent, and the
 // job runs on a schedule so accounts that break within the same window share
 // one email per recipient. Nothing here retries a send that succeeded.
+// Stack does not currently guarantee a saved locale on every user. We use it
+// when present and fall back to English; the release localization pass owns
+// translations beyond the maintained English and Japanese catalogs.
+import { createHash } from "node:crypto";
 import { and, inArray, isNull } from "drizzle-orm";
 import { Resend } from "resend";
 import { env } from "../../app/env";
 import { cloudDb } from "../../db/client";
 import { coderouterAccounts } from "../../db/schema";
+import englishMessages from "../../messages/en.json";
+import { loadMessages } from "../../i18n/messages";
+import { routing, type Locale } from "../../i18n/routing";
 import {
   listBrokenClaudeAccounts,
   markClaudeAccountsNotified,
@@ -39,9 +46,11 @@ export type BrokenAccountNotice = {
   readonly createdBy: string | null;
 };
 
-export type Recipient = { readonly email: string; readonly name: string | null };
+export type Recipient = { readonly email: string; readonly name: string | null; readonly locale?: Locale };
 
 export type AccountHealthEmail = {
+  /** Stable across retries of the same recipient/account batch. */
+  readonly idempotencyKey: string;
   readonly from: string;
   readonly to: string;
   readonly replyTo: string;
@@ -70,6 +79,86 @@ export type AccountHealthRunResult = {
   readonly failures: number;
 };
 
+type AccountHealthCopy = {
+  readonly subjectOne: string;
+  readonly subjectMany: string;
+  readonly yourTeam: string;
+  readonly manyTeams: string;
+  readonly teamSuffix: string;
+  readonly whenSuffix: string;
+  readonly greetingNamed: string;
+  readonly greeting: string;
+  readonly introOne: string;
+  readonly introMany: string;
+  readonly whatStoppedWorking: string;
+  readonly whyPrefix: string;
+  readonly fixPrefix: string;
+  readonly thenSeparator: string;
+  readonly howToFix: string;
+  readonly addCredentialInstruction: string;
+  readonly removeCredentialInstruction: string;
+  readonly removeCommand: string;
+  readonly removeCommandHint: string;
+  readonly dashboardInstruction: string;
+  readonly whyYouGot: string;
+  readonly whyBody: string;
+  readonly questions: string;
+  readonly signature: string;
+  readonly claudeHeadline: string;
+  readonly claudeWhy: string;
+  readonly anthropicKeyHeadline: string;
+  readonly anthropicKeyWhy: string;
+  readonly bedrockHeadline: string;
+  readonly bedrockWhy: string;
+  readonly codexHeadline: string;
+  readonly opencodeHeadline: string;
+  readonly subscriptionWhy: string;
+  readonly genericHeadline: string;
+  readonly genericWhy: string;
+  readonly bedrockEnvironmentHint: string;
+};
+
+const ACCOUNT_HEALTH_COPY_KEYS = [
+  "subjectOne", "subjectMany", "yourTeam", "manyTeams", "teamSuffix", "whenSuffix",
+  "greetingNamed", "greeting", "introOne", "introMany",
+  "whatStoppedWorking", "whyPrefix", "fixPrefix", "thenSeparator", "howToFix", "addCredentialInstruction",
+  "removeCredentialInstruction", "removeCommand", "removeCommandHint", "dashboardInstruction", "whyYouGot", "whyBody",
+  "questions", "signature", "claudeHeadline", "claudeWhy", "anthropicKeyHeadline", "anthropicKeyWhy",
+  "bedrockHeadline", "bedrockWhy", "codexHeadline", "opencodeHeadline", "subscriptionWhy",
+  "genericHeadline", "genericWhy", "bedrockEnvironmentHint",
+] as const;
+
+function readAccountHealthCopy(value: unknown): Partial<AccountHealthCopy> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const record = value as Record<string, unknown>;
+  const copy: Record<string, string> = {};
+  for (const key of ACCOUNT_HEALTH_COPY_KEYS) {
+    if (typeof record[key] === "string") copy[key] = record[key];
+  }
+  return copy as Partial<AccountHealthCopy>;
+}
+
+const ENGLISH_ACCOUNT_HEALTH_COPY = readAccountHealthCopy(
+  (englishMessages as unknown as { readonly emails?: { readonly coderouterAccountHealth?: unknown } }).emails?.coderouterAccountHealth,
+) as AccountHealthCopy;
+
+async function accountHealthCopy(locale: Locale | undefined): Promise<AccountHealthCopy> {
+  if (!locale || locale === "en") return ENGLISH_ACCOUNT_HEALTH_COPY;
+  try {
+    const messages = await loadMessages(locale);
+    const localized = readAccountHealthCopy(
+      (messages as unknown as { readonly emails?: { readonly coderouterAccountHealth?: unknown } }).emails?.coderouterAccountHealth,
+    );
+    return { ...ENGLISH_ACCOUNT_HEALTH_COPY, ...localized } as AccountHealthCopy;
+  } catch {
+    return ENGLISH_ACCOUNT_HEALTH_COPY;
+  }
+}
+
+function renderTemplate(template: string, values: Readonly<Record<string, string | number>>): string {
+  return template.replace(/\{([A-Za-z][A-Za-z0-9]*)\}/g, (_, key: string) => String(values[key] ?? ""));
+}
+
 export async function runAccountHealthNotifications(
   dependencies: AccountHealthDependencies = defaultDependencies(),
 ): Promise<AccountHealthRunResult> {
@@ -85,13 +174,20 @@ export async function runAccountHealthNotifications(
   // Batch: one email per recipient listing every account of theirs that broke.
   const byRecipient = new Map<string, { recipient: Recipient; notices: BrokenAccountNotice[] }>();
   const teamNames = new Map<string, string | null>();
+  const teamRecipients = new Map<string, readonly Recipient[]>();
   let withoutRecipient = 0;
   const unaddressed: BrokenAccountNotice[] = [];
   for (const notice of notices) {
     if (!teamNames.has(notice.teamId)) {
       teamNames.set(notice.teamId, await dependencies.teamName(notice.teamId).catch(() => null));
     }
-    const recipients = (await dependencies.recipients(notice).catch(() => [])).slice(0, MAX_RECIPIENTS_PER_ACCOUNT);
+    let recipients: readonly Recipient[];
+    if (!notice.createdBy && teamRecipients.has(notice.teamId)) {
+      recipients = teamRecipients.get(notice.teamId)!;
+    } else {
+      recipients = (await dependencies.recipients(notice).catch(() => [])).slice(0, MAX_RECIPIENTS_PER_ACCOUNT);
+      if (!notice.createdBy) teamRecipients.set(notice.teamId, recipients);
+    }
     if (recipients.length === 0) {
       withoutRecipient += 1;
       unaddressed.push(notice);
@@ -109,7 +205,7 @@ export async function runAccountHealthNotifications(
   let failures = 0;
   const notified = new Set<string>();
   for (const { recipient, notices: mine } of byRecipient.values()) {
-    const email = buildAccountHealthEmail({
+    const email = await buildAccountHealthEmail({
       from: dependencies.fromEmail(),
       recipient,
       notices: mine,
@@ -140,73 +236,80 @@ export async function runAccountHealthNotifications(
 
 // Email copy.
 
-export function buildAccountHealthEmail(input: {
+export async function buildAccountHealthEmail(input: {
   readonly from: string;
   readonly recipient: Recipient;
   readonly notices: readonly BrokenAccountNotice[];
   readonly teamNames: ReadonlyMap<string, string | null>;
-}): AccountHealthEmail {
+}): Promise<AccountHealthEmail> {
+  const copy = await accountHealthCopy(input.recipient.locale);
   const teams = [...new Set(input.notices.map((notice) => notice.teamId))];
   const teamLabel = teams.length === 1
-    ? (input.teamNames.get(teams[0]!) ?? "your team")
-    : `${teams.length} of your teams`;
+    ? (input.teamNames.get(teams[0]!) ?? copy.yourTeam)
+    : renderTemplate(copy.manyTeams, { count: teams.length });
   const count = input.notices.length;
-  const subject = count === 1
-    ? `Action needed: a coderouter account stopped working in ${teamLabel}`
-    : `Action needed: ${count} coderouter accounts stopped working in ${teamLabel}`;
-  const greeting = input.recipient.name ? `Hi ${firstName(input.recipient.name)},` : "Hi,";
+  const subject = renderTemplate(count === 1 ? copy.subjectOne : copy.subjectMany, {
+    count,
+    team: teamLabel,
+  });
+  const greeting = input.recipient.name
+    ? renderTemplate(copy.greetingNamed, { name: firstName(input.recipient.name) })
+    : copy.greeting;
 
-  const intro = count === 1
-    ? "coderouter can no longer use one of the accounts your team routes Claude Code and Codex through. Requests from your Cloud machines that were pinned to it have moved to your other accounts; if it was the only one of its kind, those requests fail until you replace it."
-    : `coderouter can no longer use ${count} of the accounts your team routes Claude Code and Codex through. Requests from your Cloud machines that were pinned to them have moved to your other accounts; where no other account of that kind exists, those requests fail until you replace them.`;
+  const intro = renderTemplate(count === 1 ? copy.introOne : copy.introMany, { count });
 
-  const sections = input.notices.map((notice) => noticeSection(notice, input.teamNames.get(notice.teamId) ?? null));
+  const sections = input.notices.map((notice) => noticeSectionWithCopy(notice, input.teamNames.get(notice.teamId) ?? null, copy));
   const dashboardLinks = teams.map((teamId) => `${DASHBOARD_ORIGIN}/dashboard/coderouter?team=${encodeURIComponent(teamId)}`);
+  const dashboardLinkText = dashboardLinks.join(" ");
+  const whyBody = renderTemplate(copy.whyBody, { team: teamLabel });
+  const questions = renderTemplate(copy.questions, { email: CODEROUTER_SUPPORT_EMAIL });
+  const fixCommands = uniqueFixCommands(input.notices, copy);
 
   const textParts: string[] = [
     greeting,
     "",
     intro,
     "",
-    "WHAT STOPPED WORKING",
-    ...sections.flatMap((section) => ["", `- ${section.headline}`, `  Why: ${section.why}`, `  Fix: ${section.fix.join(" then ")}`]),
+    copy.whatStoppedWorking,
+    ...sections.flatMap((section) => ["", `- ${section.headline}`, `  ${copy.whyPrefix}: ${section.why}`, `  ${copy.fixPrefix}: ${section.fix.join(copy.thenSeparator)}`]),
     "",
-    "HOW TO FIX IT",
-    "1. Add a fresh credential from any machine where you are signed in to cmux:",
-    ...uniqueFixCommands(input.notices).map((command) => `     ${command}`),
-    "2. Remove the broken account so nothing is routed to it again:",
-    "     cmux coderouter accounts remove <id>   (ids are in the list above, or run: cmux coderouter accounts)",
-    `3. Or do both on the dashboard: ${dashboardLinks.join(" ")}`,
+    copy.howToFix,
+    copy.addCredentialInstruction,
+    ...fixCommands.map((command) => `     ${command}`),
+    copy.removeCredentialInstruction,
+    `     ${copy.removeCommand}   ${copy.removeCommandHint}`,
+    renderTemplate(copy.dashboardInstruction, { links: dashboardLinkText }),
     "",
-    "WHY YOU GOT THIS EMAIL",
-    `You added, or are a member of the team that owns, these accounts (${teamLabel}). We send exactly one email per account: you will not hear about these accounts again, and other accounts keep working as before.`,
+    copy.whyYouGot,
+    whyBody,
     "",
-    `Questions: reply to this email or write to ${CODEROUTER_SUPPORT_EMAIL}.`,
+    questions,
     "",
-    "cmux",
+    copy.signature,
   ];
 
   const htmlParts: string[] = [
     `<p>${escapeHtml(greeting)}</p>`,
     `<p>${escapeHtml(intro)}</p>`,
-    "<h3>What stopped working</h3>",
+    `<h3>${escapeHtml(copy.whatStoppedWorking)}</h3>`,
     "<ul>",
     ...sections.map((section) =>
-      `<li><strong>${escapeHtml(section.headline)}</strong><br>${escapeHtml(section.why)}<br><em>Fix:</em> ${section.fix.map((step) => `<code>${escapeHtml(step)}</code>`).join(" then ")}</li>`),
+      `<li><strong>${escapeHtml(section.headline)}</strong><br>${escapeHtml(`${copy.whyPrefix}: ${section.why}`)}<br><em>${escapeHtml(`${copy.fixPrefix}:`)}</em> ${section.fix.map((step) => `<code>${escapeHtml(step)}</code>`).join(escapeHtml(copy.thenSeparator))}</li>`),
     "</ul>",
-    "<h3>How to fix it</h3>",
+    `<h3>${escapeHtml(copy.howToFix)}</h3>`,
     "<ol>",
-    `<li>Add a fresh credential from any machine where you are signed in to cmux:<br>${uniqueFixCommands(input.notices).map((command) => `<code>${escapeHtml(command)}</code>`).join("<br>")}</li>`,
-    `<li>Remove the broken account so nothing is routed to it again: <code>cmux coderouter accounts remove &lt;id&gt;</code> (ids are in the list above, or run <code>cmux coderouter accounts</code>).</li>`,
-    `<li>Or do both on the dashboard: ${dashboardLinks.map((link) => `<a href="${escapeHtml(link)}">${escapeHtml(link)}</a>`).join(" ")}</li>`,
+    `<li>${escapeHtml(copy.addCredentialInstruction)}<br>${fixCommands.map((command) => `<code>${escapeHtml(command)}</code>`).join("<br>")}</li>`,
+    `<li>${escapeHtml(copy.removeCredentialInstruction)} <code>${escapeHtml(copy.removeCommand)}</code> ${escapeHtml(copy.removeCommandHint)}</li>`,
+    `<li>${escapeHtml(copy.dashboardInstruction.replace("{links}", ""))} ${dashboardLinks.map((link) => `<a href="${escapeHtml(link)}">${escapeHtml(link)}</a>`).join(" ")}</li>`,
     "</ol>",
-    "<h3>Why you got this email</h3>",
-    `<p>${escapeHtml(`You added, or are a member of the team that owns, these accounts (${teamLabel}). We send exactly one email per account: you will not hear about these accounts again, and other accounts keep working as before.`)}</p>`,
-    `<p>Questions: reply to this email or write to <a href="mailto:${CODEROUTER_SUPPORT_EMAIL}">${CODEROUTER_SUPPORT_EMAIL}</a>.</p>`,
-    "<p>cmux</p>",
+    `<h3>${escapeHtml(copy.whyYouGot)}</h3>`,
+    `<p>${escapeHtml(whyBody)}</p>`,
+    `<p>${escapeHtml(copy.questions).replace("{email}", `<a href="mailto:${CODEROUTER_SUPPORT_EMAIL}">${CODEROUTER_SUPPORT_EMAIL}</a>`)}</p>`,
+    `<p>${escapeHtml(copy.signature)}</p>`,
   ];
 
   return {
+    idempotencyKey: accountHealthIdempotencyKey(input.recipient, input.notices),
     from: `cmux coderouter <${input.from}>`,
     to: input.recipient.email,
     replyTo: CODEROUTER_SUPPORT_EMAIL,
@@ -216,53 +319,81 @@ export function buildAccountHealthEmail(input: {
   };
 }
 
+function accountHealthIdempotencyKey(
+  recipient: Recipient,
+  notices: readonly BrokenAccountNotice[],
+): string {
+  const material = [
+    recipient.email.trim().toLowerCase(),
+    ...notices
+      .map((notice) => `${notice.source}:${notice.accountId}`)
+      .sort(),
+  ].join("\n");
+  return `coderouter-account-health-${createHash("sha256").update(material).digest("hex")}`;
+}
+
 type NoticeSection = { readonly headline: string; readonly why: string; readonly fix: readonly string[] };
 
 /** Per-kind explanation of what happened and the exact repair, in the user's terms. */
 export function noticeSection(notice: BrokenAccountNotice, teamName: string | null): NoticeSection {
+  return noticeSectionWithCopy(notice, teamName, ENGLISH_ACCOUNT_HEALTH_COPY);
+}
+
+function noticeSectionWithCopy(
+  notice: BrokenAccountNotice,
+  teamName: string | null,
+  copy: AccountHealthCopy,
+): NoticeSection {
   const name = notice.label && notice.identifier
     ? `${notice.identifier} (${notice.label})`
     : notice.label || notice.identifier || notice.accountId.slice(0, 8);
-  const when = notice.brokenAt ? ` on ${notice.brokenAt.toISOString().replace("T", " ").slice(0, 16)} UTC` : "";
-  const team = teamName ? ` in ${teamName}` : "";
+  const when = notice.brokenAt
+    ? renderTemplate(copy.whenSuffix, { date: notice.brokenAt.toISOString().replace("T", " ").slice(0, 16) })
+    : "";
+  const team = teamName ? renderTemplate(copy.teamSuffix, { team: teamName }) : "";
   const id = notice.accountId.slice(0, 8);
   const removeStep = `cmux coderouter accounts remove ${id}`;
   switch (notice.kind) {
     case "claude":
       return {
-        headline: `Claude Code token ${name}${team}, id ${id}`,
-        why: `Anthropic rejected this token three times in a row (${notice.failureCode})${when}. Tokens from \`claude setup-token\` stop working when they expire (about a year after creation), when you sign out of Claude Code on the machine that created them, or when they are revoked at claude.ai.`,
+        headline: renderTemplate(copy.claudeHeadline, { name, team, id }),
+        why: renderTemplate(copy.claudeWhy, { code: notice.failureCode, when }),
         fix: ["claude setup-token", `cmux coderouter accounts add claude --label ${shellWord(notice.label || "work")}`, removeStep],
       };
     case "anthropic-key":
       return {
-        headline: `Anthropic API key ${name}${team}, id ${id}`,
-        why: `Anthropic rejected this key three times in a row (${notice.failureCode})${when}. Keys stop working when they are deleted or rotated in the Anthropic Console, or when the organization's billing is suspended.`,
+        headline: renderTemplate(copy.anthropicKeyHeadline, { name, team, id }),
+        why: renderTemplate(copy.anthropicKeyWhy, { code: notice.failureCode, when }),
         fix: [`cmux coderouter accounts add anthropic-key --label ${shellWord(notice.label || "work")}`, removeStep],
       };
     case "bedrock":
       return {
-        headline: `Amazon Bedrock credentials ${name}${team}, id ${id}`,
-        why: `AWS rejected these credentials three times in a row (${notice.failureCode})${when}. Access keys stop working when they are deactivated or deleted in IAM, and temporary session credentials expire on their own.`,
+        headline: renderTemplate(copy.bedrockHeadline, { name, team, id }),
+        why: renderTemplate(copy.bedrockWhy, { code: notice.failureCode, when }),
         fix: [`cmux coderouter accounts add bedrock --region <region> --label ${shellWord(notice.label || "bedrock")}`, removeStep],
       };
     case "codex":
+      return {
+        headline: renderTemplate(copy.codexHeadline, { name, team, id }),
+        why: renderTemplate(copy.subscriptionWhy, { code: notice.failureCode, when }),
+        fix: [`cmux coderouter accounts add ${notice.kind}`, removeStep],
+      };
     case "opencode":
       return {
-        headline: `${notice.kind === "codex" ? "ChatGPT Codex" : "OpenCode Go"} subscription ${name}${team}, id ${id}`,
-        why: `The sign-in for this subscription could not be renewed (${notice.failureCode})${when}. This happens when the account signed out everywhere, changed its password, lost its subscription, or the same sign-in was reused from another tool.`,
+        headline: renderTemplate(copy.opencodeHeadline, { name, team, id }),
+        why: renderTemplate(copy.subscriptionWhy, { code: notice.failureCode, when }),
         fix: [`cmux coderouter accounts add ${notice.kind}`, removeStep],
       };
     default:
       return {
-        headline: `${notice.kind} account ${name}${team}, id ${id}`,
-        why: `The upstream rejected this credential (${notice.failureCode})${when}.`,
+        headline: renderTemplate(copy.genericHeadline, { kind: notice.kind, name, team, id }),
+        why: renderTemplate(copy.genericWhy, { code: notice.failureCode, when }),
         fix: [`cmux coderouter accounts add ${notice.kind}`, removeStep],
       };
   }
 }
 
-function uniqueFixCommands(notices: readonly BrokenAccountNotice[]): string[] {
+function uniqueFixCommands(notices: readonly BrokenAccountNotice[], copy: AccountHealthCopy): string[] {
   const commands = new Set<string>();
   for (const notice of notices) {
     switch (notice.kind) {
@@ -273,7 +404,7 @@ function uniqueFixCommands(notices: readonly BrokenAccountNotice[]): string[] {
         commands.add("ANTHROPIC_API_KEY=<new key> cmux coderouter accounts add anthropic-key");
         break;
       case "bedrock":
-        commands.add("cmux coderouter accounts add bedrock --region <region>   (reads AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY)");
+        commands.add(`cmux coderouter accounts add bedrock --region <region>   ${copy.bedrockEnvironmentHint}`);
         break;
       default:
         commands.add(`cmux coderouter accounts add ${notice.kind}`);
@@ -358,18 +489,32 @@ async function stackRecipients(notice: BrokenAccountNotice): Promise<readonly Re
   const app = getStackServerApp();
   if (notice.createdBy) {
     const user = await app.getUser(notice.createdBy).catch(() => null);
-    if (user?.primaryEmail) return [{ email: user.primaryEmail, name: user.displayName ?? null }];
+    const recipient = stackRecipient(user);
+    if (recipient) return [recipient];
   }
   const team = await app.getTeam(notice.teamId).catch(() => null);
   if (!team) {
     // Personal organizations use the user id as the team id.
     const user = await app.getUser(notice.teamId).catch(() => null);
-    return user?.primaryEmail ? [{ email: user.primaryEmail, name: user.displayName ?? null }] : [];
+    const recipient = stackRecipient(user);
+    return recipient ? [recipient] : [];
   }
   const members = await team.listUsers().catch(() => []);
   return members
-    .map((member) => ({ email: member.primaryEmail ?? "", name: member.displayName ?? null }))
+    .map(stackRecipient)
+    .filter((member): member is Recipient => member !== null)
     .filter((member) => member.email.length > 0);
+}
+
+function stackRecipient(user: unknown): Recipient | null {
+  if (!user || typeof user !== "object") return null;
+  const value = user as { readonly primaryEmail?: unknown; readonly displayName?: unknown; readonly locale?: unknown };
+  if (typeof value.primaryEmail !== "string" || value.primaryEmail.length === 0) return null;
+  const rawLocale = typeof value.locale === "string" ? value.locale : undefined;
+  const locale = rawLocale && (routing.locales as readonly string[]).includes(rawLocale)
+    ? rawLocale as Locale
+    : undefined;
+  return { email: value.primaryEmail, name: typeof value.displayName === "string" ? value.displayName : null, locale };
 }
 
 async function stackTeamName(teamId: string): Promise<string | null> {
@@ -397,7 +542,7 @@ export function defaultDependencies(): AccountHealthDependencies {
         subject: email.subject,
         text: email.text,
         html: email.html,
-      });
+      }, { idempotencyKey: email.idempotencyKey });
       if (result.error) throw new Error(`resend: ${result.error.message}`);
     },
     fromEmail: () => process.env.CMUX_CODEROUTER_FROM_EMAIL?.trim() || DEFAULT_CODEROUTER_FROM_EMAIL,

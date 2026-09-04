@@ -326,6 +326,28 @@ describe("claude upstream accounts service", () => {
     expect(store.rows.get(first.account.id)!.fingerprint).toHaveLength(64);
   });
 
+  test("turns a concurrent fingerprint unique conflict into an idempotent result", async () => {
+    const store = memoryStore();
+    const originalInsert = store.insert.bind(store);
+    let firstInsert = true;
+    store.insert = async (row) => {
+      const written = await originalInsert(row);
+      if (firstInsert) {
+        firstInsert = false;
+        throw Object.assign(new Error("duplicate key"), {
+          code: "23505",
+          constraint: "coderouter_claude_accounts_fingerprint_idx",
+        });
+      }
+      return written;
+    };
+    const { inner } = service(store);
+    const result = await inner.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
+    expect(result.alreadyExists).toBe(true);
+    expect(result.account.identifier).toBe("sk-ant-oat01-...CDEF");
+    expect(store.rows.size).toBe(1);
+  });
+
   test("three consecutive credential rejections mark the account broken; a success resets the count", async () => {
     const { service: svc, store } = service();
     const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
@@ -484,7 +506,12 @@ describe("claude upstream routes", () => {
     const { collection, probeCalls, svc } = handlers({ probe: { ok: false, reason: "rejected", status: 401, message: "invalid x-api-key" } });
     const response = await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }));
     expect(response.status).toBe(422);
-    expect(await response.json()).toMatchObject({ error: "credential_rejected", upstreamStatus: 401, retryable: false });
+    expect(await response.json()).toMatchObject({
+      error: "credential_rejected",
+      message: "The provider rejected this credential. Nothing was stored.",
+      upstreamStatus: 401,
+      retryable: false,
+    });
     expect(probeCalls).toEqual(["anthropic_api_key"]);
     expect(await svc.list("team_1")).toEqual([]);
   });

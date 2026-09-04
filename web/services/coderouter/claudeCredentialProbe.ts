@@ -18,6 +18,9 @@ const OAUTH_BETA = "oauth-2025-04-20";
 const PROBE_MODEL = "claude-haiku-4-5-20251001";
 const BEDROCK_PROBE_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0";
 const PROBE_TIMEOUT_MS = 8_000;
+/** Public probe messages are product copy, never provider response bodies. */
+export const CREDENTIAL_REJECTED_MESSAGE = "The provider rejected this credential.";
+export const CREDENTIAL_UNREACHABLE_MESSAGE = "The provider could not be reached.";
 
 export type CredentialProbeResult =
   | { readonly ok: true; readonly email: string | null }
@@ -25,7 +28,7 @@ export type CredentialProbeResult =
   | { readonly ok: false; readonly reason: "unreachable"; readonly message: string };
 
 export type CredentialProbeDependencies = {
-  readonly fetch: typeof fetch;
+  readonly fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   readonly now: () => Date;
 };
 
@@ -51,8 +54,11 @@ export async function probeClaudeCredential(
       case "bedrock":
         return await bedrockProbe(dependencies, input);
     }
-  } catch (error) {
-    return { ok: false, reason: "unreachable", message: error instanceof Error ? error.message : String(error) };
+  } catch {
+    // Keep transport details out of the response. The caller may report the
+    // error through its private observability path, but must not return URLs,
+    // request data, or provider messages to a CLI or browser.
+    return { ok: false, reason: "unreachable", message: CREDENTIAL_UNREACHABLE_MESSAGE };
   }
 }
 
@@ -73,7 +79,7 @@ async function anthropicProbe(
     signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
   });
   if (response.status === 401 || response.status === 403) {
-    return { ok: false, reason: "rejected", status: response.status, message: await errorMessage(response) };
+    return { ok: false, reason: "rejected", status: response.status, message: CREDENTIAL_REJECTED_MESSAGE };
   }
   return { ok: true, email: oauthToken ? await oauthProfileEmail(dependencies, oauthToken) : null };
 }
@@ -133,25 +139,9 @@ async function bedrockProbe(
     signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
   });
   if (response.status === 401 || response.status === 403) {
-    return { ok: false, reason: "rejected", status: response.status, message: await errorMessage(response) };
+    return { ok: false, reason: "rejected", status: response.status, message: CREDENTIAL_REJECTED_MESSAGE };
   }
   return { ok: true, email: null };
-}
-
-async function errorMessage(response: Response): Promise<string> {
-  try {
-    const text = (await response.text()).slice(0, 2_000);
-    const value: unknown = JSON.parse(text);
-    if (isRecord(value)) {
-      const error = value.error;
-      if (isRecord(error) && typeof error.message === "string") return error.message;
-      if (typeof value.message === "string") return value.message;
-      if (typeof value.Message === "string") return value.Message;
-    }
-    return text || `HTTP ${response.status}`;
-  } catch {
-    return `HTTP ${response.status}`;
-  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

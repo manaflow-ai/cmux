@@ -10,7 +10,7 @@
 // bind the ciphertext to (team, account id, kind) so a row cannot be replayed
 // for another team or account.
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import { coderouterClaudeAccounts } from "../../db/schema";
@@ -385,26 +385,36 @@ export function createClaudeUpstreamService(dependencies: ClaudeUpstreamDependen
       keyId: dependencies.keyId,
       keys: dependencies.keys,
     });
-    const row = await store.insert({
-      id,
-      teamId,
-      kind: input.kind,
-      label: input.label ?? "",
-      identifier: maskedIdentifier(secret),
-      state: "active",
-      cooldownUntil: null,
-      lastUsedAt: null,
-      lastFailureCode: null,
-      consecutiveFailures: 0,
-      brokenAt: null,
-      brokenNotifiedAt: null,
-      fingerprint,
-      aadVersion: 2,
-      config,
-      createdBy: stackUserId,
-      ...envelope,
-    });
-    return { account: describeRow(row), alreadyExists: false };
+    try {
+      const row = await store.insert({
+        id,
+        teamId,
+        kind: input.kind,
+        label: input.label ?? "",
+        identifier: maskedIdentifier(secret),
+        state: "active",
+        cooldownUntil: null,
+        lastUsedAt: null,
+        lastFailureCode: null,
+        consecutiveFailures: 0,
+        brokenAt: null,
+        brokenNotifiedAt: null,
+        fingerprint,
+        aadVersion: 2,
+        config,
+        createdBy: stackUserId,
+        ...envelope,
+      });
+      return { account: describeRow(row), alreadyExists: false };
+    } catch (error) {
+      // The preflight lookup is intentionally only an optimization. Two
+      // requests can pass it at the same time, so treat only this exact
+      // fingerprint index conflict as the idempotent duplicate case.
+      if (!isFingerprintConflict(error)) throw error;
+      const raced = await store.findByFingerprint(teamId, fingerprint);
+      if (!raced) throw error;
+      return { account: describeRow(await withIdentifier(raced)), alreadyExists: true };
+    }
   }
 
   async function update(
@@ -775,14 +785,35 @@ const drizzleStore: ClaudeAccountStore = {
     return rows.map(rowFromDb);
   },
   async markNotified(accountIds, at) {
-    for (const accountId of accountIds) {
-      await cloudDb()
-        .update(coderouterClaudeAccounts)
-        .set({ brokenNotifiedAt: at })
-        .where(and(eq(coderouterClaudeAccounts.id, accountId), isNull(coderouterClaudeAccounts.brokenNotifiedAt)));
-    }
+    if (accountIds.length === 0) return;
+    await cloudDb()
+      .update(coderouterClaudeAccounts)
+      .set({ brokenNotifiedAt: at })
+      .where(and(inArray(coderouterClaudeAccounts.id, [...accountIds]), isNull(coderouterClaudeAccounts.brokenNotifiedAt)));
   },
 };
+
+function isFingerprintConflict(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (typeof current === "object") {
+      const candidate = current as { readonly code?: unknown; readonly constraint?: unknown; readonly constraint_name?: unknown; readonly message?: unknown; readonly cause?: unknown };
+      const constraint = candidate.constraint ?? candidate.constraint_name;
+      if (candidate.code === "23505" && constraint === "coderouter_claude_accounts_fingerprint_idx") {
+        return true;
+      }
+      if (typeof candidate.message === "string" && candidate.message.includes("coderouter_claude_accounts_fingerprint_idx")) {
+        return true;
+      }
+      current = candidate.cause;
+      continue;
+    }
+    const text = String(current);
+    if (text.includes("coderouter_claude_accounts_fingerprint_idx")) return true;
+    break;
+  }
+  return false;
+}
 
 function rowFromDb(row: typeof coderouterClaudeAccounts.$inferSelect): ClaudeAccountRow {
   if (row.algorithm !== "aes-256-gcm") {
