@@ -870,6 +870,9 @@ private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @Environment(\.mobileAppLog) private var appLog
     @State private var isPreparingExport = false
+    @State private var logExportTask: Task<Void, Never>?
+    @State private var logExportTaskID: UUID?
+    @State private var presentationHost: UIViewController?
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
     /// (previews, hosts without the app root).
@@ -880,7 +883,7 @@ private struct MobileSettingsDiagnosticsSection: View {
         Section {
             if appLog != nil {
                 Button {
-                    Task { @MainActor in await prepareLogExport() }
+                    startLogExport()
                 } label: {
                     Label(
                         L10n.string(
@@ -930,6 +933,12 @@ private struct MobileSettingsDiagnosticsSection: View {
                 defaultValue: "Export includes app events and networking diagnostics. Terminal contents and credentials are never written."
             ))
         }
+        .background {
+            MobileSettingsPresentationAnchor { host in
+                presentationHost = host
+            }
+            .frame(width: 0, height: 0)
+        }
         .confirmationDialog(
             L10n.string("mobile.iroh.diagnostics.clear.confirm", defaultValue: "Clear all diagnostic logs?"),
             isPresented: $showsClearConfirmation,
@@ -962,7 +971,27 @@ private struct MobileSettingsDiagnosticsSection: View {
             irohSettingsModel = model
             await model.observe(recordingScreenEvents: false)
         }
-        .onDisappear { irohSettingsModel?.cancelOperations() }
+        .onDisappear {
+            logExportTask?.cancel()
+            logExportTask = nil
+            logExportTaskID = nil
+            irohSettingsModel?.cancelOperations()
+        }
+    }
+
+    @MainActor
+    private func startLogExport() {
+        guard logExportTask == nil else { return }
+        let taskID = UUID()
+        logExportTaskID = taskID
+        logExportTask = Task { @MainActor in
+            defer {
+                guard logExportTaskID == taskID else { return }
+                logExportTask = nil
+                logExportTaskID = nil
+            }
+            await prepareLogExport()
+        }
     }
 
     @MainActor
@@ -971,6 +1000,10 @@ private struct MobileSettingsDiagnosticsSection: View {
         isPreparingExport = true
         defer { isPreparingExport = false }
         guard let url = await appLog.exportLogs() else { return }
+        guard !Task.isCancelled else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
         presentLogExport(url)
     }
 
@@ -983,10 +1016,13 @@ private struct MobileSettingsDiagnosticsSection: View {
         controller.completionWithItemsHandler = { _, _, _, _ in
             try? FileManager.default.removeItem(at: url)
         }
-        guard let presenter = Self.activeViewController() else {
+        guard let host = presentationHost,
+              let window = host.viewIfLoaded?.window,
+              let root = window.rootViewController else {
             try? FileManager.default.removeItem(at: url)
             return
         }
+        let presenter = Self.topViewController(from: root)
         controller.popoverPresentationController?.sourceView = presenter.view
         controller.popoverPresentationController?.sourceRect = CGRect(
             x: presenter.view.bounds.midX,
@@ -995,20 +1031,6 @@ private struct MobileSettingsDiagnosticsSection: View {
             height: 1
         )
         presenter.present(controller, animated: true)
-    }
-
-    @MainActor
-    private static func activeViewController() -> UIViewController? {
-        let scenes = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .filter { $0.activationState == .foregroundActive }
-        guard let window = scenes
-            .flatMap(\.windows)
-            .first(where: \.isKeyWindow),
-              let root = window.rootViewController else {
-            return nil
-        }
-        return topViewController(from: root)
     }
 
     private static func topViewController(from controller: UIViewController) -> UIViewController {
@@ -1024,6 +1046,34 @@ private struct MobileSettingsDiagnosticsSection: View {
             return topViewController(from: selected)
         }
         return controller
+    }
+}
+
+@MainActor
+private struct MobileSettingsPresentationAnchor: UIViewControllerRepresentable {
+    let onReady: (UIViewController) -> Void
+
+    func makeUIViewController(context: Context) -> MobileSettingsPresentationAnchorViewController {
+        let controller = MobileSettingsPresentationAnchorViewController()
+        controller.onReady = onReady
+        return controller
+    }
+
+    func updateUIViewController(
+        _ uiViewController: MobileSettingsPresentationAnchorViewController,
+        context: Context
+    ) {
+        uiViewController.onReady = onReady
+    }
+}
+
+@MainActor
+private final class MobileSettingsPresentationAnchorViewController: UIViewController {
+    var onReady: ((UIViewController) -> Void)?
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        onReady?(self)
     }
 }
 #endif

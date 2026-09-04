@@ -209,6 +209,120 @@ public actor AppLog {
         case clear(CheckedContinuation<Void, Never>)
     }
 
+    /// Synchronously admits entries from arbitrary producer threads while
+    /// keeping the event buffer bounded. Control entries are never evicted;
+    /// when the event budget is full, only the oldest event is discarded.
+    // lint:allow lock - synchronous admission is required for nonisolated
+    // producers; the lock is held only while updating a bounded in-memory queue.
+    private final class EntryIngress: @unchecked Sendable {
+        private struct State: Sendable {
+            var entries: [Entry] = []
+            var bufferedEventCount = 0
+            var finished = false
+        }
+
+        private let lock = NSLock()
+        private var state = State()
+        private let maxBufferedEvents: Int
+        private let wakeContinuation: AsyncStream<Void>.Continuation
+        private var wakeIterator: AsyncStream<Void>.Iterator
+
+        init(maxBufferedEvents: Int = 2_048) {
+            self.maxBufferedEvents = max(1, maxBufferedEvents)
+            let (stream, continuation) = AsyncStream<Void>.makeStream(
+                bufferingPolicy: .bufferingNewest(1)
+            )
+            wakeContinuation = continuation
+            wakeIterator = stream.makeAsyncIterator()
+        }
+
+        func enqueue(_ entry: Entry) {
+            let admitted = withStateLock { state in
+                guard !state.finished else { return false }
+                if case .event = entry {
+                    if state.bufferedEventCount >= maxBufferedEvents,
+                       let oldestEvent = state.entries.firstIndex(where: Self.isEvent) {
+                        state.entries.remove(at: oldestEvent)
+                        state.bufferedEventCount -= 1
+                    }
+                    state.bufferedEventCount += 1
+                }
+                state.entries.append(entry)
+                return true
+            }
+            if admitted {
+                wakeContinuation.yield(())
+            } else {
+                Self.resumeControl(entry)
+            }
+        }
+
+        func nextBatch() async -> [Entry]? {
+            while true {
+                if let batch = withStateLock({ state -> [Entry]? in
+                    guard !state.entries.isEmpty else {
+                        return state.finished ? nil : []
+                    }
+                    let batch = state.entries
+                    state.entries.removeAll(keepingCapacity: true)
+                    state.bufferedEventCount = 0
+                    return batch
+                }) {
+                    if !batch.isEmpty { return batch }
+                } else {
+                    return nil
+                }
+
+                guard await wakeIterator.next() != nil else {
+                    if let batch = withStateLock({ state -> [Entry]? in
+                        guard !state.entries.isEmpty else { return nil }
+                        let batch = state.entries
+                        state.entries.removeAll(keepingCapacity: true)
+                        state.bufferedEventCount = 0
+                        return batch
+                    }) {
+                        return batch
+                    }
+                    return nil
+                }
+            }
+        }
+
+        func finish() {
+            let pending = withStateLock { state -> [Entry] in
+                state.finished = true
+                let pending = state.entries
+                state.entries.removeAll(keepingCapacity: false)
+                state.bufferedEventCount = 0
+                return pending
+            }
+            for entry in pending {
+                Self.resumeControl(entry)
+            }
+            wakeContinuation.finish()
+        }
+
+        private func withStateLock<T>(_ body: (inout State) -> T) -> T {
+            lock.lock()
+            defer { lock.unlock() }
+            return body(&state)
+        }
+
+        private static func isEvent(_ entry: Entry) -> Bool {
+            if case .event = entry { return true }
+            return false
+        }
+
+        private static func resumeControl(_ entry: Entry) {
+            switch entry {
+            case .barrier(let acknowledgement), .clear(let acknowledgement):
+                acknowledgement.resume()
+            case .event, .appLine:
+                break
+            }
+        }
+    }
+
     private struct LogFile {
         let url: URL
         let maxBytes: Int
@@ -426,7 +540,7 @@ public actor AppLog {
     private var processed = 0
     private let presentation = DiagnosticEventPresentation()
     private let timestampFormatter: ISO8601DateFormatter
-    private let ingress: AsyncStream<Entry>.Continuation
+    private let ingress: EntryIngress
 
     /// Create a log writing to the given locations. Passing `nil` for a URL
     /// disables that file (used by tests exercising one file at a time).
@@ -463,16 +577,16 @@ public actor AppLog {
                 now: now
             )
         }
-        let (stream, continuation) = AsyncStream<Entry>.makeStream(
-            bufferingPolicy: .bufferingNewest(2048)
-        )
-        ingress = continuation
+        let ingress = EntryIngress()
+        self.ingress = ingress
         // The drain holds self only across one write; when the log deallocs,
-        // `deinit` finishes the stream and the loop ends on its own.
+        // `deinit` finishes ingress and the loop ends on its own.
         Task { [weak self] in
-            for await entry in stream {
-                guard let self else { return }
-                await self.write(entry)
+            while let batch = await ingress.nextBatch() {
+                for entry in batch {
+                    guard let self else { return }
+                    await self.write(entry)
+                }
             }
         }
     }
@@ -485,14 +599,14 @@ public actor AppLog {
     /// from the ``DiagnosticLog`` event tap (which runs on the ring's drain
     /// task and must not block).
     public nonisolated func ingest(_ event: DiagnosticEvent) {
-        ingress.yield(.event(event, wall: Date()))
+        ingress.enqueue(.event(event, wall: Date()))
     }
 
     /// Mirror one free-text debug-log line into the app file. The caller owns
     /// the privacy gating (the string debug log only produces lines in DEBUG
     /// or behind the user's verbose opt-in).
     public nonisolated func mirrorAppLine(_ line: String) {
-        ingress.yield(.appLine(line, wall: Date()))
+        ingress.enqueue(.appLine(line, wall: Date()))
     }
 
     /// The total number of entries the drain task has written. Never
@@ -535,7 +649,7 @@ public actor AppLog {
     /// member, so rotation history never turns into extra files in the export.
     public func exportLogs() async -> URL? {
         await withCheckedContinuation { acknowledgement in
-            ingress.yield(.barrier(acknowledgement))
+            ingress.enqueue(.barrier(acknowledgement))
         }
 
         let appData = mergedData(for: appFile?.url)
@@ -551,7 +665,7 @@ public actor AppLog {
     /// cannot be undone by an older write still waiting in the ingress stream.
     public func clear() async {
         await withCheckedContinuation { acknowledgement in
-            ingress.yield(.clear(acknowledgement))
+            ingress.enqueue(.clear(acknowledgement))
         }
     }
 
@@ -668,13 +782,20 @@ public actor AppLog {
         appendUInt16(UInt16(truncatingIfNeeded: value >> 16), to: &data)
     }
 
+    private static let crc32Table: [UInt32] = (0..<256).map { index in
+        var value = UInt32(index)
+        for _ in 0..<8 {
+            value = (value >> 1) ^ (0xedb8_8320 &* (value & 1))
+        }
+        return value
+    }
+
     private static func crc32(_ data: Data) -> UInt32 {
         var checksum: UInt32 = 0xffff_ffff
+        let table = crc32Table
         for byte in data {
-            checksum ^= UInt32(byte)
-            for _ in 0..<8 {
-                checksum = (checksum >> 1) ^ (0xedb8_8320 &* (checksum & 1))
-            }
+            let index = Int((checksum ^ UInt32(byte)) & 0xff)
+            checksum = (checksum >> 8) ^ table[index]
         }
         return ~checksum
     }

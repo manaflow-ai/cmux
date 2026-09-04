@@ -164,7 +164,7 @@ import Testing
             fileHeader: "h"
         )
         await sink.append("before clear")
-        await sink.clearPersistedLog()
+        #expect(await sink.clearPersistedLog())
         await sink.append("after clear")
 
         let current = try String(contentsOf: logURL, encoding: .utf8)

@@ -58,9 +58,12 @@ public struct MobileDebugLog: Sendable {
     }
 
     /// Clears both the in-memory buffer and the durable verbose-log file.
-    public func clearPersistedLog() async {
+    @discardableResult
+    public func clearPersistedLog() async -> Bool {
         await sink.clear()
-        await sink.clearPersistedLog()
+        let isFileLoggingEnabled = await sink.clearPersistedLog()
+        UserDefaults.standard.set(isFileLoggingEnabled, forKey: Self.verboseLogDefaultsKey)
+        return isFileLoggingEnabled
     }
 
     /// File location for the durable iOS debug log.

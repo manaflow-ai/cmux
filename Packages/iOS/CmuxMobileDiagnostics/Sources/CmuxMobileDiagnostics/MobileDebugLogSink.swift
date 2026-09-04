@@ -143,10 +143,15 @@ public actor MobileDebugLogSink {
     /// Removes the durable verbose-log generations while keeping logging in the
     /// same state. DEBUG builds reopen a fresh file immediately; Release builds
     /// reopen only when the user has enabled verbose logging.
-    public func clearPersistedLog() {
+    @discardableResult
+    public func clearPersistedLog() -> Bool {
         let shouldReopen = fileLoggingEnabled
         closeFileHandle()
-        guard let fileURL else { return }
+        guard let fileURL else {
+            fileLoggingEnabled = false
+            fileBytesWritten = 0
+            return false
+        }
 
         let fileManager = FileManager.default
         try? fileManager.removeItem(at: fileURL)
@@ -157,7 +162,7 @@ public actor MobileDebugLogSink {
         else {
             fileLoggingEnabled = false
             fileBytesWritten = 0
-            return
+            return false
         }
         fileHandle = openedLogFile.fileHandle
         fileBytesWritten = openedLogFile.byteCount
@@ -169,6 +174,7 @@ public actor MobileDebugLogSink {
             )
         }
         #endif
+        return true
     }
 
     /// A live stream of every line appended after subscription.

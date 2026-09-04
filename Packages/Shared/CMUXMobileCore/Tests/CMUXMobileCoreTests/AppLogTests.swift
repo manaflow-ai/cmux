@@ -139,7 +139,8 @@ import Testing
         try await waitForProcessed(log, 1)
         log.mirrorAppLine(String(repeating: "x", count: 200))
         try await waitForProcessed(log, 2)
-        #expect(!AppLog.logFileURLs(for: appURL).isEmpty)
+        let beforeClear = AppLog.logFileURLs(for: appURL)
+        #expect(beforeClear.contains { $0 != appURL })
 
         await log.clear()
         let generations = AppLog.logFileURLs(for: appURL)

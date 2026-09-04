@@ -4060,7 +4060,7 @@ final class cmuxUITests: XCTestCase {
         exportLogs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         let activityList = app.otherElements["ActivityListView"]
         let shareSheetPresented = activityList.waitForExistence(timeout: 4)
-            || app.sheets.firstMatch.exists
+            || app.sheets.firstMatch.waitForExistence(timeout: 4)
         XCTAssertTrue(
             shareSheetPresented,
             "Tapping Export Logs must present the share sheet."
