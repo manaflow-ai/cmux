@@ -180,6 +180,7 @@ var eventMetadata = map[string]EventMetadata{
 	"client-list-invalidated":     {Name: "client-list-invalidated", Since: 9, Capability: "", Streams: []string{"subscribe"}, Emission: "serialized-never-emitted"},
 	"colors-changed":              {Name: "colors-changed", Since: 6, Capability: "", Streams: []string{"attach-byte"}, Emission: "emitted"},
 	"config-reload-requested":     {Name: "config-reload-requested", Since: 6, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
+	"daemon-shutdown":             {Name: "daemon-shutdown", Since: 12, Capability: "", Streams: []string{"control"}, Emission: "emitted"},
 	"detached":                    {Name: "detached", Since: 5, Capability: "", Streams: []string{"attach-byte", "attach-render", "attach-browser"}, Emission: "emitted"},
 	"empty":                       {Name: "empty", Since: 5, Capability: "", Streams: []string{"subscribe"}, Emission: "emitted"},
 	"frame":                       {Name: "frame", Since: 6, Capability: "", Streams: []string{"attach-browser"}, Emission: "emitted"},
@@ -374,7 +375,7 @@ func AllCommandMetadata() []CommandMetadata {
 }
 
 func AllEventMetadata() []EventMetadata {
-	result := make([]EventMetadata, 0, 47)
+	result := make([]EventMetadata, 0, 48)
 	var metadata EventMetadata
 	metadata = eventMetadata["agent-changed"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
@@ -401,6 +402,9 @@ func AllEventMetadata() []EventMetadata {
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["config-reload-requested"]
+	metadata.Streams = append([]string(nil), metadata.Streams...)
+	result = append(result, metadata)
+	metadata = eventMetadata["daemon-shutdown"]
 	metadata.Streams = append([]string(nil), metadata.Streams...)
 	result = append(result, metadata)
 	metadata = eventMetadata["detached"]

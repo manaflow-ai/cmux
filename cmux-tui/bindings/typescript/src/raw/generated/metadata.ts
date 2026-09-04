@@ -1361,6 +1361,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "daemon-shutdown": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "detached": {
     "since": 5,
     "capability": null,
@@ -11583,6 +11591,20 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "config-reload-requested"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "daemon-shutdown": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "daemon-shutdown"
         }
       }
     },

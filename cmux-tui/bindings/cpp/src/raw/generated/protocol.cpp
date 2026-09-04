@@ -13911,6 +13911,29 @@ Result<ConfigReloadRequestedEvent> Codec<ConfigReloadRequestedEvent>::decode(con
     return result;
 }
 
+Result<Json> Codec<DaemonShutdownEvent>::encode(const DaemonShutdownEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("daemon-shutdown")));
+    return Json(std::move(object));
+}
+
+Result<DaemonShutdownEvent> Codec<DaemonShutdownEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    DaemonShutdownEvent result{};
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("daemon-shutdown"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<DetachedEvent>::encode(const DetachedEvent& value) {
     (void)value;
     Json::Object object;
@@ -17895,6 +17918,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "daemon-shutdown") {
+        auto decoded = decode_value<DaemonShutdownEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "detached") {
         auto decoded = decode_value<DetachedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -18261,7 +18289,7 @@ constexpr std::array<CommandMetadata, 106> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 47> kEvents{{
+constexpr std::array<EventMetadata, 48> kEvents{{
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"bell", 5U, "", "subscribe", "emitted"},
     {"browser-state", 6U, "", "attach-browser", "emitted"},
@@ -18271,6 +18299,7 @@ constexpr std::array<EventMetadata, 47> kEvents{{
     {"client-list-invalidated", 9U, "", "subscribe", "serialized-never-emitted"},
     {"colors-changed", 6U, "", "attach-byte", "emitted"},
     {"config-reload-requested", 6U, "", "subscribe", "emitted"},
+    {"daemon-shutdown", 12U, "", "control", "emitted"},
     {"detached", 5U, "", "attach-byte,attach-render,attach-browser", "emitted"},
     {"empty", 5U, "", "subscribe", "emitted"},
     {"frame", 6U, "", "attach-browser", "emitted"},

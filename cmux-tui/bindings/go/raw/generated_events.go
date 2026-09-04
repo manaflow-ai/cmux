@@ -766,6 +766,34 @@ func (ConfigReloadRequestedEvent) EventName() string { return "config-reload-req
 func (ConfigReloadRequestedEvent) isDeltaEvent()     {}
 func (ConfigReloadRequestedEvent) isSubscribeEvent() {}
 
+// DaemonShutdownEvent is emitted by protocol v12.
+type DaemonShutdownEvent struct {
+}
+
+func (value *DaemonShutdownEvent) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode DaemonShutdownEvent: expected object")
+	}
+	var fields struct {
+		Event *string `json:"event"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode DaemonShutdownEvent: %w", err)
+	}
+	if fields.Event == nil {
+		return fmt.Errorf("decode DaemonShutdownEvent: required field event is missing or null")
+	}
+	if *fields.Event != "daemon-shutdown" {
+		return fmt.Errorf("decode DaemonShutdownEvent.event: invalid value %q", *fields.Event)
+	}
+	type wire DaemonShutdownEvent
+	var decoded wire
+	*value = DaemonShutdownEvent(decoded)
+	return nil
+}
+
+func (DaemonShutdownEvent) EventName() string { return "daemon-shutdown" }
+
 // DetachedEvent is emitted by protocol v5.
 type DetachedEvent struct {
 	Surface ID `json:"surface"`
@@ -3035,6 +3063,11 @@ func parseEvent(raw map[string]any) Event {
 		}
 	case "config-reload-requested":
 		var event ConfigReloadRequestedEvent
+		if decodeEvent(raw, &event) {
+			return event
+		}
+	case "daemon-shutdown":
+		var event DaemonShutdownEvent
 		if decodeEvent(raw, &event) {
 			return event
 		}

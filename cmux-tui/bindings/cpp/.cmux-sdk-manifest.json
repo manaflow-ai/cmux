@@ -7,8 +7,8 @@
     },
     {
       "path": "include/cmux/raw/generated/events.hpp",
-      "sha256": "fa3ed22df69da5fda05170d0902ed14d5a40cdf0e0d639cc8d18bfb92861e595",
-      "size": 2031
+      "sha256": "674427059469e0c5a85579e12bdc3a6a83342328cd783af6dc8cef26500ce13d",
+      "size": 2052
     },
     {
       "path": "include/cmux/raw/generated/models.hpp",

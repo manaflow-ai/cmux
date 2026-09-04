@@ -15,6 +15,15 @@ env:
   CREATE_DMG_VERSION: 8.0.0
 
 jobs:
+  generate-ios-screenshots:
+    name: Generate iOS App Store screenshots
+    uses: ./.github/workflows/ios-screenshots.yml
+    with:
+      ref: ${{ github.ref }}
+      languages: "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja"
+      upload: false
+    secrets: inherit
+
   build-ghostty-cli-helper:
     runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
@@ -63,7 +72,9 @@ jobs:
           retention-days: 3
 
   build-sign-notarize:
-    needs: build-ghostty-cli-helper
+    needs:
+      - build-ghostty-cli-helper
+      - generate-ios-screenshots
     # Build the app on macOS 26 so SDK-gated SwiftUI Liquid Glass code compiles
     # into stable releases. The real universal Ghostty CLI helper is built on
     # macOS 15 above because Zig 0.15.2 cannot link it on macOS 26.

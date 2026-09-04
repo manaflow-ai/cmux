@@ -73,6 +73,10 @@ export type ColorsChangedEvent = { event: "colors-changed" } & {
 export type ConfigReloadRequestedEvent = { event: "config-reload-requested" } & {
 };
 
+/** Protocol v12; emission: emitted; streams: control. */
+export type DaemonShutdownEvent = { event: "daemon-shutdown" } & {
+};
+
 /** Protocol v5; emission: emitted; streams: attach-byte, attach-render, attach-browser. */
 export type DetachedEvent = { event: "detached" } & {
   "surface": T.Id;
@@ -406,6 +410,7 @@ export type KnownCmuxEvent =
   | ClientDetachedEvent
   | ColorsChangedEvent
   | ConfigReloadRequestedEvent
+  | DaemonShutdownEvent
   | DetachedEvent
   | EmptyEvent
   | FrameEvent

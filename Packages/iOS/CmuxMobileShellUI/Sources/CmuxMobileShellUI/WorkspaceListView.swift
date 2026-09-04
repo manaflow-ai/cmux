@@ -968,7 +968,9 @@ struct WorkspaceListView: View {
         Button {
             presentComputers()
         } label: {
-            Image(systemName: "desktopcomputer")
+            MobileDevicesToolbarLabel(
+                hasGateWarning: store?.hasMacVersionUpdateRequired ?? false
+            )
         }
         .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
         .accessibilityIdentifier("MobileWorkspaceDevicesButton")

@@ -10789,6 +10789,28 @@
     "additional_properties": false
    }
   },
+  "daemon-shutdown": {
+   "since": 12,
+   "capability": null,
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "daemon-shutdown"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
   "detached": {
    "since": 5,
    "capability": null,

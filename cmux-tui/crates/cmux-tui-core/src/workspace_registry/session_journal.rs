@@ -1,10 +1,10 @@
 use super::*;
 use base64::Engine;
-use flate2::read::GzDecoder;
+use flate2::bufread::GzDecoder;
 use rusqlite::Row;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
-use std::io::{BufReader, Read, Result as IoResult};
+use std::io::{BufRead, BufReader, Read, Result as IoResult};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -1449,6 +1449,8 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
+    // Feed the in-memory slice directly to the buffered decoder so its
+    // returned reader is the exact unread compressed suffix.
     let decoder = GzDecoder::new(compressed.as_slice());
     // Decode directly from the bounded gzip stream. This avoids allocating a
     // second buffer the size of the complete segment before JSON parsing.
@@ -1470,12 +1472,16 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
             "journal segment {segment_id} contains trailing data"
         );
     }
+    let (limited_decoder, bytes_read, digest) = reader.into_inner().finish();
+    let decoder = limited_decoder.into_inner();
+    let mut compressed_reader = decoder.into_inner();
     anyhow::ensure!(
-        reader.get_ref().bytes_read == expected_bytes,
-        "journal segment {segment_id} length is invalid"
+        compressed_reader.fill_buf()?.is_empty(),
+        "journal segment {segment_id} contains trailing compressed data"
     );
+    anyhow::ensure!(bytes_read == expected_bytes, "journal segment {segment_id} length is invalid");
     anyhow::ensure!(
-        reader.into_inner().digest().as_slice() == expected_digest.as_slice(),
+        digest.as_slice() == expected_digest.as_slice(),
         "journal segment {segment_id} digest is invalid"
     );
     for record in &mut records {
@@ -1509,8 +1515,8 @@ impl<R: Read> DigestReader<R> {
     fn new(inner: R) -> Self {
         Self { inner, hasher: Sha256::new(), bytes_read: 0 }
     }
-    fn digest(self) -> sha2::digest::Output<Sha256> {
-        self.hasher.finalize()
+    fn finish(self) -> (R, usize, sha2::digest::Output<Sha256>) {
+        (self.inner, self.bytes_read, self.hasher.finalize())
     }
 }
 impl<R: Read> Read for DigestReader<R> {
@@ -2323,6 +2329,72 @@ mod tests {
 
         let error = registry.session_journal_after(0, 10).unwrap_err();
         assert!(error.to_string().contains("record count"), "{error:#}");
+    }
+
+    #[test]
+    fn archived_segment_rejects_trailing_compressed_data() {
+        let mut trailing_encoder =
+            flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+        trailing_encoder.write_all(b"ignored").unwrap();
+        let trailing_member = trailing_encoder.finish().unwrap();
+        let variants = [("gzip member", trailing_member), ("non-gzip bytes", b"trailing".to_vec())];
+
+        for (label, suffix) in variants {
+            let mut registry = WorkspaceRegistry::in_memory("segment-trailing").unwrap();
+            let result = serde_json::json!({"focused":true});
+            let tx = registry.connection.transaction().unwrap();
+            tx.execute("UPDATE meta SET value = '1' WHERE key = 'resource_revision'", []).unwrap();
+            append_resource_journal_record(
+                &tx,
+                1,
+                0,
+                "segment-test",
+                "segment-record-1",
+                "pane.focus",
+                None,
+                &result,
+                &serde_json::json!([]),
+            )
+            .unwrap();
+            tx.commit().unwrap();
+
+            let records = registry.session_journal_after(0, 10).unwrap().records;
+            let uncompressed = serde_json::to_vec(&records).unwrap();
+            let digest = Sha256::digest(&uncompressed);
+            let mut encoder =
+                flate2::GzBuilder::new().mtime(0).write(Vec::new(), flate2::Compression::fast());
+            encoder.write_all(&uncompressed).unwrap();
+            let mut compressed = encoder.finish().unwrap();
+            compressed.extend_from_slice(&suffix);
+            registry
+                .connection
+                .execute(
+                    "INSERT INTO journal_segments(
+                       segment_id, start_sequence, end_sequence, record_count, codec, content,
+                       uncompressed_bytes, sha256, sealed_at_ms
+                     ) VALUES(?1, 1, 1, 1, 'gzip-json-v1', ?2, ?3, ?4, 1)",
+                    params![
+                        format!("segment_bad_trailing_{label}"),
+                        compressed,
+                        i64::try_from(uncompressed.len()).unwrap(),
+                        digest.as_slice()
+                    ],
+                )
+                .unwrap();
+            registry
+                .connection
+                .execute_batch(
+                    "DROP TRIGGER session_journal_reject_delete;
+                     DELETE FROM session_journal;
+                     CREATE TRIGGER session_journal_reject_delete
+                       BEFORE DELETE ON session_journal
+                     BEGIN SELECT RAISE(ABORT, 'session journal is append-only'); END;",
+                )
+                .unwrap();
+
+            let error = registry.session_journal_after(0, 10).unwrap_err();
+            assert!(error.to_string().contains("trailing compressed data"), "{label}: {error:#}");
+        }
     }
 
     #[test]

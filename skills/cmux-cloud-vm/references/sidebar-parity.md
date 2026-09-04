@@ -28,7 +28,8 @@ Workspace row › **Open Workspace** (not open yet), click, Return | `cmux vm wo
 Drag a workspace row onto a pane edge | `cmux vm workspace open <m> <ws> --pane <p> --left\|--right\|--up\|--down` | `vm.workspace_open {here, pane_id, direction}` | ✅
 Workspace row › **Close Workspace…**, hover × (confirms when it has terminals) | `cmux vm workspace rm <m> <ws>` | `vm.workspace_delete` | ✅ same `CloudTreeNodeActions.deleteWorkspaceAndTerminals`: kills every terminal viewed there, then closes it — a closed workspace never leaves stray pool rows
 (no menu verb — CLI only) | `cmux vm workspace close <m> <ws>` | `vm.workspace_close` | ✅ the protocol's keep-terminals close: they keep running (only `terminal close` kills) and, their workspace being gone, show in Terminals greyed as "detached"
-Workspace row › **Rename…** | `cmux vm workspace rename <m> <ws> <name>` | `vm.workspace_rename` | ✅ same `provider.renameRemoteWorkspace`
+Workspace row › **Rename…** | `cmux vm workspace rename <m> <ws> <name>` | `vm.workspace_rename` | ✅ same `SurfaceCatalog` machine-scoped rename lane
+Terminal row / tab view › **Rename…** | `cmux vm tab rename <m> <tab> <name>` or `cmux vm terminal rename <m> <term> <name>` (`""` clears the custom label) | `vm.tab_rename` / `vm.terminal_rename` | ✅ exact placement or explicit all-views fan-out through `SurfaceCatalog`
 Workspace row › **Copy Workspace ID** | `cmux vm tree --json` (`remote_workspace.id`) | `vm.tree` | ✅
 Terminal / browser / display row click, **Open** | `cmux surface open <resource>` (reuses an open pane) / `cmux vm open <m>/<ws>/<term>` | `surface.project` | ✅
 Row › **Open in New Tab** | `cmux surface open <resource> --pane <p> --tab` | `surface.project {placement: tab}` | ✅

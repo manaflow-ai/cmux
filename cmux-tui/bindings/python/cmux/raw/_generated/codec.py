@@ -232,6 +232,7 @@ MODEL_BY_PATH = {
     'events/client-list-invalidated/payload': models.ClientListInvalidatedEvent,
     'events/colors-changed/payload': models.ColorsChangedEvent,
     'events/config-reload-requested/payload': models.ConfigReloadRequestedEvent,
+    'events/daemon-shutdown/payload': models.DaemonShutdownEvent,
     'events/detached/payload': models.DetachedEvent,
     'events/empty/payload': models.EmptyEvent,
     'events/frame/payload': models.FrameEvent,

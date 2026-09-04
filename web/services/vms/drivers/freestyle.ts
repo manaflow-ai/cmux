@@ -24,6 +24,7 @@ import {
   type ExecResult,
   type ProviderNetwork,
   type ProviderTunnel,
+  type ProviderTunnelCreateResult,
   type RestoreOptions,
   type SSHEndpoint,
   type SnapshotRef,
@@ -34,7 +35,12 @@ import {
   type VMResizeOptions,
   type VMStatus,
 } from "./types";
-import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
+import {
+  PLAN_MACHINE_MEMORY_MB,
+  VM_DISK_MB_DEFAULT,
+  vcpusForMemoryMb,
+  vmDiskMb,
+} from "../machineSpec";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
   DEVBOX_DESKTOP_START_SCRIPT,
@@ -63,10 +69,10 @@ import {
 } from "./cmuxTuiDaemon";
 
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
-// freestyle@0.2.x). This is the only Freestyle arm: the legacy 0.1.x platform
-// (SSH gateway, cmuxd-remote WebSocket PTY on 7777) has been removed,
-// so every Freestyle machine now attaches the same way every other cmux Cloud
-// machine does.
+// freestyle@0.2.x). This is the only Freestyle arm. The platform also exposes
+// a scoped SSH proxy (`beta-ssh.freestyle.sh`), but SSH is an unmanaged provider
+// session and cannot carry cmux's workspace graph or revision protocol. Every
+// cmux Cloud session therefore uses the cmux-tui daemon below.
 //
 // Machines attach through the cmux-tui remote daemon (transport `cmux-remote`,
 // docs/cloud-cmux-tui-daemon.md). The API has
@@ -97,8 +103,9 @@ import {
 // cmux-tui build and the cmux-tui-daemon systemd unit, and its supervisor
 // (services/vms/images/devbox/cmux-devbox-boot) starts the daemon with a
 // fresh identity as soon as the machine resumes, keyed on the platform
-// instance id. Create is therefore `vms.create`, the grow-only resize, and one
-// file write; attach heals a daemon that is not yet, or no longer, listening.
+// instance id. Create is therefore `vms.create` and the grow-only resize; the
+// image-bake step owns the static model-plane file. Attach heals a daemon that
+// is not yet, or no longer, listening.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform adds
@@ -396,6 +403,128 @@ export function mapFreestyleTunnel(data: TunnelData, networkId: string): Provide
   };
 }
 
+type FreestyleTunnelOperations = {
+  readonly create: (options: {
+    readonly slug?: string;
+    readonly displayName?: string;
+    readonly clientPublicKey?: string;
+    readonly routes?: string[];
+    readonly vpcs?: { readonly vpcId?: string; readonly vpc?: string }[];
+  }) => Promise<TunnelData>;
+  readonly get: (tunnelIdOrSlug: string) => Promise<TunnelData>;
+  readonly attachVpc: (tunnelIdOrSlug: string, vpcIdOrSlug: string) => Promise<TunnelData>;
+  readonly rotateKey: (
+    tunnelIdOrSlug: string,
+    options: { readonly clientPublicKey?: string },
+  ) => Promise<TunnelData>;
+};
+
+function isTunnelSlugConflict(error: unknown): boolean {
+  return error instanceof FreestyleApiError && error.status === 409 && error.code === "CONFLICT";
+}
+
+function hasVPCAttachment(data: TunnelData, networkId: string): boolean {
+  return data.attachments.some((attachment) => attachment.vpcId === networkId);
+}
+
+/**
+ * A process-local queue for one provider slug. The durable database lease is
+ * the cross-instance fence; this queue closes the smaller window between two
+ * requests in one warm server process and makes the helper linearizable in
+ * unit tests and local development. The queue promise never rejects, so one
+ * failed provider call cannot strand later work behind it.
+ */
+const freestyleTunnelMutationTails = new Map<string, Promise<void>>();
+
+async function withFreestyleTunnelMutation<T>(slug: string, operation: () => Promise<T>): Promise<T> {
+  const previous = freestyleTunnelMutationTails.get(slug) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => current);
+  freestyleTunnelMutationTails.set(slug, tail);
+  try {
+    await previous.catch(() => undefined);
+    return await operation();
+  } finally {
+    release();
+    if (freestyleTunnelMutationTails.get(slug) === tail) {
+      freestyleTunnelMutationTails.delete(slug);
+    }
+  }
+}
+
+/**
+ * Create one device tunnel, or recover the provider resource when a previous
+ * request committed it before the control-plane row did. Freestyle addresses
+ * tunnels by slug, so a conflict is a durable idempotency signal, not a reason
+ * to return a retryable 502 or create a second device identity.
+ */
+export async function createOrReuseFreestyleTunnel(
+  tunnels: FreestyleTunnelOperations,
+  options: CreateProviderTunnelOptions,
+): Promise<ProviderTunnelCreateResult> {
+  const slug = options.slug.trim();
+  const clientPublicKey = options.clientPublicKey.trim();
+  if (!slug) throw new Error("createOrReuseFreestyleTunnel requires a slug");
+  if (!clientPublicKey) throw new Error("createOrReuseFreestyleTunnel requires a client public key");
+
+  return withFreestyleTunnelMutation(slug, async () => {
+    try {
+      const data = await tunnels.create({
+        slug,
+        displayName: options.displayName,
+        clientPublicKey,
+        vpcs: [{ vpcId: options.networkId }],
+      });
+      return {
+        tunnel: mapFreestyleTunnel(data, options.networkId),
+        created: true,
+        rotated: false,
+      };
+    } catch (error) {
+      if (!isTunnelSlugConflict(error)) throw error;
+
+      // The create may have succeeded in an earlier request whose DB write was
+      // interrupted. Read by the deterministic slug, repair the requested
+      // attachment, then rotate only when this installation's key changed.
+      let data = await tunnels.get(slug);
+      if (!hasVPCAttachment(data, options.networkId)) {
+        data = await tunnels.attachVpc(slug, options.networkId);
+      }
+      let rotated = false;
+      if (data.clientPublicKey.trim() !== clientPublicKey) {
+        data = await tunnels.rotateKey(slug, { clientPublicKey });
+        rotated = true;
+        // Freestyle preserves attachments during rotation. Keep the invariant
+        // explicit in case an older API response omits one from the result.
+        if (!hasVPCAttachment(data, options.networkId)) {
+          data = await tunnels.attachVpc(slug, options.networkId);
+        }
+      }
+
+      // A mutation response is not the provider's concurrency fence. Read the
+      // slug once more before returning so a stale or partial response cannot
+      // be persisted as the device's current key or network attachment. If a
+      // different process changed the key after our durable lease expired,
+      // fail closed and let the caller retry instead of writing a false row.
+      const verified = await tunnels.get(slug);
+      if (!hasVPCAttachment(verified, options.networkId)) {
+        throw new Error(`Freestyle tunnel ${slug} could not attach VPC ${options.networkId}`);
+      }
+      if (verified.clientPublicKey.trim() !== clientPublicKey) {
+        throw new Error(`Freestyle tunnel ${slug} changed concurrently; retry enrollment`);
+      }
+      return {
+        tunnel: mapFreestyleTunnel(verified, options.networkId),
+        created: false,
+        rotated,
+      };
+    }
+  });
+}
+
 /**
  * Inline `tls` rules for a create: egress from the new VM (`source: {}`) to
  * the domain's real origin, with the edge injecting the rule's headers into
@@ -608,6 +737,15 @@ export async function recoverFreestyleTunnelAfterConflict(
 }
 
 /**
+ * A VPC slug conflict is the only provider failure that means another request
+ * won the create race. Status and code are both checked because a 409 also
+ * represents unrelated provider conflicts, which must remain visible.
+ */
+function isVpcSlugConflict(err: unknown): boolean {
+  return err instanceof FreestyleApiError && err.status === 409 && err.code === "CONFLICT";
+}
+
+/**
  * The Freestyle-side half of cmux private networking: one VPC per owner, and
  * one WireGuard tunnel per owner's computer attached to it.
  *
@@ -653,15 +791,22 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
           setSpanAttributes(span, { "cmux.vm.network.id": data.id, "cmux.vm.network.created": true });
           return mapFreestyleNetwork(data);
         } catch (err) {
-          // The slug is unique per account: the loser of a race, or a create
-          // for a user whose row was lost, is told the name is taken, and the
-          // existing network is the right answer.
-          const existing = await this.readNetworkBySlug(fs, slug);
-          if (existing) {
-            setSpanAttributes(span, { "cmux.vm.network.id": existing.id, "cmux.vm.network.created": false });
-            return existing;
+          // Two machines created at once both miss the read and both create.
+          // Reconcile only the documented slug conflict. A 401, 403, 429, or
+          // 5xx must not be hidden by a coincidental stale network lookup.
+          if (!isVpcSlugConflict(err)) {
+            throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
           }
-          throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
+          const raced = await this.readNetworkBySlug(fs, slug);
+          if (!raced) {
+            throw new ProviderError("freestyle", `ensureNetwork(${slug})`, err);
+          }
+          // The winner may have created the VPC without its rule, or an
+          // operator may have removed it between create and this read. Heal the
+          // winner before returning it, otherwise the next VM is unreachable.
+          await this.ensureMembersRule(fs, raced.id);
+          setSpanAttributes(span, { "cmux.vm.network.id": raced.id, "cmux.vm.network.created": false });
+          return raced;
         }
       },
     );
@@ -685,11 +830,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
     }
   }
 
-  async createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnel> {
-    const clientPublicKey = options.clientPublicKey.trim();
-    if (!clientPublicKey) {
-      throw new ProviderError("freestyle", "createTunnel requires the client's public key");
-    }
+  async createTunnel(options: CreateProviderTunnelOptions): Promise<ProviderTunnelCreateResult> {
     return withVmSpan(
       "cmux.vm.provider.create_tunnel",
       {
@@ -709,9 +850,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
             clientPublicKey,
             vpcs: [{ vpcId: options.networkId }],
           });
-          const tunnel = mapFreestyleTunnel(data, options.networkId);
-          setSpanAttributes(span, { "cmux.vm.tunnel.id": tunnel.id });
-          return tunnel;
+          return result;
         } catch (err) {
           // A previous request can commit the provider tunnel and lose the
           // response before our database row is inserted (the exact recovery
@@ -785,9 +924,9 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
 
   /**
    * Guarantee the network's members-reach-each-other rule (all ports, all
-   * protocols — the rule created with the network). Missing means someone
-   * removed it; re-create rather than fail, because nothing on the network
-   * works without it.
+   * protocols, the rule created with the network). Missing means someone removed
+   * it, so re-create it. A provider error is fatal: continuing would create a
+   * machine that the owner's tunnel cannot reach.
    */
   private async ensureMembersRule(fs: Freestyle, networkId: string): Promise<void> {
     try {
@@ -806,10 +945,7 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         description: "cmux: members reach each other (healed)",
       });
     } catch (err) {
-      // Heal is best-effort on the reuse path: a transient listing failure
-      // must not block machine creation on a network that is almost always
-      // already correct.
-      console.error(`[freestyle] members-rule heal failed for ${networkId}`, err);
+      throw new ProviderError("freestyle", `ensureMembersRule(${networkId})`, err);
     }
   }
 
@@ -891,19 +1027,30 @@ export class FreestyleProvider implements VMProvider {
           });
           try {
             if (options.imageSize) {
-              // One snapshot per size: the machine already boots at the shape
-              // that was sold, so nothing is read back and nothing is grown.
+              // One snapshot per CPU/memory size: preserve that baked shape,
+              // then grow only storage when the image is below the documented
+              // 32 GB starting disk.
               setSpanAttributes(span, {
                 "cmux.vm.image_size": options.imageSize.name,
                 "cmux.vm.resources.cpu": options.imageSize.cpu,
                 "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
-                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
-                "cmux.vm.resize.requested": false,
               });
+              await this.growToRequestedSize(
+                fs,
+                vm,
+                vmId,
+                undefined,
+                span,
+                {
+                  cpu: options.imageSize.cpu,
+                  memory: options.imageSize.memoryMb,
+                  storage: Math.max(VM_DISK_MB_DEFAULT, options.imageSize.storageMb, vmDiskMb()),
+                },
+              );
             } else {
               // A size-less image boots at its snapshot's resources and only a
-              // grow-only resize raises them. Size first so the machine the
-              // daemon comes up on is the one that was sold.
+              // grow-only resize raises them. Size first so the daemon comes
+              // up on the provider profile requested by the server.
               await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
             }
             // The baked supervisor is already bringing the daemon up; the only
@@ -911,7 +1058,7 @@ export class FreestyleProvider implements VMProvider {
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
-            // the plan machine.
+            // the provider sizing profile.
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
             });
@@ -942,8 +1089,8 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /**
-   * Grow the VM to the requested memory (the plan machine when the caller
-   * sent none), the vCPUs that memory implies, and the plan disk. Freestyle
+   * Grow the VM to the requested memory (the provider profile when the caller
+   * sent none), the vCPUs that memory implies, and the starting disk. Freestyle
    * resize is grow-only, so only larger dimensions are sent; a snapshot that
    * already carries the size is a no-op.
    */
@@ -953,9 +1100,10 @@ export class FreestyleProvider implements VMProvider {
     vmId: string,
     memoryMb: number | undefined,
     span: Parameters<typeof setSpanAttributes>[0],
+    targetResources?: VmResources,
   ): Promise<void> {
     const current = (await fs.vms.get(vmId)).resources;
-    const target = freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
+    const target = targetResources ?? freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
     const request = freestyleResizeRequest(current, target);
     setSpanAttributes(span, {
       "cmux.vm.resources.cpu": target.cpu,
@@ -1169,13 +1317,6 @@ export class FreestyleProvider implements VMProvider {
           // are mandatory: a snapshot never carries a token, so the restored
           // machine is unusable until its own injection is live.
           await this.ensureCmuxTuiRunning(vm, vmId).catch(() => undefined);
-          try {
-          } catch (err) {
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
-            throw err;
-          }
           return {
             provider: "freestyle" as const,
             providerVmId: vmId,
@@ -1366,8 +1507,8 @@ export class FreestyleProvider implements VMProvider {
       async () => {
         throw new ProviderError(
           "freestyle",
-          "Freestyle machines have no SSH gateway on the public platform. " +
-            "They attach through the cmux-tui remote daemon (transport cmux-remote).",
+          "Freestyle provides scoped SSH for unmanaged access, but managed Cloud VM sessions " +
+            "use the cmux-tui remote daemon (transport cmux-remote).",
         );
       },
     );
@@ -1434,7 +1575,7 @@ export class FreestyleProvider implements VMProvider {
   }
 }
 
-/** The resources a machine of `memoryMb` is sold with (see entitlements.ts). */
+/** The provider resources each machine receives for `memoryMb` (see entitlements.ts). */
 export function freestyleTargetResources(
   memoryMb: number,
   env: Record<string, string | undefined> = process.env,

@@ -130,7 +130,7 @@ test "package consumer imports handwritten root and generated raw module" {
         cmux.raw.protocol.command_count,
     );
     try std.testing.expectEqual(
-        @as(usize, 47),
+        @as(usize, 48),
         cmux.raw.protocol.event_count,
     );
     try std.testing.expect(

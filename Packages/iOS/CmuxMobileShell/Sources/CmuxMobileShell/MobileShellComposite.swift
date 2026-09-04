@@ -1045,6 +1045,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``MobileMacCompatPolicy/baked`` fallback; the app root replaces it
     /// with the fetched (or cached) `/api/mobile-mac-compat` list.
     public var macCompatPolicy: MobileMacCompatPolicy = .baked
+    /// Device ids whose last authenticated attempt was refused because the Mac
+    /// is below this iOS build's minimum. The warning remains until that Mac
+    /// successfully authenticates again or the account boundary clears it.
+    private var macVersionUpdateRequiredDeviceIDs: Set<String> = []
+    /// Whether any known Mac needs a cmux update before it can connect.
+    public var hasMacVersionUpdateRequired: Bool {
+        !macVersionUpdateRequiredDeviceIDs.isEmpty
+    }
+    /// Version reported by the currently authenticated foreground Mac. The
+    /// background compatibility refresh uses this to revalidate an already
+    /// connected session if the remote policy becomes stricter.
+    var authenticatedMacAppVersion: String?
+    /// Set when a background policy refresh completes while a Mac is still
+    /// connecting. The first healthy-state transition consumes it so the
+    /// connection cannot finish under the previous policy.
+    var pendingMacCompatibilityPolicyRevalidation = false
     /// Version-gate details captured when a connect route is rejected, so
     /// the end-of-attempt classification names the exact versions instead of
     /// a generic code. Cleared with the pairing error at attempt start.
@@ -2099,6 +2115,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
+        macVersionUpdateRequiredDeviceIDs.removeAll()
         // Wipe every draft so the next account never sees its predecessor's text.
         // Guard the in-memory clear and selection resets so per-terminal hooks do
         // not write partial state into a store we are emptying wholesale.
@@ -2230,6 +2247,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         cancelComputerVisibilityMutations()
+        macVersionUpdateRequiredDeviceIDs.removeAll()
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
@@ -3126,15 +3144,43 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let allMacs = loadedMacs.filter {
             !isHidden($0) && !isDemonstrationPairedMac($0)
         }
-        // Candidate Macs in priority order: the active Mac first, then every
-        // other saved Mac. Rows with no locally usable route stay in the list so
-        // one authenticated registry snapshot can upgrade an older Tailscale
-        // pairing, or recover a route that was never persisted locally.
+        // Reconnect candidates include every saved Computer, but strict
+        // Tailscale owns the recovery pass only for the selected foreground
+        // pairing. When there is no retained foreground identity (for example
+        // launch restore), the store's active row is the selection authority.
+        // A retained key can outlive its row after deletion or scope refresh;
+        // fall back to the current active row instead of letting a stale key
+        // make a selected Tailscale pairing look like an unrelated candidate.
+        let retainedForegroundKey = foregroundOrRecoveryMacKey
+        let retainedForegroundKeyIsPresent = retainedForegroundKey != .anonymousForeground
+            && allMacs.contains { MacPairingKey($0) == retainedForegroundKey }
+        let reconnectSelectionKey: MacPairingKey? =
+            retainedForegroundKeyIsPresent
+                ? retainedForegroundKey
+                : activeMac.map(MacPairingKey.init)
+        // Candidate Macs in priority order: the retained foreground selection,
+        // the store-active Mac, then every other saved Mac. Rows with no locally
+        // usable route stay in the list so one authenticated registry snapshot
+        // can upgrade an older Tailscale pairing, or recover a route that was
+        // never persisted locally.
         var candidates: [MobilePairedMac] = []
-        if let activeMac {
+        // A retained foreground selection is more authoritative than a stale
+        // store-active row. Try it first so another saved Mac cannot connect
+        // successfully and mask a strict Tailscale failure on the selection.
+        if let reconnectSelectionKey,
+           let selectedMac = allMacs.first(where: {
+               MacPairingKey($0) == reconnectSelectionKey
+           }) {
+            candidates.append(selectedMac)
+        }
+        if let activeMac,
+           !candidates.contains(where: { $0.id == activeMac.id }) {
             candidates.append(activeMac)
         }
-        candidates.append(contentsOf: allMacs.filter { $0.id != activeMac?.id })
+        let selectedCandidateIDs = Set(candidates.map(\.id))
+        candidates.append(contentsOf: allMacs.filter { mac in
+            !selectedCandidateIDs.contains(mac.id)
+        })
         // A newer attempt may have started while we awaited the store read; if so,
         // let it own the flags rather than marking ourselves the active reconnect.
         guard generation == storedMacReconnectGeneration else { return .superseded }
@@ -3163,6 +3209,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
         var attemptedAutomaticIroh = false
+        var strictTailscaleFailure = false
         var lastDialOutcome: StoredMacReconnectOutcome = .failed(.noRoute)
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
@@ -3176,12 +3223,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            // Tailscale Only blocks the Iroh lane only for legacy pairings
-            // without an Iroh identity; an identified pairing rides Iroh
-            // pinned to its Tailscale addresses (same lane the terminal
-            // lanes ride, same admission authority).
-            let irohReconnectIsBlocked = (connectionMethod(for: mac) == .tailscale
-                && !mac.routes.contains { $0.kind == .iroh })
+            // Tailscale Only excludes Iroh for every pairing. Automatic may
+            // use Iroh, while Direct has its own address allowlist.
+            let candidateUsesStrictTailscale = connectionMethod(for: mac) == .tailscale
+            let irohReconnectIsBlocked = candidateUsesStrictTailscale
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
@@ -3200,8 +3245,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && mac.routes.contains { $0.kind == .tailscale }
 
             // Raw Tailscale/TCP is bearer-capable only for an exact local route
-            // grandfathered during the v7-to-v8 migration. Every fresh, changed,
-            // restored, or registry route remains a hint for discovering Iroh.
+            // retained by the pairing. A selected Tailscale method has no Iroh
+            // fallback, so an absent or stale grant remains unavailable.
+            let candidateOwnsForegroundSelection = reconnectSelectionKey
+                == MacPairingKey(mac)
             if localCanConnectSecurely {
                 attemptedAutomaticIroh = attemptedAutomaticIroh || localHasIroh
                 lastDialOutcome = await connectStoredMacOutcome(
@@ -3217,7 +3264,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected, !tailscaleOnly,
+            if connectionState != .connected,
+               !candidateUsesStrictTailscale,
                !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
@@ -3250,6 +3298,16 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             if connectionState == .connected { break }
+            if candidateUsesStrictTailscale && candidateOwnsForegroundSelection {
+                // An explicit Tailscale selection owns this reconnect pass.
+                // Do not promote another saved Mac or discover an Iroh peer
+                // after its authorized Tailscale route fails.
+                if connectionError == nil {
+                    applyOperationalError(MobileShellConnectionError.insecureManualRoute)
+                }
+                strictTailscaleFailure = true
+                break
+            }
         }
         // A saved authenticated route is the cheapest and most authoritative
         // recovery path. Broker discovery can be slow for accounts with a large
@@ -3258,6 +3316,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
         if connectionState != .connected, !tailscaleOnly,
+           !strictTailscaleFailure,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
@@ -4626,6 +4685,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: client
         ) {
         case .allowed:
+            authenticatedMacAppVersion = macAppVersion
+            clearMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
             break
         case .buildIncompatible:
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
@@ -4634,6 +4695,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Explain before disconnecting (mirrors
             // applyStoredMacUpdateRequiredFailure ordering): the saved pairing
             // stays intact and reconnects once the Mac updates.
+            noteMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
             applyPairingFailure(
                 .macAppVersionTooOld(
                     macVersion: violation.macAppVersion,
@@ -9003,6 +9065,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Sends one notification reply to an explicitly captured terminal as a
+    /// bracketed paste followed by a single Return key event. Inline replies
+    /// must use this path instead of ``sendTerminalInput(_:workspaceID:terminalID:)``:
+    /// appending ``\r`` to terminal input is interpreted as a raw byte by the
+    /// socket grammar, which inserts a newline in full-screen agent editors
+    /// instead of submitting the prompt.
+    ///
+    /// This does not change selection or composer state. The target workspace
+    /// and terminal are validated before the request is sent, and the existing
+    /// paste helper supplies the same viewport and hibernation handling as the
+    /// on-device composer.
+    @discardableResult
+    public func sendTerminalPaste(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard !text.isEmpty,
+              workspace(workspaceID, containsSurfaceID: terminalID.rawValue) else {
+            return false
+        }
+        return await sendRemoteTerminalPaste(
+            text,
+            submitKey: "return",
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
     /// Submit the composer's text to an explicitly captured terminal. Used by
     /// ``submitComposer()`` so a terminal switch mid-send cannot reroute the text
     /// to whatever is selected when the (awaited) image sends return: the target
@@ -9624,15 +9715,36 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // allowlist from their freshly loaded row and pass it in; ticket
         // dials resolve it here from the published pairing list, using the
         // caller's pairing identity so a sibling build sharing the device id
-        // cannot supply the wrong method. `nil` means the target's method
-        // pins no addresses (automatic, or a legacy pairing without an Iroh
-        // identity).
+        // cannot supply the wrong method. Tailscale never supplies Iroh dial
+        // candidates, because its selected route must remain Tailscale.
+        // Stored reconnect callers already resolved Direct and supplied its
+        // allowlist. Avoid rescanning every saved pairing in that hot path.
+        let resolvedMethod: MobileConnectionMethod? = directOnlyDialCandidates == nil
+            ? connectionMethod(
+                forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
+                instanceTag: instanceTagExpectation.expectedTag
+            )
+            : nil
+        // User-entered Tailscale authorization is scoped to the exact fresh
+        // pairing route it came from. It must not disable Direct's Iroh
+        // allowlist merely because another route is authorized in the same
+        // account/session. Preserve the explicit pairing event only when this
+        // ticket itself names the authorized Tailscale endpoint; stored and
+        // unrelated tickets remain pinned to their Direct candidates.
+        let hasFreshExplicitTailscaleAuthorization = pairedMacDeviceID == nil
+            && ticket.routes.contains { route in
+                Self.userTailscalePairingAuthorization(
+                    for: route,
+                    authorizations: userTailscalePairingAuthorizations
+                ) != nil
+            }
         let directOnlyDialCandidates = directOnlyDialCandidates
-            ?? (userTailscalePairingAuthorizations.isEmpty
+            ?? (resolvedMethod == .direct
+                && !hasFreshExplicitTailscaleAuthorization
                 ? irohMethodPinnedDialCandidates(
                     forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
                     instanceTag: instanceTagExpectation.expectedTag
-                )
+                ) ?? []
                 : nil)
         let supportedRoutes = supportedRoutes(
             for: ticket,
@@ -9997,6 +10109,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         client: client
                     ) {
                     case .allowed:
+                        authenticatedMacAppVersion = status.macAppVersion
+                        clearMacVersionUpdateRequired(
+                            for: status.macDeviceID ?? ticket.macDeviceID
+                        )
                         break
                     case .buildIncompatible:
                         mobileShellLog.error(
@@ -10012,6 +10128,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     case let .macAppVersionTooOld(violation):
                         mobileShellLog.error(
                             "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public)"
+                        )
+                        noteMacVersionUpdateRequired(
+                            for: status.macDeviceID ?? ticket.macDeviceID
                         )
                         await client.disconnect()
                         pendingMacVersionGateViolation = violation
@@ -10423,6 +10542,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             }
         }
 
+        // Direct's explicit allowlist is already authoritative, so return its
+        // Iroh-only route set before resolving the per-pairing method again.
+        if directOnly {
+            return supportedRoutes.filter { $0.kind == .iroh }
+        }
+
         // The explicit Tailscale method is strict: only authorized Tailscale
         // destinations may be dialed, and an unavailable route leaves the app
         // disconnected instead of silently switching to Iroh. The method is
@@ -10438,7 +10563,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // encrypted; the transport dials only the user-enabled addresses):
         // no dev loopback and no host/port lane, so an unusable allowlist
         // fails closed instead of switching paths.
-        if directOnly || ticketMethod == .direct {
+        if ticketMethod == .direct {
             return supportedRoutes.filter { $0.kind == .iroh }
         }
         if ticketMethod == .tailscale {
@@ -10630,6 +10755,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         activeMacInstanceTag = nil
+        authenticatedMacAppVersion = nil
+        pendingMacCompatibilityPolicyRevalidation = false
         connectedHostName = ""
     }
 
@@ -11294,7 +11421,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// line and one `ios_pairing_failed` whose `reason` matches the message.
     /// ``connectionState``/``macConnectionStatus`` teardown stays at the call
     /// sites because some paths (auth re-auth) also flip ``connectionRequiresReauth``.
-    private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+    func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
         // Every failure path funnels through this sink, so the version-gate
         // stash is resolved here: any route rejected for a too-old Mac this
         // attempt upgrades the surfaced category to the exact versions,
@@ -11342,6 +11469,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionError = nil
         connectionErrorGuidance = nil
         pendingMacVersionGateViolation = nil
+    }
+
+    /// Applies a policy delivered by the app-root refresh. Keeping this as a
+    /// store method makes the cache/baked seed and the remote replacement use
+    /// one mutation path, while the caller remains free to perform the fetch
+    /// off the connection startup path.
+    public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
+        macCompatPolicy = policy
+    }
+
+    func noteMacVersionUpdateRequired(for macDeviceID: String) {
+        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        guard !canonicalID.isEmpty else { return }
+        macVersionUpdateRequiredDeviceIDs.insert(canonicalID)
+    }
+
+    private func clearMacVersionUpdateRequired(for macDeviceID: String?) {
+        guard let macDeviceID else { return }
+        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        guard !canonicalID.isEmpty else { return }
+        macVersionUpdateRequiredDeviceIDs.remove(canonicalID)
     }
 
     /// The running app's marketing version, driving Mac version-gate tier
@@ -11511,6 +11659,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
+        }
+        if pendingMacCompatibilityPolicyRevalidation {
+            revalidateActiveMacCompatibilityPolicy()
+            guard connectionState == .connected else { return }
         }
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in

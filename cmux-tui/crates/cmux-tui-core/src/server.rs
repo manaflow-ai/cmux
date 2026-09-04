@@ -110,6 +110,7 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
+pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 /// The daemon reads the host's listening TCP sockets for an authenticated
@@ -3874,6 +3875,10 @@ impl ClientRegistry {
         self.state.lock().unwrap().daemon_handoff.is_some()
     }
 
+    pub(crate) fn daemon_handoff_in_progress(&self) -> bool {
+        self.state.lock().unwrap().daemon_handoff.is_some()
+    }
+
     fn is_unix(&self, client: u64) -> bool {
         self.state
             .lock()
@@ -4965,7 +4970,19 @@ impl SocketStartLock {
         name.push(".spawn-lock");
         let path = socket.with_file_name(name);
         let mut options = std::fs::OpenOptions::new();
-        options.create(true).append(true);
+        options.create(true);
+        #[cfg(windows)]
+        {
+            // fs4 uses LockFileEx, which rejects Rust's append-only handle
+            // because it has neither GENERIC_READ nor GENERIC_WRITE.
+            options.truncate(false).read(true).write(true);
+        }
+        #[cfg(not(windows))]
+        {
+            // O_NONBLOCK plus write-only access rejects a FIFO before the
+            // metadata check without waiting for another process to open it.
+            options.append(true);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt as _;
@@ -5482,6 +5499,15 @@ fn authenticate_websocket(
 }
 
 fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
+    disconnect_client_with_notice(mux, client, send_detached, None)
+}
+
+fn disconnect_client_with_notice(
+    mux: &Arc<Mux>,
+    client: u64,
+    send_detached: bool,
+    notice: Option<&str>,
+) -> bool {
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
@@ -5512,6 +5538,10 @@ fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
     }
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
+        if let Some(event) = notice {
+            let _ = record.writer.send_control(&json!({"event": event}));
+            let _ = record.writer.flush_control(CLIENT_DETACH_WRITE_TIMEOUT);
+        }
         for (surface, attached) in &record.attached {
             for stream in attached.streams.values() {
                 let _ = record
@@ -5541,13 +5571,20 @@ fn complete_daemon_shutdown_after_ack(
         mux.cancel_daemon_handoff(requesting_client);
         return false;
     }
-    mux.request_daemon_shutdown();
+    let requester_notice_sent = writer
+        .send_control(&json!({"event": DAEMON_SHUTDOWN_EVENT}))
+        .and_then(|()| writer.flush_control(SHUTDOWN_ACK_FLUSH_TIMEOUT))
+        .is_ok();
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
-            disconnect_client(mux, peer, true);
+            disconnect_client_with_notice(mux, peer, true, Some(DAEMON_SHUTDOWN_EVENT));
         }
     }
-    true
+    // Keep the owner alive until every detached client has received the
+    // shutdown notice. The committed handoff reservation fences new work
+    // while these notices are being flushed.
+    mux.request_daemon_shutdown();
+    requester_notice_sent
 }
 
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
@@ -9062,7 +9099,7 @@ fn handle_connection_message(
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
     // dispatch; returning false makes the connection loop close that client.
-    if mux.daemon_shutdown_requested() {
+    if mux.daemon_shutdown_requested() || mux.daemon_handoff_in_progress() {
         return false;
     }
     if crate::resource_router::is_resource_protocol_message(message) {
@@ -13395,6 +13432,17 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn socket_start_lock_acquires_a_new_lock_file() {
+        let dir = TestSocketDir::create("start-lock-new-file");
+        let socket = dir.path().join("mux.sock");
+        let lock = dir.path().join("mux.sock.spawn-lock");
+
+        let _guard = SocketStartLock::acquire(&socket, Instant::now()).unwrap();
+
+        assert!(lock.is_file());
     }
 
     #[cfg(unix)]
@@ -20120,7 +20168,9 @@ mod tests {
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
-        let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
+        let (interactive_writer, interactive_outbound) = captured_writer();
+        let interactive =
+            accepted.control_clients.register(ClientTransport::Unix, interactive_writer);
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -20146,6 +20196,10 @@ mod tests {
         assert_eq!(response["data"]["generation"], generation);
         assert!(accepted.control_clients.contains(local));
         assert!(!accepted.control_clients.contains(interactive));
+        let requester_shutdown = pop_json(&accepted_outbound);
+        assert_eq!(requester_shutdown["event"], DAEMON_SHUTDOWN_EVENT);
+        let shutdown = pop_json(&interactive_outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
     }
 
     #[test]
@@ -20177,12 +20231,20 @@ mod tests {
         ));
 
         release_flush.send(()).unwrap();
+        flush_entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("shutdown did not flush the requester shutdown notice");
+        assert!(!mux.daemon_shutdown_requested());
+        assert!(mux.control_clients.daemon_handoff_pending());
+        release_flush.send(()).unwrap();
         assert!(worker.join().unwrap());
         assert!(mux.daemon_shutdown_requested());
         assert!(mux.control_clients.contains(requester));
         assert!(!mux.control_clients.contains(interactive));
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
+        let shutdown = pop_json(&outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
         assert_eq!(response["data"]["accepted"], true);
     }
 
@@ -20213,6 +20275,8 @@ mod tests {
         assert!(writer.is_open());
         let response = pop_json(&outbound);
         assert_eq!(response["ok"], true);
+        let shutdown = pop_json(&outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
 
         let workspace_count = mux.with_state(|state| state.workspaces.len());
         let pipelined = json!({
@@ -20222,6 +20286,31 @@ mod tests {
         })
         .to_string();
         assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler,));
+        assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
+        assert!(outbound.try_pop().is_none());
+    }
+
+    #[test]
+    fn daemon_handoff_fences_pipelined_messages_before_shutdown_flag() {
+        let mux = test_mux();
+        mux.mark_server_lifecycle_ready();
+        let (writer, outbound) = captured_writer();
+        let requester = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+        mux.begin_daemon_handoff(requester, DaemonHandoffRequest::unfenced(false)).unwrap();
+        mux.commit_daemon_handoff_after_ack(requester, || Ok(())).unwrap();
+        assert!(mux.control_clients.daemon_handoff_pending());
+        assert!(!mux.daemon_shutdown_requested());
+
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        let workspace_count = mux.with_state(|state| state.workspaces.len());
+        let pipelined = json!({
+            "id": 99,
+            "cmd": "new-workspace",
+            "name": "must-not-exist",
+        })
+        .to_string();
+        assert!(!handle_connection_message(&mux, requester, &pipelined, &writer, &scheduler));
         assert_eq!(mux.with_state(|state| state.workspaces.len()), workspace_count);
         assert!(outbound.try_pop().is_none());
     }

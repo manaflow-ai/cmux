@@ -308,6 +308,12 @@
       ]
     },
     {
+      "name": "daemon-shutdown",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "detached",
       "streams": [
         "attach-byte",

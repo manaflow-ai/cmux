@@ -114,6 +114,11 @@ pub struct ConfigReloadRequestedEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DaemonShutdownEvent {
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DetachedEvent {
     pub surface: T::Id,
@@ -534,6 +539,7 @@ pub enum Event {
     ClientListInvalidated(ClientListInvalidatedEvent),
     ColorsChanged(ColorsChangedEvent),
     ConfigReloadRequested(ConfigReloadRequestedEvent),
+    DaemonShutdown(DaemonShutdownEvent),
     Detached(DetachedEvent),
     Empty(EmptyEvent),
     Frame(FrameEvent),
@@ -588,6 +594,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some("client-list-invalidated"),
             Self::ColorsChanged(_) => Some("colors-changed"),
             Self::ConfigReloadRequested(_) => Some("config-reload-requested"),
+            Self::DaemonShutdown(_) => Some("daemon-shutdown"),
             Self::Detached(_) => Some("detached"),
             Self::Empty(_) => Some("empty"),
             Self::Frame(_) => Some("frame"),
@@ -641,6 +648,7 @@ impl Event {
             Self::ClientListInvalidated(_) => Some(&CLIENT_LIST_INVALIDATED_EVENT_METADATA),
             Self::ColorsChanged(_) => Some(&COLORS_CHANGED_EVENT_METADATA),
             Self::ConfigReloadRequested(_) => Some(&CONFIG_RELOAD_REQUESTED_EVENT_METADATA),
+            Self::DaemonShutdown(_) => Some(&DAEMON_SHUTDOWN_EVENT_METADATA),
             Self::Detached(_) => Some(&DETACHED_EVENT_METADATA),
             Self::Empty(_) => Some(&EMPTY_EVENT_METADATA),
             Self::Frame(_) => Some(&FRAME_EVENT_METADATA),
@@ -754,6 +762,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("config-reload-requested") => match serde_json::from_value::<ConfigReloadRequestedEvent>(raw.clone()) {
             Ok(event) => Event::ConfigReloadRequested(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("daemon-shutdown") => match serde_json::from_value::<DaemonShutdownEvent>(raw.clone()) {
+            Ok(event) => Event::DaemonShutdown(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,
