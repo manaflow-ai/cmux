@@ -1,8 +1,8 @@
-name: Web complexity
+name: Web complexity candidate
 
 on:
-  # Run on every pull request so the required check is reported for both web
-  # and non-web changes. The job exits quickly when no web or policy files changed.
+  # This is a fast, contributor-side diagnostic. The authoritative required
+  # check runs from the base branch in web-complexity-trusted.yml.
   pull_request:
   push:
     branches:
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   complexity:
-    name: Web complexity
+    name: Web complexity candidate
     # Pull requests execute contributor-controlled package install scripts. Keep
     # those runs on an ephemeral GitHub-hosted runner.
     runs-on: ${{ github.event_name == 'pull_request' && 'ubuntu-latest' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}

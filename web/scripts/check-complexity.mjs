@@ -25,6 +25,7 @@ const EXCLUDED_PREFIXES = [
   "tests/",
   "tools/",
 ];
+const TRUSTED_POLICY_FILES = ["web/scripts/check-complexity.mjs", ".github/workflows/web-complexity-trusted.yml"];
 
 function fail(message) {
   console.error(`complexity gate: ${message}`);
@@ -47,13 +48,18 @@ function git(args, cwd = process.cwd(), allowFailure = false) {
 function parseArgs() {
   let base;
   let head;
+  let repoRoot;
+  let toolRoot;
+  let baseBaseline;
   const files = [];
   const args = process.argv.slice(2);
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--help" || arg === "-h") {
-      console.log("Usage: bun scripts/check-complexity.mjs [--base <sha> --head <sha>] [--files <path> ...]");
+      console.log(
+        "Usage: bun scripts/check-complexity.mjs [--base <sha> --head <sha>] [--repo-root <path>] [--tool-root <path>] [--base-baseline <path>] [--files <path> ...]",
+      );
       process.exit(0);
     }
     if (arg === "--base" || arg === "--head") {
@@ -61,6 +67,15 @@ function parseArgs() {
       if (!value || value.startsWith("--")) fail(`${arg} requires a commit SHA`);
       if (arg === "--base") base = value;
       else head = value;
+      index += 1;
+      continue;
+    }
+    if (arg === "--repo-root" || arg === "--tool-root" || arg === "--base-baseline") {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) fail(`${arg} requires a path`);
+      if (arg === "--repo-root") repoRoot = value;
+      else if (arg === "--tool-root") toolRoot = value;
+      else baseBaseline = value;
       index += 1;
       continue;
     }
@@ -72,8 +87,9 @@ function parseArgs() {
     fail(`unknown argument ${arg}`);
   }
 
-  if ((base && !head) || (!base && head)) fail("--base and --head must be provided together");
-  return { base, head, files };
+  if ((base && !head) || (!base && head && !baseBaseline)) fail("--base or --base-baseline must be provided with --head");
+  if (base && baseBaseline) fail("use only one of --base and --base-baseline");
+  return { base, head, repoRoot, toolRoot, baseBaseline, files };
 }
 
 function isProductionSource(repoPath) {
@@ -132,6 +148,18 @@ function byteOffsetToCharacterOffset(source, byteOffset) {
     else high = middle;
   }
   return low;
+}
+
+function diagnosticFilename(repoRoot, diagnostic) {
+  const raw = String(diagnostic.filename ?? "").replace(/^\.\//, "");
+  const webRoot = path.join(repoRoot, "web");
+  const candidate = raw.startsWith("web/") ? raw.slice("web/".length) : raw;
+  const absolute = path.isAbsolute(raw) ? path.normalize(raw) : path.resolve(webRoot, candidate);
+  const relative = path.relative(webRoot, absolute).split(path.sep).join("/");
+  if (!relative || relative.startsWith("../") || path.isAbsolute(relative)) {
+    fail(`oxlint reported a file outside web/: ${raw}`);
+  }
+  return relative;
 }
 
 function containsNode(parent, child) {
@@ -280,7 +308,7 @@ function sourceFileFor(repoRoot, filename) {
 }
 
 function diagnosticFingerprint(repoRoot, diagnostic) {
-  const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
+  const filename = diagnosticFilename(repoRoot, diagnostic);
   const sourceFile = sourceFileFor(repoRoot, filename);
   const spanOffset = diagnostic.labels?.[0]?.span?.offset;
   const characterOffset = byteOffsetToCharacterOffset(sourceFile.text, spanOffset);
@@ -313,7 +341,64 @@ function readBaseline(repoRoot) {
   return baselineEntries(readFileSync(file, "utf8"));
 }
 
-function baselineAt(repoRoot, revision) {
+function readJson(file, label) {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    fail(`${label} is not valid JSON: ${error.message}`);
+  }
+}
+
+function complexityRule(configRoot) {
+  const config = readJson(path.join(configRoot, "web", ".oxlintrc.json"), ".oxlintrc.json");
+  const rule = config.rules?.complexity;
+  const options = Array.isArray(rule) ? rule[1] : undefined;
+  if (options?.max !== COMPLEXITY_LIMIT || options?.variant !== COMPLEXITY_VARIANT) {
+    fail(`.oxlintrc.json must keep complexity max ${COMPLEXITY_LIMIT} with the ${COMPLEXITY_VARIANT} variant`);
+  }
+  return COMPLEXITY_LIMIT;
+}
+
+function oxlintLockEntries(root) {
+  const lockfile = path.join(root, "web", "bun.lock");
+  if (!existsSync(lockfile)) fail("web/bun.lock is required for the pinned Oxlint toolchain");
+  return readFileSync(lockfile, "utf8")
+    .split("\n")
+    .filter((line) => line.includes("oxlint"))
+    .join("\n");
+}
+
+function assertTrustedPolicy(repoRoot, toolRoot) {
+  if (path.resolve(repoRoot) === path.resolve(toolRoot)) return;
+
+  for (const relative of TRUSTED_POLICY_FILES) {
+    const trustedFile = path.join(toolRoot, relative);
+    const candidateFile = path.join(repoRoot, relative);
+    if (!existsSync(trustedFile) || !existsSync(candidateFile)) {
+      fail(`${relative} must remain present and unchanged in a pull request`);
+    }
+    if (readFileSync(trustedFile).compare(readFileSync(candidateFile)) !== 0) {
+      fail(`${relative} is a trusted policy file and must be changed in a separate reviewed update`);
+    }
+  }
+
+  complexityRule(repoRoot);
+  const trustedPackage = readJson(path.join(toolRoot, "web", "package.json"), "trusted web/package.json");
+  const candidatePackage = readJson(path.join(repoRoot, "web", "package.json"), "web/package.json");
+  if (candidatePackage.devDependencies?.oxlint !== trustedPackage.devDependencies?.oxlint) {
+    fail("the pinned Oxlint dependency may not change in a normal pull request");
+  }
+  if (oxlintLockEntries(repoRoot) !== oxlintLockEntries(toolRoot)) {
+    fail("the pinned Oxlint lock entries may not change in a normal pull request");
+  }
+}
+
+function baselineAt(repoRoot, revision, baseBaseline) {
+  if (baseBaseline) {
+    if (!existsSync(baseBaseline)) fail(`base baseline ${baseBaseline} is not available`);
+    return { exists: true, entries: baselineEntries(readFileSync(baseBaseline, "utf8")) };
+  }
+  if (!revision) return { exists: false, entries: new Map() };
   const commit = git(["rev-parse", "--verify", `${revision}^{commit}`], repoRoot, true);
   if (commit.status !== 0) fail(`base revision ${revision} is not available in the checkout`);
 
@@ -325,9 +410,9 @@ function baselineAt(repoRoot, revision) {
   return { exists: true, entries: baselineEntries(result.stdout) };
 }
 
-function assertBaselineOnlyShrinks(repoRoot, base, baseline) {
-  if (!base) return;
-  const previous = baselineAt(repoRoot, base);
+function assertBaselineOnlyShrinks(repoRoot, base, baseline, baseBaseline) {
+  if (!base && !baseBaseline) return;
+  const previous = baselineAt(repoRoot, base, baseBaseline);
   if (!previous.exists) return;
   const additions = [];
   for (const [entry, count] of baseline) {
@@ -350,21 +435,29 @@ function assertCheckedOutHead(repoRoot, head) {
   }
 }
 
-function configuredComplexityLimit(repoRoot) {
-  const config = JSON.parse(readFileSync(path.join(repoRoot, "web", ".oxlintrc.json"), "utf8"));
-  const rule = config.rules?.complexity;
-  const options = Array.isArray(rule) ? rule[1] : undefined;
-  if (options?.max !== COMPLEXITY_LIMIT || options?.variant !== COMPLEXITY_VARIANT) {
-    fail(`.oxlintrc.json must keep complexity max ${COMPLEXITY_LIMIT} with the ${COMPLEXITY_VARIANT} variant`);
-  }
-  return COMPLEXITY_LIMIT;
+function configuredComplexityLimit(toolRoot) {
+  return complexityRule(toolRoot);
 }
 
-function runOxlint(repoRoot, files) {
+function runOxlint(repoRoot, toolRoot, files) {
   const webRoot = path.join(repoRoot, "web");
+  const toolWebRoot = path.join(toolRoot, "web");
   const result = spawnSync(
-    path.join(webRoot, "node_modules", ".bin", "oxlint"),
-    ["--config", ".oxlintrc.json", "-A", "all", "-D", "complexity", "--format", "json", "--no-error-on-unmatched-pattern", ...files],
+    path.join(toolWebRoot, "node_modules", ".bin", "oxlint"),
+    [
+      "--config",
+      path.join(toolWebRoot, ".oxlintrc.json"),
+      "--no-ignore",
+      "--disable-nested-config",
+      "-A",
+      "all",
+      "-D",
+      "complexity",
+      "--format",
+      "json",
+      "--no-error-on-unmatched-pattern",
+      ...files,
+    ],
     { cwd: webRoot, encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
   );
   if (result.error) fail(`could not start oxlint: ${result.error.message}`);
@@ -386,16 +479,57 @@ function runOxlint(repoRoot, files) {
   };
 }
 
+function broadComplexitySuppression(comment) {
+  const body = comment.replace(/^\/\//, "").replace(/^\/\*/, "").replace(/\*\/$/, "").trim().replace(/\s+/g, " ");
+  const match = body.match(/^(?:oxlint|eslint)-disable(?:-(file|next-line|line))?(?:\s+([\s\S]*))?$/);
+  if (!match) return false;
+  const suffix = match[1];
+  if (suffix === "next-line" || suffix === "line") return false;
+  const rulesText = (match[2] ?? "").split("--", 1)[0].trim();
+  if (suffix === "file") return true;
+  if (!rulesText) return true;
+  return rulesText.split(/[\s,]+/).some((rule) => rule === "complexity" || rule.endsWith("/complexity") || rule.endsWith("(complexity)"));
+}
+
+function assertNoBroadComplexitySuppressions(repoRoot, files) {
+  const violations = [];
+  for (const filename of files) {
+    const source = readFileSync(path.join(repoRoot, "web", filename), "utf8");
+    const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, scriptKindFor(filename));
+    const scanner = ts.createScanner(
+      ts.ScriptTarget.Latest,
+      false,
+      /\.tsx?$/.test(filename) || /\.jsx?$/.test(filename) ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard,
+      source,
+    );
+    let token;
+    while ((token = scanner.scan()) !== ts.SyntaxKind.EndOfFileToken) {
+      if (token !== ts.SyntaxKind.SingleLineCommentTrivia && token !== ts.SyntaxKind.MultiLineCommentTrivia) continue;
+      const comment = scanner.getTokenText();
+      if (!broadComplexitySuppression(comment)) continue;
+      const position = scanner.getTokenPos();
+      const line = ts.getLineAndCharacterOfPosition(sourceFile, position).line + 1;
+      violations.push(`web/${filename}:${line}`);
+    }
+  }
+  if (violations.length === 0) return;
+  console.error("complexity gate: broad complexity suppressions are not allowed; use a narrow line suppression with a reason:");
+  for (const violation of violations) console.error(`  ${violation}`);
+  process.exit(1);
+}
+
 function diagnosticKey(repoRoot, diagnostic) {
-  const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
+  const filename = diagnosticFilename(repoRoot, diagnostic);
   return `${filename}\t${diagnosticFingerprint(repoRoot, diagnostic)}\t${String(diagnostic.message ?? "")}`;
 }
 
-const { base, head, files: explicitFiles } = parseArgs();
-const repoRoot = git(["rev-parse", "--show-toplevel"]).stdout.trim();
+const { base, head, repoRoot: requestedRepoRoot, toolRoot: requestedToolRoot, baseBaseline, files: explicitFiles } = parseArgs();
+const repoRoot = requestedRepoRoot ? path.resolve(requestedRepoRoot) : git(["rev-parse", "--show-toplevel"]).stdout.trim();
+const toolRoot = requestedToolRoot ? path.resolve(requestedToolRoot) : repoRoot;
 assertCheckedOutHead(repoRoot, head);
+assertTrustedPolicy(repoRoot, toolRoot);
 const baseline = readBaseline(repoRoot);
-assertBaselineOnlyShrinks(repoRoot, base, baseline);
+assertBaselineOnlyShrinks(repoRoot, base, baseline, baseBaseline ? path.resolve(baseBaseline) : undefined);
 const files = sourceFiles(repoRoot, explicitFiles);
 const scannedFiles = explicitFiles.length > 0 ? new Set(files) : undefined;
 if (files.length === 0) {
@@ -406,8 +540,9 @@ if (files.length === 0) {
   process.exit(0);
 }
 
-const complexityLimit = configuredComplexityLimit(repoRoot);
-const { diagnostics, stderr, status } = runOxlint(repoRoot, files);
+const complexityLimit = configuredComplexityLimit(toolRoot);
+assertNoBroadComplexitySuppressions(repoRoot, files);
+const { diagnostics, stderr, status } = runOxlint(repoRoot, toolRoot, files);
 const unexpected = diagnostics.filter((diagnostic) => diagnostic.code !== COMPLEXITY_CODE);
 if (unexpected.length > 0 || (status !== 0 && diagnostics.length === 0)) {
   for (const diagnostic of unexpected) console.error(`${diagnostic.filename}: ${diagnostic.message}`);
@@ -450,7 +585,7 @@ console.error(
   `complexity gate: ${newFindings.length} new finding${newFindings.length === 1 ? "" : "s"} exceed complexity ${complexityLimit}`,
 );
 for (const diagnostic of newFindings) {
-  const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
+  const filename = diagnosticFilename(repoRoot, diagnostic);
   const line = diagnostic.labels?.[0]?.span?.line ?? 1;
   const message = String(diagnostic.message ?? "complexity exceeds the configured limit").replace(/\r?\n/g, " ");
   console.error(`::error file=web/${filename},line=${line},title=Oxlint complexity::${message}`);

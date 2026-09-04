@@ -28,3 +28,10 @@ suppression only for an intentional exception, with its reason in the comment
 and pull request. Do not add a broad disable or raise the limit to accept new
 code. Lower the limit in a separate cleanup wave as the remaining debt is
 removed.
+
+The required `Web complexity` check runs from the base branch and uses the
+base branch checker and Oxlint toolchain against the pull-request source. Keep
+the checker, trusted workflow, complexity rule, and Oxlint lock entries
+unchanged in normal pull requests. Policy changes need a separate reviewed
+update. The contributor-side `Web complexity candidate` check is only an early
+local diagnostic.
