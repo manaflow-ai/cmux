@@ -9,11 +9,11 @@
 import { useCallback, useMemo, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 
-import {
-  versionBelowFloor,
-  type DeviceDashboardData,
-  type DeviceDashboardEntry,
+import type {
+  DeviceDashboardData,
+  DeviceDashboardEntry,
 } from "@/services/devices/dashboard";
+import { versionBelowFloor } from "@/services/devices/version";
 
 /** Seeded entries silent this long display as stale ("needs update / open the
  * app once"); derived, the stored status stays seeded. */

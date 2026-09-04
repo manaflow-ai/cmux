@@ -99,21 +99,7 @@ export function isValidEndpointIdInput(value: unknown): value is string {
 /** Dotted-numeric version comparison for the derived update-required flag
  * ("this device runs a build below the pushed platform floor"). Non-numeric
  * segments compare as 0; missing segments compare as 0. */
-export function versionBelowFloor(version: string, floor: string): boolean {
-  const parse = (value: string): number[] =>
-    value.split(".").map((segment) => {
-      const numeric = Number.parseInt(segment, 10);
-      return Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : 0;
-    });
-  const have = parse(version);
-  const need = parse(floor);
-  for (let index = 0; index < Math.max(have.length, need.length); index += 1) {
-    const a = have[index] ?? 0;
-    const b = need[index] ?? 0;
-    if (a !== b) return a < b;
-  }
-  return false;
-}
+export { versionBelowFloor } from "./version";
 
 interface ControlPlaneDeviceRow {
   readonly endpointId: string;
