@@ -631,7 +631,7 @@ public final class GhosttySurfaceHostView: UIView {
 
     /// Keeps the host's plain dock seat and the surface's grid reservation on
     /// the same outer safe-area fallback as SwiftUI discovers it.
-    func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
+    public func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
         let next = max(0, inset)
         guard abs(next - capturedBottomSafeAreaInset) > 0.25 else { return }
         capturedBottomSafeAreaInset = next

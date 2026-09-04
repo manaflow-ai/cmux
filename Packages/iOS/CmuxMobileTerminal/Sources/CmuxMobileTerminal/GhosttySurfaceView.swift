@@ -1812,7 +1812,7 @@ public final class GhosttySurfaceView: UIView, TerminalSurfaceHosting {
     /// Updates the outer safe-area fallback and immediately re-seats the dock
     /// and grid when the ignored SwiftUI subtree first reports its physical
     /// bottom inset.
-    func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
+    public func setCapturedBottomSafeAreaInset(_ inset: CGFloat) {
         let next = max(0, inset)
         guard abs(next - capturedBottomSafeAreaInset) > 0.25 else { return }
         capturedBottomSafeAreaInset = next
