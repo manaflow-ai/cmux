@@ -293,6 +293,20 @@ struct ComputerUseUXTests {
         #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(unrelatedTool))
     }
 
+    /// A permission/status probe is part of MCP discovery, not a request to
+    /// drive the desktop. It must never open the Accessibility/Screenshots
+    /// onboarding window on its own.
+    @Test @MainActor func passiveComputerUseStatusProbeDoesNotTriggerOnboarding() {
+        let permissionProbe = WorkstreamEvent(
+            sessionId: "session-1",
+            hookEventName: .preToolUse,
+            source: "claude",
+            toolName: "mcp__cmux-cua__check_permissions"
+        )
+
+        #expect(!ComputerUseUXCoordinator.isComputerUseToolInvocation(permissionProbe))
+    }
+
     @Test @MainActor
     func toolInvocationCannotOverrideDisabledComputerUseSetting() {
         #expect(ComputerUseUXCoordinator.shouldReconcileToolInvocation(
