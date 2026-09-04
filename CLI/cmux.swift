@@ -20816,7 +20816,7 @@ struct CMUXCLI {
         case "diff": return diffSubcommandUsage()
         case "artifacts":
             return """
-            Usage: cmux artifacts <list|search|open> [flags]
+            Usage: cmux artifacts <list|search|open|add> [flags]
 
             Browse the durable Artifacts catalog. Scope defaults to global; pass
             --workspace <id|ref> for one workspace or --project <id> for one project.
@@ -20827,6 +20827,12 @@ struct CMUXCLI {
               --project <id>
               --query <text>             Search URL, path, title, metadata, or content
               --limit <count>             Bound search results
+              --url <url>                 Add one explicit URL
+              --path <path>               Add one explicit local file/folder
+              --html <markup>             Add one bounded HTML artifact
+              --text <text>               Add one bounded text artifact
+              --kind <kind>               Optional artifact kind override
+              --title <title>             Optional display title
               --json                      Print structured records
             """
         case "markdown":
@@ -41248,7 +41254,7 @@ export default CMUXSessionRestore;
           \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
           open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
-          artifacts <list|search|open> [--scope global|workspace|project] [--workspace <id|ref>] [--query <text>] [--json]
+          artifacts <list|search|open|add> [--scope global|workspace|project] [--workspace <id|ref>] [--query <text>] [--path <path>|--url <url>|--html <markup>|--text <text>] [--json]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
           themes [list|set|clear]

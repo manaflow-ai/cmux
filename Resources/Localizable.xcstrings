@@ -291450,6 +291450,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース %@ でアーティファクトを開きました" } }
       }
     },
+    "artifacts.cli.addWorkspaceRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifacts add requires --workspace <id|ref|index>" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "artifacts add には --workspace <id|ref|index> が必要です" } }
+      }
+    },
+    "artifacts.cli.addInputRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifacts add requires exactly one supported input" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "artifacts add にはサポートされる入力を1つだけ指定してください" } }
+      }
+    },
     "artifactsPane.workspaceUnavailable": {
       "extractionState": "manual",
       "localizations": {

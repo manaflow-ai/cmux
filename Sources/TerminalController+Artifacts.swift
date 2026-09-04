@@ -2,6 +2,59 @@ import CmuxArtifacts
 import Foundation
 
 extension TerminalController {
+    /// Adds one explicitly authorized URL, file, HTML, or text value.
+    nonisolated func v2ArtifactsAdd(params: [String: Any]) async -> V2CallResult {
+        let workspaceID = (params["workspace_id"] as? String).flatMap(UUID.init(uuidString:))
+        guard let workspace = await MainActor.run({
+            workspaceID.flatMap { AppDelegate.shared?.workspaceFor(tabId: $0) }
+        }) else {
+            return .err(
+                code: "not_found",
+                message: String(localized: "artifacts.cli.noWorkspace", defaultValue: "No workspace is available for Artifacts"),
+                data: nil
+            )
+        }
+
+        let requestedKind = (params["kind"] as? String).map { ArtifactKind(rawValue: $0) }
+        let title = params["title"] as? String
+        let mimeType = params["mime_type"] as? String
+        let input: ArtifactInput?
+        switch (params["input_kind"] as? String)?.lowercased() {
+        case "url": input = (params["input"] as? String).map(ArtifactInput.url)
+        case "path":
+            input = (params["input"] as? String).map { value in
+                let url = URL(fileURLWithPath: value)
+                return url.hasDirectoryPath ? .directory(url) : .file(url)
+            }
+        case "html": input = (params["input"] as? String).map(ArtifactInput.html)
+        case "text": input = (params["input"] as? String).map(ArtifactInput.text)
+        default: input = nil
+        }
+        guard let input else {
+            return .err(
+                code: "invalid_params",
+                message: String(localized: "artifacts.cli.addInputRequired", defaultValue: "Artifacts add requires exactly one supported input"),
+                data: nil
+            )
+        }
+        let metadata = mimeType.map { ["mimeType": $0] } ?? [:]
+        guard let record = await workspace.captureArtifact(
+            input,
+            kind: requestedKind,
+            source: .manual,
+            title: title,
+            metadata: metadata,
+            authorization: .explicitUser
+        ) else {
+            return .err(
+                code: "artifact_error",
+                message: String(localized: "artifacts.cli.failed", defaultValue: "The artifact request could not be completed."),
+                data: nil
+            )
+        }
+        return .ok(["artifact": Self.artifactPayload(record)])
+    }
+
     /// Lists or searches the canonical artifact catalog for the CLI/socket surface.
     nonisolated func v2ArtifactsRead(
         method: String,

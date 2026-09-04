@@ -96,6 +96,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // the main actor while filtering a global result set.
         "artifacts.list",
         "artifacts.search",
+        "artifacts.add",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",

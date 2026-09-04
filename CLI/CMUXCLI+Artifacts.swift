@@ -33,6 +33,31 @@ extension CMUXCLI {
             payload = try client.sendV2(method: "artifacts.search", params: params)
         case "open":
             payload = try client.sendV2(method: "artifacts.open", params: params)
+        case "add":
+            guard params["workspace_id"] != nil else {
+                throw CLIError(
+                    message: String(localized: "artifacts.cli.addWorkspaceRequired", defaultValue: "Artifacts add requires --workspace <id|ref|index>"),
+                    exitCode: 2
+                )
+            }
+            let inputOptions = [
+                ("url", optionValue(commandArgs, name: "--url")),
+                ("path", optionValue(commandArgs, name: "--path")),
+                ("html", optionValue(commandArgs, name: "--html")),
+                ("text", optionValue(commandArgs, name: "--text")),
+            ].compactMap { kind, value in value.map { (kind, $0) } }
+            guard inputOptions.count == 1 else {
+                throw CLIError(
+                    message: String(localized: "artifacts.cli.addInputRequired", defaultValue: "Artifacts add requires exactly one of --url, --path, --html, or --text"),
+                    exitCode: 2
+                )
+            }
+            params["input_kind"] = inputOptions[0].0
+            params["input"] = inputOptions[0].1
+            if let kind = optionValue(commandArgs, name: "--kind") { params["kind"] = kind }
+            if let title = optionValue(commandArgs, name: "--title") { params["title"] = title }
+            if let mimeType = optionValue(commandArgs, name: "--mime-type") { params["mime_type"] = mimeType }
+            payload = try client.sendV2(method: "artifacts.add", params: params)
         default:
             throw CLIError(
                 message: String.localizedStringWithFormat(
