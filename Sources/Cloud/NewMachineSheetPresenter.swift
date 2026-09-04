@@ -67,8 +67,9 @@ final class NewMachineSheetPresenter {
         plan: MachinePlanSnapshot?,
         imageKinds: [VMImageKindOption],
         preferredWindow: NSWindow?,
-        coordinator: MachineCreateCoordinator = .shared
+        coordinator: MachineCreateCoordinator? = nil
     ) {
+        let coordinator = coordinator ?? .shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
             ProUpgradePresenter.present()
             return

@@ -445,7 +445,8 @@ final class MachinesPanelViewModel: ObservableObject {
     private var treeTask: Task<Void, Never>?
     private static let statsInterval: Duration = .seconds(20)
 
-    init(createCoordinator: MachineCreateCoordinator = .shared) {
+    init(createCoordinator: MachineCreateCoordinator? = nil) {
+        let createCoordinator = createCoordinator ?? .shared
         self.createCoordinator = createCoordinator
         pendingCreates = createCoordinator.operations
         createChangeObserver = NotificationCenter.default.addObserver(
