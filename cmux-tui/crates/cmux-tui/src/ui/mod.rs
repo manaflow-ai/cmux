@@ -9,7 +9,7 @@ pub(crate) mod input;
 pub mod omnibar;
 mod overlay;
 pub(crate) mod pane;
-mod rail;
+pub(crate) mod rail;
 mod scrollbar;
 mod sidebar;
 pub(crate) mod terminal_grid;

@@ -150,40 +150,64 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
         .collect::<Vec<_>>();
     let profile_overflow = labels.len().saturating_sub(active.len());
     let profile_overflow = (profile_overflow > 0).then(|| format!("+{profile_overflow}"));
-    let mandatory_tail = vec![manage.to_string()];
-    let hidden_tail = hidden.clone();
-
     // Candidate order is deliberate. Keep all configured tabs when they fit;
     // otherwise keep the active tab, disclose omitted profiles, and retain the
     // hidden-view diagnostic when the strip has room for it. The manage control
-    // is present in every candidate and is never lost to truncation.
-    let candidates = [
-        (
-            labels.clone(),
-            [hidden_tail.clone(), Some(manage.to_string())].into_iter().flatten().collect(),
-        ),
-        (labels.clone(), mandatory_tail.clone()),
-        (
-            active.clone(),
-            [profile_overflow.clone(), hidden_tail.clone(), Some(manage.to_string())]
-                .into_iter()
-                .flatten()
-                .collect(),
-        ),
-        (
-            active.clone(),
-            [profile_overflow.clone(), Some(manage.to_string())].into_iter().flatten().collect(),
-        ),
-        (active.clone(), [hidden_tail, Some(manage.to_string())].into_iter().flatten().collect()),
-        (active.clone(), mandatory_tail),
-    ];
-    let (shown, tail_parts, profiles_fit) = candidates
-        .into_iter()
-        .find_map(|(profiles, tail)| {
+    // is present in every candidate and is never lost to truncation. Build one
+    // candidate at a time so the fallback path does not clone labels that are
+    // never rendered.
+    let mut chosen: Option<(Vec<(usize, String)>, Vec<String>, bool)> = None;
+    let mut try_candidate = |profiles: &[(usize, String)], tail: Vec<String>| {
+        if chosen.is_none() {
             let profiles_fit = profiles.len() == labels.len();
-            fits(&profiles, &tail).then_some((profiles, tail, profiles_fit))
-        })
-        .unwrap_or_else(|| (Vec::new(), vec![manage.to_string()], false));
+            if fits(profiles, &tail) {
+                chosen = Some((profiles.to_vec(), tail, profiles_fit));
+            }
+        }
+    };
+    let mut tail = Vec::new();
+    if let Some(hidden) = hidden.as_ref() {
+        tail.push(hidden.clone());
+    }
+    tail.push(manage.to_string());
+    try_candidate(&labels, tail);
+    try_candidate(&labels, vec![manage.to_string()]);
+    let mut tail = Vec::new();
+    if let Some(overflow) = profile_overflow.as_ref() {
+        tail.push(overflow.clone());
+    }
+    if let Some(hidden) = hidden.as_ref() {
+        tail.push(hidden.clone());
+    }
+    tail.push(manage.to_string());
+    try_candidate(&active, tail);
+    let mut tail = Vec::new();
+    if let Some(overflow) = profile_overflow.as_ref() {
+        tail.push(overflow.clone());
+    }
+    tail.push(manage.to_string());
+    try_candidate(&active, tail);
+    let mut tail = Vec::new();
+    if let Some(hidden) = hidden.as_ref() {
+        tail.push(hidden.clone());
+    }
+    tail.push(manage.to_string());
+    try_candidate(&active, tail);
+    try_candidate(&active, vec![manage.to_string()]);
+    let (shown, tail_parts, profiles_fit) = chosen.unwrap_or_else(|| {
+        // A name can be wider than the entire strip. Preserve at least one
+        // visible cell of the active identity, and keep the menu affordance
+        // whenever a separator plus one profile cell fits.
+        if !active.is_empty() {
+            if content_width >= 3 {
+                (active.clone(), vec![manage.to_string()], false)
+            } else {
+                (active.clone(), Vec::new(), false)
+            }
+        } else {
+            (Vec::new(), vec![manage.to_string()], false)
+        }
+    });
 
     let tail = tail_parts.join(" ");
     let tail_width = UnicodeWidthStr::width(tail.as_str()).min(content_width);
@@ -198,9 +222,7 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
     for (index, label) in &shown {
         let selectable = labels.len() > 1;
         let available = profile_limit.saturating_sub(2);
-        let fitted = if profiles_fit {
-            label.clone()
-        } else if *index == active_index && active_name_width <= profile_limit {
+        let fitted = if profiles_fit || (*index == active_index && active_name_width <= profile_limit) {
             label.clone()
         } else if available > 0 {
             truncate(label, available)
@@ -666,9 +688,21 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
             palette,
         );
         if let (Some(rect), Some(branch)) = (disclosure, row.branch) {
-            app.hits.push((rect, Hit::ProjectionToggle { view: view_index, branch }));
+            app.hits.push((
+                rect,
+                Hit::ProjectionToggle {
+                    view: view_index,
+                    view_token: sidebar_profile_token(&spec.id),
+                    branch,
+                },
+            ));
         }
-        let hit = Hit::ProjectionRow { view: view_index, row: row_index, target: row.target };
+        let hit = Hit::ProjectionRow {
+            view: view_index,
+            view_token: sidebar_profile_token(&spec.id),
+            row: row_index,
+            target: row.target,
+        };
         app.hits.push((rail::row(area, y), hit));
         if two_line && y + 1 < area.y.saturating_add(area.height) {
             app.hits.push((rail::row(area, y + 1), hit));
@@ -686,7 +720,11 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
         );
         app.hits.push((
             rail::row(area, y),
-            Hit::SidebarAction { view: view_index, action: action.target },
+            Hit::SidebarAction {
+                view: view_index,
+                view_token: sidebar_profile_token(&spec.id),
+                action: action.target,
+            },
         ));
     }
     app.hits
@@ -716,10 +754,23 @@ pub fn draw_split_dividers(app: &mut App, frame: &mut Frame) {
             // The rail border column stays continuous through the divider.
             buf[(last, y)].set_symbol(palette.border_symbol).set_style(palette.border);
         }
-        app.hits.push((
-            divider.rect,
-            Hit::SidebarSplitDivider { group: divider.group, index: divider.index },
-        ));
+        if let Some(group) = app.sidebar_layout.split_groups.get(divider.group)
+            && let (Some(first), Some(second)) = (
+                group.child_keys.get(divider.index),
+                group.child_keys.get(divider.index + 1),
+            )
+        {
+            app.hits.push((
+                divider.rect,
+                Hit::SidebarSplitDivider {
+                    group: divider.group,
+                    index: divider.index,
+                    group_token: sidebar_profile_token(&group.id),
+                    first_token: sidebar_profile_token(first),
+                    second_token: sidebar_profile_token(second),
+                },
+            ));
+        }
     }
 }
 
@@ -800,6 +851,9 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
 
     let actions = app.workspace_sidebar_action_rows();
     let view_index = app.view_index_for_rail(RailKind::Workspace);
+    let view_token = view_index
+        .and_then(|index| app.config.sidebar.views.get(index))
+        .map_or(0, |view| sidebar_profile_token(&view.id));
     let recoverable = app
         .machine_ui
         .as_ref()
@@ -938,9 +992,15 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
             palette,
             metrics,
         );
-        hits.push((rail::row(area, y), Hit::RecoverableWorkspace { index }));
+        hits.push((
+            rail::row(area, y),
+            Hit::RecoverableWorkspace { index, token: sidebar_profile_token(&workspace.id) },
+        ));
         if metrics.height >= 2 {
-            hits.push((rail::row(area, y + 1), Hit::RecoverableWorkspace { index }));
+            hits.push((
+                rail::row(area, y + 1),
+                Hit::RecoverableWorkspace { index, token: sidebar_profile_token(&workspace.id) },
+            ));
         }
     }
 
@@ -975,7 +1035,7 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
                 if let Some(view) = view_index {
                     hits.push((
                         rail::row(area, y),
-                        Hit::SidebarAction { view, action: action.target },
+                        Hit::SidebarAction { view, view_token, action: action.target },
                     ));
                 }
             }
@@ -1188,10 +1248,13 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             let input_width = content_width.saturating_sub(1);
             buf.set_stringn(area.x, footer_y, "/", 1, dim);
             buf.set_stringn(area.x + 1, footer_y, &shown, input_width as usize, dim);
-            let input_rect = Rect { x: area.x + 1, y: footer_y, width: input_width, height: 1 };
+            // Include the visible slash prefix in the hit region. The cursor
+            // still starts after the prefix, but the whole control owns the
+            // click so the pane never receives an edge click by accident.
+            let input_rect = Rect { x: area.x, y: footer_y, width: content_width, height: 1 };
             hits.push((input_rect, Hit::SidebarFilterInput));
             if app.workspace_sidebar_focused() {
-                input_cursor = Some((input_rect.x + cursor_col as u16, footer_y));
+                input_cursor = Some((area.x + 1 + cursor_col as u16, footer_y));
             }
         } else {
             let footer = if let Some(message) = message {
@@ -1270,9 +1333,15 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             }
             crate::app::SidebarActionTarget::Run(_) => {
                 if let Some(view) = app.view_index_for_rail(RailKind::Workspace) {
+                    let view_token = app
+                        .config
+                        .sidebar
+                        .views
+                        .get(view)
+                        .map_or(0, |view| sidebar_profile_token(&view.id));
                     hits.push((
                         rail::row(area, y),
-                        Hit::SidebarAction { view, action: action.target },
+                        Hit::SidebarAction { view, view_token, action: action.target },
                     ));
                 }
             }
