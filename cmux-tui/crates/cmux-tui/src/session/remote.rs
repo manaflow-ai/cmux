@@ -56,6 +56,39 @@ const REMOTE_FRAME_DUMP_MAX_FILES: usize = 32;
 const REMOTE_FRAME_DUMP_MAX_BYTES: u64 = 8 * 1024 * 1024;
 const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
 const REMOTE_TERMINAL_CELL_MAX: u64 = 1024 * 1024;
+
+#[cfg(unix)]
+#[derive(Debug, Clone, Copy)]
+struct PrivateDumpEmissionBudget {
+    remaining_files: usize,
+    remaining_bytes: u64,
+}
+
+#[cfg(unix)]
+impl PrivateDumpEmissionBudget {
+    fn new() -> Self {
+        Self::with_limits(REMOTE_FRAME_DUMP_MAX_FILES, REMOTE_FRAME_DUMP_MAX_BYTES)
+    }
+
+    fn with_limits(maximum_files: usize, maximum_bytes: u64) -> Self {
+        Self { remaining_files: maximum_files, remaining_bytes: maximum_bytes }
+    }
+
+    fn can_fit(&self, bytes: u64) -> bool {
+        self.remaining_files > 0 && bytes <= self.remaining_bytes
+    }
+
+    fn has_capacity(&self) -> bool {
+        self.remaining_files > 0 && self.remaining_bytes > 0
+    }
+
+    fn commit(&mut self, bytes: u64) {
+        debug_assert!(self.can_fit(bytes));
+        self.remaining_files = self.remaining_files.saturating_sub(1);
+        self.remaining_bytes = self.remaining_bytes.saturating_sub(bytes);
+    }
+}
+
 const INTERACTIVE_LATENCY_BUCKET_UPPER_US: [u64; 18] = [
     50,
     100,
@@ -3679,29 +3712,65 @@ impl Drop for RemoteSession {
             for entry in &logs.entries {
                 entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
             }
+            // A session can retain more surfaces than the directory's final
+            // retention set. Bound the amount emitted during teardown too;
+            // the final prune below still accounts for dumps from other
+            // sessions and concurrent writers.
+            let mut emission_budget = PrivateDumpEmissionBudget::new();
+            let mut emission_budget_exhausted = false;
             for surface in self.surfaces.lock().unwrap().values() {
+                if !emission_budget.has_capacity() {
+                    emission_budget_exhausted = true;
+                    break;
+                }
                 let mirror_name = format!("mirror-{}.txt", surface.id);
                 let mirror = dump_mirror(surface);
-                if let Err(error) = write_private_dump(&directory, &mirror_name, |file| {
-                    file.write_all(mirror.as_bytes())
-                }) {
-                    crate::client_log::error(
-                        "mux-dump",
-                        &format!("cannot write private dump {mirror_name}: {error}"),
-                    );
+                let mirror_bytes = mirror.len() as u64;
+                if emission_budget.can_fit(mirror_bytes) {
+                    if let Err(error) = write_private_dump(&directory, &mirror_name, |file| {
+                        file.write_all(mirror.as_bytes())
+                    }) {
+                        crate::client_log::error(
+                            "mux-dump",
+                            &format!("cannot write private dump {mirror_name}: {error}"),
+                        );
+                    } else {
+                        emission_budget.commit(mirror_bytes);
+                    }
+                } else {
+                    emission_budget_exhausted = true;
                 }
                 let frames_name = format!("frames-{}.log", surface.id);
-                if let Err(error) = write_private_dump(&directory, &frames_name, |file| {
-                    for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
-                        writeln!(file, "{line}")?;
+                let frame_bytes = entries_by_surface
+                    .get(&surface.id)
+                    .into_iter()
+                    .flatten()
+                    .fold(0_u64, |total, line| {
+                        total.saturating_add((line.len() as u64).saturating_add(1))
+                    });
+                if emission_budget.can_fit(frame_bytes) {
+                    if let Err(error) = write_private_dump(&directory, &frames_name, |file| {
+                        for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
+                            writeln!(file, "{line}")?;
+                        }
+                        Ok(())
+                    }) {
+                        crate::client_log::error(
+                            "mux-dump",
+                            &format!("cannot write private dump {frames_name}: {error}"),
+                        );
+                    } else {
+                        emission_budget.commit(frame_bytes);
                     }
-                    Ok(())
-                }) {
-                    crate::client_log::error(
-                        "mux-dump",
-                        &format!("cannot write private dump {frames_name}: {error}"),
-                    );
+                } else {
+                    emission_budget_exhausted = true;
                 }
+            }
+            if emission_budget_exhausted {
+                crate::client_log::error(
+                    "mux-dump",
+                    "private dump emission budget exhausted; later surface dumps were skipped",
+                );
             }
             if let Err(error) = prune_dump_files(&directory.output) {
                 crate::client_log::error(
@@ -5322,6 +5391,23 @@ mod tests {
         assert_eq!(retained.len(), 2);
         let bytes = retained.iter().map(|entry| entry.metadata().unwrap().len()).sum::<u64>();
         assert_eq!(bytes, 10);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_dump_emission_budget_enforces_file_and_byte_caps() {
+        let mut budget = PrivateDumpEmissionBudget::with_limits(2, 10);
+
+        assert!(budget.can_fit(4));
+        budget.commit(4);
+        assert_eq!(budget.remaining_files, 1);
+        assert_eq!(budget.remaining_bytes, 6);
+
+        assert!(budget.can_fit(6));
+        budget.commit(6);
+        assert_eq!(budget.remaining_files, 0);
+        assert_eq!(budget.remaining_bytes, 0);
+        assert!(!budget.can_fit(0));
     }
 
     #[cfg(unix)]
