@@ -1608,6 +1608,10 @@ final class cmuxUITests: XCTestCase {
         XCTAssertTrue(terminalSurface.waitForExistence(timeout: 6))
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
         XCTAssertTrue(titleMenu.waitForExistence(timeout: 4))
+        let selectedWorkspaceTitle = titleMenu.label
+        let selectedTerminalRows = terminalRows(in: app)
+        XCTAssertFalse(selectedWorkspaceTitle.isEmpty)
+        XCTAssertFalse(selectedTerminalRows.isEmpty)
 
         server.stop()
         serverIsRunning = false
@@ -1638,9 +1642,15 @@ final class cmuxUITests: XCTestCase {
             backButton.exists,
             "Transport recovery must not pop the selected workspace detail."
         )
-        XCTAssertTrue(
-            titleMenu.exists,
+        XCTAssertEqual(
+            workspaceTitleElement(in: app).label,
+            selectedWorkspaceTitle,
             "Transport recovery must retain the selected workspace identity."
+        )
+        XCTAssertEqual(
+            terminalRows(in: app),
+            selectedTerminalRows,
+            "Transport recovery must preserve the last-good terminal contents."
         )
     }
 
