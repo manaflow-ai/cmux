@@ -999,22 +999,7 @@ export function snapshotVm(input: {
         Effect.catchAll(() => Effect.succeed(null)),
       )
       : null;
-    const sourceHasReservation = hasVmResourceReservationMetadata(vm.providerMetadata);
-    const sourceReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
-    const snapshotReservation = {
-      // A valid durable claim is a floor because it can intentionally differ
-      // from a provider's baked shape. Legacy rows have no such floor: use a
-      // reported provider dimension exactly, and fall back only when absent.
-      vcpus: sourceHasReservation
-        ? Math.max(sourceReservation.vcpus, snapshotStats?.vcpus ?? sourceReservation.vcpus)
-        : snapshotStats?.vcpus ?? PLAN_SHARED_VCPU,
-      memoryMb: sourceHasReservation
-        ? Math.max(sourceReservation.memoryMb, snapshotStats?.memoryMb ?? sourceReservation.memoryMb)
-        : snapshotStats?.memoryMb ?? PLAN_SHARED_MEMORY_MB,
-      diskMb: sourceHasReservation
-        ? Math.max(sourceReservation.diskMb, snapshotStats?.diskMb ?? sourceReservation.diskMb)
-        : snapshotStats?.diskMb ?? PLAN_SHARED_DISK_MB,
-    } satisfies VmResourceReservation;
+    const snapshotReservation = snapshotResourceReservation(vm.providerMetadata, snapshotStats);
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmOperationUnsupportedError({
@@ -1043,6 +1028,35 @@ export function snapshotVm(input: {
     });
     return snapshot;
   });
+}
+
+type SnapshotProviderResources = {
+  readonly vcpus: number | null;
+  readonly memoryMb: number | null;
+  readonly diskMb: number | null;
+};
+
+/**
+ * Preserve a durable reservation as a floor, while repairing legacy snapshots
+ * from provider-confirmed dimensions and failing closed for missing fields.
+ */
+function snapshotResourceReservation(
+  providerMetadata: Record<string, unknown> | null | undefined,
+  providerResources: SnapshotProviderResources | null,
+): VmResourceReservation {
+  const sourceReservation = vmResourceReservationFromMetadata(providerMetadata);
+  if (!hasVmResourceReservationMetadata(providerMetadata)) {
+    return {
+      vcpus: providerResources?.vcpus ?? PLAN_SHARED_VCPU,
+      memoryMb: providerResources?.memoryMb ?? PLAN_SHARED_MEMORY_MB,
+      diskMb: providerResources?.diskMb ?? PLAN_SHARED_DISK_MB,
+    };
+  }
+  return {
+    vcpus: Math.max(sourceReservation.vcpus, providerResources?.vcpus ?? sourceReservation.vcpus),
+    memoryMb: Math.max(sourceReservation.memoryMb, providerResources?.memoryMb ?? sourceReservation.memoryMb),
+    diskMb: Math.max(sourceReservation.diskMb, providerResources?.diskMb ?? sourceReservation.diskMb),
+  };
 }
 
 export function restoreVm(input: {
