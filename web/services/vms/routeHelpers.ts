@@ -602,7 +602,7 @@ export async function vmCreateLikeErrorResponse(
     });
   }
   if (isVmSharedResourceLimitExceededError(err)) {
-    return vmSharedResourceLimitExceededResponse(err, "create", input.locale ?? "en");
+    return vmSharedResourceLimitExceededResponse(err, input.operation, input.locale ?? "en");
   }
   if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({

@@ -171,7 +171,15 @@ describe("Cloud VM route error adapters", () => {
       retryAction: "fork retry",
     });
     expect(fork?.status).toBe(409);
-    expect((await responseBody(fork!)).error).toBe("vm_shared_resource_limit_exceeded");
+    const forkPayload = await responseBody(fork!);
+    expect(forkPayload.error).toBe("vm_shared_resource_limit_exceeded");
+    expect(forkPayload.phase).toBe("fork");
+    const restore = await vmCreateLikeErrorResponse(error, {
+      operation: "restore",
+      planId: "pro",
+      retryAction: "restore retry",
+    });
+    expect((await responseBody(restore!)).phase).toBe("restore");
   });
 
   test("maps a concurrent disk resize to a retryable conflict", async () => {
