@@ -5319,9 +5319,96 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_dump_acl_accepts_deny_and_rejects_allow_entries() {
-        assert!(macos_dump_acl_tag_is_safe(0x0000_0200));
-        assert!(!macos_dump_acl_tag_is_safe(0x0000_0100));
+        assert!(macos_dump_acl_tag_is_safe(2));
+        assert!(!macos_dump_acl_tag_is_safe(1));
         assert!(!macos_dump_acl_tag_is_safe(99));
+    }
+
+    #[cfg(target_os = "macos")]
+    fn macos_dump_directory_with_acl(tags: &[libc::c_int]) -> (tempfile::TempDir, fs::File) {
+        use std::os::fd::AsRawFd;
+
+        unsafe extern "C" {
+            fn acl_init(count: libc::c_int) -> *mut libc::c_void;
+            fn acl_create_entry(
+                acl: *mut *mut libc::c_void,
+                entry: *mut *mut libc::c_void,
+            ) -> libc::c_int;
+            fn acl_set_tag_type(entry: *mut libc::c_void, tag: libc::c_int) -> libc::c_int;
+            fn acl_set_fd_np(
+                fd: libc::c_int,
+                acl: *mut libc::c_void,
+                acl_type: libc::c_int,
+            ) -> libc::c_int;
+            fn acl_free(object: *mut libc::c_void) -> libc::c_int;
+        }
+
+        struct Acl(*mut libc::c_void);
+        impl Drop for Acl {
+            fn drop(&mut self) {
+                unsafe { acl_free(self.0) };
+            }
+        }
+
+        const ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
+        let root = tempfile::tempdir().unwrap();
+        let directory = fs::File::open(root.path()).unwrap();
+        let mut acl = Acl(unsafe { acl_init(tags.len() as libc::c_int) });
+        assert!(!acl.0.is_null());
+        for &tag in tags {
+            let mut entry = std::ptr::null_mut();
+            assert_eq!(unsafe { acl_create_entry(&mut acl.0, &mut entry) }, 0);
+            assert_eq!(unsafe { acl_set_tag_type(entry, tag) }, 0);
+        }
+        assert_eq!(unsafe { acl_set_fd_np(directory.as_raw_fd(), acl.0, ACL_TYPE_EXTENDED) }, 0);
+        (root, directory)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_accepts_a_deny_only_acl() {
+        let (_root, directory) = macos_dump_directory_with_acl(&[2]);
+        assert!(reject_extended_acl(&directory).is_ok());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_rejects_an_allow_after_a_deny() {
+        let (_root, directory) = macos_dump_directory_with_acl(&[2, 1]);
+        let error = reject_extended_acl(&directory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_advances_through_repeated_deny_entries() {
+        use std::time::{Duration, Instant};
+
+        if std::env::var_os("CMUX_MACOS_ACL_CHILD").is_some() {
+            let (_root, directory) = macos_dump_directory_with_acl(&[2, 2]);
+            assert!(reject_extended_acl(&directory).is_ok());
+            return;
+        }
+
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .arg("--nocapture")
+            .arg("macos_dump_acl_advances_through_repeated_deny_entries")
+            .env("CMUX_MACOS_ACL_CHILD", "1")
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success(), "ACL child exited with {status}");
+                return;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("ACL scan did not advance through all entries");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[cfg(unix)]
