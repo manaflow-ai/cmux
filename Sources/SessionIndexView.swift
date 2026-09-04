@@ -371,6 +371,11 @@ struct SessionIndexView: View {
         let onResumeClosure = onResume
         let onOpenClosure = onOpen
         let onFocusClosure = onFocus
+        let statusSnapshot = SessionIndexStatusSnapshot(
+            activeSessionKeys: activeSessionKeys,
+            liveSessionKeys: store.liveSessionKeys,
+            now: .now
+        )
         let gapActions = SectionGapActions(
             currentDraggedKey: { dragCoordinator.draggedKey },
             moveSection: { key, before in store.moveSection(key, before: before) },
@@ -411,7 +416,8 @@ struct SessionIndexView: View {
                 onOpen: onOpenClosure,
                 onFocus: onFocusClosure,
                 search: searchFn,
-                loadSnapshot: loadSnapshotFn
+                loadSnapshot: loadSnapshotFn,
+                statusSnapshot: statusSnapshot
             )
             // Day buckets are computed, not user-orderable: their gaps reject
             // drops. Search projections retain the active category's normal
@@ -646,6 +652,7 @@ struct IndexSectionActions {
     let onFocus: ((SessionEntry) -> Void)?
     let search: SessionSearchFn
     let loadSnapshot: DirectorySnapshotFn
+    let statusSnapshot: SessionIndexStatusSnapshot
 
     init(
         onBeginDrag: @escaping @MainActor () -> Void,
@@ -656,7 +663,8 @@ struct IndexSectionActions {
         onOpen: ((SessionEntry) -> Void)?,
         onFocus: ((SessionEntry) -> Void)? = nil,
         search: @escaping SessionSearchFn,
-        loadSnapshot: @escaping DirectorySnapshotFn
+        loadSnapshot: @escaping DirectorySnapshotFn,
+        statusSnapshot: SessionIndexStatusSnapshot = .init()
     ) {
         self.onBeginDrag = onBeginDrag
         self.beginSessionDrag = beginSessionDrag
@@ -667,6 +675,7 @@ struct IndexSectionActions {
         self.onFocus = onFocus
         self.search = search
         self.loadSnapshot = loadSnapshot
+        self.statusSnapshot = statusSnapshot
     }
 }
 
@@ -1034,26 +1043,6 @@ private struct SessionRow: View, Equatable {
 
     private func absoluteTime(_ date: Date) -> String {
         SessionIndexView.absoluteFormatter.string(from: date)
-    }
-}
-
-/// The session list uses one restrained, binary status treatment everywhere:
-/// a green circle for active work and a semantic gray circle for history that
-/// is not currently active. Keeping the shape in one view prevents the
-/// in-pane and indexed-session paths from diverging again.
-private struct SessionStatusIndicator: View {
-    let model: SessionIndexStatusIndicatorModel
-
-    init(isInPane: Bool, liveStatus: VaultSessionLiveStatus?) {
-        self.model = .make(isInPane: isInPane, liveStatus: liveStatus)
-    }
-
-    var body: some View {
-        Circle()
-            .fill(model.isActive ? Color.green : Color.secondary.opacity(0.55))
-            .frame(width: 6, height: 6)
-            .help(model.label)
-            .accessibilityLabel(Text(model.label))
     }
 }
 
@@ -2436,6 +2425,10 @@ struct SectionPopoverView: View {
     let onResume: ((SessionEntry) -> Void)?
     let onOpen: ((SessionEntry) -> Void)?
     let onFocus: ((SessionEntry) -> Void)?
+    /// Immutable status snapshot from the parent. The popover can page past
+    /// the section's initial entries, so it must derive status for each loaded
+    /// row instead of relying on the section's capped accessory map.
+    let statusSnapshot: SessionIndexStatusSnapshot
     let onDismiss: () -> Void
 
     @State private var query: String = ""
@@ -2540,9 +2533,10 @@ struct SectionPopoverView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
                         ForEach(loadedRows) { row in
+                            let presentation = statusSnapshot.presentation(for: row.entry)
                             PopoverRow(
                                 entry: row.entry,
-                                accessory: section.accessories[row.entry.id],
+                                accessory: presentation.accessory,
                                 beginSessionDrag: beginSessionDrag,
                                 onOpen: onOpen.map { open in
                                     { entry in
@@ -2551,7 +2545,7 @@ struct SectionPopoverView: View {
                                     }
                                 },
                                 onFocus: onFocus,
-                                isActive: section.activeEntryIDs.contains(row.entry.id)
+                                isActive: presentation.isActive
                             ) {
                                 onResume?(row.entry)
                                 onDismiss()

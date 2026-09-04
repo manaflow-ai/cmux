@@ -65,42 +65,6 @@ enum VaultSessionLiveStatus: Equatable, Sendable {
     }
 }
 
-/// Compact Vault-row chrome: one green or gray circle, regardless of grouping.
-struct SessionIndexStatusIndicatorModel: Equatable, Sendable {
-    let isActive: Bool
-    let label: String
-
-    /// In-pane sessions stay active even if the process looks idle. Indexed
-    /// rows without a pane use live status when present, otherwise inactive.
-    nonisolated static func make(
-        isInPane: Bool,
-        liveStatus: VaultSessionLiveStatus?
-    ) -> SessionIndexStatusIndicatorModel {
-        if isInPane {
-            return SessionIndexStatusIndicatorModel(
-                isActive: true,
-                label: String(
-                    localized: "sessionIndex.status.activeInPane",
-                    defaultValue: "Active in pane"
-                )
-            )
-        }
-        if let liveStatus, liveStatus.isActiveForIndicator {
-            return SessionIndexStatusIndicatorModel(
-                isActive: true,
-                label: liveStatus.indicatorLabel
-            )
-        }
-        return SessionIndexStatusIndicatorModel(
-            isActive: false,
-            label: String(
-                localized: "sessionIndex.status.inactiveIndicator",
-                defaultValue: "Inactive"
-            )
-        )
-    }
-}
-
 /// Join keys between disk-indexed `SessionEntry` values and the process-side
 /// `RestorableAgentSessionIndex`, expressed as `<kind rawValue>:<canonical id>`.
 enum VaultLiveSessionKeys {

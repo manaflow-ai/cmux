@@ -261,6 +261,27 @@ struct VaultRecencySectionsTests {
     }
 
     @Test
+    func statusSnapshotResolvesPagedEntryOutsideInitialSection() {
+        let initial = makeEntry(id: "initial", modified: now)
+        let paged = makeEntry(id: "paged", modified: now)
+        let snapshot = SessionIndexStatusSnapshot(
+            activeSessionKeys: [VaultLiveSessionKeys.key(for: initial)],
+            liveSessionKeys: [VaultLiveSessionKeys.key(for: paged)],
+            now: now
+        )
+
+        // A directory/search popover can page in `paged` after the initial
+        // section projection was created. Its status must still come from the
+        // shared snapshot rather than the capped section dictionaries.
+        let pagedPresentation = snapshot.presentation(for: paged)
+        #expect(pagedPresentation.accessory.liveStatus == .live)
+        #expect(pagedPresentation.isActive == false)
+
+        let initialPresentation = snapshot.presentation(for: initial)
+        #expect(initialPresentation.isActive)
+    }
+
+    @Test
     func emptyInputProducesNoSections() {
         #expect(build([]).isEmpty)
     }
