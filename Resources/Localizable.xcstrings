@@ -128252,6 +128252,23 @@
         }
       }
     },
+    "machines.operation.resizeDisk": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Increasing %@ disk to %d GiB…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のディスクを %d GiB に拡張中…"
+          }
+        }
+      }
+    },
     "machines.operation.status": {
       "extractionState": "manual",
       "localizations": {
