@@ -1941,9 +1941,26 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_cleanup() {
             trap - EXIT HUP INT TERM
             if [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
+              # The journal files are the authoritative ownership state. A
+              # shell can abort before assigning one of the in-memory phase
+              # flags when an external command hits EAGAIN, so key the
+              # fork-free recovery on the files as well as the normal phase
+              # markers. Every row was admitted only after an identity-checked
+              # STOP request; using that journal here is still narrower than
+              # rediscovering the process table while resources are exhausted.
+              cmux_ssh_auth_has_confirmed_journal=0
+              if [ -n "${cmux_ssh_auth_pending:-}" ] &&
+                 [ -s "$cmux_ssh_auth_pending" ]; then
+                cmux_ssh_auth_has_confirmed_journal=1
+              fi
+              if [ -n "${cmux_ssh_auth_owned:-}" ] &&
+                 [ -s "$cmux_ssh_auth_owned" ]; then
+                cmux_ssh_auth_has_confirmed_journal=1
+              fi
               if [ "$cmux_ssh_auth_dynamic_discovery_failed" != 1 ] &&
                  { [ "$cmux_ssh_auth_tree_frozen" = 1 ] ||
-                   [ "$cmux_ssh_auth_force_frozen" = 1 ]; }; then
+                   [ "$cmux_ssh_auth_force_frozen" = 1 ] ||
+                   [ "$cmux_ssh_auth_has_confirmed_journal" = 1 ]; }; then
                 # The journal is already stopped and identity-fenced. Use the
                 # no-fork backstop before any best-effort rollback helper; this
                 # is the only cleanup operation that remains reliable after an
