@@ -207,6 +207,14 @@ struct CloudPortOpenRegressionTests {
         #expect(port.remoteViews?.map(\.tabID) == ["tab_port"])
         #expect(merged.contains { $0.id.key == "browser_http_tab" } == false)
 
+        let loopbackOnly = CmuxTuiSurfaceProvider.mergeSnapshotResources(
+            pool: [],
+            parsed: parsed,
+            privateAddress: "10.0.0.7"
+        )
+        #expect(loopbackOnly.contains { $0.id.key == "browser_http_tab" })
+        #expect(loopbackOnly.contains { $0.id.isForwardedPort } == false)
+
         let tree = CloudTreeNodeBuilder.flattened(CloudTreeNodeBuilder.nodes(
             machines: [machineSnapshot()],
             snapshot: SurfaceCatalogSnapshot(

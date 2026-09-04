@@ -336,6 +336,14 @@ extension CmuxTuiSurfaceProvider {
                 kind: .browser,
                 key: SurfaceResourceID.portKey(port)
             )
+            // A private-address URL is valid only when the probe observed a
+            // non-loopback binding (or a prior canonical resource already
+            // established that fact). Do not promote a loopback-only daemon
+            // browser into an unreachable machine-port row.
+            guard privateAddress == nil || priorPorts[id] != nil else {
+                parsedResources.append(resource)
+                continue
+            }
             parsedPortIDs.insert(id)
             if let index = portIndexes[id] {
                 var merged = parsedResources[index]
