@@ -228,7 +228,10 @@ try {
     if (!skipAttach) {
       // Every cmux Cloud machine runs only the cmux-tui remote daemon.
       const expectedTransport = "cmux-remote";
-      const attachBody = { transport: "cmux-remote" };
+      const attachBody = {
+        transport: "cmux-remote",
+        deviceFingerprint: `smoke-${project.stackLabel}-${suffix}`,
+      };
       // First attach after create races the in-VM daemon boot; the API says
       // retryable with retryAfterSeconds and real clients loop. Retry 502s
       // within a bounded budget so the smoke measures the client contract,
