@@ -41,10 +41,12 @@ export type ServerEventInput = {
   readonly timestamp?: Date;
 };
 
+export type ServerEventTask = () => Promise<void>;
+
 export type ServerEventDependencies = {
   readonly fetch: typeof fetch;
   readonly env: Record<string, string | undefined>;
-  readonly defer: (task: Promise<unknown>) => void;
+  readonly defer: (task: ServerEventTask) => void;
   readonly now: () => Date;
 };
 
@@ -63,15 +65,18 @@ export function serverAnalyticsEnabled(env: Record<string, string | undefined>):
 }
 
 /**
- * Run a best-effort task past the response. Outside a Next request scope
- * (tests, scripts) `after` throws; the promise is already running, so only
- * its rejection needs absorbing.
+ * Run a lazy best-effort task past the response. Outside a Next request scope
+ * (tests, scripts) `after` throws, so run the task immediately.
  */
-export function deferServerTask(task: Promise<unknown>): void {
+export function deferServerTask(task: ServerEventTask): void {
   try {
-    after(() => task);
+    after(() => task());
   } catch {
-    void task.catch(() => undefined);
+    try {
+      void task();
+    } catch {
+      // A best-effort task must not escape a request-scope lifecycle race.
+    }
   }
 }
 
@@ -116,8 +121,9 @@ export function serverEventPayload(
 }
 
 /**
- * Capture one product event. Fire and forget: the returned promise settles
- * when delivery is done and never rejects, so callers may ignore it.
+ * Capture one product event. Delivery starts only when the deferred callback
+ * runs. The returned promise settles when delivery is done and never rejects,
+ * so callers may ignore it.
  */
 export function captureServerEvent(
   input: ServerEventInput,
@@ -130,29 +136,63 @@ export function captureServerEvent(
   if (!serverAnalyticsEnabled(deps.env)) return Promise.resolve();
   const payload = serverEventPayload(input, deps.now());
   if (!payload) return Promise.resolve();
-  const task = deliver(JSON.stringify(payload), deps.fetch).catch((error: unknown) => {
-    console.warn("[analytics] server event delivery failed", {
-      event: input.event,
-      error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
-    });
+  const posthogHost = configuredPosthogHost(deps.env);
+  let resolveDelivery!: () => void;
+  const delivery = new Promise<void>((resolve) => {
+    resolveDelivery = resolve;
   });
+  let started = false;
+  const task: ServerEventTask = async () => {
+    if (started) return;
+    started = true;
+    try {
+      if (!isSecurePosthogHost(posthogHost)) {
+        throw new Error("PostHog host must use HTTPS");
+      }
+      await deliver(JSON.stringify(payload), deps.fetch, posthogHost);
+    } catch (error: unknown) {
+      console.warn("[analytics] server event delivery failed", {
+        event: input.event,
+        error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+      });
+    } finally {
+      resolveDelivery();
+    }
+  };
   try {
     deps.defer(task);
   } catch {
     // A custom defer implementation or a framework lifecycle race must not
-    // turn best-effort analytics into a request failure. The task has already
-    // started, so only absorb its rejection here.
-    void task.catch(() => undefined);
+    // turn best-effort analytics into a request failure. Run the task now so
+    // callers waiting on the returned promise cannot be left pending.
+    try {
+      void task();
+    } catch {
+      resolveDelivery();
+    }
   }
-  return task;
+  return delivery;
 }
 
-async function deliver(body: string, fetchImpl: typeof fetch): Promise<void> {
+export function isSecurePosthogHost(host: string): boolean {
+  try {
+    const url = new URL(host);
+    return url.protocol === "https:" && url.hostname.length > 0 && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+function configuredPosthogHost(env: Record<string, string | undefined>): string {
+  return (env.POSTHOG_HOST ?? POSTHOG_HOST).replace(/\/$/, "");
+}
+
+async function deliver(body: string, fetchImpl: typeof fetch, posthogHost: string): Promise<void> {
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let response: Response;
     try {
-      response = await fetchImpl(`${POSTHOG_HOST}/capture/`, {
+      response = await fetchImpl(`${posthogHost}/capture/`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body,

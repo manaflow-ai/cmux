@@ -221,7 +221,7 @@ describe("repository analytics sink", () => {
       bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
-    const deferred: Promise<unknown>[] = [];
+    const deferred: Array<() => Promise<void>> = [];
     captureVmProductEvent(ledgerRow(), {
       fetch: fetchImpl,
       env: { CMUX_SERVER_ANALYTICS_FORCE: "1" },
@@ -230,7 +230,7 @@ describe("repository analytics sink", () => {
       },
       now: () => NOW,
     });
-    await Promise.all(deferred);
+    await deferred[0]!();
     expect(bodies).toHaveLength(1);
     expect(bodies[0]).toMatchObject({ event: "cloud_vm_created", distinct_id: "user-1" });
     expect((bodies[0].properties as Record<string, unknown>).$groups).toEqual({ stack_team: "team-1" });

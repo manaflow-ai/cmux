@@ -2,17 +2,19 @@ import { describe, expect, test } from "bun:test";
 
 import {
   captureServerEvent,
+  isSecurePosthogHost,
   serverAnalyticsEnabled,
   serverEventPayload,
   SERVER_EVENT_LIB,
   STACK_TEAM_GROUP,
+  type ServerEventTask,
 } from "../services/analytics/serverEvents";
 
 type Sent = { url: string; body: Record<string, unknown> };
 
 function collector(responses: number[] = [200]) {
   const sent: Sent[] = [];
-  const deferred: Promise<unknown>[] = [];
+  const deferred: Array<() => Promise<void>> = [];
   let call = 0;
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     sent.push({ url: String(input), body: JSON.parse(String(init?.body)) as Record<string, unknown> });
@@ -26,7 +28,7 @@ function collector(responses: number[] = [200]) {
     dependencies: {
       fetch: fetchImpl,
       env: { CMUX_SERVER_ANALYTICS_FORCE: "1" },
-      defer: (task: Promise<unknown>) => {
+      defer: (task: ServerEventTask) => {
         deferred.push(task);
       },
       now: () => new Date("2026-09-03T00:00:00.000Z"),
@@ -88,7 +90,7 @@ describe("server event payload", () => {
 describe("server event delivery", () => {
   test("does not start the fetch before the deferred callback runs", async () => {
     const calls: string[] = [];
-    const deferred: Promise<unknown>[] = [];
+    const deferred: Array<() => Promise<void>> = [];
     const fetchImpl = (async (input: string | URL | Request) => {
       calls.push(String(input));
       return new Response(null, { status: 200 });
@@ -98,37 +100,61 @@ describe("server event delivery", () => {
       {
         fetch: fetchImpl,
         env: { CMUX_SERVER_ANALYTICS_FORCE: "1" },
-        defer: (task) => deferred.push(task),
+        defer: (task: ServerEventTask) => deferred.push(task),
         now: () => new Date("2026-09-03T00:00:00.000Z"),
       },
     );
 
     expect(calls).toHaveLength(0);
     expect(deferred).toHaveLength(1);
-    await deferred[0];
+    await deferred[0]!();
     await delivery;
     expect(calls).toHaveLength(1);
   });
 
   test("posts to /capture/ and defers the task past the response", async () => {
     const collected = collector();
-    await captureServerEvent({ event: "cloud_vm_created", distinctId: "user-1" }, collected.dependencies);
-    expect(collected.sent).toHaveLength(1);
-    expect(collected.sent[0].url).toMatch(/\/capture\/$/);
-    expect(collected.sent[0].body).toMatchObject({ event: "cloud_vm_created", distinct_id: "user-1" });
+    const delivery = captureServerEvent({ event: "cloud_vm_created", distinctId: "user-1" }, collected.dependencies);
+    expect(collected.sent).toHaveLength(0);
     expect(collected.deferred).toHaveLength(1);
+    await collected.deferred[0]!();
+    await delivery;
+    expect(collected.sent).toHaveLength(1);
+    expect(collected.sent[0]!.url).toMatch(/\/capture\/$/);
+    expect(collected.sent[0]!.body).toMatchObject({ event: "cloud_vm_created", distinct_id: "user-1" });
   });
 
   test("retries once on a transient status and never rejects", async () => {
     const collected = collector([503, 200]);
-    await captureServerEvent({ event: "x", distinctId: "user-1" }, collected.dependencies);
+    const first = captureServerEvent({ event: "x", distinctId: "user-1" }, collected.dependencies);
+    await collected.deferred.shift()!();
+    await first;
     expect(collected.sent).toHaveLength(2);
     const failing = collector([503, 503]);
-    await expect(captureServerEvent({ event: "x", distinctId: "user-1" }, failing.dependencies)).resolves.toBeUndefined();
+    const failingDelivery = captureServerEvent({ event: "x", distinctId: "user-1" }, failing.dependencies);
+    await failing.deferred[0]!();
+    await expect(failingDelivery).resolves.toBeUndefined();
     expect(failing.sent).toHaveLength(2);
     const rejected = collector([400]);
-    await captureServerEvent({ event: "x", distinctId: "user-1" }, rejected.dependencies);
+    const rejectedDelivery = captureServerEvent({ event: "x", distinctId: "user-1" }, rejected.dependencies);
+    await rejected.deferred[0]!();
+    await rejectedDelivery;
     expect(rejected.sent).toHaveLength(1);
+  });
+
+  test("rejects a non-HTTPS PostHog host before fetching", async () => {
+    const collected = collector();
+    const delivery = captureServerEvent(
+      { event: "x", distinctId: "user-1" },
+      {
+        ...collected.dependencies,
+        env: { CMUX_SERVER_ANALYTICS_FORCE: "1", POSTHOG_HOST: "http://posthog.invalid" },
+      },
+    );
+    expect(collected.deferred).toHaveLength(1);
+    await collected.deferred[0]!();
+    await delivery;
+    expect(collected.sent).toHaveLength(0);
   });
 
   test("a failing defer hook cannot reject the best-effort sender", async () => {
@@ -157,5 +183,11 @@ describe("server event delivery", () => {
     await expect(captureServerEvent({ event: "x", distinctId: "user-1" }, {
       env: { ...process.env, CMUX_SERVER_ANALYTICS_FORCE: "1" },
     })).resolves.toBeUndefined();
+  });
+
+  test("accepts HTTPS hosts and rejects other URL schemes", () => {
+    expect(isSecurePosthogHost("https://r.cmux.com")).toBe(true);
+    expect(isSecurePosthogHost("http://r.cmux.com")).toBe(false);
+    expect(isSecurePosthogHost("not a URL")).toBe(false);
   });
 });

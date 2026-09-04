@@ -11,11 +11,17 @@ new customer or product reports from that project.
 
 ## Event rules
 
-Filter every CodeRouter tile with:
+Every CodeRouter tile must include the product filter. Add the event-family
+predicate that matches the tile:
 
 ```sql
-WHERE event = '$ai_trace' AND properties.product = 'coderouter'
+WHERE properties.product = 'coderouter'
 ```
+
+Use `event = '$ai_trace'` for request, latency, failure, provider and agent
+tiles. Use `event = '$ai_generation'` for token, pricing and API-equivalent
+tiles. Use the specific account or route-session lifecycle event for lifecycle
+tiles.
 
 Use the canonical event names and fields:
 
