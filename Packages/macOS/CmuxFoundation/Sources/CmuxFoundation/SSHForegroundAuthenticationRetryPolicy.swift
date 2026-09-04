@@ -2038,9 +2038,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             : > "$cmux_ssh_auth_pending"
             # Only STOP operations that pass the in-process identity fence
             # enter the pending ownership journal.
-            cmux_ssh_auth_signal_verified_batch STOP \
-              "$cmux_ssh_auth_stop_candidates" "$cmux_ssh_auth_pending" || exit 0
-            cmux_ssh_auth_append_pending || exit 0
+            if ! cmux_ssh_auth_signal_verified_batch STOP \
+              "$cmux_ssh_auth_stop_candidates" "$cmux_ssh_auth_pending"; then
+              cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+              break
+            fi
+            if ! cmux_ssh_auth_append_pending; then
+              cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+              break
+            fi
 
             if ! cmux_ssh_auth_take_snapshot || ! cmux_ssh_auth_extract_tree; then
               cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
@@ -2195,9 +2201,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
               break
             fi
             : > "$cmux_ssh_auth_pending"
-            cmux_ssh_auth_signal_verified_batch STOP \
-              "$cmux_ssh_auth_stop_candidates" "$cmux_ssh_auth_pending" || exit 0
-            cmux_ssh_auth_append_pending || exit 0
+            if ! cmux_ssh_auth_signal_verified_batch STOP \
+              "$cmux_ssh_auth_stop_candidates" "$cmux_ssh_auth_pending"; then
+              cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+              break
+            fi
+            if ! cmux_ssh_auth_append_pending; then
+              cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+              break
+            fi
             if ! cmux_ssh_auth_take_snapshot || ! cmux_ssh_auth_extract_owned; then
               cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
               break
