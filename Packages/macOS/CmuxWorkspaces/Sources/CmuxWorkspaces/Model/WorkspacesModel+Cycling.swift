@@ -35,6 +35,15 @@ extension WorkspacesModel {
         switch scope {
         case .window:
             candidates = tabs
+        case .visibleWorkspaceRows:
+            let groupsById = Dictionary(uniqueKeysWithValues: workspaceGroups.map { ($0.id, $0) })
+            candidates = tabs.filter { tab in
+                guard let groupId = tab.groupId else {
+                    return true
+                }
+                guard let group = groupsById[groupId] else { return false }
+                return tab.id != group.anchorWorkspaceId && !group.isCollapsed
+            }
         case .focusedGroupMembers:
             if let groupId = currentWorkspace.groupId,
                let group = workspaceGroups.first(where: { $0.id == groupId }) {
@@ -46,13 +55,18 @@ extension WorkspacesModel {
             }
         }
 
-        return cycleDestination(
-            from: currentWorkspaceId,
-            direction: direction,
-            candidates: candidates
-        )
+        if case .visibleWorkspaceRows = scope,
+           !candidates.contains(where: { $0.id == currentWorkspaceId }) {
+            return nearestCycleDestination(
+                from: currentWorkspaceId,
+                direction: direction,
+                candidates: candidates
+            )
+        }
+        return cycleDestination(from: currentWorkspaceId, direction: direction, candidates: candidates)
     }
 
+    /// Advances through an already-filtered candidate order, wrapping at either end.
     private func cycleDestination(
         from currentWorkspaceId: UUID,
         direction: WorkspaceCycleDirection,
@@ -71,5 +85,28 @@ extension WorkspacesModel {
         case .previous: (currentIndex - 1 + candidates.count) % candidates.count
         }
         return candidates[destinationIndex].id
+    }
+
+    /// Finds the nearest eligible tab when the current workspace row is hidden.
+    private func nearestCycleDestination(
+        from currentWorkspaceId: UUID,
+        direction: WorkspaceCycleDirection,
+        candidates: [Tab]
+    ) -> UUID? {
+        guard !candidates.isEmpty,
+              let currentIndex = tabs.firstIndex(where: { $0.id == currentWorkspaceId }) else {
+            return nil
+        }
+        let candidateIds = Set(candidates.map(\.id))
+        for offset in 1...tabs.count {
+            let index = switch direction {
+            case .next: (currentIndex + offset) % tabs.count
+            case .previous: (currentIndex - offset + tabs.count) % tabs.count
+            }
+            if candidateIds.contains(tabs[index].id) {
+                return tabs[index].id
+            }
+        }
+        return nil
     }
 }
