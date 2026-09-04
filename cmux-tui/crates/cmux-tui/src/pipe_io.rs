@@ -1329,13 +1329,17 @@ fn spawn_stdin_pump(
         .spawn(move || {
             let stdin = io::stdin();
             let mut reader = stdin.lock();
-            run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender, &stderr_gate);
+            run_stdin_pump(&mut reader, &remote, surface, &lifecycle_sender, stderr_gate);
         })
         .map_err(|error| io::Error::other(format!("spawn pipe-io stdin pump: {error}")))
 }
 
 enum PipeIoControlResult<T> {
     Completed(T),
+    /// The command was admitted in FIFO order and its acknowledgement is
+    /// being handled by the single claim owner. No acceptance diagnostic is
+    /// emitted until that owner observes the daemon response.
+    Pending,
     Gone,
     Failed(anyhow::Error),
 }
@@ -1344,7 +1348,176 @@ fn control_result_requires_transport_loss<T>(result: &PipeIoControlResult<T>) ->
     match result {
         PipeIoControlResult::Gone => true,
         PipeIoControlResult::Failed(error) => crate::session::is_pipe_io_retryable_error(error),
-        PipeIoControlResult::Completed(_) => false,
+        PipeIoControlResult::Completed(_) | PipeIoControlResult::Pending => false,
+    }
+}
+
+struct PipeIoClaimOwnerState {
+    closed: bool,
+    active: bool,
+    terminal_reason: Option<PipeIoExitReason>,
+    worker: Option<std::thread::JoinHandle<()>>,
+}
+
+/// Owns at most one in-flight geometry claim. The stdin reader only performs
+/// the immediate FIFO enqueue; a dedicated, joined worker waits for the
+/// daemon response and emits the final diagnostic.
+struct PipeIoClaimOwner {
+    remote: Weak<RemoteSession>,
+    surface: SurfaceId,
+    lifecycle_sender: Sender<PipeIoEvent>,
+    stderr_gate: Arc<StderrGate>,
+    state: Arc<Mutex<PipeIoClaimOwnerState>>,
+}
+
+impl PipeIoClaimOwner {
+    fn new(
+        remote: Weak<RemoteSession>,
+        surface: SurfaceId,
+        lifecycle_sender: Sender<PipeIoEvent>,
+        stderr_gate: Arc<StderrGate>,
+    ) -> Self {
+        Self {
+            remote,
+            surface,
+            lifecycle_sender,
+            stderr_gate,
+            state: Arc::new(Mutex::new(PipeIoClaimOwnerState {
+                closed: false,
+                active: false,
+                terminal_reason: None,
+                worker: None,
+            })),
+        }
+    }
+
+    fn reap_finished(&self) {
+        let join = {
+            let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            let finished = state.worker.as_ref().is_some_and(std::thread::JoinHandle::is_finished);
+            finished.then(|| state.worker.take()).flatten()
+        };
+        if let Some(join) = join {
+            let _ = join.join();
+            let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            state.active = false;
+        }
+    }
+
+    fn submit(&self) -> PipeIoControlResult<()> {
+        self.reap_finished();
+        {
+            let state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            if state.closed || state.terminal_reason.is_some() {
+                return PipeIoControlResult::Gone;
+            }
+            if state.active {
+                // Coalesce repeated claims while the previous ordered command
+                // is still awaiting its acknowledgement.
+                return PipeIoControlResult::Pending;
+            }
+        }
+        let Some(remote) = self.remote.upgrade() else {
+            return PipeIoControlResult::Gone;
+        };
+        let ticket = match remote.enqueue_claim_terminal_geometry(self.surface) {
+            Ok(ticket) => ticket,
+            Err(error) => return PipeIoControlResult::Failed(error),
+        };
+
+        {
+            let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            if state.closed || state.terminal_reason.is_some() {
+                drop(state);
+                drop(ticket);
+                return PipeIoControlResult::Gone;
+            }
+            // The enqueue happened before this flag is published. Any later
+            // stdin line therefore observes the claim's FIFO position.
+            state.active = true;
+        }
+
+        let owner_state = self.state.clone();
+        let lifecycle_sender = self.lifecycle_sender.clone();
+        let stderr_gate = self.stderr_gate.clone();
+        let surface = self.surface;
+        let worker_remote = remote.clone();
+        let worker =
+            match std::thread::Builder::new().name("pipe-io-claim".into()).spawn(move || {
+                let result = worker_remote.await_claim_terminal_geometry(ticket);
+                let control = match result {
+                    Ok(()) => PipeIoControlResult::Completed(()),
+                    Err(error) => PipeIoControlResult::Failed(error),
+                };
+                let retryable = control_result_requires_transport_loss(&control);
+                let retired = worker_remote.surface_is_retired(surface);
+                let local_shutdown = matches!(
+                    &control,
+                    PipeIoControlResult::Failed(error)
+                        if error
+                            .downcast_ref::<crate::session::RemoteRequestError>()
+                            .is_some_and(|error| {
+                                matches!(error, crate::session::RemoteRequestError::Shutdown)
+                            })
+                );
+                if !local_shutdown {
+                    stderr_gate.diag(claim_diag_line(&control));
+                }
+                if retryable || retired {
+                    let reason = if retired {
+                        PipeIoExitReason::TerminalEnded
+                    } else {
+                        PipeIoExitReason::DaemonLost
+                    };
+                    let mut state = owner_state.lock().unwrap_or_else(|poison| poison.into_inner());
+                    state.terminal_reason.get_or_insert(reason);
+                    state.closed = true;
+                    drop(state);
+                    let event = pipe_io_exit_event(reason);
+                    let _ = lifecycle_sender.try_send(event);
+                }
+            }) {
+                Ok(worker) => worker,
+                Err(error) => {
+                    let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                    state.active = false;
+                    drop(state);
+                    return PipeIoControlResult::Failed(
+                        io::Error::other(format!("spawn pipe-io claim worker: {error}")).into(),
+                    );
+                }
+            };
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.worker = Some(worker);
+        PipeIoControlResult::Pending
+    }
+
+    fn finish(&self) -> Option<PipeIoExitReason> {
+        let (join, had_active) = {
+            let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            state.closed = true;
+            (state.worker.take(), state.active)
+        };
+        if had_active {
+            if let Some(remote) = self.remote.upgrade() {
+                // Wake a response waiter before joining. `begin_shutdown` also
+                // preserves the writer's FIFO barrier for commands accepted before
+                // stdin reached EOF.
+                remote.begin_shutdown();
+            }
+        }
+        if let Some(join) = join {
+            let _ = join.join();
+        }
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.active = false;
+        state.terminal_reason
+    }
+}
+
+impl Drop for PipeIoClaimOwner {
+    fn drop(&mut self) {
+        let _ = self.finish();
     }
 }
 
@@ -1353,15 +1526,21 @@ fn run_stdin_pump(
     remote: &Weak<RemoteSession>,
     surface: SurfaceId,
     lifecycle_sender: &Sender<PipeIoEvent>,
-    stderr_gate: &StderrGate,
+    stderr_gate: Arc<StderrGate>,
 ) {
     let input_remote = remote.clone();
     let resize_remote = remote.clone();
-    let claim_remote = remote.clone();
+    let claim_owner = PipeIoClaimOwner::new(
+        remote.clone(),
+        surface,
+        lifecycle_sender.clone(),
+        stderr_gate.clone(),
+    );
+    let (pump_lifecycle_sender, pump_lifecycle_receiver) = crossbeam_channel::bounded(1);
     let mut emit_diag = |line: String| stderr_gate.diag(line);
     run_stdin_pump_with_handlers(
         reader,
-        lifecycle_sender,
+        &pump_lifecycle_sender,
         move |bytes| {
             let Some(remote) = input_remote.upgrade() else {
                 return PipeIoControlResult::Gone;
@@ -1382,17 +1561,22 @@ fn run_stdin_pump(
                 Err(error) => PipeIoControlResult::Failed(error),
             }
         },
-        move || {
-            let Some(remote) = claim_remote.upgrade() else {
-                return PipeIoControlResult::Gone;
-            };
-            match remote.claim_terminal_geometry(surface) {
-                Ok(()) => PipeIoControlResult::Completed(()),
-                Err(error) => PipeIoControlResult::Failed(error),
-            }
-        },
+        || claim_owner.submit(),
         &mut emit_diag,
     );
+    let fallback = pump_lifecycle_receiver.recv().unwrap_or(PipeIoEvent::StdinError);
+    let owner_reason = claim_owner.finish();
+    let final_event = owner_reason.map(pipe_io_exit_event).unwrap_or(fallback);
+    let _ = lifecycle_sender.try_send(final_event);
+}
+
+fn pipe_io_exit_event(reason: PipeIoExitReason) -> PipeIoEvent {
+    match reason {
+        PipeIoExitReason::TerminalEnded => PipeIoEvent::SurfaceExited,
+        PipeIoExitReason::DaemonLost => PipeIoEvent::TransportLost,
+        PipeIoExitReason::ParentClosed => PipeIoEvent::StdinClosed,
+        PipeIoExitReason::SetupFailed => PipeIoEvent::StdinError,
+    }
 }
 
 fn run_stdin_pump_with_handlers(
@@ -1423,6 +1607,11 @@ fn run_stdin_pump_with_handlers(
             Ok(PipeIoRequest::Input(bytes)) => {
                 match write_input(&bytes) {
                     PipeIoControlResult::Completed(()) => {}
+                    PipeIoControlResult::Pending => {
+                        // Input writes are fire-and-forget. Keep this arm for
+                        // the shared result type, although the production
+                        // input handler never returns Pending.
+                    }
                     PipeIoControlResult::Gone => {
                         // A dropped remote session cannot accept more input;
                         // reconnecting is the only way to recover it.
@@ -1464,7 +1653,9 @@ fn run_stdin_pump_with_handlers(
                 // keystroke that follows it, and avoid a new blocking thread
                 // for every claim.
                 let result = claim();
-                emit_diag(claim_diag_line(&result));
+                if !matches!(&result, PipeIoControlResult::Pending) {
+                    emit_diag(claim_diag_line(&result));
+                }
                 if control_result_requires_transport_loss(&result) {
                     stop_event = Some(PipeIoEvent::TransportLost);
                     break;
@@ -1490,6 +1681,11 @@ fn resize_diag_line(cols: u16, rows: u16, result: &PipeIoControlResult<bool>) ->
         PipeIoControlResult::Completed(accepted) => {
             serde_json::json!({"cols": cols, "rows": rows, "accepted": accepted})
         }
+        PipeIoControlResult::Pending => serde_json::json!({
+            "cols": cols,
+            "rows": rows,
+            "accepted": false,
+        }),
         PipeIoControlResult::Gone => serde_json::json!({
             "cols": cols,
             "rows": rows,
@@ -1506,6 +1702,7 @@ fn resize_diag_line(cols: u16, rows: u16, result: &PipeIoControlResult<bool>) ->
 fn claim_diag_line(result: &PipeIoControlResult<()>) -> String {
     let details = match result {
         PipeIoControlResult::Completed(()) => serde_json::json!({"accepted": true}),
+        PipeIoControlResult::Pending => serde_json::json!({"accepted": false}),
         PipeIoControlResult::Gone => serde_json::json!({"error": CLAIM_ERROR_CODE}),
         PipeIoControlResult::Failed(error) => {
             log_pipe_io_error("claim geometry", error);
@@ -2068,7 +2265,7 @@ mod tests {
         let mut input = Cursor::new(b"{\"input\":\"aGk=\"}\n".to_vec());
         let stderr_gate = StderrGate::default();
 
-        run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, &stderr_gate);
+        run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, Arc::new(stderr_gate));
 
         assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::TransportLost);
     }
@@ -2130,44 +2327,77 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     #[test]
     fn stdin_pump_does_not_wait_for_a_blocked_claim_before_forwarding_input() {
-        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
-        let mut input = Cursor::new(
-            b"{\"claim\":{\"geometry\":true}}\n{\"input\":\"aGk=\"}\n".to_vec(),
-        );
-        let (claim_started_sender, claim_started_receiver) = sync_channel(0);
-        let (release_sender, release_receiver) = std::sync::mpsc::channel();
-        let (input_seen_sender, input_seen_receiver) = sync_channel(0);
+        let (client, server) = UnixStream::pair().unwrap();
+        let (input_before_ack_sender, input_before_ack_receiver) = sync_channel(0);
+        let (server_done_sender, server_done_receiver) = std::sync::mpsc::channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = io::BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    serde_json::json!({"app": "cmux-tui", "protocol": 12})
+                } else {
+                    serde_json::Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    serde_json::json!({
+                        "id": request["id"],
+                        "ok": true,
+                        "data": data,
+                    })
+                )
+                .unwrap();
+            }
 
-        let pump = std::thread::spawn(move || {
-            run_stdin_pump_with_handlers(
-                &mut input,
-                &lifecycle_sender,
-                move |_bytes| {
-                    input_seen_sender.send(()).unwrap();
-                    PipeIoControlResult::Completed(())
-                },
-                |_cols, _rows| PipeIoControlResult::Completed(true),
-                move || {
-                    claim_started_sender.send(()).unwrap();
-                    release_receiver.recv().unwrap();
-                    PipeIoControlResult::Completed(())
-                },
-                |_line| {},
-            );
+            let mut claim_line = String::new();
+            peer.read_line(&mut claim_line).unwrap();
+            let claim: serde_json::Value = serde_json::from_str(&claim_line).unwrap();
+            assert_eq!(claim["cmd"], "set-client-sizing");
+            peer.get_mut().set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+            let mut input_line = String::new();
+            let input_before_ack = peer.read_line(&mut input_line).is_ok();
+            input_before_ack_sender.send(input_before_ack).unwrap();
+            writeln!(
+                peer.get_mut(),
+                "{}",
+                serde_json::json!({
+                    "id": claim["id"],
+                    "ok": true,
+                    "data": null,
+                })
+            )
+            .unwrap();
+            let _ = server_done_receiver.recv();
         });
 
-        claim_started_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
-        let input_forwarded_before_claim_release =
-            input_seen_receiver.recv_timeout(Duration::from_millis(100)).is_ok();
-        release_sender.send(()).unwrap();
+        let remote = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let stderr_gate = Arc::new(StderrGate::default());
+        let input = b"{\"claim\":{\"geometry\":true}}\n{\"input\":\"aGk=\"}\n".to_vec();
+        let pump_remote = Arc::downgrade(&remote);
+        let pump_stderr = stderr_gate.clone();
+        let pump = std::thread::spawn(move || {
+            let mut input = Cursor::new(input);
+            run_stdin_pump(&mut input, &pump_remote, 9, &lifecycle_sender, pump_stderr);
+        });
+
+        assert!(
+            input_before_ack_receiver
+                .recv_timeout(Duration::from_secs(1))
+                .expect("server did not inspect the input command")
+        );
         pump.join().unwrap();
         assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinClosed);
-        assert!(
-            input_forwarded_before_claim_release,
-            "stdin input waited for the geometry claim response"
-        );
+        server_done_sender.send(()).unwrap();
+        peer.join().unwrap();
     }
 
     #[test]
@@ -2177,7 +2407,7 @@ mod tests {
             let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
             let mut input = Cursor::new(input.to_vec());
             let stderr_gate = StderrGate::default();
-            run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, &stderr_gate);
+            run_stdin_pump(&mut input, &Weak::new(), 7, &lifecycle_sender, Arc::new(stderr_gate));
             assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinError);
         }
     }

@@ -208,6 +208,10 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
+    /// The request may have reached the peer, but its acknowledgement was
+    /// not observed. Retrying on the same session could execute a mutation
+    /// twice, so callers must reconnect or otherwise reconcile first.
+    Ambiguous,
     Rejected {
         error: String,
         code: Option<String>,
@@ -231,7 +235,7 @@ impl RemoteRequestError {
     }
 
     pub(crate) fn is_timeout(&self) -> bool {
-        matches!(self, Self::Timeout)
+        matches!(self, Self::Timeout | Self::Ambiguous)
     }
 
     pub(crate) fn rejection_code(&self) -> Option<&str> {
@@ -279,6 +283,9 @@ impl std::fmt::Display for RemoteRequestError {
             Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
+            Self::Ambiguous => {
+                write!(formatter, "remote request delivery is ambiguous; reconnect before retrying")
+            }
             Self::Rejected { error, .. } => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
             Self::RemoteShutdown => {
@@ -1251,6 +1258,42 @@ struct PendingRemoteRequest {
     attach_surface: Option<SurfaceId>,
 }
 
+/// A request whose command has been admitted to the ordered writer but whose
+/// response can be awaited by another owner. Pipe-IO uses this split to keep
+/// its stdin reader nonblocking while retaining one deadline and one FIFO
+/// sequence for the claim command.
+pub(crate) struct RemoteRequestTicket {
+    id: u64,
+    sequence: u64,
+    response: Receiver<Value>,
+    deadline: ResolvedRequestDeadline,
+    progress: Arc<AtomicU64>,
+    attach_progress: Option<u64>,
+    remote: Weak<RemoteSession>,
+    cleanup_on_drop: bool,
+}
+
+impl RemoteRequestTicket {
+    fn disarm_cleanup(&mut self) {
+        self.cleanup_on_drop = false;
+    }
+}
+
+impl Drop for RemoteRequestTicket {
+    fn drop(&mut self) {
+        if !self.cleanup_on_drop {
+            return;
+        }
+        let Some(remote) = self.remote.upgrade() else { return };
+        remote.pending.lock().unwrap().remove(&self.id);
+        match remote.interactive_writer.cancel_sequence(self.sequence) {
+            InteractiveWriteCancellation::Canceled => {}
+            InteractiveWriteCancellation::AlreadyWritten
+            | InteractiveWriteCancellation::InFlight => remote.reconcile_ambiguous_request(),
+        }
+    }
+}
+
 #[derive(Default)]
 struct PendingRemoteRequests {
     requests: HashMap<u64, PendingRemoteRequest>,
@@ -1333,6 +1376,18 @@ struct InteractiveWrite {
     sequence: u64,
     measure_latency: bool,
     canceled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InteractiveWriteCancellation {
+    /// The worker has not taken the command. Its FIFO tombstone guarantees
+    /// that it will never reach the transport.
+    Canceled,
+    /// The worker recorded a completed transport write for this sequence.
+    AlreadyWritten,
+    /// The worker took the command, or state contention prevented us from
+    /// proving that it remains queued. Delivery is therefore uncertain.
+    InFlight,
 }
 
 impl Drop for InteractiveWrite {
@@ -1503,6 +1558,46 @@ impl InteractiveWriter {
         self.enqueue_inner(message, measure_latency)
     }
 
+    /// Admit a command only when the queue mutex and capacity are immediately
+    /// available. This is used by the pipe-IO claim owner, which must preserve
+    /// FIFO ordering without waiting for a daemon acknowledgement (or for a
+    /// contended PTY-input queue) on its stdin reader thread.
+    fn enqueue_nowait(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+        let mut write = InteractiveWrite {
+            message,
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+            canceled: false,
+        };
+        let message_bytes = write.message.len();
+        let Some(mut state) = self.shared.state.try_lock() else {
+            return self.queue_admission_timeout(measure_latency);
+        };
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        if state.closed {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "interactive writer is closed"));
+        }
+        if state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
+            || message_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes)
+        {
+            return self.queue_admission_timeout(measure_latency);
+        }
+        let sequence = state
+            .last_enqueued_sequence
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("interactive writer sequence space is exhausted"))?;
+        state.last_enqueued_sequence = sequence;
+        state.queued_bytes += message_bytes;
+        write.sequence = sequence;
+        state.writes.push_back(write);
+        drop(state);
+        self.shared.changed.notify_one();
+        Ok(sequence)
+    }
+
     fn enqueue_inner(&self, message: String, measure_latency: bool) -> io::Result<u64> {
         let mut write = InteractiveWrite {
             message,
@@ -1626,17 +1721,17 @@ impl InteractiveWriter {
 
     /// Mark a queued sequence as canceled without removing its FIFO position.
     /// The writer worker consumes the tombstone in order and never sends it.
-    /// If the worker already took the sequence, return false so the caller can
-    /// abort the transport rather than risk sending an ambiguous command.
-    fn cancel_sequence(&self, sequence: u64) -> bool {
+    /// If the worker already took the sequence, report an ambiguous outcome so
+    /// the caller can abort the transport rather than report an unsent command.
+    fn cancel_sequence(&self, sequence: u64) -> InteractiveWriteCancellation {
         let Some(mut state) = self.shared.state.try_lock() else {
-            return false;
+            return InteractiveWriteCancellation::InFlight;
         };
         if state.last_written_sequence >= sequence {
-            return true;
+            return InteractiveWriteCancellation::AlreadyWritten;
         }
         let Some(index) = state.writes.iter().position(|write| write.sequence == sequence) else {
-            return false;
+            return InteractiveWriteCancellation::InFlight;
         };
         let message_bytes = state.writes[index].message.len();
         {
@@ -1649,7 +1744,7 @@ impl InteractiveWriter {
         state.queued_bytes = state.queued_bytes.saturating_sub(message_bytes);
         drop(state);
         self.shared.changed.notify_one();
-        true
+        InteractiveWriteCancellation::Canceled
     }
 
     #[cfg(test)]
@@ -3487,19 +3582,35 @@ impl RemoteSession {
         };
         if let Err(error) = deadline.write_remaining() {
             self.pending.lock().unwrap().remove(&id);
-            if !self.interactive_writer.cancel_sequence(sequence) {
-                // The worker may already be inside `send`. Closing the
-                // transport is the only safe way to prevent an ambiguous
-                // timed-out command from reaching the peer.
-                self.interactive_writer.abort(&io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "ordered remote write deadline expired",
-                ));
+            match self.interactive_writer.cancel_sequence(sequence) {
+                InteractiveWriteCancellation::Canceled => {}
+                InteractiveWriteCancellation::AlreadyWritten
+                | InteractiveWriteCancellation::InFlight => {
+                    // The worker may already have completed, or may be inside
+                    // `send`. Closing the transport is the only safe way to
+                    // prevent a caller from retrying an accepted mutation.
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
             }
             return Err(error.into());
         }
-        if let Err(error) = self.wait_for_ordered_write_until(sequence, deadline.write_deadline()) {
+        if let Err(error) =
+            self.interactive_writer.wait_until_written_until(sequence, deadline.write_deadline())
+        {
             self.pending.lock().unwrap().remove(&id);
+            if error.kind() == io::ErrorKind::TimedOut {
+                match self.interactive_writer.cancel_sequence(sequence) {
+                    InteractiveWriteCancellation::Canceled => {
+                        return Err(RemoteRequestError::Timeout.into());
+                    }
+                    InteractiveWriteCancellation::AlreadyWritten
+                    | InteractiveWriteCancellation::InFlight => {
+                        self.reconcile_ambiguous_request();
+                        return Err(RemoteRequestError::Ambiguous.into());
+                    }
+                }
+            }
             return Err(RemoteRequestError::Transport(error).into());
         }
 
@@ -3508,13 +3619,20 @@ impl RemoteSession {
             return Err(self.shutdown_request_error().into());
         }
 
-        let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
+        let response = match self.wait_for_response(&rx, deadline, progress, attach_progress) {
             Ok(response) => response,
             Err(error) => {
                 // Drop the pending entry so a half-open session does not
                 // accumulate abandoned senders (and a late response is
                 // not delivered to a receiver nobody holds).
                 self.pending.lock().unwrap().remove(&id);
+                if matches!(&error, RemoteRequestError::Timeout) {
+                    // The ordered write completed, so a response deadline is
+                    // an ambiguous delivery outcome. Reconcile by closing
+                    // this transport before any retry can reuse the command.
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
                 return Err(error.into());
             }
         };
@@ -3537,7 +3655,7 @@ impl RemoteSession {
 
     fn wait_for_response(
         &self,
-        rx: Receiver<Value>,
+        rx: &Receiver<Value>,
         deadline: ResolvedRequestDeadline,
         progress: Arc<AtomicU64>,
         attach_progress: Option<u64>,
@@ -3640,17 +3758,147 @@ impl RemoteSession {
         self.request_no_wait(json!({"cmd": "send", "surface": surface, "bytes": encoded}))
     }
 
-    /// Claims exclusive terminal geometry for a renderer-less pipe-IO
-    /// attachment. This mirrors `Session::claim_terminal_geometry` without
-    /// requiring a local `RemoteSurface` mirror.
-    pub(crate) fn claim_terminal_geometry(&self, surface: SurfaceId) -> anyhow::Result<()> {
-        self.request(json!({
+    /// Enqueue a geometry claim in FIFO order without waiting for its daemon
+    /// response. The returned ticket owns the response receiver; a caller can
+    /// hand it to a bounded worker and surface the result later.
+    pub(crate) fn enqueue_claim_terminal_geometry(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+    ) -> anyhow::Result<RemoteRequestTicket> {
+        if self.shutdown.load(Ordering::Acquire) {
+            return Err(self.shutdown_request_error().into());
+        }
+        let deadline = RequestDeadline::Standard.resolve()?;
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let progress = Arc::new(AtomicU64::new(0));
+        let mut command = json!({
             "cmd": "set-client-sizing",
             "surface": surface,
             "enabled": true,
             "exclusive": true,
-        }))
-        .map(|_| ())
+        });
+        command["id"] = json!(id);
+        let message = serde_json::to_string(&command)
+            .map_err(RemoteRequestError::Encode)
+            .map_err(anyhow::Error::new)?;
+        if let Err(error) = deadline.write_remaining() {
+            return Err(error.into());
+        }
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(
+            id,
+            PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface: None },
+        );
+        let sequence = match self.interactive_writer.enqueue_nowait(message, false) {
+            Ok(sequence) => sequence,
+            Err(error) => {
+                self.pending.lock().unwrap().remove(&id);
+                return Err(RemoteRequestError::Transport(error).into());
+            }
+        };
+        if deadline.write_remaining().is_err() {
+            self.pending.lock().unwrap().remove(&id);
+            match self.interactive_writer.cancel_sequence(sequence) {
+                InteractiveWriteCancellation::Canceled => {
+                    return Err(RemoteRequestError::Timeout.into());
+                }
+                InteractiveWriteCancellation::AlreadyWritten
+                | InteractiveWriteCancellation::InFlight => {
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
+            }
+        }
+        Ok(RemoteRequestTicket {
+            id,
+            sequence,
+            response: rx,
+            deadline,
+            progress,
+            attach_progress: None,
+            remote: Arc::downgrade(self),
+            cleanup_on_drop: true,
+        })
+    }
+
+    /// Complete a previously admitted claim. A response timeout is an
+    /// ambiguous delivery, so the transport is reconciled before returning.
+    pub(crate) fn await_claim_terminal_geometry(
+        &self,
+        mut ticket: RemoteRequestTicket,
+    ) -> anyhow::Result<()> {
+        if let Err(error) = self
+            .interactive_writer
+            .wait_until_written_until(ticket.sequence, ticket.deadline.write_deadline())
+        {
+            self.pending.lock().unwrap().remove(&ticket.id);
+            if error.kind() == io::ErrorKind::TimedOut {
+                match self.interactive_writer.cancel_sequence(ticket.sequence) {
+                    InteractiveWriteCancellation::Canceled => {
+                        ticket.disarm_cleanup();
+                        return Err(RemoteRequestError::Timeout.into());
+                    }
+                    InteractiveWriteCancellation::AlreadyWritten
+                    | InteractiveWriteCancellation::InFlight => {
+                        ticket.disarm_cleanup();
+                        self.reconcile_ambiguous_request();
+                        return Err(RemoteRequestError::Ambiguous.into());
+                    }
+                }
+            }
+            ticket.disarm_cleanup();
+            return Err(RemoteRequestError::Transport(error).into());
+        }
+        if self.shutdown.load(Ordering::Acquire) {
+            self.pending.lock().unwrap().remove(&ticket.id);
+            ticket.disarm_cleanup();
+            return Err(self.shutdown_request_error().into());
+        }
+        let response = match self.wait_for_response(
+            &ticket.response,
+            ticket.deadline,
+            ticket.progress.clone(),
+            ticket.attach_progress,
+        ) {
+            Ok(response) => response,
+            Err(error) => {
+                self.pending.lock().unwrap().remove(&ticket.id);
+                if matches!(&error, RemoteRequestError::Timeout) {
+                    ticket.disarm_cleanup();
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
+                ticket.disarm_cleanup();
+                return Err(error.into());
+            }
+        };
+        self.pending.lock().unwrap().remove(&ticket.id);
+        ticket.disarm_cleanup();
+        if response.get("shutdown").and_then(Value::as_bool) == Some(true) {
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        if response.get("ok").and_then(Value::as_bool) == Some(true) {
+            return Ok(());
+        }
+        let error = response.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+        let code = response.get("error_code").and_then(Value::as_str).map(ToString::to_string);
+        let delivery = match response.get("error_delivery").and_then(Value::as_str) {
+            Some("known-not-delivered") => Some(ClearHistoryDelivery::KnownNotDelivered),
+            Some("ambiguous") => Some(ClearHistoryDelivery::Ambiguous),
+            _ => None,
+        };
+        Err(RemoteRequestError::Rejected { error: error.to_string(), code, delivery }.into())
+    }
+
+    /// Claims exclusive terminal geometry for a renderer-less pipe-IO
+    /// attachment. This mirrors `Session::claim_terminal_geometry` without
+    /// requiring a local `RemoteSurface` mirror.
+    pub(crate) fn claim_terminal_geometry(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+    ) -> anyhow::Result<()> {
+        let ticket = self.enqueue_claim_terminal_geometry(surface)?;
+        self.await_claim_terminal_geometry(ticket)
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -3774,6 +4022,18 @@ impl RemoteSession {
 
     fn disconnect_transport(&self) {
         self.disconnect_transport_with_reason(None);
+    }
+
+    /// A request that was written but did not receive a response cannot be
+    /// retried safely on this connection. Abort the independent writer first,
+    /// then run the normal disconnect path so pending requests and pipe-IO
+    /// lifecycle observers receive one consistent shutdown signal.
+    fn reconcile_ambiguous_request(&self) {
+        self.interactive_writer.abort(&io::Error::new(
+            io::ErrorKind::TimedOut,
+            "remote request delivery became ambiguous",
+        ));
+        self.disconnect_transport();
     }
 
     pub(super) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
@@ -9061,7 +9321,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert!(
             started.elapsed() < REMOTE_ATTACH_IDLE_TIMEOUT * 3,
@@ -9083,7 +9343,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert!(!session.has_surface(7));
         assert!(session.pending.lock().unwrap().is_empty());
@@ -9104,7 +9364,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert!(
             started.elapsed() < Duration::from_millis(100),
@@ -9919,7 +10179,7 @@ mod tests {
         request.join().unwrap();
         assert!(matches!(
             result.as_ref().err().and_then(|error| error.downcast_ref::<RemoteRequestError>()),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert!(
             elapsed < timeout + Duration::from_millis(70),
@@ -9950,7 +10210,10 @@ mod tests {
             RequestDeadline::Fixed(Duration::from_millis(20)),
         );
 
-        assert!(result.is_err(), "a request without a response unexpectedly succeeded");
+        assert!(matches!(
+            result.as_ref().err().and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+            Some(RemoteRequestError::Ambiguous)
+        ));
         assert!(
             abort.0.load(Ordering::Acquire),
             "a request that was already written did not reconcile the transport"
@@ -11363,7 +11626,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
@@ -11380,7 +11643,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert_eq!(
             *session.cell_pixels.lock().unwrap(),
@@ -11407,7 +11670,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert_eq!(*session.cell_pixels.lock().unwrap(), (10, 20));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (11, 22));
