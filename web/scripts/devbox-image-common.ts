@@ -34,8 +34,30 @@ export const DEVBOX_TEMPLATE_FILES = [
   "cmux-bashrc",
   "cmux-devbox-boot",
   "cmux-motd",
+  "cmux-terminfo.src",
   "seed-history",
 ] as const;
+
+/**
+ * Proves the guest resolves every TERM name cmux may export to the overlay,
+ * including indexed bright colors instead of SGR 90. The explicit path check
+ * ensures a stock entry or a user's home directory cannot shadow it.
+ */
+export const devboxTerminfoCheckCommand = [
+  "for t in xterm-ghostty ghostty xterm-256color; do",
+  '[ "$(tput -T$t colors)" = 256 ]',
+  "&& infocmp -x $t | grep -qw Tc && infocmp -x $t | grep -qw Su",
+  "&& infocmp -x $t | head -1 | grep -q /etc/terminfo/",
+  "&& [ \"$(tput -T$t setaf 8 | od -An -tx1 | tr -d ' \\n')\" = 1b5b33383b353b386d ]",
+  "&& [ \"$(tput -T$t setab 8 | od -An -tx1 | tr -d ' \\n')\" = 1b5b34383b353b386d ]",
+  "&& [ \"$(tput -T$t setaf 7 | od -An -tx1 | tr -d ' \\n')\" = 1b5b33376d ]",
+  "&& [ \"$(tput -T$t setaf 16 | od -An -tx1 | tr -d ' \\n')\" = 1b5b33383b353b31366d ]",
+  '|| { echo "terminfo check failed for $t"; exit 1; }; done && echo terminfo-ok',
+].join(" ");
+
+/** Compile the checked-in overlay before any per-TERM cache is seeded. */
+export const devboxTerminfoInstallCommand =
+  `test -s /etc/cmux/terminfo.src && tic -x -o /etc/terminfo /etc/cmux/terminfo.src && chmod -R a+rX /etc/terminfo && ${devboxTerminfoCheckCommand}`;
 
 /**
  * The desktop layer (ported from the retired Blaxel cmux-devbox image): an

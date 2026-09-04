@@ -28,7 +28,14 @@ import {
   CMUX_TUI_SESSION,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_DESKTOP_INSTALLS, DEVBOX_INSTANCE_ID_COMMAND, devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
+import {
+  DEVBOX_DESKTOP_INSTALLS,
+  DEVBOX_INSTANCE_ID_COMMAND,
+  devboxAgentPins,
+  devboxDir,
+  devboxTerminfoCheckCommand,
+  sha256File,
+} from "./devbox-image-common";
 import {
   DEVBOX_DESKTOP_DISPLAY,
   DEVBOX_DESKTOP_ENV_FILE,
@@ -190,6 +197,8 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // would itself leave root-owned state dirs behind.
   ...pins.map((pin) => `sudo -n -u ubuntu env -i HOME=/home/ubuntu USER=ubuntu TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ${pin.binary} --version | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-nonlogin-pin-ok`),
   "systemctl show cmux-tui-daemon -p Environment | grep -q 'PATH=/usr/local/sbin:/usr/local/bin:' && echo daemon-env-path-ok",
+  devboxTerminfoCheckCommand,
+  "sudo -n -u ubuntu env -i HOME=/home/ubuntu TERM=xterm-256color PATH=/usr/bin:/bin sh -c 'tput setaf 8 | od -An -tx1 | tr -d \" \\n\"' | grep -qx 1b5b33383b353b386d && echo ubuntu-terminfo-ok",
   "docker --version && sudo -n -u ubuntu docker ps >/dev/null && echo docker-ok",
   // Home hygiene: nothing root-owned in the work user's home, ble.sh's
   // fallback state dir writable, the legal-notice marker present, and two
