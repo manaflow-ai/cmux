@@ -1384,7 +1384,12 @@ extension CMUXCLI {
     /// Returns an open command only for terminals that can still be projected.
     /// Exited records remain visible for lifecycle inspection but cannot be reopened.
     private static func vmTreeTerminalOpenHint(_ terminal: [String: Any], _ hint: String) -> String? {
-        guard (terminal["lifecycle"] as? String) != "exited" else { return nil }
+        if let lifecycle = terminal["lifecycle"] as? String {
+            return lifecycle == "exited" ? nil : hint
+        }
+        if let running = terminal["running"] as? Bool, !running {
+            return nil
+        }
         return hint
     }
 
