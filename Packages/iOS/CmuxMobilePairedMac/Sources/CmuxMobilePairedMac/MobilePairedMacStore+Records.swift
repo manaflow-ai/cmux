@@ -181,6 +181,15 @@ extension MobilePairedMacStore {
             .text(fromOwnerKey),
         ])
         try exec("""
+            UPDATE mac_route_removals
+            SET owner_key = ?
+            WHERE mac_device_id = ? AND owner_key = ?;
+        """, binding: [
+            .text(toOwnerKey),
+            .text(macDeviceID),
+            .text(fromOwnerKey),
+        ])
+        try exec("""
             DELETE FROM paired_macs
             WHERE mac_device_id = ? AND owner_key = ?;
         """, binding: [
