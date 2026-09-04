@@ -190,6 +190,43 @@ import Testing
         )?.routes.map(\.id).sorted() == ["deleted", "retained"])
     }
 
+    @Test func routeRemovalRejectsStaleIdForDifferentEndpoint() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let routeA = try route(id: "shared-id", port: 51_007)
+        let routeB = try route(id: "other-id", port: 51_008)
+        try await store.upsert(
+            macDeviceID: "shared-mac",
+            displayName: "Desk Mac",
+            routes: [routeA, routeB],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 10)
+        )
+
+        // The stale record reuses routeB's id while still naming routeA's
+        // endpoint. Removal must follow the endpoint, never the stale id.
+        let staleRoute = try CmxAttachRoute(
+            id: routeB.id,
+            kind: routeA.kind,
+            endpoint: routeA.endpoint
+        )
+        #expect(try await store.removeRouteIfAuthorized(
+            macDeviceID: "shared-mac",
+            route: staleRoute,
+            condition: .matchingInstanceTag("default"),
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 20)
+        ))
+        #expect(try await store.activeMac(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )?.routes == [routeB])
+    }
+
     private func makeStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

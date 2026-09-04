@@ -96,17 +96,20 @@ import Testing
             actionCapabilities: .none
         )
 
-        #expect(await shell.removeRoute(
-            activeRoute,
-            macDeviceID: "mac-route-removal",
-            instanceTag: nil
-        ))
+        let removal = Task { @MainActor in
+            await shell.removeRoute(
+                activeRoute,
+                macDeviceID: "mac-route-removal",
+                instanceTag: nil
+            )
+        }
+        #expect(await closeGate.waitUntilCloseStarted())
+
+        await closeGate.release()
+        #expect(await removal.value)
         #expect(shell.remoteClient == nil)
         #expect(shell.activeRoute == nil)
         #expect(shell.connectionState == .disconnected)
         #expect(shell.connections[MacPairingKey(macDeviceID: "mac-route-removal", instanceTag: nil)] == nil)
-        #expect(await closeGate.waitUntilCloseStarted())
-
-        await closeGate.release()
     }
 }
