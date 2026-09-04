@@ -161,16 +161,16 @@ import Testing
         // A successful scan first persists the newly advertised route, then
         // records that the user explicitly authorized its exact destination.
         // Passive advertisement alone must remain unable to undo a deletion.
-        #expect(try await store.upsertRoutesIfAuthorized(
+        try await store.upsert(
             macDeviceID: "shared-mac",
             displayName: "Desk Mac",
             routes: [deletedRoute, retainedRoute],
-            condition: scope,
+            instanceTag: "default",
             markActive: true,
             stackUserID: "user-1",
             teamID: "team-a",
             now: Date(timeIntervalSince1970: 30)
-        ))
+        )
         #expect(try await store.activeMac(
             stackUserID: "user-1",
             teamID: "team-a"
