@@ -36,7 +36,10 @@ final class SystemExtensionActivationDelegate: NSObject, OSSystemExtensionReques
         case .willCompleteAfterReboot:
             complete(.failure(CloudTunnelError.rebootRequired))
         @unknown default:
-            complete(.success(()))
+            complete(.failure(CloudTunnelError.startFailed(String(
+                localized: "cloudTunnel.error.genericFailure",
+                defaultValue: "cmux could not start the Cloud VPN. Try again."
+            ))))
         }
     }
 
