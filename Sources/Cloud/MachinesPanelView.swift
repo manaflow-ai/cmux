@@ -964,6 +964,15 @@ final class CloudTunnelModel {
     private(set) var errorText: String?
 
     private var task: Task<Void, Never>?
+    /// Whichever backend this build can use — the app's own VPN when the
+    /// entitlement is present, the launchd job otherwise. Chosen once: it is
+    /// decided by code signing and cannot change while running.
+    private let backend = CloudTunnelBackendFactory.make()
+
+    /// Whether the tunnel is the app's own. The wording the UI uses depends on
+    /// it: an app-managed tunnel asks for a click, the launchd one asks for an
+    /// administrator password.
+    var isAppManaged: Bool { CloudTunnelBackendFactory.isAppManaged }
 
     /// Whether cloud machines are reachable right now, which is the only
     /// thing that blocks the panel. Deliberately not "the job is installed":
@@ -980,9 +989,13 @@ final class CloudTunnelModel {
     var interfaceName: String { VMTunnelManager().interfaceName }
 
     func refresh() {
-        let manager = VMTunnelManager()
-        isInstalled = CmuxVPNAutostart(interfaceName: manager.interfaceName).isInstalled()
-        isUp = manager.wgQuickInterfaceUp()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let connected = await self.backend.isConnected()
+            let persistent = await self.backend.isPersistent()
+            self.isUp = connected
+            self.isInstalled = persistent
+        }
     }
 
     /// Enrolls this Mac if needed, then installs the job. Enrollment is part
@@ -995,10 +1008,7 @@ final class CloudTunnelModel {
                 throw VMTunnelAutostart.InstallError.notSignedIn
             }
             let state = try await manager.enroll(client: client)
-            try await model.installOffActor(
-                interfaceName: state.interfaceName,
-                configPath: state.configPath
-            )
+            try await model.backend.connect(configuration: model.configuration(from: state))
             // launchctl returns once the job is loaded, not once the tunnel is
             // up, so a check here would race wg-quick and report failure on a
             // setup that had just worked.
@@ -1013,10 +1023,13 @@ final class CloudTunnelModel {
     func reconnect() {
         perform { model in
             let manager = VMTunnelManager()
-            try await model.installOffActor(
-                interfaceName: manager.interfaceName,
-                configPath: manager.configURL.path
-            )
+            guard let client = VMClient.shared else {
+                throw VMTunnelAutostart.InstallError.notSignedIn
+            }
+            // Re-enrolling rather than reusing the file on disk: reconnect is
+            // the repair path, and the config is the thing most likely wrong.
+            let state = try await manager.enroll(client: client)
+            try await model.backend.connect(configuration: model.configuration(from: state))
             guard await model.waitForTunnel() else {
                 throw VMTunnelAutostart.InstallError.didNotComeUp
             }
@@ -1025,33 +1038,34 @@ final class CloudTunnelModel {
 
     func turnOff() {
         perform { model in
-            let name = model.interfaceName
-            _ = try await Task.detached(priority: .userInitiated) {
-                try VMTunnelAutostart.uninstall(interfaceName: name)
-            }.value
+            try await model.backend.disconnect()
         }
     }
 
-    private func installOffActor(interfaceName: String, configPath: String) async throws {
-        _ = try await Task.detached(priority: .userInitiated) {
-            try VMTunnelAutostart.install(
-                interfaceName: interfaceName,
-                userConfigPath: configPath
-            )
-        }.value
+    /// What the backend needs, from what enrollment produced. The config text
+    /// travels alongside the path because a NetworkExtension provider cannot
+    /// read the app's container.
+    private func configuration(from state: VMTunnelManager.LocalTunnelState) -> TunnelConfiguration {
+        TunnelConfiguration(
+            interfaceName: state.interfaceName,
+            configPath: state.configPath,
+            configText: (try? String(contentsOfFile: state.configPath, encoding: .utf8)) ?? ""
+        )
     }
 
+    /// Neither backend reports the tunnel up the instant it returns: launchd
+    /// has only loaded the job, and NetworkExtension is still negotiating. A
+    /// check here would call a setup that had just worked a failure.
     private func waitForTunnel() async -> Bool {
-        let manager = VMTunnelManager()
         for _ in 0..<40 {
-            if manager.wgQuickInterfaceUp() { return true }
+            if await backend.isConnected() { return true }
             do {
                 try await Task.sleep(for: .milliseconds(250))
             } catch {
-                return manager.wgQuickInterfaceUp()
+                return await backend.isConnected()
             }
         }
-        return manager.wgQuickInterfaceUp()
+        return await backend.isConnected()
     }
 
     /// Every action prompts for an administrator and blocks on a privileged
