@@ -279,6 +279,29 @@ export async function verifySubrouterRequest(
   });
 }
 
+/**
+ * Verify a browser session without resolving its team or billing state.
+ * Dashboard layouts use this narrow check before they render any private UI.
+ * The shared authorization slot makes the Stack SDK call obey the caller's
+ * deadline even though the SDK does not accept an AbortSignal itself.
+ */
+export async function verifyBrowserSessionRequest(
+  request: Request,
+  signal: AbortSignal,
+) {
+  if (!isStackConfigured()) return null;
+  const user = await stackAuthorizationCall(
+    () => getStackServerApp().getUser({
+      or: "return-null",
+      tokenStore: request as unknown as {
+        headers: { get(name: string): string | null };
+      },
+    }),
+    signal,
+  );
+  return user && !user.isAnonymous ? user : null;
+}
+
 export function isSubrouterAuthorizationError(
   error: unknown,
 ): error is
