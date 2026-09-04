@@ -15,6 +15,7 @@ struct ComputerUseVisibleContentCenter<Content: View>: View {
         self.content = content()
     }
 
+    /// Lays out the fixed-size child in the safe-area proposal supplied by AppKit.
     var body: some View {
         // SwiftUI proposes a root view's safe-area size to this container. A
         // ZStack therefore centers in the exact visible content rect, while

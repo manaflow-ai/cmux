@@ -9,6 +9,7 @@ private struct GeneratorArguments {
     let outputURL: URL
     let svgOutputURL: URL?
 
+    /// Parses the output paths accepted by the legacy generator entry point.
     init() throws {
         var outputPath: String?
         var svgPath: String?
@@ -16,9 +17,15 @@ private struct GeneratorArguments {
         while let argument = arguments.popFirst() {
             switch argument {
             case "--output":
-                outputPath = arguments.popFirst()
+                outputPath = try Self.requiredPath(
+                    after: argument,
+                    from: &arguments
+                )
             case "--svg-output":
-                svgPath = arguments.popFirst()
+                svgPath = try Self.requiredPath(
+                    after: argument,
+                    from: &arguments
+                )
             case "--help", "-h":
                 print("Usage: generate-computer-use-helper-icon --output PATH [--svg-output PATH]")
                 exit(0)
@@ -40,6 +47,24 @@ private struct GeneratorArguments {
         outputURL = URL(fileURLWithPath: outputPath)
         svgOutputURL = svgPath.map { URL(fileURLWithPath: $0) }
     }
+
+    /// Reads one non-empty path argument and produces a useful CLI error when
+    /// an option is accidentally left without its value.
+    private static func requiredPath(
+        after option: String,
+        from arguments: inout ArraySlice<String>
+    ) throws -> String {
+        guard let path = arguments.popFirst(), !path.isEmpty else {
+            throw NSError(
+                domain: "CmuxComputerUseVisualsGenerator",
+                code: 3,
+                userInfo: [
+                    NSLocalizedDescriptionKey: option + " requires a non-empty path"
+                ]
+            )
+        }
+        return path
+    }
 }
 
 private struct ComputerUseHelperIconGenerator {
@@ -47,6 +72,7 @@ private struct ComputerUseHelperIconGenerator {
     private let tokens = ComputerUseOnboardingVisualTokens.reference
     private let colorSpace = CGColorSpaceCreateDeviceRGB()
 
+    /// Returns the fixed dark plate gradient used by the shipped ICNS asset.
     private func plateColors() -> [CGColor] {
         [
             CGColor(gray: 0x31 / 255.0, alpha: 1.0),
@@ -54,6 +80,7 @@ private struct ComputerUseHelperIconGenerator {
         ]
     }
 
+    /// Returns the fixed inner-rim highlight gradient used by the asset.
     private func rimColors() -> [CGColor] {
         [
             CGColor(gray: 1.0, alpha: 0.34),
@@ -61,6 +88,7 @@ private struct ComputerUseHelperIconGenerator {
         ]
     }
 
+    /// Renders the canonical helper icon at its source-canvas resolution.
     func render() -> CGImage? {
         let canvas = CGRect(origin: .zero, size: tokens.helperIconCanvasSize)
         guard let context = CGContext(
@@ -128,6 +156,7 @@ private struct ComputerUseHelperIconGenerator {
         return context.makeImage()
     }
 
+    /// Draws a vertical gradient clipped to one icon shape.
     private func drawGradient(
         in context: CGContext,
         clippedTo path: CGPath,
@@ -155,6 +184,7 @@ private struct ComputerUseHelperIconGenerator {
         context.restoreGState()
     }
 
+    /// Writes an SVG representation using the same cursor translation tokens.
     func writeSVG(to url: URL) throws {
         let translation = tokens.helperIconCursorTranslation
         let scale = tokens.helperIconCursorScale
@@ -186,6 +216,7 @@ private struct ComputerUseHelperIconGenerator {
         try data.write(to: url, options: .atomic)
     }
 
+    /// Encodes one rendered master image into all ICNS scale slots.
     func writeICNS(master: CGImage, to url: URL) throws {
         let iconsetURL = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent(
@@ -217,6 +248,7 @@ private struct ComputerUseHelperIconGenerator {
         }
     }
 
+    /// Resamples the master image into one iconset PNG slot.
     private func writePNG(
         _ image: CGImage,
         side: Int,
@@ -254,6 +286,7 @@ private struct ComputerUseHelperIconGenerator {
         }
     }
 
+    /// Formats geometry values with a stable locale and no redundant zeros.
     private func decimal(_ value: CGFloat) -> String {
         String(format: "%.4f", locale: Locale(identifier: "en_US_POSIX"), Double(value))
             .trimmingTrailingZeros
@@ -261,11 +294,13 @@ private struct ComputerUseHelperIconGenerator {
 }
 
 private extension String {
+    /// Removes a trailing fractional zero run from generated SVG numbers.
     var trimmingTrailingZeros: String {
         guard contains(".") else { return self }
         return trimmingTrailingCharacters("0").trimmingTrailingCharacters(".")
     }
 
+    /// Removes repeated instances of one character from the end of a string.
     func trimmingTrailingCharacters(_ character: Character) -> String {
         var value = self
         while value.last == character {
@@ -288,6 +323,22 @@ do {
     try generator.writeICNS(master: master, to: arguments.outputURL)
     if let svgOutputURL = arguments.svgOutputURL {
         try generator.writeSVG(to: svgOutputURL)
+    }
+    guard FileManager.default.fileExists(atPath: arguments.outputURL.path) else {
+        throw NSError(
+            domain: "CmuxComputerUseVisualsGenerator",
+            code: 10,
+            userInfo: [NSLocalizedDescriptionKey: "icon output was not created"]
+        )
+    }
+    if let svgOutputURL = arguments.svgOutputURL {
+        guard FileManager.default.fileExists(atPath: svgOutputURL.path) else {
+            throw NSError(
+                domain: "CmuxComputerUseVisualsGenerator",
+                code: 11,
+                userInfo: [NSLocalizedDescriptionKey: "SVG output was not created"]
+            )
+        }
     }
     print(arguments.outputURL.path)
 } catch {
