@@ -8,10 +8,11 @@ that includes the Cloud tunnel capability
 (`com.apple.developer.networking.networkextension` with
 `packet-tunnel-provider-systemextension` plus
 `com.apple.developer.system-extension.install`) — and this script produces the
-*effective* entitlements for one signing run: the desired file minus the tunnel
-feature set when the profile does not (yet) grant it. Release signing then also
-drops the bundled system extension, so the shipped app degrades to the wg-quick
-path instead of failing to launch.
+*effective* entitlements for one signing run. When the profile does not grant
+the tunnel, the summary reports that mismatch and release signing stops. When
+the profile grants the tunnel, the two hardened-runtime relaxations that macOS
+rejects in a container app carrying a packet-tunnel system extension are
+removed from the app signature.
 
 Usage:
   reconcile-entitlements-with-profile.py --entitlements cmux.release.entitlements \
@@ -23,7 +24,8 @@ effective entitlements for an unprovisioned signing run, which likewise cannot
 carry the tunnel feature set.
 
 Prints a JSON summary on stdout with `--json`:
-  {"tunnel_supported": bool, "dropped": [keys], "missing_restricted": [keys],
+  {"tunnel_supported": bool, "dropped": [keys],
+   "dropped_for_system_extension": [keys], "missing_restricted": [keys],
    "profile_app_id": str|null}
 
 Exit codes: 0 reconciled; 1 the profile could not be read; 2 usage error.
@@ -46,6 +48,14 @@ PACKET_TUNNEL_SYSTEM_EXTENSION = "packet-tunnel-provider-systemextension"
 # together: a NetworkExtension entitlement without the install entitlement (or
 # the reverse) cannot run the extension either.
 TUNNEL_FEATURE_KEYS = (NETWORK_EXTENSION_KEY, SYSTEM_EXTENSION_INSTALL_KEY, APP_GROUPS_KEY)
+
+# macOS rejects these hardened-runtime relaxations on an app bundle that
+# contains a packet-tunnel system extension. Keep allow-jit, which is accepted
+# by macOS and is still needed by the terminal runtime.
+SYSTEM_EXTENSION_INCOMPATIBLE_RUNTIME_KEYS = (
+    "com.apple.security.cs.allow-unsigned-executable-memory",
+    "com.apple.security.cs.disable-library-validation",
+)
 
 # Restricted entitlements the profile must grant for the app to launch at all.
 # Reported (not dropped) so the operator sees a broken profile before notarization.
@@ -95,11 +105,18 @@ def reconcile(entitlements: dict, profile_entitlements: dict | None) -> tuple[di
     supported = wants_tunnel and profile_grants_tunnel(profile_entitlements)
     effective = dict(entitlements)
     dropped: list[str] = []
+    dropped_for_system_extension: list[str] = []
     if wants_tunnel and not supported:
         for key in TUNNEL_FEATURE_KEYS:
             if key in effective:
                 effective.pop(key)
                 dropped.append(key)
+    elif supported:
+        for key in SYSTEM_EXTENSION_INCOMPATIBLE_RUNTIME_KEYS:
+            if key in effective:
+                effective.pop(key)
+                dropped.append(key)
+                dropped_for_system_extension.append(key)
     missing_restricted: list[str] = []
     if profile_entitlements is not None:
         for key in effective:
@@ -109,6 +126,7 @@ def reconcile(entitlements: dict, profile_entitlements: dict | None) -> tuple[di
         "tunnel_requested": wants_tunnel,
         "tunnel_supported": supported,
         "dropped": dropped,
+        "dropped_for_system_extension": dropped_for_system_extension,
         "missing_restricted": sorted(missing_restricted),
     }
     return effective, summary
@@ -149,13 +167,21 @@ def main(argv: list[str]) -> int:
         plistlib.dump(effective, handle, fmt=plistlib.FMT_XML, sort_keys=False)
 
     if summary["dropped"]:
-        reason = "no provisioning profile is embedded" if profile_entitlements is None else "the provisioning profile does not grant the Cloud tunnel capability"
-        print(
-            f"::warning::Cloud tunnel entitlements dropped from {args.entitlements.name} because {reason}: "
-            + ", ".join(summary["dropped"])
-            + ". Release signing must stop. Enable Network Extensions + System Extension on the App ID and regenerate the profile.",
-            file=sys.stderr,
-        )
+        if summary["dropped_for_system_extension"]:
+            print(
+                "::notice::Cloud tunnel system extensions require a restricted hardened-runtime profile; "
+                "removed from the app signature: "
+                + ", ".join(summary["dropped_for_system_extension"]),
+                file=sys.stderr,
+            )
+        else:
+            reason = "no provisioning profile is embedded" if profile_entitlements is None else "the provisioning profile does not grant the Cloud tunnel capability"
+            print(
+                f"::warning::Cloud tunnel entitlements dropped from {args.entitlements.name} because {reason}: "
+                + ", ".join(summary["dropped"])
+                + ". Release signing must stop. Enable Network Extensions + System Extension on the App ID and regenerate the profile.",
+                file=sys.stderr,
+            )
     for key in summary["missing_restricted"]:
         print(f"::warning::restricted entitlement {key} is not granted by the provisioning profile; the signed app may not launch", file=sys.stderr)
     if args.json:

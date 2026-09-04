@@ -25,6 +25,8 @@ DESIRED = {
     "com.apple.developer.system-extension.install": True,
     "com.apple.security.application-groups": ["7WLXT3NR37.com.cmuxterm.app"],
     "com.apple.security.cs.allow-jit": True,
+    "com.apple.security.cs.allow-unsigned-executable-memory": True,
+    "com.apple.security.cs.disable-library-validation": True,
 }
 
 PROFILE_WITHOUT_TUNNEL = {
@@ -95,13 +97,31 @@ class ReconcileEntitlementsTests(unittest.TestCase):
         self.assertIn("::warning::", proc.stderr)
         self.assertEqual(summary["profile_app_id"], "7WLXT3NR37.com.cmuxterm.app")
 
-    def test_profile_with_tunnel_keeps_everything(self):
+    def test_profile_with_tunnel_drops_runtime_relaxations_required_by_system_extensions(self):
         proc, effective = run(DESIRED, PROFILE_WITH_TUNNEL)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         summary = json.loads(proc.stdout)
         self.assertTrue(summary["tunnel_supported"])
-        self.assertEqual(summary["dropped"], [])
-        self.assertEqual(effective, DESIRED)
+        self.assertEqual(
+            summary["dropped"],
+            [
+                "com.apple.security.cs.allow-unsigned-executable-memory",
+                "com.apple.security.cs.disable-library-validation",
+            ],
+        )
+        self.assertEqual(
+            summary["dropped_for_system_extension"],
+            summary["dropped"],
+        )
+        self.assertNotIn("com.apple.security.cs.allow-unsigned-executable-memory", effective)
+        self.assertNotIn("com.apple.security.cs.disable-library-validation", effective)
+        # JIT remains available to the container app. It is accepted by macOS
+        # here, while the two other relaxation entitlements are rejected when
+        # the app contains a packet-tunnel system extension.
+        self.assertTrue(effective["com.apple.security.cs.allow-jit"])
+        for key, value in DESIRED.items():
+            if key not in summary["dropped"]:
+                self.assertEqual(effective[key], value)
         self.assertNotIn("::warning::", proc.stderr)
 
     def test_network_extension_without_install_entitlement_is_not_supported(self):

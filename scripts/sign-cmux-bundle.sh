@@ -31,9 +31,12 @@
 #      (covers Sparkle's XPCServices and Updater.app).
 #   4b. The Cloud tunnel system extension under
 #      Contents/Library/SystemExtensions/* with its own entitlements and its
-#      own embedded provisioning profile. When the requested app entitlement
-#      is not granted by its profile, signing stops. Nightly and Stable must
-#      not ship without the browser tunnel.
+#      own embedded provisioning profile. The extension is signed without
+#      hardened-runtime options, and the effective app entitlements omit the
+#      two runtime relaxations that macOS rejects when this extension is
+#      present. When the requested app entitlement is not granted by its
+#      profile, signing stops. Nightly and Stable must not ship without the
+#      browser tunnel.
 #   5. The main app bundle with the effective app-level entitlements,
 #      WITHOUT --deep. --deep here would overwrite helper/plugin
 #      signatures and re-introduce the app-id mismatch that amfi on
@@ -79,7 +82,11 @@ else
   TS_FLAG=(--timestamp)
 fi
 
+# The app and its normal nested code use the hardened runtime. A packet-tunnel
+# system extension is a separate launch domain: macOS rejects the hardened
+# runtime relaxation flags there, so it gets its own signing argument set below.
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
+SYSTEM_EXTENSION_COMMON=(--force "${TS_FLAG[@]}" --sign "$IDENTITY")
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 
@@ -180,7 +187,7 @@ if [[ "$SIGN_MODE" == "all" || "$SIGN_MODE" == "all-except-computer-use" ]]; the
       # for why a section check beats a marker symbol after stripping).
       "$SCRIPT_DIR/verify-tunnel-extension-engine.sh" "$binary"
       echo "==> signing system extension $name"
-      /usr/bin/codesign "${COMMON[@]}" --entitlements "$TUNNEL_ENTITLEMENTS" "$sysext"
+      /usr/bin/codesign "${SYSTEM_EXTENSION_COMMON[@]}" --entitlements "$TUNNEL_ENTITLEMENTS" "$sysext"
     done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
   fi
 fi
@@ -246,12 +253,38 @@ if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
     echo "error: profile grants the Cloud tunnel but the signed app lacks packet-tunnel-provider-systemextension" >&2
     exit 1
   fi
+  # These two entitlements are valid for the ordinary app, but macOS rejects
+  # them when the app bundle carries a packet-tunnel system extension. The
+  # reconciler removes them before signing; keep this check at the artifact
+  # boundary so a future signing change cannot recreate the launch failure.
+  for entitlement in \
+    com.apple.security.cs.allow-unsigned-executable-memory \
+    com.apple.security.cs.disable-library-validation; do
+    if grep "$entitlement" "$SIGNED_ENTITLEMENTS" >/dev/null; then
+      echo "error: signed app carries incompatible system-extension entitlement $entitlement" >&2
+      exit 1
+    fi
+  done
   if [[ -z "$(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' 2>/dev/null)" ]]; then
     echo "error: profile grants the Cloud tunnel but no system extension is bundled under Contents/Library/SystemExtensions" >&2
     exit 1
   fi
   while IFS= read -r -d '' sysext; do
     /usr/bin/codesign --verify --strict --verbose=2 "$sysext"
+    sysext_details="$(/usr/bin/codesign -d --verbose=4 "$sysext" 2>&1)"
+    if [[ "$sysext_details" == *"flags="*"runtime"* ]]; then
+      echo "error: system extension $(basename "$sysext") carries hardened runtime flags; macOS will reject it" >&2
+      exit 1
+    fi
+    sysext_entitlements="$(/usr/bin/codesign -d --entitlements :- "$sysext" 2>&1)"
+    for entitlement in \
+      com.apple.security.cs.allow-unsigned-executable-memory \
+      com.apple.security.cs.disable-library-validation; do
+      if grep "$entitlement" <<<"$sysext_entitlements" >/dev/null; then
+        echo "error: system extension $(basename "$sysext") carries incompatible entitlement $entitlement" >&2
+        exit 1
+      fi
+    done
   done < <(find "$SYSTEM_EXTENSIONS_DIR" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print0)
 else
   if grep -q "com.apple.developer.networking.networkextension" "$SIGNED_ENTITLEMENTS"; then

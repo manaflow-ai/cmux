@@ -214,7 +214,7 @@ if ! awk '
   job == "publish" && /NIGHTLY_VARIANT: \$\{\{ matrix\.variant \}\}/ { saw_variant_env=1 }
   job == "publish" && /^      - name: Thin bundle to the variant architecture/ { in_thin=1; next }
   in_thin && /^      - name:/ { in_thin=0 }
-  in_thin && /if: matrix\.variant != '\''universal'\''.*fast_build/ { saw_thin_gate=1 }
+  in_thin && /if: matrix\.variant != '\''universal'\''/ { saw_thin_gate=1 }
   in_thin && /thin-app-bundle\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { saw_thin=1 }
   job == "publish" && /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
@@ -284,6 +284,45 @@ fi
 
 if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle delta work' "$WORKFLOW_FILE"; then
   echo "FAIL: workflow dispatch must expose the fast arm64 dogfood build"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Strip unsigned nightly app before transfer/ { strip_line=NR }
+  /^      - name: Verify Cloud tunnel engine before transfer/ { verify_line=NR }
+  END { exit !(strip_line && verify_line && strip_line < verify_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must reject a stub Cloud tunnel engine before the slow signing and notarization matrix"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Codesign apps/ { sign_line=NR }
+  /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
+  /^      - name: Notarize app ticket through final DMG/ { notarize_line=NR }
+  END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must smoke-launch the signed app before paying the Apple notarization wait"
+  exit 1
+fi
+
+RELEASE_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/release.yml"
+if ! awk '
+  /^      - name: Strip release binaries/ { strip_line=NR }
+  /^      - name: Verify Cloud tunnel engine before signing/ { verify_line=NR }
+  END { exit !(strip_line && verify_line && strip_line < verify_line) }
+' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release must reject a stub Cloud tunnel engine before signing and notarization"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Codesign app/ { sign_line=NR }
+  /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
+  /^      - name: Notarize app/ { notarize_line=NR }
+  END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
+' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release must smoke-launch the signed app before paying the Apple notarization wait"
   exit 1
 fi
 
