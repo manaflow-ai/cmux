@@ -190,11 +190,13 @@ const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
 const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
+const LEGACY_RESOURCE_RECONCILE_REQUEST_LIMIT = 5;
 const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
 // Ten concurrent waves of this batch must leave time for status reconciliation
 // in a short-lived cron invocation, even when a provider is fully hung.
 const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
+const LEGACY_RESOURCE_RECONCILE_REQUEST_TIMEOUT = "5 seconds";
 // Provider stats are advisory on request paths. A stalled provider must not
 // keep a snapshot or fork HTTP request open indefinitely.
 const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
@@ -1080,6 +1082,20 @@ function snapshotResourceReservation(
   };
 }
 
+/** Include the provider's grow-only create target in a captured snapshot claim. */
+function restoreResourceReservation(
+  snapshotReservation: VmResourceReservation,
+): VmResourceReservation {
+  const createTarget = vmResourceReservationForCreate({
+    memoryMb: snapshotReservation.memoryMb,
+  });
+  return {
+    vcpus: Math.max(snapshotReservation.vcpus, createTarget.vcpus),
+    memoryMb: Math.max(snapshotReservation.memoryMb, createTarget.memoryMb),
+    diskMb: Math.max(snapshotReservation.diskMb, createTarget.diskMb),
+  };
+}
+
 export function restoreVm(input: {
   readonly userId: string;
   readonly billingCustomerType: BillingCustomerType;
@@ -1114,12 +1130,12 @@ export function restoreVm(input: {
       });
     }
     const resourceReservation = isPaidVmPlan(input.billingPlanId)
-      ? snapshotReservation ?? {
+      ? restoreResourceReservation(snapshotReservation ?? {
         ...DEFAULT_VM_RESOURCE_RESERVATION,
         // A snapshot event written before resource metadata existed has no
         // trustworthy shape. Claim the complete shared pool dimensions.
         diskMb: PLAN_SHARED_DISK_MB,
-      }
+      })
       : undefined;
     return yield* createVm({
       userId: input.userId,
@@ -1130,6 +1146,7 @@ export function restoreVm(input: {
       provider: input.provider,
       image: input.snapshotId,
       imageVersion: null,
+      ...(resourceReservation ? { memoryMb: resourceReservation.memoryMb } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "restore",
       ...(resourceReservation ? { resourceReservation } : {}),
@@ -1315,6 +1332,20 @@ export function forkVm(input: {
             forkMinimumResourceReservation: sourceHasReservation
               ? sourceReservation
               : { vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 },
+          }
+          : {}),
+        ...(!sourceHasReservation
+          ? {
+            refreshResourceReservation: () => Effect.suspend(() => repo.findUserVm({
+              userId: input.userId,
+              billingTeamId: input.billingTeamId,
+              providerVmId: source.providerVmId ?? input.providerVmId,
+              provider: source.provider,
+            }).pipe(
+              Effect.map((row) => row && hasVmResourceReservationMetadata(row.providerMetadata)
+                ? vmResourceReservationFromMetadata(row.providerMetadata)
+                : null),
+            )),
           }
           : {}),
         // The helper uses the plan to reconcile legacy rows before its shared
@@ -1516,6 +1547,8 @@ function beginCreateWithLazyProviderRefresh(
     readonly billingTeamId: string;
     readonly modelPlane?: VmModelPlaneRevoker;
     readonly timing?: VmTimingSink;
+    /** Re-read a source claim after scoped legacy repair before retrying. */
+    readonly refreshResourceReservation?: () => Effect.Effect<VmResourceReservation | null, VmDatabaseError>;
   } & Parameters<VmRepositoryShape["beginCreate"]>[0],
 ): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
   // Construct the repository effect lazily. A count conflict refreshes provider
@@ -1533,21 +1566,36 @@ function beginCreateWithLazyProviderRefresh(
         ? reconcileLegacyResourceReservations(repo, providers, {
           userId: input.userId,
           billingTeamId: input.billingTeamId,
-          // A team cannot have more live rows than its entitlement. Use that
-          // allowance for the synchronous repair so all of its legacy rows are
-          // considered before retrying, while retaining the global batch cap
-          // for cron work.
-          limit: Math.max(LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT, input.maxActiveVms ?? LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT),
-        })
+          // Keep request-path provider work small. Remaining rows stay for the
+          // bounded background reconciler.
+          limit: LEGACY_RESOURCE_RECONCILE_REQUEST_LIMIT,
+        }).pipe(
+          Effect.timeoutFail({
+            duration: LEGACY_RESOURCE_RECONCILE_REQUEST_TIMEOUT,
+            onTimeout: () => new Error("legacy resource repair timed out before create retry"),
+          }),
+        )
         : refreshActiveLimitProviderStatuses(repo, providers, input);
+      const retryInput = input.refreshResourceReservation
+        ? Effect.suspend(() => input.refreshResourceReservation!()).pipe(
+          Effect.map((reservation) => {
+            return reservation ? { ...input, resourceReservation: reservation } : input;
+          }),
+          // A failed source re-read leaves the conservative original claim in
+          // place. The retry may fail closed, while the background pass repairs
+          // the row later.
+          Effect.catchAll(() => Effect.succeed(input)),
+        )
+        : Effect.succeed(input);
       return measureVmEffect(
         input.timing,
         "limit_reconcile",
         reconcile,
       ).pipe(
         Effect.catchAll(() => Effect.void),
-        Effect.andThen(Effect.suspend(() =>
-          measureVmEffect(input.timing, "begin_create", repo.beginCreate(input))
+        Effect.andThen(retryInput),
+        Effect.flatMap((nextInput) => Effect.suspend(() =>
+          measureVmEffect(input.timing, "begin_create", repo.beginCreate(nextInput))
         )),
       );
     }),
