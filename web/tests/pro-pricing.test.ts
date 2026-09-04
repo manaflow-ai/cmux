@@ -91,40 +91,47 @@ describe("pricing plans", () => {
 });
 
 describe("pricing copy matches the plan policy", () => {
-  // The public pricing copy states the machine allowance as prose, so pin the
-  // numbers to the entitlement constants that enforce them. A price or spec
-  // change that forgets the copy (or the copy that forgets the policy) fails
-  // here instead of on the live page.
+  // The public pricing copy states the VM allowance and shared capacity as
+  // prose. Pin the numbers to the policy constants and pin the sharing
+  // language so the page cannot accidentally sell these resources per VM.
   const vcpus = vcpusForMemoryMb(PLAN_MACHINE_MEMORY_MB);
   const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
   const diskGb = VM_DISK_MB_DEFAULT / 1024;
 
-  test("the plan machine is 5 vCPU, 20 GB RAM, 200 GB disk, up to 50 machines", () => {
+  test("the shared Cloud VM capacity is 5 vCPU, 20 GB RAM, 200 GB disk, up to 50 machines", () => {
     expect(vcpus).toBe(5);
     expect(memoryGb).toBe(20);
     expect(diskGb).toBe(200);
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
   });
 
-  for (const [locale, messages] of [
-    ["en", enMessages],
-    ["ja", jaMessages],
+  for (const [locale, messages, sharedPhrase, stalePerVmPhrase, capacityLabel] of [
+    ["en", enMessages, "all sharing a total of", "each with", "Resources shared across Cloud VMs"],
+    ["ja", jaMessages, "すべての VM で合計", "各 5 vCPU", "Cloud VM 間で共有するリソース"],
   ] as const) {
-    test(`${locale} pricing copy states the current prices and machine spec`, () => {
+    test(`${locale} pricing copy states the current prices and shared capacity`, () => {
       const pricing = messages.pricing;
       const proFeatures = pricing.pro.features.join("\n");
       expect(proFeatures).toContain(`${PAID_MAX_ACTIVE_VMS_DEFAULT} `);
       expect(proFeatures).toContain(`${vcpus} vCPU`);
       expect(proFeatures).toContain(`${memoryGb} GB`);
       expect(proFeatures).toContain(`${diskGb} GB`);
+      expect(proFeatures).toContain(sharedPhrase);
+      expect(proFeatures).not.toContain(stalePerVmPhrase);
 
       const vmRow = pricing.compare.rows.find((row) =>
         row.label.includes("Cloud VM") && row.pro === String(PAID_MAX_ACTIVE_VMS_DEFAULT),
       );
       expect(vmRow).toBeDefined();
-      const sizeRow = pricing.compare.rows.find((row) => row.pro.includes(`${vcpus} vCPU`));
-      expect(sizeRow?.pro).toContain(`${memoryGb} GB`);
-      expect(sizeRow?.pro).toContain(`${diskGb} GB`);
+      const capacityRow = pricing.compare.rows.find((row) => row.label === capacityLabel);
+      expect(capacityRow?.pro).toContain(`${vcpus} vCPU`);
+      expect(capacityRow?.pro).toContain(`${memoryGb} GB`);
+      expect(capacityRow?.pro).toContain(`${diskGb} GB`);
+      expect(capacityRow?.team).toContain(`${vcpus} vCPU`);
+      const teamCapacity = capacityRow?.team ?? "";
+      expect(locale === "en" ? teamCapacity.toLowerCase() : teamCapacity).toContain(
+        locale === "en" ? "per user" : "ユーザーごとに",
+      );
 
       const faq = pricing.faq.items.map((item) => item.a).join("\n");
       expect(faq).toContain(`$${PRO_PRICING_USD.month.billedAmount}/`);
@@ -136,6 +143,7 @@ describe("pricing copy matches the plan policy", () => {
       }
       expect(faq.toLowerCase()).not.toContain("unlimited active");
       expect(faq).not.toContain("無制限に利用");
+      expect(faq).not.toContain(stalePerVmPhrase);
     });
   }
 });
