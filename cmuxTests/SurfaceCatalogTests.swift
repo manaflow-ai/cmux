@@ -1059,6 +1059,114 @@ struct SurfaceCatalogTests {
         #expect(catalog.snapshot.resources.first { $0.id == terminal.id }?.remoteWorkspace?.name == "Renamed")
     }
 
+    @Test func `A cursorless machine update cannot restore a confirmed cloud workspace name`() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+        let before = SurfaceRemoteWorkspace(id: "ws_main", name: "before", index: 0, focused: true)
+        let after = SurfaceRemoteWorkspace(id: before.id, name: "after", index: 0, focused: true)
+        var beforeResource = terminal(machine, "term_main")
+        beforeResource.remoteWorkspace = before
+        var afterResource = beforeResource
+        afterResource.remoteWorkspace = after
+        let beforeInfo = SurfaceMachineInfo(
+            id: machine,
+            name: machine.rawValue,
+            status: "running",
+            image: nil,
+            hasDesktop: false,
+            memoryMb: nil,
+            diskMb: nil,
+            linkState: .connected,
+            linkError: nil,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            diskUsedMb: nil,
+            remoteWorkspaces: [before]
+        )
+        var afterInfo = beforeInfo
+        afterInfo.remoteWorkspaces = [after]
+        #expect(catalog.replaceCloudResources(
+            [beforeResource],
+            on: machine,
+            info: beforeInfo,
+            cursor: CloudVMCursor(generation: "g", revision: 1)
+        ))
+        #expect(catalog.replaceCloudResources(
+            [afterResource],
+            on: machine,
+            info: afterInfo,
+            cursor: CloudVMCursor(generation: "g", revision: 2)
+        ))
+
+        // A provider summary/status write has no cursor and may still carry its
+        // pre-rename cached workspace value. It must not overwrite the accepted graph.
+        catalog.updateMachine(beforeInfo, from: provider)
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "after")
+    }
+
+    @Test func `A stale equal-cursor snapshot after a rename receipt cannot poison reconciliation`() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        catalog.register(FakeProvider(machine: machine))
+        let before = SurfaceRemoteWorkspace(id: "ws_main", name: "before", index: 0, focused: true)
+        let after = SurfaceRemoteWorkspace(id: before.id, name: "after", index: 0, focused: true)
+        var beforeResource = terminal(machine, "term_main")
+        beforeResource.remoteWorkspace = before
+        var afterResource = beforeResource
+        afterResource.remoteWorkspace = after
+        let beforeInfo = SurfaceMachineInfo(
+            id: machine,
+            name: machine.rawValue,
+            status: "running",
+            image: nil,
+            hasDesktop: false,
+            memoryMb: nil,
+            diskMb: nil,
+            linkState: .connected,
+            linkError: nil,
+            cpuPercent: nil,
+            memoryUsedMb: nil,
+            remoteWorkspaces: [before]
+        )
+        var afterInfo = beforeInfo
+        afterInfo.remoteWorkspaces = [after]
+        #expect(catalog.replaceCloudResources(
+            [beforeResource],
+            on: machine,
+            info: beforeInfo,
+            cursor: CloudVMCursor(generation: "g", revision: 1)
+        ))
+        let token = try catalog.beginCloudWorkspaceRename(
+            machine: machine,
+            workspaceID: before.id,
+            name: "after"
+        )
+        catalog.commitCloudWorkspaceRename(
+            token,
+            receipt: CloudVMCursor(generation: "g", revision: 2)
+        )
+
+        // The first read at the receipt cursor is stale, but the optimistic overlay
+        // keeps the UI correct. A later canonical read at that same cursor must still
+        // be accepted and retire the intent.
+        #expect(catalog.replaceCloudResources(
+            [beforeResource],
+            on: machine,
+            info: beforeInfo,
+            cursor: CloudVMCursor(generation: "g", revision: 2)
+        ))
+        #expect(catalog.replaceCloudResources(
+            [afterResource],
+            on: machine,
+            info: afterInfo,
+            cursor: CloudVMCursor(generation: "g", revision: 2)
+        ))
+        #expect(catalog.pendingCloudWorkspaceRenameName(machine: machine, workspaceID: before.id) == nil)
+        #expect(catalog.snapshot.machines.first?.remoteWorkspaces?.first?.name == "after")
+    }
+
     @Test func `An older cloud rename completion cannot roll back a newer intent`() throws {
         let machine = SurfaceMachineID.cloud("vivid-newt")
         let catalog = SurfaceCatalog()
