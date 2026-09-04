@@ -169,7 +169,7 @@ struct TitlebarInteractiveControlTests {
         #expect(hitView === container)
         #expect(
             !hitView.mouseDownCanMoveWindow,
-            "Empty accessory chrome must not rely on native AppKit window dragging because main windows are normally immovable."
+            "Empty accessory chrome must use the explicit drag path even while window movement is temporarily suppressed."
         )
 
         let event = Self.makeLeftMouseDownEvent(location: emptyTopRightPoint, window: window)
@@ -182,7 +182,7 @@ struct TitlebarInteractiveControlTests {
         )
         #expect(
             !window.isMovable,
-            "Explicit accessory dragging must restore the main window to its normal immovable state."
+            "Explicit accessory dragging must restore the window's temporarily suppressed movability state."
         )
     }
 
