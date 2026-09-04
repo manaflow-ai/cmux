@@ -2914,7 +2914,7 @@ describe("VM Effect workflows", () => {
     }));
     const [protectedMarker] = await sql<{ operationId: string; networkId: string }[]>`
       select
-        provider_metadata->'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'->>'operationId' as "operationId",
+        provider_metadata->'cmuxResourceResizePending'->>'operationId' as "operationId",
         provider_metadata->>'networkId' as "networkId"
       from cloud_vms
       where id = ${vmId}
