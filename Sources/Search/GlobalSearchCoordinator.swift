@@ -1,4 +1,5 @@
 import AppKit
+import CmuxArtifacts
 import Foundation
 
 @MainActor
@@ -9,6 +10,7 @@ final class GlobalSearchCoordinator {
     private var panelPurgeTaskIDs: [UUID: UUID] = [:]
     private var startupIndexTask: Task<Void, Never>?
     private var indexState: SearchIndexState = .idle
+    private var artifactIndexSignature: Int?
     private lazy var captureManager = GlobalSearchPanelCaptureManager(
         indexProvider: { [weak self] in
             guard let self else { return nil }
@@ -56,6 +58,7 @@ final class GlobalSearchCoordinator {
 
     func search(query: String) async -> [SearchIndexHit] {
         guard let index = await ensureIndex() else { return [] }
+        await refreshArtifactIndex(index: index)
         do {
             return try await index.search(query, limit: 20)
         } catch {
@@ -98,6 +101,48 @@ final class GlobalSearchCoordinator {
             guard !Task.isCancelled else { return }
 
             await captureManager.refreshPanelContent(for: context, index: index)
+        }
+        await refreshArtifactIndex(index: index)
+    }
+
+    /// Reconciles the process-wide Artifacts repository into the existing
+    /// SQLite FTS index in one bounded batch. The signature avoids touching
+    /// SQLite on every keystroke when no artifact changed.
+    private func refreshArtifactIndex(index: SearchIndex) async {
+        guard let appDelegate = AppDelegate.shared else { return }
+        let repository = appDelegate.artifactRepository
+        do {
+            let records = try await repository.list(scope: .global)
+            let contexts = appDelegate.globalSearchPanelContexts()
+            let windowsByWorkspace = Dictionary(
+                contexts.map { ($0.workspaceID, $0.windowID) },
+                uniquingKeysWith: { first, _ in first }
+            )
+            var hasher = Hasher()
+            hasher.combine(records.count)
+            for record in records {
+                hasher.combine(record.id)
+                hasher.combine(record.lastSeenAt)
+                hasher.combine(record.occurrenceCount)
+            }
+            let signature = hasher.finalize()
+            guard artifactIndexSignature != signature else { return }
+            let documents = records.compactMap { record -> SearchIndexDocument? in
+                let ownerWindowID = record.ownership.workspaceID
+                    .flatMap(UUID.init(uuidString:))
+                    .flatMap { windowsByWorkspace[$0] }
+                return GlobalSearchDocuments.artifactDocument(
+                    for: record,
+                    windowID: ownerWindowID
+                )
+            }
+            try await index.delete(kind: .artifact)
+            try await index.upsert(documents)
+            artifactIndexSignature = signature
+        } catch {
+#if DEBUG
+            cmuxDebugLog("globalSearch.artifacts.reconcile failed error=\(error.localizedDescription)")
+#endif
         }
     }
 

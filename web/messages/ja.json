@@ -2201,6 +2201,14 @@
           "includeFilePaths": "記録されたリンク履歴に file:// URL を含めます。",
           "retentionLimit": "ワークスペースごとに保持する記録済みリンクの最大数です。",
           "fetchTitles": "公開の http(s) リンクのページタイトルを取得します。プライベートホストとローカルホストは取得しません。"
+        },
+        "artifacts": {
+          "description": "ワークスペースとグローバルのアーティファクト記録設定です。links は移行用エイリアスとして保持されます。",
+          "enabled": "許可された URL と明示的に保存したワークスペースのアーティファクトを記録します。",
+          "ignoreHosts": "ターミナル記録で無視する URL ホストのカンマ区切りリストです。",
+          "includeFilePaths": "ターミナルが出力した明示的に許可されたファイルパスを含めます。",
+          "retentionLimit": "ワークスペースごとに保持するアーティファクトの最大数です。",
+          "fetchTitles": "記録した公開 URL のタイトルを取得します。ローカルおよびプライベートホストは取得しません。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -2219,6 +2227,11 @@
       "exampleLinksIncludeFilePaths": "リンク履歴に file:// URL を含めます。",
       "exampleLinksRetentionLimit": "ワークスペースごとに保持する記録済みリンクの最大数です。",
       "exampleLinksFetchTitles": "公開の http(s) リンクのタイトルを取得します。既定値 false ではネットワーク要求を行いません。"
+      ,"exampleArtifactsEnabled": "許可された URL と明示的に保存したアーティファクトをカタログに記録します。"
+      ,"exampleArtifactsIgnoreHosts": "ターミナル記録で無視する URL ホストのカンマ区切りリストです。"
+      ,"exampleArtifactsIncludeFilePaths": "ターミナルが出力した明示的に許可されたファイルパスを含めます。"
+      ,"exampleArtifactsRetentionLimit": "ワークスペースごとに保持するアーティファクトの最大数です。"
+      ,"exampleArtifactsFetchTitles": "公開 URL のタイトルを取得します。ローカルおよびプライベートホストは取得しません。"
     },
     "customCommands": {
       "title": "カスタムコマンド",

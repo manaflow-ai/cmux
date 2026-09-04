@@ -160,18 +160,21 @@ extension CmuxSettingsFileStore {
     ) {
         if let value = jsonBool(section["enabled"]) {
             snapshot.managedUserDefaults[LinksCaptureSettings.enabledKey] = .bool(value)
+            snapshot.managedUserDefaults[LinksCaptureSettings.artifactsEnabledKey] = .bool(value)
         } else if section.keys.contains("enabled") {
             logInvalid("links.enabled", sourcePath: sourcePath)
         }
 
         if let value = jsonString(section["ignoreHosts"]) {
             snapshot.managedUserDefaults[LinksCaptureSettings.ignoreHostsKey] = .string(value)
+            snapshot.managedUserDefaults[LinksCaptureSettings.artifactsIgnoreHostsKey] = .string(value)
         } else if section.keys.contains("ignoreHosts") {
             logInvalid("links.ignoreHosts", sourcePath: sourcePath)
         }
 
         if let value = jsonBool(section["includeFilePaths"]) {
             snapshot.managedUserDefaults[LinksCaptureSettings.includeFilePathsKey] = .bool(value)
+            snapshot.managedUserDefaults[LinksCaptureSettings.artifactsIncludeFilePathsKey] = .bool(value)
         } else if section.keys.contains("includeFilePaths") {
             logInvalid("links.includeFilePaths", sourcePath: sourcePath)
         }
@@ -179,6 +182,7 @@ extension CmuxSettingsFileStore {
         if let value = jsonDouble(section["retentionLimit"]) {
             if value >= 10, value <= 10_000 {
                 snapshot.managedUserDefaults[LinksCaptureSettings.retentionLimitKey] = .int(Int(value.rounded()))
+                snapshot.managedUserDefaults[LinksCaptureSettings.artifactsRetentionLimitKey] = .int(Int(value.rounded()))
             } else {
                 logInvalid("links.retentionLimit", sourcePath: sourcePath)
             }
@@ -188,6 +192,7 @@ extension CmuxSettingsFileStore {
 
         if let value = jsonBool(section["fetchTitles"]) {
             snapshot.managedUserDefaults[LinksCaptureSettings.fetchTitlesKey] = .bool(value)
+            snapshot.managedUserDefaults[LinksCaptureSettings.artifactsFetchTitlesKey] = .bool(value)
         } else if section.keys.contains("fetchTitles") {
             logInvalid("links.fetchTitles", sourcePath: sourcePath)
         }

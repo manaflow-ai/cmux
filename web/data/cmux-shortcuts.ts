@@ -493,7 +493,8 @@ export const shortcutCategories: ShortcutCategory[] = [
       {
         id: "openLinksPanel",
         combos: [["⌃", "⌘", "⇧", "L"]],
-        description: { en: "Open Links panel", ja: "Links パネルを開く" },
+        description: { en: "Open Artifacts", ja: "アーティファクトを開く" },
+        note: { en: "Legacy action id retained for existing key bindings", ja: "既存のキーバインドのため従来のアクション ID を保持" },
       },
       {
         id: "diffViewerScrollDown",

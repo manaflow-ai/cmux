@@ -9,6 +9,7 @@ import SwiftUI
 public struct BetaFeaturesSection: View {
     @State private var feed: DefaultsValueModel<Bool>
     @State private var dock: DefaultsValueModel<Bool>
+    @State private var artifacts: DefaultsValueModel<Bool>
     @State private var cloudMachines: DefaultsValueModel<Bool>
     @State private var extensions: DefaultsValueModel<Bool>
     @State private var customSidebars: DefaultsValueModel<Bool>
@@ -19,6 +20,7 @@ public struct BetaFeaturesSection: View {
     public init(defaultsStore: UserDefaultsSettingsStore, catalog: SettingCatalog) {
         _feed = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarFeed))
         _dock = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarDock))
+        _artifacts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.rightSidebarArtifacts))
         _cloudMachines = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.cloudMachines))
         _extensions = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.extensions))
         _customSidebars = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.customSidebars))
@@ -38,6 +40,8 @@ public struct BetaFeaturesSection: View {
                 feedRow
                 SettingsCardDivider()
                 dockRow
+                SettingsCardDivider()
+                artifactsRow
                 SettingsCardDivider()
                 cloudMachinesRow
                 SettingsCardDivider()
@@ -59,6 +63,7 @@ public struct BetaFeaturesSection: View {
         let models: [any SettingObservationStarting] = [
             feed,
             dock,
+            artifacts,
             cloudMachines,
             extensions,
             customSidebars,
@@ -141,6 +146,23 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaDockToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var artifactsRow: some View {
+        SettingsCardRow(
+            configurationReview: .settingsOnly,
+            searchAnchorID: "setting:betaFeatures:artifacts",
+            String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts"),
+            subtitle: artifacts.current
+                ? String(localized: "settings.betaFeatures.artifacts.subtitleOn", defaultValue: "Shows Artifacts in the right sidebar with searchable workspace history and drag-and-drop records.")
+                : String(localized: "settings.betaFeatures.artifacts.subtitleOff", defaultValue: "Hides Artifacts from the right sidebar until you enable it here.")
+        ) {
+            Toggle("", isOn: Binding(get: { artifacts.current }, set: { artifacts.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaArtifactsToggle")
         }
     }
 

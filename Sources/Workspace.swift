@@ -15,6 +15,7 @@ import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxArtifacts
 import CmuxSettings
 import CmuxBrowser
 import CmuxCanvasUI
@@ -199,6 +200,7 @@ extension Workspace {
         )
         snapshot.captureTodoState(from: self)
         snapshot.captureLinksState(from: self)
+        snapshot.captureArtifactsState(from: self)
         snapshot.dock = _dockSplit?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
@@ -330,7 +332,14 @@ extension Workspace {
         isMuted = snapshot.isMuted ?? false
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
-        restoreLinksState(from: snapshot, panelIDMap: oldToNewPanelIds)
+        // A new Artifacts collection is authoritative during migration. The
+        // legacy links field is only imported when the snapshot predates that
+        // collection; reading both would double the occurrence counts.
+        if snapshot.restoredArtifacts.isEmpty {
+            restoreLinksState(from: snapshot, panelIDMap: oldToNewPanelIds)
+        } else {
+            restoreArtifactsState(from: snapshot, panelIDMap: oldToNewPanelIds)
+        }
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -2611,6 +2620,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
+            linksState.updateWorkingDirectory(newDirectory)
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
             // Notify the sidebar so anchor-cwd-driven group config (color,
             // icon, context menu, newWorkspacePlacement) refreshes even
@@ -3090,7 +3100,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
+    /// Unified artifact projection; `linksState` remains a source-compatible alias.
     let linksState: WorkspaceLinksState
+    var artifactsState: WorkspaceArtifactsState { linksState }
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
@@ -3845,7 +3857,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
+        artifactRepository: (any ArtifactStoring)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         let resolvedID = id ?? UUID()
@@ -3859,7 +3872,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
-        self.linksState = WorkspaceLinksState(settings: settings)
+        let linkCatalog = SettingCatalog().artifacts
+        self.linksState = WorkspaceLinksState(
+            repository: artifactRepository,
+            workspaceID: resolvedID,
+            workingDirectory: workingDirectory,
+            retentionLimit: settings.value(for: linkCatalog.retentionLimit),
+            fetchTitlesEnabled: settings.value(for: linkCatalog.fetchTitles)
+        )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder

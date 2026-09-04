@@ -362,7 +362,7 @@ enum KeyboardShortcutSettings {
             case .toggleBrowserDesignMode: return String(localized: "shortcut.toggleBrowserDesignMode.label", defaultValue: "Toggle Browser Design Mode")
             case .toggleReactGrab: return String(localized: "shortcut.toggleReactGrab.label", defaultValue: "Toggle React Grab")
             case .openDiffViewer: return String(localized: "shortcut.openDiffViewer.label", defaultValue: "Open Diff Viewer")
-            case .openLinksPanel: return String(localized: "shortcut.openLinksPanel.label", defaultValue: "Open Links Panel")
+            case .openLinksPanel: return String(localized: "shortcut.openArtifacts.label", defaultValue: "Open Artifacts")
             case .diffViewerScrollDown: return String(localized: "shortcut.diffViewerScrollDown.label", defaultValue: "Viewers: Scroll Down")
             case .diffViewerScrollUp: return String(localized: "shortcut.diffViewerScrollUp.label", defaultValue: "Viewers: Scroll Up")
             case .diffViewerScrollHalfPageDown: return String(localized: "shortcut.diffViewerScrollHalfPageDown.label", defaultValue: "Viewers: Scroll Half Page Down")

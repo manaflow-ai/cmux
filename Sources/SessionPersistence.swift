@@ -1,5 +1,6 @@
 import CoreGraphics
 import CmuxBrowser
+import CmuxArtifacts
 import CmuxCore
 import Foundation
 import Bonsplit
@@ -1905,6 +1906,8 @@ struct SessionWorkspaceSnapshot: Codable, Sendable {
     var taskStatusHidden: Bool? = nil
     var checklist: [SessionChecklistItemSnapshot]? = nil
     var links: SessionWorkspaceLinksSnapshotCollection? = nil
+    /// Portable artifact projection; absent in pre-Artifacts snapshots.
+    var artifacts: SessionWorkspaceArtifactsSnapshotCollection? = nil
     var dock: SessionSplitContainerSnapshot? = nil // Missing legacy fields continue to seed from dock.json.
 }
 extension SessionWorkspaceSnapshot: WorkspaceSessionRemoteRestoreSnapshot {}

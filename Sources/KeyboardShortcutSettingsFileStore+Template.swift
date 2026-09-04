@@ -233,7 +233,7 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
-                "links": [
+                "artifacts": [
                     "enabled": LinksCaptureSettings.defaultEnabled,
                     "ignoreHosts": LinksCaptureSettings.defaultIgnoreHosts,
                     "includeFilePaths": LinksCaptureSettings.defaultIncludeFilePaths,

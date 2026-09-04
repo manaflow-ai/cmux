@@ -21,6 +21,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case mobilePairing
     case accountSignIn
 
+    /// User-facing Artifacts spelling. The persisted `links` case remains the
+    /// migration alias so existing session layouts decode without loss.
+    public static var artifacts: PanelType { .links }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         let rawValue = try container.decode(String.self)

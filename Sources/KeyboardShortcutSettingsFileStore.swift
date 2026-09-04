@@ -409,6 +409,12 @@ final class CmuxSettingsFileStore {
         if let linksSection = root["links"] as? [String: Any] {
             parseLinksSection(linksSection, sourcePath: sourcePath, snapshot: &snapshot)
         }
+        if let artifactsSection = root["artifacts"] as? [String: Any] {
+            // `parseLinksSection` writes both canonical artifacts.* and legacy
+            // links.* UserDefaults keys, keeping one mutation path during the
+            // settings migration.
+            parseLinksSection(artifactsSection, sourcePath: sourcePath, snapshot: &snapshot)
+        }
         if let fileEditorSection = root["fileEditor"] as? [String: Any] {
             parseFileEditorSection(fileEditorSection, sourcePath: sourcePath, snapshot: &snapshot)
         }

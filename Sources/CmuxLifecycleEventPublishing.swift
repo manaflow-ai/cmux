@@ -228,6 +228,8 @@ extension Workspace {
         case .workspaceTodo:
             return "workspace_todo"
         case .links:
+            // `links` is the frozen lifecycle/wire value; Artifacts is the
+            // presentation name during the additive migration.
             return "links"
         case .notifications:
             return "notifications"

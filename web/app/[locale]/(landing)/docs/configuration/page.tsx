@@ -50,6 +50,7 @@ const sectionOrder = [
   "agentChat",
   "browser",
   "markdown",
+  "artifacts",
   "links",
   "fileEditor",
   "fileExplorer",
@@ -107,18 +108,20 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "maxWidth": 980
   // },
 
-  // "links": {
-  //   // ${t("exampleLinksEnabled")}
+  // "artifacts": {
+  //   // ${t("exampleArtifactsEnabled")}
   //   "enabled": true,
-  //   // ${t("exampleLinksIgnoreHosts")}
+  //   // ${t("exampleArtifactsIgnoreHosts")}
   //   "ignoreHosts": "localhost:31034",
-  //   // ${t("exampleLinksIncludeFilePaths")}
+  //   // ${t("exampleArtifactsIncludeFilePaths")}
   //   "includeFilePaths": false,
-  //   // ${t("exampleLinksRetentionLimit")}
+  //   // ${t("exampleArtifactsRetentionLimit")}
   //   "retentionLimit": 500,
-  //   // ${t("exampleLinksFetchTitles")}
+  //   // ${t("exampleArtifactsFetchTitles")}
   //   "fetchTitles": false
   // },
+
+  // Legacy "links" settings are accepted as an alias for "artifacts".
 
   // "fileEditor": {
   //   // ${t("exampleFileEditorWordWrap")}

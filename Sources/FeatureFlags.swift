@@ -63,6 +63,11 @@ final class CmuxFeatureFlags {
     private static let appKitSidebarListDefault = true
     private static let mobileTerminalFilesChipDefault = true
     private nonisolated static let mobileTaskComposerDefault = true
+    #if DEBUG
+    private nonisolated static let artifactsUIDefault = true
+    #else
+    private nonisolated static let artifactsUIDefault = false
+    #endif
 
     private static let overrideKeyPrefix = "cmux.flags.override."
     private static let remoteCacheKeyPrefix = "cmux.flags.remote."
@@ -186,6 +191,24 @@ final class CmuxFeatureFlags {
             defaultValue: "Enables the iOS New Task composer, including task model discovery, directory picking, and attachment staging."
         ),
         defaultWhenUnavailable: CmuxFeatureFlags.mobileTaskComposerDefault
+    )
+
+    // FLAG(key: artifacts-ui-enabled-experiment, owner: austinwang,
+    //      reviewBy: 2026-12-01, defaultWhenUnavailable: false)
+    // Remote rollout/kill switch for the macOS Artifacts surface. DEBUG keeps
+    // the experiment available for tagged dogfood; the user-facing Beta
+    // toggle remains a separate local opt-in.
+    nonisolated static let artifactsUIFlag = CmuxFeatureFlagDefinition(
+        key: "artifacts-ui-enabled-experiment",
+        title: String(
+            localized: "featureFlags.artifacts.title",
+            defaultValue: "Artifacts"
+        ),
+        flagDescription: String(
+            localized: "featureFlags.artifacts.description",
+            defaultValue: "Enables the experimental workspace Artifacts surface."
+        ),
+        defaultWhenUnavailable: CmuxFeatureFlags.artifactsUIDefault
     )
 
     // Order is load-bearing for the positional typed accessors below. Flags
@@ -312,6 +335,7 @@ final class CmuxFeatureFlags {
 
             CmuxFeatureFlags.mobileTerminalFilesChipFlag,
             CmuxFeatureFlags.mobileTaskComposerFlag,
+            CmuxFeatureFlags.artifactsUIFlag,
         ]
     }()
 
@@ -372,6 +396,16 @@ final class CmuxFeatureFlags {
 
     var isMobileTaskComposerEnabled: Bool {
         effectiveValue(for: Self.mobileTaskComposerFlag)
+    }
+
+    /// Whether the remote Artifacts rollout permits the local beta surface.
+    var isArtifactsUIEnabled: Bool {
+        effectiveValue(for: Self.artifactsUIFlag)
+    }
+
+    /// Main-actor-free mirror used by right-sidebar availability checks.
+    nonisolated static var offMainIsArtifactsUIEnabled: Bool {
+        offMainEffectiveValue(for: artifactsUIFlag)
     }
 
     /// Effective values mirrored for nonisolated readers: the mobile host

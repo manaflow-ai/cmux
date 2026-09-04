@@ -14,10 +14,10 @@ final class LinksPanel: Panel {
     let titleFetcher: LinkTitleFetcher
 
     var displayTitle: String {
-        String(localized: "linksPane.title", defaultValue: "Links")
+        String(localized: "artifactsPane.title", defaultValue: "Artifacts")
     }
 
-    var displayIcon: String? { "link" }
+    var displayIcon: String? { "shippingbox" }
 
     private(set) var focusFlashToken: Int = 0
 

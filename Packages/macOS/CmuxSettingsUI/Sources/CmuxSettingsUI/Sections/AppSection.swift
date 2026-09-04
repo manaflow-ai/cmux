@@ -106,11 +106,11 @@ public struct AppSection: View {
         _markdownFontSize = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontSize))
         _markdownFontFamily = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.fontFamily))
         _markdownMaxWidth = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.markdown.maxWidth))
-        _linksEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.enabled))
-        _linksIgnoreHosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.ignoreHosts))
-        _linksIncludeFilePaths = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.includeFilePaths))
-        _linksRetentionLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.retentionLimit))
-        _linksFetchTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.links.fetchTitles))
+        _linksEnabled = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.artifacts.enabled))
+        _linksIgnoreHosts = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.artifacts.ignoreHosts))
+        _linksIncludeFilePaths = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.artifacts.includeFilePaths))
+        _linksRetentionLimit = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.artifacts.retentionLimit))
+        _linksFetchTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.artifacts.fetchTitles))
         _canvasPaneGap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.paneGap))
         _canvasSnapping = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.canvas.snappingEnabled))
         _fileEditorWordWrap = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.fileEditor.wordWrap))
@@ -531,11 +531,11 @@ public struct AppSection: View {
             }
             SettingsCardDivider()
 
-            // Links Capture
+            // Artifacts Capture (the legacy links.* keys remain a migration alias)
             SettingsCardRow(
-                configurationReview: .json("links.enabled"),
-                String(localized: "settings.app.linksEnabled", defaultValue: "Capture Terminal Links"),
-                subtitle: String(localized: "settings.app.linksEnabled.subtitle", defaultValue: "Record URLs emitted by terminals into each workspace's Links pane.")
+                configurationReview: .json("artifacts.enabled"),
+                String(localized: "settings.app.artifactsEnabled", defaultValue: "Capture Workspace Artifacts"),
+                subtitle: String(localized: "settings.app.artifactsEnabled.subtitle", defaultValue: "Record URLs, files, and explicitly saved content in each workspace's Artifacts view.")
             ) {
                 Toggle("", isOn: Binding(get: { linksEnabled.current }, set: { linksEnabled.set($0) }))
                     .labelsHidden()
@@ -545,12 +545,12 @@ public struct AppSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("links.ignoreHosts"),
-                String(localized: "settings.app.linksIgnoreHosts", defaultValue: "Ignored Link Hosts"),
-                subtitle: String(localized: "settings.app.linksIgnoreHosts.subtitle", defaultValue: "Comma-separated hosts to skip. Use host, host:port, or *.example.com.")
+                configurationReview: .json("artifacts.ignoreHosts"),
+                String(localized: "settings.app.artifactsIgnoreHosts", defaultValue: "Ignored Artifact Hosts"),
+                subtitle: String(localized: "settings.app.artifactsIgnoreHosts.subtitle", defaultValue: "Comma-separated URL hosts to skip during terminal artifact capture.")
             ) {
                 TextField(
-                    String(localized: "settings.app.linksIgnoreHosts.placeholder", defaultValue: "localhost:31034"),
+                    String(localized: "settings.app.artifactsIgnoreHosts.placeholder", defaultValue: "localhost:31034"),
                     text: Binding(get: { linksIgnoreHosts.current }, set: { linksIgnoreHosts.set($0) })
                 )
                 .textFieldStyle(.roundedBorder)
@@ -560,9 +560,9 @@ public struct AppSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("links.includeFilePaths"),
-                String(localized: "settings.app.linksIncludeFilePaths", defaultValue: "Include File URLs"),
-                subtitle: String(localized: "settings.app.linksIncludeFilePaths.subtitle", defaultValue: "Keep file:// links in captured link history.")
+                configurationReview: .json("artifacts.includeFilePaths"),
+                String(localized: "settings.app.artifactsIncludeFilePaths", defaultValue: "Include Terminal File Paths"),
+                subtitle: String(localized: "settings.app.artifactsIncludeFilePaths.subtitle", defaultValue: "Allow explicitly authorized file paths emitted by terminals to become Artifacts.")
             ) {
                 Toggle("", isOn: Binding(get: { linksIncludeFilePaths.current }, set: { linksIncludeFilePaths.set($0) }))
                     .labelsHidden()
@@ -572,9 +572,9 @@ public struct AppSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("links.retentionLimit"),
-                String(localized: "settings.app.linksRetentionLimit", defaultValue: "Link Retention Limit"),
-                subtitle: String(localized: "settings.app.linksRetentionLimit.subtitle", defaultValue: "Maximum captured links retained per workspace."),
+                configurationReview: .json("artifacts.retentionLimit"),
+                String(localized: "settings.app.artifactsRetentionLimit", defaultValue: "Artifact Retention Limit"),
+                subtitle: String(localized: "settings.app.artifactsRetentionLimit.subtitle", defaultValue: "Maximum captured Artifacts retained per workspace."),
                 controlWidth: Self.columnWidth
             ) {
                 Stepper(
@@ -592,9 +592,9 @@ public struct AppSection: View {
             SettingsCardDivider()
 
             SettingsCardRow(
-                configurationReview: .json("links.fetchTitles"),
-                String(localized: "settings.app.linksFetchTitles", defaultValue: "Fetch Link Titles"),
-                subtitle: String(localized: "settings.app.linksFetchTitles.subtitle", defaultValue: "Fetch page titles for public http(s) links. Private and local hosts are never fetched.")
+                configurationReview: .json("artifacts.fetchTitles"),
+                String(localized: "settings.app.artifactsFetchTitles", defaultValue: "Fetch URL Titles"),
+                subtitle: String(localized: "settings.app.artifactsFetchTitles.subtitle", defaultValue: "Fetch titles for public http(s) URL Artifacts. Private and local hosts are never fetched.")
             ) {
                 Toggle("", isOn: Binding(get: { linksFetchTitles.current }, set: { linksFetchTitles.set($0) }))
                     .labelsHidden()

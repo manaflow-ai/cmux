@@ -6,10 +6,17 @@ struct LinksCaptureSettings {
     static let includeFilePathsKey = "links.includeFilePaths"
     static let retentionLimitKey = "links.retentionLimit"
     static let fetchTitlesKey = "links.fetchTitles"
+    static let artifactsEnabledKey = "artifacts.enabled"
+    static let artifactsIgnoreHostsKey = "artifacts.ignoreHosts"
+    static let artifactsIncludeFilePathsKey = "artifacts.includeFilePaths"
+    static let artifactsRetentionLimitKey = "artifacts.retentionLimit"
+    static let artifactsFetchTitlesKey = "artifacts.fetchTitles"
 
     static let defaultEnabled = true
     static let defaultIgnoreHosts = "localhost:31034"
     static let defaultIncludeFilePaths = false
+    // Preserve the shipped Links cap while Artifacts grows additional kinds.
+    // A separate byte/file policy bounds richer payloads in the repository.
     static let defaultRetentionLimit = 500
     static let defaultFetchTitles = false
 
@@ -22,15 +29,25 @@ struct LinksCaptureSettings {
 
     func snapshot() -> LinkCaptureSettingsSnapshot {
         LinkCaptureSettingsSnapshot(
-            enabled: defaults.object(forKey: Self.enabledKey) as? Bool ?? Self.defaultEnabled,
-            includeFilePaths: defaults.object(forKey: Self.includeFilePathsKey) as? Bool ?? Self.defaultIncludeFilePaths,
+            enabled: defaults.object(forKey: Self.artifactsEnabledKey) as? Bool
+                ?? defaults.object(forKey: Self.enabledKey) as? Bool
+                ?? Self.defaultEnabled,
+            includeFilePaths: defaults.object(forKey: Self.artifactsIncludeFilePathsKey) as? Bool
+                ?? defaults.object(forKey: Self.includeFilePathsKey) as? Bool
+                ?? Self.defaultIncludeFilePaths,
             ignoreHosts: parseIgnoreHosts(
-                defaults.string(forKey: Self.ignoreHostsKey) ?? Self.defaultIgnoreHosts
+                defaults.string(forKey: Self.artifactsIgnoreHostsKey)
+                    ?? defaults.string(forKey: Self.ignoreHostsKey)
+                    ?? Self.defaultIgnoreHosts
             ),
             retentionLimit: WorkspaceLinksIngestConfiguration.clampedRetentionLimit(
-                defaults.object(forKey: Self.retentionLimitKey) as? Int ?? Self.defaultRetentionLimit
+                defaults.object(forKey: Self.artifactsRetentionLimitKey) as? Int
+                    ?? defaults.object(forKey: Self.retentionLimitKey) as? Int
+                    ?? Self.defaultRetentionLimit
             ),
-            fetchTitles: defaults.object(forKey: Self.fetchTitlesKey) as? Bool ?? Self.defaultFetchTitles
+            fetchTitles: defaults.object(forKey: Self.artifactsFetchTitlesKey) as? Bool
+                ?? defaults.object(forKey: Self.fetchTitlesKey) as? Bool
+                ?? Self.defaultFetchTitles
         )
     }
 

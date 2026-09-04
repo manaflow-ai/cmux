@@ -12,6 +12,7 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
     private let customSidebarNameKey = "rightSidebar.customSidebarName"
     private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
     private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+    private let artifactsEnabledKey = RightSidebarBetaFeatureSettings.artifactsEnabledKey
 
     func testDisabledFeedStoredModeFallsBackToFiles() {
         withSavedRightSidebarModeDefaults {
@@ -39,11 +40,29 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         }
     }
 
+    func testArtifactsModeRequiresBetaOptIn() {
+        withSavedRightSidebarModeDefaults {
+            let defaults = UserDefaults.standard
+            defaults.set(RightSidebarMode.artifacts.rawValue, forKey: modeKey)
+            defaults.set(false, forKey: artifactsEnabledKey)
+
+            let disabledState = FileExplorerState()
+            XCTAssertEqual(disabledState.mode, .files)
+
+            defaults.set(true, forKey: artifactsEnabledKey)
+            defaults.set(RightSidebarMode.artifacts.rawValue, forKey: modeKey)
+            let enabledState = FileExplorerState()
+            XCTAssertEqual(enabledState.mode, .artifacts)
+            XCTAssertTrue(RightSidebarMode.availableModes().contains(.artifacts))
+        }
+    }
+
     func testModeSetterClampsUnavailableBetaModes() {
         withSavedRightSidebarModeDefaults {
             let defaults = UserDefaults.standard
             defaults.set(false, forKey: feedEnabledKey)
             defaults.set(false, forKey: dockEnabledKey)
+            defaults.set(false, forKey: artifactsEnabledKey)
             let state = FileExplorerState()
 
             state.mode = .feed
@@ -55,7 +74,15 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
             XCTAssertEqual(state.mode, .dock)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.dock.rawValue)
 
+            state.mode = .artifacts
+            XCTAssertEqual(state.mode, .files)
+
+            defaults.set(true, forKey: artifactsEnabledKey)
+            state.mode = .artifacts
+            XCTAssertEqual(state.mode, .artifacts)
+
             defaults.set(false, forKey: dockEnabledKey)
+            defaults.set(false, forKey: artifactsEnabledKey)
             state.refreshModeAvailability()
             XCTAssertEqual(state.mode, .files)
             XCTAssertEqual(defaults.string(forKey: modeKey), RightSidebarMode.files.rawValue)
@@ -113,6 +140,8 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "find"), .find)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "vault"), .sessions)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "sessions"), .sessions)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "artifacts"), .artifacts)
+        XCTAssertEqual(RightSidebarMode.from(cliArgument: "artifact"), .artifacts)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "feed"), .feed)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: "dock"), .dock)
         XCTAssertEqual(RightSidebarMode.from(cliArgument: " Vault "), .sessions)
@@ -127,11 +156,13 @@ final class FileExplorerStateModePersistenceTests: XCTestCase {
         let previousCustomSidebarName = defaults.object(forKey: customSidebarNameKey)
         let previousFeedEnabled = defaults.object(forKey: feedEnabledKey)
         let previousDockEnabled = defaults.object(forKey: dockEnabledKey)
+        let previousArtifactsEnabled = defaults.object(forKey: artifactsEnabledKey)
         defer {
             restore(previousMode, forKey: modeKey)
             restore(previousCustomSidebarName, forKey: customSidebarNameKey)
             restore(previousFeedEnabled, forKey: feedEnabledKey)
             restore(previousDockEnabled, forKey: dockEnabledKey)
+            restore(previousArtifactsEnabled, forKey: artifactsEnabledKey)
         }
         body()
     }

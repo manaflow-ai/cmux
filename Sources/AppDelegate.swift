@@ -7,6 +7,7 @@ import CmuxPanes
 import CmuxControlSocket
 import CmuxWindowing
 import CmuxNotifications
+import CmuxArtifacts
 import CmuxTerminalCore
 import CmuxTerminal
 import CmuxSettings
@@ -565,6 +566,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         WorkspaceTerminalFontSizeArbiter()
     /// Owns the one process-local Vault drag capability registry.
     let sessionDragRegistry = SessionDragRegistry()
+    /// Process-local canonical artifact repository injected into every window manager.
+    lazy var artifactRepository: any ArtifactStoring = {
+        let supportRoot = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first ?? FileManager.default.temporaryDirectory
+        return LocalArtifactRepository(
+            rootURL: supportRoot
+                .appendingPathComponent("cmux", isDirectory: true)
+                .appendingPathComponent("artifacts", isDirectory: true)
+        )
+    }()
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.
     private var tabDragTransferRegistryStorage: TabDragTransferRegistry?
     var tabDragTransferRegistry: TabDragTransferRegistry {
@@ -10113,7 +10126,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            artifactRepository: artifactRepository
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {
@@ -15110,7 +15124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if matchConfiguredShortcut(event: event, action: .openLinksPanel) {
             let manager = activeTabManagerForCommands(preferredWindow: mainWindowForShortcutEvent(event))
-            if !openLinksPanelForFocusedWorkspace(for: manager) {
+            if !openArtifactsPanelForFocusedWorkspace(for: manager) {
                 NSSound.beep()
             }
             return true

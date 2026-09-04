@@ -39,6 +39,8 @@ public struct SurfaceKind: RawRepresentable, Hashable, Sendable {
     public static let todo = SurfaceKind(rawValue: "todo")
     /// A workspace links pane.
     public static let links = SurfaceKind(rawValue: "links")
+    /// User-facing Artifacts spelling retained on the legacy `links` wire value.
+    public static var artifacts: SurfaceKind { links }
     /// A notifications pane.
     public static let notifications = SurfaceKind(rawValue: "notifications")
     /// A transient Cloud VM loading pane.

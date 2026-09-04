@@ -1,9 +1,26 @@
 import Bonsplit
 import CmuxBrowser
+import CmuxArtifacts
 import CmuxWorkspaces
 import Foundation
 
 extension Workspace {
+    /// Creates the workspace-owned Artifacts surface (legacy Links wire kind).
+    @discardableResult
+    func newWorkspaceArtifactsSurface(
+        inPane paneId: PaneID,
+        focus: Bool? = nil,
+        targetIndex: Int? = nil
+    ) -> ArtifactsPanel? {
+        newWorkspaceLinksSurface(inPane: paneId, focus: focus, targetIndex: targetIndex)
+    }
+
+    /// Opens or focuses the workspace-owned Artifacts surface.
+    @discardableResult
+    func openOrFocusWorkspaceArtifactsSurface(inPane paneId: PaneID, focus: Bool = true) -> ArtifactsPanel? {
+        openOrFocusWorkspaceLinksSurface(inPane: paneId, focus: focus)
+    }
+
     @discardableResult
     func newWorkspaceLinksSurface(
         inPane paneId: PaneID,
@@ -46,6 +63,9 @@ extension Workspace {
             linksPanel.id,
             paneId: paneId,
             kind: SurfaceKind.links.rawValue,
+            // Keep the lifecycle origin stable for existing consumers. The
+            // user-facing title is now Artifacts, but this is still the
+            // persisted Links surface during the compatibility window.
             origin: "links_tab",
             focused: shouldFocusNewTab
         )
@@ -99,5 +119,36 @@ extension Workspace {
             restoredEntries,
             retentionLimit: linksState.retentionLimit
         )
+    }
+
+    /// Restores the unified artifact projection after legacy Links migration.
+    func restoreArtifactsState(
+        from snapshot: SessionWorkspaceSnapshot,
+        panelIDMap: [UUID: UUID] = [:]
+    ) {
+        guard !snapshot.restoredArtifacts.isEmpty else { return }
+        let restored = snapshot.restoredArtifacts.map { record -> ArtifactRecord in
+            guard let oldPanelID = record.metadata["sourcePanelID"].flatMap(UUID.init(uuidString:)),
+                  let newPanelID = panelIDMap[oldPanelID] else {
+                return record
+            }
+            var metadata = record.metadata
+            metadata["sourcePanelID"] = newPanelID.uuidString
+            return ArtifactRecord(
+                id: record.id,
+                kind: record.kind,
+                identityKey: record.identityKey,
+                ownership: record.ownership,
+                source: record.source,
+                createdAt: record.createdAt,
+                lastSeenAt: record.lastSeenAt,
+                occurrenceCount: record.occurrenceCount,
+                title: record.title,
+                metadata: metadata,
+                representation: record.representation,
+                isUserOwned: record.isUserOwned
+            )
+        }
+        linksState.restoreArtifacts(restored, retentionLimit: linksState.retentionLimit)
     }
 }

@@ -58412,13 +58412,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set requires a mode: files, find, vault, sessions, feed, dock, cloud, or custom [sidebar-name]"
+            "value": "right-sidebar set requires a mode: files, find, vault, artifacts, sessions, feed, dock, cloud, or custom [sidebar-name]"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "right-sidebar set にはモードが必要です: files, find, vault, sessions, feed, dock, cloud, custom [sidebar-name]"
+            "value": "right-sidebar set にはモードが必要です: files, find, vault, artifacts, sessions, feed, dock, cloud, custom [sidebar-name]"
           }
         }
       }
@@ -58565,13 +58565,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars as\n                                 a right panel; the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "Usage: cmux right-sidebar <command> [flags]\n\nControl the right sidebar from the CLI.\n\nCommands:\n  toggle                         Toggle right sidebar visibility\n  show                           Show the right sidebar\n  hide                           Hide the right sidebar\n  focus                          Focus the current right sidebar mode\n  set <files|find|vault|artifacts|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 Show, switch mode, and focus. `custom` renders a\n                                 JS/Swift sidebar from ~/.config/cmux/sidebars as\n                                 a right panel; the optional name picks which one.\n  mode                           Print {\"visible\":bool,\"mode\":string}\n  files|find|vault|artifacts|sessions|feed|dock|cloud|custom\n                                 Alias for show + set + focus\n\nFlags:\n  --workspace <id|ref|index>     Target the window containing a workspace\n  --window <id|ref|index>        Target a window\n  --no-focus                     With set, switch mode without moving focus\n\nExamples:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|sessions|feed|dock|cloud|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
+            "value": "使用法: cmux right-sidebar <command> [flags]\n\nCLI から右サイドバーを操作します。\n\nコマンド:\n  toggle                         右サイドバーの表示を切り替えます\n  show                           右サイドバーを表示します\n  hide                           右サイドバーを隠します\n  focus                          現在の右サイドバーモードにフォーカスします\n  set <files|find|vault|artifacts|sessions|feed|dock|cloud|custom> [sidebar-name]\n                                 表示して、モードを切り替え、フォーカスします。custom は\n                                 ~/.config/cmux/sidebars の JS/Swift サイドバーを右パネルに\n                                 表示します（名前で選択できます）\n  mode                           {\"visible\":bool,\"mode\":string} を出力します\n  files|find|vault|artifacts|sessions|feed|dock|cloud|custom\n                                 show + set + focus のエイリアス\n\nフラグ:\n  --workspace <id|ref|index>     ワークスペースを含むウィンドウを対象にします\n  --window <id|ref|index>        ウィンドウを対象にします\n  --no-focus                     set で、フォーカスを移さずにモードだけ切り替えます\n\n例:\n  cmux right-sidebar toggle\n  cmux right-sidebar set find\n  cmux right-sidebar set vault --no-focus\n  cmux right-sidebar mode"
           }
         }
       }
@@ -126886,6 +126886,40 @@
         }
       }
     },
+    "featureFlags.artifacts.description": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enables the experimental workspace Artifacts surface."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実験的なワークスペースのアーティファクト画面を有効にします。"
+          }
+        }
+      }
+    },
+    "featureFlags.artifacts.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifacts"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクト"
+          }
+        }
+      }
+    },
     "featureFlags.workspaceTodoControls.description": {
       "extractionState": "manual",
       "localizations": {
@@ -132575,6 +132609,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "タイトル"
+          }
+        }
+      }
+    },
+    "globalSearch.kind.artifact": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artifact"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アーティファクト"
           }
         }
       }
@@ -165504,6 +165555,13 @@
         }
       }
     },
+    "rightSidebar.mode.artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクト" } }
+      }
+    },
     "rightSidebar.mode.sessions": {
       "extractionState": "manual",
       "localizations": {
@@ -185961,6 +186019,27 @@
             "value": "工作區和分頁會根據代理對話命名。"
           }
         }
+      }
+    },
+    "settings.betaFeatures.artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクト" } }
+      }
+    },
+    "settings.betaFeatures.artifacts.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Hides Artifacts from the right sidebar until you enable it here." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ここで有効にするまで、アーティファクトを右サイドバーから隠します。" } }
+      }
+    },
+    "settings.betaFeatures.artifacts.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Shows Artifacts in the right sidebar with searchable workspace history and drag-and-drop records." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "検索可能なワークスペース履歴とドラッグ＆ドロップ対応の記録を右サイドバーに表示します。" } }
       }
     },
     "settings.betaFeatures.cloudMachines": {
@@ -214996,6 +215075,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "automation.workspaceAutoNaming automation.autoNamingAgent ai auto naming auto-name auto name workspace tab workspaces tabs title titles rename workspace rename tab renaming generated summarize summary summarizer conversation agent picker naming agent 自動化 自動命名 名稱 工作區 分頁 標題 重新命名 摘要 產生 代理程式 選擇器"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.betaFeatures.artifacts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rightSidebar.beta.artifacts.enabled artifacts links urls files html workspace history search drag drop beta unstable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "rightSidebar.beta.artifacts.enabled アーティファクト リンク URL ファイル HTML ワークスペース 履歴 検索 ドラッグ ドロップ ベータ 不安定"
           }
         }
       }
@@ -291284,6 +291380,258 @@
         "ja": { "stringUnit": { "state": "translated", "value": "Links パネルを開く" } }
       }
     },
+    "artifactsPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクト" } }
+      }
+    },
+    "artifactsPane.workspaceUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This workspace is no longer available." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペースは利用できなくなりました。" } }
+      }
+    },
+    "artifactsPane.search.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Search artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトを検索" } }
+      }
+    },
+    "artifactsPane.scope.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Scope" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "範囲" } }
+      }
+    },
+    "artifactsPane.scope.workspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "This Workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このワークスペース" } }
+      }
+    },
+    "artifactsPane.scope.global": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All Workspaces" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのワークスペース" } }
+      }
+    },
+    "artifactsPane.kindFilter.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All Kinds" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべての種類" } }
+      }
+    },
+    "artifactsPane.kindFilter.links": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Links" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "リンク" } }
+      }
+    },
+    "artifactsPane.kindFilter.html": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "HTML" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "HTML" } }
+      }
+    },
+    "artifactsPane.kindFilter.files": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Files" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ファイル" } }
+      }
+    },
+    "artifactsPane.host.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All Hosts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのホスト" } }
+      }
+    },
+    "artifactsPane.source.all": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "All Sources" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "すべてのソース" } }
+      }
+    },
+    "artifactsPane.source.value": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@" } }
+      }
+    },
+    "artifactsPane.row.detail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ · %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ · %@" } }
+      }
+    },
+    "artifactsPane.action.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add Artifact" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトを追加" } }
+      }
+    },
+    "artifactsPane.action.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Artifact" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトを開く" } }
+      }
+    },
+    "artifactsPane.action.copy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Copy Artifact" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトをコピー" } }
+      }
+    },
+    "artifactsPane.action.reveal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reveal in Finder" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Finderで表示" } }
+      }
+    },
+    "artifactsPane.action.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Remove Artifact" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトを削除" } }
+      }
+    },
+    "artifactsPane.action.clearAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Clear Workspace Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのアーティファクトを消去" } }
+      }
+    },
+    "artifactsPane.repeatCount": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "×%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "×%lld" } }
+      }
+    },
+    "artifactsPane.day.today": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Today" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "今日" } }
+      }
+    },
+    "artifactsPane.empty.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Artifacts Yet" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトはありません" } }
+      }
+    },
+    "artifactsPane.empty.searchTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No Matches" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "一致する項目はありません" } }
+      }
+    },
+    "artifactsPane.empty.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "URLs, files, HTML, and saved workspace content will appear here." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "URL、ファイル、HTML、保存したワークスペースの内容がここに表示されます。" } }
+      }
+    },
+    "artifactsPane.empty.searchMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Try another artifact name, URL, path, or content term." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別の名前、URL、パス、または内容の語句を試してください。" } }
+      }
+    },
+    "artifactsPane.addPanel.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add to Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトに追加" } }
+      }
+    },
+    "artifactsPane.addPanel.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Choose files or folders to save in the workspace artifact catalog." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのアーティファクトカタログに保存するファイルまたはフォルダを選択します。" } }
+      }
+    },
+    "artifactsPane.addPanel.prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Add" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "追加" } }
+      }
+    },
+    "artifactsPane.count.one": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "1 Artifact" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "1 件のアーティファクト" } }
+      }
+    },
+    "artifactsPane.count.other": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%lld Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%lld 件のアーティファクト" } }
+      }
+    },
+    "artifactsPane.kind.url": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "URL" } }, "ja": { "stringUnit": { "state": "translated", "value": "URL" } } } },
+    "artifactsPane.kind.html": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "HTML" } }, "ja": { "stringUnit": { "state": "translated", "value": "HTML" } } } },
+    "artifactsPane.kind.file": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "File" } }, "ja": { "stringUnit": { "state": "translated", "value": "ファイル" } } } },
+    "artifactsPane.kind.text": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Text" } }, "ja": { "stringUnit": { "state": "translated", "value": "テキスト" } } } },
+    "artifactsPane.kind.code": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Code" } }, "ja": { "stringUnit": { "state": "translated", "value": "コード" } } } },
+    "artifactsPane.kind.json": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "JSON" } }, "ja": { "stringUnit": { "state": "translated", "value": "JSON" } } } },
+    "artifactsPane.kind.image": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Image" } }, "ja": { "stringUnit": { "state": "translated", "value": "画像" } } } },
+    "artifactsPane.kind.pdf": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "PDF" } }, "ja": { "stringUnit": { "state": "translated", "value": "PDF" } } } },
+    "artifactsPane.kind.audio": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Audio" } }, "ja": { "stringUnit": { "state": "translated", "value": "音声" } } } },
+    "artifactsPane.kind.video": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Video" } }, "ja": { "stringUnit": { "state": "translated", "value": "動画" } } } },
+    "artifactsPane.kind.directory": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Folder" } }, "ja": { "stringUnit": { "state": "translated", "value": "フォルダ" } } } },
+    "artifactsPane.kind.browserDownload": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Download" } }, "ja": { "stringUnit": { "state": "translated", "value": "ダウンロード" } } } },
+    "artifactsPane.kind.generated": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Generated" } }, "ja": { "stringUnit": { "state": "translated", "value": "生成" } } } },
+    "artifactsPane.kind.manual": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Manual" } }, "ja": { "stringUnit": { "state": "translated", "value": "手動" } } } },
+    "command.openArtifacts.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトを開く" } }
+      }
+    },
+    "command.openArtifactsPane.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Artifacts as Pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトをペインで開く" } }
+      }
+    },
+    "shortcut.openArtifacts.label": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Open Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトを開く" } }
+      }
+    },
     "settings.app.linksEnabled": {
       "extractionState": "manual",
       "localizations": {
@@ -291361,6 +291709,22 @@
         "ja": { "stringUnit": { "state": "translated", "value": "公開の http(s) リンクのページタイトルを取得します。プライベートホストとローカルホストは取得しません。" } }
       }
     },
+    "settings.app.artifactsEnabled": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Capture Workspace Artifacts" } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースのアーティファクトを記録" } } } },
+    "settings.app.artifactsEnabled.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Record URLs, files, and explicitly saved content in each workspace's Artifacts view." } }, "ja": { "stringUnit": { "state": "translated", "value": "URL、ファイル、明示的に保存した内容を各ワークスペースのアーティファクトビューに記録します。" } } } },
+    "settings.app.artifactsIgnoreHosts": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Ignored Artifact Hosts" } }, "ja": { "stringUnit": { "state": "translated", "value": "無視するアーティファクトホスト" } } } },
+    "settings.app.artifactsIgnoreHosts.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Comma-separated URL hosts to skip during terminal artifact capture." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのアーティファクト記録でスキップする URL ホストをカンマ区切りで指定します。" } } } },
+    "settings.app.artifactsIgnoreHosts.placeholder": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "localhost:31034" } }, "ja": { "stringUnit": { "state": "translated", "value": "localhost:31034" } } } },
+    "settings.app.artifactsIncludeFilePaths": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Include Terminal File Paths" } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルのファイルパスを含める" } } } },
+    "settings.app.artifactsIncludeFilePaths.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Allow explicitly authorized file paths emitted by terminals to become Artifacts." } }, "ja": { "stringUnit": { "state": "translated", "value": "ターミナルが出力した明示的に許可されたファイルパスをアーティファクトにします。" } } } },
+    "settings.app.artifactsRetentionLimit": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Artifact Retention Limit" } }, "ja": { "stringUnit": { "state": "translated", "value": "アーティファクト保持上限" } } } },
+    "settings.app.artifactsRetentionLimit.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Maximum captured Artifacts retained per workspace." } }, "ja": { "stringUnit": { "state": "translated", "value": "ワークスペースごとに保持するアーティファクトの最大数です。" } } } },
+    "settings.app.artifactsFetchTitles": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Fetch URL Titles" } }, "ja": { "stringUnit": { "state": "translated", "value": "URLタイトルを取得" } } } },
+    "settings.app.artifactsFetchTitles.subtitle": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Fetch titles for captured public http(s) URL Artifacts. Private and local hosts are never fetched." } }, "ja": { "stringUnit": { "state": "translated", "value": "記録した公開 http(s) URL アーティファクトのタイトルを取得します。プライベートおよびローカルホストは取得しません。" } } } },
+    "settings.search.alias.setting.app.artifacts-enabled": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "artifacts.enabled links urls files html workspace capture history" } }, "ja": { "stringUnit": { "state": "translated", "value": "artifacts.enabled links urls files html workspace capture history" } } } },
+    "settings.search.alias.setting.app.artifacts-ignore-hosts": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "artifacts.ignoreHosts links urls ignored hosts localhost wildcard filter" } }, "ja": { "stringUnit": { "state": "translated", "value": "artifacts.ignoreHosts links urls ignored hosts localhost wildcard filter" } } } },
+    "settings.search.alias.setting.app.artifacts-include-file-paths": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "artifacts.includeFilePaths file paths urls workspace artifacts" } }, "ja": { "stringUnit": { "state": "translated", "value": "artifacts.includeFilePaths file paths urls workspace artifacts" } } } },
+    "settings.search.alias.setting.app.artifacts-retention-limit": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "artifacts.retentionLimit retention limit cap files urls history" } }, "ja": { "stringUnit": { "state": "translated", "value": "artifacts.retentionLimit retention limit cap files urls history" } } } },
+    "settings.search.alias.setting.app.artifacts-fetch-titles": { "extractionState": "manual", "localizations": { "en": { "stringUnit": { "state": "translated", "value": "artifacts.fetchTitles title fetch public urls safety" } }, "ja": { "stringUnit": { "state": "translated", "value": "artifacts.fetchTitles title fetch public urls safety" } } } },
     "settings.search.alias.setting.app.links-enabled": {
       "extractionState": "manual",
       "localizations": {

@@ -1,5 +1,6 @@
 import XCTest
 import SQLite3
+import CmuxArtifacts
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -8,6 +9,32 @@ import SQLite3
 #endif
 
 final class SearchIndexTests: XCTestCase {
+    @MainActor
+    func testArtifactDocumentsAreSearchableWithStableActivationIdentity() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+        let index = try SearchIndex(databaseURL: fixture.databaseURL)
+        let workspaceID = UUID()
+        let artifactID = UUID()
+        let record = ArtifactRecord(
+            id: artifactID,
+            kind: .html,
+            identityKey: "content:html:test",
+            ownership: ArtifactOwnership(workspaceID: workspaceID.uuidString, workspaceTitle: "Build Workspace"),
+            source: .browser,
+            title: "Preview",
+            representation: .inlineHTML("artifact-global-token")
+        )
+        let document = try XCTUnwrap(GlobalSearchDocuments.artifactDocument(for: record))
+        try await index.upsert(document)
+
+        let hits = try await index.search("artifact-global-token", limit: 10)
+        XCTAssertEqual(hits.count, 1)
+        XCTAssertEqual(hits.first?.kind, .artifact)
+        XCTAssertEqual(hits.first?.workspaceID, workspaceID)
+        XCTAssertEqual(hits.first?.artifactID, artifactID)
+    }
+
     func testSearchFindsBrowserAndMarkdownDocuments() async throws {
         let fixture = try makeFixture()
         defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }

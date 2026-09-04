@@ -1625,6 +1625,47 @@
         }
       }
     },
+    "artifacts": {
+      "title": "artifacts",
+      "description": "Workspace and global Artifacts capture settings. The links section is retained as a migration alias.",
+      "descriptionKey": "schemaDescriptions.artifacts.description",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Capture permitted URLs and explicitly saved workspace artifacts.",
+          "descriptionKey": "schemaDescriptions.artifacts.enabled"
+        },
+        "ignoreHosts": {
+          "type": "string",
+          "default": "localhost:31034",
+          "description": "Comma-separated URL hosts ignored during terminal capture.",
+          "descriptionKey": "schemaDescriptions.artifacts.ignoreHosts"
+        },
+        "includeFilePaths": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include explicitly authorized file paths emitted by terminals.",
+          "descriptionKey": "schemaDescriptions.artifacts.includeFilePaths"
+        },
+        "retentionLimit": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 10000,
+          "default": 500,
+          "description": "Maximum Artifacts retained per workspace.",
+          "descriptionKey": "schemaDescriptions.artifacts.retentionLimit"
+        },
+        "fetchTitles": {
+          "type": "boolean",
+          "default": false,
+          "description": "Fetch titles for captured public URLs; local and private hosts are never fetched.",
+          "descriptionKey": "schemaDescriptions.artifacts.fetchTitles"
+        }
+      }
+    },
     "canvas": {
       "title": "canvas",
       "description": "Freeform canvas workspace layout settings.",
@@ -1940,7 +1981,7 @@
         "when": {
           "type": "object",
           "default": {},
-          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
+          "description": "Optional per-action context predicates (VS Code-style `when` clauses), keyed by cmux action id. Each value is a boolean expression over context keys combined with !, &&, ||, and parentheses. Boolean keys: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typed keys support comparisons: the string sidebarMode (files, find, sessions, artifacts, feed, or dock) and the integers paneCount and workspaceCount. Comparison operators are ==, !=, =~ (regex), <, <=, >, >=, and `in [a, b]`; an unknown or absent key reads as false. The boolean literals true and false are also accepted; `key == false` is the same as `!key`. The action's shortcut only fires (and only conflicts with other shortcuts) when the clause holds. Examples: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selects workspaces with Ctrl+1–9 everywhere except when the right sidebar is focused; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } scopes a binding to the Find sidebar when the workspace has multiple panes.",
           "descriptionKey": "schemaDescriptions.shortcuts.when",
           "additionalProperties": {
             "type": "string"

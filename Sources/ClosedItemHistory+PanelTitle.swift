@@ -38,7 +38,7 @@ extension ClosedItemHistoryStore {
         case .workspaceTodo:
             return String(localized: "workspaceTodoPane.title", defaultValue: "Todos")
         case .links:
-            return String(localized: "linksPane.title", defaultValue: "Links")
+            return String(localized: "artifactsPane.title", defaultValue: "Artifacts")
         case .notifications:
             return String(localized: "notifications.title", defaultValue: "Notifications")
         case .cloudVMLoading:
