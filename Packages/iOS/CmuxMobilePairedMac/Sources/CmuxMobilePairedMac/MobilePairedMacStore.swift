@@ -820,6 +820,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                 // unknown row would strand an unowned bearer capability.
                 return
             }
+            var currentRoutes = try fetchRoutes(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            )
             for route in grantRoutes {
                 let encoded = try Self.encodeRoute(route)
                 let encodedEndpoint = try Self.encodeRouteEndpoint(route)
@@ -850,6 +854,34 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
                     .text(ownerKey),
                     .text(route.kind.rawValue),
                     .text(encodedEndpoint),
+                ])
+                // The preceding passive refresh intentionally filtered this
+                // endpoint because its tombstone was still present. Reinsert
+                // the route as part of this explicit pairing authorization so
+                // a successful scan immediately becomes usable again.
+                if let disclosed = route.disclosed(for: .authenticated, at: Date()) {
+                    currentRoutes.removeAll {
+                        $0.kind == disclosed.kind && $0.endpoint == disclosed.endpoint
+                    }
+                    currentRoutes.append(disclosed)
+                }
+            }
+            try exec(
+                "DELETE FROM mac_routes WHERE mac_device_id = ? AND owner_key = ?;",
+                binding: [.text(macDeviceID), .text(ownerKey)]
+            )
+            for route in currentRoutes {
+                try exec("""
+                    INSERT INTO mac_routes (
+                        mac_device_id, owner_key, route_id, kind, endpoint_json, priority
+                    ) VALUES (?, ?, ?, ?, ?, ?);
+                """, binding: [
+                    .text(macDeviceID),
+                    .text(ownerKey),
+                    .text(route.id),
+                    .text(route.kind.rawValue),
+                    .text(try Self.encodeRoute(route)),
+                    .int(Int64(route.priority)),
                 ])
             }
         }
@@ -1002,6 +1034,10 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             } else {
                 existingRoutes = []
             }
+            let removedRouteKeys = try fetchRouteRemovalKeys(
+                macDeviceID: macDeviceID,
+                ownerKey: ownerKey
+            )
             let incomingHasIroh = routes.contains { $0.kind == .iroh }
             let pinnedIrohRoutes = existingRoutes.filter { $0.kind == .iroh }
             let userAuthorizedTailscaleRoutes = try fetchLegacyTailscaleRoutes(
@@ -1026,7 +1062,14 @@ public actor MobilePairedMacStore: MobilePairedMacStoring {
             // routes; replacing the stored Iroh identity in that case would allow
             // a later admission failure to downgrade into Stack-bearer RPC. A new
             // Iroh route replaces the old identity normally.
-            var routesToPersist = routes
+            var routesToPersist: [CmxAttachRoute] = []
+            routesToPersist.reserveCapacity(routes.count + pinnedIrohRoutes.count)
+            for route in routes {
+                let endpoint = try Self.encodeRouteEndpoint(route)
+                let key = "\(route.kind.rawValue)\u{1F}\(endpoint)"
+                guard !removedRouteKeys.contains(key) else { continue }
+                routesToPersist.append(route)
+            }
             if !pinnedIrohRoutes.isEmpty, !incomingHasIroh {
                 routesToPersist.append(contentsOf: pinnedIrohRoutes)
             }

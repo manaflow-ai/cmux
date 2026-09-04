@@ -331,7 +331,10 @@ extension MobilePairedMacStore {
         return routes
     }
 
-    func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
+    func fetchRouteRemovalKeys(
+        macDeviceID: String,
+        ownerKey: String
+    ) throws -> Set<String> {
         var removedStatement: OpaquePointer?
         defer { sqlite3_finalize(removedStatement) }
         let removedRC = sqlite3_prepare_v2(
@@ -367,6 +370,14 @@ extension MobilePairedMacStore {
             }
             removedKeys.insert("\(kind)\u{1F}\(endpoint)")
         }
+        return removedKeys
+    }
+
+    func fetchRoutes(macDeviceID: String, ownerKey: String) throws -> [CmxAttachRoute] {
+        let removedKeys = try fetchRouteRemovalKeys(
+            macDeviceID: macDeviceID,
+            ownerKey: ownerKey
+        )
 
         var statement: OpaquePointer?
         defer { sqlite3_finalize(statement) }
