@@ -15011,7 +15011,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if matchConfiguredShortcut(event: event, action: .quit) {
             return handleQuitShortcutWarning()
         }
-        if matchConfiguredShortcut(event: event, action: .openSettings) {
+        if matchConfiguredShortcut(event: event, action: .openSettings),
+           !shouldPreferPhysicalCloseTabFallbackOverSettings(event: event) {
             openPreferencesWindow(debugSource: "shortcut.openSettings")
             return true
         }
@@ -17629,6 +17630,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
         guard flags.contains(.command) else { return false }
+
+        // AppKit compares menu equivalents against the layout-produced
+        // character. A physical Dvorak W therefore looks like Cmd+, and can
+        // select the Settings menu item even though cmux's physical fallback
+        // selected Close Tab. Suppress that menu path before its action runs.
+        if shouldPreferPhysicalCloseTabFallbackOverSettings(event: event) {
+            return true
+        }
 
         let staleDefaultActions = KeyboardShortcutSettings.Action.allCases.filter { action in
             isMenuBackedShortcutAction(action) &&

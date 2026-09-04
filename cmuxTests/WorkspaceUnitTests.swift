@@ -2549,10 +2549,11 @@ final class StoredShortcutMatchingTests: XCTestCase {
         )
     }
 
-    func testCommandPunctuationDoesNotMatchAnUnshiftedLayoutSymbolFromALetterKey() {
-        // On Dvorak, the physical ANSI-W key produces a comma. A command
-        // punctuation binding must not claim that layout-produced symbol by
-        // physical fallback; the physical Cmd+W binding owns the key.
+    func testCommandPunctuationKeepsLogicalCharacterMatchingOnALetterKey() {
+        // On Dvorak, the physical ANSI-W key produces a comma. Character
+        // bindings must remain available so an explicit cmd+, remap can still
+        // target that logical key; AppDelegate resolves the default Close Tab
+        // versus Settings ambiguity at the action-routing layer.
         let settingsShortcut = StoredShortcut(
             key: ",",
             command: true,
@@ -2561,14 +2562,14 @@ final class StoredShortcutMatchingTests: XCTestCase {
             control: false
         )
 
-        XCTAssertFalse(
+        XCTAssertTrue(
             settingsShortcut.matches(
                 keyCode: 13,
                 modifierFlags: [.command],
                 eventCharacter: ",",
                 layoutCharacterProvider: { _, _ in "," }
             ),
-            "Cmd+, must not match a comma emitted by the physical W key"
+            "Cmd+, should retain layout-semantic character matching"
         )
     }
 

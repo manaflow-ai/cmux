@@ -4395,10 +4395,27 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab),
             "Physical Cmd+W should match Close Tab even when Dvorak emits a comma"
         )
-        XCTAssertFalse(
+        XCTAssertTrue(
             appDelegate.debugMatchesConfiguredShortcut(event: event, action: .openSettings),
-            "A Dvorak comma from physical W must not match Cmd+, Settings"
+            "The logical Cmd+, Settings binding remains character-matchable"
         )
+        XCTAssertTrue(
+            appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+            "The Settings menu equivalent must yield to the physical Close Tab fallback"
+        )
+
+        // A deliberate logical comma remap must keep the same precedence even
+        // though its match comes from the character plane rather than the
+        // physical fallback.
+        withTemporaryShortcut(
+            action: .closeTab,
+            shortcut: StoredShortcut(key: ",", command: true, shift: false, option: false, control: false)
+        ) {
+            XCTAssertTrue(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "An explicit logical Cmd+, Close Tab binding must still beat Settings"
+            )
+        }
 #else
         XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif

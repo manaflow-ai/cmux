@@ -203,6 +203,7 @@
 		A5F100000000000000000013 /* AppDelegate+FocusedNotificationSeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5F100000000000000000014 /* AppDelegate+FocusedNotificationSeam.swift */; };
 		C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */; };
 		3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */; };
+		F33620010000000000000001 /* AppDelegate+LayoutAwareShortcutRouting.swift in Sources */ = {isa = PBXBuildFile; fileRef = F33620010000000000000002 /* AppDelegate+LayoutAwareShortcutRouting.swift */; };
 		8F82B1ABAF204BDE88A7ED7D /* AppDelegate+ManagedPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C0728FF0C3B4FF2925CA071 /* AppDelegate+ManagedPolicy.swift */; };
 		A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */; };
 		D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */; };
@@ -3437,6 +3438,7 @@
 		A5F100000000000000000014 /* AppDelegate+FocusedNotificationSeam.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusedNotificationSeam.swift"; sourceTree = "<group>"; };
 		C4160A040000000000000002 /* AppDelegate+FocusHistoryContextMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+FocusHistoryContextMenu.swift"; sourceTree = "<group>"; };
 		3865B0063865B0063865B006 /* AppDelegate+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Search/AppDelegate+GlobalSearch.swift"; sourceTree = "<group>"; };
+		F33620010000000000000002 /* AppDelegate+LayoutAwareShortcutRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+LayoutAwareShortcutRouting.swift"; sourceTree = "<group>"; };
 		5C0728FF0C3B4FF2925CA071 /* AppDelegate+ManagedPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+ManagedPolicy.swift"; sourceTree = "<group>"; };
 		A74770010000000000000002 /* AppDelegate+MonitorMemory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MonitorMemory.swift"; sourceTree = "<group>"; };
 		D7AB00000000000000000002 /* AppDelegate+MoveTabToNewWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+MoveTabToNewWorkspace.swift"; sourceTree = "<group>"; };
@@ -7222,6 +7224,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A50012F0 /* Backport.swift */,
 				BCBC0A0E0000000000000F02 /* BrowserMediaActivity.swift */,
 				A50012F2 /* KeyboardShortcutSettings.swift */,
+				F33620010000000000000002 /* AppDelegate+LayoutAwareShortcutRouting.swift */,
 				875200000000000000000003 /* KeyboardShortcutSettings+ActionMetadata.swift */,
 				80410000000000000000000C /* KeyboardShortcutSettings+ActionVisibility.swift */,
 				F7216002000000000000002 /* KeyboardShortcutSettings+SystemWideHotkeyConflicts.swift */,
@@ -10248,6 +10251,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5F100000000000000000013 /* AppDelegate+FocusedNotificationSeam.swift in Sources */,
 				C4160A040000000000000001 /* AppDelegate+FocusHistoryContextMenu.swift in Sources */,
 				3865A0063865A0063865A006 /* AppDelegate+GlobalSearch.swift in Sources */,
+				F33620010000000000000001 /* AppDelegate+LayoutAwareShortcutRouting.swift in Sources */,
 				8F82B1ABAF204BDE88A7ED7D /* AppDelegate+ManagedPolicy.swift in Sources */,
 				A74770010000000000000001 /* AppDelegate+MonitorMemory.swift in Sources */,
 				D7AB00000000000000000001 /* AppDelegate+MoveTabToNewWorkspace.swift in Sources */,

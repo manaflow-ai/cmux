@@ -1430,6 +1430,18 @@ final class SystemWideHotkeyController {
 }
 
 struct ShortcutStroke: Equatable, Hashable {
+    /// Identifies which event representation established a shortcut match.
+    ///
+    /// Callers use the distinction between a character match and a physical
+    /// fallback when two configured actions can describe the same key on a
+    /// remapped layout.
+    enum MatchingSource: Equatable {
+        case eventCharacter
+        case layoutCharacter
+        case physicalFallback
+        case physicalKeyCode
+    }
+
     enum RecordingResult: Equatable {
         case accepted(ShortcutStroke)
         case rejected(KeyboardShortcutSettings.ShortcutRecordingRejection)
@@ -1640,18 +1652,32 @@ struct ShortcutStroke: Equatable, Hashable {
         event: NSEvent,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
+        matchingSource(event: event, layoutCharacterProvider: layoutCharacterProvider) != nil
+    }
+
+    /// Returns the evidence that matched this stroke against an AppKit event.
+    ///
+    /// This keeps action-level routing from duplicating the layout and
+    /// physical-key precedence rules used by ``matches(event:...)``.
+    func matchingSource(
+        event: NSEvent,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> MatchingSource? {
         let shortcutKey = key.lowercased()
         if shortcutKey.hasPrefix("media.") {
             guard let eventMediaKey = Self.mediaKey(from: event)?.key.lowercased() else {
-                return false
+                return nil
             }
-            return eventMediaKey == shortcutKey &&
-                Self.normalizedModifierFlags(from: event.modifierFlags) == modifierFlags
+            guard eventMediaKey == shortcutKey,
+                  Self.normalizedModifierFlags(from: event.modifierFlags) == modifierFlags else {
+                return nil
+            }
+            return .physicalKeyCode
         }
 
-        guard event.type == .keyDown else { return false }
+        guard event.type == .keyDown else { return nil }
 
-        return matches(
+        return matchingSource(
             keyCode: Self.recordableKey(from: event)?.keyCode ?? event.keyCode,
             modifierFlags: event.modifierFlags,
             eventCharacter: Self.eventCharacterForMatching(event),
@@ -1685,23 +1711,40 @@ struct ShortcutStroke: Equatable, Hashable {
         eventCharacter: String?,
         layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
     ) -> Bool {
+        matchingSource(
+            keyCode: keyCode,
+            modifierFlags: modifierFlags,
+            eventCharacter: eventCharacter,
+            layoutCharacterProvider: layoutCharacterProvider
+        ) != nil
+    }
+
+    /// Returns the evidence that matched this stroke against primitive event
+    /// fields. The primitive overload is used by Carbon conflict checks where
+    /// no ``NSEvent`` instance exists.
+    func matchingSource(
+        keyCode: UInt16,
+        modifierFlags: NSEvent.ModifierFlags,
+        eventCharacter: String?,
+        layoutCharacterProvider: (UInt16, NSEvent.ModifierFlags) -> String? = KeyboardLayout.character(forKeyCode:modifierFlags:)
+    ) -> MatchingSource? {
         let flags = Self.normalizedModifierFlags(from: modifierFlags)
-        guard flags == self.modifierFlags else { return false }
+        guard flags == self.modifierFlags else { return nil }
 
         if let recordedKeyCode = self.keyCode {
-            return keyCode == recordedKeyCode
+            return keyCode == recordedKeyCode ? .physicalKeyCode : nil
         }
 
         let shortcutKey = key.lowercased()
         if Self.usesPhysicalKeyCodeMatching(shortcutKey) {
             guard let expectedKeyCode = self.keyCode ?? Self.keyCodeForShortcutKey(shortcutKey) else {
-                return false
+                return nil
             }
-            return keyCode == expectedKeyCode
+            return keyCode == expectedKeyCode ? .physicalKeyCode : nil
         }
 
         if shortcutKey == "\r" {
-            return keyCode == 36 || keyCode == 76
+            return (keyCode == 36 || keyCode == 76) ? .physicalKeyCode : nil
         }
 
         let hasEventChars = !(eventCharacter?.isEmpty ?? true)
@@ -1715,21 +1758,13 @@ struct ShortcutStroke: Equatable, Hashable {
             (eventCharacter?.first?.isLetter == true || eventCharacter?.first?.isNumber == true)
         let eventCharacterIsPrintablePunctuation = Self.isPrintableASCIIPunctuation(eventCharacter)
         let isPhysicalLetterKey = Self.isPhysicalLetterKeyCode(keyCode)
-        let commandPunctuationLayoutCollision = flags.contains(.command) &&
-            !flags.contains(.control) &&
-            !shortcutKeyIsLetter &&
-            !shortcutKeyIsDigit &&
-            isPhysicalLetterKey &&
-            eventCharacterIsPrintablePunctuation
-
-        if !commandPunctuationLayoutCollision,
-           Self.shortcutCharacterMatches(
-               eventCharacter: eventCharacter,
-               shortcutKey: shortcutKey,
-               applyShiftSymbolNormalization: flags.contains(.shift),
-               eventKeyCode: keyCode
-           ) {
-            return true
+        if Self.shortcutCharacterMatches(
+            eventCharacter: eventCharacter,
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: flags.contains(.shift),
+            eventKeyCode: keyCode
+        ) {
+            return .eventCharacter
         }
 
         let commandPrintableCharacterShouldBlockFallback = flags.contains(.command) &&
@@ -1742,22 +1777,20 @@ struct ShortcutStroke: Equatable, Hashable {
            hasEventChars,
            eventCharsAreASCII,
            Self.digitForNumberKeyCode(keyCode) == nil {
-            return false
+            return nil
         }
         if commandPrintableCharacterShouldBlockFallback {
-            return false
+            return nil
         }
 
         let layoutCharacter = layoutCharacterProvider(keyCode, modifierFlags)
-        if !commandPunctuationLayoutCollision {
-            if Self.shortcutCharacterMatches(
-                eventCharacter: layoutCharacter,
-                shortcutKey: shortcutKey,
-                applyShiftSymbolNormalization: false,
-                eventKeyCode: keyCode
-            ) {
-                return true
-            }
+        if Self.shortcutCharacterMatches(
+            eventCharacter: layoutCharacter,
+            shortcutKey: shortcutKey,
+            applyShiftSymbolNormalization: false,
+            eventKeyCode: keyCode
+        ) {
+            return .layoutCharacter
         }
 
         // A layout-aware glyph that is itself another known shortcut key is a
@@ -1775,7 +1808,7 @@ struct ShortcutStroke: Equatable, Hashable {
                applyShiftSymbolNormalization: flags.contains(.shift),
                eventKeyCode: keyCode
            ) {
-            return false
+            return nil
         }
 
         let commandLetterPhysicalFallback = flags.contains(.command) &&
@@ -1816,10 +1849,10 @@ struct ShortcutStroke: Equatable, Hashable {
                 ))
         if allowANSIKeyCodeFallback,
            let expectedKeyCode = Self.keyCodeForShortcutKey(shortcutKey) {
-            return keyCode == expectedKeyCode
+            return keyCode == expectedKeyCode ? .physicalFallback : nil
         }
 
-        return false
+        return nil
     }
 
     private var isBareShortcutAllowedWithoutModifier: Bool {
