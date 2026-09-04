@@ -1195,20 +1195,42 @@ enum DirectHookTransition {
     Restart(crate::workspace_registry::AgentHookProjectionState),
 }
 
+enum JournalHookTransition {
+    Ignore,
+    Apply(String),
+}
+
 impl HookFence {
-    fn accepts_journal_transition(
-        &self,
-        session_id: &str,
+    fn journal_transition(
+        current: Option<&Self>,
+        terminal_id: &TerminalPublicId,
+        explicit_session_id: Option<&str>,
         is_session_start: bool,
         sequence: u64,
-    ) -> bool {
-        if sequence <= self.sequence {
-            return false;
+    ) -> JournalHookTransition {
+        if explicit_session_id.is_none()
+            && current.is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
+        {
+            return JournalHookTransition::Ignore;
         }
-        if self.session_id == session_id {
-            return !self.ended;
+        let session_id = explicit_session_id
+            .map(str::to_owned)
+            .or_else(|| {
+                (!is_session_start)
+                    .then(|| current.filter(|fence| !fence.ended))
+                    .flatten()
+                    .map(|fence| fence.session_id.clone())
+            })
+            .unwrap_or_else(|| legacy_hook_session_id(terminal_id, sequence));
+        if let Some(fence) = current {
+            if sequence <= fence.sequence
+                || (fence.session_id == session_id && fence.ended)
+                || (fence.session_id != session_id && (!is_session_start || !fence.ended))
+            {
+                return JournalHookTransition::Ignore;
+            }
         }
-        is_session_start && self.ended
+        JournalHookTransition::Apply(session_id)
     }
 
     fn direct_transition(&self, session_id: Option<&str>) -> anyhow::Result<DirectHookTransition> {
@@ -5706,38 +5728,18 @@ impl Mux {
             .get("normalized")
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
-            .filter(|session_id| !session_id.is_empty())
-            .map(str::to_owned);
+            .filter(|session_id| !session_id.is_empty());
         let is_session_start = ingress.kind == "agent.session.started";
         let previous_fence = fences.get(&terminal_id).cloned();
-        // Once an adapter has supplied a native session identity, a later
-        // session-less event is ambiguous. Do not assign delayed events from
-        // that generation to the currently active session.
-        if explicit_session_id.is_none()
-            && previous_fence.as_ref().is_some_and(|fence| !fence.session_id.starts_with("legacy:"))
-        {
+        let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
+            previous_fence.as_ref(),
+            &terminal_id,
+            explicit_session_id,
+            is_session_start,
+            sequence,
+        ) else {
             return Ok(());
-        }
-        // A non-start event without an adapter identity belongs to the live
-        // legacy generation. A start event must carry a new identity, or it
-        // receives a fresh local generation token below. Reusing the active
-        // fence for a start would let a delayed, session-less start mutate a
-        // newer lifecycle.
-        let agent_session_id = explicit_session_id
-            .or_else(|| {
-                (!is_session_start)
-                    .then(|| previous_fence.as_ref().filter(|fence| !fence.ended))
-                    .flatten()
-                    .map(|fence| fence.session_id.clone())
-            })
-            .unwrap_or_else(|| legacy_hook_session_id(&terminal_id, sequence));
-        if previous_fence.as_ref().is_some_and(|fence| {
-            !fence.accepts_journal_transition(&agent_session_id, is_session_start, sequence)
-        }) {
-            // A mismatched event cannot cross an active lifecycle fence. A
-            // start may replace an ended fence only as a new lifecycle.
-            return Ok(());
-        }
+        };
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
         let marker = if state == AgentState::Done {
@@ -23452,7 +23454,7 @@ mod tests {
     }
 
     #[test]
-    fn reopened_ended_hook_fence_rejects_late_events() {
+    fn reopened_ended_hook_fence_rejects_late_transitions() {
         let root = std::env::temp_dir()
             .join(format!("cmux-agent-ended-reopen-{}", crate::workspace_registry::new_uuid_v4()));
         let mux =
@@ -23478,21 +23480,26 @@ mod tests {
 
         let reopened =
             Mux::open_persistent("agent-ended-reopen", SurfaceOptions::default(), &root).unwrap();
-        let reopened_surface = reopened.resource_surface_for_terminal(&terminal_id).unwrap();
-        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
-        assert!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].ended);
+        assert!(reopened.list_agents(None, None).is_empty());
+        let fence = reopened.agent_hook_fences.lock().unwrap()[&terminal_id].clone();
+        assert_eq!(fence.session_id, "ended-session");
+        assert_eq!(fence.sequence, 2);
+        assert!(fence.ended);
 
-        // Events from the ended identity, a different identity, and a
-        // session-less adapter must all remain behind the durable fence.
-        reopened
-            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("ended-session")), 3)
-            .unwrap();
-        reopened
-            .apply_agent_hook_record(&ingress("UserPromptSubmit", Some("different-session")), 4)
-            .unwrap();
-        reopened.apply_agent_hook_record(&ingress("UserPromptSubmit", None), 5).unwrap();
-        assert!(reopened.list_agents(Some(reopened_surface), None).is_empty());
-        assert_eq!(reopened.agent_hook_fences.lock().unwrap()[&terminal_id].sequence, 2);
+        for (session_id, sequence) in
+            [(Some("ended-session"), 3), (Some("different-session"), 4), (None, 5)]
+        {
+            assert!(matches!(
+                HookFence::journal_transition(
+                    Some(&fence),
+                    &terminal_id,
+                    session_id,
+                    false,
+                    sequence,
+                ),
+                JournalHookTransition::Ignore
+            ));
+        }
         reopened.shutdown();
         drop(reopened);
         std::fs::remove_dir_all(root).unwrap();
