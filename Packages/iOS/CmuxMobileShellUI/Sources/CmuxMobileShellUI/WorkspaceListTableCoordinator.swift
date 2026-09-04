@@ -194,6 +194,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         guard !isDragSessionActive,
               !isScrollInteractionActive,
               let tableView = scrollView as? UITableView,
+              !tableView.isDragging,
+              !tableView.isDecelerating,
               let deferredConfigurationDuringScroll else { return }
         self.deferredConfigurationDuringScroll = nil
         apply(configuration: deferredConfigurationDuringScroll, in: tableView)
