@@ -2015,11 +2015,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # on non-interactive shells. Killing a group member can deliver HUP
           # back to the helper; cleanup must remain alive long enough to finish
           # its identity-fenced force pass instead of aborting mid-tree.
-          trap '' HUP
+          trap 'cmux_ssh_auth_debug "received HUP"' HUP
           # Once cleanup owns the tree, an interrupt delivered to the shared
           # process group must not tear down the reaper before its bounded
           # force pass completes.
-          trap '' INT TERM
+          trap 'cmux_ssh_auth_debug "received INT"' INT
+          trap 'cmux_ssh_auth_debug "received TERM"' TERM
 
           # Validate the known root parent and build the first breadth-first
           # member list. The root is stopped first in that order.
@@ -2041,6 +2042,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             done < "$cmux_ssh_auth_initial_members"
           fi
           cmux_ssh_auth_start_cleanup_clock
+          cmux_ssh_auth_debug "clock started deadline=$cmux_ssh_auth_cleanup_deadline_millis"
           # The authentication wrapper derives this same path from the fresh
           # per-attempt nonce. A pre-existing path is never removed or reused,
           # so a stale process cannot receive an event from this attempt.
@@ -2064,6 +2066,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           fi
           cmux_ssh_auth_freeze_attempt=0
           cmux_ssh_auth_tree_frozen=0
+          cmux_ssh_auth_debug "enter freeze loop"
           while [ "$cmux_ssh_auth_freeze_attempt" -lt 4 ] && cmux_ssh_auth_cleanup_has_time; do
             # Refresh immediately before each STOP batch. The confirmation
             # below is the identity fence: a PID that changed between this
@@ -2105,6 +2108,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
             cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
           done
+          cmux_ssh_auth_debug "freeze loop ended attempt=$cmux_ssh_auth_freeze_attempt frozen=$cmux_ssh_auth_tree_frozen deadline=$cmux_ssh_auth_deadline_expired"
           if [ "$cmux_ssh_auth_tree_frozen" != 1 ]; then
             cmux_ssh_auth_debug "initial freeze failed; emergency pass"
             if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
@@ -2117,6 +2121,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
 
           # Signal leaves first. This preserves TERM handlers that restore the
           # terminal or launch a short-lived replacement process.
+          cmux_ssh_auth_debug "before term candidate filter"
           if ! cmux_ssh_auth_filter_current_records \
             "$cmux_ssh_auth_owned" "$cmux_ssh_auth_term_candidates" 1; then
             cmux_ssh_auth_debug "term candidate filter failed; emergency pass"
