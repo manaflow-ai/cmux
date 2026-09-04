@@ -10,6 +10,7 @@ java {
 dependencies {
     implementation(libs.coroutines.core)
     implementation(libs.serialization.json)
+    api(libs.okhttp)
 
     testImplementation(libs.junit5.api)
     testImplementation(libs.junit5.params)

@@ -9,6 +9,7 @@ import java.net.URLDecoder
  * Supported grammars:
  *  - v2 (Tailscale): `cmux-ios://attach?v=2&ub=<uid>&pc=<compat>&r=<host>:<port>[&r=...]`
  *  - v3 (Iroh): `cmux-ios://attach?v=3&i=<endpoint-id>[&d=<device-id>]`
+ *  - v4 (Cloudflare relay): `cmux-ios://attach?v=4&ub=<uid>&d=<mac-device-id>`
  *
  * Scheme variants accepted: `cmux-ios`, `cmux-ios-dev` (dev builds).
  * Loopback hosts (127.0.0.1, localhost, ::1) are rejected to prevent the phone
@@ -54,6 +55,7 @@ object AttachTicketDecoder {
         return when (version) {
             2 -> decodeV2(params)
             3 -> decodeV3(params)
+            4 -> decodeV4(params)
             else -> Result.Error(DecodeError.UNSUPPORTED_VERSION)
         }
     }
@@ -94,6 +96,25 @@ object AttachTicketDecoder {
         )
         return Result.Success(
             AttachTicket(routes = listOf(route), macUserId = null, macDeviceId = deviceId)
+        )
+    }
+
+    /**
+     * v4 (Cloudflare relay): the Mac device id doubles as the relay Durable
+     * Object's routing key, so unlike v3's optional `d=`, it is required here.
+     */
+    private fun decodeV4(params: Map<String, List<String>>): Result {
+        val macDeviceId = params["d"]?.firstOrNull()?.takeIf { it.isNotBlank() }
+            ?: return Result.Error(DecodeError.INVALID_URL)
+        val userId = params["ub"]?.firstOrNull()?.takeIf { it.isNotBlank() }
+
+        val route = AttachRoute(
+            kind = AttachRoute.RouteKind.CLOUDFLARE_RELAY,
+            host = macDeviceId,
+            port = 0,
+        )
+        return Result.Success(
+            AttachTicket(routes = listOf(route), macUserId = userId, macDeviceId = macDeviceId)
         )
     }
 

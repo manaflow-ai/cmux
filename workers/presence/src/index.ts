@@ -14,6 +14,11 @@
 //                                         ({endpointId, revoked}); the DO
 //                                         broadcasts, closes that device's
 //                                         sockets, and refuses its mints
+//   GET  /v1/mobile-relay/:macDeviceId/host    Mac leg of the mobile pairing
+//   GET  /v1/mobile-relay/:macDeviceId/client  phone/Android leg — the DO
+//                                               relays opaque binary frames
+//                                               between the two once both
+//                                               legs are on the same account
 //   POST /v1/replies                      park one phone inline-notification reply
 //   GET  /v1/replies?macDeviceId=…        pending replies for one Mac
 //   POST /v1/replies/ack                  remove processed replies
@@ -37,6 +42,8 @@ import {
 import { MAX_SUBSCRIBE_AGE_MS, TeamPresence } from "./do";
 import { AccountControlPlane, type ControlPlaneEnv } from "./controlPlaneDo";
 import { parseRevocationRequest } from "./controlPlane";
+import { isValidMacDeviceId } from "./mobilePairingRelay";
+import { MobilePairingRelay } from "./mobilePairingRelayDo";
 import {
   isConnectivityPublisherAuthorized,
   parseConnectivityInvalidation,
@@ -51,13 +58,16 @@ import {
   parsePhoneReplyAck,
 } from "./replies";
 
-export { TeamPresence, AccountControlPlane };
+export { TeamPresence, AccountControlPlane, MobilePairingRelay };
 
 export interface Env extends AuthEnv, ControlPlaneEnv {
   TEAM_PRESENCE: DurableObjectNamespace<TeamPresence>;
   ACCOUNT_CONTROL_PLANE: DurableObjectNamespace<AccountControlPlane>;
+  MOBILE_PAIRING_RELAY: DurableObjectNamespace<MobilePairingRelay>;
   CONNECTIVITY_INVALIDATION_SECRET?: string;
 }
+
+const MOBILE_RELAY_PATH_PATTERN = /^\/v1\/mobile-relay\/([^/]+)\/(host|client)$/;
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -167,6 +177,34 @@ export default {
         headers,
         body: JSON.stringify(parsed),
       }));
+    }
+
+    const mobileRelayMatch = url.pathname.match(MOBILE_RELAY_PATH_PATTERN);
+    if (mobileRelayMatch) {
+      // Mobile pairing relay: the Mac dials the /host leg, the phone/Android
+      // app dials the /client leg, both under the same well-known Mac device
+      // id. Auth is checked on the upgrade here, exactly like /v1/control/socket;
+      // the DO is derived from the CLIENT-SUPPLIED macDeviceId (it is a routing
+      // key, not a trust boundary — a phone must be able to name the Mac it
+      // wants before ever proving anything about it) but only the verified
+      // Stack user id travels onward as the account identity, and the DO
+      // itself refuses to relay between two legs on different accounts.
+      if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+      if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+        return json({ error: "websocket_required" }, 400);
+      }
+      const macDeviceId = decodeURIComponent(mobileRelayMatch[1] ?? "");
+      if (!isValidMacDeviceId(macDeviceId)) {
+        return json({ error: "invalid_mac_device_id" }, 400);
+      }
+      const user = await verifyRequest(request, env);
+      if (!user) return unauthorized();
+      const headers = new Headers(request.headers);
+      headers.set("x-mobile-relay-account-id", user.id);
+      const stub = env.MOBILE_PAIRING_RELAY.get(
+        env.MOBILE_PAIRING_RELAY.idFromName(macDeviceId),
+      );
+      return stub.fetch(new Request(request.url, { method: "GET", headers }));
     }
 
     if (url.pathname === "/v1/connectivity/invalidate") {

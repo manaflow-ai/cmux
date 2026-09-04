@@ -17,13 +17,13 @@ import java.net.SocketException
 class TcpByteTransport(
     private val host: String,
     private val port: Int,
-) : Closeable {
+) : MobileByteTransport {
     private var socket: Socket? = null
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
 
     /** Establish the TCP connection. Must be called before read/write. */
-    suspend fun connect() = withContext(Dispatchers.IO) {
+    override suspend fun connect() = withContext(Dispatchers.IO) {
         val s = Socket(host, port)
         s.tcpNoDelay = true
         s.soTimeout = 0  // blocking reads — coroutine cancellation handles timeouts
@@ -36,7 +36,7 @@ class TcpByteTransport(
      * Write one framed payload to the wire. Thread-safe w.r.t. itself (callers
      * must serialize their own write order if ordering matters).
      */
-    suspend fun writeFrame(payload: ByteArray) = withContext(Dispatchers.IO) {
+    override suspend fun writeFrame(payload: ByteArray) = withContext(Dispatchers.IO) {
         val out = outputStream ?: throw SocketException("Not connected")
         val frame = MobileSyncFrameCodec.encodeFrame(payload)
         out.write(frame)
@@ -47,7 +47,7 @@ class TcpByteTransport(
      * Read and return the next complete JSON payload from the wire.
      * Suspends until a full frame arrives. Returns null when the connection closes.
      */
-    suspend fun readFrame(): ByteArray? = withContext(Dispatchers.IO) {
+    override suspend fun readFrame(): ByteArray? = withContext(Dispatchers.IO) {
         val inp = inputStream ?: return@withContext null
         val buffer = mutableListOf<Byte>()
 

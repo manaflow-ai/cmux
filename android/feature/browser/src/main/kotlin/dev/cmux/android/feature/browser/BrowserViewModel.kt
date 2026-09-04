@@ -8,9 +8,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.cmux.android.core.auth.StackAuthTokenStore
+import dev.cmux.android.core.pairing.MobileTransportFactory
 import dev.cmux.android.core.pairing.PairedMacStore
 import dev.cmux.android.core.rpc.MobileCoreRpcSession
-import dev.cmux.android.core.transport.TcpByteTransport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,12 +51,11 @@ class BrowserViewModel @Inject constructor(
                 val mac = pairedMacStore.getLatest()
                     ?: return@launch run { _state.value = BrowserUiState.Error("No paired Mac") }
 
-                val transport = TcpByteTransport(mac.primaryHost, mac.primaryPort)
+                val accessToken = tokenStore.getAccessToken()
+                val transport = MobileTransportFactory.forPairedMac(mac, accessToken)
                 val rpcSession = MobileCoreRpcSession(transport)
                 rpcSession.connect()
                 session = rpcSession
-
-                val accessToken = tokenStore.getAccessToken()
 
                 // Subscribe to browser.frame events
                 viewModelScope.launch(Dispatchers.IO) {

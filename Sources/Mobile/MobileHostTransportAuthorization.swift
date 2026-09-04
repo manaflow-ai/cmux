@@ -252,6 +252,18 @@ enum MobileHostPublicStatusCache {
     private static let lock = NSLock()
     private nonisolated(unsafe) static var legacyRoutes: [CmxAttachRoute] = []
     private nonisolated(unsafe) static var irohRoute: CmxAttachRoute?
+    private nonisolated(unsafe) static var cloudflareRelayRoute: CmxAttachRoute?
+
+    /// Set once `MobileHostCloudflareRelayRuntime`'s host-leg WebSocket is
+    /// confirmed connected; `nil` while it is down. Mirrors the single-slot
+    /// `irohRoute` pattern (one active route, not a list) since exactly one
+    /// relay leg can be up at a time.
+    static func update(cloudflareRelayRoute route: CmxAttachRoute?) {
+        lock.lock()
+        cloudflareRelayRoute = route
+        lock.unlock()
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
 
     static func update(routes nextRoutes: [CmxAttachRoute]) {
         lock.lock()
@@ -301,6 +313,7 @@ enum MobileHostPublicStatusCache {
         lock.lock()
         legacyRoutes = []
         irohRoute = nil
+        cloudflareRelayRoute = nil
         lock.unlock()
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
@@ -342,6 +355,6 @@ enum MobileHostPublicStatusCache {
 
     private static func mergedRoutesLocked() -> [CmxAttachRoute] {
         let routes = irohRoute.map { [$0] } ?? []
-        return routes + legacyRoutes
+        return routes + legacyRoutes + (cloudflareRelayRoute.map { [$0] } ?? [])
     }
 }

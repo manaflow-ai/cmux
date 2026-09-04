@@ -11,4 +11,10 @@ public enum CmxPairingRouteDisclosureMode: Equatable, Sendable {
     /// Preserve the pre-Iroh compact route grammar for a Tailscale pairing
     /// code. This discloses the selected tailnet destination.
     case legacyPrivateNetworkCompatibility
+    /// Encode only the Mac device id, addressing the Cloudflare Durable
+    /// Objects mobile pairing relay (`workers/presence`'s
+    /// `MobilePairingRelay` DO) — the well-known relay origin is not carried
+    /// in the code, both apps already know it. For clients (Android today)
+    /// with no Tailscale or Iroh transport of their own.
+    case cloudflareRelayOnly
 }

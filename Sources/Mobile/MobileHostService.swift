@@ -483,6 +483,7 @@ final class MobileHostService {
         } else {
             MobileHostIrohRuntime.shared.configure(auth: auth)
         }
+        MobileHostCloudflareRelayRuntime.shared.configure(auth: auth)
     }
 
     func updateIrohRoute(
@@ -1047,6 +1048,7 @@ final class MobileHostService {
             if plan.activatesIroh {
                 MobileHostIrohRuntime.shared.setDesiredActive(true)
             }
+            MobileHostCloudflareRelayRuntime.shared.setDesiredActive(plan.activatesIroh)
             return
         }
 
@@ -1054,6 +1056,7 @@ final class MobileHostService {
             startTCP: { startListener(usePreferredPort: true) },
             scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
         )
+        MobileHostCloudflareRelayRuntime.shared.setDesiredActive(plan.activatesIroh)
     }
 
     #if DEBUG
@@ -1132,6 +1135,7 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        MobileHostCloudflareRelayRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }

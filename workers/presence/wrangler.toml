@@ -39,6 +39,13 @@ class_name = "TeamPresence"
 name = "ACCOUNT_CONTROL_PLANE"
 class_name = "AccountControlPlane"
 
+# Mobile pairing relay: one DO per Mac device id, relaying opaque binary
+# frames between the Mac's /v1/mobile-relay/:macDeviceId/host leg and the
+# paired phone/Android app's /client leg. See mobilePairingRelay.ts.
+[[durable_objects.bindings]]
+name = "MOBILE_PAIRING_RELAY"
+class_name = "MobilePairingRelay"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamPresence"]
@@ -46,6 +53,10 @@ new_sqlite_classes = ["TeamPresence"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["AccountControlPlane"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["MobilePairingRelay"]
 
 # Production custom domain on the cmux.dev zone (same Cloudflare account).
 # `custom_domain = true` provisions the DNS record + TLS cert with the deploy;

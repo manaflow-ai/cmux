@@ -21,7 +21,9 @@ data class AttachRoute(
     val host: String,
     val port: Int,
 ) {
-    enum class RouteKind { TAILSCALE, IROH_ENDPOINT, LOOPBACK }
+    /** [CLOUDFLARE_RELAY] stores the Mac device id (the Durable Object routing
+     * key) in [host]; [port] is unused. */
+    enum class RouteKind { TAILSCALE, IROH_ENDPOINT, LOOPBACK, CLOUDFLARE_RELAY }
 }
 
 /** Default port used when none is specified in a pairing code. */

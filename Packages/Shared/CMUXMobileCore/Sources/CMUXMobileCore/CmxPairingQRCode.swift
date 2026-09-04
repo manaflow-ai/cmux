@@ -63,10 +63,11 @@ public struct CmxPairingQRCode: Sendable {
     /// Distinct from ``CmxAttachTicket/currentVersion`` (the ticket structure
     /// version): v1 URLs carry base64 JSON, v2 carries Tailscale routes, and
     /// v3 carries one bare Iroh EndpointID.
-    public static let version = 3
+    public static let version = 4
 
     private static let tailscaleVersion = 2
     private static let irohVersion = 3
+    private static let cloudflareRelayVersion = 4
 
     /// Defensive cap on routes accepted from a scanned code. The Mac's route
     /// resolver emits at most a couple (MagicDNS name + Tailscale IP); a QR
@@ -133,6 +134,20 @@ public struct CmxPairingQRCode: Sendable {
                 return "r=\(hostPortString(host: host, port: port))"
             })
             items = compatibilityItems
+        case .cloudflareRelayOnly:
+            guard let macDeviceID = encodableCloudflareRelayMacDeviceID(of: ticket) else {
+                return nil
+            }
+            var relayItems = ["v=\(Self.cloudflareRelayVersion)"]
+            // `d` is required here (unlike Iroh's optional `d`): it is the
+            // relay Durable Object's routing key, not decoration. The relay
+            // origin itself is never carried — both apps hardcode the
+            // well-known worker URL (see `MobileHostCloudflareRelayRuntime`).
+            relayItems.append("d=\(percentEncodeQueryValue(macDeviceID))")
+            if let userID = normalizedNonEmpty(ticket.macUserID) {
+                relayItems.append("ub=\(percentEncodeQueryValue(userID))")
+            }
+            items = relayItems
         }
         // The scheme is channel-specific (see ``CmxPairingURLScheme``): a dev
         // Mac's QR opens the dev iOS build, a release Mac's QR opens the
@@ -151,6 +166,8 @@ public struct CmxPairingQRCode: Sendable {
             encodableIrohIdentity(of: ticket) != nil
         case .legacyPrivateNetworkCompatibility:
             encodableTailscaleRoutes(of: ticket) != nil
+        case .cloudflareRelayOnly:
+            encodableCloudflareRelayMacDeviceID(of: ticket) != nil
         }
     }
 
@@ -215,6 +232,22 @@ public struct CmxPairingQRCode: Sendable {
         return identity
     }
 
+    /// The single canonical Mac device id a v4 (Cloudflare relay) code can
+    /// carry — unlike Iroh's optional `d`, this is required (it addresses the
+    /// relay Durable Object), so a ticket with no device id is not
+    /// expressible in this grammar.
+    private func encodableCloudflareRelayMacDeviceID(
+        of ticket: CmxAttachTicket
+    ) -> String? {
+        guard ticket.version == CmxAttachTicket.currentVersion,
+              ticket.workspaceID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              ticket.terminalID?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+              ticket.routes.contains(where: { $0.kind == .websocket }) else {
+            return nil
+        }
+        return normalizedNonEmpty(ticket.macDeviceID)
+    }
+
     /// Whether `components` speaks a supported plain pairing-code grammar.
     ///
     /// v1 URLs carry a base64 JSON `payload` item instead.
@@ -222,7 +255,9 @@ public struct CmxPairingQRCode: Sendable {
         guard let version = Self.attachURLVersion(components) else {
             return false
         }
-        return version == Self.tailscaleVersion || version == Self.irohVersion
+        return version == Self.tailscaleVersion
+            || version == Self.irohVersion
+            || version == Self.cloudflareRelayVersion
     }
 
     /// The integer grammar version declared by an attach URL's `v` query item,
@@ -269,6 +304,8 @@ public struct CmxPairingQRCode: Sendable {
             return try decodeTailscale(components)
         case Self.irohVersion:
             return try decodeIroh(components)
+        case Self.cloudflareRelayVersion:
+            return try decodeCloudflareRelay(components)
         default:
             throw MobileSyncPairingPayloadError.invalidURL
         }
@@ -344,6 +381,50 @@ private extension CmxPairingQRCode {
             // v3 is intentionally endpoint-only. `nil` means the QR did not
             // make a compatibility claim, unlike v2's explicit unknown value
             // (0), which must continue to trigger its legacy warning.
+            macPairingCompatibilityVersion: nil,
+            routes: [route],
+            expiresAt: nil,
+            authToken: nil
+        )
+        try ticket.validate()
+        return ticket
+    }
+
+    /// Decode the v4 Cloudflare relay grammar. `d` (the Mac device id) is
+    /// required — it is the relay Durable Object's routing key, unlike v3's
+    /// optional `d`, which is pure decoration until post-handshake identity
+    /// arrives.
+    ///
+    /// The decoded route's `.url` endpoint carries the bare Mac device id,
+    /// not an actual URL: this package has no knowledge of the relay
+    /// worker's well-known origin (that resolution lives with the transport,
+    /// e.g. `MobileHostCloudflareRelayRuntime` on the Mac), and
+    /// `CmxAttachTicket.validate()` requires at least one route. A caller
+    /// that dials this route must resolve the origin itself and append
+    /// `/v1/mobile-relay/<macDeviceID>/client`.
+    func decodeCloudflareRelay(_ components: URLComponents) throws -> CmxAttachTicket {
+        let items = components.queryItems ?? []
+        guard items.count <= 3,
+              items.allSatisfy({ ["v", "d", "ub"].contains($0.name) }),
+              items.filter({ $0.name == "v" }).count == 1,
+              items.filter({ $0.name == "d" }).count == 1,
+              items.filter({ $0.name == "ub" }).count <= 1,
+              let macDeviceID = normalizedNonEmpty(items.first(where: { $0.name == "d" })?.value) else {
+            throw MobileSyncPairingPayloadError.invalidURL
+        }
+        let route = try CmxAttachRoute(
+            id: CmxAttachTransportKind.websocket.rawValue,
+            kind: .websocket,
+            endpoint: .url(macDeviceID),
+            priority: 0
+        )
+        let ticket = try CmxAttachTicket(
+            workspaceID: "",
+            terminalID: nil,
+            macDeviceID: macDeviceID,
+            macDisplayName: nil,
+            macUserID: queryValue(named: "ub", in: components),
+            // v4 is intentionally endpoint-only, same rationale as v3.
             macPairingCompatibilityVersion: nil,
             routes: [route],
             expiresAt: nil,

@@ -1,6 +1,6 @@
 package dev.cmux.android.core.rpc
 
-import dev.cmux.android.core.transport.TcpByteTransport
+import dev.cmux.android.core.transport.MobileByteTransport
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -21,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap
  * [connect] / [disconnect] must be called once each.
  */
 class MobileCoreRpcSession(
-    private val transport: TcpByteTransport,
+    private val transport: MobileByteTransport,
 ) {
     private val json = Json { ignoreUnknownKeys = true }
     private val pending = ConcurrentHashMap<String, PendingRequest>()

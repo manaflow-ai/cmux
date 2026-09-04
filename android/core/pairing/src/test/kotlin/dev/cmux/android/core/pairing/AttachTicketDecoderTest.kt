@@ -126,6 +126,40 @@ class AttachTicketDecoderTest {
     }
 
     @Test
+    fun `v4 Cloudflare relay decodes correctly`() {
+        val url = "cmux-ios://attach?v=4&ub=user123&d=mac-device-abc"
+        val result = AttachTicketDecoder.decode(url)
+        assertTrue(result is AttachTicketDecoder.Result.Success, "Expected success but got $result")
+        val ticket = (result as AttachTicketDecoder.Result.Success).ticket
+        assertEquals(1, ticket.routes.size)
+        assertEquals(AttachRoute.RouteKind.CLOUDFLARE_RELAY, ticket.routes[0].kind)
+        assertEquals("mac-device-abc", ticket.routes[0].host)
+        assertEquals(0, ticket.routes[0].port)
+        assertEquals("mac-device-abc", ticket.macDeviceId)
+        assertEquals("user123", ticket.macUserId)
+    }
+
+    @Test
+    fun `v4 without device id returns INVALID_URL`() {
+        val url = "cmux-ios://attach?v=4&ub=user123"
+        val result = AttachTicketDecoder.decode(url)
+        assertTrue(result is AttachTicketDecoder.Result.Error)
+        assertEquals(
+            AttachTicketDecoder.DecodeError.INVALID_URL,
+            (result as AttachTicketDecoder.Result.Error).reason,
+        )
+    }
+
+    @Test
+    fun `v4 without user id still decodes`() {
+        val url = "cmux-ios://attach?v=4&d=mac-device-abc"
+        val result = AttachTicketDecoder.decode(url)
+        assertTrue(result is AttachTicketDecoder.Result.Success)
+        val ticket = (result as AttachTicketDecoder.Result.Success).ticket
+        assertEquals(null, ticket.macUserId)
+    }
+
+    @Test
     fun `malformed URL string returns INVALID_URL`() {
         val result = AttachTicketDecoder.decode("not-a-url-at-all")
         assertTrue(result is AttachTicketDecoder.Result.Error)

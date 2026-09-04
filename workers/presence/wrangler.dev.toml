@@ -26,6 +26,11 @@ class_name = "TeamPresence"
 name = "ACCOUNT_CONTROL_PLANE"
 class_name = "AccountControlPlane"
 
+# Mobile pairing relay (see wrangler.toml).
+[[durable_objects.bindings]]
+name = "MOBILE_PAIRING_RELAY"
+class_name = "MobilePairingRelay"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["TeamPresence"]
@@ -33,3 +38,7 @@ new_sqlite_classes = ["TeamPresence"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["AccountControlPlane"]
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["MobilePairingRelay"]
