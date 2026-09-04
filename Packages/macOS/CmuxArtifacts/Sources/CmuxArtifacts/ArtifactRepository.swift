@@ -24,6 +24,8 @@ public protocol ArtifactStoring: Sendable {
     func replace(records: [ArtifactRecord], scope: ArtifactScope) async throws
     /// Removes one record.
     func remove(id: UUID) async throws
+    /// Changes the per-workspace retention cap and reconciles existing rows.
+    func updateRetentionLimit(_ limit: Int) async throws
     /// Clears records in a scope.
     func clear(scope: ArtifactScope) async throws
     /// Migrates legacy Links rows without creating duplicate identities.

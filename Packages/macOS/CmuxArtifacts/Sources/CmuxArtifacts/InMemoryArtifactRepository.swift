@@ -3,7 +3,7 @@ import Foundation
 /// Deterministic repository used by unit tests and headless app composition.
 public actor InMemoryArtifactRepository: ArtifactStoring {
     /// The same count/age policy used by the durable repository.
-    public nonisolated let configuration: ArtifactCaptureConfiguration
+    public private(set) var configuration: ArtifactCaptureConfiguration
     private var recordsByIdentity: [String: ArtifactRecord] = [:]
     private var subscribers: [UUID: AsyncStream<ArtifactRepositoryChange>.Continuation] = [:]
     private let identity = ArtifactIdentity()
@@ -92,6 +92,12 @@ public actor InMemoryArtifactRepository: ArtifactStoring {
         guard let key = recordsByIdentity.first(where: { $0.value.id == id })?.key else { throw ArtifactStoreError.recordNotFound(id) }
         recordsByIdentity.removeValue(forKey: key)
         notify(.records([id]))
+    }
+
+    /// Applies a live retention setting to the in-memory projection.
+    public func updateRetentionLimit(_ limit: Int) async throws {
+        configuration.retentionLimit = min(max(limit, 10), 10_000)
+        enforceRetention(at: .now)
     }
 
     public func clear(scope: ArtifactScope) async throws {

@@ -10,7 +10,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
     /// Stable repository locations exposed for app adapters and tests.
     public nonisolated let paths: ArtifactRepositoryPaths
     /// Normalized resource policy used for all mutations and searches.
-    public nonisolated let configuration: ArtifactCaptureConfiguration
+    public private(set) var configuration: ArtifactCaptureConfiguration
 
     // FileManager is documented thread-safe and is only accessed from this
     // actor; the explicit unsafe annotation is limited to this injected handle.
@@ -168,6 +168,15 @@ public actor LocalArtifactRepository: ArtifactStoring {
         try removePayloadIfUnreferenced(pair.value)
         try persist()
         notify(.records([id]))
+    }
+
+    /// Applies a live retention setting without rebuilding the catalog.
+    public func updateRetentionLimit(_ limit: Int) async throws {
+        try ensureLoaded()
+        try Task.checkCancellation()
+        configuration.retentionLimit = min(max(limit, 10), 10_000)
+        try enforceRetention(at: now())
+        try persist()
     }
 
     /// Clears records in one scope without affecting another workspace.

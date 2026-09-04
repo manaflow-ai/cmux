@@ -572,10 +572,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             for: .applicationSupportDirectory,
             in: .userDomainMask
         ).first ?? FileManager.default.temporaryDirectory
+        let linkSettings = LinksCaptureSettings().snapshot()
         return LocalArtifactRepository(
             rootURL: supportRoot
                 .appendingPathComponent("cmux", isDirectory: true)
-                .appendingPathComponent("artifacts", isDirectory: true)
+                .appendingPathComponent("artifacts", isDirectory: true),
+            configuration: ArtifactCaptureConfiguration(
+                enabled: linkSettings.enabled,
+                includeFilePaths: linkSettings.includeFilePaths,
+                fetchTitles: linkSettings.fetchTitles,
+                ignoreHosts: linkSettings.ignoreHosts,
+                retentionLimit: linkSettings.retentionLimit
+            )
         )
     }()
     /// Owns pane-transfer capabilities shared by every window, workspace, and Dock.

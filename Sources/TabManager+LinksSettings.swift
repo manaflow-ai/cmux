@@ -6,6 +6,9 @@ extension TabManager {
         let clampedRetentionLimit = WorkspaceLinksIngestConfiguration.clampedRetentionLimit(
             retentionLimit
         )
+        Task {
+            try? await artifactRepository.updateRetentionLimit(clampedRetentionLimit)
+        }
         for workspace in tabs where
             workspace.linksState.retentionLimit != clampedRetentionLimit ||
             workspace.linksState.fetchTitlesEnabled != fetchTitlesEnabled {
