@@ -2464,10 +2464,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
             switch TerminalController.shared.v2MobileTerminalPaste(params: routedParams) {
             case .ok:
-                // The host's paste result includes whether the named submit
-                // key was accepted. Older hosts may omit it while still
-                // acknowledging the paste, which is the success contract they
-                // exposed before this field existed.
                 // `terminal.paste` applies the text before it attempts the
                 // named key. A false `submitted` flag is therefore a partial
                 // success, not a safe invitation to replay the whole reply:
