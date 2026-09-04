@@ -406,19 +406,21 @@ struct VMTunnelManager: Sendable {
     ///
     /// Two facts, both required: wg-quick's own record for this interface name
     /// exists (`/var/run/wireguard/<name>.name`, root-only but visible), and
-    /// some interface holds one of the tunnel's own `[Interface] Address`es
-    /// from the config this manager wrote. The name file is what separates
-    /// this environment's tunnel from another's — every tunnel gets the same
-    /// tunnel-side address — and the address is what proves the interface is
-    /// really configured (a name file can outlive a crash until reboot). A
-    /// future NetworkExtension tunnel reports through NEVPNStatus instead.
+    /// the matching `utunN` socket is live and holds one of the tunnel's own
+    /// `[Interface] Address`es from the config this manager wrote. The name
+    /// file's contents are root-only on macOS, so its mtime/size are matched
+    /// against the socket files exactly as `wg-quick` does internally. This
+    /// keeps a stale marker for one scope from borrowing another scope's
+    /// identical tunnel-side address. A future NetworkExtension tunnel reports
+    /// through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        let runtimeNamePresent = FileManager.default.fileExists(atPath: runtimeNameFileURL.path)
+        guard let runtimeInterfaceName = Self.runtimeInterfaceName(for: runtimeNameFileURL) else { return false }
         return Self.interfaceIsUp(
-            runtimeNamePresent: runtimeNamePresent,
+            runtimeNamePresent: true,
+            runtimeInterfaceName: runtimeInterfaceName,
             config: config,
-            liveInterfaceAddresses: Self.currentInterfaceAddresses()
+            liveInterfaceAddressesByName: Self.currentInterfaceAddressesByName()
         )
     }
 
@@ -428,25 +430,81 @@ struct VMTunnelManager: Sendable {
     /// root-owned marker requirement without creating files under `/var/run`.
     static func interfaceIsUp(
         runtimeNamePresent: Bool,
+        runtimeInterfaceName: String?,
         config: String,
-        liveInterfaceAddresses: Set<String>
+        liveInterfaceAddressesByName: [String: Set<String>]
     ) -> Bool {
         guard runtimeNamePresent else { return false }
+        guard let runtimeInterfaceName,
+              let liveInterfaceAddresses = liveInterfaceAddressesByName[runtimeInterfaceName] else {
+            return false
+        }
         let expected = interfaceAddresses(in: config)
         guard !expected.isEmpty else { return false }
         return !expected.isDisjoint(with: liveInterfaceAddresses)
     }
 
-    /// Numeric addresses currently assigned to local interfaces.
-    private static func currentInterfaceAddresses() -> Set<String> {
-        var addresses = Set<String>()
+    /// Finds the actual `utunN` associated with a scope marker.
+    ///
+    /// `wireguard-go` writes the scope marker and its socket in the same
+    /// bring-up operation. Their modification times are within two seconds —
+    /// the invariant used by `wg-quick`'s own `get_real_interface()` — while
+    /// the marker byte count also identifies the interface when adjacent
+    /// sockets are created in the same second. Ambiguous matches fail closed.
+    private static func runtimeInterfaceName(for markerURL: URL) -> String? {
+        var markerInfo = stat()
+        guard lstat(markerURL.path, &markerInfo) == 0,
+              (markerInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else {
+            return nil
+        }
+
+        let directoryURL = markerURL.deletingLastPathComponent()
+        guard let entries = try? FileManager.default.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return nil
+        }
+        let markerModificationTime = markerInfo.st_mtimespec.tv_sec
+        let markerByteCount = markerInfo.st_size
+        var matches: [String] = []
+        for entry in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            let filename = entry.lastPathComponent
+            guard filename.hasPrefix("utun"), filename.hasSuffix(".sock") else { continue }
+            let interface = String(filename.dropLast(".sock".count))
+            guard interface.count > "utun".count,
+                  interface.dropFirst("utun".count).allSatisfy(\.isNumber) else { continue }
+            var socketInfo = stat()
+            guard lstat(entry.path, &socketInfo) == 0,
+                  (socketInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else {
+                continue
+            }
+            let difference = socketInfo.st_mtimespec.tv_sec - markerModificationTime
+            guard abs(difference) < 2 else { continue }
+            matches.append(interface)
+        }
+
+        if matches.count == 1 { return matches[0] }
+        let sizedMatches = matches.filter {
+            Int64($0.utf8.count + 1) == markerByteCount
+        }
+        return sizedMatches.count == 1 ? sizedMatches[0] : nil
+    }
+
+    /// Numeric addresses currently assigned to each local interface.
+    private static func currentInterfaceAddressesByName() -> [String: Set<String>] {
+        var addresses: [String: Set<String>] = [:]
         var addrs: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&addrs) == 0 else { return addresses }
         defer { freeifaddrs(addrs) }
         var cursor = addrs
         while let current = cursor {
-            if let sa = current.pointee.ifa_addr, let address = Self.numericAddress(sa) {
-                addresses.insert(address)
+            if let sa = current.pointee.ifa_addr,
+               let address = Self.numericAddress(sa),
+               let namePointer = current.pointee.ifa_name {
+                let name = String(cString: namePointer)
+                addresses[name, default: []].insert(address)
             }
             cursor = current.pointee.ifa_next
         }

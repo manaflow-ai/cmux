@@ -157,8 +157,26 @@ struct VMTunnelManagerTests {
         let configOnDisk = try String(contentsOf: manager.configURL, encoding: .utf8)
         #expect(VMTunnelManager.interfaceIsUp(
             runtimeNamePresent: true,
+            runtimeInterfaceName: "utun10",
             config: configOnDisk,
-            liveInterfaceAddresses: ["127.0.0.1"]
+            liveInterfaceAddressesByName: ["utun10": ["127.0.0.1"]]
+        ))
+    }
+
+    @Test
+    func staleScopeCannotBorrowAnotherInterfaceAddress() {
+        let config = "[Interface]\nAddress = 100.64.0.1/32\n"
+        #expect(!VMTunnelManager.interfaceIsUp(
+            runtimeNamePresent: true,
+            runtimeInterfaceName: "utun9",
+            config: config,
+            liveInterfaceAddressesByName: ["utun10": ["100.64.0.1"]]
+        ))
+        #expect(VMTunnelManager.interfaceIsUp(
+            runtimeNamePresent: true,
+            runtimeInterfaceName: "utun10",
+            config: config,
+            liveInterfaceAddressesByName: ["utun10": ["100.64.0.1"]]
         ))
     }
 
