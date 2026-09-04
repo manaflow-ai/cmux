@@ -41,6 +41,7 @@ import {
   DEVBOX_DESKTOP_UNIT,
   devboxDesktopOpenUrl,
 } from "../images/desktop";
+import type { Span } from "@opentelemetry/api";
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import {
   CMUX_TUI_BINARY_PATH,
@@ -148,6 +149,8 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+/** How long the announce waits for the guest to bring its private address up. */
+const ANNOUNCE_ADDRESS_WAIT_SECONDS = 10;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 /** Guest-side edge probe: 30 attempts x (5 s curl + 2 s sleep) worst case, under the 300 s exec cap. */
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
@@ -280,6 +283,46 @@ type FreestyleNetworkAddress = {
  * the daemon is dialed on. The public fallback below stays v6 — Freestyle
  * allocates no public v4 at all.
  */
+/**
+ * Announce the machine on its private network so the other side can reach it.
+ *
+ * The VPC is a flat L2 segment, and the provider side does not have a path to
+ * a member until that member has put a frame on the wire. A machine that has
+ * only ever been talked *to* is therefore invisible: from the owner's Mac a
+ * freshly created machine drops everything — ICMP included — while the same
+ * machine reaches the Mac fine, and it starts working the moment it sends
+ * anything of its own. That made every new machine look like it hung at
+ * "connecting" until something incidental woke it, and made the failure look
+ * intermittent rather than ordered.
+ *
+ * A gratuitous ARP is the smallest thing that announces a member, needs no
+ * knowledge of who is listening, and is what ARP already defines for exactly
+ * this ("I am here, at this address"). Best-effort: a machine with no private
+ * address, or an image without arping, is left alone rather than failing the
+ * open.
+ */
+export function freestyleAnnounceOnNetworkCommand(privateIpv4: string): string {
+  const address = shellQuote(privateIpv4);
+  return [
+    `ADDR=${address}`,
+    "IFACE=",
+    // The guest configures the address some time after the platform allocates
+    // it, and this runs as soon as the daemon answers, so the interface is
+    // often not up yet. Without the wait the lookup below finds nothing and
+    // the announce silently does nothing — which is exactly the failure it is
+    // here to prevent, only harder to see.
+    `for _ in $(seq 1 ${ANNOUNCE_ADDRESS_WAIT_SECONDS}); do`,
+    // The private address may sit on a VLAN sub-interface, so find whichever
+    // interface actually holds it rather than assuming a name.
+    `  IFACE=$(ip -o -4 addr show 2>/dev/null | awk -v a="$ADDR/" '$4 ~ "^" a {print $2; exit}')`,
+    '  [ -n "$IFACE" ] && break',
+    "  sleep 1",
+    "done",
+    `[ -n "$IFACE" ] && command -v arping >/dev/null 2>&1 && arping -A -c 2 -I "$IFACE" "$ADDR" >/dev/null 2>&1`,
+    "true",
+  ].join("; ");
+}
+
 export function freestyleCmuxRemoteRoute(addresses: FreestyleRouteAddresses, vmId: string): string {
   const networks = addresses.vpcs ?? addresses.networks ?? [];
   for (const network of networks) {
@@ -986,6 +1029,7 @@ export class FreestyleProvider implements VMProvider {
           // first attach doesn't race the unit; attach re-verifies anyway.
           try {
             await this.ensureCmuxTuiRunning(vm, vmId);
+            await this.announceOnPrivateNetwork(vm, data, span);
           } catch (healErr) {
             recordSpanError(span, healErr);
           }
@@ -1166,6 +1210,7 @@ export class FreestyleProvider implements VMProvider {
           if (!bundleResult || bundleResult.exitCode === CMUX_TUI_ATTACH_BUNDLE_NOT_READY_EXIT) {
             healed = true;
             await this.ensureCmuxTuiRunning(vm, vmId);
+            await this.announceOnPrivateNetwork(vm, data, span);
             bundleResult = await this.execResult(vm, cmuxTuiAttachBundleCommand({ deviceFingerprint: fingerprint }));
           }
           if (!bundleResult || bundleResult.exitCode !== 0) {
@@ -1322,6 +1367,35 @@ export class FreestyleProvider implements VMProvider {
    * because a machine from an older bake boots the daemon on 0.0.0.0, which
    * the public-IPv6 route cannot reach.
    */
+  /**
+   * Best-effort: put the machine on the wire so the owner's Mac can reach it
+   * (see ``freestyleAnnounceOnNetworkCommand``). Runs after the daemon is up
+   * and before the route is handed out, which is the last moment before
+   * something dials in. Never fails the open: not being announced costs a
+   * retry, while throwing here would cost the machine.
+   */
+  private async announceOnPrivateNetwork(vm: Vm, data: FreestyleRouteAddresses, span: Span): Promise<void> {
+    const { networkIpv4 } = freestyleNetworkAddressMetadata(data);
+    if (!networkIpv4) {
+      setSpanAttributes(span, { "cmux.vm.network.announced": false });
+      return;
+    }
+    try {
+      const result = await this.execResult(vm, freestyleAnnounceOnNetworkCommand(networkIpv4), EXEC_OVERHEAD_TIMEOUT_MS);
+      // Recorded because the failure it prevents is invisible: an announce
+      // that quietly does nothing looks exactly like one that worked, and the
+      // machine simply stays unreachable until it happens to transmit.
+      setSpanAttributes(span, {
+        "cmux.vm.network.announced": result?.exitCode === 0,
+        "cmux.vm.network.announce_exit": result?.exitCode ?? -1,
+      });
+    } catch {
+      // A machine that cannot announce is still worth handing back; the dial
+      // may simply need one retry.
+      setSpanAttributes(span, { "cmux.vm.network.announced": false });
+    }
+  }
+
   private async ensureCmuxTuiRunning(vm: Vm, vmId: string): Promise<void> {
     const healthy = await this.execResult(vm, freestyleDaemonSettledCommand(), DAEMON_SETTLE_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS);
     if (healthy?.exitCode === 0) return;

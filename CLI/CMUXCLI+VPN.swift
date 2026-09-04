@@ -21,6 +21,23 @@ import Foundation
 ///   response advertises `network_extension_available` so this command steers
 ///   without a new CLI release.
 extension CMUXCLI {
+    /// Absolute paths to the system tools `cmux vpn` shells out to.
+    ///
+    /// Named rather than inlined so a test can assert each one exists on the
+    /// machine. sudo resolves these literally, so a wrong directory is not
+    /// caught until runtime — and `hosts` runs only *after* the tunnel is up,
+    /// where a failure reads as "the VPN is broken" when the tunnel is fine
+    /// and only the `.internal` names are missing.
+    enum VPNTool {
+        /// macOS ships install(1) in /usr/bin; /usr/sbin/install does not exist.
+        static let install = "/usr/bin/install"
+        static let sudo = "/usr/bin/sudo"
+        static let dscacheutil = "/usr/bin/dscacheutil"
+        static let killall = "/usr/bin/killall"
+
+        static let all: [String] = [install, sudo, dscacheutil, killall]
+    }
+
     private static let wgQuickCandidates = [
         "/opt/homebrew/bin/wg-quick",
         "/usr/local/bin/wg-quick",
@@ -40,8 +57,15 @@ extension CMUXCLI {
             try runVPNRevoke(client: client, jsonOutput: jsonOutput)
         case "hosts":
             try runVPNHostsSync(client: client, jsonOutput: jsonOutput)
+        case "install":
+            try runVPNInstallAutostart(client: client, jsonOutput: jsonOutput)
+        case "uninstall":
+            try runVPNUninstallAutostart(client: client, jsonOutput: jsonOutput)
         default:
-            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke|hosts>")
+            throw CLIError(message: String(
+                localized: "cli.vpn.usage",
+                defaultValue: "Usage: cmux vpn <up|down|status|revoke|hosts|install|uninstall>"
+            ))
         }
     }
 
@@ -96,7 +120,7 @@ extension CMUXCLI {
         }
         if interfaceUp {
             let downStatus = runInteractiveProcess(
-                executablePath: "/usr/bin/sudo",
+                executablePath: VPNTool.sudo,
                 arguments: [wgQuick, "down", configPath]
             )
             guard downStatus == 0 else {
@@ -107,7 +131,7 @@ extension CMUXCLI {
             }
         }
         let status = runInteractiveProcess(
-            executablePath: "/usr/bin/sudo",
+            executablePath: VPNTool.sudo,
             arguments: [wgQuick, "up", configPath]
         )
         guard status == 0 else {
@@ -156,7 +180,7 @@ extension CMUXCLI {
             throw CLIError(message: "wg-quick is not installed. Install with: brew install wireguard-tools")
         }
         let status = runInteractiveProcess(
-            executablePath: "/usr/bin/sudo",
+            executablePath: VPNTool.sudo,
             arguments: [wgQuick, "down", configPath]
         )
         guard status == 0 else {
@@ -232,9 +256,9 @@ extension CMUXCLI {
         // instead of prompting a second time. Cache invalidation does not
         // require privilege and runs as separate argv-based commands below.
         let status = runInteractiveProcess(
-            executablePath: "/usr/bin/sudo",
+            executablePath: VPNTool.sudo,
             arguments: [
-                "/usr/sbin/install",
+                VPNTool.install,
                 "-o", "root",
                 "-g", "wheel",
                 "-m", "644",
@@ -245,8 +269,8 @@ extension CMUXCLI {
         guard status == 0 else {
             throw CLIError(message: "Updating /etc/hosts failed (exit \(status)). Check the output above.")
         }
-        _ = runInteractiveProcess(executablePath: "/usr/bin/dscacheutil", arguments: ["-flushcache"])
-        _ = runInteractiveProcess(executablePath: "/usr/bin/killall", arguments: ["-HUP", "mDNSResponder"])
+        _ = runInteractiveProcess(executablePath: VPNTool.dscacheutil, arguments: ["-flushcache"])
+        _ = runInteractiveProcess(executablePath: VPNTool.killall, arguments: ["-HUP", "mDNSResponder"])
         if jsonOutput {
             print(jsonString(["hosts_changed": true, "machine_count": entries.count]))
         } else if !quiet {
@@ -304,7 +328,7 @@ extension CMUXCLI {
            let configPath = status?["config_path"] as? String,
            let wgQuick = Self.firstExecutable(Self.wgQuickCandidates) {
             _ = runInteractiveProcess(
-                executablePath: "/usr/bin/sudo",
+                executablePath: VPNTool.sudo,
                 arguments: [wgQuick, "down", configPath]
             )
         }
@@ -378,5 +402,103 @@ extension CMUXCLI {
         }
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    // MARK: - Automatic bring-up
+
+    /// Installs the same launchd job the Machines panel installs. The job
+    /// itself is defined once in ``CmuxVPNAutostart``; this only differs in
+    /// how it gets privileges (sudo here, an authorization dialog there).
+    private func runVPNInstallAutostart(client: SocketClient, jsonOutput: Bool) throws {
+        let response = try client.sendV2(method: "vm.tunnel_config", responseTimeout: 120)
+        guard let configPath = response["config_path"] as? String, !configPath.isEmpty,
+              let interfaceName = response["interface_name"] as? String, !interfaceName.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.vpn.install.noConfig",
+                defaultValue: "The app did not report a tunnel config. Sign in, then retry."
+            ))
+        }
+        guard let wgQuick = CmuxVPNAutostart.wgQuickPath() else {
+            throw CLIError(message: String(
+                localized: "cli.vpn.install.wgMissing",
+                defaultValue: "wg-quick is not installed. Install with: brew install wireguard-tools"
+            ))
+        }
+        let job = CmuxVPNAutostart(interfaceName: interfaceName)
+
+        let directory = FileManager.default.temporaryDirectory
+        let scriptURL = directory.appendingPathComponent("cmux-vpn-autostart-\(UUID().uuidString)")
+        let plistURL = directory.appendingPathComponent("cmux-vpn-autostart-\(UUID().uuidString).plist")
+        try job.scriptBody(wgQuickPath: wgQuick, userConfigPath: configPath)
+            .write(to: scriptURL, atomically: true, encoding: .utf8)
+        try job.plistBody(userConfigPath: configPath)
+            .write(to: plistURL, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: scriptURL)
+            try? FileManager.default.removeItem(at: plistURL)
+        }
+
+        if !jsonOutput {
+            print(String(
+                localized: "cli.vpn.install.starting",
+                defaultValue: "Installing the tunnel autostart job (sudo will prompt for your password)…"
+            ))
+        }
+        let status = runInteractiveProcess(
+            executablePath: VPNTool.sudo,
+            arguments: [
+                "/bin/sh", "-c",
+                job.installShell(scriptSource: scriptURL.path, plistSource: plistURL.path),
+            ]
+        )
+        guard status == 0 else {
+            let format = String(
+                localized: "cli.vpn.install.failed",
+                defaultValue: "Installing the autostart job failed (exit %d). Check the output above."
+            )
+            throw CLIError(message: String(format: format, status))
+        }
+        if jsonOutput {
+            print(jsonString(["installed": true, "label": job.label, "config_path": configPath]))
+        } else {
+            print(String(
+                localized: "cli.vpn.install.done",
+                defaultValue: "The tunnel now comes up on its own at login and whenever your enrollment changes. `cmux vpn up` is no longer needed."
+            ))
+        }
+    }
+
+    /// Removes the autostart job. The tunnel itself is left as it is; `vpn
+    /// down` takes it down.
+    private func runVPNUninstallAutostart(client: SocketClient, jsonOutput: Bool) throws {
+        // Uninstall targets the same scoped job install created, so it asks
+        // the app which tunnel this is rather than guessing a name.
+        let response = try client.sendV2(method: "vm.tunnel_config", responseTimeout: 120)
+        guard let interfaceName = response["interface_name"] as? String, !interfaceName.isEmpty else {
+            throw CLIError(message: String(
+                localized: "cli.vpn.uninstall.noInterface",
+                defaultValue: "The app did not report which tunnel to remove. Sign in, then retry."
+            ))
+        }
+        let job = CmuxVPNAutostart(interfaceName: interfaceName)
+        let status = runInteractiveProcess(
+            executablePath: VPNTool.sudo,
+            arguments: ["/bin/sh", "-c", job.uninstallShell()]
+        )
+        guard status == 0 else {
+            let format = String(
+                localized: "cli.vpn.uninstall.failed",
+                defaultValue: "Removing the autostart job failed (exit %d)."
+            )
+            throw CLIError(message: String(format: format, status))
+        }
+        if jsonOutput {
+            print(jsonString(["installed": false, "label": job.label]))
+        } else {
+            print(String(
+                localized: "cli.vpn.uninstall.done",
+                defaultValue: "Removed the tunnel autostart job. Bring the tunnel up yourself with `cmux vpn up`."
+            ))
+        }
     }
 }

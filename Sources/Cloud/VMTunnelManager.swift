@@ -362,8 +362,48 @@ struct VMTunnelManager: Sendable {
                 throw TunnelError.configMalformed("no [Peer] section in server config")
             }
         }
+        // Clamp the MTU the server asked for. Freestyle's config says 1380,
+        // but the path only carries ~1370: the VPC link is 1450 and WireGuard
+        // over an IPv6 endpoint costs 80 bytes (40 IPv6 + 8 UDP + 32 WireGuard),
+        // so a full-size 1380-byte packet is silently dropped.
+        //
+        // The failure is invisible until it is expensive. Handshake, ping and
+        // TCP SYN all fit, so the tunnel comes up, `wg show` reports a live
+        // peer, and the daemon port accepts connections — then the first
+        // response larger than the path stalls in the sender's queue forever
+        // and every command fails with a transport timeout. Measured against a
+        // live machine: 1368 bytes through, 1372 dropped, and a 12 KB snapshot
+        // stuck unsent until the MTU came down.
+        //
+        // A smaller MTU than the path allows only costs throughput, so this
+        // takes the lower of the two rather than trusting the server's number.
+        if let index = lines.firstIndex(where: { key(of: $0) == "mtu" }) {
+            let advertised = lines[index]
+                .split(separator: "=", maxSplits: 1).last
+                .flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            // A malformed or absent value falls back rather than being
+            // written through: `MTU = 0` parses fine and then the tunnel
+            // cannot start at all.
+            let usable = (advertised ?? safeTunnelMTU) >= minimumTunnelMTU
+                ? (advertised ?? safeTunnelMTU)
+                : safeTunnelMTU
+            lines[index] = "MTU = \(min(usable, safeTunnelMTU))"
+        } else if let interfaceIndex = lines.firstIndex(where: {
+            $0.trimmingCharacters(in: .whitespaces).lowercased() == "[interface]"
+        }) {
+            lines.insert("MTU = \(safeTunnelMTU)", at: interfaceIndex + 1)
+        }
         return lines.joined(separator: "\n")
     }
+
+    /// Ceiling for the tunnel MTU (see ``completedConfig``). 1360 sits under the
+    /// ~1370 the provider path actually carries, with room for a peer whose
+    /// underlay is slightly smaller, and well above IPv6's 1280 floor.
+    static let safeTunnelMTU = 1360
+
+    /// IPv6's minimum link MTU. Anything at or below this is a malformed
+    /// advertisement rather than a small link.
+    static let minimumTunnelMTU = 1280
 
     private func ensureStateDir() throws {
         try FileManager.default.createDirectory(

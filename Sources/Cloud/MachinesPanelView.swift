@@ -1,4 +1,5 @@
 import AppKit
+import CmuxFoundation
 import CmuxSettings
 import SwiftUI
 
@@ -30,6 +31,7 @@ enum CloudVMPanelAuthState: Equatable {
 /// routes through the shared Cloud VM action path or the Cloud tree service.
 struct MachinesPanelView: View {
     @StateObject private var viewModel = MachinesPanelViewModel()
+    @State private var tunnel = CloudTunnelModel()
     @State private var expansionStore = CloudTreeExpansionStore()
     /// The tree's visual preset; the debug gallery's "Use" buttons write this,
     /// and @AppStorage re-renders the live panel the moment it changes.
@@ -61,12 +63,23 @@ struct MachinesPanelView: View {
                 authenticatedContent
             }
         }
-        .onAppear { syncPolling(for: authState) }
+        .onAppear {
+            syncPolling(for: authState)
+            tunnel.refresh()
+        }
         .onChange(of: authState) { _, state in
             syncPolling(for: state)
+            tunnel.refresh()
+        }
+        // The tunnel can go down outside the app (a reboot, `wg-quick down`,
+        // a revoked enrollment), so the panel re-reads it rather than trusting
+        // the last action it saw.
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            tunnel.refresh()
         }
         .onDisappear {
             viewModel.stopPolling()
+            tunnel.cancel()
         }
         .accessibilityIdentifier("CloudMachinesPanel")
     }
@@ -74,6 +87,7 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        MachinesTunnelSetupCard(tunnel: tunnel)
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -142,6 +156,7 @@ struct MachinesPanelView: View {
             // and the Files header icon.
             .padding(.leading, 4)
             Spacer(minLength: 4)
+            MachinesTunnelMenu(tunnel: tunnel)
             cloudAgentMenu
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
@@ -929,6 +944,293 @@ struct MachineRowActions {
             alert.beginSheetModal(for: window, completionHandler: respond)
         } else {
             respond(alert.runModal())
+        }
+    }
+}
+
+/// Live state of this Mac's link to the Cloud VM private network, shared by
+/// the setup card and the toolbar menu.
+///
+/// Both used to keep their own idea of whether the tunnel was up, so turning
+/// it off from the menu left the card still believing it was on — the panel
+/// went on showing machines it could no longer reach, with nothing offering
+/// to fix it. One owner, read by both.
+@MainActor
+@Observable
+final class CloudTunnelModel {
+    private(set) var isInstalled = false
+    private(set) var isUp = false
+    private(set) var isWorking = false
+    private(set) var errorText: String?
+
+    private var task: Task<Void, Never>?
+
+    /// Whether cloud machines are reachable right now, which is the only
+    /// thing that blocks the panel. Deliberately not "the job is installed":
+    /// `cmux vpn up` brings the tunnel up without one, and the panel must
+    /// agree with the CLI about whether machines can be opened rather than
+    /// demanding its own setup was the one that did it.
+    var isReady: Bool { isUp }
+
+    /// Whether the tunnel will come back on its own. Absent this, the tunnel
+    /// is up for now but dies at the next reboot — worth saying in the menu,
+    /// not worth blocking the panel over.
+    var isPersistent: Bool { isInstalled }
+
+    var interfaceName: String { VMTunnelManager().interfaceName }
+
+    func refresh() {
+        let manager = VMTunnelManager()
+        isInstalled = CmuxVPNAutostart(interfaceName: manager.interfaceName).isInstalled()
+        isUp = manager.wgQuickInterfaceUp()
+    }
+
+    /// Enrolls this Mac if needed, then installs the job. Enrollment is part
+    /// of it: the job applies a config nothing else writes, so installing
+    /// alone left a fresh Mac with a job and no tunnel.
+    func turnOn() {
+        perform { model in
+            let manager = VMTunnelManager()
+            guard let client = VMClient.shared else {
+                throw VMTunnelAutostart.InstallError.notSignedIn
+            }
+            let state = try await manager.enroll(client: client)
+            try await model.installOffActor(
+                interfaceName: state.interfaceName,
+                configPath: state.configPath
+            )
+            // launchctl returns once the job is loaded, not once the tunnel is
+            // up, so a check here would race wg-quick and report failure on a
+            // setup that had just worked.
+            guard await model.waitForTunnel() else {
+                throw VMTunnelAutostart.InstallError.didNotComeUp
+            }
+        }
+    }
+
+    /// Re-applies the current enrollment. The job's script takes the tunnel
+    /// down and back up, so this also repairs one left on a stale peer.
+    func reconnect() {
+        perform { model in
+            let manager = VMTunnelManager()
+            try await model.installOffActor(
+                interfaceName: manager.interfaceName,
+                configPath: manager.configURL.path
+            )
+            guard await model.waitForTunnel() else {
+                throw VMTunnelAutostart.InstallError.didNotComeUp
+            }
+        }
+    }
+
+    func turnOff() {
+        perform { model in
+            let name = model.interfaceName
+            _ = try await Task.detached(priority: .userInitiated) {
+                try VMTunnelAutostart.uninstall(interfaceName: name)
+            }.value
+        }
+    }
+
+    private func installOffActor(interfaceName: String, configPath: String) async throws {
+        _ = try await Task.detached(priority: .userInitiated) {
+            try VMTunnelAutostart.install(
+                interfaceName: interfaceName,
+                userConfigPath: configPath
+            )
+        }.value
+    }
+
+    private func waitForTunnel() async -> Bool {
+        let manager = VMTunnelManager()
+        for _ in 0..<40 {
+            if manager.wgQuickInterfaceUp() { return true }
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return manager.wgQuickInterfaceUp()
+            }
+        }
+        return manager.wgQuickInterfaceUp()
+    }
+
+    /// Every action prompts for an administrator and blocks on a privileged
+    /// shell, so they share one runner that keeps that off the main actor and
+    /// re-reads the real state afterwards rather than assuming it worked.
+    private func perform(_ work: @escaping (CloudTunnelModel) async throws -> Void) {
+        guard task == nil else { return }
+        errorText = nil
+        isWorking = true
+        task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.isWorking = false
+                self.task = nil
+                self.refresh()
+            }
+            do {
+                try await work(self)
+            } catch is CancellationError {
+                return
+            } catch {
+                cmuxDebugLog("vpn.autostart.action_failed error=\(String(reflecting: error))")
+                self.errorText = (error as? VMTunnelAutostart.InstallError)?.description
+                    ?? VMTunnelAutostart.InstallError.failed.description
+            }
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
+/// The blocking notice shown whenever this Mac cannot reach its cloud
+/// machines.
+///
+/// Cloud machines have no public inbound port, so without the tunnel every
+/// machine in the list below is unreachable — the panel otherwise looks
+/// normal and simply fails to open anything. This is styled as a warning
+/// rather than a hint because it is not advice; nothing works until it is
+/// dealt with.
+private struct MachinesTunnelSetupCard: View {
+    @Bindable var tunnel: CloudTunnelModel
+
+    var body: some View {
+        if !tunnel.isReady {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.shield.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text(tunnel.isInstalled
+                        ? String(
+                            localized: "machines.tunnel.setup.title.off",
+                            defaultValue: "Private network is off"
+                        )
+                        : String(
+                            localized: "machines.tunnel.setup.title",
+                            defaultValue: "Turn on the private network"
+                        ))
+                    .cmuxFont(size: 13, weight: .semibold)
+                }
+                .foregroundStyle(Color.orange)
+                Text(tunnel.errorText ?? String(
+                    localized: "machines.tunnel.setup.body",
+                    defaultValue: "Your cloud machines are private, so cmux cannot open any of them until this Mac joins their network. This asks for your password once and then keeps working on its own."
+                ))
+                .cmuxFont(size: 11)
+                .foregroundStyle(tunnel.errorText == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.orange))
+                .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button {
+                        tunnel.turnOn()
+                    } label: {
+                        HStack(spacing: 5) {
+                            if tunnel.isWorking { ProgressView().controlSize(.mini) }
+                            Text(buttonTitle)
+                        }
+                    }
+                    .controlSize(.regular)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(tunnel.isWorking)
+                    .accessibilityIdentifier("MachinesPanel.tunnelSetup.action")
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.orange.opacity(0.12))
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(Color.orange.opacity(0.35)).frame(height: 1)
+            }
+            .accessibilityIdentifier("MachinesPanel.tunnelSetup")
+        }
+    }
+
+    private var buttonTitle: String {
+        if tunnel.isWorking {
+            return String(localized: "machines.tunnel.setup.working", defaultValue: "Connecting…")
+        }
+        if tunnel.errorText != nil {
+            return String(localized: "machines.tunnel.setup.retry", defaultValue: "Try Again")
+        }
+        return String(localized: "machines.tunnel.setup.action", defaultValue: "Turn On Private Network")
+    }
+}
+
+/// The private network's controls: what it is doing, and how to change it.
+private struct MachinesTunnelMenu: View {
+    @Bindable var tunnel: CloudTunnelModel
+
+    var body: some View {
+        Menu {
+            Section(statusText) {
+                // Turning it off must not be a one-way door: this used to
+                // disable every item once the job was gone, leaving the menu
+                // with nothing but a status line.
+                if !tunnel.isPersistent {
+                    Button(tunnel.isUp
+                        ? String(
+                            localized: "machines.tunnel.menu.keepOn",
+                            defaultValue: "Keep Private Network On…"
+                        )
+                        : String(
+                            localized: "machines.tunnel.menu.turnOn",
+                            defaultValue: "Turn On Private Network…"
+                        )) {
+                        tunnel.turnOn()
+                    }
+                    .disabled(tunnel.isWorking)
+                } else {
+                    Button(String(localized: "machines.tunnel.menu.reconnect", defaultValue: "Reconnect")) {
+                        tunnel.reconnect()
+                    }
+                    .disabled(tunnel.isWorking)
+                    Button(String(localized: "machines.tunnel.menu.turnOff", defaultValue: "Turn Off Private Network…")) {
+                        tunnel.turnOff()
+                    }
+                    .disabled(tunnel.isWorking)
+                }
+            }
+            Divider()
+            // Distinguishes the production tunnel from staging and dev, which
+            // matters the moment someone has more than one.
+            Text(String(
+                format: String(localized: "machines.tunnel.menu.interface", defaultValue: "Interface: %@"),
+                tunnel.interfaceName
+            ))
+        } label: {
+            Image(systemName: tunnel.isReady ? "lock.shield.fill" : "exclamationmark.shield")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(tunnel.isReady ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.orange))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(statusText)
+        .accessibilityIdentifier("MachinesPanel.tunnelMenu")
+    }
+
+    /// Four states, because the tunnel and the launchd job move
+    /// independently: `cmux vpn up` connects without installing a job, and
+    /// `cmux vpn down` disconnects while leaving one.
+    private var statusText: String {
+        switch (tunnel.isUp, tunnel.isPersistent) {
+        case (true, true):
+            return String(localized: "machines.tunnel.menu.connected", defaultValue: "Private network: connected")
+        case (true, false):
+            return String(
+                localized: "machines.tunnel.menu.connectedNotPersistent",
+                defaultValue: "Private network: connected (until restart)"
+            )
+        case (false, true):
+            return String(localized: "machines.tunnel.menu.off", defaultValue: "Private network: not connected")
+        case (false, false):
+            return String(localized: "machines.tunnel.menu.notSetUp", defaultValue: "Private network: not set up")
         }
     }
 }

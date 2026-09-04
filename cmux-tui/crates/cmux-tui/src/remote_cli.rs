@@ -2451,7 +2451,20 @@ async fn select_known_daemon(
         }
         [] if daemons.len() > 1 => Err(anyhow!("multiple known daemons; use --daemon FINGERPRINT")),
         [] => Err(anyhow!("no known daemons; connect with an invitation or trusted carrier")),
-        _ => Err(anyhow!("multiple known daemons match this route; use --daemon FINGERPRINT")),
+        // Several daemons claiming one address means that address was recycled
+        // between machines. Newly pinned daemons now take the hint from the
+        // previous occupant (see pin_daemon_with_auth), but a store written
+        // before that still carries the old entries, and re-enrolling does not
+        // rewrite history. The address reaches exactly one daemon today, and
+        // that is the one most recently used, so prefer it rather than failing
+        // and making the caller pass --daemon for a machine it cannot name.
+        _ => matching
+            .iter()
+            .max_by_key(|daemon| daemon.last_used_at_unix)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!("multiple known daemons match this route; use --daemon FINGERPRINT")
+            }),
     }
 }
 
