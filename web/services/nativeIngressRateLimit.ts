@@ -32,7 +32,7 @@ export async function enforceNativeIngressRateLimit(input: {
   if (!(input.isVercel ?? process.env.VERCEL === "1")) return null;
   const ruleId = input.ruleId?.trim();
   if (!ruleId) {
-    await reportMissingRateLimitRule({ route: input.route, reason: "unset" });
+    void reportMissingRateLimitRule({ route: input.route, reason: "unset" });
     return null;
   }
 
@@ -62,7 +62,7 @@ export async function enforceNativeIngressRateLimit(input: {
     );
   }
   if (result.error === "not-found") {
-    await reportMissingRateLimitRule({ route: input.route, reason: "not-found" });
+    void reportMissingRateLimitRule({ route: input.route, reason: "not-found" });
     return null;
   }
   if (result.error) {

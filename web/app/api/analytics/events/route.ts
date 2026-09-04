@@ -64,7 +64,7 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // fails open. Only genuine check failures reject the event.
     const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
     if (process.env.VERCEL === "1" && !rateLimitId) {
-      await reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "unset" });
+      void reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "unset" });
     }
     if (process.env.VERCEL === "1" && rateLimitId) {
       try {
@@ -73,7 +73,7 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
           return jsonResponse({ error: "rate_limited" }, 429);
         }
         if (error === "not-found") {
-          await reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "not-found" });
+          void reportMissingRateLimitRule({ route: "/api/analytics/events", reason: "not-found" });
         } else if (error) {
           console.error("analytics.events.rate_limit_error", { failure: "check_error" });
           return jsonResponse({ error: "analytics_unavailable" }, 503);

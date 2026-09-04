@@ -29,10 +29,14 @@ export async function reportMissingRateLimitRule(input: {
   // owned by different Vercel instances. The winning session keeps this lock
   // until the instance exits, so a fleet-wide cold-start storm emits one event.
   try {
-    const rows = await cloudDb().execute(sql`
+    const query = cloudDb().execute(sql`
       select pg_try_advisory_lock(hashtextextended(${key}, 0)) as acquired
-    `) as unknown as readonly [{ acquired?: boolean }?];
-    if (!rows[0]?.acquired) return;
+    `) as unknown as Promise<readonly [{ acquired?: boolean }?]>;
+    const timeout = new Promise<undefined>((resolve) => {
+      setTimeout(() => resolve(undefined), 1_000);
+    });
+    const rows = await Promise.race([query, timeout]);
+    if (!rows || !rows[0]?.acquired) return;
   } catch {
     // Reporting must not make a public endpoint depend on the database. The
     // local cooldown still prevents a hot process from generating a loop.

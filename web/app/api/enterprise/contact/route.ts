@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       }
 
       if (process.env.VERCEL === "1" && !config.rateLimitId) {
-        await reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "unset" });
+        void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "unset" });
       }
       if (process.env.VERCEL === "1" && config.rateLimitId) {
         let result: Awaited<ReturnType<typeof checkRateLimit>>;
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
           return jsonError("Rate limit exceeded", 429);
         }
         if (error === "not-found") {
-          await reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "not-found" });
+          void reportMissingRateLimitRule({ route: "/api/enterprise/contact", reason: "not-found" });
         } else if (error) {
           console.error("enterprise.contact.rate_limit_error", {
             failure: "check_error",

@@ -48,9 +48,9 @@ export function enforceRelayRateLimit(input: {
   if (!ruleId) {
     // No configured rule means the operator wants no rate limiting. Failing
     // here would turn a deliberately-unset env var into a relay outage.
-    return Effect.promise(() =>
-      reportMissingRateLimitRule({ route: "relay", reason: "unset" }),
-    ).pipe(Effect.asVoid);
+    return Effect.sync(() => {
+      void reportMissingRateLimitRule({ route: "relay", reason: "unset" });
+    });
   }
   return Effect.tryPromise({
     try: () => input.check(ruleId, {
@@ -90,9 +90,9 @@ export function enforceRelayRateLimit(input: {
         // means the operator deleted the limit, so treat it as "no limit" and
         // fail open rather than 503-ing every request. Genuine unavailability
         // (a thrown check or an unexpected status) still fails closed below.
-        return Effect.promise(() =>
-          reportMissingRateLimitRule({ route: "relay", reason: "not-found" }),
-        ).pipe(Effect.asVoid);
+        return Effect.sync(() => {
+          void reportMissingRateLimitRule({ route: "relay", reason: "not-found" });
+        });
       }
       if (error) {
         return Effect.fail(
