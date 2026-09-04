@@ -48,13 +48,12 @@
  * install command the driver's attach-time heal uses) at /root/.cmux/bin/cmux-tui
  * and the cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot,
  * which starts and supervises it. The bake proves the daemon answers on
- * [::]:1337, then parks it: a snapshot is a memory image, so a daemon left
- * running would give every machine the builder's Noise identity. The
- * supervisor binds the identity to the platform instance id (see the boot
- * script) and every machine created from the snapshot starts its own daemon,
- * with a fresh identity, within one supervisor tick of resume. The driver
- * (web/services/vms/drivers/freestyle.ts) therefore runs no install, start, or
- * readiness exec at create; it writes the model-plane env file and returns.
+ * [::]:1337 and snapshots it while it is listening. A snapshot is a memory
+ * image, so a clone initially inherits the builder process. The supervisor
+ * binds the identity to the platform instance id (see the boot script), stops
+ * an inherited process on mismatch, wipes its state, and starts a fresh daemon
+ * before a signed grant can authorize it. The driver therefore runs no
+ * install, start, or readiness exec at create and writes no guest env file.
  * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
  * because the driver routes attaches to the VM's stable public IPv6. The
  * daemon still runs as root until the driver adopts the ubuntu user for
