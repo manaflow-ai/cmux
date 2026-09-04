@@ -43,6 +43,7 @@ public actor MobileIrxRuntimeComposition {
         case unsupportedRoute
         case peerNotDiscovered
         case directDialUnavailable
+        case networkPathChanged
     }
 
     /// Dial-gate refusals from the device-list lease. Deliberately NOT
@@ -222,9 +223,9 @@ public actor MobileIrxRuntimeComposition {
                 else { return }
                 await networkPathState.start(
                     reachability: reachability,
-                    onPathChange: {
+                    onPathChange: { [weak self] in
                         await lanPeerDiscovery.pathDidChange()
-                        await self.invalidateCachedDirectRoutesForNetworkChange()
+                        await self?.invalidateCachedDirectRoutesForNetworkChange()
                     }
                 )
             }
@@ -927,7 +928,7 @@ public actor MobileIrxRuntimeComposition {
         let existing = routesByPeer[peerHex]
         routesByPeer[peerHex] = (
             relay ?? existing?.relayURL,
-            direct.isEmpty ? (existing?.directAddresses ?? []) : direct
+            direct
         )
         return (binding, discovery)
     }
@@ -1002,6 +1003,7 @@ public actor MobileIrxRuntimeComposition {
         try enforceDialGate(peerHex: peerHex)
         let credentials = try await autopilot.usableCredentials()
         let dialIntent = dialIntentByPeer[peerHex] ?? .automatic
+        let dialNetworkGeneration = await networkPathState.snapshot().generation
         var relayURL: String?
         var directAddresses: [String] = []
         let discoveredRoute: (binding: CmxIrohBrokerBinding, discovery: CmxIrohDiscoveryResponse)?
@@ -1083,6 +1085,16 @@ public actor MobileIrxRuntimeComposition {
                 "client-dial", "relay-fallback",
                 ["peer": String(peerHex.prefix(12)), "relay": relayURL ?? "-"]
             )
+        }
+        if case .automatic = dialIntent,
+           await networkPathState.snapshot().generation != dialNetworkGeneration
+        {
+            Self.journal.record(
+                "client-dial", "network-path-changed-before-dial",
+                ["peer": String(peerHex.prefix(12))]
+            )
+            invalidateCachedDirectRoutesForNetworkChange()
+            throw CompositionError.networkPathChanged
         }
         let address = try supervisor.dialAddress(
             peerEndpointIDHex: peerHex,
