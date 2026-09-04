@@ -406,10 +406,10 @@ commit's `https://files.cmux.com/cmux-tui/<commit>/manifest.json` instead of the
 `latest`.
 
 Cloud-created Freestyle machines explicitly set `idleTimeoutSeconds: -1`, making them
-persistent boxes rather than provider-idle workers. A user-open operation probes the live
-provider state even when the control-plane row still says `running`, resumes a paused/stopped
-machine, and only then mints its attach or port endpoint. Machines created before this policy
-are migrated when they are resumed: any finite legacy idle timeout is cleared best-effort.
+persistent boxes rather than provider-idle workers. Healthy private attach does not wake or
+probe a machine. The recovery endpoint resumes a paused/stopped machine and clears a finite
+legacy idle timeout best-effort. Port opens and other operations retain their own provider-state
+policy.
 
 There is no HTTP ingress proxy to arbitrary VM ports on the public platform (a TLS edge rule
 needs a customer-verified domain), so the daemon is reached directly at a VM address.
@@ -417,13 +417,13 @@ needs a customer-verified domain), so the daemon is reached directly at a VM add
 **Private networking is the default.** Every Freestyle machine joins the one VPC that
 belongs to its owner (provisioned on first create, slug `cmux-net-<hash>`); the owner's
 computers join the same VPC over WireGuard tunnels (`/api/vm/tunnel`, `cmux vpn up`). The
-route is then the VM's *private* address — `ws://[<vpc ipv6>]:1337/v1/link` — and creates
+route is then the VM's *private* address — `ws://<vpc ipv4>:1337/v1/link` (IPv6 fallback) — and creates
 state outbound-only firewall rules: no public inbound port at all. The VPC's single
 members-reach-each-other rule is what admits the owner's other machines and tunnels to the
 daemon port. Machines created before private networking (or while
 `CMUX_VM_PRIVATE_NETWORK_ENABLED=0`) keep the older posture: inbound 1337 open and the
-route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`), re-asserted on
-every attach-time heal, which is also what makes the VPC address reachable.
+route at the stable public IPv6. The daemon binds dual-stack (`[::]:1337`) in the baked unit,
+which is what makes the VPC address reachable.
 The Noise handshake encrypts and authenticates the session end to end, so carrier TLS is not
 required; the route token exists only for the lease ledger. Creates take no ports field and
 no create-time env; the guest's model-plane env is the same for every machine and baked at
@@ -438,24 +438,24 @@ the root layout they are baked around.
 
 `POST /api/vm/[id]/attach-endpoint` with
 `{"transport":"cmux-remote","clientCapabilities":[...]}` returns
-`{route, token, session, daemonBuild?, invitation?}` where `invitation` is a single-use
-`cmux://enroll/…` URI minted only when the caller's device is not enrolled. The client
-connects with `cmux-tui remote connect <route> --invite-file …`, then
-`POST /api/vm/[id]/cmux-remote/approve {invitationId}` approves the pending claim (poll
-until `state` is `approved`). The legacy websocket/SSH attach (`attach-endpoint` without a
+`{route, token, session, grant?, daemonBuild?, invitation?}`. Private routes carry a short-lived
+signed `grant`; the client connects with `cmux-tui remote connect <route> --grant-file …` and
+needs no approval call. Public legacy routes may still carry a single-use invitation until
+those machines are recreated. A failed private dial may call `POST /api/vm/[id]/resume` once,
+then retry the direct route. The legacy websocket/SSH attach (`attach-endpoint` without a
 transport, `POST /api/vm/[id]/sessions`) answers `409 vm_attach_transport_unsupported` with
 `details.supportedTransports: ["cmux-remote"]`. `cmux vm shell`, `cmux vm new`,
 `cmux vm base open` and the Machines panel all drive this from the Mac.
 See docs/cloud-cmux-tui-daemon.md for the design.
 
 Freestyle machines run the cmux-tui daemon and only the `cmux-remote`
-transport. The route is the VM's stable public IPv6 straight to the daemon
-(`ws://[<ipv6>]:1337/v1/link`): the platform has no HTTP ingress proxy to
-arbitrary VM ports, so the carrier is plain ws and the daemon's Noise
-enrollment is what gates sessions. The backend writes only a hash of attach
-tokens to Postgres; raw tokens are returned once to the Mac client. Machines
-created by the old cmuxd-remote drivers cannot serve this transport and need
-recreation.
+transport. New machines use their VPC address straight to the daemon
+(`ws://<vpc-ipv4>:1337/v1/link`); legacy public machines use stable public IPv6.
+The platform has no HTTP ingress proxy to arbitrary VM ports, so the carrier is
+plain ws and the daemon's Noise enrollment is what gates sessions. The backend
+writes only a hash of attach tokens to Postgres; raw tokens are returned once to
+the Mac client. Machines created by the old cmuxd-remote drivers cannot serve
+this transport and need recreation.
 
 Operational note: before rollout, verify the deployed
 `CMUX_VM_DEFAULT_PROVIDER`, `CMUX_VM_FREESTYLE_ENABLED`, `FREESTYLE_API_KEY`,

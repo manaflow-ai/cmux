@@ -104,18 +104,15 @@ the session bus.
 
 Machines attach through the cmux-tui remote daemon on port 1337
 (transport `cmux-remote`, docs/cloud-cmux-tui-daemon.md). The Freestyle bake
-installs the pinned files.cmux.com build (sha256-verified, the driver's own
-install command) at `/root/.cmux/bin/cmux-tui`, proves the daemon answers,
-then parks it, because a Freestyle snapshot is a memory image and a live
-daemon would give every machine the builder's Noise identity. The
-`cmux-devbox-boot` supervisor, run by the baked `cmux-tui-daemon` systemd
-unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337` (the driver reaches the daemon
-at the VM's IPv6 address, so the listener must be dual-stack), reads the
-platform instance id from the metadata service, wipes the remote identity
-when the machine is a clone, and starts the daemon. The driver runs no
-bootstrap at create; it heals pin drift and a missing listener on attach
-(`web/services/vms/drivers/cmuxTuiDaemon.ts`). The container Dockerfile still
-ships only the supervisor and waits for a driver install.
+installs the pinned files.cmux.com build (sha256-verified, the provider's own
+install command) at `/root/.cmux/bin/cmux-tui`, proves the daemon answers, and
+snapshots it while it is listening. The `cmux-devbox-boot` supervisor, run by
+the baked `cmux-tui-daemon` systemd unit with `CMUX_TUI_REMOTE_WS_BIND=[::]:1337`,
+reads the platform instance id from the metadata service, replaces an inherited
+clone identity, and keeps the daemon listening. The driver runs no bootstrap at
+create or healthy attach. A recovery-only endpoint delegates pause/resume and
+readiness to the provider adapter. The container Dockerfile still ships only
+the supervisor and waits for a driver install.
 
 Shells spawned by the daemon get the bash devshell (ble.sh ghost text,
 half-life prompt, seeded history) through the `/etc/bash.bashrc` chain.

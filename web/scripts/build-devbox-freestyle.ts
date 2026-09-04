@@ -45,7 +45,7 @@
  *
  * Daemon contract: the session daemon is cmux-tui (docs/cloud-cmux-tui-daemon.md).
  * The bake installs the pinned files.cmux.com build (sha256-verified, the same
- * install command the driver's attach-time heal uses) at /root/.cmux/bin/cmux-tui
+ * install command used by the provider recovery adapter) at /root/.cmux/bin/cmux-tui
  * and the cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot,
  * which starts and supervises it. The bake proves the daemon answers on
  * [::]:1337 and snapshots it while it is listening. A snapshot is a memory
@@ -55,7 +55,8 @@
  * before a signed grant can authorize it. The driver therefore runs no
  * install, start, or readiness exec at create and writes no guest env file.
  * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
- * because the driver routes attaches to the VM's stable public IPv6. The
+ * because the driver routes legacy public attaches to the VM's stable public IPv6; new
+ * private attaches use the VPC IPv4 route. The
  * daemon still runs as root until the driver adopts the ubuntu user for
  * sessions.
  *
@@ -385,8 +386,8 @@ try {
     );
   }
 
-  // The pinned cmux-tui build, installed with the driver's own command so the
-  // bake and the attach-time heal can never disagree about path or digest.
+  // The pinned cmux-tui build, installed with the provider's own command so
+  // the bake and recovery adapter can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
   await step(
@@ -423,8 +424,9 @@ try {
     "[Service]",
     "Type=simple",
     "User=root",
-    // Freestyle machines are reached at their stable public IPv6, so the
-    // daemon listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
+    // Legacy Freestyle machines are reached at their stable public IPv6; new
+    // machines use VPC IPv4. The daemon listens dual-stack ([::] accepts IPv4
+    // too). cmux-devbox-boot
     // defaults to 0.0.0.0 for the container providers, whose runtimes may have
     // IPv6 disabled entirely.
     "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
