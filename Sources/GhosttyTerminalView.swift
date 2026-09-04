@@ -6888,7 +6888,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         return handled
     }
 
-    private func sendGhosttyMouseButton(
+    func sendGhosttyMouseButton(
         _ surface: ghostty_surface_t,
         state: ghostty_input_mouse_state_e,
         button: ghostty_input_mouse_button_e,

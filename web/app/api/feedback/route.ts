@@ -4,6 +4,7 @@ import { Resend } from "resend";
 import { z } from "zod";
 
 import { env } from "@/app/env";
+import { reportMissingRateLimitRule } from "../../../services/rateLimitObservability";
 import { recordSpanError, setSpanAttributes, withApiRouteSpan } from "../../../services/telemetry";
 
 
@@ -61,6 +62,11 @@ export async function POST(request: Request) {
         return jsonError("Feedback endpoint is not configured", 503);
       }
 
+      if (process.env.VERCEL === "1") {
+        if (!feedbackConfig.rateLimitId) {
+          void reportMissingRateLimitRule({ route: "/api/feedback", reason: "unset" });
+        }
+      }
       if (process.env.VERCEL === "1" && feedbackConfig.rateLimitId) {
         let result: Awaited<ReturnType<typeof checkRateLimit>>;
         try {
@@ -81,10 +87,7 @@ export async function POST(request: Request) {
         if (error === "not-found") {
           // The rule was deleted; treat as "no limit" instead of taking the
           // endpoint down.
-          console.warn(
-            "feedback.route.rate_limit_not_found; failing open",
-            feedbackConfig.rateLimitId,
-          );
+          void reportMissingRateLimitRule({ route: "/api/feedback", reason: "not-found" });
         } else if (error) {
           console.error("feedback.route.rate_limit_error", error);
           return jsonError("service_unavailable", 503);

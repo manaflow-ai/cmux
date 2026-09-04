@@ -33,6 +33,7 @@ export function shouldSendCoderouterSentryEvent(event: Event): boolean {
   // silently dropped them, which is how a two-day provisioning outage
   // produced zero Sentry events.
   if (typeof cmux?.subsystem === "string" && cmux.subsystem.startsWith("cloud_vm")) return true;
+  if (cmux?.subsystem === "rate_limit") return true;
   const message =
     event.message ??
     event.exception?.values?.map((value) => value.value ?? "").join(" ") ??
