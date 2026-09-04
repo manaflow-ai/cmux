@@ -55,6 +55,24 @@ explicit `--workspace` rather than attaching to a mutable lookalike.
 `--new-client` deliberately creates another cmux client instead of reusing a
 restored one.
 
+### What persistence covers
+
+The owner is a local tmux server, not the cmux GUI. It remains alive when cmux
+quits, crashes, updates, or closes a surface, and normally remains alive while
+the Mac sleeps with its process image preserved. Reattach then validates the
+server-incarnation marker and immutable tmux session ID before reconnecting the
+correct session; a missing surface is recreated.
+
+This is not persistence through a machine shutdown. Logout, restart, shutdown,
+forced power loss, or a killed tmux server terminates the local process, its
+children, live PTY state, and in-memory scrollback. The registry file may still
+be present, but the server marker deliberately no longer matches, so reattach
+fails closed instead of attaching to an unrelated replacement. Recreating the
+commands after login would be a separate resurrection feature and cannot
+restore process memory, an SSH connection, or exact scrollback. For continuity
+while this Mac is offline, run the owner on a remote host with `cmux ssh-tmux`,
+`cmux mosh-tmux`, or a persistent cloud VM.
+
 ## Discovery, cleanup, and safety
 
 ```sh

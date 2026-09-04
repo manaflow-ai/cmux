@@ -49,6 +49,11 @@ struct LocalTmuxCommandBuilder {
         [
             "-S", socketPath, "set-option", "-soq",
             Self.serverIdentityOption, candidate.uuidString.lowercased(),
+            ";",
+            // The profile owns this private server. Keep it alive when cmux's
+            // client disconnects even if the user's global tmux config enables
+            // `exit-unattached`.
+            "set-option", "-s", "exit-unattached", "off",
         ]
     }
 
@@ -90,7 +95,15 @@ struct LocalTmuxCommandBuilder {
         workingDirectory: String,
         command: String?
     ) -> [String] {
-        var arguments = ["-S", socketPath, "new-session", "-d", "-s", sessionName, "-c", workingDirectory]
+        // Keep the persistence override and detached creation in one tmux
+        // command invocation. A standalone set-option can itself exit when a
+        // user's config has `exit-unattached on`, before new-session runs.
+        var arguments = [
+            "-S", socketPath,
+            "set-option", "-s", "exit-unattached", "off",
+            ";",
+            "new-session", "-d", "-s", sessionName, "-c", workingDirectory,
+        ]
         if let command, !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             arguments.append(contentsOf: ["/bin/sh", "-lc", command])
         }

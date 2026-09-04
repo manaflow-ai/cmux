@@ -55,12 +55,19 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         let stateRoot = makeLocalTmuxTestRoot("lifecycle")
         let sessionName = "regression-\(UUID().uuidString.prefix(8))"
         try FileManager.default.createDirectory(at: stateRoot, withIntermediateDirectories: true)
+        // A user's global tmux config may opt into exit-unattached. The
+        // private local-tmux profile must override it or a detached session
+        // disappears as soon as the creating CLI exits.
+        try Data("set -s exit-unattached on\n".utf8).write(
+            to: stateRoot.appendingPathComponent(".tmux.conf", isDirectory: false)
+        )
         defer { try? FileManager.default.removeItem(at: stateRoot) }
 
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_LOCAL_TMUX_BIN"] = tmux
         environment["CMUX_LOCAL_TMUX_STATE_DIR"] = stateRoot.path
+        environment["HOME"] = stateRoot.path
         environment.removeValue(forKey: "CMUX_SOCKET_PATH")
         environment.removeValue(forKey: "CMUX_SOCKET")
         defer {
@@ -81,6 +88,22 @@ final class CLINotifyProcessIntegrationRegressionTests: XCTestCase {
         XCTAssertFalse(start.timedOut, start.stderr)
         XCTAssertEqual(start.status, 0, start.stderr)
         XCTAssertTrue(start.stdout.contains("state=detached"), start.stdout)
+
+        let persistenceOption = runProcess(
+            executablePath: tmux,
+            arguments: [
+                "-S", stateRoot.appendingPathComponent("server.sock").path,
+                "show-options", "-s", "exit-unattached",
+            ],
+            environment: environment,
+            timeout: 10
+        )
+        XCTAssertFalse(persistenceOption.timedOut, persistenceOption.stderr)
+        XCTAssertEqual(persistenceOption.status, 0, persistenceOption.stderr)
+        XCTAssertTrue(
+            persistenceOption.stdout.contains("exit-unattached off"),
+            persistenceOption.stdout
+        )
 
         let list = runProcess(
             executablePath: cliPath,
