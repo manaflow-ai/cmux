@@ -7,12 +7,14 @@
         "snapshot": "此云端虚拟机不支持保存的虚拟机状态。",
         "restore": "此云端虚拟机类型不支持恢复保存的虚拟机状态。",
         "fork": "此云端虚拟机不支持复制到新的虚拟机。",
+        "openPort": "此 Cloud VM 的提供商无法将机器端口公开为预览 URL。",
         "default": "此云端虚拟机不支持请求的操作。"
       },
       "action": {
         "snapshot": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
         "restore": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
         "fork": "请勿重试。请使用 `cmux vm new` 创建新的虚拟机。",
+        "openPort": "请勿重试。请在机器内部使用 `cmux vm exec` 访问服务，或使用支持开放端口的机器类型。",
         "default": "请勿重试。使用 `cmux vm ls` 查看虚拟机；如果你认为这是错误，请联系支持团队。"
       }
     },
@@ -20,6 +22,11 @@
       "title": "需要 cmux Pro",
       "message": "云端虚拟机需要 cmux Pro 套餐。",
       "action": "请前往 {upgradeUrl} 升级到 cmux Pro 以创建云端虚拟机。"
+    },
+    "sharedResource": {
+      "message": "共享 Cloud VM 的 {resource} 资源池已满。",
+      "action": "删除未使用的 Cloud VM，然后重试。",
+      "oversizedAction": "请求更小的 Cloud VM {resource} 大小，使其符合共享资源池。"
     }
   },
   "billingRecovery": {
@@ -59,6 +66,15 @@
     "genericTitle": "无法完成登录",
     "genericBody": "请重试。如果问题仍然存在，请联系支持。",
     "backToSignIn": "返回登录"
+  },
+  "cloudPublicationAccess": {
+    "title": "你没有访问权限",
+    "signIn": "登录 cmux",
+    "signedInAs": "已以 {identity} 的身份登录",
+    "switchAccount": "切换账号",
+    "invalidTitle": "此访问链接无效",
+    "invalidBody": "返回网站，然后重试。",
+    "footer": "访问权限由 cmux 管理。"
   },
   "common": {
     "downloadForMac": "下载 Mac 版",
@@ -261,7 +277,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "管理共享 AI 账户，并使用 coderouter 路由请求。",
       "title": "coderouter",
-      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。"
+      "description": "coderouter 在提供商账户之间路由 LLM 请求，支持故障转移和按用量调度。",
+      "machines": {
+        "title": "机器",
+        "description": "{team} 在过去 {days} 天内每台机器的 coderouter 使用情况。",
+        "machineColumn": "机器",
+        "tokensColumn": "总令牌数",
+        "apiEquivalentColumn": "API 等值金额",
+        "unnamed": "未命名机器",
+        "empty": "过去 {days} 天内没有机器使用 coderouter。",
+        "unavailable": "机器使用情况暂时不可用。",
+        "estimateNote": "API 等值金额是按公开标价估算的，并非实际支出。"
+      }
     },
     "accountMenu": {
       "label": "账户菜单",
@@ -1125,7 +1152,10 @@
           "focusTextBoxOnNewTerminals": "默认在新建的工作区、终端标签页和终端分屏中聚焦测试版 TextBox 输入。聚焦也会显示 TextBox。"
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。"
+          "suppressOnlyFocusedSurface": "启用后，仅当通知横幅的 Surface 恰好是当前聚焦的 Surface 时，该横幅才会自动撤回。对于当前可见 workspace 中未聚焦的 Surface 所投递的横幅，在你聚焦该 Surface（或点击/关闭它）之前会一直显示，而不会在 workspace 变为可见时被撤回。关闭则保留旧的基于 workspace 可见性的撤回行为。",
+          "agentIdleReminder": "当代理空闲并等待你的输入时（回合结束后约 60 秒）发送通知。只要上一回合的后台工作仍在等待，就会抑制通知，避免正在运行的构建或监视器触发错误的等待提醒。",
+          "soundOverrides": "按代理和提醒类型设置的稀疏通知声音覆盖。缺少的单元格使用 notifications.sound。",
+          "soundOverride": "通知声音覆盖。default 使用 notifications.sound，none 禁用播放，其余值选择内置或自定义声音。"
         },
         "browser": {
           "defaultSearchEngine": "浏览器地址栏输入不是 URL 时使用的默认搜索引擎。对于任意提供商，请使用 custom 和 customSearchEngineURLTemplate。",

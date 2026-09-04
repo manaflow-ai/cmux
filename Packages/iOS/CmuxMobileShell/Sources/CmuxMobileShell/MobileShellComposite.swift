@@ -1040,6 +1040,31 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     let connectionMethodStore: MobileConnectionMethodStore?
     /// Single compatibility authority shared by registry, persistence, and live connections.
     let buildCompatibilityPolicy: MobileMacBuildCompatibilityPolicy?
+    /// Minimum Mac app versions this iOS version accepts on the release
+    /// lanes (`default`, `nightly`). Starts from the compiled-in
+    /// ``MobileMacCompatPolicy/baked`` fallback; the app root replaces it
+    /// with the fetched (or cached) `/api/mobile-mac-compat` list.
+    public var macCompatPolicy: MobileMacCompatPolicy = .baked
+    /// Device ids whose last authenticated attempt was refused because the Mac
+    /// is below this iOS build's minimum. The warning remains until that Mac
+    /// successfully authenticates again or the account boundary clears it.
+    private var macVersionUpdateRequiredDeviceIDs: Set<String> = []
+    /// Whether any known Mac needs a cmux update before it can connect.
+    public var hasMacVersionUpdateRequired: Bool {
+        !macVersionUpdateRequiredDeviceIDs.isEmpty
+    }
+    /// Version reported by the currently authenticated foreground Mac. The
+    /// background compatibility refresh uses this to revalidate an already
+    /// connected session if the remote policy becomes stricter.
+    var authenticatedMacAppVersion: String?
+    /// Set when a background policy refresh completes while a Mac is still
+    /// connecting. The first healthy-state transition consumes it so the
+    /// connection cannot finish under the previous policy.
+    var pendingMacCompatibilityPolicyRevalidation = false
+    /// Version-gate details captured when a connect route is rejected, so
+    /// the end-of-attempt classification names the exact versions instead of
+    /// a generic code. Cleared with the pairing error at attempt start.
+    var pendingMacVersionGateViolation: MobileMacCompatPolicy.Violation?
     /// Single physical-Mac identity authority shared by every connection role.
     let macInstanceTagAuthority: MobileMacInstanceTagAuthority
     private let pairedMacRestoreBoundary: PairedMacRestoreBoundary?
@@ -2090,6 +2115,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
+        macVersionUpdateRequiredDeviceIDs.removeAll()
         // Wipe every draft so the next account never sees its predecessor's text.
         // Guard the in-memory clear and selection resets so per-terminal hooks do
         // not write partial state into a store we are emptying wholesale.
@@ -2221,6 +2247,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         cancelComputerVisibilityMutations()
+        macVersionUpdateRequiredDeviceIDs.removeAll()
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
@@ -3988,8 +4015,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// active row) is reconnected. A no-op when already connected to that Mac.
     /// - Parameters:
     ///   - macDeviceID: The stored physical Mac to switch to.
-    ///   - instanceTag: Exact saved app instance to switch to, or `nil` for
-    ///     legacy device-level routing.
+    ///   - instanceTag: Exact saved app instance to switch to, or `nil` to
+    ///     resolve the most recently seen instance for device-level routing.
     /// - Returns: `true` if the foreground connection now targets that Mac (or
     ///   already did), `false` if the switch could not connect — so callers like
     ///   `openWorkspace` can avoid selecting a workspace whose Mac is not live.
@@ -4120,26 +4147,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             await restoreMacSwitchBaselineIfCancelled(switchAttemptID)
             return false
         }
-        let matchesTarget: (MobilePairedMac) -> Bool = { mac in
-            MacPairingKey(mac) == MacPairingKey(
-                macDeviceID: macDeviceID,
-                instanceTag: instanceTag
-            )
-        }
-        let targetMatches = storeMacs.filter(matchesTarget)
-        // A device-only request against MULTIPLE stored sibling builds is
-        // ambiguous: the store orders by recency, not build authority, so
-        // dialing `first` could disconnect the current focus in favor of an
-        // arbitrary sibling. Fail the switch; pairing-aware callers pass the
-        // tag, and legacy device-only entry points must not guess.
-        if instanceTag == nil,
-           Set(targetMatches.map(MacPairingKey.init)).count > 1 {
-            mobileShellLog.error(
-                "switchToMac: device-only request is ambiguous across stored sibling builds mac=\(macDeviceID, privacy: .public)"
-            )
-            return false
-        }
-        guard let refreshedTarget = targetMatches.first else {
+        guard let refreshedTarget = storeMacs.mostRecentPairedMac(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ) else {
             if !hasActiveMacConnection,
                await restorePreviousMacIfNeeded(macSwitchRestoreBaseline, switchAttemptID: switchAttemptID) {
                 macSwitchRestoreBaseline = nil
@@ -4626,13 +4637,34 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard remoteClient === client else { return }
         let resolvedName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedTag = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard authenticatedMacBuildIsCompatible(
+        switch authenticatedMacBuildAdmission(
             instanceTag: resolvedTag,
             clientNamespace: clientNamespace,
             macAppVersion: macAppVersion,
             client: client
-        ) else {
+        ) {
+        case .allowed:
+            authenticatedMacAppVersion = macAppVersion
+            clearMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
+            break
+        case .buildIncompatible:
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
+            return
+        case let .macAppVersionTooOld(violation):
+            // Explain before disconnecting (mirrors
+            // applyStoredMacUpdateRequiredFailure ordering): the saved pairing
+            // stays intact and reconnects once the Mac updates.
+            noteMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
+            applyPairingFailure(
+                .macAppVersionTooOld(
+                    macVersion: violation.macAppVersion,
+                    requiredVersion: violation.requiredVersionDisplay,
+                    isNightlyChannel: violation.channel == .nightly
+                ),
+                phase: "identity"
+            )
+            connectionRequiresReauth = false
+            rejectForegroundHostIdentity(client: client, reason: "mac_app_version_too_old")
             return
         }
         if let activeMacInstanceTag,
@@ -8992,6 +9024,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Sends one notification reply to an explicitly captured terminal as a
+    /// bracketed paste followed by a single Return key event. Inline replies
+    /// must use this path instead of ``sendTerminalInput(_:workspaceID:terminalID:)``:
+    /// appending ``\r`` to terminal input is interpreted as a raw byte by the
+    /// socket grammar, which inserts a newline in full-screen agent editors
+    /// instead of submitting the prompt.
+    ///
+    /// This does not change selection or composer state. The target workspace
+    /// and terminal are validated before the request is sent, and the existing
+    /// paste helper supplies the same viewport and hibernation handling as the
+    /// on-device composer.
+    @discardableResult
+    public func sendTerminalPaste(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard !text.isEmpty,
+              workspace(workspaceID, containsSurfaceID: terminalID.rawValue) else {
+            return false
+        }
+        return await sendRemoteTerminalPaste(
+            text,
+            submitKey: "return",
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
     /// Submit the composer's text to an explicitly captured terminal. Used by
     /// ``submitComposer()`` so a terminal switch mid-send cannot reroute the text
     /// to whatever is selected when the (awaited) image sends return: the target
@@ -9979,12 +10040,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         .trimmingCharacters(in: .whitespacesAndNewlines)
                     let hasAuthenticatedIdentity = reportedDeviceID?.isEmpty == false
                     let reportedInstanceTag = hasAuthenticatedIdentity ? status.macInstanceTag : nil
-                    guard authenticatedMacBuildIsCompatible(
+                    switch authenticatedMacBuildAdmission(
                         instanceTag: reportedInstanceTag,
                         clientNamespace: status.macClientNamespace,
                         macAppVersion: status.macAppVersion,
                         client: client
-                    ) else {
+                    ) {
+                    case .allowed:
+                        authenticatedMacAppVersion = status.macAppVersion
+                        clearMacVersionUpdateRequired(
+                            for: status.macDeviceID ?? ticket.macDeviceID
+                        )
+                        break
+                    case .buildIncompatible:
                         mobileShellLog.error(
                             "rejecting route from incompatible Mac build reported=\(reportedInstanceTag ?? "missing", privacy: .public)"
                         )
@@ -9994,6 +10062,21 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                             "Mac build is incompatible with this iOS build"
                         )
                         recordHostAuthenticationFailure(route: route, failure: .protocolViolation)
+                        continue routeLoop
+                    case let .macAppVersionTooOld(violation):
+                        mobileShellLog.error(
+                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public)"
+                        )
+                        noteMacVersionUpdateRequired(
+                            for: status.macDeviceID ?? ticket.macDeviceID
+                        )
+                        await client.disconnect()
+                        pendingMacVersionGateViolation = violation
+                        lastError = MobileShellConnectionError.rpcError(
+                            "mac_app_version_too_old",
+                            "Mac app version is below this iOS build's minimum"
+                        )
+                        recordHostAuthenticationFailure(route: route, failure: .unsupportedRoute)
                         continue routeLoop
                     }
                     let authority = macInstanceTagAuthority.resolve(
@@ -10604,6 +10687,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         activeMacInstanceTag = nil
+        authenticatedMacAppVersion = nil
+        pendingMacCompatibilityPolicyRevalidation = false
         connectedHostName = ""
     }
 
@@ -10612,8 +10697,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionAttemptGeneration = UUID()
         // Capture the tagged foreground key BEFORE the identity clears below:
         // `foregroundMacKey` derives from `activeMacInstanceTag`, which
-        // `clearActiveConnectionContext()` nils, and the offline retention
-        // filter must keep the exact tagged entry.
+        // `clearActiveConnectionContext()` nils, and the offline status
+        // downgrade must hit the exact tagged entry.
         let offlineForegroundKey = foregroundMacKey
         focusedHandoffPreparedGenerations.removeAll()
         cancelRemoteOperationTasks()
@@ -10635,35 +10720,24 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         replaceRemoteClient(with: nil)
         foregroundMacDeviceID = nil
         if !preservingOtherMacWorkspaceState {
-            // Cancel the live secondary subscriptions (slice 3) and keep only the
-            // now-offline foreground Mac's last-known workspaces for the offline
-            // view; the derived list recomputes to just the offline Mac's rows.
-            // The demonstration Mac's entry is also retained: it has no
-            // subscription or transport, so unlike a real secondary nothing
-            // re-establishes it, and dropping it here made every failed dial
-            // of an unreachable real Mac erase the demo workspaces. Demo state
-            // is invariant to real-connection teardown by design.
+            // Cancel the live secondary subscriptions, but retain their rows.
+            // Teardown is a transport event, not an authoritative workspace
+            // deletion. Removing rows here changes aggregate identities and
+            // can pop a mounted detail during both foreground recovery and a
+            // second cleanup after a failed redial. The next healthy list
+            // reconcile, hide/unpair, sign-out, or team change owns removal.
             teardownSecondaryMacSubscriptions()
-            workspacesByMac = workspacesByMac.filter {
-                $0.key == offlineForegroundKey
-                    || $0.key == Self.demonstrationPairingKey
-            }
         }
-        // The retained foreground entry still carries its last-known
-        // `status: .connected`; `macConnectionStatuses` (the Computers screen's
-        // per-Mac dots) derives from these per-Mac states, so without this the
-        // just-disconnected Mac would keep showing a green connected dot. Downgrade
-        // it to `.unavailable` to match the global connection state.
-        let offlineDeviceID = offlineForegroundKey.canonicalMacDeviceID
+        // Retained entries still carry their last-known `.connected` status;
+        // downgrade the foreground entry, and every secondary whose live
+        // subscription was cancelled, so the list chrome stays truthful while
+        // the last-known rows remain mounted.
         let keysToDowngrade = workspacesByMac.keys.filter { key in
             // The demonstration entry keeps its connected presentation: it is
             // served locally and its liveness is unrelated to the torn-down
             // real connection.
             guard key != Self.demonstrationPairingKey else { return false }
-            return key == offlineForegroundKey
-                || (!preservingOtherMacWorkspaceState
-                    && offlineForegroundKey != .anonymousForeground
-                    && key.canonicalMacDeviceID == offlineDeviceID)
+            return key == offlineForegroundKey || !preservingOtherMacWorkspaceState
         }
         var updatedWorkspacesByMac = workspacesByMac
         for key in keysToDowngrade {
@@ -11279,7 +11353,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// line and one `ios_pairing_failed` whose `reason` matches the message.
     /// ``connectionState``/``macConnectionStatus`` teardown stays at the call
     /// sites because some paths (auth re-auth) also flip ``connectionRequiresReauth``.
-    private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+    func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+        // Every failure path funnels through this sink, so the version-gate
+        // stash is resolved here: any route rejected for a too-old Mac this
+        // attempt upgrades the surfaced category to the exact versions,
+        // regardless of which connect entrypoint (manual, QR, stored
+        // reconnect) applied the failure.
+        let category = resolvingMacVersionGateViolation(category)
         // `.cancelled` (the only empty-message category) must be handled by
         // `catch is CancellationError` branches before classification.
         assert(!category.message.isEmpty, "applyPairingFailure must not receive .cancelled")
@@ -11320,6 +11400,55 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     private func clearPairingError() {
         connectionError = nil
         connectionErrorGuidance = nil
+        pendingMacVersionGateViolation = nil
+    }
+
+    /// Applies a policy delivered by the app-root refresh. Keeping this as a
+    /// store method makes the cache/baked seed and the remote replacement use
+    /// one mutation path, while the caller remains free to perform the fetch
+    /// off the connection startup path.
+    public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
+        macCompatPolicy = policy
+    }
+
+    func noteMacVersionUpdateRequired(for macDeviceID: String) {
+        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        guard !canonicalID.isEmpty else { return }
+        macVersionUpdateRequiredDeviceIDs.insert(canonicalID)
+    }
+
+    private func clearMacVersionUpdateRequired(for macDeviceID: String?) {
+        guard let macDeviceID else { return }
+        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        guard !canonicalID.isEmpty else { return }
+        macVersionUpdateRequiredDeviceIDs.remove(canonicalID)
+    }
+
+    /// The running app's marketing version, driving Mac version-gate tier
+    /// selection. Empty in test fixtures (their stamp provider defaults to
+    /// the empty stamp), which parses to no tier and therefore no gate.
+    var versionGateIOSAppVersion: String {
+        feedbackStampProvider().appVersion
+    }
+
+    /// Replaces a generic classification with the exact version-gate
+    /// violation captured while the failed attempt's routes were rejected.
+    /// The stash wins whenever set — a REVIEWED decision, not an oversight:
+    /// every route of one attempt dials the same Mac and the stash is
+    /// cleared when the attempt starts, so a captured violation proves that
+    /// Mac is below the floor no matter how a later route to it failed
+    /// (say, a timeout). Updating the Mac is the one action that can fix
+    /// the connection, so it is the failure worth surfacing.
+    private func resolvingMacVersionGateViolation(
+        _ category: MobilePairingFailureCategory
+    ) -> MobilePairingFailureCategory {
+        guard let violation = pendingMacVersionGateViolation else { return category }
+        pendingMacVersionGateViolation = nil
+        return .macAppVersionTooOld(
+            macVersion: violation.macAppVersion,
+            requiredVersion: violation.requiredVersionDisplay,
+            isNightlyChannel: violation.channel == .nightly
+        )
     }
 
     private func clearTerminalCreationErrorIfRecovered() {
@@ -11462,6 +11591,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
+        }
+        if pendingMacCompatibilityPolicyRevalidation {
+            revalidateActiveMacCompatibilityPolicy()
+            guard connectionState == .connected else { return }
         }
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in

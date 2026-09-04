@@ -7,12 +7,14 @@
         "snapshot": "이 Cloud VM은 저장된 VM 상태를 지원하지 않습니다.",
         "restore": "이 Cloud VM 종류는 저장된 VM 상태 복원을 지원하지 않습니다.",
         "fork": "이 Cloud VM은 새 VM으로 복사하는 기능을 지원하지 않습니다.",
+        "openPort": "이 Cloud VM의 제공업체는 머신 포트를 미리보기 URL로 노출할 수 없습니다.",
         "default": "이 Cloud VM은 요청한 작업을 지원하지 않습니다."
       },
       "action": {
         "snapshot": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
         "restore": "다시 시도하지 마세요. 이 머신 종류의 작업은 영구 홈 볼륨에 보관됩니다.",
         "fork": "다시 시도하지 마세요. `cmux vm new`로 새 VM을 만드세요.",
+        "openPort": "다시 시도하지 마세요. 머신 내부에서 `cmux vm exec`로 서비스에 접속하거나 포트를 열 수 있는 머신 종류를 사용하세요.",
         "default": "다시 시도하지 마세요. `cmux vm ls`로 머신을 확인하거나 문제가 계속되면 지원팀에 문의하세요."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro 필요",
       "message": "Cloud VM을 사용하려면 cmux Pro 플랜이 필요합니다.",
       "action": "{upgradeUrl}에서 cmux Pro로 업그레이드하면 Cloud VM을 만들 수 있습니다."
+    },
+    "sharedResource": {
+      "message": "공유 Cloud VM {resource} 리소스 풀이 가득 찼습니다.",
+      "action": "사용하지 않는 Cloud VM을 삭제한 후 다시 시도하세요.",
+      "oversizedAction": "공유 풀에 맞는 더 작은 Cloud VM {resource} 크기를 요청하세요."
     }
   },
   "billingRecovery": {
@@ -59,6 +66,15 @@
     "genericTitle": "로그인을 완료할 수 없습니다",
     "genericBody": "다시 시도해 주세요. 문제가 계속되면 지원팀에 문의하세요.",
     "backToSignIn": "로그인으로 돌아가기"
+  },
+  "cloudPublicationAccess": {
+    "title": "액세스 권한이 없습니다",
+    "signIn": "cmux에 로그인",
+    "signedInAs": "{identity}(으)로 로그인됨",
+    "switchAccount": "계정 전환",
+    "invalidTitle": "이 액세스 링크는 유효하지 않습니다",
+    "invalidBody": "사이트로 돌아가 다시 시도하세요.",
+    "footer": "액세스는 cmux에서 관리합니다."
   },
   "common": {
     "downloadForMac": "Mac용 다운로드",
@@ -261,7 +277,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "공유 AI 계정을 관리하고 coderouter로 요청을 라우팅합니다.",
       "title": "coderouter",
-      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다."
+      "description": "coderouter는 장애 조치와 사용량 기반 일정 관리를 통해 공급자 계정 간에 LLM 요청을 라우팅합니다.",
+      "machines": {
+        "title": "머신",
+        "description": "최근 {days}일 동안 {team}의 머신별 coderouter 사용량입니다.",
+        "machineColumn": "머신",
+        "tokensColumn": "총 토큰",
+        "apiEquivalentColumn": "API 환산 금액",
+        "unnamed": "이름 없는 머신",
+        "empty": "최근 {days}일 동안 coderouter를 사용한 머신이 없습니다.",
+        "unavailable": "머신별 사용량을 일시적으로 확인할 수 없습니다.",
+        "estimateNote": "API 환산 금액은 공개 정가를 기준으로 한 추정치이며 실제 지출이 아닙니다."
+      }
     },
     "accountMenu": {
       "label": "계정 메뉴",
@@ -1125,7 +1152,10 @@
           "focusTextBoxOnNewTerminals": "새로 생성된 작업공간, 터미널 탭, 터미널 분할에서 베타 TextBox 입력에 기본으로 포커스합니다. 포커스하면 TextBox도 표시됩니다."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다."
+          "suppressOnlyFocusedSurface": "활성화하면 알림 배너는 해당 서피스가 정확히 포커스된 서피스일 때만 자동으로 철회됩니다. 현재 표시 중인 workspace에서 포커스되지 않은 서피스로 전달된 배너는 workspace가 표시될 때 철회되지 않고, 해당 서피스에 포커스할 때까지(또는 클릭/해제할 때까지) 계속 표시됩니다. 끄면 기존의 workspace 표시 여부 기반 철회 동작이 유지됩니다.",
+          "agentIdleReminder": "에이전트가 유휴 상태로 입력을 기다릴 때(턴 종료 후 약 60초) 알림을 보냅니다. 이전 턴의 백그라운드 작업이 아직 남아 있는 동안에는 억제되므로 실행 중인 빌드나 감시자가 잘못된 대기 알림을 만들지 않습니다.",
+          "soundOverrides": "에이전트 및 알림 유형별 알림 소리 재정의입니다. 비어 있는 셀은 notifications.sound를 사용합니다.",
+          "soundOverride": "알림 소리 재정의입니다. default는 notifications.sound를 사용하고, none은 재생을 끄며, 나머지 값은 내장 또는 사용자 지정 소리를 선택합니다."
         },
         "browser": {
           "defaultSearchEngine": "브라우저 주소 표시줄에서 URL이 아닌 입력에 사용할 기본 검색 엔진입니다. 다른 제공자는 custom과 customSearchEngineURLTemplate을 사용하세요.",

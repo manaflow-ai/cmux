@@ -7,12 +7,14 @@
         "snapshot": "Esta Cloud VM não é compatível com o estado salvo da VM.",
         "restore": "Este tipo de Cloud VM não é compatível com a restauração do estado salvo da VM.",
         "fork": "Esta Cloud VM não é compatível com a cópia para uma nova VM.",
+        "openPort": "O provedor desta Cloud VM não pode expor as portas da máquina como URLs de pré-visualização.",
         "default": "Esta Cloud VM não é compatível com a operação solicitada."
       },
       "action": {
         "snapshot": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "restore": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "fork": "Não tente novamente. Crie uma nova VM com `cmux vm new`.",
+        "openPort": "Não tente novamente. Acesse o serviço de dentro da máquina com `cmux vm exec` ou use um tipo de máquina que possa abrir portas.",
         "default": "Não tente novamente. Execute `cmux vm ls` ou entre em contato com o suporte se achar que isso está errado."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro necessário",
       "message": "As Cloud VMs exigem um plano cmux Pro.",
       "action": "Faça upgrade para o cmux Pro em {upgradeUrl} para criar Cloud VMs."
+    },
+    "sharedResource": {
+      "message": "O pool compartilhado de recursos {resource} da Cloud VM está cheio.",
+      "action": "Exclua uma Cloud VM sem uso e tente novamente.",
+      "oversizedAction": "Solicite um tamanho {resource} menor para a Cloud VM que caiba no pool compartilhado."
     }
   },
   "billingRecovery": {
@@ -59,6 +66,15 @@
     "genericTitle": "Não foi possível concluir o login",
     "genericBody": "Tente novamente. Se o problema continuar, entre em contato com o suporte.",
     "backToSignIn": "Voltar para o login"
+  },
+  "cloudPublicationAccess": {
+    "title": "Você não tem acesso",
+    "signIn": "Entrar no cmux",
+    "signedInAs": "Conectado como {identity}",
+    "switchAccount": "Trocar de conta",
+    "invalidTitle": "Este link de acesso não é válido",
+    "invalidBody": "Volte ao site e tente novamente.",
+    "footer": "O acesso é gerenciado pelo cmux."
   },
   "common": {
     "downloadForMac": "Baixar para Mac",
@@ -261,7 +277,18 @@
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Gerencie contas de IA compartilhadas e distribua solicitações com o coderouter.",
       "title": "coderouter",
-      "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso."
+      "description": "O coderouter distribui solicitações LLM entre contas de provedores com failover e agendamento conforme o uso.",
+      "machines": {
+        "title": "Máquinas",
+        "description": "Uso do coderouter por máquina para {team} nos últimos {days} dias.",
+        "machineColumn": "Máquina",
+        "tokensColumn": "Total de tokens",
+        "apiEquivalentColumn": "Valor equivalente em API",
+        "unnamed": "Máquina sem nome",
+        "empty": "Nenhuma máquina usou o coderouter nos últimos {days} dias.",
+        "unavailable": "O uso por máquina está temporariamente indisponível.",
+        "estimateNote": "O valor equivalente em API é uma estimativa com base em preços de lista públicos, não o gasto real."
+      }
     },
     "accountMenu": {
       "label": "Menu da conta",
@@ -1125,7 +1152,10 @@
           "focusTextBoxOnNewTerminals": "Foca a entrada TextBox beta por padrão em áreas de trabalho, abas e divisões de terminal recém-criadas. Focar também mostra o TextBox."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Quando ativado, um banner de notificação é retirado automaticamente apenas quando sua superfície é exatamente a superfície focada. Um banner entregue para uma superfície não focada no workspace atualmente visível permanece visível até você focar essa superfície (ou clicar nele/dispensá-lo), em vez de ser retirado quando o workspace se torna visível. Desativado preserva a retirada antiga baseada na visibilidade do workspace."
+          "suppressOnlyFocusedSurface": "Quando ativado, um banner de notificação é retirado automaticamente apenas quando sua superfície é exatamente a superfície focada. Um banner entregue para uma superfície não focada no workspace atualmente visível permanece visível até você focar essa superfície (ou clicar nele/dispensá-lo), em vez de ser retirado quando o workspace se torna visível. Desativado preserva a retirada antiga baseada na visibilidade do workspace.",
+          "agentIdleReminder": "Notifique quando um agente estiver ocioso aguardando sua entrada (cerca de 60 segundos após o fim de um turno). A notificação é suprimida enquanto ainda houver trabalho em segundo plano do turno anterior, para que um build ou monitor em execução não gere um falso alerta de espera.",
+          "soundOverrides": "Substituições esparsas do som de notificação por agente e tipo de alerta. Células ausentes usam notifications.sound.",
+          "soundOverride": "Uma substituição do som de notificação. default usa notifications.sound, none desativa a reprodução e os demais valores selecionam um som integrado ou personalizado."
         },
         "browser": {
           "defaultSearchEngine": "Mecanismo de busca padrão para consultas na barra de endereço do navegador que não são URLs. Use custom com customSearchEngineURLTemplate para outros provedores.",

@@ -1223,6 +1223,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
             },
             "Resolving one of two approvals must refresh the remaining command notice, saw \(remainingCompletionCommands)"
         )
+        XCTAssertTrue(
+            remainingCompletionCommands.contains {
+                $0.contains(";s=needsInput")
+            },
+            "A refreshed Cursor approval must retain its Needs input sound context, saw \(remainingCompletionCommands)"
+        )
 
         let mismatchedCompletionStart = state.snapshot().count
         let mismatchedCompletion = runCursorHook(

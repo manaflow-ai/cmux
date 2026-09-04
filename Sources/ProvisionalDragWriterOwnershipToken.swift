@@ -4,9 +4,9 @@ import Foundation
 @MainActor
 final class ProvisionalDragWriterOwnershipToken {
     let id: UUID
-    // The callback is immutable and only ever invoked from a main-actor Task;
-    // ARC may read this one property from an arbitrary executor during deinit.
-    private let onDeallocated: @MainActor (UUID) -> Void
+    // A global-actor-isolated function value is safe to copy from the
+    // nonisolated deinit path. Invocation still hops to the main actor below.
+    nonisolated private let onDeallocated: @MainActor (UUID) -> Void
 
     init(onDeallocated: @escaping @MainActor (UUID) -> Void) {
         id = UUID()

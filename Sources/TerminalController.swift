@@ -141,6 +141,9 @@ class TerminalController {
     @MainActor private(set) var accountFlow: HostAccountFlow?
     @MainActor private(set) var caffeineController: CaffeineController?
     @MainActor var agentChatTranscriptService: AgentChatTranscriptService?
+    /// App-lifetime automation engine, attached by the composition root after
+    /// the initial TabManager and notification store are ready.
+    @MainActor var automationEngine: AutomationEngine?
     nonisolated let terminalArtifactAuthorizationStore: TerminalArtifactAuthorizationStore
     /// Main-actor grants for the file currently displayed by each mobile panel.
     /// The live panel inventory and artifact reads share this owner so a closed
@@ -324,6 +327,40 @@ class TerminalController {
         "debug.right_sidebar.focus",
         "feed.jump"
     ]
+
+    nonisolated static func commandHasFocusIntent(
+        commandKey: String,
+        isV2: Bool,
+        params: [String: Any]
+    ) -> Bool {
+        if isV2 {
+            return focusIntentV2Methods.contains(commandKey)
+                || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
+        }
+        return focusIntentV1Commands.contains(commandKey)
+    }
+
+    /// Returns the encoded error when task-local automation policy suppresses
+    /// a focus-oriented v2 command; otherwise returns `nil`.
+    nonisolated static func focusSuppressionResponse(
+        method: String,
+        id: Any?,
+        params: [String: Any]
+    ) -> String? {
+        guard CmuxAutomationInvocationContext.focusAllowed == false,
+              commandHasFocusIntent(commandKey: method, isV2: true, params: params) else {
+            return nil
+        }
+        guard let idValue = v2WireId(id) else {
+            return ControlResponseEncoder.encodeFailureResponse
+        }
+        return v2Encoder.error(
+            id: idValue,
+            code: "focus_suppressed",
+            message: automationFocusSuppressedMessage(),
+            data: nil
+        )
+    }
 
     /// The main-actor RPC dispatch coordinator (CmuxControlSocket). Owns the
     /// `kind:N` handle registry and the moved command domains (window so far,
@@ -554,10 +591,25 @@ class TerminalController {
             NotificationCenter.default.addObserver(
                 forName: name,
                 object: nil,
-                queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor [weak self] in
-                    self?.scheduleSocketReadSnapshotRefresh()
+                // These topology notifications are posted by MainActor-owned
+                // workspace/window mutations. A nil queue keeps invalidation
+                // synchronous at the notification boundary.
+                queue: nil
+            ) { [weak self] notification in
+                let topologyChanged = name == .mainWindowContextsDidChange
+                    || name == .workspaceOrderDidChange
+                    || (name == .workspacePaneGeometryDidChange
+                        && notification.userInfo?[GhosttyNotificationKey.topologyChanged] as? Bool == true)
+                // This observer is explicitly installed on the main queue.
+                // Invalidate before creating the deferred publication task so
+                // a queued socket read cannot observe a completed claim after
+                // the topology has already changed.
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if topologyChanged {
+                        self.invalidateSocketHandleTopologyRefresh()
+                    }
+                    self.scheduleSocketReadSnapshotRefresh()
                 }
             }
         }
@@ -609,9 +661,15 @@ class TerminalController {
     }
 
     nonisolated static func socketCommandAllowsInAppFocusMutations(commandKey: String, isV2: Bool, params: [String: Any] = [:]) -> Bool {
+        // Automation actions run through the same dispatcher as socket/CLI
+        // calls, but their default is deliberately focus-neutral. A task-local
+        // override lets an action opt into focus without weakening the normal
+        // command policy for user and external CLI traffic.
+        if let automationOverride = CmuxAutomationInvocationContext.focusAllowed {
+            return automationOverride
+        }
         if isV2 {
-            return focusIntentV2Methods.contains(commandKey)
-                || explicitFocusParamAllowsFocus(commandKey: commandKey, params: params)
+            return commandHasFocusIntent(commandKey: commandKey, isV2: true, params: params)
         }
         if commandKey == "right_sidebar" {
             return rightSidebarCommandAllowsInAppFocusMutations(args: params["args"] as? String ?? "")
@@ -677,11 +735,11 @@ class TerminalController {
         }
     }
 
-    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () -> T) -> T {
+    nonisolated static func withSocketCommandPolicyStack<T>(_ stack: [Bool], _ body: () throws -> T) rethrows -> T {
         let previous = currentSocketCommandFocusAllowanceStack()
         setCurrentSocketCommandFocusAllowanceStack(stack)
         defer { setCurrentSocketCommandFocusAllowanceStack(previous) }
-        return body()
+        return try body()
     }
 
     /// The stack of socket command keys currently executing on this thread
@@ -1185,6 +1243,14 @@ class TerminalController {
                     return response
                 }
             }
+            if request.method == "surface.read_selection" {
+                return v2AsyncResultCall(
+                    id: request.id,
+                    timeoutSeconds: 5
+                ) {
+                    await self.v2SurfaceReadSelection(params: parsedRequest.params)
+                }
+            }
             if request.method == "mobile.task.models.list" {
                 return v2AsyncResultCall(
                     id: request.id,
@@ -1197,7 +1263,10 @@ class TerminalController {
                         ) else {
                         return .err(
                             code: "method_not_found",
-                            message: "Unknown method",
+                            message: String(
+                                localized: "socket.error.unknownMethod",
+                                defaultValue: "Unknown method"
+                            ),
                             data: nil
                         )
                     }
@@ -1212,6 +1281,12 @@ class TerminalController {
                         )
                     }
                 }
+            }
+            if let feedResult = controlCommandCoordinator.handleSocketWorkerFeed(
+                parsedRequest,
+                context: self
+            ) {
+                return Self.v2Encoder.response(id: parsedRequest.id, feedResult)
             }
             // Coordinator-owned worker-lane bodies (the tranche-D resolution
             // reads): nonisolated coordinator code runs on this worker thread
@@ -1475,7 +1550,8 @@ class TerminalController {
                 id: request.id,
                 v2FeedPush(
                     params: request.params,
-                    requiresIngestionAcknowledgment: request.id != nil
+                    requiresIngestionAcknowledgment: request.id != nil,
+                    automationOrigin: CmuxAutomationInvocationContext.eventOrigin
                 )
             )
         case "feed.permission.reply":
@@ -1553,6 +1629,26 @@ class TerminalController {
             return v2Result(id: request.id, v2SystemTop(params: request.params))
         case "system.memory":
             return v2Result(id: request.id, v2SystemMemory(params: request.params))
+        case "vault.sessions":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultSessions(params: request.params)
+            }
+        case "vault.search":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultSearch(params: request.params)
+            }
+        case "vault.checkpoints":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpoints(params: request.params)
+            }
+        case "vault.checkpoint":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 30) {
+                await self.v2VaultCheckpointCreate(params: request.params)
+            }
+        case "vault.fork":
+            return v2AsyncResultCall(id: request.id, timeoutSeconds: 60) {
+                await self.v2VaultFork(params: request.params)
+            }
         case "surface.read_text":
             return v2Result(id: request.id, v2SurfaceReadText(params: request.params))
         case "surface.ssh_session_attach.resolve":
@@ -1681,6 +1777,8 @@ class TerminalController {
             return socketWorkerRemotesResponse(method: method, id: request.id, params: request.params)
         case let method where method.hasPrefix("aiAccounts."):
             return socketWorkerAIAccountsResponse(method: method, id: request.id, params: request.params)
+        case let method where method.hasPrefix("coderouter."):
+            return socketWorkerCoderouterResponse(method: method, id: request.id, params: request.params)
         default:
 #if !DEBUG
             // debug.sidebar.simulate_drag stays policy-listed in Release but
@@ -1798,7 +1896,7 @@ class TerminalController {
                 _ = await writer.writeAll(Data((Self.socketClientAccessDeniedResponse + "\n").utf8))
                 return
             }
-            guard let trimmed = authorizedSocketCommand(
+            guard let authorizedCommand = authorizedSocketCommand(
                 receivedCommand,
                 peerProcessID: pid,
                 peerHasSameUID: peerHasSameUID
@@ -1811,6 +1909,16 @@ class TerminalController {
                 )
                 return
             }
+            // Only a process in cmux's own descendant tree may attach the
+            // internal automation envelope. Same-UID clients are authorized
+            // for ordinary automation RPCs, but cannot forge a rule chain.
+            let parsedCommandEnvelope = Self.automationCommandEnvelope(from: authorizedCommand)
+            let commandEnvelope = (pid.map(isDescendant) == true)
+                ? parsedCommandEnvelope
+                : nil
+            let trimmed = (parsedCommandEnvelope?.command ?? authorizedCommand)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let commandOrigin = commandEnvelope?.origin
             lineReader.clearLimits()
             if holdsPreauthorizationSlot {
                 holdsPreauthorizationSlot = false
@@ -1838,15 +1946,19 @@ class TerminalController {
                 return
             }
 
-            let result = await processSocketLineAsync(
-                trimmed,
-                passwordAuthorization: passwordAuthorization,
-                rateLimiter: rateLimiter
-            )
+            let result = await CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
+                await processSocketLineAsync(
+                    trimmed,
+                    passwordAuthorization: passwordAuthorization,
+                    rateLimiter: rateLimiter
+                )
+            }
             passwordAuthorization = result.passwordAuthorization
             if let response = result.response {
                 guard await writer.writeAll(Data((response + "\n").utf8)) else { return }
-                publishSocketEvents(command: trimmed, response: response)
+                CmuxAutomationInvocationContext.$eventOrigin.withValue(commandOrigin) {
+                    publishSocketEvents(command: trimmed, response: response)
+                }
             }
         }
         if !socketServer.isConnectionAuthorizationCurrent(authorizationGeneration) {
@@ -2171,6 +2283,14 @@ class TerminalController {
                 return errorResponse
             }
             let request = relayAuthorization.request
+            let automationOrigin = CmuxAutomationInvocationContext.eventOrigin
+            if let focusError = Self.focusSuppressionResponse(
+                method: request.method,
+                id: request.id.map(\.foundationObject),
+                params: request.params.mapValues(\.foundationObject)
+            ) {
+                return focusError
+            }
 
             let policy = Self.executionPolicy(forV2Method: request.method)
             if Thread.isMainThread, policy == .socketWorker(mainThreadCallable: false) {
@@ -2181,9 +2301,13 @@ class TerminalController {
                 )
             }
             if policy.runsOnSocketWorker {
-                return socketWorkerV2Response(handling: request)
+                return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                    socketWorkerV2Response(handling: request)
+                }
             }
-            return processParsedV2Command(request)
+            return CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                processParsedV2Command(request)
+            }
         }
 
         let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
@@ -2448,7 +2572,11 @@ class TerminalController {
         case .failure(let parseError):
             return Self.v2Encoder.response(for: parseError)
         case .success(let request):
-            return processParsedV2Command(request)
+            return CmuxAutomationInvocationContext.$eventOrigin.withValue(
+                CmuxAutomationInvocationContext.eventOrigin
+            ) {
+                processParsedV2Command(request)
+            }
         }
     }
 
@@ -2467,6 +2595,13 @@ class TerminalController {
     /// the calling thread; only the command body crosses to the main actor,
     /// via a single `v2MainSync` hop.
     private nonisolated func processParsedV2Command(_ request: ControlRequest) -> String {
+        if let focusError = Self.focusSuppressionResponse(
+            method: request.method,
+            id: request.id.map(\.foundationObject),
+            params: request.params.mapValues(\.foundationObject)
+        ) {
+            return focusError
+        }
         let bridged = V2SocketRequest(bridging: request)
         let id: Any? = bridged.id
         let method = bridged.method
@@ -2566,6 +2701,20 @@ class TerminalController {
             return v2Ok(id: id, result: ["pong": true])
         case "system.capabilities":
             return v2Ok(id: id, result: v2CapabilitiesWithBrowserDesignMode())
+        case "automation.list":
+            return v2Result(id: id, v2AutomationList())
+        case "automation.show":
+            return v2Result(id: id, v2AutomationShow(params: params))
+        case "automation.test":
+            return v2Result(id: id, v2AutomationTest(params: params))
+        case "automation.enable":
+            return v2Result(id: id, v2AutomationSetEnabled(params: params, enabled: true))
+        case "automation.disable":
+            return v2Result(id: id, v2AutomationSetEnabled(params: params, enabled: false))
+        case "automation.logs":
+            return v2Result(id: id, v2AutomationLogs(params: params))
+        case "automation.reload":
+            return v2Result(id: id, v2AutomationReload())
         case "caffeine.status":
             return v2Result(id: id, v2CaffeineStatus())
         case "caffeine.set":
@@ -2791,6 +2940,18 @@ class TerminalController {
             "sidebar.custom.open",
             "system.top",
             "system.memory",
+            "automation.list",
+            "automation.show",
+            "automation.test",
+            "automation.enable",
+            "automation.disable",
+            "automation.logs",
+            "automation.reload",
+            "vault.sessions",
+            "vault.search",
+            "vault.checkpoints",
+            "vault.checkpoint",
+            "vault.fork",
             "caffeine.status",
             "caffeine.set",
             "comments.list",
@@ -2833,11 +2994,19 @@ class TerminalController {
             "auth.begin_sign_in",
             "auth.sign_out",
             "vm.list",
+            "vm.publication_list",
+            "vm.publication_create",
+            "vm.publication_verify",
+            "vm.publication_update",
+            "vm.publication_delete",
+            "vm.domain_list",
+            "vm.domain_verify",
             "vm.create",
             "vm.base_open",
             "vm.base_reset",
             "vm.status",
             "vm.stats",
+            "vm.resize",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",
@@ -2854,6 +3023,8 @@ class TerminalController {
             "vm.tree",
             "vm.terminal_open",
             "vm.terminal_new",
+            "vm.terminal_rename",
+            "vm.tab_rename",
             "vm.workspace_new",
             "vm.workspace_open",
             "vm.workspace_close",
@@ -2874,6 +3045,13 @@ class TerminalController {
             "aiAccounts.list",
             "aiAccounts.upload",
             "aiAccounts.remove",
+            "coderouter.claude_upstream.get",
+            "coderouter.claude_upstream.set",
+            "coderouter.claude_upstream.add",
+            "coderouter.claude_upstream.update",
+            "coderouter.claude_upstream.remove",
+            "coderouter.claude_upstream.clear",
+            "coderouter.machines",
             "window.list",
             "window.current",
             "window.focus",
@@ -2967,6 +3145,7 @@ class TerminalController {
             "surface.report_shell_state",
             "surface.ports_kick",
             "surface.read_text",
+            "surface.read_selection",
             "surface.clear_history",
             "surface.trigger_flash",
             "pane.list",
@@ -3932,18 +4111,24 @@ class TerminalController {
         }
     }
 
-    /// Backend error code passthrough (`error.data.backend_code`) so the CLI
-    /// can make idempotency decisions structurally instead of parsing the
-    /// formatted display text.
+    /// Backend error metadata passthrough so the CLI can make compatibility
+    /// decisions structurally instead of parsing formatted display text.
     private nonisolated static func cloudVMBackendErrorData(_ error: Error) -> [String: Any]? {
-        guard case let VMClientError.httpStatus(status, body) = error,
-              let data = body.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let code = object["error"] as? String,
-              !code.isEmpty else {
+        guard case let VMClientError.httpStatus(status, body) = error else {
             return nil
         }
-        return ["backend_code": code, "http_status": status]
+        var payload: [String: Any] = ["http_status": status]
+        let object = body.data(using: .utf8)
+            .flatMap { try? JSONSerialization.jsonObject(with: $0, options: []) as? [String: Any] }
+        if let code = object?["error"] as? String, !code.isEmpty {
+            payload["backend_code"] = code
+        }
+        // The server trace id (support reference) travels with the structured
+        // error so the CLI and scripts can log it without parsing display text.
+        if let traceID = object?["traceId"] as? String, !traceID.isEmpty {
+            payload["trace_id"] = traceID
+        }
+        return payload
     }
 
     private nonisolated static func isCloudVMAuthenticationError(_ error: VMClientError) -> Bool {
@@ -4040,7 +4225,7 @@ class TerminalController {
         return Self.v2Encoder.encode(value)
     }
 
-    private func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
+    func v2EnsureHandleRef(kind: ControlHandleKind, uuid: UUID) -> String {
         controlCommandCoordinator.ensureRef(kind: kind, uuid: uuid)
     }
 
@@ -4104,6 +4289,7 @@ class TerminalController {
                 }
             }
         }
+        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
     }
 
     // MARK: - V2 Context Resolution
@@ -6149,7 +6335,8 @@ class TerminalController {
 
     private nonisolated func v2FeedPush(
         params: [String: Any],
-        requiresIngestionAcknowledgment: Bool
+        requiresIngestionAcknowledgment: Bool,
+        automationOrigin: CmuxAutomationEventOrigin? = nil
     ) -> V2CallResult {
         let waitTimeout: TimeInterval
         if let rawTimeout = params["wait_timeout_seconds"] {
@@ -6234,7 +6421,10 @@ class TerminalController {
             )
         }
         if requiresIngestionAcknowledgment && waitTimeout == 0 {
-            return v2IngestAcknowledgedFeedEvents(events)
+            return v2IngestAcknowledgedFeedEvents(
+                events,
+                automationOrigin: automationOrigin
+            )
         }
         guard let event = events.first, events.count == 1 else {
             return .err(
@@ -6245,7 +6435,11 @@ class TerminalController {
         }
 
         NotificationCenter.default.post(name: .workstreamEventReceived, object: event)
-        return v2IngestFeedEvent(event, waitTimeout: waitTimeout)
+        return v2IngestFeedEvent(
+            event,
+            waitTimeout: waitTimeout,
+            automationOrigin: automationOrigin
+        )
     }
 
     nonisolated func v2ApplyIMessageModeSideEffects(for event: WorkstreamEvent) {
@@ -13035,6 +13229,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13073,6 +13274,13 @@ class TerminalController {
                 subtitle: subtitle,
                 body: body,
                 replyShape: TerminalNotificationReplyShape.forAgentCategory(wire: meta?.category.rawValue),
+                agent: AgentNotificationDelivery.agentContext(
+                    category: meta?.category,
+                    pending: meta?.pending ?? false,
+                    agentKind: meta?.agentKind,
+                    isSubagent: meta?.isSubagent
+                ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13127,6 +13335,7 @@ class TerminalController {
                         agentKind: meta?.agentKind,
                         isSubagent: meta?.isSubagent
                     ),
+                    soundContext: meta?.soundContext,
                     correlationKey: meta?.correlationKey
                 )
                 return "OK"
@@ -13158,6 +13367,7 @@ class TerminalController {
                     agentKind: meta?.agentKind,
                     isSubagent: meta?.isSubagent
                 ),
+                soundContext: meta?.soundContext,
                 correlationKey: meta?.correlationKey
             )
             return "OK"
@@ -13201,6 +13411,7 @@ class TerminalController {
             body: body,
             category: meta?.category,
             pending: meta?.pending ?? false,
+            soundContext: meta?.soundContext,
             agentKind: meta?.agentKind,
             isSubagent: meta?.isSubagent,
             correlationKey: meta?.correlationKey

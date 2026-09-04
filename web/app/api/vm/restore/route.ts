@@ -3,6 +3,7 @@ import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
+import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -15,6 +16,7 @@ import { setSpanAttributes } from "../../../../services/telemetry";
 import { restoreVm, runVmWorkflow } from "../../../../services/vms/workflows";
 import { VmTimingRecorder } from "../../../../services/vms/timings";
 import { authProviderErrorResponse } from "../../../../services/vms/authErrors";
+import { vmRequestLocale } from "../../../../services/vms/vmErrorMessages";
 import {
   idempotencyKeyFromRequest,
   parseRequiredObjectBody,
@@ -117,6 +119,11 @@ export async function POST(request: Request): Promise<Response> {
           provider,
           snapshotId,
           idempotencyKey,
+          // The restored machine is a new row: it gets its own token and edge rule.
+          modelPlane: vmModelPlaneGatewayFor({
+            teamId: entitlements.billingTeamId,
+            stackUserId: user.id,
+          }),
           timing,
         }));
         return jsonResponse({
@@ -128,10 +135,11 @@ export async function POST(request: Request): Promise<Response> {
           createdAt: restored.createdAt,
         });
       } catch (err) {
-        const response = vmCreateLikeErrorResponse(err, {
+        const response = await vmCreateLikeErrorResponse(err, {
           operation: "restore",
           planId: entitlements.planId,
           retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before restoring another.",
+          locale: vmRequestLocale(request),
         });
         if (response) return response;
         throw err;

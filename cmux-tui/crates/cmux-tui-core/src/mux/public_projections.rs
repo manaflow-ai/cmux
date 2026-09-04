@@ -9,7 +9,7 @@ pub(super) struct RestoredPublicProjections {
     pub(super) has_terminal_defaults: bool,
     pub(super) next_notification_id: u64,
     pub(super) agent_records: HashMap<TerminalPublicId, TerminalAgentRecord>,
-    pub(super) agent_hook_fences: HashMap<TerminalPublicId, super::HookFence>,
+    pub(super) agent_hook_fences: HashMap<TerminalPublicId, HookFence>,
     pub(super) terminal_notifications: HashMap<TerminalPublicId, SurfaceNotification>,
     pub(super) notification_ledger: VecDeque<ResourceNotification>,
 }
@@ -64,7 +64,7 @@ pub(super) fn restore_public_projections(
     for hook_state in projections.agent_hook_states {
         agent_hook_fences.insert(
             hook_state.terminal_id,
-            super::HookFence {
+            HookFence {
                 session_id: hook_state.agent_session_id,
                 sequence: hook_state.applied_sequence,
                 ended: hook_state.ended,
@@ -84,8 +84,8 @@ pub(super) fn restore_public_projections(
                 // marker sequence as their legacy generation token so a
                 // session-less event continues the same lifecycle after a
                 // restart without reusing a terminal-wide identity.
-                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                    session_id: super::legacy_hook_session_id(&agent.terminal_id, value),
+                agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                    session_id: legacy_hook_session_id(&agent.terminal_id, value),
                     sequence: value,
                     ended: ended.is_some(),
                 });
@@ -97,8 +97,8 @@ pub(super) fn restore_public_projections(
             // cannot resurrect the completed session. Sequence zero is the
             // one-release compatibility generation for records without a
             // marker.
-            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(super::HookFence {
-                session_id: super::legacy_hook_session_id(&agent.terminal_id, 0),
+            agent_hook_fences.entry(agent.terminal_id.clone()).or_insert(HookFence {
+                session_id: legacy_hook_session_id(&agent.terminal_id, 0),
                 sequence: 0,
                 ended: true,
             });

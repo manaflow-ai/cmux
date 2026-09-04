@@ -453,6 +453,7 @@ extension CmuxSettingsFileStore {
         "notifications.paneFlashColor",
         "notifications.sound",
         "notifications.customSoundFilePath",
+        "notifications.soundOverrides",
         "notifications.command",
         "notifications.hooks",
         "notifications.hooksMode",

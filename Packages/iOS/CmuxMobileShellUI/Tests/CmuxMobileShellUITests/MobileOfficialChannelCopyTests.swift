@@ -10,17 +10,26 @@ import Testing
 /// vocabulary in production UI.
 @MainActor
 @Suite struct MobileOfficialChannelCopyTests {
-    @Test func whatsNewCompatNoticeIsNeutralOnOfficialBuilds() {
-        let official = MobileWhatsNewCatalog.macUpdateDetail(buildType: .prod)
-        #expect(!official.contains("TestFlight"))
+    @Test func whatsNewCompatFootnoteIsNeutralOnOfficialBuilds() {
+        let official = MobileWhatsNewCatalog.macUpdateFootnote(buildType: .prod)
         #expect(!official.contains("BETA"))
-        #expect(official.contains("Update cmux on your Mac"))
+        #expect(official.contains("Requires"))
     }
 
-    @Test func whatsNewCompatNoticeKeepsRollbackRecipeOnTeamBuilds() {
-        let team = MobileWhatsNewCatalog.macUpdateDetail(buildType: .beta)
-        #expect(team.contains("TestFlight"))
-        #expect(team.contains("Update cmux on your Mac"))
+    @Test func whatsNewCompatFootnoteKeepsRollbackRecipeOnTeamBuilds() {
+        let team = MobileWhatsNewCatalog.macUpdateFootnote(buildType: .beta)
+        #expect(team.contains("cmux BETA 1.0.4"))
+        #expect(team.contains("Requires"))
+    }
+
+    @Test func whatsNewCarriesTheCompatNoticeAsFootnoteNotFeatureRow() {
+        let page = MobileWhatsNewCatalog.connectionsUpdate
+        #expect(page.footnote != nil)
+        guard case .features(let features) = page.body else {
+            Issue.record("connections update page lost its feature rows")
+            return
+        }
+        #expect(!features.contains { $0.symbol == "exclamationmark.triangle.fill" })
     }
 
     @Test func presenceFooterIsNeutralOnOfficialBuilds() {
