@@ -63,11 +63,10 @@ final class VaultHistoryTimelineModel {
             guard !Task.isCancelled, let self else { return }
             var merged = recorded
             merged.append(contentsOf: self.projection.events(from: sessionEntries))
-            // Ordering is the grouper's job; sort here only when the cap
-            // forces dropping the oldest events, so the common path pays
-            // for a single sort per refresh.
+            // Cache one bounded ordered snapshot per refresh. Group changes
+            // reuse it without another O(n log n) pass.
+            merged.sort(by: VaultHistoryEvent.newestFirst)
             if merged.count > Self.maxTimelineEvents {
-                merged.sort(by: VaultHistoryEvent.newestFirst)
                 merged.removeLast(merged.count - Self.maxTimelineEvents)
             }
             self.mergedEvents = merged
@@ -78,6 +77,10 @@ final class VaultHistoryTimelineModel {
     }
 
     private func regroup() {
-        groups = grouper.groups(events: mergedEvents, by: groupKey, now: now())
+        groups = grouper.groups(
+            newestFirstEvents: mergedEvents,
+            by: groupKey,
+            now: now()
+        )
     }
 }

@@ -37,8 +37,11 @@ FALLBACK_TEST_MS = 200
 FOCUSED_GATE_SELECTORS = {
     "cmuxTests/BrowserSystemProxyMirrorTests",
     "cmuxTests/CLISSHSessionAttachAnchorTests",
+    "cmuxTests/GhosttyTerminalViewVisibilityPolicyTests",
     "cmuxTests/GhosttyOptionAsAltModsTests",
+    "cmuxTests/KeyboardShortcutSettingsFileStoreNoOpPersistenceTests",
     "cmuxTests/RemoteTmuxMirrorLayoutIdentityTests",
+    "cmuxTests/SidebarWorkspaceSwitchLayoutFaultTests",
 }
 # BrowserDeveloperToolsVisibilityPersistenceTests reliably crash-restarts the
 # app host on CI runners (its detached-inspector tests kill the host mid-run;

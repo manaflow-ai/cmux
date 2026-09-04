@@ -607,7 +607,7 @@ fn realFlow(allocator: Allocator, request: Value) !Value {
         renamed_index.? < closed_index.?;
 
     var result = Object.init(allocator);
-    try result.put("identified", .{ .bool = identity.value.protocol == 11 });
+    try result.put("identified", .{ .bool = identity.value.protocol == 12 });
     try result.put("workspace_created", .{ .bool = workspace > 0 });
     try result.put("terminal_created", .{ .bool = context.terminal_created });
     try result.put("marker_sent", .{ .bool = true });

@@ -88,6 +88,12 @@ verify_ipa_bundle_identity() {
     return 1
   fi
 
+  if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$app"; then
+    echo "error: exported IPA runtime origins are not production-only: $ipa" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+
   plist_bundle_id="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$app/Info.plist" 2>/dev/null || true)"
   if [[ "$plist_bundle_id" != "$expected_bundle_id" ]]; then
     echo "error: signed IPA CFBundleIdentifier is '${plist_bundle_id:-<absent>}', expected '$expected_bundle_id': $ipa" >&2
@@ -138,6 +144,27 @@ verify_ipa_bundle_identity() {
   if [[ "$ent_app_id" != "$expected_app_id" ]]; then
     echo "error: signed IPA entitlement application-identifier is '${ent_app_id:-<absent>}', expected '$expected_app_id': $ipa" >&2
     plutil -p "$ent" >&2 || true
+    rm -rf "$workdir"
+    return 1
+  fi
+  if ! python3 - "$ent" "$expected_app_id" <<'PY'
+import plistlib, sys
+with open(sys.argv[1], "rb") as f:
+    entitlements = plistlib.load(f)
+raise SystemExit(0 if entitlements.get("keychain-access-groups") == [sys.argv[2]] else 1)
+PY
+  then
+    echo "error: signed IPA keychain-access-groups must contain exactly '$expected_app_id': $app" >&2
+    rm -rf "$workdir"
+    return 1
+  fi
+  # The runtime reads CMUXKeychainAccessGroup verbatim for kSecAttrAccessGroup.
+  # An unsigned archive bakes it without the $(AppIdentifierPrefix) team prefix,
+  # a group the signature never grants, which kills every SecItem call at
+  # runtime (silent dead transport). Fail the upload instead of shipping it.
+  plist_keychain_group="$("$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$app/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$plist_keychain_group" && "$plist_keychain_group" != "$expected_app_id" ]]; then
+    echo "error: Info.plist CMUXKeychainAccessGroup is '$plist_keychain_group', expected '$expected_app_id' (unsigned-archive AppIdentifierPrefix bake); refusing to upload a keychain-broken build: $app" >&2
     rm -rf "$workdir"
     return 1
   fi
@@ -560,7 +587,7 @@ case "$LANE" in
     PRODUCT_BUNDLE_IDENTIFIER="${IOS_APPSTORE_BUNDLE_ID:-com.cmux.app}"
     PROVISIONING_PROFILE_NAME="${IOS_APPSTORE_PROVISIONING_PROFILE_NAME:-cmux App Store Distribution}"
     PRODUCT_DISPLAY_NAME="${IOS_APPSTORE_DISPLAY_NAME:-cmux}"
-    CRASH_REPORTING_ENABLED="NO"
+    CRASH_REPORTING_ENABLED="YES"
     ;;
   *)
     echo "error: unsupported lane '$LANE'" >&2
@@ -590,6 +617,7 @@ esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IOS_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$IOS_DIR/.." && pwd)"
 WORKSPACE="$IOS_DIR/cmux.xcworkspace"
 SCHEME="cmux-ios"
 DEVELOPMENT_TEAM="${IOS_DEVELOPMENT_TEAM:-7WLXT3NR37}"
@@ -606,6 +634,18 @@ case "$LANE" in
     ;;
 esac
 require_marketing_version "$LANE" "$LANE_MARKETING_VERSION"
+
+# All distribution lanes are production-level artifacts, including the
+# INTERNAL TestFlight app. Keep the four runtime authorities together and pass
+# them explicitly to every archive invocation. This prevents a runner's
+# staging environment, a stale shell export, or a reused archive from silently
+# producing a production-auth app that talks to staging Iroh infrastructure.
+PRODUCTION_RUNTIME_BUILD_ARGS=(
+  CMUX_IOS_AUTH_ENV=production
+  CMUX_API_BASE_URL=https://cmux.com
+  CMUX_IROH_BROKER_BASE_URL=https://cmux.com
+  CMUX_PRESENCE_BASE_URL=https://presence.cmux.dev
+)
 
 # Notes audience is driven by the testing lane (External block for --external).
 NOTES_AUDIENCE="internal"
@@ -869,6 +909,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGN_STYLE=Automatic \
       CODE_SIGNING_ALLOWED=YES \
       CODE_SIGNING_REQUIRED=YES \
@@ -891,6 +932,7 @@ if [[ -z "$ARCHIVE_PATH" ]]; then
       CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
       CMUX_CRASH_REPORTING_ENABLED="$CRASH_REPORTING_ENABLED" \
       ${MARKETING_VERSION_ARGS[@]+"${MARKETING_VERSION_ARGS[@]}"} \
+      "${PRODUCTION_RUNTIME_BUILD_ARGS[@]}" \
       CODE_SIGNING_ALLOWED=NO \
       CODE_SIGNING_REQUIRED=NO \
       CODE_SIGN_IDENTITY="" \
@@ -909,6 +951,10 @@ if [[ -n "$ARCHIVE_BUNDLE_IDENTIFIER" && "$ARCHIVE_BUNDLE_IDENTIFIER" != "$PRODU
   exit 1
 fi
 ARCHIVE_APP="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -name '*.app' -type d 2>/dev/null | head -n 1 || true)"
+if [[ -z "$ARCHIVE_APP" || ! -d "$ARCHIVE_APP" ]]; then
+  echo "error: archive has no Products/Applications/*.app to verify runtime origins: $ARCHIVE_PATH" >&2
+  exit 1
+fi
 if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   ARCHIVE_APP_BUNDLE_IDENTIFIER="$("$PLISTBUDDY" -c 'Print :CFBundleIdentifier' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
   if [[ -n "$ARCHIVE_APP_BUNDLE_IDENTIFIER" && "$ARCHIVE_APP_BUNDLE_IDENTIFIER" != "$PRODUCT_BUNDLE_IDENTIFIER" ]]; then
@@ -917,11 +963,16 @@ if [[ -n "$ARCHIVE_APP" && -d "$ARCHIVE_APP" ]]; then
   fi
   if [[ "$LANE" == "appstore" ]]; then
     ARCHIVE_CRASH_REPORTING_ENABLED="$("$PLISTBUDDY" -c 'Print :CMUXCrashReportingEnabled' "$ARCHIVE_APP/Info.plist" 2>/dev/null || true)"
-    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "NO" ]]; then
-      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected 'NO'; refusing to export" >&2
+    if [[ "$ARCHIVE_CRASH_REPORTING_ENABLED" != "$CRASH_REPORTING_ENABLED" ]]; then
+      echo "error: App Store archive CMUXCrashReportingEnabled is '${ARCHIVE_CRASH_REPORTING_ENABLED:-<absent>}', expected '$CRASH_REPORTING_ENABLED'; refusing to export" >&2
       exit 1
     fi
   fi
+fi
+
+if ! "$REPO_ROOT/scripts/lib/verify-ios-release-origins.sh" --app "$ARCHIVE_APP"; then
+  echo "error: archive runtime origins are not production-only; refusing to export or upload" >&2
+  exit 1
 fi
 
 ARCHIVE_MARKETING_VERSION="$("$PLISTBUDDY" -c 'Print :ApplicationProperties:CFBundleShortVersionString' "$ARCHIVE_PATH/Info.plist" 2>/dev/null || true)"
@@ -1202,7 +1253,26 @@ for key in [k for k in merged if k not in profile]:
 with open(merged_path, "wb") as f:
     plistlib.dump(merged, f)
 PY
+  # A wildcard in the provisioning profile is only an authorization envelope.
+  # The app signature must claim the one exact group for this bundle, otherwise
+  # sibling cmux apps signed by the same team can read each other's items.
+  plutil -replace keychain-access-groups \
+    -json "[\"$DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER\"]" \
+    "$MERGED_ENTITLEMENTS"
   plutil -lint "$MERGED_ENTITLEMENTS" >/dev/null
+
+  # The archive is built unsigned, so $(AppIdentifierPrefix) in Info.plist
+  # expanded to an empty string and CMUXKeychainAccessGroup baked as the bare
+  # bundle id. The runtime reads that key verbatim for kSecAttrAccessGroup, and
+  # the entitlements above never grant a prefix-less group, so every SecItem
+  # call fails with errSecMissingEntitlement and the iroh transport dies before
+  # any broker fetch. Rewrite the key to the exact group the entitlements
+  # grant, then sign, so the signature covers the corrected plist.
+  if "$PLISTBUDDY" -c 'Print :CMUXKeychainAccessGroup' "$RESIGN_APP/Info.plist" >/dev/null 2>&1; then
+    "$PLISTBUDDY" -c "Set :CMUXKeychainAccessGroup $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER" \
+      "$RESIGN_APP/Info.plist"
+    echo "Patched CMUXKeychainAccessGroup -> $DEVELOPMENT_TEAM.$PRODUCT_BUNDLE_IDENTIFIER"
+  fi
 
   codesign --force --sign "$RESIGN_IDENTITY" --entitlements "$MERGED_ENTITLEMENTS" --timestamp "$RESIGN_APP"
 
@@ -1293,7 +1363,7 @@ echo "signed IPA app symbols verified (Symbols/*.symbols present for ASC crash s
 echo "IPA_PATH=$IPA_PATH"
 
 EXPECTED_IPA_CRASH_REPORTING=""
-[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="NO"
+[[ "$LANE" == "appstore" ]] && EXPECTED_IPA_CRASH_REPORTING="$CRASH_REPORTING_ENABLED"
 if ! verify_ipa_bundle_identity "$IPA_PATH" "$PRODUCT_BUNDLE_IDENTIFIER" "$DEVELOPMENT_TEAM" "$EXPECTED_IPA_CRASH_REPORTING"; then
   echo "error: signed IPA bundle identity does not match lane '$LANE'; refusing to upload" >&2
   exit 1

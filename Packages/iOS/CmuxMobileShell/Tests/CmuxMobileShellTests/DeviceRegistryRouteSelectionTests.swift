@@ -41,6 +41,45 @@ import Testing
         #expect(selected == registry)
     }
 
+    @Test func registryIrohRefreshKeepsLegacyTailscaleRouteAvailable() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+
+        let selected = try #require(
+            DeviceRegistryService.selectReconnectRoutes(local: local, registry: [iroh])
+        )
+        #expect(selected.map(\.kind) == [.iroh, .tailscale])
+        #expect(selected.last?.endpoint == local[0].endpoint)
+
+        // Once the merged routes are persisted, the same Iroh-only registry
+        // response must not trigger another write on every refresh.
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: selected,
+            registry: [iroh]
+        ) == nil)
+    }
+
+    @Test func registryIrohAndTailscaleRoutesRemainAuthoritative() throws {
+        let local = [try route(host: "100.0.0.1", port: 51000)]
+        let current = try route(host: "100.0.0.2", port: 51000, id: "current")
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64))
+        let iroh = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(identity: identity, pathHints: [])
+        )
+
+        #expect(DeviceRegistryService.selectReconnectRoutes(
+            local: local,
+            registry: [iroh, current]
+        ) == [iroh, current])
+    }
+
     @Test func parsesRoutesForMatchingMacFromListResponse() throws {
         let json = """
         {

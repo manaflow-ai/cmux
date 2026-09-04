@@ -140,6 +140,22 @@ import Testing
         ])
     }
 
+    @Test func sameAccountRevalidationDoesNotRepeatSignedInHook() async throws {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let client = FakeAuthClient(user: user)
+        let recorder = AuthSessionTransitionRecorder()
+        let (coordinator, _) = makeCoordinator(
+            client: client,
+            onSignedIn: { await recorder.record("signed-in") }
+        )
+
+        try await coordinator.signInWithPassword(email: "a@b.com", password: "pw")
+        await coordinator.revalidateSession()
+        await coordinator.revalidateSession()
+
+        #expect(recorder.events == ["signed-in"])
+    }
+
     @Test func signOutAnnouncesOneSessionTransition() async throws {
         let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
         let client = FakeAuthClient(user: user)

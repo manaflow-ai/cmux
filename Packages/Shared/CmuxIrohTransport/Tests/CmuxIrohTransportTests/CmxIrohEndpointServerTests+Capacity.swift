@@ -34,8 +34,11 @@ extension CmxIrohEndpointServerTests {
             maximumConnectionsPerIdentity: 1
         ) { connection, generation, markAdmitted in
             let identity = await connection.remoteIdentity()
-            await started.record(identity: identity, generation: generation)
             #expect(await markAdmitted())
+            // Publish readiness only after the connection moved out of pending
+            // admission. Otherwise the replacement races that transition and
+            // tests the per-identity pending limit instead of full capacity.
+            await started.record(identity: identity, generation: generation)
             await connectionLifetime.wait()
         }
         let active = TestIrohConnection(

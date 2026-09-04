@@ -11,7 +11,7 @@ struct SimulatorWebInspectorTargetPicker: View {
 
     var body: some View {
         HStack {
-            Button(simulatorStrings.refreshTargets, action: refresh)
+            SimulatorLocalizedButton(simulatorStrings.refreshTargets, action: refresh)
                 .disabled(!isAvailable)
             Menu {
                 ForEach(targets) { target in
@@ -23,11 +23,11 @@ struct SimulatorWebInspectorTargetPicker: View {
                     .disabled(target.isInUse)
                 }
             } label: {
-                Label(simulatorStrings.chooseTarget, systemImage: "scope")
+                SimulatorLocalizedLabel(simulatorStrings.chooseTarget, systemImage: "scope")
             }
             .disabled(!isAvailable || targets.isEmpty)
             if case .attached = session {
-                Button(simulatorStrings.releaseInspector, action: release)
+                SimulatorLocalizedButton(simulatorStrings.releaseInspector, action: release)
             }
         }
 

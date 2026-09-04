@@ -10,6 +10,47 @@ import CMUXAgentLaunch
 
 @Suite("Feed coordinator", .serialized)
 struct FeedCoordinatorTests {
+    @Test("Workspace-only blocking events retain their session surface")
+    func workspaceOnlyAttentionUsesSessionSurface() {
+        let workspaceID = UUID()
+        let surfaceID = UUID()
+        let event = WorkstreamEvent(
+            sessionId: "cmux-feed-v1-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: workspaceID.uuidString
+        )
+
+        #expect(FeedCoordinator.explicitAttentionTarget(for: event) == nil)
+        let resolved = FeedCoordinator.mergeAttentionTarget(
+            event: event,
+            sessionMatch: (ownerId: workspaceID, surfaceId: surfaceID)
+        )
+        #expect(resolved?.ownerId == workspaceID)
+        #expect(resolved?.surfaceId == surfaceID)
+    }
+
+    @Test("A complete wire target remains authoritative over a stale session match")
+    func completeAttentionTargetWinsOverSessionSurface() {
+        let workspaceID = UUID()
+        let eventSurfaceID = UUID()
+        let staleSurfaceID = UUID()
+        let event = WorkstreamEvent(
+            sessionId: "cmux-feed-v1-session",
+            hookEventName: .permissionRequest,
+            source: "claude",
+            workspaceId: workspaceID.uuidString,
+            surfaceId: eventSurfaceID.uuidString
+        )
+
+        let resolved = FeedCoordinator.mergeAttentionTarget(
+            event: event,
+            sessionMatch: (ownerId: workspaceID, surfaceId: staleSurfaceID)
+        )
+        #expect(resolved?.ownerId == workspaceID)
+        #expect(resolved?.surfaceId == eventSurfaceID)
+    }
+
     @Test func codexTeamsResolvesExplicitWorkingDirectoryFlags() {
         let base = "/tmp/cmux-base"
 
@@ -605,9 +646,11 @@ struct FeedCoordinatorTests {
     @Test func blockingIngestSkipsNotificationWhenPermissionResolvesBeforeDisplay() async {
         let requestId = "auto-allow-request"
         let notifications = NotificationRequestRecorder()
+        let previousAppFocusOverride = AppFocusState.overrideIsFocused
 
         defer {
             Self.resetFeedCoordinatorTestHooks()
+            AppFocusState.overrideIsFocused = previousAppFocusOverride
         }
 
         await MainActor.run {
@@ -620,7 +663,7 @@ struct FeedCoordinatorTests {
                     decision: .permission(.once)
                 )
             }
-            FeedCoordinatorTestHooks.isAppActiveOverride = { false }
+            AppFocusState.overrideIsFocused = false
             FeedCoordinatorTestHooks.notificationPostObserver = { _, postedRequestId in
                 notifications.record(postedRequestId)
             }
@@ -737,12 +780,20 @@ struct FeedCoordinatorTests {
     }
 
     @Test func lifecycleStatusKeyMatchesAgentReportedKey() {
-        // Claude reports its lifecycle under `claude_code`; reusing that key is
-        // what lets Claude's own resume hooks clear the needs-input badge.
+        // Claude reports its lifecycle under `claude_code`; normalize the Feed
+        // source the same way without mutating that agent-owned slot.
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "claude") == "claude_code")
         // Every other agent keys its status by its own source name.
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "codex") == "codex")
         #expect(FeedCoordinator.lifecycleStatusKey(forSource: "opencode") == "opencode")
+        #expect(
+            FeedCoordinator.attentionStatusKey(forSource: "claude")
+                == "cmux.feed.attention:claude_code"
+        )
+        #expect(
+            FeedCoordinator.attentionStatusKey(forSource: "codex")
+                == "cmux.feed.attention:codex"
+        )
     }
 
     @Test func workstreamPublicationCarriesAuthoritativeTargetAndError() throws {
@@ -861,7 +912,6 @@ struct FeedCoordinatorTests {
         let reset: @Sendable () -> Void = {
             MainActor.assumeIsolated {
                 FeedCoordinatorTestHooks.afterBlockingEventIngested = nil
-                FeedCoordinatorTestHooks.isAppActiveOverride = nil
                 FeedCoordinatorTestHooks.notificationPostObserver = nil
                 FeedCoordinatorTestHooks.attentionSurfaceObserver = nil
             }

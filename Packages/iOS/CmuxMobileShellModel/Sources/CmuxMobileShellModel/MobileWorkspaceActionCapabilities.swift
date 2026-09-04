@@ -14,6 +14,8 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
     public var supportsGroupActions: Bool
     /// Whether workspace group creation requests are supported.
     public var supportsGroupCreate: Bool
+    /// Whether a new workspace can be created directly inside a group.
+    public var supportsWorkspaceCreateInGroup: Bool
 
     /// No workspace actions are supported.
     public static let none = MobileWorkspaceActionCapabilities()
@@ -26,7 +28,8 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
         supportsCloseActions: Bool = false,
         supportsMoveActions: Bool = false,
         supportsGroupActions: Bool = false,
-        supportsGroupCreate: Bool = false
+        supportsGroupCreate: Bool = false,
+        supportsWorkspaceCreateInGroup: Bool = false
     ) {
         self.supportsWorkspaceActions = supportsWorkspaceActions
         self.supportsWorkspaceMetadata = supportsWorkspaceMetadata
@@ -35,5 +38,6 @@ public struct MobileWorkspaceActionCapabilities: Equatable, Sendable {
         self.supportsMoveActions = supportsMoveActions
         self.supportsGroupActions = supportsGroupActions
         self.supportsGroupCreate = supportsGroupCreate
+        self.supportsWorkspaceCreateInGroup = supportsWorkspaceCreateInGroup
     }
 }

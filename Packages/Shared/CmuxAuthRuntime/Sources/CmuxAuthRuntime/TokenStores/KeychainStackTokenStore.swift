@@ -19,15 +19,28 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private static let accessTokenAccount = "cmux-auth-access-token"
     private static let refreshTokenAccount = "cmux-auth-refresh-token"
     private let service: String
+    private let accessGroup: String?
+    private let legacyProjectID: String?
     private let log = AuthDebugLog()
 
     private var cachedAccessToken: String?
     private var cachedRefreshToken: String?
 
-    /// Creates a keychain store writing under `service`.
-    /// - Parameter service: The keychain service name; see ``serviceName(bundleIdentifier:)``.
-    public init(service: String) {
+    /// Creates a Keychain store writing under one exact signed access group.
+    ///
+    /// - Parameters:
+    ///   - service: The bundle-scoped Keychain service.
+    ///   - accessGroup: The app's exact signed Keychain access group.
+    ///   - legacyProjectID: The Stack project whose older account-only items
+    ///     may be adopted from this same access group.
+    public init(
+        service: String,
+        accessGroup: String? = nil,
+        legacyProjectID: String? = nil
+    ) {
         self.service = service
+        self.accessGroup = accessGroup
+        self.legacyProjectID = legacyProjectID
     }
 
     /// The keychain service name auth tokens are stored under, namespaced by
@@ -43,12 +56,18 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     public func getStoredAccessToken() async -> String? {
         if let cachedAccessToken { return cachedAccessToken }
-        return keychainRead(account: Self.accessTokenAccount)
+        return readOrAdoptLegacyToken(
+            account: Self.accessTokenAccount,
+            legacyAccount: legacyProjectID.map { "stack-auth-access-\($0)" }
+        )
     }
 
     public func getStoredRefreshToken() async -> String? {
         if let cachedRefreshToken { return cachedRefreshToken }
-        return keychainRead(account: Self.refreshTokenAccount)
+        return readOrAdoptLegacyToken(
+            account: Self.refreshTokenAccount,
+            legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
+        )
     }
 
     public func setTokens(accessToken: String?, refreshToken: String?) async {
@@ -83,13 +102,20 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         cachedRefreshToken = nil
         keychainDelete(account: Self.accessTokenAccount)
         keychainDelete(account: Self.refreshTokenAccount)
+        deleteLegacyTokens()
     }
 
     @discardableResult
     public func clearTokensIfCurrent(accessToken: String?, refreshToken: String?) async -> Bool {
         let snapshot = AuthTokenSnapshot(
-            accessToken: keychainRead(account: Self.accessTokenAccount),
-            refreshToken: keychainRead(account: Self.refreshTokenAccount)
+            accessToken: readOrAdoptLegacyToken(
+                account: Self.accessTokenAccount,
+                legacyAccount: legacyProjectID.map { "stack-auth-access-\($0)" }
+            ),
+            refreshToken: readOrAdoptLegacyToken(
+                account: Self.refreshTokenAccount,
+                legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
+            )
         )
         guard snapshot.matches(expectedAccessToken: accessToken, expectedRefreshToken: refreshToken) else {
             log.log("keychain.clearTokensIfCurrent: skipped stale clear")
@@ -110,7 +136,10 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         newRefreshToken: String?,
         newAccessToken: String?
     ) async {
-        let current = keychainRead(account: Self.refreshTokenAccount)
+        let current = readOrAdoptLegacyToken(
+            account: Self.refreshTokenAccount,
+            legacyAccount: legacyProjectID.map { "stack-auth-refresh-\($0)" }
+        )
         let matches = current == compareRefreshToken
         log.log("keychain.compareAndSet: matches=\(matches) hasNewRefresh=\(newRefreshToken?.isEmpty == false) hasNewAccess=\(newAccessToken?.isEmpty == false)")
         guard matches else { return }
@@ -121,13 +150,58 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     }
 
 #if canImport(Security)
+    private func readOrAdoptLegacyToken(
+        account: String,
+        legacyAccount: String?
+    ) -> String? {
+        if let current = keychainRead(account: account) {
+            return current
+        }
+        // Legacy account-only items are ambiguous without the exact signed
+        // access group. Never let a caller using the current-token-only API
+        // adopt another installed cmux bundle's Stack session.
+        guard accessGroup != nil,
+              let legacyAccount,
+              let legacy = keychainReadLegacy(account: legacyAccount),
+              keychainWrite(legacy, account: account) else {
+            return nil
+        }
+        keychainDeleteLegacy(account: legacyAccount)
+        return legacy
+    }
+
+    private func deleteLegacyTokens() {
+        guard accessGroup != nil, let legacyProjectID else { return }
+        keychainDeleteLegacy(account: "stack-auth-access-\(legacyProjectID)")
+        keychainDeleteLegacy(account: "stack-auth-refresh-\(legacyProjectID)")
+    }
+
     private func baseQuery(account: String) -> [String: Any] {
-        [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecUseDataProtectionKeychain as String: true,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
+    }
+
+    private func legacyBaseQuery(account: String) -> [String: Any] {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            // The legacy Stack SDK omitted this attribute when adding items,
+            // which Keychain persists as the empty service. An omitted query
+            // attribute is a wildcard and could match another credential.
+            kSecAttrService as String: "",
+            kSecAttrAccount as String: account,
+        ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
     }
 
     private func keychainRead(account: String) -> String? {
@@ -170,7 +244,28 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private func keychainDelete(account: String) {
         _ = SecItemDelete(baseQuery(account: account) as CFDictionary)
     }
+
+    private func keychainReadLegacy(account: String) -> String? {
+        var query = legacyBaseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else {
+            if status != errSecItemNotFound {
+                log.log("keychain legacy READ status=\(status) account=\(account)")
+            }
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func keychainDeleteLegacy(account: String) {
+        _ = SecItemDelete(legacyBaseQuery(account: account) as CFDictionary)
+    }
 #else
+    private func readOrAdoptLegacyToken(account: String, legacyAccount: String?) -> String? { nil }
+    private func deleteLegacyTokens() {}
     private func keychainRead(account: String) -> String? { nil }
     private func keychainWrite(_ value: String, account: String) -> Bool { false }
     private func keychainDelete(account: String) {}

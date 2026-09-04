@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 11, IR 5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1.
+// cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -8,6 +8,16 @@ use crate::{EventMetadata, Nullable, Optional};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentChangedEvent {
+    pub session: Nullable<String>,
+    pub source: T::AgentSource,
+    pub state: T::AgentState,
+    pub surface: T::Id,
+    pub updated_at_ms: u64,
+}
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -170,6 +180,12 @@ pub struct GraphicsStatusEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LayoutChangedEvent {
     pub screen: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MachineUsageChangedEvent {
+    pub usage: Nullable<T::MachineUsage>,
 }
 
 #[rustfmt::skip]
@@ -509,6 +525,7 @@ pub struct UnknownEvent {
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event {
+    AgentChanged(AgentChangedEvent),
     Bell(BellEvent),
     BrowserState(BrowserStateEvent),
     ClientAttached(ClientAttachedEvent),
@@ -523,6 +540,7 @@ pub enum Event {
     FrontendProjectionChanged(FrontendProjectionChangedEvent),
     GraphicsStatus(GraphicsStatusEvent),
     LayoutChanged(LayoutChangedEvent),
+    MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
     Output(OutputEvent),
     Overflow(OverflowEvent),
@@ -561,6 +579,7 @@ pub enum Event {
 impl Event {
     pub fn wire_name(&self) -> Option<&str> {
         match self {
+            Self::AgentChanged(_) => Some("agent-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BrowserState(_) => Some("browser-state"),
             Self::ClientAttached(_) => Some("client-attached"),
@@ -575,6 +594,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some("frontend-projection-changed"),
             Self::GraphicsStatus(_) => Some("graphics-status"),
             Self::LayoutChanged(_) => Some("layout-changed"),
+            Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
             Self::Output(_) => Some("output"),
             Self::Overflow(_) => Some("overflow"),
@@ -612,6 +632,7 @@ impl Event {
 
     pub fn metadata(&self) -> Option<&'static EventMetadata> {
         match self {
+            Self::AgentChanged(_) => Some(&AGENT_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
             Self::ClientAttached(_) => Some(&CLIENT_ATTACHED_EVENT_METADATA),
@@ -626,6 +647,7 @@ impl Event {
             Self::FrontendProjectionChanged(_) => Some(&FRONTEND_PROJECTION_CHANGED_EVENT_METADATA),
             Self::GraphicsStatus(_) => Some(&GRAPHICS_STATUS_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
+            Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
             Self::Output(_) => Some(&OUTPUT_EVENT_METADATA),
             Self::Overflow(_) => Some(&OVERFLOW_EVENT_METADATA),
@@ -666,6 +688,14 @@ impl Event {
 pub fn decode_event(raw: Value) -> Event {
     let name = raw.get("event").and_then(Value::as_str).map(str::to_owned);
     match name.as_deref() {
+        Some("agent-changed") => match serde_json::from_value::<AgentChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AgentChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
         Some("bell") => match serde_json::from_value::<BellEvent>(raw.clone()) {
             Ok(event) => Event::Bell(event),
             Err(error) => Event::Unknown(UnknownEvent {
@@ -772,6 +802,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("layout-changed") => match serde_json::from_value::<LayoutChangedEvent>(raw.clone()) {
             Ok(event) => Event::LayoutChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("machine-usage-changed") => match serde_json::from_value::<MachineUsageChangedEvent>(raw.clone()) {
+            Ok(event) => Event::MachineUsageChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

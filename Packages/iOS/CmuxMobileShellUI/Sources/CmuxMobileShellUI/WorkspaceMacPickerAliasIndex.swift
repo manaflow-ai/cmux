@@ -11,7 +11,10 @@ struct WorkspaceMacPickerAliasIndex {
         deviceAliasesByEntryID = [:]
     }
 
-    init(displayPairedMacs: [MobilePairedMac], aliasesFor: (String) -> [String]) {
+    init(
+        displayPairedMacs: [MobilePairedMac],
+        aliasesFor: (String, String?) -> [String]
+    ) {
         var representativeByAliasID: [String: String] = [:]
         var deviceAliasesByEntryID: [String: Set<String>] = [:]
         let preferredMacs = displayPairedMacs.filter(\.isActive)
@@ -19,7 +22,7 @@ struct WorkspaceMacPickerAliasIndex {
 
         for mac in preferredMacs {
             let pairingID = mac.id
-            var aliases = Set(aliasesFor(mac.macDeviceID))
+            var aliases = Set(aliasesFor(mac.macDeviceID, mac.instanceTag))
             aliases.insert(mac.macDeviceID)
             deviceAliasesByEntryID[pairingID] = aliases
             for aliasID in aliases {
@@ -38,8 +41,29 @@ struct WorkspaceMacPickerAliasIndex {
         self.deviceAliasesByEntryID = deviceAliasesByEntryID
     }
 
+    init(displayPairedMacs: [MobilePairedMac], aliasesFor: (String) -> [String]) {
+        self.init(displayPairedMacs: displayPairedMacs) { deviceID, _ in
+            aliasesFor(deviceID)
+        }
+    }
+
     func representativeID(for id: String) -> String {
-        representativeByAliasID[id] ?? id
+        if let representative = representativeByAliasID[id] {
+            return representative
+        }
+        let identity = MobilePairedMac.pairingIdentity(from: id)
+        guard let tag = identity.instanceTag, !tag.isEmpty else {
+            return id
+        }
+        let physicalRepresentative =
+            representativeByAliasID[identity.macDeviceID] ?? identity.macDeviceID
+        let representativeIdentity = MobilePairedMac.pairingIdentity(
+            from: physicalRepresentative
+        )
+        return MobilePairedMac.pairingID(
+            macDeviceID: representativeIdentity.macDeviceID,
+            instanceTag: tag
+        )
     }
 
     /// The preferred pairing entry that represents the physical device owning
@@ -55,8 +79,9 @@ struct WorkspaceMacPickerAliasIndex {
         if let aliases = deviceAliasesByEntryID[id] {
             deviceAliases = aliases
         } else {
-            let representativeID = deviceRepresentativeID(for: id)
-            deviceAliases = deviceAliasesByEntryID[representativeID] ?? [identity.macDeviceID]
+            let representativeEntryID = representativeID(for: id)
+            deviceAliases = deviceAliasesByEntryID[representativeEntryID]
+                ?? [identity.macDeviceID]
         }
         // A tagged selection filters to that build's rows: emit pairing-id
         // entries per device alias (legacy nil-tag rows still match them in

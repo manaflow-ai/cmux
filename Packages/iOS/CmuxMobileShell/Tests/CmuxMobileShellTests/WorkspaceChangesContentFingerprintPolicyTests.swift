@@ -17,8 +17,8 @@ import Testing
         )
     }
 
-    @Test func mismatchFailsWithRetryableArtifactError() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+    @Test func mismatchDoesNotClaimMacUnreachable() {
+        #expect(throws: ChatArtifactError.fileChanged) {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: "stat:10:100:2:300:101",
                 observed: "stat:10:100:2:301:101"
@@ -26,8 +26,8 @@ import Testing
         }
     }
 
-    @Test func missingFingerprintAfterEstablishmentFailsWithRetryableError() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+    @Test func missingFingerprintAfterEstablishmentDoesNotClaimMacUnreachable() {
+        #expect(throws: ChatArtifactError.invalidResponse) {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: "stat:10:100:2:300:101",
                 observed: nil
@@ -35,14 +35,14 @@ import Testing
         }
     }
 
-    @Test func missingExpectedFingerprintFailsWithRetryableError() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+    @Test func missingExpectedFingerprintDoesNotClaimMacUnreachable() {
+        #expect(throws: ChatArtifactError.invalidResponse) {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: nil,
                 observed: "stat:10:100:2:300:101"
             )
         }
-        #expect(throws: ChatArtifactError.macUnreachable) {
+        #expect(throws: ChatArtifactError.invalidResponse) {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: nil,
                 observed: nil
@@ -51,11 +51,12 @@ import Testing
     }
 
     @Test func presentLegacyFingerprintShapeIsRejected() {
-        #expect(throws: ChatArtifactError.macUnreachable) {
+        #expect(throws: ChatArtifactError.invalidResponse) {
             try WorkspaceChangesContentFingerprintPolicy().validate(
                 expected: "stat:10:100",
                 observed: "stat:10:100"
             )
         }
     }
+
 }

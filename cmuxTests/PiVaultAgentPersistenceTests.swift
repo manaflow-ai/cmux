@@ -105,7 +105,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.title, "Implement Antigravity notifications")
         XCTAssertEqual(entry.cwd, "/tmp/antigravity repo")
         XCTAssertEqual(
-            entry.resumeCommand,
+            entry.copyResumeCommand,
             "cd -- '/tmp/antigravity repo' 2>/dev/null || [ ! -d '/tmp/antigravity repo' ] && 'agy' '--conversation' 'antigravity-conversation-123'"
         )
     }
@@ -147,7 +147,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
         XCTAssertEqual(filtered.map(\.sessionId), ["conversation-b"])
         XCTAssertEqual(
-            filtered.first?.resumeCommand,
+            filtered.first?.copyResumeCommand,
             "cd -- '/tmp/antigravity repo' 2>/dev/null || [ ! -d '/tmp/antigravity repo' ] && 'agy' '--conversation' 'conversation-b'"
         )
     }
@@ -256,7 +256,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
 
         let entry = try XCTUnwrap(entries.first)
         XCTAssertEqual(entry.sessionId, "native-session-123")
-        XCTAssertEqual(entry.resumeCommand, "cd -- '/tmp/acme' 2>/dev/null || [ ! -d '/tmp/acme' ] && 'acme-agent' '--session' 'native-session-123'")
+        XCTAssertEqual(entry.copyResumeCommand, "cd -- '/tmp/acme' 2>/dev/null || [ ! -d '/tmp/acme' ] && 'acme-agent' '--session' 'native-session-123'")
     }
 
     func testBuiltInGrokRegistrationUsesNativeSessionDirectory() {
@@ -414,7 +414,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         )
 
         XCTAssertNil(entry.resumeWorkingDirectory)
-        XCTAssertEqual(entry.resumeCommand, "'acme-agent' '--session' 'session-123'")
+        XCTAssertEqual(entry.copyResumeCommand, "'acme-agent' '--session' 'session-123'")
     }
 
     func testRegisteredAgentJSONLNativeSessionIDOverridesPathFallback() async throws {
@@ -682,7 +682,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
         XCTAssertEqual(entry.fileURL?.resolvingSymlinksInPath(), historyURL.resolvingSymlinksInPath())
         XCTAssertEqual(
-            entry.resumeCommand,
+            entry.copyResumeCommand,
             "cd -- '/tmp/grok repo' 2>/dev/null || [ ! -d '/tmp/grok repo' ] && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' 'grok-session-123' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
@@ -834,7 +834,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.title, "Find sessions under shell GROK_HOME")
         XCTAssertEqual(entry.cwd, cwd)
         XCTAssertEqual(
-            entry.resumeCommand,
+            entry.copyResumeCommand,
             "cd -- '/tmp/grok observed home' 2>/dev/null || [ ! -d '/tmp/grok observed home' ] && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' '\(sessionId)' '-m' 'grok-4' '--permission-mode' 'auto' '--sandbox' 'danger-full-access'"
         )
     }
@@ -895,7 +895,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.sessionId, sessionId)
         XCTAssertEqual(entry.title, "Find sessions under custom hook state")
         XCTAssertEqual(
-            entry.resumeCommand,
+            entry.copyResumeCommand,
             "cd -- '/tmp/grok custom state' 2>/dev/null || [ ! -d '/tmp/grok custom state' ] && 'env' 'GROK_HOME=\(grokHome.path)' 'grok' '-r' '\(sessionId)' '-m' 'grok-4'"
         )
     }
@@ -946,7 +946,7 @@ final class PiVaultAgentPersistenceTests: XCTestCase {
         XCTAssertEqual(entry.cwd, cwd)
         XCTAssertEqual(entry.gitBranch, "issue-4394-grok-vault-resume")
         XCTAssertEqual(
-            entry.resumeCommand,
+            entry.copyResumeCommand,
             "cd -- '/tmp/custom grok repo' 2>/dev/null || [ ! -d '/tmp/custom grok repo' ] && 'env' 'GROK_HOME=\(tempDir.path)' 'custom-grok' '-r' '\(sessionId)'"
         )
     }

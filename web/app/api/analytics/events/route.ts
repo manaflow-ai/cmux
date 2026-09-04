@@ -28,8 +28,6 @@ import {
   isAllowedAnalyticsEvent,
 } from "../../../../services/analytics/iosEventPolicy";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const POSTHOG_CAPTURE_TIMEOUT_MS = 10_000;
 
@@ -65,14 +63,22 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // fails open. Only genuine check failures reject the event.
     const rateLimitId = process.env.CMUX_ANALYTICS_RATE_LIMIT_ID?.trim();
     if (process.env.VERCEL === "1" && rateLimitId) {
-      const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
-      if (rateLimited || error === "blocked") {
-        return jsonResponse({ error: "rate_limited" }, 429);
-      }
-      if (error === "not-found") {
-        console.warn("analytics.events.rate_limit_not_found; failing open", rateLimitId);
-      } else if (error) {
-        console.error("analytics.events.rate_limit_error", error);
+      try {
+        const { error, rateLimited } = await dependencies.checkRateLimit(rateLimitId, { request });
+        if (rateLimited || error === "blocked") {
+          return jsonResponse({ error: "rate_limited" }, 429);
+        }
+        if (error === "not-found") {
+          console.warn("analytics.events.rate_limit_not_found; failing open", rateLimitId);
+        } else if (error) {
+          console.error("analytics.events.rate_limit_error", { failure: "check_error" });
+          return jsonResponse({ error: "analytics_unavailable" }, 503);
+        }
+      } catch {
+        // Do not let a firewall transport failure become a platform 500. The
+        // mobile uploader retries 5xx responses, so return an explicit
+        // backpressure response instead of multiplying the failed check.
+        console.error("analytics.events.rate_limit_error", { failure: "check_failed" });
         return jsonResponse({ error: "analytics_unavailable" }, 503);
       }
     }
@@ -85,9 +91,18 @@ export function makeAnalyticsEventsHandler(dependencies: AnalyticsEventsDependen
     // gate, not auth. The PostHog key is already public (the web client posts to
     // r.cmux.com directly), so an anonymous proxy is no weaker than today.
     //
-    const user = await dependencies.verifyRequest(request, {
-      allowCookie: false,
-    });
+    let user: { readonly id: string } | null = null;
+    try {
+      user = await dependencies.verifyRequest(request, {
+        allowCookie: false,
+      });
+    } catch {
+      // Analytics deliberately accepts anonymous events. If Stack Auth is
+      // degraded, preserve that contract and forward with the namespaced
+      // anonymous identity rather than turning telemetry into an auth retry
+      // storm or an HTTP 500.
+      console.warn("analytics.events.auth_unavailable; continuing anonymously");
+    }
 
     const body = await readBoundedJsonObject(request, MAX_ANALYTICS_REQUEST_BYTES);
     if (!body.ok) {

@@ -4,6 +4,9 @@ import Testing
 
 private let compactIrohQRCoder = CmxAttachTicketCompactCoder()
 private let compactIrohQREndpointID = String(repeating: "c", count: 64)
+private let compactIrohQRTarget = CmxPairingURLScheme(
+    iOSBundleIdentifier: "dev.cmux.app.beta"
+)!
 
 private func compactIrohQRExpiry() -> Date {
     Date(timeIntervalSince1970: 4_000_000_000)
@@ -88,14 +91,19 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     #expect(hints.isEmpty)
     let pairingURL = try #require(CmxPairingQRCode().encode(
         ticket,
-        routeDisclosureMode: .irohIdentityOnly
+        routeDisclosureMode: .irohIdentityOnly,
+        pairingURLScheme: compactIrohQRTarget
     ))
+    // The Mac device id is deliberately part of the minimal grammar: the
+    // decoded ticket must name the peer intent (`expectedPeerDeviceID`) the
+    // irx transport requires before it will dial, and a fresh pairing has no
+    // other source for it. It identifies but never authorizes; admission
+    // stays the only authority.
     #expect(
         pairingURL
-            == "\(CmxPairingURLScheme.current)://attach?v=3&i=\(compactIrohQREndpointID)"
+            == "\(compactIrohQRTarget.rawValue)://attach?v=3&i=\(compactIrohQREndpointID)&d=mac-1"
     )
     #expect(!pairingURL.contains("payload="))
-    #expect(!pairingURL.contains("mac-1"))
     #expect(!pairingURL.contains(privateAddress))
     #expect(!pairingURL.contains(relayURL))
     #expect(!pairingURL.contains(websocketURL))
@@ -105,19 +113,21 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         URLComponents(url: parsedURL, resolvingAgainstBaseURL: false)
     )
     let pairingDecoded = try CmxPairingQRCode().decode(components)
-    #expect(pairingDecoded.routes == [
-        try CmxAttachRoute(
-            id: "iroh",
-            kind: .iroh,
-            endpoint: .peer(
-                identity: CmxIrohPeerIdentity(endpointID: compactIrohQREndpointID),
-                pathHints: []
-            )
-        ),
-    ])
-    #expect(pairingDecoded.macDeviceID.isEmpty)
+    let expectedPairingRoute = try CmxAttachRoute(
+        id: "iroh",
+        kind: .iroh,
+        endpoint: .peer(
+            identity: CmxIrohPeerIdentity(endpointID: compactIrohQREndpointID),
+            pathHints: []
+        )
+    )
+    #expect(pairingDecoded.routes == [expectedPairingRoute])
+    #expect(pairingDecoded.macDeviceID == "mac-1")
     #expect(pairingDecoded.macDisplayName == nil)
     #expect(pairingDecoded.macUserID == nil)
+    // Endpoint-only v3 codes intentionally omit compatibility metadata. Keep
+    // that absence distinguishable from an explicitly incompatible version.
+    #expect(pairingDecoded.macPairingCompatibilityVersion == nil)
     #expect(pairingDecoded.macAppVersion == nil)
     #expect(pairingDecoded.macAppBuild == nil)
     #expect(pairingDecoded.expiresAt == nil)
@@ -128,7 +138,7 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
         .replacingOccurrences(of: "/", with: "_")
         .replacingOccurrences(of: "=", with: "")
     let beforeURL =
-        "\(CmxPairingURLScheme.current)://attach?v=1&payload=\(compactBase64)"
+        "\(compactIrohQRTarget.rawValue)://attach?v=1&payload=\(compactBase64)"
     let beforeImage = try #require(CmxPairingQRBitmap().makeImage(payload: beforeURL))
     let afterImage = try #require(CmxPairingQRBitmap().makeImage(payload: pairingURL))
     let quietZone = CmxPairingQRBitmap.quietZoneModules * 2
@@ -140,7 +150,10 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
     )
     #expect(pairingURL.utf8.count < beforeURL.utf8.count)
     #expect(afterModules < beforeModules)
-    #expect(afterModules <= 41)
+    // 45 = one QR version above the endpoint-only 41: the `d` device-id field
+    // buys working irx peer intent for one version step, still far below the
+    // 57-module compact v1 payload.
+    #expect(afterModules <= 45)
 
     let tailscaleOnly = try CmxAttachTicket(
         workspaceID: "",
@@ -156,5 +169,24 @@ private func compactIrohQRHostPortRoute() throws -> CmxAttachRoute {
             tailscaleOnly,
             routeDisclosureMode: .irohIdentityOnly
         )
+    }
+}
+
+@Test func identityOnlyQRDecodeToleratesLegacyURLsWithoutDeviceID() throws {
+    // Pre-`d` encoders mint exactly `v` + `i`. Those URLs must keep decoding
+    // (empty device id), and a duplicated or unknown parameter still fails.
+    let base = "\(compactIrohQRTarget.rawValue)://attach?v=3&i=\(compactIrohQREndpointID)"
+    let legacy = try #require(URLComponents(string: base))
+    let decoded = try CmxPairingQRCode().decode(legacy)
+    #expect(decoded.macDeviceID.isEmpty)
+    #expect(decoded.routes.count == 1)
+
+    let doubledDevice = try #require(URLComponents(string: base + "&d=a&d=b"))
+    #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+        _ = try CmxPairingQRCode().decode(doubledDevice)
+    }
+    let unknownParameter = try #require(URLComponents(string: base + "&x=1"))
+    #expect(throws: MobileSyncPairingPayloadError.invalidURL) {
+        _ = try CmxPairingQRCode().decode(unknownParameter)
     }
 }

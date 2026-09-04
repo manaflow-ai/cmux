@@ -70,7 +70,7 @@ struct ProUpgradeCard: View {
         }
         return String(
             localized: "settings.account.pro.subtitle",
-            defaultValue: "Cloud dev boxes, the iOS app, and cmux AI. $30/month, or $288/year."
+            defaultValue: "Cloud dev boxes, the iOS app, and cmux AI. $50/month, or $480/year."
         )
     }
 

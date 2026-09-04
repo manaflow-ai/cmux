@@ -16,8 +16,10 @@ DMG="$TMP_DIR/cmux-nightly-macos.dmg"
 IMMUTABLE="$TMP_DIR/cmux-nightly-immutable.dmg"
 FAKE_BIN="$TMP_DIR/bin"
 LOG="$TMP_DIR/calls.log"
+HELPER_STATE="$TMP_DIR/helper-notarization.state"
 mkdir -p "$APP/Contents/MacOS" "$FAKE_BIN"
 printf 'signed-app-fixture\n' > "$APP/Contents/MacOS/cmux"
+printf 'submission_id=fixture-id\ncdhash=fixture-cdhash\n' > "$HELPER_STATE"
 
 cat > "$FAKE_BIN/create-dmg" <<'EOF'
 #!/usr/bin/env bash
@@ -48,6 +50,13 @@ cat > "$FAKE_BIN/hdiutil" <<'EOF'
 set -euo pipefail
 printf 'hdiutil %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
 case "${1:-}" in
+  convert)
+    # hdiutil convert <in> -quiet -format ULMO -ov -o <out>
+    printf 'dmg-fixture-ulmo\n' > "${@: -1}"
+    ;;
+  imageinfo)
+    printf 'Format: %s\n' "${CMUX_TEST_DMG_FORMAT:-ULMO}"
+    ;;
   attach)
     mount_dir="${@: -1}"
     cp -R "$CMUX_TEST_SOURCE_APP" "$mount_dir/cmux NIGHTLY.app"
@@ -70,6 +79,12 @@ set -euo pipefail
 printf '%s %s\n' "$(basename "$0")" "$*" >> "$CMUX_TEST_CALL_LOG"
 EOF
 done
+
+cat > "$FAKE_BIN/notarize-computer-use-helper" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'notarize-helper %s\n' "$*" >> "$CMUX_TEST_CALL_LOG"
+EOF
 chmod +x "$FAKE_BIN"/*
 
 run_helper() {
@@ -85,6 +100,9 @@ run_helper() {
   CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
   CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
   CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+  CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+  CMUX_COMPUTER_USE_NOTARY_SUBMISSION_FILE="$HELPER_STATE" \
+  CMUX_APP_ENTITLEMENTS="$TMP_DIR/cmux.nightly.entitlements" \
   APPLE_ID=fixture@example.com \
   APPLE_APP_SPECIFIC_PASSWORD=fixture-password \
   APPLE_TEAM_ID=FIXTURETEAM \
@@ -94,6 +112,12 @@ run_helper() {
 
 run_helper
 
+if ! grep -Fxq \
+  "notarize-helper --finish $HELPER_STATE $APP $TMP_DIR/cmux.nightly.entitlements Developer ID Application: Fixture" \
+  "$LOG"; then
+  echo "FAIL: nightly packaging did not finish the early Computer Use notarization" >&2
+  exit 1
+fi
 if [ "$(grep -c '^xcrun notarytool submit ' "$LOG")" -ne 1 ]; then
   echo "FAIL: expected exactly one notarization submission" >&2
   exit 1
@@ -107,11 +131,24 @@ line_of() {
   grep -nF "$1" "$LOG" | head -n 1 | cut -d: -f1
 }
 submit_line="$(line_of "xcrun notarytool submit $DMG")"
+helper_notary_line="$(line_of "notarize-helper --finish $HELPER_STATE $APP")"
+create_dmg_line="$(line_of "create-dmg --no-code-sign $APP")"
+convert_line="$(line_of "hdiutil convert ")"
+dmg_sign_line="$(line_of "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $DMG")"
+if [ -z "$convert_line" ] || [ -z "$dmg_sign_line" ] || ! [ "$create_dmg_line" -lt "$convert_line" ] || ! [ "$convert_line" -lt "$dmg_sign_line" ]; then
+  echo "FAIL: DMG must be re-encoded to LZMA between create-dmg and DMG signing" >&2
+  exit 1
+fi
+if ! grep -Fq "hdiutil convert" "$LOG" || ! grep -Eq "hdiutil convert .* -format ULMO .* -o $DMG\$" "$LOG"; then
+  echo "FAIL: DMG was not converted to ULMO at $DMG" >&2
+  exit 1
+fi
 app_staple_line="$(line_of "xcrun stapler staple $APP")"
 dmg_staple_line="$(line_of "xcrun stapler staple $DMG")"
 attach_line="$(line_of "hdiutil attach $DMG")"
 mounted_spctl_line="$(line_of "spctl -a -vv --type execute $TMP_DIR/cmux-nightly-mount")"
-if ! [ "$submit_line" -lt "$app_staple_line" ] \
+if ! [ "$helper_notary_line" -lt "$create_dmg_line" ] \
+  || ! [ "$submit_line" -lt "$app_staple_line" ] \
   || ! [ "$app_staple_line" -lt "$dmg_staple_line" ] \
   || ! [ "$dmg_staple_line" -lt "$attach_line" ] \
   || ! [ "$attach_line" -lt "$mounted_spctl_line" ]; then

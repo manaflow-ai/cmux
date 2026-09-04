@@ -139,4 +139,19 @@ import Testing
             "kind:windowOpened",
         ])
     }
+
+    @Test func preorderedGroupingMatchesTheSortingEntryPoint() {
+        let grouper = VaultHistoryGrouper(calendar: Self.utcCalendar())
+        let events = [
+            event(id: "old", secondsAgo: 60),
+            event(id: "new", secondsAgo: 10),
+            event(id: "middle", secondsAgo: 30),
+        ]
+        let newestFirst = events.sorted(by: VaultHistoryEvent.newestFirst)
+
+        #expect(
+            grouper.groups(newestFirstEvents: newestFirst, by: .date, now: Self.now)
+                == grouper.groups(events: events, by: .date, now: Self.now)
+        )
+    }
 }

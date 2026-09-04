@@ -7,6 +7,27 @@ import {
 } from "../services/analytics/stripeBilling";
 
 describe("Stripe billing analytics", () => {
+  test("does not use the real transport in a test process", async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      return new Response(null, { status: 200 });
+    }) as typeof fetch;
+    try {
+      await captureBillingCheckoutStarted({
+        sessionId: "cs_test_guard",
+        subject: { scope: "user", stackUserId: "stack-user-test" },
+        plan: "pro",
+        billingInterval: "month",
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(calls).toBe(0);
+  });
+
   test("joins paid checkout events to the Stack PostHog identity", async () => {
     let capturedInit: RequestInit | undefined;
     const postHogFetch = (async (_input: string | URL | Request, init?: RequestInit) => {

@@ -123,7 +123,7 @@ final class RovoDevSessionIndexTests: XCTestCase {
         XCTAssertEqual(entry.cwd, "/tmp/rovo repo")
         XCTAssertEqual(entry.fileURL?.lastPathComponent, "session_context.json")
         XCTAssertEqual(
-            entry.resumeCommand,
+            entry.copyResumeCommand,
             "cd -- '/tmp/rovo repo' 2>/dev/null || [ ! -d '/tmp/rovo repo' ] && acli rovodev run --restore 'session with space'"
         )
     }
@@ -143,8 +143,13 @@ final class RovoDevSessionIndexTests: XCTestCase {
 
         XCTAssertEqual(outcome.entries, [])
         XCTAssertEqual(outcome.errors.count, 1)
-        XCTAssertTrue(outcome.errors[0].contains("Rovo Dev: cannot read metadata"))
-        XCTAssertTrue(outcome.errors[0].contains("metadata.json"))
+        XCTAssertEqual(
+            outcome.errors[0],
+            String(
+                localized: "sessionIndex.search.providerFailure",
+                defaultValue: "Some session history could not be searched"
+            )
+        )
     }
 
     func testRovoDevSessionIndexMissingRootIsEmptyWithoutError() throws {

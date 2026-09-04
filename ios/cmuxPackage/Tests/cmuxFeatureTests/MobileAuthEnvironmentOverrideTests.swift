@@ -2,6 +2,7 @@ import CMUXAuthCore
 import CmuxMobileShell
 import CmuxMobileTransport
 import Foundation
+import StackAuth
 import Testing
 @testable import cmuxFeature
 
@@ -28,6 +29,10 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
     private static let productionProjectID = "9790718f-14cd-4f7e-824d-eaf527a82b82"
     /// The development Stack project id (`CmuxAuthRuntime.AuthConfig`).
     private static let developmentProjectID = "454ecd03-1db2-4050-845e-4ce5b0cd9895"
+
+    @Test func oauthBrowserCookiesAreNeverSharedWithAnotherIOSBuild() {
+        #expect(MobileAuthComposition.oauthBrowserSessionPrivacy == .ephemeral)
+    }
 
     /// Write `localConfig` as `LocalConfig.plist` inside a fresh directory
     /// bundle, mirroring how a build bundles the override plist.
@@ -97,7 +102,7 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(MobileAuthComposition.resolvedAuthEnvironment(
             isDevelopmentBuild: false,
             overrides: ["AuthEnvironment": "development"]
-        ) == .development)
+        ) == .production)
     }
 
     @Test func overrideIsCaseInsensitiveAndTrimmed() {
@@ -181,6 +186,27 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(overrides["ApiBaseURL"] == "http://localhost:8123")
     }
 
+    @Test func productionBuildCannotKeepDevelopmentAuthOrAPIOverrides() {
+        let resolved = MobileAuthComposition.resolvedAuthEnvironment(
+            isDevelopmentBuild: false,
+            overrides: [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "https://cmux-staging.vercel.app",
+            ]
+        )
+        #expect(resolved == .production)
+
+        let safe = MobileAuthComposition.productionSafeOverrides(
+            [
+                "AuthEnvironment": "development",
+                "ApiBaseURL": "https://cmux-staging.vercel.app",
+            ],
+            authEnvironment: resolved
+        )
+        #expect(safe["AuthEnvironment"] == "production")
+        #expect(safe["ApiBaseURL"] == "https://cmux.com")
+    }
+
     // MARK: - Dev sign-in shortcut gating
 
     @Test func productionAuthDisablesTheFortyTwoShortcut() {
@@ -203,6 +229,23 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             policy: MobileAuthBuildPolicy(includesFortyTwoShortcut: false),
             resolvedEnvironment: .development
         ) == false)
+    }
+
+    @Test func productionAuthCannotReplaceStoredSessionFromDevMarkers() {
+        let environment = [
+            "CMUX_DEV_AUTH_REPLACE_SESSION": "1",
+            "CMUX_UITEST_STACK_EMAIL": "production@example.com",
+            "CMUX_UITEST_STACK_PASSWORD": "password",
+        ]
+
+        #expect(!MobileAuthComposition.shouldReplaceStoredSessionWithAutoLogin(
+            includesDevAuth: false,
+            environment: environment
+        ))
+        #expect(MobileAuthComposition.shouldReplaceStoredSessionWithAutoLogin(
+            includesDevAuth: true,
+            environment: environment
+        ))
     }
 
     // MARK: - Project-switch detection (stale cross-project auth state)
@@ -373,5 +416,23 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
             isDebugBuild: true,
             isDevelopmentAuthChannel: false
         ) == "https://cmux-presence-dev-alice.acct.workers.dev")
+    }
+
+    @Test func productionPresenceCannotUseAStaleStagingOverride() throws {
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: "https://cmux-presence-dev-bob.acct.workers.dev",
+            isDebugBuild: false,
+            isDevelopmentAuthChannel: nil
+        ) == PresenceClient.productionServiceURL)
+
+        #expect(PresenceClient.resolvedServiceBaseURL(
+            environment: [PresenceClient.serviceURLEnvKey: "https://cmux-presence-dev-alice.acct.workers.dev"],
+            defaults: try freshDefaults(),
+            infoPlistValue: nil,
+            isDebugBuild: true,
+            isDevelopmentAuthChannel: false
+        ) == PresenceClient.productionServiceURL)
     }
 }

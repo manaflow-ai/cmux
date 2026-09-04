@@ -1,0 +1,53 @@
+{
+  "v": 1,
+  "type": "directory",
+  "rev": 42,
+  "payload": {
+    "routeContractVersion": 3,
+    "bindings": [
+      {
+        "bindingId": "611ffbbb-9f60-4601-ba39-4c241b900497",
+        "endpointId": "0fbffe130b96",
+        "deviceId": "77116c35",
+        "instanceTag": "irx",
+        "clientNamespace": "irx",
+        "homeRelayUrl": "https://usw1.relay.cmux.dev/",
+        "updatedAt": "2026-08-27T02:49:45Z",
+        "status": "active",
+        "revoked": false,
+        "appVersion": "0.31.4",
+        "releaseTrack": "internal",
+        "capabilities": ["cmux.irx.v1"],
+        "lastConfirmedAt": "2026-08-27T02:49:40Z"
+      },
+      {
+        "bindingId": "e1b78ec4-7b2e-4077-88a4-ec4da794a9c6",
+        "endpointId": "8de4b1c22a10",
+        "deviceId": null,
+        "instanceTag": null,
+        "clientNamespace": "irx",
+        "homeRelayUrl": null,
+        "updatedAt": null,
+        "status": "seeded",
+        "revoked": true
+      }
+    ],
+    "relayFleet": [
+      "https://usw1.relay.cmux.dev/",
+      "https://usc1.relay.cmux.dev/"
+    ],
+    "grantVerificationKeys": [
+      {
+        "keyId": "k1",
+        "alg": "EdDSA",
+        "publicKey": "MCow..."
+      }
+    ],
+    "issuedAt": "2026-08-27T02:49:45Z",
+    "ttlSeconds": 86400,
+    "minimumSupportedVersion": {
+      "mac": "0.30.0",
+      "ios": "1.4.0"
+    }
+  }
+}

@@ -129,6 +129,16 @@ import Testing
         expectIdentityRotated(from: generated, to: custom)
     }
 
+    @Test func workspaceGroupChangesEffectiveRequest() {
+        let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
+        let ungrouped = snapshot(template: template)
+        let grouped = snapshot(template: template, workspaceGroupID: "group-a")
+
+        #expect(!ungrouped.isRequestEquivalent(to: grouped))
+        expectIdentityRotated(from: ungrouped, to: grouped)
+        #expect(grouped.draft.workspaceGroupID == "group-a")
+    }
+
     @Test func workspaceNameUsesTrimmedWireValue() {
         let template = MobileTaskTemplate(name: "Codex", icon: "agent:codex", command: "codex")
         let padded = snapshot(template: template, workspaceName: "  Release checklist  ")
@@ -474,7 +484,11 @@ import Testing
             icon: "agent:codex",
             command: "codex"
         )
-        let captured = snapshot(template: template, macInstanceTag: "nightly")
+        let captured = snapshot(
+            template: template,
+            macInstanceTag: "nightly",
+            workspaceGroupID: "mac-a\u{1F}nightly\u{1F}group-a"
+        )
 
         let rebound = captured.withOperationID(UUID())
         #expect(rebound.macInstanceTag == "nightly")
@@ -487,6 +501,7 @@ import Testing
             from: JSONEncoder().encode(draft)
         )
         #expect(decoded.macInstanceTag == "nightly")
+        #expect(decoded.workspaceGroupID == "mac-a\u{1F}nightly\u{1F}group-a")
     }
 
     @Test func legacyDraftPayloadDecodesWithoutInstanceTag() throws {
@@ -499,6 +514,7 @@ import Testing
         )
         #expect(decoded.macInstanceTag == nil)
         #expect(decoded.macDeviceID == "mac-a")
+        #expect(decoded.workspaceGroupID == nil)
     }
 
     private func snapshot(
@@ -509,6 +525,7 @@ import Testing
         directory: String = "~/cmux",
         workspaceName: String = "",
         modelID: String? = nil,
+        workspaceGroupID: MobileWorkspaceGroupPreview.ID? = nil,
         attachments: [MobileTaskSubmissionAttachment] = []
     ) -> MobileTaskSubmissionSnapshot {
         MobileTaskSubmissionSnapshot(
@@ -519,6 +536,7 @@ import Testing
             macInstanceTag: macInstanceTag,
             directory: directory,
             workspaceName: workspaceName,
+            workspaceGroupID: workspaceGroupID,
             didEditDirectory: false,
             attachments: attachments,
             operationID: UUID()

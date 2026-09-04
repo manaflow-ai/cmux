@@ -44,6 +44,14 @@ pub struct RegistryAgentProjection {
     pub source_session: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RegistryAgentHookState {
+    pub terminal_id: TerminalPublicId,
+    pub agent_session_id: String,
+    pub applied_sequence: u64,
+    pub ended: bool,
+}
+
 impl RegistryAgentProjection {
     pub(crate) fn into_public_snapshot(self, session_id: &SessionPublicId) -> Value {
         json!({
@@ -63,6 +71,7 @@ pub struct RegistryPublicProjections {
     /// Oldest first, matching the in-memory notification ledger.
     pub notifications: Vec<RegistryNotificationProjection>,
     pub agents: Vec<RegistryAgentProjection>,
+    pub(crate) agent_hook_states: Vec<RegistryAgentHookState>,
     pub terminal_defaults: Option<DefaultColors>,
     pub frontend_projections: Vec<FrontendProjection>,
 }
@@ -183,11 +192,13 @@ impl WorkspaceRegistry {
         let live_terminals = self.live_terminal_public_ids()?;
         let notifications = self.durable_notifications(&live_terminals)?;
         let agents = self.durable_agents(None, None)?;
+        let agent_hook_states = self.durable_agent_hook_states()?;
         let terminal_defaults = self.durable_terminal_defaults()?;
         let frontend_projections = self.public_frontend_projections()?;
         Ok(RegistryPublicProjections {
             notifications,
             agents,
+            agent_hook_states,
             terminal_defaults,
             frontend_projections,
         })
@@ -198,7 +209,22 @@ impl WorkspaceRegistry {
         terminal: Option<&TerminalPublicId>,
         state: Option<&str>,
     ) -> anyhow::Result<Vec<RegistryAgentProjection>> {
-        self.durable_agents(terminal, state)
+        let mut agents = self.durable_agents(terminal, state)?;
+        agents.retain(|agent| {
+            (agent.source != "hook" || agent.state != "done")
+                && !agent
+                    .source_session
+                    .as_deref()
+                    .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+        });
+        for agent in &mut agents {
+            if agent.source_session.as_deref().is_some_and(|value| {
+                value.starts_with("cmux-hook-sequence:") || value.starts_with("cmux-hook-ended:")
+            }) {
+                agent.source_session = None;
+            }
+        }
+        Ok(agents)
     }
 
     fn live_terminal_public_ids(&self) -> anyhow::Result<HashSet<TerminalPublicId>> {
@@ -285,9 +311,6 @@ impl WorkspaceRegistry {
                       projection.result_json,
                       projection.committed_revision
                FROM resource_agent_projections projection
-               JOIN resource_terminals terminal
-                 ON terminal.public_id = projection.terminal_id
-                AND terminal.deleted_revision IS NULL
                WHERE (?1 IS NULL OR projection.terminal_id = ?1)
              )
              SELECT terminal_id, result_json, committed_revision
@@ -339,6 +362,34 @@ impl WorkspaceRegistry {
         }
         agents.reverse();
         Ok(agents)
+    }
+
+    fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
+        let mut statement = self.connection.prepare(
+            "SELECT terminal_id, agent_session_id, applied_sequence, ended
+             FROM resource_agent_hook_state
+             ORDER BY terminal_id ASC",
+        )?;
+        statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, bool>(3)?,
+                ))
+            })?
+            .map(|row| {
+                let (terminal_id, agent_session_id, applied_sequence, ended) = row?;
+                Ok(RegistryAgentHookState {
+                    terminal_id: TerminalPublicId::parse(terminal_id)?,
+                    agent_session_id,
+                    applied_sequence: u64::try_from(applied_sequence)
+                        .context("agent hook sequence is negative")?,
+                    ended,
+                })
+            })
+            .collect()
     }
 
     fn durable_terminal_defaults(&self) -> anyhow::Result<Option<DefaultColors>> {
@@ -422,9 +473,10 @@ impl WorkspaceRegistry {
                 ) = row?;
                 validate_identifier("frontend", &frontend)?;
                 validate_identifier("projection scope", &scope)?;
-                FrontendProjectionPublicId::parse(subject_key.clone())?;
+                FrontendProjectionPublicId::parse(subject_key.as_str())?;
                 anyhow::ensure!(
-                    schema_version == 1,
+                    schema_version
+                        == i64::from(RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION),
                     "frontend projection {subject_key} has unsupported schema version {schema_version}"
                 );
                 anyhow::ensure!(
@@ -601,6 +653,7 @@ mod tests {
                                 lifecycle: TerminalLifecycle::Launching,
                                 launch_spec: json!({}),
                                 exit: None,
+                                on_exit: TerminalOnExit::Close,
                             },
                         },
                         ResourceChange::UpsertTab(RegistryTab {
@@ -778,9 +831,14 @@ mod tests {
                 "resource-api",
                 "session",
                 projection.as_str(),
-                1,
+                RESOURCE_API_FRONTEND_PROJECTION_SCHEMA_VERSION,
                 None,
-                &json!({"columns":[1,2]}),
+                &json!({
+                    "frontend_id":"cmux-test",
+                    "window_id":"window-test",
+                    "generation":"launch-test",
+                    "projection":{"columns":[1,2]},
+                }),
             )
             .unwrap();
 
@@ -799,7 +857,10 @@ mod tests {
         assert_eq!(defaults.palette[255], Some(Rgb { r: 0xfd, g: 0xfe, b: 0xfe }));
         assert_eq!(restored.frontend_projections.len(), 1);
         assert_eq!(restored.frontend_projections[0].subject_key, projection.as_str());
-        assert_eq!(restored.frontend_projections[0].projection, json!({"columns":[1,2]}));
+        assert_eq!(
+            restored.frontend_projections[0].projection["projection"],
+            json!({"columns":[1,2]})
+        );
     }
 
     #[test]

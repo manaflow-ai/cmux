@@ -27,9 +27,8 @@ import {
   verifyRequest,
   type AuthedUser,
 } from "../../../../services/vms/auth";
+import { relayAuthenticationError } from "../../../../services/relay/errors";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 32 * 1_024;
 
@@ -66,7 +65,12 @@ async function authenticatedAccount(
   request: Request,
   deps: RelayPreferenceDeps,
 ): Promise<AuthedUser | Response> {
-  const user = await deps.verifyRequest(request);
+  let user: AuthedUser | null;
+  try {
+    user = await deps.verifyRequest(request);
+  } catch (error) {
+    throw relayAuthenticationError(error);
+  }
   if (!user) return unauthorized();
   await runRelayEffect(enforceRelayRateLimit({
     request,

@@ -102,7 +102,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             workspaceId: workspace.id,
             runtimeSpawnPolicy: .pacedSessionRestore
         )
-        workspace.dockSplit.panels[dockPanel.id] = dockPanel
+        workspace.requiredDockSplitForTesting.panels[dockPanel.id] = dockPanel
 
         let explicitLineages = [
             TerminalFontSizeLineage(basePoints: 8, isExplicitOverride: true),
@@ -288,7 +288,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             workspaceId: workspace.id,
             runtimeSpawnPolicy: .pacedSessionRestore
         )
-        workspace.dockSplit.panels[dockPanel.id] = dockPanel
+        workspace.requiredDockSplitForTesting.panels[dockPanel.id] = dockPanel
 
         firstPanel.surface.recordCurrentFontSizeLineage(
             TerminalFontSizeLineage(basePoints: 8, isExplicitOverride: true)
@@ -466,7 +466,7 @@ struct TerminalFontZoomSessionPersistenceTests {
         )
         #expect(firstWorkspace.closePanel(firstPanelID, force: true))
 
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = try #require(manager.addTab(select: false))
         let secondPanelID = try #require(secondWorkspace.focusedPanelId)
         let secondPaneID = try #require(
             secondWorkspace.bonsplitController.focusedPaneId
@@ -577,7 +577,7 @@ struct TerminalFontZoomSessionPersistenceTests {
             )
         )
 
-        let secondWorkspace = manager.addTab(select: false)
+        let secondWorkspace = try #require(manager.addTab(select: false))
         let secondPanelID = try #require(secondWorkspace.focusedPanelId)
         let secondPaneID = try #require(
             secondWorkspace.bonsplitController.focusedPaneId
@@ -923,7 +923,7 @@ struct TerminalFontZoomSessionPersistenceTests {
         #expect(workspace.adjustTerminalFontSizes(byRuntimePoints: -1) == 1)
         #expect(workspace._dockSplit == nil)
 
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
         let dockPanelID = try #require(
             dock.newSurface(kind: .terminal, inPane: rootPane, focus: false)
@@ -938,7 +938,7 @@ struct TerminalFontZoomSessionPersistenceTests {
     @Test("workspace zoom refreshes existing legacy Dock inheritance")
     func workspaceZoomRefreshesExistingLegacyDock() throws {
         let workspace = Workspace()
-        let dock = workspace.dockSplit
+        let dock = workspace.requiredDockSplitForTesting
         let rootPane = try #require(dock.bonsplitController.allPaneIds.first)
         let firstDockPanelID = try #require(
             dock.newSurface(kind: .terminal, inPane: rootPane, focus: false)

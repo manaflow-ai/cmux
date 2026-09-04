@@ -7,7 +7,8 @@ extension Workspace {
     func detachedSurfaceForDockSessionRestore(
         _ snapshot: SessionPanelSnapshot,
         snapshotWorkspaceId: UUID,
-        excludingStableIdentities: Set<UUID>
+        excludingStableIdentities: Set<UUID>,
+        restorableAgentIndex: RestorableAgentSessionIndex?
     ) -> DetachedSurfaceTransfer? {
         guard let paneId = bonsplitController.allPaneIds.first else { return nil }
         sessionRestoreIdentityExclusions.beginRestore(excluding: excludingStableIdentities)
@@ -16,10 +17,16 @@ extension Workspace {
             from: snapshot,
             inPane: paneId,
             snapshotWorkspaceId: snapshotWorkspaceId,
-            shouldRestoreSingleDefaultCloudTerminal: false
+            shouldRestoreSingleDefaultCloudTerminal: false,
+            restorableAgentIndex: restorableAgentIndex
         ) else {
             return nil
         }
-        return detachSurface(panelId: panelId)
+        guard let detached = detachSurface(panelId: panelId) else {
+            terminalStartupRestoreCoordinator.cancelPendingRestore(panelID: panelId)
+            _ = closePanel(panelId, force: true)
+            return nil
+        }
+        return detached
     }
 }

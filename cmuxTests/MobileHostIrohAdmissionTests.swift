@@ -2,6 +2,7 @@ import CMUXMobileCore
 import CmuxAgentChat
 import CmuxIrohTransport
 import CmuxMobileRPC
+import Darwin
 import Foundation
 @preconcurrency import Network
 import Testing
@@ -116,39 +117,19 @@ extension MobileHostAuthorizationTests {
         let attachURL = try #require(payload["attach_url"] as? String)
         let decoded = try CmxAttachTicketInput.decode(attachURL)
 
-        #expect(!CmxPairingQRCode().isPairingCodeURLString(attachURL))
+        // The compatibility code is the plain v2 grammar: the Iroh route is
+        // dropped (it rides the primary v3 code), the Tailscale route
+        // survives, and nothing token- or identity-shaped is encoded beyond
+        // the opaque `ub` account binding.
+        #expect(CmxPairingQRCode().isPairingCodeURLString(attachURL))
         #expect(decoded.routes == [tailscale])
         #expect(decoded.authToken == nil)
-        let sourceExpiry = try #require(ticket.expiresAt)
-        let legacyExpiry = try #require(decoded.expiresAt)
-        #expect(legacyExpiry > sourceExpiry.addingTimeInterval(365 * 24 * 60 * 60))
+        #expect(decoded.expiresAt == nil)
+        #expect(decoded.macUserEmail == nil)
+        #expect(decoded.macUserID == "opaque-user-id")
+        #expect(!attachURL.contains("payload="))
         #expect(!attachURL.contains(String(repeating: "a", count: 64)))
-
-        let components = try #require(URLComponents(string: attachURL))
-        let encoded = try #require(
-            components.queryItems?.first(where: { $0.name == "payload" })?.value
-        )
-        let legacyData = try #require(Self.decodeBase64URL(encoded))
-        let legacyObject = try #require(
-            JSONSerialization.jsonObject(with: legacyData) as? [String: Any]
-        )
-        #expect(legacyObject["version"] as? Int == CmxAttachTicket.currentVersion)
-        #expect(legacyObject["expiresAt"] != nil)
-        #expect(legacyObject["auth_token"] == nil)
-        #expect(legacyObject["macUserEmail"] == nil)
-        #expect(legacyObject["macUserID"] as? String == "opaque-user-id")
-        #expect((legacyObject["routes"] as? [[String: Any]])?.count == 1)
-    }
-
-    private static func decodeBase64URL(_ value: String) -> Data? {
-        var base64 = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let padding = base64.count % 4
-        if padding > 0 {
-            base64.append(String(repeating: "=", count: 4 - padding))
-        }
-        return Data(base64Encoded: base64)
+        #expect(!attachURL.contains("private@example.com"))
     }
 
     @Test func testBindingPublicationDoesNotWaitForPersistence() async {
@@ -168,7 +149,7 @@ extension MobileHostAuthorizationTests {
     }
 
     #if DEBUG
-    @Test func testMacIrohVerificationModeUsesTheSharedDefaultsContract() throws {
+    @Test func testMacIrohVerificationModeIgnoresTheRetiredReleaseRelayOnlyPreference() throws {
         let suiteName = "MobileHostIrohAdmissionTests.transport-mode.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -178,7 +159,7 @@ extension MobileHostAuthorizationTests {
             CmxIrohPathPreference.relayOnly.rawValue,
             forKey: CmxIrohPathPreference.defaultsKey
         )
-        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .relayOnly)
+        #expect(MobileHostIrohRuntime.debugTransportVerificationMode(defaults: defaults) == .automatic)
         defaults.set(
             CmxIrohTransportVerificationMode.directOnly.rawValue,
             forKey: CmxIrohTransportVerificationMode.debugDefaultsKey
@@ -238,6 +219,62 @@ extension MobileHostAuthorizationTests {
 @MainActor
 @Suite(.serialized)
 struct IrohTailscaleVersionSkewMacGateTests {
+    #if DEBUG
+    @Test func testIrohRPCMethodInventorySurvivesTheFramedWirePath() async throws {
+        let requestID = "iroh-rpc-inventory"
+        let request = Data(
+            #"{"id":"iroh-rpc-inventory","method":"mobile.rpc.methods","params":{}}"#.utf8
+        )
+        let transport = LegacyIOSCompatibilityByteTransport()
+        let authorization = try irohAdmissionContext()
+        let session = MobileHostConnection(
+            id: UUID(),
+            transport: transport,
+            firstFrameTimeoutNanoseconds: 0,
+            idleTimeoutNanoseconds: 0,
+            authorizeRequest: { request in
+                await MobileHostService.connectionAuthorizationError(
+                    for: request,
+                    authorization: authorization,
+                    stackAuthorization: { _ in
+                        .failure(MobileHostRPCError(
+                            code: "unauthorized",
+                            message: "Iroh admission must not use Stack authorization"
+                        ))
+                    }
+                )
+            },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { request in
+                await TerminalController.shared.mobileHostHandleRPC(request)
+            },
+            onClose: { _ in }
+        )
+        let runTask = Task { await session.run() }
+        await transport.enqueue(try MobileSyncFrameCodec.encodeFrame(request))
+
+        var responseBuffer = await transport.waitForSentBuffer()
+        let responsePayload = try #require(
+            MobileSyncFrameCodec.decodeFrames(from: &responseBuffer).first
+        )
+        let response = try #require(
+            JSONSerialization.jsonObject(with: responsePayload) as? [String: Any]
+        )
+        let result = try #require(response["result"] as? [String: Any])
+        let methods = try #require(result["methods"] as? [String])
+
+        #expect(response["id"] as? String == requestID)
+        #expect(response["ok"] as? Bool == true)
+        #expect(result["schema_version"] as? Int == 1)
+        #expect(methods == MobileHostService.irohReleaseGateRPCMethods)
+        #expect(methods == methods.sorted())
+        #expect(Set(methods).count == methods.count)
+
+        await transport.finishReceiving()
+        await runTask.value
+    }
+    #endif
+
     @Test func testReleasedIOSWireFrameRemainsAcceptedByLegacyTCPAuthorization() async throws {
         let legacyPayload = Data(
             #"""
@@ -344,6 +381,7 @@ struct IrohTailscaleVersionSkewMacGateTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
@@ -363,12 +401,28 @@ struct IrohTailscaleVersionSkewMacGateTests {
             buildFlavor: .stable
         )
         let plan = MobileHostService.startupPlan(
+            remoteControlDisabledByPolicy: false,
             legacyListenerEnabled: enabled,
             legacyListenerRunning: false
         )
 
         #expect(plan.activatesIroh)
         #expect(plan.startsLegacyListener)
+    }
+
+    private func irohAdmissionContext() throws -> MobileHostConnectionAuthorizationContext {
+        let endpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "a", count: 64)
+        )
+        let peer = CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "ios-test",
+            platform: .ios,
+            endpointID: endpointID,
+            identityGeneration: 1
+        )
+        return .irohAdmission(CmxIrohAdmittedPeer(peer: peer))
     }
 }
 
@@ -465,7 +519,19 @@ extension MobileHostAuthorizationTests {
     @Test func testIrohArtifactDescriptorFailuresPreserveFileAndCapacitySemantics() {
         #expect(
             MobileHostIrohArtifactTransferRegistry.Error.invalidFile.issueFailure
+                == .readFailed
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.fileNotFound.issueFailure
                 == .fileNotFound
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.permissionDenied.issueFailure
+                == .permissionDenied
+        )
+        #expect(
+            MobileHostIrohArtifactTransferRegistry.Error.notRegularFile.issueFailure
+                == .notRegularFile
         )
         #expect(
             MobileHostIrohArtifactTransferRegistry.Error.unavailable.issueFailure
@@ -475,6 +541,23 @@ extension MobileHostAuthorizationTests {
             MobileHostIrohArtifactTransferRegistry.Error.capacityExceeded.issueFailure
                 == .unavailable
         )
+    }
+
+    @Test func testIrohArtifactDescriptorRejectsSpecialFilesWithoutBlocking() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+            "cmux-iroh-artifact-fifo-\(UUID().uuidString)",
+            isDirectory: true
+        )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fifo = directory.appendingPathComponent("preview.png")
+        try #require(Darwin.mkfifo(fifo.path, 0o600) == 0)
+        let registry = MobileHostIrohArtifactTransferRegistry()
+        let peer = try irohPeer(endpointCharacter: "f")
+
+        await #expect(throws: MobileHostIrohArtifactTransferRegistry.Error.notRegularFile) {
+            try await registry.issue(canonicalPath: fifo.path, peer: peer)
+        }
     }
 
     @Test func testIrohArtifactCapabilityIsOpaquePeerBoundAndSeriallyResumable() async throws {

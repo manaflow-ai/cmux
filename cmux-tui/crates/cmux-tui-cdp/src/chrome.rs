@@ -47,7 +47,12 @@ impl Chrome {
 
     pub fn launch_with(options: &ChromeLaunchOptions) -> anyhow::Result<Self> {
         let (profile_dir, profile_ephemeral) = profile_dir_for(options)?;
-        std::fs::create_dir_all(&profile_dir)?;
+        std::fs::create_dir_all(&profile_dir).map_err(|error| {
+            anyhow::anyhow!(
+                "failed to create Chrome profile directory {}: {error}",
+                profile_dir.display()
+            )
+        })?;
         let mut command = Command::new(&options.binary);
         command.args(chrome_args_for(&profile_dir, options.mode));
         let mut child = command
@@ -59,37 +64,41 @@ impl Chrome {
                 anyhow::anyhow!("failed to launch Chrome at {}: {e}", options.binary.display())
             })?;
 
-        let stderr = child
-            .stderr
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("failed to capture Chrome stderr"))?;
+        let stderr = match child.stderr.take() {
+            Some(stderr) => stderr,
+            None => {
+                cleanup_failed_launch(&mut child, &profile_dir, profile_ephemeral);
+                anyhow::bail!("failed to capture Chrome stderr");
+            }
+        };
         let (tx, rx) = mpsc::channel();
-        std::thread::Builder::new().name("cmux-tui-cdp-chrome-stderr".into()).spawn(move || {
-            let mut reader = BufReader::new(stderr);
-            let mut line = String::new();
-            let mut sent = false;
-            loop {
-                line.clear();
-                match reader.read_line(&mut line) {
-                    Ok(0) | Err(_) => break,
-                    Ok(_) => {
-                        if !sent && let Some(url) = parse_devtools_url(&line) {
-                            let _ = tx.send(url);
-                            sent = true;
+        if let Err(error) =
+            std::thread::Builder::new().name("cmux-tui-cdp-chrome-stderr".into()).spawn(move || {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                let mut sent = false;
+                loop {
+                    line.clear();
+                    match reader.read_line(&mut line) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            if !sent && let Some(url) = parse_devtools_url(&line) {
+                                let _ = tx.send(url);
+                                sent = true;
+                            }
                         }
                     }
                 }
-            }
-        })?;
+            })
+        {
+            cleanup_failed_launch(&mut child, &profile_dir, profile_ephemeral);
+            return Err(anyhow::anyhow!("failed to start Chrome stderr reader: {error}"));
+        }
 
         let web_socket_url = match rx.recv_timeout(Duration::from_secs(10)) {
             Ok(url) => url,
             Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                if profile_ephemeral {
-                    let _ = std::fs::remove_dir_all(&profile_dir);
-                }
+                cleanup_failed_launch(&mut child, &profile_dir, profile_ephemeral);
                 anyhow::bail!(
                     "Chrome did not publish a DevTools endpoint within 10s (binary: {})",
                     options.binary.display()
@@ -114,6 +123,14 @@ impl Chrome {
             let _ = child.kill();
             let _ = child.wait();
         }
+    }
+}
+
+fn cleanup_failed_launch(child: &mut Child, profile_dir: &Path, profile_ephemeral: bool) {
+    let _ = child.kill();
+    let _ = child.wait();
+    if profile_ephemeral {
+        let _ = std::fs::remove_dir_all(profile_dir);
     }
 }
 
@@ -181,6 +198,31 @@ fn parse_devtools_url(line: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn failed_launch_cleanup_kills_child_and_removes_ephemeral_profile() {
+        let profile_dir =
+            std::env::temp_dir().join(format!("cmux-tui-cdp-cleanup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&profile_dir);
+        std::fs::create_dir_all(&profile_dir).unwrap();
+
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "failed_launch_cleanup_child"])
+            .env("CMUX_TUI_CDP_CLEANUP_CHILD", "1")
+            .spawn()
+            .unwrap();
+        cleanup_failed_launch(&mut child, &profile_dir, true);
+
+        assert!(!profile_dir.exists());
+        assert!(child.try_wait().unwrap().is_some());
+    }
+
+    #[test]
+    fn failed_launch_cleanup_child() {
+        if std::env::var_os("CMUX_TUI_CDP_CLEANUP_CHILD").is_some() {
+            std::thread::park();
+        }
+    }
 
     #[test]
     fn parses_devtools_endpoint() {

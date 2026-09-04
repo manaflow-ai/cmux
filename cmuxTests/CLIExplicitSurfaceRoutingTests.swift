@@ -10,6 +10,10 @@ struct CLIExplicitSurfaceRoutingTests {
             expectedMethod: "surface.read_text"
         )
         try assertExplicitSurfaceCommand(
+            arguments: ["read-selection", "--surface", Self.targetSurfaceRef],
+            expectedMethod: "surface.read_selection"
+        )
+        try assertExplicitSurfaceCommand(
             arguments: ["send", "--surface", Self.targetSurfaceRef, "hello"],
             expectedMethod: "surface.send_text",
             expectedText: "hello"
@@ -76,10 +80,10 @@ struct CLIExplicitSurfaceRoutingTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: ["read-screen", "--surface", "5", "--lines", "1"],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -94,6 +98,167 @@ struct CLIExplicitSurfaceRoutingTests {
         let readParams = try #require(requests.last?["params"] as? [String: Any])
         #expect(readParams["workspace_id"] as? String == Self.callerWorkspaceId)
         #expect(readParams["surface_id"] as? String == Self.numericSurfaceId)
+    }
+
+    @Test func readSelectionPlainOutputIncludesSourceContext() throws {
+        let (result, requests) = try runSelectionCommand(
+            name: "plain",
+            arguments: ["read-selection", "--surface", Self.targetSurfaceRef],
+            payload: Self.selectedSourcePayload
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.contains("filepreview"))
+        #expect(result.stdout.contains("/tmp/example.swift"))
+        #expect(result.stdout.contains("2-3"))
+        #expect(result.stdout.contains("selected source"))
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+    }
+
+    @Test func readSelectionJSONPreservesTheCompleteNoSelectionShape() throws {
+        let payload: [String: Any] = [
+            "has_selection": false,
+            "kind": "browser",
+            "text": "",
+            "base64": "",
+            "url": "https://example.test/document",
+            "workspace_id": Self.callerWorkspaceId,
+            "workspace_ref": "workspace:1",
+            "surface_id": Self.callerSurfaceId,
+            "surface_ref": "surface:1",
+        ]
+        let (result, requests) = try runSelectionCommand(
+            name: "json",
+            arguments: ["read-selection", "--surface", Self.targetSurfaceRef, "--json"],
+            payload: payload
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        let output = try #require(Self.jsonObject(
+            result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        #expect(output["has_selection"] as? Bool == false)
+        #expect(output["kind"] as? String == "browser")
+        #expect(output["text"] as? String == "")
+        #expect(output["base64"] as? String == "")
+        #expect(output["url"] as? String == "https://example.test/document")
+        #expect(output["workspace_id"] as? String == Self.callerWorkspaceId)
+        #expect(output["workspace_ref"] as? String == "workspace:1")
+        #expect(output["surface_id"] as? String == Self.callerSurfaceId)
+        #expect(output["surface_ref"] as? String == "surface:1")
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+    }
+
+    @Test func plainSelectionReadsSucceedWithAnExplicitNoSelectionMarker() throws {
+        let payload: [String: Any] = [
+            "has_selection": false,
+            "kind": "browser",
+            "text": "",
+            "base64": "",
+            "url": "https://example.test/document",
+        ]
+        let (result, requests) = try runSelectionCommand(
+            name: "plain-empty",
+            arguments: ["read-selection", "--surface", Self.targetSurfaceRef],
+            payload: payload
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(result.stdout.contains("Kind: browser"))
+        #expect(result.stdout.contains("URL: https://example.test/document"))
+        #expect(result.stdout.hasSuffix("Has selection: false\n"))
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+    }
+
+    @Test func readScreenSelectionAliasIsTextOnlyAndSucceedsWithoutASelection() throws {
+        let (selectedResult, selectedRequests) = try runSelectionCommand(
+            name: "alias",
+            arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--selection"],
+            payload: Self.selectedSourcePayload
+        )
+        #expect(selectedResult.status == 0, Comment(rawValue: selectedResult.stderr + selectedResult.stdout))
+        #expect(selectedResult.stdout == "selected source\n")
+        #expect(selectedRequests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+
+        let (emptyResult, emptyRequests) = try runSelectionCommand(
+            name: "empty",
+            arguments: ["read-screen", "--surface", Self.targetSurfaceRef, "--selection"],
+            payload: [
+                "has_selection": false,
+                "kind": "terminal",
+                "text": "",
+                "base64": "",
+            ]
+        )
+        #expect(emptyResult.status == 0, Comment(rawValue: emptyResult.stderr + emptyResult.stdout))
+        #expect(emptyResult.stdout == "Has selection: false\n")
+        #expect(emptyRequests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+    }
+
+    @Test func globalWindowSelectionReadDoesNotPrefocusTheAppWindow() throws {
+        let (result, requests) = try runSelectionCommand(
+            name: "window",
+            arguments: ["--window", Self.reproWindowId, "read-selection"],
+            payload: Self.selectedSourcePayload
+        )
+
+        #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
+        #expect(requests.compactMap { $0["method"] as? String } == ["surface.read_selection"])
+        let params = try #require(requests.first?["params"] as? [String: Any])
+        #expect(params["window_id"] as? String == Self.reproWindowId)
+        #expect(params["workspace_id"] == nil)
+        #expect(params["surface_id"] == nil)
+    }
+
+    @Test func refusedTerminalReadsAndWritesExitNonzero() throws {
+        let cases: [([String], String)] = [
+            (["read-screen", "--surface", Self.targetSurfaceRef], "surface.read_text"),
+            (["capture-pane", "--surface", Self.targetSurfaceRef], "surface.read_text"),
+            (["send", "--surface", Self.targetSurfaceRef, "hello"], "surface.send_text"),
+            (["send-key", "--surface", Self.targetSurfaceRef, "enter"], "surface.send_key"),
+        ]
+
+        for (arguments, expectedMethod) in cases {
+            try assertRefusedTerminalCommand(arguments: arguments, expectedMethod: expectedMethod)
+        }
+    }
+
+    private func assertRefusedTerminalCommand(
+        arguments: [String],
+        expectedMethod: String
+    ) throws {
+        let temporaryHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cli-refused-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: temporaryHome, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporaryHome) }
+
+        let execution = try runMockCommand(
+            arguments: arguments,
+            socketName: "refused",
+            environmentOverrides: [
+                "CFFIXED_USER_HOME": temporaryHome.path,
+                "HOME": temporaryHome.path,
+            ]
+        ) { line in
+            guard let payload = Self.jsonObject(line),
+                  let id = payload["id"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            return Self.v2Response(
+                id: id,
+                ok: false,
+                error: ["code": "invalid_params", "message": "Surface is not a terminal"]
+            )
+        }
+
+        let methods = try execution.state.requestObjects().compactMap { $0["method"] as? String }
+        #expect(methods == [expectedMethod])
+        #expect(!execution.result.timedOut, Comment(rawValue: execution.result.stderr))
+        #expect(
+            execution.result.status != 0,
+            Comment(rawValue: execution.result.stderr + execution.result.stdout)
+        )
+        #expect(execution.result.stderr.contains("invalid_params: Surface is not a terminal"))
     }
 
     @Test func closeSurfaceRejectsMissingExplicitRefWithoutMutation() throws {
@@ -138,10 +303,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--workspace", Self.reproWorkspaceRef,
             ],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -190,10 +355,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--surface", Self.missingSurfaceUUID,
             ],
             environment: environment,
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -240,10 +405,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--surface", "   ",
             ],
             environment: environment,
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -304,10 +469,10 @@ struct CLIExplicitSurfaceRoutingTests {
                 "--command", "echo nope",
             ],
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status != 0, Comment(rawValue: result.stderr + result.stdout))
@@ -343,6 +508,14 @@ struct CLIExplicitSurfaceRoutingTests {
             switch method {
             case "surface.read_text":
                 return Self.v2Response(id: id, ok: true, result: ["text": "agent screen\n"])
+            case "surface.read_selection":
+                return Self.v2Response(id: id, ok: true, result: [
+                    "has_selection": true,
+                    "kind": "filepreview",
+                    "text": "selected source",
+                    "file_path": "/tmp/example.swift",
+                    "line_range": ["start": 2, "end": 3],
+                ])
             case "surface.send_text", "surface.send_key":
                 return Self.v2Response(id: id, ok: true, result: ["surface_id": Self.targetSurfaceRef])
             default:
@@ -358,10 +531,10 @@ struct CLIExplicitSurfaceRoutingTests {
             executablePath: try Self.bundledCLIPath(),
             arguments: arguments,
             environment: cliEnvironment(socketPath: socketPath),
-            timeout: 5
+            timeout: Self.processTimeout
         )
 
-        #expect(handled.wait(timeout: .now() + 5) == .success)
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
         #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
         #expect(!result.timedOut, Comment(rawValue: result.stderr))
         #expect(result.status == 0, Comment(rawValue: result.stderr + result.stdout))
@@ -381,6 +554,88 @@ struct CLIExplicitSurfaceRoutingTests {
         }
     }
 
+    private func runMockCommand(
+        arguments: [String],
+        socketName: String,
+        environmentOverrides: [String: String] = [:],
+        handler: @escaping @Sendable (String) -> String
+    ) throws -> (result: ProcessRunResult, state: ServerState) {
+        let socketPath = Self.makeSocketPath(socketName)
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let handled = Self.startMockServer(
+            listenerFD: listenerFD,
+            state: state,
+            handler: handler
+        )
+        var environment = cliEnvironment(socketPath: socketPath)
+        environment.merge(environmentOverrides) { _, replacement in replacement }
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: environment,
+            timeout: Self.processTimeout
+        )
+
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        let errors = state.errorsSnapshot()
+        #expect(errors.isEmpty, Comment(rawValue: errors.joined(separator: "\n")))
+        return (result, state)
+    }
+
+    private func runSelectionCommand(
+        name: String,
+        arguments: [String],
+        payload: [String: Any]
+    ) throws -> (result: ProcessRunResult, requests: [[String: Any]]) {
+        let socketPath = Self.makeSocketPath(name)
+        let listenerFD = try Self.bindUnixSocket(at: socketPath)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+        }
+
+        let state = ServerState()
+        let payloadData = try JSONSerialization.data(withJSONObject: payload)
+        let payloadJSON = try #require(String(data: payloadData, encoding: .utf8))
+        let handled = Self.startMockServer(listenerFD: listenerFD, state: state) { line in
+            guard let request = Self.jsonObject(line),
+                  let id = request["id"] as? String,
+                  let method = request["method"] as? String else {
+                return Self.malformedRequestResponse(raw: line)
+            }
+            guard method == "surface.read_selection" else {
+                return Self.v2Response(
+                    id: id,
+                    ok: false,
+                    error: ["code": "unexpected_method", "message": method]
+                )
+            }
+            return Self.v2Response(
+                id: id,
+                ok: true,
+                result: Self.jsonObject(payloadJSON)
+            )
+        }
+
+        let result = Self.runProcess(
+            executablePath: try Self.bundledCLIPath(),
+            arguments: arguments,
+            environment: cliEnvironment(socketPath: socketPath),
+            timeout: Self.processTimeout
+        )
+
+        #expect(handled.wait(timeout: .now() + Self.serverTimeout) == .success)
+        #expect(state.errorsSnapshot().isEmpty, Comment(rawValue: state.errorsSnapshot().joined(separator: "\n")))
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        return (result, try state.requestObjects())
+    }
+
     private func cliEnvironment(socketPath: String) -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_SOCKET_PATH"] = socketPath
@@ -392,6 +647,11 @@ struct CLIExplicitSurfaceRoutingTests {
     }
 
     private static let callerWorkspaceId = "11111111-1111-1111-1111-111111111111"
+    // CI runners can cold-start the bundled CLI and its Swift runtime in a few
+    // seconds. Keep these waits bounded, but leave enough headroom that a slow
+    // runner does not turn an otherwise handled socket response into a timeout.
+    private static let processTimeout: TimeInterval = 60
+    private static let serverTimeout: TimeInterval = 60
     private static let callerSurfaceId = "22222222-2222-2222-2222-222222222222"
     private static let targetSurfaceRef = "surface:11"
     private static let numericSurfaceId = "33333333-3333-3333-3333-333333333333"
@@ -402,6 +662,20 @@ struct CLIExplicitSurfaceRoutingTests {
     private static let reproSecondSurfaceId = "44444444-4444-4444-4444-444444443223"
     private static let reproThirdSurfaceId = "44444444-4444-4444-4444-444444443224"
     private static let missingSurfaceUUID = "99999999-9999-9999-9999-999999999999"
+    private static var selectedSourcePayload: [String: Any] {
+        [
+            "has_selection": true,
+            "kind": "filepreview",
+            "text": "selected source",
+            "base64": "c2VsZWN0ZWQgc291cmNl",
+            "file_path": "/tmp/example.swift",
+            "line_range": ["start": 2, "end": 3],
+            "workspace_id": callerWorkspaceId,
+            "workspace_ref": "workspace:1",
+            "surface_id": callerSurfaceId,
+            "surface_ref": "surface:1",
+        ]
+    }
     private static var reproSurfaceRows: [[String: Any]] {
         [
             ["id": reproSelectedSurfaceId, "ref": "surface:3222", "index": 0, "focused": true],

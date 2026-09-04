@@ -10,6 +10,8 @@ struct NotificationFeedActions {
     let markUnread: @MainActor (MobileNotificationFeedItem) -> Void
     let markAllRead: @MainActor () -> Void
     let refresh: @MainActor @Sendable () async -> Void
+    let loadMore: @MainActor () -> Void
+    let filterChanged: @MainActor (MobileNotificationFeedFilter) -> Void
 }
 
 /// Production notification-feed presentation. This view owns only UI projection
@@ -19,13 +21,14 @@ struct NotificationFeedView: View {
     let projection: NotificationFeedProjection
     let refreshesOnAppear: Bool
     let actions: NotificationFeedActions
+    /// Mark-all-read cannot be undone in one gesture, so the toolbar button
+    /// only arms this confirmation instead of mutating directly.
+    @State private var isConfirmingMarkAllRead = false
 
     var body: some View {
         @Bindable var projection = projection
 
         VStack(spacing: 0) {
-            NotificationFeedFilterBar(selection: $projection.filter)
-            Divider()
             NotificationFeedList(
                 sections: projection.sections,
                 sourceItemCount: projection.sourceItemCount,
@@ -36,15 +39,21 @@ struct NotificationFeedView: View {
                 hasSearchQuery: !projection.searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                 status: status,
                 actions: actions,
-                loadMoreRows: { projection.extendRowWindow() }
+                loadMoreRows: {
+                    actions.loadMore()
+                    projection.extendRowWindow()
+                }
             )
         }
-        .navigationTitle(L10n.string("mobile.notificationFeed.title", defaultValue: "Notifications"))
-        .navigationBarTitleDisplayMode(.large)
+        // No title of its own (the tab names the screen), so collapse the
+        // large-title zone or the list opens with a bar-height blank strip.
+        .mobileInlineNavigationTitle()
         .toolbar {
-            if projection.sourceUnreadCount > 0 {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: actions.markAllRead) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if projection.sourceUnreadCount > 0 {
+                    Button {
+                        isConfirmingMarkAllRead = true
+                    } label: {
                         Label(
                             L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
                             systemImage: "envelope.open"
@@ -56,36 +65,65 @@ struct NotificationFeedView: View {
                     )
                     .accessibilityIdentifier("MobileNotificationFeedMarkAllRead")
                 }
+
+                NotificationFeedFilterMenu(selection: $projection.filter)
             }
+        }
+        .alert(
+            L10n.string(
+                "mobile.notificationFeed.markAllRead.confirmTitle",
+                defaultValue: "Mark all notifications as read?"
+            ),
+            isPresented: $isConfirmingMarkAllRead
+        ) {
+            Button(
+                L10n.string("mobile.notificationFeed.markAllRead", defaultValue: "Mark All Read"),
+                role: .destructive
+            ) {
+                actions.markAllRead()
+            }
+            .accessibilityIdentifier("MobileNotificationFeedMarkAllReadConfirm")
+            Button(L10n.string("mobile.common.cancel", defaultValue: "Cancel"), role: .cancel) {}
+                .accessibilityIdentifier("MobileNotificationFeedMarkAllReadCancel")
         }
         .task {
             guard refreshesOnAppear else { return }
             await actions.refresh()
         }
+        .onChange(of: projection.filter) { _, filter in
+            actions.filterChanged(filter)
+        }
         .accessibilityIdentifier("MobileNotificationFeed")
     }
 }
 
-private struct NotificationFeedFilterBar: View {
+/// The feed twin of `WorkspaceListFilterMenu`: read state lives in a toolbar
+/// menu instead of a segmented bar above the list, and the icon fills while a
+/// narrowing filter is active, mirroring Mail.
+private struct NotificationFeedFilterMenu: View {
     @Binding var selection: MobileNotificationFeedFilter
 
     var body: some View {
-        Picker(
-            L10n.string("mobile.notificationFeed.filter.label", defaultValue: "Notification filter"),
-            selection: $selection
-        ) {
-            Text(L10n.string("mobile.notificationFeed.filter.all", defaultValue: "All"))
+        Menu {
+            Picker(
+                L10n.string("mobile.notificationFeed.filter.label", defaultValue: "Notification filter"),
+                selection: $selection
+            ) {
+                Text(L10n.string(
+                    "mobile.notificationFeed.filter.allNotifications",
+                    defaultValue: "All Notifications"
+                ))
                 .tag(MobileNotificationFeedFilter.all)
-                .accessibilityIdentifier("MobileNotificationFeedFilterAll")
-            Text(L10n.string("mobile.notificationFeed.filter.unread", defaultValue: "Unread"))
-                .tag(MobileNotificationFeedFilter.unread)
-                .accessibilityIdentifier("MobileNotificationFeedFilterUnread")
+                Text(L10n.string("mobile.notificationFeed.filter.unread", defaultValue: "Unread"))
+                    .tag(MobileNotificationFeedFilter.unread)
+            }
+        } label: {
+            Image(systemName: selection == .unread
+                ? "line.3.horizontal.decrease.circle.fill"
+                : "line.3.horizontal.decrease.circle")
         }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(Color(uiColor: .systemBackground))
-        .accessibilityIdentifier("MobileNotificationFeedFilter")
+        .accessibilityLabel(L10n.string("mobile.notificationFeed.filter", defaultValue: "Filter"))
+        .accessibilityIdentifier("MobileNotificationFeedFilterMenu")
     }
 }
 

@@ -15,17 +15,30 @@ export const remoteTmuxDocsLocales = [
   "ja",
 ] as const satisfies readonly Locale[];
 
+export const managedPoliciesDocsLocales = [
+  "en",
+  "ja",
+] as const satisfies readonly Locale[];
+
 // Routes in this registry intentionally expose only their authored locales.
 export const fallbackContentLocales = [
   "en",
   "ja",
 ] as const satisfies readonly Locale[];
 
+// Jobs copy is authored for every locale configured by the site.
+export const jobsContentLocales = locales;
+
 export const englishFallbackContentLocales = [
   "en",
 ] as const satisfies readonly Locale[];
 
 const fallbackContentRoutes = [
+  { path: "/jobs", locales: jobsContentLocales },
+  {
+    path: "/jobs/founding-designer",
+    locales: jobsContentLocales,
+  },
   { path: "/pricing", locales: fallbackContentLocales },
   { path: "/tui", locales: fallbackContentLocales },
   { path: "/docs/tui", locales: fallbackContentLocales },

@@ -272,6 +272,7 @@ extension ControlCommandCoordinator {
                 "ref": ref(.surface, entry.surfaceID),
                 "type": .string(entry.typeRawValue),
                 "in_window": entry.inWindow.map { .bool($0) } ?? .null,
+                "socket_binding": entry.socketBindingRawValue.map { .string($0) } ?? .null,
             ])
         }
         return .ok(.object([
@@ -306,6 +307,12 @@ extension ControlCommandCoordinator {
                 code: "not_found",
                 message: "Surface not found",
                 data: .object(["surface_id": .string(id.uuidString)])
+            )
+        case .dockUnavailable(let message):
+            return .err(
+                code: "unavailable",
+                message: message,
+                data: .object(["surface_id": .string(surfaceID.uuidString)])
             )
         case .focused(let windowID, let workspaceID, let focusedSurfaceID):
             return .ok(.object([

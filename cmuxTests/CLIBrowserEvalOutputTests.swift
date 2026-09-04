@@ -33,6 +33,41 @@ final class CLIBrowserEvalOutputTests {
         }
     }
 
+    @Test("browser cookies set forwards the HttpOnly flag")
+    func browserCookiesSetForwardsHTTPOnly() throws {
+        let socketPath = "/tmp/cmux-cookies-\(UUID().uuidString.prefix(8)).sock"
+        let response = #"{"id":null,"ok":true,"result":{"set":1}}"#
+        let responder = try UnixSocketResponder(path: socketPath, response: response)
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+        let surfaceID = UUID().uuidString
+
+        let result = try runProcess(
+            executablePath: BundledCLITestSupport.bundledCLIPath(for: Self.self),
+            arguments: [
+                "browser", surfaceID, "cookies", "set", "session", "secret",
+                "--url", "https://example.test/", "--http-only",
+            ],
+            environment: environment
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.output))
+        #expect(result.status == 0, Comment(rawValue: result.output))
+        let request = try #require(responder.receivedRequests.first)
+        let requestData = try #require(request.data(using: .utf8))
+        let requestObject = try #require(JSONSerialization.jsonObject(with: requestData) as? [String: Any])
+        #expect(requestObject["method"] as? String == "browser.cookies.set")
+        let params = try #require(requestObject["params"] as? [String: Any])
+        #expect(params["surface_id"] as? String == surfaceID)
+        #expect(params["httpOnly"] as? Bool == true)
+    }
+
     @Test("browser value formatter distinguishes booleans from every numeric representation")
     func browserValueFormatterPreservesFoundationScalarTypes() {
         let formatter = BrowserValueTextFormatter()

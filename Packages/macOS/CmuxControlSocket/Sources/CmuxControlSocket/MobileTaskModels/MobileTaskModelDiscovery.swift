@@ -65,7 +65,7 @@ public actor MobileTaskModelDiscovery {
     /// Returns a fresh cached result or performs one coalesced discovery.
     ///
     /// - Parameter provider: Provider whose models are requested.
-    /// - Returns: Discovered, augmented, or curated fallback models.
+    /// - Returns: Agent-discovered models, or an empty fallback result.
     public func models(
         for provider: MobileTaskModelProvider
     ) async -> MobileTaskModelListResult {

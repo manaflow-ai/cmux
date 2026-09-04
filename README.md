@@ -207,6 +207,8 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 | ⌘ ⇧ U | Jump to latest unread |
 | ⌥ ⌘ U | Toggle current item unread state |
 | ⌃ ⌘ U | Mark current item as oldest unread and jump to next latest unread |
+| — | Mark all notifications read (unbound by default; configure in Settings or `cmux.json`) |
+| — | Clear all notifications (unbound by default; configure in Settings or `cmux.json`) |
 
 ### Find
 
@@ -240,7 +242,7 @@ Command palette navigation shortcuts, including ⌃ P, are also customizable and
 
 ## Nightly Builds
 
-[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg)
+[Download cmux NIGHTLY](https://github.com/manaflow-ai/cmux/releases/download/nightly/cmux-nightly-macos.dmg) (universal; updates then switch to your Mac's architecture automatically)
 
 cmux NIGHTLY is a separate app with its own bundle ID, so it runs alongside the stable version. Built automatically from the latest `main` commit and auto-updates via its own Sparkle feed.
 

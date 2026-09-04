@@ -86,6 +86,21 @@ import Testing
         #expect(map.instanceSummary(deviceId: "mac-a", tag: "missing") == nil)
     }
 
+    @Test func legacyPresenceFallbackRequiresOneAppInstance() {
+        var map = PresenceMap()
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "stable", online: true, lastSeenAt: 1_000),
+            instance(deviceId: "mac-a", tag: "nightly", online: false, lastSeenAt: 9_000),
+        ]))
+
+        #expect(map.soleInstanceSummary(deviceId: "mac-a") == nil)
+
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "stable", online: true, lastSeenAt: 1_000),
+        ]))
+        #expect(map.soleInstanceSummary(deviceId: "mac-a")?.online == true)
+    }
+
     @Test func snapshotReplacesTheWholeMap() {
         var map = PresenceMap()
         map.apply(snapshot([instance(deviceId: "mac-a")]))
@@ -104,6 +119,34 @@ import Testing
         // An event for a device the snapshot never carried still lands.
         map.apply(.online(instance(deviceId: "mac-c", online: true)))
         #expect(map.deviceSummary(deviceId: "mac-c")?.online == true)
+    }
+
+    @Test func instanceCountTracksSnapshotReplacementAndTransitionUpserts() {
+        var map = PresenceMap()
+        #expect(map.instanceCount == 0)
+
+        map.apply(snapshot([
+            instance(deviceId: "mac-a", tag: "stable"),
+            instance(deviceId: "mac-a", tag: "nightly"),
+            instance(deviceId: "mac-b", tag: "stable"),
+        ]))
+        #expect(map.instanceCount == 3)
+
+        map.apply(.offline(
+            instance(deviceId: "mac-a", tag: "stable", online: false),
+            reason: .timeout
+        ))
+        #expect(map.instanceCount == 3)
+
+        map.apply(.online(instance(deviceId: "mac-b", tag: "debug")))
+        map.apply(.online(instance(deviceId: "mac-b", tag: "debug")))
+        map.apply(.seen(deviceId: "mac-z", tag: "missing", lastSeenAt: 9_000))
+        #expect(map.instanceCount == 4)
+
+        map.apply(snapshot([instance(deviceId: "mac-c")]))
+        #expect(map.instanceCount == 1)
+        map.apply(snapshot([]))
+        #expect(map.instanceCount == 0)
     }
 
     @Test func soleRouteAdvertisingInstanceRequiresExactlyOneOnlineRouteBearer() throws {

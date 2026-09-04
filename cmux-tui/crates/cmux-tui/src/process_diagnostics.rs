@@ -23,6 +23,7 @@ struct DiagnosticState {
 }
 
 impl BoundedDiagnosticBuffer {
+    #[cfg(test)]
     pub(crate) fn new(max_bytes: usize) -> Self {
         Self::with_redactions(max_bytes, &[])
     }

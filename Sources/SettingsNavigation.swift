@@ -7,11 +7,13 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
     case textBox
     case sleepyMode
     case mobile
+    case cloudMachines
     case networking
     case sidebarAppearance
     case customSidebars
     case betaFeatures
     case automation
+    case computerUse
     case browser
     case browserImport
     case globalHotkey
@@ -36,6 +38,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.sleepyMode", defaultValue: "Sleepy Mode")
         case .mobile:
             return String(localized: "settings.section.mobile", defaultValue: "Mobile")
+        case .cloudMachines:
+            return String(localized: "settings.section.cloudMachines", defaultValue: "Cloud")
         case .networking:
             return String(localized: "settings.section.networking", defaultValue: "Networking")
         case .workspaceColors:
@@ -48,6 +52,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return String(localized: "settings.section.betaFeatures", defaultValue: "Beta Features")
         case .automation:
             return String(localized: "settings.section.automation", defaultValue: "Automation")
+        case .computerUse:
+            return String(localized: "settings.section.computerUse", defaultValue: "Computer Use")
         case .browser:
             return String(localized: "settings.section.browser", defaultValue: "Browser")
         case .browserImport:
@@ -77,6 +83,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "moon.zzz"
         case .mobile:
             return "iphone"
+        case .cloudMachines:
+            return "cloud"
         case .networking:
             return "network"
         case .workspaceColors:
@@ -89,6 +97,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "exclamationmark.triangle"
         case .automation:
             return "wand.and.sparkles"
+        case .computerUse:
+            return "cursorarrow.rays"
         case .browser:
             return "globe"
         case .browserImport:
@@ -118,6 +128,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) sleepy mode screensaver caffeinate keep awake lock touch id battery wifi clock mascot theme glow pixel"
         case .mobile:
             return "\(title) ios iphone ipad mobile pairing local network sync"
+        case .cloudMachines:
+            return "\(title) cloud machines vm virtual machine persistent computer plan upgrade fleet"
         case .networking:
             return "\(title) iroh relay server private network tailscale vpn direct peer custom provider region"
         case .workspaceColors:
@@ -130,6 +142,8 @@ enum SettingsNavigationTarget: String, CaseIterable, Identifiable {
             return "\(title) beta experimental unstable feed dock right sidebar"
         case .automation:
             return "\(title) socket integrations hooks ports claude cursor gemini kiro naming auto naming workspace tabs"
+        case .computerUse:
+            return "\(title) computer use cua accessibility screen recording permissions cursor mcp agents driver menu bar onboarding"
         case .browser:
             return "\(title) search engine links history theme"
         case .browserImport:
@@ -358,6 +372,15 @@ enum SettingsSearchIndex {
         setting(.app, "pane-flash", String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), "notification flash highlight"),
         setting(.app, "desktop-notifications", String(localized: "settings.notifications.desktop", defaultValue: "Desktop Notifications"), "permission alerts test notification"),
         setting(.app, "notification-sound", String(localized: "settings.notifications.sound.title", defaultValue: "Notification Sound"), "custom sound alert audio"),
+        setting(
+            .app,
+            "notification-sound-overrides",
+            String(localized: "settings.notifications.soundOverrides.title", defaultValue: "Per-Agent Notification Sounds"),
+            String(
+                localized: "settings.search.alias.setting.app.notification-sound-overrides",
+                defaultValue: "notifications.soundOverrides per-agent agent sound turn done needs input permission error stalled custom file"
+            )
+        ),
         setting(.app, "notification-command", String(localized: "settings.notifications.command", defaultValue: "Notification Command"), "shell command environment variables"),
         setting(.app, "telemetry", String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), "analytics crash usage"),
         setting(.app, "default-terminal", String(localized: "settings.app.defaultTerminal", defaultValue: "Default Terminal"), "ssh links command tool unix executable launch services handler registration system default"),
@@ -379,6 +402,15 @@ enum SettingsSearchIndex {
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
         setting(.app, "canvas-snapping", String(localized: "settings.app.canvasSnapping", defaultValue: "Canvas Snapping"), "canvas.snappingEnabled canvas snap snapping enabled edges drag resize align panes freeform layout"),
+        setting(
+            .terminal,
+            "adaptive-default-theme",
+            String(localized: "settings.terminal.adaptiveDefaultTheme", defaultValue: "Adapt Default Theme to Appearance"),
+            String(
+                localized: "settings.search.alias.setting.terminal.adaptive-default-theme",
+                defaultValue: "terminal.adaptiveDefaultTheme adaptive default theme appearance light dark palette Ghostty managed colors empty untouched config preserve settings"
+            )
+        ),
         setting(.terminal, "scrollbar", String(localized: "settings.terminal.scrollBar", defaultValue: "Show Terminal Scroll Bar"), "terminal shell scrollback"),
         setting(.terminal, "session-content-width", String(localized: "settings.terminal.sessionContentWidth", defaultValue: "Session Content Width"), "terminal.sessionContentMaxWidth terminal agent chat max width readable line length narrow wide"),
         setting(.terminal, "session-content-alignment", String(localized: "settings.terminal.sessionContentAlignment", defaultValue: "Session Content Alignment"), "terminal.sessionContentAlignment left center right align terminal agent chat"),
@@ -420,6 +452,7 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
+        setting(.betaFeatures, "cloudMachines", String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"), "cloud machines vm right sidebar beta virtual machine persistent computer"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
         setting(.automation, "socket-mode", String(localized: "settings.automation.socketMode", defaultValue: "Socket Control Mode"), "unix socket api access password auth"),
@@ -451,6 +484,7 @@ enum SettingsSearchIndex {
         setting(.browser, "enable-browser", String(localized: "settings.browser.enabled", defaultValue: "Enable cmux Browser"), "webview tabs links"),
         setting(.browser, "search-suggestions", String(localized: "settings.browser.searchSuggestions", defaultValue: "Show Search Suggestions"), "browser address bar suggestions"),
         setting(.browser, "theme", String(localized: "settings.browser.theme", defaultValue: "Browser Theme"), "web appearance light dark system"),
+        setting(.browser, "default-zoom-level", String(localized: "settings.browser.defaultZoomLevel", defaultValue: "Default Page Zoom"), "default browser zoom level page magnification percent scale actual size"),
         setting(.browser, "hidden-webview-discard", String(localized: "settings.browser.hiddenWebViewDiscard", defaultValue: "Discard Hidden Browser WebViews"), "memory hidden tabs webview discard unload"),
         setting(.browser, "hidden-webview-discard-delay", String(localized: "settings.browser.hiddenWebViewDiscardDelay", defaultValue: "Hidden WebView Discard Delay"), "memory hidden tabs delay seconds discard"),
         setting(.browser, "ask-where-to-save-downloads", String(localized: "settings.browser.askWhereToSaveDownloads", defaultValue: "Ask Where to Save Downloads"), "downloads save panel download folder attachments files pdf gmail"),
@@ -459,6 +493,7 @@ enum SettingsSearchIndex {
         setting(.browser, "host-whitelist", String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), "hosts wildcard terminal links"),
         setting(.browser, "external-patterns", String(localized: "settings.browser.externalPatterns", defaultValue: "URLs to Always Open Externally"), "regex url rules default browser"),
         setting(.browser, "http-allowlist", String(localized: "settings.browser.httpAllowlist", defaultValue: "HTTP Hosts Allowed in Embedded Browser"), "localhost non https warning"),
+        setting(.browser, "url-allowlist", String(localized: "settings.browser.urlAllowlist", defaultValue: "Embedded Browser URL Allowlist"), "browser url allowlist localhost wildcard scheme port organization policy"),
         setting(.browserImport, "import-data", String(localized: "settings.browser.import", defaultValue: "Import Browser Data"), "bookmarks history cookies profiles"),
         setting(.browserImport, "import-hint", String(localized: "settings.browser.import.hint.show", defaultValue: "Show import hint on blank browser tabs"), "blank tab browser import"),
         setting(.browser, "react-grab", String(localized: "settings.browser.reactGrabVersion", defaultValue: "React Grab Version"), "npm react grab toolbar"),
@@ -513,6 +548,7 @@ enum SettingsSearchIndex {
         "notifications.paneFlash": settingID(for: .app, idSuffix: "pane-flash"),
         "notifications.sound": settingID(for: .app, idSuffix: "notification-sound"),
         "notifications.customSoundFilePath": settingID(for: .app, idSuffix: "notification-sound"),
+        "notifications.soundOverrides": settingID(for: .app, idSuffix: "notification-sound-overrides"),
         "notifications.command": settingID(for: .app, idSuffix: "notification-command"),
         "app.sendAnonymousTelemetry": settingID(for: .app, idSuffix: "telemetry"),
         "app.defaultTerminal": settingID(for: .app, idSuffix: "default-terminal"),
@@ -552,6 +588,7 @@ enum SettingsSearchIndex {
         "sidebar.rightMaxWidth": settingID(for: .sidebarAppearance, idSuffix: "right-max-width"),
         "sidebar-font-size": settingID(for: .sidebarAppearance, idSuffix: "font-size"),
         "surface-tab-bar-font-size": settingID(for: .terminal, idSuffix: "tab-bar-font-size"),
+        "terminal.adaptiveDefaultTheme": settingID(for: .terminal, idSuffix: "adaptive-default-theme"),
         "terminal.showScrollBar": settingID(for: .terminal, idSuffix: "scrollbar"),
         "terminal.showTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "show-textbox-new-terminals"),
         "terminal.focusTextBoxOnNewTerminals": settingID(for: .textBox, idSuffix: "focus-textbox-new-terminals"),
@@ -591,6 +628,7 @@ enum SettingsSearchIndex {
         "browser.customSearchEngineURLTemplate": settingID(for: .browser, idSuffix: "search-engine"),
         "browser.showSearchSuggestions": settingID(for: .browser, idSuffix: "search-suggestions"),
         "browser.theme": settingID(for: .browser, idSuffix: "theme"),
+        "browser.defaultZoomLevel": settingID(for: .browser, idSuffix: "default-zoom-level"),
         "browser.discardHiddenWebViews": settingID(for: .browser, idSuffix: "hidden-webview-discard"),
         "browser.hiddenWebViewDiscardDelaySeconds": settingID(for: .browser, idSuffix: "hidden-webview-discard-delay"),
         "browser.askWhereToSaveDownloads": settingID(for: .browser, idSuffix: "ask-where-to-save-downloads"),
@@ -599,6 +637,7 @@ enum SettingsSearchIndex {
         "browser.hostsToOpenInEmbeddedBrowser": settingID(for: .browser, idSuffix: "host-whitelist"),
         "browser.urlsToAlwaysOpenExternally": settingID(for: .browser, idSuffix: "external-patterns"),
         "browser.insecureHttpHostsAllowedInEmbeddedBrowser": settingID(for: .browser, idSuffix: "http-allowlist"),
+        "browser.urlAllowlist": settingID(for: .browser, idSuffix: "url-allowlist"),
         "browser.showImportHintOnBlankTabs": settingID(for: .browserImport, idSuffix: "import-hint"),
         "browser.reactGrabVersion": settingID(for: .browser, idSuffix: "react-grab"),
         "shortcuts.bindings": settingID(for: .keyboardShortcuts, idSuffix: "shortcuts")

@@ -33,12 +33,17 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case jumpToUnread
     case toggleUnread
     case markOldestUnreadAndJumpNext
+    /// Marks every notification read without removing notification rows.
+    case markAllNotificationsRead
+    /// Removes every notification row and its unread indicators.
+    case clearAllNotifications
     case focusRightSidebar
     case switchRightSidebarToFiles
     case switchRightSidebarToFind
     case switchRightSidebarToSessions
     case switchRightSidebarToFeed
     case switchRightSidebarToDock
+    case switchRightSidebarToMachines
     case triggerFlash
 
     // MARK: Navigation
@@ -63,6 +68,10 @@ public enum ShortcutAction: String, CaseIterable, Sendable, Hashable, SettingCod
     case selectSurfaceByNumber
     case nextSidebarTab
     case prevSidebarTab
+    /// Selects the next non-anchor workspace in the focused workspace group.
+    case nextSidebarTabInGroup
+    /// Selects the previous non-anchor workspace in the focused workspace group.
+    case prevSidebarTabInGroup
     /// Moves the selected workspace one position up within its pin tier.
     case moveWorkspaceUp
     /// Moves the selected workspace one position down within its pin tier.
@@ -271,7 +280,8 @@ extension ShortcutAction {
     public var defaultFocusWhenClause: ShortcutWhenClause {
         switch self {
         case .switchRightSidebarToFiles, .switchRightSidebarToFind,
-             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock:
+             .switchRightSidebarToSessions, .switchRightSidebarToFeed, .switchRightSidebarToDock,
+             .switchRightSidebarToMachines:
             return .atom(.sidebarFocus)
         case .fileExplorerOpenSelection, .fileExplorerOpenSelectionFinderAlias:
             return .atom(.sidebarFocus)

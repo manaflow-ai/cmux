@@ -62,6 +62,22 @@ those routing selectors when callers supply only an opaque target ID.
 route. Direct opaque nested IDs remain globally addressable without repeating
 their structural ancestors.
 
+Derived socket paths validate the session before joining it. Names must be
+non-empty single path components without `.`, `..`, separators, NUL, control
+characters, or Unicode line separators. Spaces, Unicode, leading punctuation,
+colons, and long legacy names remain valid. `resolve_socket_path()` and
+`try_default_socket_path()` return `ErrorCode::invalid_argument` before path
+use. The source-compatible `default_socket_path()` wrapper maps empty and
+other invalid input to a deterministic per-input hash path under
+`cmux-tui-invalid-<uid>`; it never
+joins the invalid text and cannot select a normal session socket. Its leaf is
+the lowercase SHA-256 digest of the session's UTF-8 bytes, matching the other
+SDKs. Use `try_default_socket_path()` for any path that will be opened.
+Explicit socket paths and environment overrides remain authoritative.
+Long valid names that exceed the Unix socket limit use a full SHA-256 leaf in
+`<runtime-base>/cmux-tui-hashed-<uid>` when it fits, and use the shared
+`/tmp/cmux-tui-hashed-<uid>` directory only when the runtime base is too long.
+
 Every resource factory also accepts `Selector<Id>::by_id(id)`,
 `Selector<Id>::current()`, or `Selector<Id>::exact_name(name)`. Child factories
 retain the complete parent route without performing I/O:
@@ -142,7 +158,7 @@ optional source-session label. Both mutations return their typed snapshots.
 `decode_confirmation_required_details()` to obtain its token, revision, and
 closing pane IDs.
 
-Generated protocol-v11 compatibility APIs remain available only through the
+Generated protocol-v12 compatibility APIs remain available only through the
 explicit raw namespace:
 
 ```cpp

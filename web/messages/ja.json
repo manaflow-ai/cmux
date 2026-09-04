@@ -1,4 +1,38 @@
 {
+  "billingRecovery": {
+    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
+  },
+  "vmDesktop": {
+    "invalidTitle": "このデスクトップリンクは無効です",
+    "invalidBody": "リンクにセッションがないか、cmux が表示できない場所を指しています。cmux のマシンパネルで {machine} を右クリックし、「デスクトップを開く」からもう一度開いてください。",
+    "expiredTitle": "このデスクトップセッションは期限切れです",
+    "expiredBody": "{machine} とその中身は無事です。このリンクのセッションだけが終了しました。cmux でマシンを右クリックし、「デスクトップを開く」から新しく開き直してください。"
+  },
+  "vmErrors": {
+    "unsupported": {
+      "title": "Cloud VM 操作を利用できません",
+      "reason": "このマシン種別ではこの操作を利用できません。",
+      "message": {
+        "snapshot": "この Cloud VM は保存済み状態に対応していません。",
+        "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
+        "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "openPort": "この Cloud VM のプロバイダーはマシンのポートをプレビュー URL として公開できません。",
+        "default": "この Cloud VM は要求された操作に対応していません。"
+      },
+      "action": {
+        "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
+        "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "openPort": "再試行しても解決しません。マシン内から（`cmux vm exec`）アクセスするか、ポートを公開できるマシン種別を使ってください。",
+        "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
+      }
+    },
+    "requiresPro": {
+      "title": "cmux Pro が必要です",
+      "message": "Cloud VM を利用するには cmux Pro プランが必要です。",
+      "action": "{upgradeUrl} で cmux Pro にアップグレードすると Cloud VM を作成できます。"
+    }
+  },
   "ios": {
     "metaTitle": "cmux iOS — iPhone と iPad でターミナルを",
     "metaDescription": "cmux iOS アプリは、Mac のターミナルを自分の Tailscale やローカルネットワーク経由で iPhone・iPad にリアルタイムでミラーリング。どこからでもコーディングエージェントを操作できます。",
@@ -83,6 +117,22 @@
     "description": "無料・オープンソースのGhosttyベースのネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。垂直タブ、通知リング、分割ペイン、ソケットAPI搭載。",
     "ogDescription": "無料・オープンソースのAIコーディングエージェント向けネイティブ macOS ターミナル。Claude Code、Codex、OpenCode、Gemini CLI、Kiro、Aider、あらゆるCLIツールに対応。"
   },
+  "authError": {
+    "emailUnverifiedTitle": "続行するにはメールアドレスを確認してください",
+    "emailUnverifiedBody": "最初に使用した方法でサインインし、このサインイン方法を使う前にメールアドレスを確認してください。",
+    "genericTitle": "サインインを完了できませんでした",
+    "genericBody": "もう一度お試しください。問題が解決しない場合は、サポートにお問い合わせください。",
+    "backToSignIn": "サインインに戻る"
+  },
+  "cloudPublicationAccess": {
+    "title": "アクセス権がありません",
+    "signIn": "cmux にサインイン",
+    "signedInAs": "{identity} としてサインイン中",
+    "switchAccount": "アカウントを切り替える",
+    "invalidTitle": "このアクセスリンクは無効です",
+    "invalidBody": "サイトに戻って、もう一度お試しください。",
+    "footer": "アクセスは cmux によって管理されています。"
+  },
   "common": {
     "downloadForMac": "Mac版をダウンロード",
     "viewOnGitHub": "GitHubで見る",
@@ -102,10 +152,13 @@
       "vaultSessions": "セッション",
       "coderouterGroup": "coderouter",
       "coderouterOverview": "概要",
+      "iosGroup": "iOS",
       "accountGroup": "アカウント",
       "billing": "請求",
       "team": "チーム",
-      "testflight": "iOS TestFlight"
+      "testflight": "iOS TestFlight",
+      "adminGroup": "管理",
+      "adminPro": "Pro アクセス"
     },
     "home": {
       "title": "ダッシュボード",
@@ -115,13 +168,27 @@
       "vaultLink": "vaultを開く",
       "coderouterName": "coderouter",
       "coderouterDescription": "プロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
-      "coderouterLink": "coderouterを開く"
+      "coderouterLink": "coderouterを開く",
+      "iosAppName": "iOSアプリ",
+      "iosAppDescription": "TestFlight（ベータ版）で cmux iOS アプリをインストール。",
+      "iosLink": "iOSアプリを開く"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "共有AIアカウントを管理し、coderouterでリクエストをルーティングします。",
       "title": "coderouter",
-      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。"
+      "description": "coderouterはプロバイダーアカウント間でLLMリクエストをルーティングし、フェイルオーバーと使用量を考慮したスケジューリングを行います。",
+      "machines": {
+        "title": "マシン",
+        "description": "{team} のマシン別 coderouter 使用状況（過去{days}日間）。",
+        "machineColumn": "マシン",
+        "tokensColumn": "合計トークン",
+        "apiEquivalentColumn": "API換算額",
+        "unnamed": "名前のないマシン",
+        "empty": "過去{days}日間に coderouter を使用したマシンはありません。",
+        "unavailable": "マシン別の使用状況は現在利用できません。",
+        "estimateNote": "API換算額は公開定価による推定で、実際の請求額ではありません。"
+      }
     },
     "accountMenu": {
       "label": "アカウントメニュー",
@@ -130,6 +197,7 @@
       "signOut": "サインアウト",
       "signingOut": "サインアウト中…",
       "signOutError": "サインアウトできませんでした。もう一度お試しください。",
+      "organizationSwitchError": "組織を切り替えられませんでした。もう一度お試しください。",
       "signIn": "サインイン"
     },
     "billing": {
@@ -140,13 +208,14 @@
         "cancelled": "現在の請求期間の終了時にプランがキャンセルされます。",
         "resumed": "プランは再開され、通常どおり更新されます。",
         "nosub": "このアカウントに有効なStripeサブスクリプションは見つかりませんでした。",
-        "error": "請求を更新できませんでした。しばらくしてから再試行してください。"
+        "error": "請求を更新できませんでした。しばらくしてから再試行してください。",
+        "pastDue": "最新のお支払いに失敗しました。プランを継続するには支払い方法を更新してください。"
       },
       "free": {
         "name": "Free",
         "body": "現在はFreeプランです。Proの上限やホスト型機能が必要になったらアップグレードしてください。",
-        "upsellTitle": "クラウドエージェントやチーム請求が必要になったらアップグレードできます。",
-        "upsellBody": "個人向けクラウド機能にはPro、共有請求とシート管理にはTeamを選択してください。",
+        "upsellTitle": "クラウドエージェントが必要になったらアップグレードできます。",
+        "upsellBody": "個人向けクラウド機能には Pro、チーム全体の一元請求には Team を選択してください。",
         "testflightTitle": "cmux iOSアプリを入手",
         "testflightBody": "iOSベータは、有効な個人向けProサブスクリプションでTestFlightから利用できます。",
         "testflightCta": "iOSベータに参加"
@@ -155,17 +224,17 @@
         "name": "cmux Pro",
         "activeBody": "プランは{date}に更新されます。",
         "pendingBody": "プランは{date}に終了する予定です。",
-        "monthlyPrice": "$30/月",
-        "annualPrice": "$24/月（年払い）",
-        "legacyAnnualPrice": "$20/月（年払い）"
+        "monthlyPrice": "${amount}/月",
+        "annualPrice": "${monthly}/月（年払い）",
+        "grantedBody": "このアカウントの Pro アクセスは cmux チームによって付与されています。管理するサブスクリプションはありません。"
       },
       "team": {
         "name": "cmux Team",
         "fallbackName": "チーム",
         "activeBody": "{team}は{date}に更新されます。",
         "pendingBody": "{team}は{date}に終了する予定です。",
-        "price": "$35/シート/月",
-        "annualPrice": "$28/シート/月（年払い）"
+        "price": "${amount}/シート/月",
+        "annualPrice": "${monthly}/シート/月（年払い）"
       },
       "details": {
         "renewsOn": "更新日",
@@ -239,6 +308,146 @@
         "leave": "TestFlightから退出"
       }
     },
+    "admin": {
+      "eyebrow": "管理",
+      "title": "Pro アクセス",
+      "description": "任意のアカウント、チーム、メールに Pro を付与または解除し、有料顧客をダウングレードします。このページを開けるのは確認済みの {domains} アカウントのみです。",
+      "search": {
+        "label": "ユーザー、チーム、またはメールを検索",
+        "placeholder": "メール、名前、チーム、または ID",
+        "button": "検索",
+        "searching": "検索中…",
+        "hint": "メインのメール、表示名、チーム名、または完全一致の ID で検索します。各最大 25 件。すべての変更は確認を求めます。"
+      },
+      "sections": {
+        "users": "ユーザー ({count})",
+        "teams": "チーム ({count})",
+        "pending": "保留中のメール付与 ({count})"
+      },
+      "results": {
+        "user": "ユーザー",
+        "team": "チーム",
+        "email": "メール",
+        "plan": "プラン",
+        "access": "アクセス",
+        "stripe": "Stripe",
+        "grant": "手動付与",
+        "actions": "操作",
+        "empty": "一致するユーザー、チーム、保留中の付与はありません。",
+        "noEmail": "メールなし",
+        "verified": "確認済み",
+        "unverified": "未確認",
+        "members": "{count} 人のメンバー",
+        "noSubscription": "サブスクリプションなし",
+        "cancelling": "期間終了時に解約",
+        "membersUnknown": "メンバー数を取得できません"
+      },
+      "access": {
+        "pro": "Pro",
+        "team": "Team",
+        "free": "Free"
+      },
+      "plans": {
+        "pro": "Pro",
+        "founders": "Founders",
+        "team": "Team"
+      },
+      "grant": {
+        "none": "なし",
+        "current": "{plan}",
+        "by": "{who} · {when}"
+      },
+      "pending": {
+        "waiting": "初回の確認済みサインイン時に適用"
+      },
+      "emailGrant": {
+        "title": "このメールのアカウントはまだありません",
+        "body": "{email} に今すぐ Pro を付与します。そのメールが確認済みのメールボックスで初めてサインインしたときに自動的に適用されます。"
+      },
+      "actions": {
+        "grantPro": "Pro を付与",
+        "grantFounders": "Founders を付与",
+        "grantTeam": "Team を付与",
+        "removeGrant": "付与を解除",
+        "downgrade": "ダウングレード",
+        "resumeSubscription": "サブスクリプションを再開",
+        "revokePending": "取り消し",
+        "saving": "保存中…"
+      },
+      "confirm": {
+        "cancel": "キャンセル",
+        "grant": "付与を確定",
+        "grantTitle": "{plan} を付与しますか？",
+        "grantUserBody": "このアカウントはサブスクリプションなしで全機能の {plan} アクセスを得ます。管理者が解除するまで継続します。",
+        "grantTeamBody": "{count} 人のメンバー全員がサブスクリプションなしで Team アクセスを得ます。管理者が解除するまで継続します。",
+        "grantEmailBody": "付与は今保存され、そのメールの初回の確認済みサインイン時に適用されます。必要であればそれまでにここで取り消せます。",
+        "removeGrantTitle": "手動付与を解除しますか？",
+        "removeGrantBody": "アクセスは直ちに Free になります。",
+        "removeTeamGrantBody": "すべてのメンバーが直ちに Team アクセスを失います。",
+        "removeGrantBodyStripe": "有効な Stripe サブスクリプションが引き続きアクセスを付与します。それも終了するにはダウングレードを使用してください。",
+        "downgradeTitle": "この有料顧客をダウングレードしますか？",
+        "downgradeBody": "Stripe サブスクリプションは現在の期間終了時に解約されます。それまでアクセスは継続し、返金はありません。",
+        "downgradeTeamBody": "チームの Stripe サブスクリプションは現在の期間終了時に解約されます。それまで全メンバーのアクセスは継続し、返金はありません。",
+        "resumeTitle": "サブスクリプションを再開しますか？",
+        "resumeBody": "予定されていた解約が取り消され、サブスクリプションは通常どおり更新されます。",
+        "revokePendingTitle": "この保留中の付与を取り消しますか？",
+        "revokePendingBody": "このメールがサインインしても何も適用されません。",
+        "grantTeamBodyUnknown": "メンバー一覧を読み込めなかったため、この付与の範囲が不明です。再読み込みしてからお試しください。"
+      },
+      "notices": {
+        "granted": "{target} に {plan} を付与しました。",
+        "grantRemoved": "{target} の手動付与を解除しました。",
+        "downgraded": "{target} は現在の期間終了時に解約されます。",
+        "resumed": "{target} のサブスクリプションを再開しました。",
+        "emailGranted": "{target} の初回の確認済みサインイン時に {plan} が適用されます。",
+        "pendingRevoked": "{target} の保留中の付与を取り消しました。",
+        "supersededNotCleared": "付与は記録されましたが、以前の付与が {count} 件のアカウントでまだ有効です。そのメールを検索してユーザー行の「付与を解除」を使用するか、次回サインイン時に解除されます。"
+      },
+      "errors": {
+        "network": "ネットワークエラーです。もう一度お試しください。",
+        "forbidden": "このアカウントは管理者ではありません。確認済みの cmux.com、manaflow.ai、または manaflow.com のメールでサインインしてください。",
+        "notFound": "一致するアカウントまたはサブスクリプションがありません。",
+        "conflict": "このアカウントへの別の変更が進行中か、メールが複数のアカウントに一致します。",
+        "billing": "請求機能は現在利用できません。",
+        "generic": "リクエストに失敗しました。しばらくしてからお試しください。"
+      },
+      "list": {
+        "title": "すべての Pro ユーザー",
+        "description": "Pro アクセスを持つすべてのアカウントとその理由: 請求ミラーの有効な Stripe サブスクリプション、アカウント一覧を走査して見つけた手動付与、初回サインイン待ちの付与。",
+        "reload": "再読み込み",
+        "loading": "読み込み中…",
+        "stats": {
+          "proUsers": "Pro ユーザー",
+          "subscribers": "Stripe 契約者",
+          "userGrants": "手動付与",
+          "teams": "チーム",
+          "pending": "保留中の付与"
+        },
+        "scanUsers": "アカウント",
+        "scanTeams": "チーム",
+        "scanProgress": "手動付与を探して{label}を走査中… {scanned} 件確認。",
+        "scanDone": "{scanned} 件の{label}を走査しました。",
+        "scanFailed": "{label}の走査は {scanned} 件で停止しました。",
+        "scanTruncated": "一覧の終端に達する前にページ上限に達しました。",
+        "scanning": "走査中…",
+        "empty": "なし。",
+        "sections": {
+          "subscribers": "Stripe Pro 契約者 ({count})",
+          "userGrants": "手動付与ユーザー ({count})",
+          "teams": "Team アクセスを持つチーム ({count})",
+          "pending": "保留中のメール付与 ({count})"
+        },
+        "periodEnd": "期間終了",
+        "userId": "ユーザー ID",
+        "teamId": "チーム ID",
+        "source": "ソース",
+        "detail": "詳細",
+        "sourceStripe": "Stripe サブスクリプション",
+        "sourceGrant": "手動付与",
+        "seats": "{count} シート",
+        "truncated": "この一覧はソースごとに 5,000 行までに制限されており、一部の行は表示されていません。見つからないものは検索してください。"
+      }
+    },
     "aiAccounts": {
       "metaTitle": "AIアカウント — cmux",
       "metaDescription": "cmuxのチームAIプロバイダーアカウントを管理します。",
@@ -289,7 +498,57 @@
       "deleteConfirmBody": "チーム全体からこのプロバイダーアカウントが削除されます。再追加には元の認証情報が必要です。",
       "cancelAction": "キャンセル",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
+    },
+    "claudeUpstream": {
+      "title": "Claude アップストリームアカウント",
+      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。",
+      "emptyTitle": "Claude アップストリームアカウントがありません",
+      "emptyBody": "アカウントを追加するまで、このチームの Cloud VM からの Claude リクエストは失敗します。",
+      "accountsLabel": "{count} 件のアカウント",
+      "loadErrorTitle": "Claudeアップストリームを読み込めませんでした",
+      "loadErrorBody": "アップストリーム設定を読み取れませんでした。しばらくしてから再試行してください。",
+      "kindSelectorLabel": "アップストリームの種類",
+      "kindApiKey": "Anthropic APIキー",
+      "kindOauth": "Claude Code OAuthトークン",
+      "kindBedrock": "Amazon Bedrock",
+      "labelField": "ラベル",
+      "labelPlaceholder": "任意。例: work",
+      "apiKeyField": "APIキー",
+      "oauthTokenField": "OAuthトークン",
+      "oauthHint": "自分のマシンで次のコマンドを実行して長期トークンを作成します:",
+      "regionField": "AWSリージョン",
+      "accessKeyIdField": "アクセスキーID",
+      "secretAccessKeyField": "シークレットアクセスキー",
+      "sessionTokenField": "セッショントークン",
+      "optionalPlaceholder": "任意",
+      "saveAction": "アカウントを追加",
+      "savingAction": "追加中",
+      "saveSuccess": "アカウントを追加しました。",
+      "saveError": "アカウントを追加できませんでした。",
+      "validationError": "認証情報の形式を確認して再試行してください。",
+      "teamAccessError": "このチームへのアクセス権がありません。",
+      "removeAction": "削除",
+      "removingAction": "削除中",
+      "removeError": "アカウントを削除できませんでした。",
+      "removeConfirmTitle": "この Claude アップストリームアカウントを削除しますか?",
+      "removeConfirmBody": "このアカウントに固定されたマシンはチームの他のアカウントに移ります。最後のアカウントの場合、新しいアカウントを追加するまでこのチームの Cloud VM からの Claude リクエストは失敗します。",
+      "cancelAction": "キャンセル",
+      "stateActive": "有効",
+      "stateDisabled": "無効",
+      "coolingDown": "{until} までクールダウン中",
+      "lastFailure": "最後の失敗 {code}",
+      "lastUsed": "最終使用 {at}",
+      "neverUsed": "未使用",
+      "enableAction": "有効にする",
+      "disableAction": "無効にする",
+      "updateError": "アカウントを更新できませんでした。"
     }
   },
   "vault": {
@@ -310,9 +569,9 @@
       "eyebrow": "cmux Vault",
       "title": "CLIアクセスを承認",
       "description": "cmux-vaultに表示されたコードを確認し、このデバイスをサインイン中のcmuxアカウントに接続します。",
-      "subrouterEyebrow": "Subrouter",
-      "subrouterTitle": "Subrouterアクセスを承認",
-      "subrouterDescription": "srに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
+      "coderouterEyebrow": "CodeRouter",
+      "coderouterTitle": "CodeRouterアクセスを承認",
+      "coderouterDescription": "crに表示されたコードを確認し、このデバイスをサインイン中のcmuxチームに接続します。",
       "codeLabel": "ユーザーコード",
       "approveButton": "アクセスを承認",
       "approving": "承認中...",
@@ -381,6 +640,7 @@
     "blog": "ブログ",
     "changelog": "変更履歴",
     "community": "コミュニティ",
+    "jobs": "採用情報",
     "pricing": "料金",
     "github": "GitHub"
   },
@@ -392,8 +652,10 @@
     "pricing": "料金",
     "blog": "ブログ",
     "community": "コミュニティ",
+    "jobs": "採用情報",
     "docs": "ドキュメント",
     "changelog": "変更履歴",
+    "support": "サポート",
     "companyInformation": "会社情報",
     "privacy": "プライバシー",
     "terms": "利用規約",
@@ -410,12 +672,85 @@
     "guides": "ガイド",
     "compare": "比較"
   },
+  "jobs": {
+    "metaTitle": "Founding Engineer の採用情報 — cmux",
+    "metaDescription": "cmux の Founding Engineer として、macOS、Windows、Linux、iOS、Cloud にまたがる AI コーディングの未来を一緒につくりませんか。",
+    "section": "採用情報",
+    "eyebrow": "採用中",
+    "title": "Founding Engineer",
+    "tagline": "AI とコーディングの未来をつくる。",
+    "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
+    "hiring": "AI とコーディングの未来をつくる、才能あるエンジニアを募集しています。",
+    "whatYoullDo": "仕事内容",
+    "whatYoullDoItems": [
+      "cmux macOS（Swift/AppKit）、cmux Windows/Linux（C++/Chromium）、cmux iOS、cmux Cloud、sub-router (Go)、chatmux など、スタック全体にわたる最先端の開発者ツールをつくる。",
+      "開発者が AI と仕事をするために最も役立つプロダクトを一緒に生み出す。",
+      "ユーザーフィードバックのループも含め、プロダクトと機能を最初から最後まで担当する。",
+      "常に cmux を実際に使い、テストと検証を重ねながら cmux をつくる。"
+    ],
+    "excitedLead": "次のような経験があると、特にうれしいです：",
+    "excitedItems": [
+      "1日に 10B 以上のトークンを使っている。",
+      "幅広く動けるオールラウンダーで、創造的に問題を解決できる。",
+      "優れたデザイン感覚があり、細部まで丁寧に仕上げる。",
+      "Swift/AppKit、C++、Rust、Go、または Chromium の経験がある。",
+      "オープンソースのメンテナー、元ファウンダー、完成したプロダクトを出荷してきた。",
+      "cmux の PR を送ってレビューを依頼したり、独自の cmux プラグインやワークフローをデモしたりしている。"
+    ],
+    "details": "詳細",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "報酬",
+    "compensation": "$130k〜$170k + 株式 0.5%〜1.5%",
+    "benefitsLabel": "福利厚生",
+    "benefits": "医療・歯科・眼科保険",
+    "locationLabel": "勤務地",
+    "location": "サンフランシスコ",
+    "applyAriaLabel": "メールで Founding Engineer に応募する",
+    "applyEmailSubject": "cmux Founding Engineer への応募",
+    "applyCta": "メールする",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer の採用情報 — cmux",
+      "metaDescription": "cmux の Founding Designer として、macOS、TUI、Windows、Linux、iOS、Cloud、cmux.com、chatmux にわたる AI とコーディングの未来をデザインしませんか。",
+      "section": "採用情報",
+      "eyebrow": "役割について",
+      "title": "Founding Designer",
+      "tagline": "AI とコーディングの未来をデザインする。",
+      "intro": "cmux は Ghostty を基盤にしたネイティブ macOS ターミナルです。複数の AI コーディングエージェントを並列で動かすために設計され、数十万人の開発者がエージェントによるコーディングワークフローに cmux を活用しています。",
+      "hiring": "AI とコーディングの未来をデザインする、才能あるデザイナーを募集しています。",
+      "whatYoullDo": "仕事内容",
+      "whatYoullDoItems": [
+        "cmux macOS、cmux TUI、cmux Windows/Linux、cmux iOS、cmux Cloud、cmux.com、chatmux など、スタック全体にわたる最先端の開発者ツールをデザインする。",
+        "開発者が AI と仕事をするために最も役立つプロダクトをデザインする。",
+        "ユーザーフィードバックのループも含め、ルック、フィール、インタラクションモデルを最初から最後まで担当する。",
+        "常に cmux を実際に使い、プロトタイプを作り、出荷する。"
+      ],
+      "excitedLead": "次のような経験や姿勢があると、特にうれしいです：",
+      "excitedItems": [
+        "さまざまなアプリのデザインコンポーネントを知り尽くしている。",
+        "デザインの参考例を、いつも周りの人から尋ねられる。",
+        "ネイティブ macOS アプリと開発者ツールに対する、強いこだわりと優れた感覚がある。",
+        "コードでプロトタイプを作り、実際の UI を出荷する。",
+        "タイポグラフィ、モーション、システム思考に精通し、1px の細部や余白にもこだわる。"
+      ],
+      "details": "詳細",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "報酬",
+      "compensation": "$130k〜$170k + 株式 0.5%〜1.5%",
+      "benefitsLabel": "福利厚生",
+      "benefits": "医療・歯科・眼科保険",
+      "locationLabel": "勤務地",
+      "location": "サンフランシスコ",
+      "applyAriaLabel": "メールで Founding Designer に応募する",
+      "applyEmailSubject": "cmux Founding Designer への応募",
+      "applyCta": "メールする"
+    }
+  },
   "pricing": {
     "metaTitle": "料金 — cmux",
-    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、cmux Vault によるセッションバックアップ、モデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM、Vault、モデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
-    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイが使えます。Enterprise は SSO とセルフホストに対応します。",
-    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM とモデルゲートウェイを利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescription": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM と cmux Vault によるセッションバックアップが使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM と Vault を利用でき、Enterprise では SSO とセルフホストに対応します。",
+    "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
+    "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
@@ -440,19 +775,18 @@
         "Claude Code、Codex、Gemini など任意の CLI エージェントを自分のキーで実行",
         "縦型タブ、ワークスペース、分割ペイン、完了通知",
         "ブラウザパネル、スクリプト可能なソケット API、カスタムスキル",
-        "ローカルのセッション履歴と Cloud VM の1回限りのトライアル",
+        "ローカルのセッション履歴",
         "Discord と GitHub でのコミュニティサポート"
       ]
     },
     "pro": {
       "name": "Pro",
-      "price": "$30",
       "cta": "Pro を入手",
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "4 vCPU / 16 GB の VM で毎月20時間のアクティブ計算時間、超過分は従量課金",
-        "モデルゲートウェイ: 複数プロバイダーへのルーティングと使用量・コスト分析",
+        "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 32 GB ディスク",
+        "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
       "vaultFeatures": [
@@ -465,16 +799,11 @@
     },
     "team": {
       "name": "Team",
-      "price": "$35",
       "cta": "Teams を入手",
       "featuresLead": "Pro のすべてに加えて:",
       "features": [
-        "一元請求: チーム全体をまとめて1つの請求書に",
-        "シート管理: メンバーをいつでも追加・削除",
-        "チームで共有する Cloud VM のプール計算時間",
-        "共有のチームルール、設定、ワークスペーステンプレート",
-        "メンバーごとの使用量・コスト分析付きのチーム全体モデルゲートウェイ",
-        "一元管理と優先メールサポート"
+        "チーム全体の一元請求",
+        "優先サポート"
       ]
     },
     "enterprise": {
@@ -484,11 +813,10 @@
       "featuresLead": "Team のすべてに加えて:",
       "features": [
         "セルフホストのクラウド実行とネットワーク、ネットワーク外に何も出ません",
-        "組織全体の使用量・コスト分析を備えたセルフホストのモデルゲートウェイ",
         "SSO と SAML サインイン",
         "一元管理と共有チームルール",
         "ターミナルセッション、ネットワークリクエスト、ブラウザ操作の監査ログ",
-        "コミット型のクラウド利用とボリューム価格",
+        "カスタムの VM 上限とボリューム価格",
         "SOC 2 と SLA、専任サポート付き"
       ]
     },
@@ -542,24 +870,31 @@
         },
         {
           "label": "Cloud VM 上のクラウドエージェント",
-          "free": "VM 1台トライアル",
-          "pro": "月20時間、以降従量課金",
-          "team": "プール制・従量課金",
-          "enterprise": "コミット利用"
-        },
-        {
-          "label": "同時 Cloud VM 数",
-          "free": "1",
-          "pro": "従量制",
-          "team": "従量制",
-          "enterprise": "カスタム"
-        },
-        {
-          "label": "モデルゲートウェイ: ルーティングと使用量分析",
           "free": "false",
           "pro": "true",
           "team": "true",
           "enterprise": "true"
+        },
+        {
+          "label": "同時 Cloud VM 数",
+          "free": "false",
+          "pro": "50",
+          "team": "ユーザーごとに 50",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "Cloud VM のサイズ",
+          "free": "false",
+          "pro": "5 vCPU / 20 GB RAM / 32 GB ディスク",
+          "team": "5 vCPU / 20 GB RAM / 32 GB ディスク",
+          "enterprise": "カスタム"
+        },
+        {
+          "label": "ワークスペース",
+          "free": "無制限",
+          "pro": "無制限",
+          "team": "無制限",
+          "enterprise": "無制限"
         },
         {
           "label": "iOS アプリ",
@@ -577,13 +912,6 @@
           "hostedNetworking": true
         },
         {
-          "label": "一元請求とシート管理",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
-          "enterprise": "true"
-        },
-        {
           "label": "SSO と SAML サインイン",
           "free": "false",
           "pro": "false",
@@ -598,13 +926,6 @@
           "enterprise": "true"
         },
         {
-          "label": "一元管理と共有チームルール",
-          "free": "false",
-          "pro": "false",
-          "team": "true",
-          "enterprise": "true"
-        },
-        {
           "label": "監査ログ: セッション、ネットワーク、ブラウザ",
           "free": "false",
           "pro": "false",
@@ -612,7 +933,7 @@
           "enterprise": "true"
         },
         {
-          "label": "コミット利用とボリューム価格",
+          "label": "ボリューム価格",
           "free": "false",
           "pro": "false",
           "team": "false",
@@ -634,41 +955,17 @@
         }
       ]
     },
-    "sizes": {
-      "title": "Cloud VM サイズ",
-      "body": "エージェントごとに VM サイズを選べます。アクティブな計算時間に対して課金され、アイドルの VM は自動的に一時停止します。Pro には 4 vCPU / 16 GB サイズで毎月20時間が含まれます。",
-      "colSize": "サイズ",
-      "colUse": "おすすめ用途",
-      "colRate": "アクティブ1時間あたり",
-      "rows": [
-        {
-          "size": "2 vCPU / 8 GB",
-          "use": "軽いエージェントと短いタスク",
-          "rate": "$0.20"
-        },
-        {
-          "size": "4 vCPU / 16 GB",
-          "use": "標準的な開発",
-          "rate": "$0.40"
-        },
-        {
-          "size": "8 vCPU / 32 GB",
-          "use": "重いビルドと並列エージェント",
-          "rate": "$0.80"
-        }
-      ]
-    },
     "help": "ご質問は <discord>Discord</discord> へ、<github>GitHub の Issue</github> を立てるか、<email>メール</email>でどうぞ。",
     "faq": {
       "title": "よくある質問",
       "items": [
         {
           "q": "ターミナルは本当に無料ですか?",
-          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。料金が発生するのは Cloud VM でエージェントを実行したときだけです。"
+          "a": "はい。macOS アプリはオープンソースで永久に無料です。ローカルエージェントは自分の API キーで動き、追加費用はかかりません。Cloud VM は有料プランに含まれます。"
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "エージェントがリポジトリをクローンし、コマンドを実行し、プルリクエストをクラウド上で開くためのリモート Linux サンドボックスで、お使いのマシンには触れません。並列作業、バックグラウンドジョブ、PR レビューに対応します。アイドルの VM は自動的に一時停止するため、課金されるのはアクティブな計算時間だけです。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシン（各 5 vCPU / 20 GB RAM / 32 GB ディスク）を利用できます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -676,16 +973,12 @@
           "vault": true
         },
         {
-          "q": "モデルゲートウェイとは何ですか?",
-          "a": "各リクエストを複数プロバイダーの強力なモデルにルーティングし、使用量とコストの分析を1か所で提供するホスト型ゲートウェイです。自分のプロバイダーキーを持ち込めます。Enterprise では組織全体の管理のためにゲートウェイをセルフホストできます。"
-        },
-        {
           "q": "iOS アプリにまだ Tailscale が必要ですか?",
-          "a": "はい、現時点では必要です。どのプランでも Tailscale などお使いのネットワーク経由で iPhone と Mac をペアリングできます。Enterprise ではセルフホストも可能です。設定不要のホスト型ネットワークはロードマップにあります。"
+          "a": "いいえ。iOS アプリは内蔵の cmux iroh ネットワークで Mac とペアリングできます。Tailscale などお使いのネットワークを持ち込むこともできます。Enterprise ではセルフホストも可能です。"
         },
         {
           "q": "課金はどのように行われますか?",
-          "a": "Pro は月払いで $30/月、年払いでは $24/月（20%割引）で、4 vCPU / 16 GB の Cloud VM で毎月20時間のアクティブ計算時間が含まれます。それを超えると、VM サイズに応じてアクティブな計算時間あたりで課金されます（上記の Cloud VM サイズを参照）。アイドルの VM は自動的に一時停止し、エージェントを並列実行するとより多くの時間を使うだけです。ターミナルとローカルエージェントは無料のままです。"
+          "a": "Pro は月払いで $50/月、年払いでは $40/月（20%割引）です。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月です。有料プランではユーザーごとに最大 50 台の Cloud VM を利用でき、従量課金や超過料金はありません。ターミナルとローカルエージェントは無料のままです。"
         },
         {
           "q": "クラウドをセルフホストできますか?",
@@ -693,7 +986,7 @@
         },
         {
           "q": "チームプランはありますか?",
-          "a": "はい。Team は月払いで $35/ユーザー/月、年払いでは $28/ユーザー/月です。チーム全体の一元請求、シート管理、Cloud VM 時間のプール、共有チームルールが含まれます。Enterprise では SSO、セルフホスト、監査ログが追加されます。"
+          "a": "はい。Team は月払いで $60/ユーザー/月、年払いでは $48/ユーザー/月で、チーム全体の一元請求と優先サポートが含まれます。"
         }
       ]
     },
@@ -1023,7 +1316,7 @@
         "simpleP2": "カスタムのエージェントハーネスや外部オーケストレーションは使いません。<code>/loop</code>は使わず、<code>/goal</code>もほとんど使いません。",
         "economicsTitle": "費用",
         "economicsP1": "API料金に換算すると、この使用量は約8万5000ドルです。実際に支払ったのは37個のChatGPT Pro 20xアカウントに対する7400ドルで、Tiboが提供したクォータリセットも使いました。<codexBar>CodexBar</codexBar>でローカルのトークン数とAPI料金換算を集計しました。",
-        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<subrouter>Subrouter</subrouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
+        "economicsP2": "3670億という数字も、アカウント全体の使用量より少なく出ています。<coderouter>CodeRouter</coderouter>で共同創業者と同じアカウントプールを共有していますが、CodexBarが集計するのは私のマシン上のローカルトークン使用量だけだからです。",
         "closing": "このワークフローでは判断に注意を集中できます。完了した作業を確認してエージェントのブロックを解除し、キューが空になったら次のタスクを始めます。"
       },
       "cmdShiftU": {
@@ -1059,16 +1352,16 @@
         "title": "スーパーリポとClaude Codeが最良のワークツリー管理ツールである理由",
         "summary": "cmuxにまだワークツリーマネージャーがない理由をよく聞かれます。最適なマネージャーは、ワークツリー、別チェックアウト、サンドボックス、VM、GPUクラスタから選べます。",
         "date": "2026年7月23日",
-        "p1": "ワークロードごとに適した並列化の方法は異なります。通常のGit変更にはワークツリーが向いています。サブモジュールやビルドツールがワークツリーを扱いにくい場合は、複数のチェックアウトが役立ちます。E2B、Freestyle、Daytona、Modalはリモートサンドボックスを提供し、GitHub Actionsも同じ用途に転用できます。ローカルの分離にはDocker、UTM、Lima、OrbStackがあります。Mac miniやLinuxマシンを並べるチームもあります。ML実験にはRay、Modal、Slurmが適しています。mainですべてを一気に進めるのが最速な場合もあります。",
+        "p1": "ワークロードごとに適した並列化の方法は異なります。通常のGit変更にはワークツリーが向いています。サブモジュールやビルドツールがワークツリーを扱いにくい場合は、複数のチェックアウトが役立ちます。FreestyleとModalはリモートサンドボックスを提供し、GitHub Actionsも同じ用途に転用できます。ローカルの分離にはDocker、UTM、Lima、OrbStackがあります。Mac miniやLinuxマシンを並べるチームもあります。ML実験にはRay、Modal、Slurmが適しています。mainですべてを一気に進めるのが最速な場合もあります。",
         "p2": "役に立つマネージャーは、タスクの文脈からこれらの実行方式を選ぶべきです。これは<zen>cmuxの禅</zen>に沿っています。プリミティブを組み合わせ可能なままにして、使い方はプロジェクトのルールに決めさせます。",
         "superRepoTitle": "スーパーリポはプロジェクトの司令部",
-      "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",
-      "superRepoP2": "<code>AGENTS.md</code>が制御プレーンです。エージェントが必要とする可能性のあるリポジトリ、各タスクのワークツリーを置く場所、リポジトリごとのセットアップ手順を定義します。一つのタスクでターミナル、ブラウザ連携、ルーター用の対応するワークツリーを作れますが、すべてのタスクで三つとも複製する必要はありません。",
-      "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/subrouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
-      "agentTitle": "トポロジーをエージェントに選ばせる",
-      "agentP1": "cmuxではこのパターンを社内で使っています。公開ソースは<cmux>manaflow-ai/cmux</cmux>にあり、非公開の制御用リポジトリは<hq>manaflow-ai/cmuxterm-hq</hq>です。hqのルートから、cmuxにも関係する可能性があるsubrouterの問題をCodexやClaude Codeに依頼できます。エージェントは必要なワークツリーだけを作り、各リポジトリのAGENTS.mdを読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
-      "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"subrouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
-      "agentP2": "<code>./scripts/new-worktree.sh</code>は一つのトポロジーを実装します。エージェントなら、互換性のないサブモジュールには別チェックアウト、信頼できないセットアップにはリモートサンドボックス、別OSにはVM、実験にはGPUスケジューラを選び、決定的な処理には既存のスクリプトを再利用できます。",
+        "superRepoP1": "この制御用リポジトリをスーパーリポと呼びたいと思います。コーディングエージェントにとって、スーパーリポは一つ以上のソースリポジトリの上位にあり、プロンプトを分離されたタスク環境へ変換するためのデータ、スキル、origin、ワークツリー、運用ルールを保持します。",
+        "superRepoP2": "<code>AGENTS.md</code>が制御プレーンです。エージェントが必要とする可能性のあるリポジトリ、各タスクのワークツリーを置く場所、リポジトリごとのセットアップ手順を定義します。一つのタスクでターミナル、ブラウザ連携、ルーター用の対応するワークツリーを作れますが、すべてのタスクで三つとも複製する必要はありません。",
+        "agentsExample": "cmux-hqで作業しています。タスクには次のリポジトリが関係する場合があります：\n- manaflow-ai/cmux\n- manaflow-ai/cmux-browser\n- manaflow-ai/coderouter\n\nユーザーが新しいタスクを依頼したとき：\n1. タスクに必要なリポジトリを判断します。\n2. worktrees/[task]/[repo]に対応するワークツリーを作成します。\n3. 各ワークツリーのAGENTS.mdを読みます。\n4. セットアップスクリプトをすぐに起動し、タスクを続けます。",
+        "agentTitle": "トポロジーをエージェントに選ばせる",
+        "agentP1": "cmuxではこのパターンを社内で使っています。公開ソースは<cmux>manaflow-ai/cmux</cmux>にあり、非公開の制御用リポジトリは<hq>manaflow-ai/cmuxterm-hq</hq>です。hqのルートから、cmuxにも関係する可能性があるCodeRouterの問題をCodexやClaude Codeに依頼できます。エージェントは必要なワークツリーだけを作り、各リポジトリのAGENTS.mdを読み、セットアップスクリプトを起動し、その実行中にコードの調査を始めます。",
+        "launchCommand": "cd ~/fun/cmux-hq\ncodex --yolo \"CodeRouterのxyz問題を修正して。cmuxのxyzにも関係する可能性あり\"",
+        "agentP2": "<code>./scripts/new-worktree.sh</code>は一つのトポロジーを実装します。エージェントなら、互換性のないサブモジュールには別チェックアウト、信頼できないセットアップにはリモートサンドボックス、別OSにはVM、実験にはGPUスケジューラを選び、決定的な処理には既存のスクリプトを再利用できます。",
         "limitsTitle": "完了までの時間が短くなる理由",
         "limitsP1": "多くのプロジェクトでは、ワークツリーは並列化の一部にすぎません。MLでは、一つのコーディングエージェントが一つのワークツリーで複数の実験を書き、スケジューラが実行を複数のGPUへ配布できます。ワークツリーを増やしても計算資源は増えず、調整だけが増えます。",
         "limitsP2": "エージェントによるオーケストレーションは起動時間も短縮できます。チェックアウトができた時点でエージェントはコードを読み書きし、依存関係のインストール、ビルド、ローカルサービスの起動はバックグラウンドで続けられます。すべてのセットアップ完了後にエージェントを起動するラッパーでは、最も遅い前提処理がクリティカルパスに入ります。",
@@ -1445,6 +1738,38 @@
     }
   },
   "docs": {
+    "managedPolicies": {
+      "title": "管理デバイスポリシー（MDM）",
+      "metaTitle": "管理デバイスポリシー（MDM）",
+      "metaDescription": "管理対象の Mac で cmux に MDM 強制可能なポリシーを展開：com.cmuxterm.app を対象とする構成プロファイルで内蔵ブラウザと iOS リモート操作を無効化できます。",
+      "intro": "cmux は管理対象の Mac 向けに MDM で強制できるポリシーをサポートします。管理者は macOS 構成プロファイル（カスタム設定ペイロード）を使って強制環境設定値として配布します。強制値は最優先で、環境変数、ユーザー設定、~/.config/cmux/cmux.json のインポート、組み込みデフォルトに優先します。",
+      "lockSummary": "強制値はアプリ内から変更できません。設定 UI には「組織によって管理されています」と表示され、コマンドパレットの該当コマンドは非表示になり、cmux CLI は管理ポリシーエラーで拒否します。",
+      "domainTitle": "ペイロードドメイン",
+      "domainDesc": "リリース版アプリの環境設定ドメインを対象にします：",
+      "domainChannels": "チャンネルビルド（debug、nightly、staging）は独自のバンドル ID で動作しますが、com.cmuxterm.app を対象とするプロファイルも尊重するため、1 つのプロファイルですべてのチャンネルを管理できます。アプリ自身のドメインで強制された値がリリースドメインのフォールバックに優先します。",
+      "keysTitle": "ポリシーキー",
+      "keyHeader": "キー",
+      "typeHeader": "型",
+      "defaultHeader": "デフォルト",
+      "behaviorHeader": "true に強制したときの動作",
+      "booleanType": "Boolean",
+      "browserKeyDesc": "すべての内蔵ブラウザ面を無効化します：ブラウザペインとタブ、ターミナルリンクのインターセプト、自動化・レイアウト・セッション復元からのブラウザ作成。ポリシーの有効化時には表示中のブラウザペインを閉じ、リンクはシステムのデフォルトブラウザで開きます。同じゲートを共有する WebKit ベースのローカルビューア（差分ビューア、エージェントチャット、アプリ内アップグレードページ）も利用できなくなり、Mac は iOS アプリへのブラウザ機能のアドバタイズを停止します。",
+      "remoteKeyDesc": "Mac が cmux iOS アプリのリモート表示・操作ホストとして動作することを無効化します：Iroh ホストランタイム（ローカルネットワークへのアドバタイズを含む）、旧式 TCP ペアリングリスナー、接続受け入れ、デバイスペアリング。ポリシーの有効化時には接続中のフォン接続を閉じ、ペアリングのトラストブローカーは新規ペア許可の発行を拒否します。送信専用の通知転送、アプリのアップデート、ローカル自動化ソケット、Mac をクライアントとする SSH は影響を受けません。",
+      "noteBoolean": "値は Boolean である必要があります。false（または Boolean 以外の値）に強制されたキーはポリシーを有効化しませんが、書き込みロックの対象としては管理済みと見なされます。",
+      "noteForcedOnly": "ポリシーとして尊重されるのは強制（プロファイル配布）値のみです。これらのキーへの単純な defaults write は効果がありません。",
+      "noteTiming": "ポリシーはアプリ起動時、環境設定変更時、アプリのアクティブ化時に適用され、さらに実行中は定期的（約 1 分ごと）に再確認されます。実行中にプッシュされたプロファイルは、ユーザーがアプリを離れなくてもおよそ 1 分以内に有効になります。",
+      "lockTitle": "ロック可能性",
+      "lockDesc": "構成プロファイルの強制値は macOS 自体によってロックされます：ユーザーの書き込み（「すべての設定をリセット」を含む）では有効値を変更できず、プロファイルを削除すると通常の動作に戻ります。さらに cmux は自身の書き込みを抑止します：cmux.json インポーターは強制されたすべてのキーをスキップし、ブラウザとリモート操作の制御については設定 UI が管理状態を表示し、コマンドパレットは該当コマンドを非表示にし、CLI は管理ポリシーエラーで拒否します。管理者が専用ポリシーキーの代わりにユーザーレベルの browserDisabledOverride キーを直接強制した場合も同様です。",
+      "supportTitle": "対応プラットフォームとバージョン",
+      "supportMacos": "macOS 14（Sonoma）以降。cmux のシステム要件に準拠します。",
+      "supportVersions": "この機能を含む cmux for macOS ビルド（リリース時のチェンジログを参照）。すべてのリリースチャンネルがリリースペイロードドメインを尊重します。",
+      "supportIos": "これらは macOS 側の制御です。iOS アプリに個別のポリシーは不要です：DisableRemoteControl が強制された Mac は接続受け入れとペアリングを拒否するため、フォンは接続できません。",
+      "sampleTitle": "構成プロファイルのサンプル",
+      "sampleDesc": "MDM から com.cmuxterm.app 向けのカスタム設定ペイロードとして展開するか、テスト用に以下のプロファイルを手動でインストールします（システム設定 → 一般 → デバイス管理）。",
+      "verifyTitle": "管理対象 Mac での確認",
+      "verifyDesc": "有効な強制値と CLI の管理状態を確認します：",
+      "verifyUi": "cmux では、設定 → ブラウザに有効化トグルが無効状態で「組織によって管理されています」と表示され、設定 → モバイルに「iOS アプリからのリモート操作は組織によって無効化されています」と表示されます。"
+    },
     "remoteTmux": {
       "title": "リモート tmux",
       "metaTitle": "リモート tmux（ベータ）",
@@ -1654,7 +1979,7 @@
       "anchorNew": "グループのアンカーは、作成時には常に新規のワークスペースです。選択範囲のグループ化やグループの作成で、既存のワークスペースがアンカーに昇格することはありません。（アンカーを後から閉じた場合は、グループに残った最初のメンバーが昇格します。下記参照。）アンカーの作業ディレクトリは、選択範囲をグループ化する場合は最初に選択したワークスペースから、--cwd なしで CLI から作成する場合はアクティブなワークスペースから引き継がれます。",
       "anchorClose": "アンカーワークスペースを閉じても、閉じられるのはそのワークスペースだけです。グループに残った最初のメンバー（グループの並び順で最も先頭にあるもの）が新しいアンカーに昇格し、グループと他のメンバーはそのまま維持されます（昇格したメンバーはヘッダーにグループ名を表示します）。アンカーがグループ唯一のワークスペースだった場合は、グループが削除されます。グループをグループ化されていないワークスペースに戻すには「グループ解除」を、グループ内のすべてのワークスペースを閉じるには「グループを削除」を使用します。",
       "identityTitle": "グループの識別情報",
-      "identityDesc": "グループには名前、アイコン（SF Symbol、デフォルトは folder.fill）、および任意のカスタムカラーがあります。これらはアンカーワークスペース自身のカスタマイズとは独立しています。アンカーの色とアイコンは作成時にグループから初期設定されますが、その後は別々に変更できます。",
+      "identityDesc": "グループには名前、アイコン（SF Symbol、デフォルトは folder.fill）、および任意のカスタムカラーがあります。自動化ではウィンドウ単位の external_id（または idempotency_key）も指定できます。同じ識別子で作成を繰り返すと、別のアンカーを追加せず既存のグループを返します。名前は識別子ではなく、現在のアンカーの明示的な来歴が安全なクリーンアップを制御します。",
       "pinningTitle": "ピン留め",
       "pinningDesc": "グループは個々のワークスペースのピン留めとは独立してピン留めできます。ピン留めされたトップレベルの行は、個々のワークスペースであれグループであれ、ピン留めされていない行より上に表示されます。各層の中では、グループとワークスペースはドラッグした順序を保ちます。",
       "layoutIntro": "サイドバーはトップレベルの行を上から下に次のように配置します。",
@@ -1678,8 +2003,8 @@
       "cliTitle": "CLI",
       "cliDesc": "すべてのグループ操作は cmux workspace-group サブコマンドでスクリプト化できます。ハイフン形式が先に提供されます。より広い cmux workspace コマンド名前空間が登場すると、cmux workspace group が正式な形式となり、ハイフン形式は今後ずっとエイリアスとして残ります。",
       "cliSubcommandsTitle": "サブコマンド",
-      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。完全な構造化ペイロードを得るには --json を渡してください。",
-      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
+      "cliCreateNote": "create はグループハンドル（デフォルトでは workspace_group:N）を返します。--from を省略するとアンカーのみのグループを作成し、選択状態や呼び出し元のコンテキストから既存のワークスペースを推測しません。再試行でアトミックな作成または既存取得を行うには --idempotency-key（または --external-id）を渡し、完全な構造化ペイロードには --json を渡してください。",
+      "cliFlagsNote": "delete はデフォルトでグループを解除し、ワークスペースを保持します。すべてのメンバーワークスペースを閉じてプロセスを終了する場合にのみ --close-workspaces を渡してください。cmux が作成したアンカーのみのグループでは、ungroup に --remove-generated-anchor を指定するとアンカーも削除できます。ユーザーが選択または昇格したアンカーは拒否されます。レスポンスには操作内容と対象数が含まれます。set-color または set-icon に空の値を渡すと、グループの色やアイコンをクリアします。",
       "cliExamplesTitle": "例",
       "cliExampleGroup": "明示的に選んだ 2 つのワークスペースを名前を付けてグループ化します。",
       "cliExampleNew": "既存のグループ内に新しいワークスペースを作成します（例: worktree スクリプトと連携）。",
@@ -1688,7 +2013,7 @@
       "configNote": "グループごとの設定は、~/.config/cmux/cmux.json 内の workspaceGroups キーに置かれ、アンカーワークスペースの作業ディレクトリをキーとして照合されます。対応しているキー（グローバルな新規ワークスペースの配置や、ディレクトリごとの色・アイコン・配置・コンテキストメニューのアクションなど）については、設定リファレンスを参照してください。",
       "configLinkText": "workspaceGroups 設定リファレンス",
       "persistenceTitle": "永続化",
-      "persistenceDesc": "グループの名前、アンカー、ピン留め状態、折りたたみ状態、色、アイコンはワークスペースとともに保存され、起動をまたいで復元されます。グループのメンバーシップは各ワークスペースに保存されます。"
+      "persistenceDesc": "グループの名前、アンカー、ピン留め状態、折りたたみ状態、色、アイコン、外部識別子、アンカーの来歴はワークスペースとともに保存され、起動をまたいで復元されます。グループのメンバーシップは各ワークスペースに保存されます。"
     },
     "configuration": {
       "title": "設定",
@@ -1728,6 +2053,11 @@
       "exampleConfig": "設定例",
       "metaTitle": "設定",
       "schemaDescriptions": {
+        "computerUse": {
+          "description": "ローカルのコンピュータ操作ツールとメニューバー表示の設定です。",
+          "enabled": "cmux ターミナルで起動した対応エージェントが、ローカルのコンピュータ操作ツールを接続できるようにします。",
+          "showInMenuBar": "実行中のコンピュータ操作セッションとフォーカス操作をメニューバーに表示します。"
+        },
         "agentChat": {
           "description": "Agent Chat GUI サーバーの設定です。組み込みの「新しいエージェントチャット」アクションは、この URL をブラウザワークスペースで開き、先に /healthz を確認し、サーバーが停止している場合は設定した起動コマンドを実行できます。",
           "url": "このマシン上の Agent Chat GUI サーバーのベース URL です。cmux はワークスペースを開く前に <url>/healthz を確認します。",
@@ -1766,6 +2096,7 @@
           "globalFontMagnification": "cmux が所有するターミナル、タブタイトル、サイドバー、設定、オーバーレイ、アプリの chrome をこの割合で拡大縮小します。レンダリングされたブラウザページ内容は対象外です。"
         },
         "terminal": {
+          "adaptiveDefaultTheme": "true（既定）の場合、Ghostty 設定にディレクティブが一つもないときに限り、cmux の管理するライト／ダークパレットを適用します。false の場合、未設定の Ghostty では固定された組み込みパレットを使用します。Ghostty のディレクティブが一つでもあれば管理パレットは適用せず、theme = light:X,dark:Y は引き続き外観に追従します。",
           "agentHibernation": "通常のエージェント休止の設定です。cmux はアイドル中のバックグラウンドエージェントプロセスを終了して RAM と CPU を解放し、そのタブを開いたときに保存済みセッションから再開します。通常の休止には、再開可能なコーディングエージェントであること、ライフサイクルがアイドルと報告していること、ターミナルが画面外にあること、ライブターミナル数が設定上限を超えていること、アイドル時間と確認時間を通して出力が変化していないことが必要です。これとは別に、メモリ負荷が危険な状態では enabled が false でも、安全なアイドル中のバックグラウンドエージェントを cmux が上限付きのバッチで休止する場合があります。表示中、実行中、入力待ち、最近変更された、またはトランスクリプトを保護できないエージェントは対象外です。プレースホルダーの「再開」ボタンは手動の代替手段です。",
           "agentHibernationEnabled": "ライブターミナル数の上限に基づく通常のエージェント休止を有効にします。false の場合も、メモリ負荷が危険な状態での安全休止は有効です。",
           "copyOnSelect": "true の場合、選択が確定したときにターミナルで選択したテキストをシステムクリップボードへコピーします。false の場合、cmux は Ghostty の copy-on-select 上書きを出力せず、選択クリップボードの動作は Ghostty の設定と既定値に従います。",
@@ -1790,7 +2121,9 @@
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
-          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。"
+          "defaultZoomLevel": "新しく開いたブラウザページに適用されるデフォルトのページズーム倍率（1 = 100%）。ズームイン・ズームアウト・実際のサイズは引き続き各ページごとに調整できます。",
+          "askWhereToSaveDownloads": "ブラウザのダウンロードを直接「ダウンロード」に保存せず、保存パネルを表示します。",
+          "urlAllowlist": "内蔵ブラウザの移動を制限するホストまたはURLパターンです。設定画面ではローカル開発用オリジンを候補として表示します。リストを保存すると任意の制限が有効になり、エントリを削除するとそのURLをブロックします。管理ポリシーがない場合はユーザー値を空にすると無効になります。"
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "グループ内で Cmd-N、グループヘッダーの + ボタン、設定済みグループアクションが新しいワークスペースを配置する場所のグローバル既定値です: `afterCurrent` (アクティブなグループ内ワークスペースの直後。ない場合は top)、`top` (アンカー直後の2番目の位置)、`end` (最後のメンバーの後)。",
@@ -1832,7 +2165,9 @@
           "suppressOnlyFocusedSurface": "有効にすると、通知バナーはその対象がまさにフォーカス中のサーフェスである場合のみ自動的に取り下げられます。現在表示中のワークスペース内でフォーカスされていないサーフェス向けに配信されたバナーは、ワークスペースが表示されたときに取り消されるのではなく、そのサーフェスをフォーカスする（またはクリック／消去する）まで表示され続けます。オフの場合は従来のワークスペース表示時の取り下げ動作を維持します。",
           "agentPermissionPrompt": "エージェント（Claude Code など）がツールの実行にあなたの許可を待って停止しているときに通知します。エージェントの停止を解除するには操作が必要なため、既定でオンです。",
           "agentTurnComplete": "エージェントがターンを終えたことを通知するタイミングです。whenIdle（既定）は、実行中のバックグラウンドタスクや保留中のスケジュール再開が残っている間は通知を抑制し、作業が完全に片付いてから通知します。always はターン終了ごとに通知し、never は通知しません。",
-          "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。"
+          "agentIdleReminder": "エージェントがあなたの入力を待って待機状態になったとき（ターン終了の約60秒後）に通知します。前のターンのバックグラウンド作業がまだ実行中の間は抑制されるため、ビルドやウォッチャーの実行中に誤った待機通知が出ることはありません。",
+          "soundOverrides": "エージェントとアラート種別ごとの通知サウンド上書きです。空のセルは notifications.sound を使用します。",
+          "soundOverride": "通知サウンドの上書きです。default は notifications.sound を使用し、none は再生を無効にします。それ以外の値では組み込みまたはカスタムサウンドを選択します。"
         }
       },
       "exampleMarkdownFontSize": "新しく開く Markdown ビューアの本文フォントサイズ（ポイント単位）。",
@@ -2175,7 +2510,11 @@
       "hooksIntro": "<config>cmux.json</config> で通知フックを定義すると、すべての通知ポリシーを stdin の JSON として受け取れます。各フックは stdout に JSON を返します。フックは既定ではオフです。cmux は <hooksMode>notifications.hooks</hooksMode> に有効なフックが 1 つ以上ある場合にのみ実行します。cmux は返された通知テキストと効果を適用するため、バナーのフィルタ、サイドバー履歴の保持またはスキップ、サウンドの実行、後続フックの停止を制御できます。",
       "hooksJsonTitle": "cmux.json",
       "hooksIOTitle": "フックの入力と出力",
-      "hooksDetails": "フックはグローバル <globalConfig>~/.config/cmux/cmux.json</globalConfig> と、現在のワークスペースまでの親ディレクトリにあるプロジェクト <projectConfig>.cmux/cmux.json</projectConfig> から継承されます。プロジェクトフックは、他のプロジェクト <config>cmux.json</config> コマンドと同じ信頼プロンプトを実行前に使用します。Feed の承認バナーもこれらのフックを通ります。<desktop>desktop</desktop> を無効にすると、Feed 項目は cmux に残したままネイティブバナーを抑制します。継承したフックを無視するには、プロジェクト設定で <hooksMode>notifications.hooksMode</hooksMode> を <replace>replace</replace> に設定します。フックが失敗、タイムアウト、または無効な JSON を返した場合、cmux は既定の通知動作を使用し、フック失敗アラートを表示します。"
+      "hooksDetails": "フックはグローバル <globalConfig>~/.config/cmux/cmux.json</globalConfig> と、現在のワークスペースまでの親ディレクトリにあるプロジェクト <projectConfig>.cmux/cmux.json</projectConfig> から継承されます。プロジェクトフックは、他のプロジェクト <config>cmux.json</config> コマンドと同じ信頼プロンプトを実行前に使用します。Feed の承認バナーもこれらのフックを通ります。<desktop>desktop</desktop> を無効にすると、Feed 項目は cmux に残したままネイティブバナーを抑制します。継承したフックを無視するには、プロジェクト設定で <hooksMode>notifications.hooksMode</hooksMode> を <replace>replace</replace> に設定します。フックが失敗、タイムアウト、または無効な JSON を返した場合、cmux は既定の通知動作を使用し、フック失敗アラートを表示します。",
+      "hooksAgentTitle": "エージェントイベントコンテキスト",
+      "hooksAgentIntro": "エージェントの完了シグナルに由来する通知には、読み取り専用の <agent>agent</agent> オブジェクトが付きます。<kind>kind</kind> は安定した小文字のエージェントスラッグ（claude、codex、grok など）、<category>category</category> は turn-complete、needs-permission、idle-reminder のいずれか、<pending>pending</pending> はバックグラウンド作業が残ったままターンが終了した場合に true、<isSubagent>isSubagent</isSubagent> はネストされたサブエージェントセッションの場合に true です。エージェント以外の通知ではこのオブジェクトは省略されます。同じ値は CMUX_NOTIFICATION_AGENT_KIND、CMUX_NOTIFICATION_AGENT_CATEGORY、CMUX_NOTIFICATION_AGENT_PENDING、CMUX_NOTIFICATION_AGENT_IS_SUBAGENT としてフックプロセスの環境変数にもエクスポートされます。たとえば次のフックは、他の動作はそのままに、サブエージェント完了時のバナー・サウンド・ペインフラッシュだけを抑制します:",
+      "hooksAgentExampleTitle": "サブエージェント完了通知の抑制",
+      "hooksAgentDetails": "フックを設定していない場合、通知動作は cmux の組み込み既定とまったく同じです。フックの設定こそが、配信の判断をスクリプトに委ねる明示的なオプトインです。なお、cmux の組み込みサブエージェント抑制（<suppressSetting>automation.suppressSubagentNotifications</suppressSetting>、既定でオン）は、サブエージェントの完了イベントをフックに届く前に破棄します。フック側でサブエージェントイベントを受け取って独自に判断したい場合は、この設定をオフにしてください。"
     },
     "browserAutomation": {
       "title": "ブラウザ自動化",
@@ -2355,22 +2694,30 @@
       "usageDesc": "claude-teamsの後のすべての引数はClaude Codeに転送されます。コマンドはteammate modeをautoに設定し、Claudeがcmuxスプリットを使用する環境を構成します。",
       "howItWorks": "仕組み",
       "howItWorksDesc": "cmux claude-teamsはtmux shimスクリプトを作成し、Claude Codeがtmux内で動作していると認識するよう環境を構成します。Claudeがチームメイトペインを管理するためにtmuxコマンドを発行すると、shimがそれをcmuxソケットAPIコールに変換します。",
-      "shimStep1": "~/.cmuxterm/claude-teams-bin/tmuxにtmux shimを作成し、cmux __tmux-compatにリダイレクト",
-      "shimStep2": "TMUXとTMUX_PANE環境変数を設定してtmuxセッションをシミュレート",
+      "shimStep1": "現在のサーフェス用の一時shimディレクトリにtmux shimを作成します。パスにはサーフェスUUIDが含まれ、パネルごと、起動ごとに変わるため、固定パスを示すことはできません",
+      "shimStep2": "Claude Teamsを起動したセッションでtmuxをシミュレートするためにTMUXとTMUX_PANEを設定",
       "shimStep3": "shimディレクトリをPATHの先頭に追加し、Claudeが本物のtmuxより先にshimを見つけるようにする",
       "shimStep4": "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1を有効にし、teammate modeをautoに設定",
+      "shimDiagnostic": "shimは<marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>が設定されている場合にのみcmuxにルーティングし、未設定の場合は次の実際のtmux実行ファイルへ透過的にフォールスルーします。そのため、<which>which tmux</which>ではClaude Teamsのインターセプトが有効かどうかを判断できません。",
       "envVars": "環境変数",
       "envVarName": "変数",
       "envVarPurpose": "目的",
-      "envTmux": "現在のcmuxワークスペースとペインをエンコードした偽のtmuxソケットパス",
-      "envTmuxPane": "現在のcmuxペインにマッピングされた偽のtmuxペイン識別子",
+      "envTmux": "cmux claude-teamsを実行したセッション用の仮想tmuxソケットパス",
+      "envTmuxPane": "cmux claude-teamsを実行したセッション用の仮想tmuxペイン識別子。生成されたエージェントパネル内では空です",
+      "envSurface": "現在のサーフェスのUUID。生成されたエージェントパネル内では、サーフェス識別子としてこの値を使用します",
       "envTeams": "Claude Codeエージェントチーム機能を有効にする",
       "envSocket": "shimが接続するcmuxコントロールソケットのパス",
+      "envScope": "仮想の<tmux>TMUX</tmux>、<tmuxPane>TMUX_PANE</tmuxPane>、および関連するtmux互換値は、生成されたパネルではなく、<command>cmux claude-teams</command>を実行したセッションを表します。エージェントパネル内では<surface>CMUX_SURFACE_ID</surface>を使用して<tree>cmux tree --json</tree>を実行してください。出力の<caller>caller</caller>オブジェクトが、コマンドを実行したパネルを示します。",
       "directories": "ディレクトリ",
       "dirPath": "パス",
       "dirPurpose": "目的",
-      "dirShim": "tmuxコマンドをcmux APIコールに変換するtmux shimスクリプトを含む",
-      "dirStore": "tmux-compatバッファとフックの永続ストレージ",
+      "dirShimPath": "システムの一時ディレクトリ配下にあるサーフェスごとのディレクトリ（固定パスなし）",
+      "dirShim": "有効なtmux shimを格納し、そのサーフェスのPATHの先頭に追加される",
+      "dirStore": "tmux互換のバッファ、フック、splitの配置とレイアウト状態を永続化するストレージ",
+      "storeDetails": "splitのルーティングに使われるキーは次のとおりです：",
+      "storeLastSplitSurface": "各ワークスペースUUIDを、直前のsplitで作成されたサーフェスUUIDに対応付けます。次のmain-vertical splitの配置先を決めるエージェント列のアンカーを初期化します。",
+      "storeMainVerticalLayouts": "各ワークスペースUUIDを、<mainSurfaceId>mainSurfaceId</mainSurfaceId>（メインまたはリーダーサーフェス）と<lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId>（エージェント列の最下段サーフェス）に対応付けます。以降のチームメイトsplitはその列を対象にして下方向へ積み重なります。",
+      "storeTroubleshooting": "チームメイトパネルが既存のサーフェスの横にsplitとして表示されず、その背後にタブとして表示される場合は、これらのルーティングキーを確認してください。",
       "tmuxCommands": "対応するtmuxコマンド",
       "tmuxCommandsDesc": "shimは以下のtmuxコマンドをcmux操作に変換します：",
       "mapWorkspace": "新しいcmuxワークスペースを作成",
@@ -2526,6 +2873,7 @@
       "browserAutomation": "ブラウザ自動化",
       "skills": "スキル",
       "notifications": "通知",
+      "managedPolicies": "管理ポリシー（MDM）",
       "remoteTmux": "リモート tmux",
       "agentIntegrations": "エージェント連携",
       "claudeCodeTeams": "Claude Code Teams",
@@ -2543,9 +2891,9 @@
     },
     "dock": {
       "metaTitle": "Dock",
-      "metaDescription": "Dock JSONでcmuxの右サイドバーにカスタムTUIコントロールを追加します。",
+      "metaDescription": "Dock JSONでcmuxの右サイドバーにターミナルとブラウザのコントロールを追加します。",
       "title": "Dock",
-      "intro": "Dockでは右サイドバーにTUIコントロールを追加できます。各コントロールはJSONで定義したコマンドで、Ghosttyベースの専用ターミナルセクションとして表示されます。フィード、ログ、キュー、gitステータス、開発サーバーなど、チームが各ワークスペースの横に置きたいTUIに使えます。",
+      "intro": "Dockでは右サイドバーにターミナルとブラウザのコントロールを追加できます。ターミナルコントロールはGhosttyベースのセクションでコマンドを実行し、ブラウザコントロールはWebページを埋め込みます。フィード、ログ、キュー、gitステータス、開発サーバー、ダッシュボード、リファレンスページなどを各ワークスペースの横に置けます。",
       "configTitle": "設定",
       "configIntro": "cmuxはDock設定を次の順に探します:",
       "projectConfig": "現在のリポジトリ、最も近い親プロジェクト、ネストされたプロジェクトディレクトリ用です。",
@@ -2559,9 +2907,12 @@
       "descriptionHeader": "説明",
       "fieldId": "コントロールの安定した一意IDです。短く保ち、別のコマンドに再利用しないでください。",
       "fieldTitle": "Dockヘッダーに表示されるラベルです。",
-      "fieldCommand": "Dockターミナルで実行するコマンドです。ログインシェル内で起動します。",
+      "fieldCommand": "Dockターミナルで実行するコマンドです。ターミナルコントロールでは必須で、ログインシェル内で起動します。",
+      "fieldType": "任意のコントロール種別です。terminal（デフォルト）またはbrowserを指定できます。",
+      "fieldUrl": "開くページです。ブラウザコントロールでは必須です。",
+      "fieldChrome": "任意のブラウザクローム表示設定です。デフォルトはtrueです。falseにするとアドレスバーとツールバーが非表示になり、そのペインでは「アドレスバーにフォーカス」は何もしません。cmux browser goto/reloadは引き続き利用できます。",
       "fieldCwd": "任意の作業ディレクトリです。相対パスはプロジェクト設定ではプロジェクトルートから、グローバル設定ではホームディレクトリから解決されます。",
-      "fieldHeight": "任意のターミナル高さです。heightがないコントロールは残りのスペースを共有します。",
+      "fieldHeight": "任意のコントロール高さです。heightがないコントロールは残りのスペースを共有します。",
       "fieldEnv": "そのコントロールだけに渡す任意の環境変数です。",
       "sharingTitle": "チームで共有する",
       "sharingIntro": "Dockは、コマンドがリポジトリに属する場合にソース管理で共有できるように設計されています。",
@@ -2571,7 +2922,7 @@
       "agentPromptTitle": "エージェントに設定を依頼する",
       "agentPromptIntro": "コーディングエージェントにDockコントロールを作成させたいときは、このプロンプトを使ってください。エージェントに `cmux docs dock` を実行し、プロジェクトを調べ、推測する前に質問するよう指示します。",
       "agentPromptCodeTitle": "エージェント用プロンプト",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "ssh": {
       "title": "SSH",
@@ -2857,6 +3208,9 @@
     "metaTitle": "cmux Pro が有効になりました",
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
+    "purchaseComplete": "購入が完了しました",
+    "proLabel": "Pro プラン",
+    "dashboardLink": "ダッシュボードへ",
     "emailLabel": "購入メールアドレス",
     "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",
@@ -2870,7 +3224,7 @@
       },
       "modelGateway": {
         "title": "モデルゲートウェイ",
-        "body": "使用量とコスト分析を見ながらプロバイダー間でルーティングし、毎月 20 コンピュート時間を利用できます。",
+        "body": "接続したプロバイダーアカウントをまたぐホスト型モデルルーティング。",
         "action": "モデルゲートウェイを開く"
       },
       "aiAccounts": {
@@ -3046,6 +3400,10 @@
       "metaDescription": "cmuxと他のmacOSターミナルの比較、Ghostty上に構築されている仕組み、Claude Code・Codex・OpenCodeをcmuxで実行する方法のガイド。",
       "title": "ガイド",
       "intro": "cmuxの比較・背景・ユースケースのガイドです。製品ドキュメントについてはドキュメントをご覧ください。"
+    },
+    "managedPolicies": {
+      "title": "管理デバイスポリシー（MDM）",
+      "metaDescription": "管理対象の Mac で cmux に MDM 強制可能なポリシー：構成プロファイルで内蔵ブラウザと iOS リモート操作を無効化できます。"
     },
     "remoteTmux": {
       "title": "リモート tmux",
@@ -4568,6 +4926,7 @@
       "cursorCli": "Cursor CLI のためのターミナル",
       "keyboardShortcuts": "キーボードショートカット",
       "browserAutomation": "ブラウザ自動化",
+      "managedPolicies": "管理ポリシー（MDM）",
       "remoteTmux": "リモート tmux",
       "compare": "cmuxを比較"
     },
@@ -4769,6 +5128,52 @@
       "submit": "送信",
       "submitting": "送信中...",
       "success": "ありがとうございます。リクエストを受け付けました。founders@manaflow.com から返信します。",
+      "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
+    }
+  },
+  "support": {
+    "metaTitle": "サポート | cmux",
+    "metaDescription": "cmux のサポートを受けられます。メッセージを送信するとメールで返信します。Discord や GitHub でも問い合わせできます。",
+    "section": "サポート",
+    "title": "cmux のサポートを受けられます。",
+    "body": "メッセージを送信すると、メールで返信します。操作内容、期待した結果、実際の結果を書いていただくと、より早く対応できます。",
+    "channels": {
+      "docs": {
+        "label": "ドキュメント",
+        "description": "はじめ方、設定、トラブルシューティングのガイド。"
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "コミュニティとチームにリアルタイムで質問できます。"
+      },
+      "github": {
+        "label": "GitHub Issues",
+        "description": "バグ報告や機能リクエストを公開の場で送れます。"
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "メールでの問い合わせはこちらに直接どうぞ。"
+      }
+    },
+    "formAriaLabel": "サポート問い合わせフォーム",
+    "form": {
+      "name": "名前",
+      "email": "メールアドレス",
+      "topic": "トピック",
+      "message": "お困りの内容",
+      "selectPlaceholder": "選択してください",
+      "topicOptions": [
+        "バグ報告",
+        "請求またはサブスクリプション",
+        "アカウントまたはサインイン",
+        "Cloud VM",
+        "機能リクエスト",
+        "その他"
+      ],
+      "privacy": "メールアドレスはサポートへの返信のみに使用します。連絡先情報を販売することはありません。",
+      "submit": "送信",
+      "submitting": "送信中...",
+      "success": "ありがとうございます。メッセージを受け付けました。founders@manaflow.com からメールで返信します。",
       "error": "問題が発生しました。もう一度お試しいただくか、founders@manaflow.com にメールしてください。"
     }
   },

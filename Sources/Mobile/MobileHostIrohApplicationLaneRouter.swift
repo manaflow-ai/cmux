@@ -37,8 +37,39 @@ struct MobileHostIrohRejectingArtifactLaneHandler: MobileHostIrohArtifactLaneHan
     }
 }
 
+/// Registration seam for the simulator-stream v2 video consumer.
+///
+/// Same ownership contract as the artifact seam: the handler receives only
+/// lanes admitted for the authenticated same-account peer and returns `true`
+/// only after taking complete ownership of both stream halves. The handler
+/// runs structured under the router's lane task, so connection teardown
+/// cancels the whole streaming session.
+protocol MobileHostIrohSimulatorStreamLaneHandling: Sendable {
+    func handleSimulatorStreamLane(
+        resourceID: CmxIrohResourceID,
+        stream: CmxIrohBidirectionalStream,
+        peer: CmxIrohAdmittedPeer
+    ) async -> Bool
+}
+
+/// Safe fallback for hosts that do not install a simulator-stream owner.
+struct MobileHostIrohRejectingSimulatorStreamLaneHandler:
+    MobileHostIrohSimulatorStreamLaneHandling
+{
+    func handleSimulatorStreamLane(
+        resourceID: CmxIrohResourceID,
+        stream: CmxIrohBidirectionalStream,
+        peer: CmxIrohAdmittedPeer
+    ) async -> Bool {
+        false
+    }
+}
+
 enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
     case fileNotFound
+    case permissionDenied
+    case notRegularFile
+    case readFailed
     case unavailable
 }
 
@@ -46,6 +77,10 @@ enum MobileHostIrohArtifactTransferIssueFailure: Equatable, Sendable {
 actor MobileHostIrohArtifactTransferRegistry {
     enum Error: Swift.Error, Equatable {
         case unavailable
+        case fileNotFound
+        case permissionDenied
+        case notRegularFile
+        case readFailed
         case invalidFile
         case capacityExceeded
         case unknownResource
@@ -57,8 +92,14 @@ actor MobileHostIrohArtifactTransferRegistry {
 
         var issueFailure: MobileHostIrohArtifactTransferIssueFailure {
             switch self {
-            case .invalidFile:
+            case .fileNotFound:
                 .fileNotFound
+            case .permissionDenied:
+                .permissionDenied
+            case .notRegularFile:
+                .notRegularFile
+            case .readFailed, .invalidFile:
+                .readFailed
             case .unavailable, .capacityExceeded, .unknownResource, .expired,
                  .peerMismatch, .invalidOffset, .alreadyInUse, .resumeLimitExceeded:
                 .unavailable
@@ -195,9 +236,26 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
     let modifiedNanoseconds: Int64
 
     static func snapshot(path: String) throws -> Self {
-        let handle = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
-        defer { try? handle.close() }
-        return try snapshot(fileDescriptor: handle.fileDescriptor)
+        let descriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            switch POSIXErrorCode(rawValue: Darwin.errno) {
+            case .ENOENT, .ESTALE:
+                throw MobileHostIrohArtifactTransferRegistry.Error.fileNotFound
+            case .EACCES, .EPERM:
+                throw MobileHostIrohArtifactTransferRegistry.Error.permissionDenied
+            default:
+                throw MobileHostIrohArtifactTransferRegistry.Error.readFailed
+            }
+        }
+        defer { _ = Darwin.close(descriptor) }
+        var value = stat()
+        guard fstat(descriptor, &value) == 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.readFailed
+        }
+        guard (value.st_mode & S_IFMT) == S_IFREG else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.notRegularFile
+        }
+        return identity(from: value)
     }
 
     static func snapshot(fileDescriptor: Int32) throws -> Self {
@@ -206,6 +264,10 @@ struct MobileHostIrohArtifactFileIdentity: Equatable, Sendable {
               (value.st_mode & S_IFMT) == S_IFREG else {
             throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
         }
+        return identity(from: value)
+    }
+
+    private static func identity(from value: stat) -> Self {
         return Self(
             device: UInt64(value.st_dev),
             inode: UInt64(value.st_ino),
@@ -228,8 +290,20 @@ private final class MobileHostIrohArtifactDispatchReader: @unchecked Sendable {
     private let channel: DispatchIO
 
     init(path: String) throws {
-        let fileDescriptor = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        let fileDescriptor = Darwin.open(path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
         guard fileDescriptor >= 0 else {
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        var metadata = stat()
+        guard fstat(fileDescriptor, &metadata) == 0,
+              (metadata.st_mode & S_IFMT) == S_IFREG else {
+            Darwin.close(fileDescriptor)
+            throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
+        }
+        let flags = Darwin.fcntl(fileDescriptor, F_GETFL, 0)
+        guard flags >= 0,
+              Darwin.fcntl(fileDescriptor, F_SETFL, flags & ~O_NONBLOCK) >= 0 else {
+            Darwin.close(fileDescriptor)
             throw MobileHostIrohArtifactTransferRegistry.Error.invalidFile
         }
         self.fileDescriptor = fileDescriptor
@@ -383,16 +457,22 @@ struct MobileHostIrohApplicationLaneQuota {
     enum LaneClass {
         case terminal
         case artifact
+        case simulatorStream
     }
 
     static let maximumTerminalCount = 4
     static let maximumArtifactCount = 1
+    // Two so a route switch can overlap the old lane's teardown with the new
+    // lane's attach; the stream coordinator still enforces one owner per panel.
+    static let maximumSimulatorStreamCount = 2
 
     private var terminalIDs: Set<UUID> = []
     private var artifactIDs: Set<UUID> = []
+    private var simulatorStreamIDs: Set<UUID> = []
 
     var terminalCount: Int { terminalIDs.count }
     var artifactCount: Int { artifactIDs.count }
+    var simulatorStreamCount: Int { simulatorStreamIDs.count }
 
     mutating func reserve(_ id: UUID, laneClass: LaneClass) -> Bool {
         switch laneClass {
@@ -402,6 +482,11 @@ struct MobileHostIrohApplicationLaneQuota {
         case .artifact:
             guard artifactIDs.count < Self.maximumArtifactCount else { return false }
             artifactIDs.insert(id)
+        case .simulatorStream:
+            guard simulatorStreamIDs.count < Self.maximumSimulatorStreamCount else {
+                return false
+            }
+            simulatorStreamIDs.insert(id)
         }
         return true
     }
@@ -409,6 +494,7 @@ struct MobileHostIrohApplicationLaneQuota {
     mutating func release(_ id: UUID) {
         terminalIDs.remove(id)
         artifactIDs.remove(id)
+        simulatorStreamIDs.remove(id)
     }
 }
 
@@ -423,8 +509,11 @@ actor MobileHostIrohApplicationLaneRouter {
         UInt64(MobileHostIrohApplicationLaneQuota.maximumTerminalCount)
     static let maximumConcurrentArtifactLaneCount =
         UInt64(MobileHostIrohApplicationLaneQuota.maximumArtifactCount)
+    static let maximumConcurrentSimulatorStreamLaneCount =
+        UInt64(MobileHostIrohApplicationLaneQuota.maximumSimulatorStreamCount)
     static let maximumConcurrentLaneCount =
         maximumConcurrentTerminalLaneCount + maximumConcurrentArtifactLaneCount
+        + maximumConcurrentSimulatorStreamLaneCount
 
     enum InputFrameError: Error, Equatable {
         case invalidLength
@@ -443,16 +532,20 @@ actor MobileHostIrohApplicationLaneRouter {
 
     private let session: CmxIrohAdmittedServerSession
     private let artifactHandler: any MobileHostIrohArtifactLaneHandling
+    private let simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling
     private var laneTasks: [UUID: Task<Void, Never>] = [:]
     private var laneQuota = MobileHostIrohApplicationLaneQuota()
     private var stopped = false
 
     init(
         session: CmxIrohAdmittedServerSession,
-        artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler()
+        artifactHandler: any MobileHostIrohArtifactLaneHandling = MobileHostIrohRejectingArtifactLaneHandler(),
+        simulatorStreamHandler: any MobileHostIrohSimulatorStreamLaneHandling =
+            MobileHostIrohRejectingSimulatorStreamLaneHandler()
     ) {
         self.session = session
         self.artifactHandler = artifactHandler
+        self.simulatorStreamHandler = simulatorStreamHandler
     }
 
     func run(
@@ -516,6 +609,8 @@ actor MobileHostIrohApplicationLaneRouter {
             laneClass = .terminal
         case .artifact:
             laneClass = .artifact
+        case .simulatorStream:
+            laneClass = .simulatorStream
         case .control, .serverEvents:
             await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
             return
@@ -527,6 +622,7 @@ actor MobileHostIrohApplicationLaneRouter {
         }
         let peer = session.peer
         let artifactHandler = artifactHandler
+        let simulatorStreamHandler = simulatorStreamHandler
         let task = Task { [weak self] in
             switch lane {
             case let .terminal(resourceID, cursor):
@@ -542,6 +638,16 @@ actor MobileHostIrohApplicationLaneRouter {
                     stream: stream,
                     peer: peer
                 )
+                if !didTakeOwnership {
+                    await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
+                }
+            case let .simulatorStream(resourceID):
+                let didTakeOwnership =
+                    await simulatorStreamHandler.handleSimulatorStreamLane(
+                        resourceID: resourceID,
+                        stream: stream,
+                        peer: peer
+                    )
                 if !didTakeOwnership {
                     await Self.reject(stream, errorCode: ErrorCode.unsupportedResource)
                 }

@@ -28,6 +28,7 @@ struct VaultPaneTabButton: View {
         .titlebarInteractiveControl()
         .onHover { isHovered = $0 }
         .help(tab.label)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityIdentifier("VaultPaneTabButton.\(tab.rawValue)")
     }
 }

@@ -6,9 +6,10 @@ import CmuxMobileShellModel
 import CmuxMobileSupport
 import Foundation
 import SwiftUI
+import UIKit
 
 /// Deterministic host for accessibility UI tests. It presents the production
-/// composer as a real sheet, including its iPad presentation behavior.
+/// composer through its real presenter, including iPad keyboard behavior.
 public struct TaskComposerAccessibilityPreviewView: View {
     @State private var isPresented = false
     @State private var draftWasPersistedAtSubmit: Bool?
@@ -16,6 +17,7 @@ public struct TaskComposerAccessibilityPreviewView: View {
     @State private var submittedSpec: MobileWorkspaceCreateSpec?
     @State private var submissionAttempts: [TaskComposerSubmissionAttempt] = []
     @State private var selectedDirectory: String?
+    @State private var stagedPreviewAttachments: [TaskComposerAttachment] = []
     private let store: CMUXMobileShellStore
     private let returnsSubmissionFailure: Bool
     private let failsFirstSubmission: Bool
@@ -24,6 +26,10 @@ public struct TaskComposerAccessibilityPreviewView: View {
     private let presentsDirectoryPermissionFailure: Bool
     private let presentsDirectoryScrollStress: Bool
     private let holdsSubmissionInPreparation: Bool
+    private let advertisesTaskAttachments: Bool
+    private let startsWithStagedAttachments: Bool
+    /// Drafts never auto-load, so seeded-draft previews resume explicitly.
+    private let seededDraftID: UUID?
     @State private var directoryPaginationRecoveryPreview: TaskComposerDirectoryPaginationRecoveryPreview?
 
     /// Creates the preview with isolated, in-memory task state so repeated UI
@@ -35,7 +41,11 @@ public struct TaskComposerAccessibilityPreviewView: View {
     /// `CMUX_UITEST_TASK_DIRECTORY_PICKER_PREVIEW=1` to present the production
     /// directory picker with deterministic filesystem results. Set
     /// `CMUX_UITEST_TASK_DIRECTORY_PAGINATION_RECOVERY_PREVIEW=1` to make the
-    /// first page-2 request fail and its exact retry succeed.
+    /// first page-2 request fail and its exact retry succeed. Set
+    /// `CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS=1` to advertise the attachment
+    /// capability and render the fully populated composer row. Set
+    /// `CMUX_UITEST_TASK_COMPOSER_STAGED_ATTACHMENTS=1` to start with one image
+    /// and one document whose exact app-owned bytes can be previewed.
     public init() {
         let environment = ProcessInfo.processInfo.environment
         let presentsDirectoryPaginationRecovery = environment[
@@ -51,26 +61,71 @@ public struct TaskComposerAccessibilityPreviewView: View {
             "CMUX_UITEST_TASK_COMPOSER_OPEN_DIRECTORY_PREVIEW"
         ] == "1"
         let templateStore = TaskComposerAccessibilityTemplateStore()
+        // Drafts load only when explicitly resumed, so seeded-draft previews
+        // remember the seeded id and launch the composer with .resume(id).
+        var seededDraftID: UUID?
         if environment["CMUX_UITEST_TASK_COMPOSER_LONG_PROMPT"] == "1" {
-            templateStore.setComposerDraft(MobileTaskComposerDraft(
-                prompt: Self.longPrompt,
-                templateID: templateStore.listTemplates().first?.id,
-                macDeviceID: Self.previewMac.macDeviceID,
-                macInstanceTag: Self.previewMac.instanceTag,
-                directory: "~",
-                didEditDirectory: false
-            ))
+            let seeded = MobileTaskComposerSavedDraft(
+                updatedAt: Date(),
+                content: MobileTaskComposerDraft(
+                    prompt: Self.longPrompt,
+                    templateID: templateStore.listTemplates().first?.id,
+                    macDeviceID: Self.previewMac.macDeviceID,
+                    macInstanceTag: Self.previewMac.instanceTag,
+                    directory: "~",
+                    didEditDirectory: false
+                )
+            )
+            templateStore.saveComposerDraft(seeded)
+            seededDraftID = seeded.id
         }
+        if environment["CMUX_UITEST_TASK_COMPOSER_RESTORED_MODEL_DRAFT"] == "1" {
+            let seeded = MobileTaskComposerSavedDraft(
+                updatedAt: Date(),
+                content: MobileTaskComposerDraft(
+                    prompt: "Retry the persisted model",
+                    modelID: "persisted-agent-model",
+                    templateID: templateStore.listTemplates().first?.id,
+                    macDeviceID: Self.previewMac.macDeviceID,
+                    macInstanceTag: Self.previewMac.instanceTag,
+                    directory: "~",
+                    didEditDirectory: false,
+                    operationID: UUID(uuidString: "0D9A7F2E-0B69-49C7-A725-F6F72517C584")
+                )
+            )
+            templateStore.saveComposerDraft(seeded)
+            seededDraftID = seeded.id
+        }
+        self.seededDraftID = seededDraftID
         if presentsOpenDirectory {
             templateStore.setLastDirectory(
                 "/Users/ui/previous-task",
                 macDeviceID: Self.previewMac.macDeviceID
             )
         }
+        if presentsDirectoryScrollStress {
+            // Gives the long-listing fixture one remembered directory so the
+            // chips bar renders above the scrolling rows.
+            templateStore.setLastDirectory(
+                "/Users/ui/folder-00",
+                macDeviceID: Self.previewMac.macDeviceID
+            )
+        }
+        let catalogData = environment["CMUX_UITEST_TASK_MODEL_CATALOG_JSON"]?
+            .data(using: .utf8)
+        let catalogClient = MobileTaskModelCatalogClient(
+            endpoint: URL(string: "https://task-model-catalog.invalid")!
+        ) { _ in
+            guard let catalogData else {
+                throw URLError(.resourceUnavailable)
+            }
+            return catalogData
+        }
         self.store = CMUXMobileShellStore(
             isSignedIn: true,
             workspaces: presentsOpenDirectory ? [Self.openDirectoryWorkspace] : [],
-            taskTemplateStore: templateStore
+            taskTemplateStore: templateStore,
+            taskModelCatalogClient: catalogClient
         )
         self.returnsSubmissionFailure = environment[
             "CMUX_UITEST_TASK_COMPOSER_FAILURE"
@@ -89,6 +144,13 @@ public struct TaskComposerAccessibilityPreviewView: View {
         self.holdsSubmissionInPreparation = environment[
             "CMUX_UITEST_TASK_COMPOSER_HOLD_PREPARATION"
         ] == "1"
+        let startsWithStagedAttachments = environment[
+            "CMUX_UITEST_TASK_COMPOSER_STAGED_ATTACHMENTS"
+        ] == "1"
+        self.startsWithStagedAttachments = startsWithStagedAttachments
+        self.advertisesTaskAttachments = startsWithStagedAttachments || environment[
+            "CMUX_UITEST_TASK_COMPOSER_ATTACHMENTS"
+        ] == "1"
         _directoryPaginationRecoveryPreview = State(
             initialValue: presentsDirectoryPaginationRecovery
                 ? TaskComposerDirectoryPaginationRecoveryPreview()
@@ -99,7 +161,13 @@ public struct TaskComposerAccessibilityPreviewView: View {
     /// Presents the requested production task-composer surface over an otherwise empty host.
     public var body: some View {
         Color.clear
-            .onAppear { isPresented = true }
+            .task {
+                if startsWithStagedAttachments,
+                   stagedPreviewAttachments.isEmpty {
+                    stagedPreviewAttachments = await Self.makeStagedPreviewAttachments()
+                }
+                isPresented = true
+            }
             .overlay {
                 if let submittedMacDeviceID, let submittedSpec {
                     TaskComposerSubmissionProbe(
@@ -115,12 +183,25 @@ public struct TaskComposerAccessibilityPreviewView: View {
                     TaskComposerSubmissionHistoryProbe(attempts: submissionAttempts)
                 }
             }
-            .sheet(isPresented: $isPresented) {
+            .taskComposerPresentation(isPresented: $isPresented) { launch, switchDraft in
                 if presentsTemplateForm {
                     TaskTemplateFormView(template: nil, onSave: { _ in })
                 } else if presentsDirectoryPicker {
                     TaskComposerDirectoryPickerView(
-                        candidates: [],
+                        candidates: [
+                            MobileTaskDirectoryCandidate(
+                                path: "/Users/ui/recent-alpha",
+                                source: .recentSuccessful,
+                                context: nil,
+                                lastUsedAt: Date(timeIntervalSince1970: 2_000)
+                            ),
+                            MobileTaskDirectoryCandidate(
+                                path: "/Users/ui/recent-beta",
+                                source: .recentSuccessful,
+                                context: nil,
+                                lastUsedAt: Date(timeIntervalSince1970: 1_000)
+                            ),
+                        ],
                         selectedPath: selectedDirectory ?? "~",
                         select: { selectedDirectory = $0 },
                         searchMac: Self.searchPreviewDirectories,
@@ -129,11 +210,17 @@ public struct TaskComposerAccessibilityPreviewView: View {
                 } else {
                     TaskComposerSheet(
                         store: store,
+                        launchIntent: seededDraftID.map(TaskComposerLaunchIntent.resume)
+                            ?? launch.intent,
+                        onSwitchDraft: switchDraft,
                         availableMachines: [
                             Self.previewMac,
                             Self.stablePreviewMac,
                             Self.backupPreviewMac,
                         ],
+                        availableWorkspaceGroups: [Self.previewWorkspaceGroup],
+                        taskAttachmentsCapabilityOverride: advertisesTaskAttachments ? true : nil,
+                        initialAttachments: stagedPreviewAttachments,
                         submitTaskComposer: { macDeviceID, _, spec, willStartCreate in
                             let attemptNumber = submissionAttempts.count + 1
                             submittedMacDeviceID = macDeviceID
@@ -143,7 +230,8 @@ public struct TaskComposerAccessibilityPreviewView: View {
                                 operationID: spec.operationID?.uuidString ?? "<nil>",
                                 prompt: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>"
                             ))
-                            draftWasPersistedAtSubmit = store.taskTemplateStore?.composerDraft() != nil
+                            draftWasPersistedAtSubmit =
+                                store.taskTemplateStore?.composerDrafts().isEmpty == false
                             if holdsSubmissionInPreparation {
                                 do {
                                     try await Task.sleep(for: .seconds(30))
@@ -208,6 +296,14 @@ public struct TaskComposerAccessibilityPreviewView: View {
         instanceTag: "nightly"
     )
 
+    private static let previewWorkspaceGroup = MobileWorkspaceGroupPreview(
+        id: "task-composer-preview-group",
+        macDeviceID: previewMac.macDeviceID,
+        macInstanceTag: previewMac.instanceTag,
+        name: "Focus work",
+        anchorWorkspaceID: "task-composer-preview-group-anchor"
+    )
+
     private static let longPrompt = (1...80)
         .map { "Prompt line \($0): keep the editor scroll gesture inside the text canvas." }
         .joined(separator: "\n")
@@ -241,6 +337,84 @@ public struct TaskComposerAccessibilityPreviewView: View {
         currentDirectory: "/Users/ui/current-project",
         terminals: []
     )
+
+    @MainActor
+    private static func makeStagedPreviewAttachments() async -> [TaskComposerAttachment] {
+        guard let imageData = stagedPreviewImageData() else { return [] }
+        return await Task.detached(priority: .utility) {
+            guard let imageID = UUID(uuidString: "11111111-1111-1111-1111-111111111111"),
+            let fileID = UUID(uuidString: "22222222-2222-2222-2222-222222222222") else {
+                return []
+            }
+            let fileData = Data("Attachment preview fixture\n".utf8)
+            let directory = FileManager.default.temporaryDirectory
+            let imageURL = directory.appendingPathComponent(
+                "cmux-task-preview-photo.png"
+            )
+            let fileURL = directory.appendingPathComponent(
+                "cmux-task-preview-notes.txt"
+            )
+            do {
+                try imageData.write(to: imageURL, options: .atomic)
+                try fileData.write(to: fileURL, options: .atomic)
+            } catch {
+                try? FileManager.default.removeItem(at: imageURL)
+                try? FileManager.default.removeItem(at: fileURL)
+                return []
+            }
+            return [
+                TaskComposerAttachment(
+                    id: imageID,
+                    kind: .image,
+                    displayName: "preview-photo.png",
+                    localStagedFileURL: imageURL,
+                    byteCount: imageData.count,
+                    thumbnailData: imageData
+                ),
+                TaskComposerAttachment(
+                    id: fileID,
+                    kind: .file,
+                    displayName: "preview-notes.txt",
+                    localStagedFileURL: fileURL,
+                    byteCount: fileData.count
+                ),
+            ]
+        }.value
+    }
+
+    /// Produces a deterministic, high-chroma PNG so UI tests can distinguish
+    /// the staged bytes from Quick Look chrome or a blank placeholder.
+    @MainActor
+    private static func stagedPreviewImageData() -> Data? {
+        let cellCount = 8
+        let cellSize: CGFloat = 40
+        let size = CGSize(
+            width: CGFloat(cellCount) * cellSize,
+            height: CGFloat(cellCount) * cellSize
+        )
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: size, format: format).pngData { _ in
+            for row in 0..<cellCount {
+                for column in 0..<cellCount {
+                    let index = row * cellCount + column
+                    UIColor(
+                        hue: CGFloat(index) / CGFloat(cellCount * cellCount),
+                        saturation: 0.9,
+                        brightness: 0.95,
+                        alpha: 1
+                    ).setFill()
+                    UIRectFill(CGRect(
+                        x: CGFloat(column) * cellSize,
+                        y: CGFloat(row) * cellSize,
+                        width: cellSize,
+                        height: cellSize
+                    ))
+                }
+            }
+        }
+    }
 
     private static func searchPreviewDirectories(
         _ query: String
@@ -492,6 +666,8 @@ private struct TaskComposerSubmissionProbe: View {
                 .accessibilityIdentifier("MobileTaskComposerSubmittedInitialCommand")
             Text(verbatim: spec.initialEnv?["CMUX_TASK_PROMPT"] ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedPrompt")
+            Text(verbatim: spec.workspaceGroupID?.rawValue ?? "<nil>")
+                .accessibilityIdentifier("MobileTaskComposerSubmittedWorkspaceGroupID")
             Text(verbatim: spec.operationID?.uuidString ?? "<nil>")
                 .accessibilityIdentifier("MobileTaskComposerSubmittedOperationID")
         }

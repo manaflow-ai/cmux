@@ -119,6 +119,7 @@ private final class FeedTelemetryTestContext {
     }
 
     deinit {
+        CLIMockAcceptLoopRegistry.shared.stop(listenerFD: listenerFD)
         Darwin.close(listenerFD)
         unlink(socketPath)
         try? FileManager.default.removeItem(at: root)
@@ -191,32 +192,21 @@ private func startServer(
     resolvedSurfaceID: String,
     feedSeen: DispatchSemaphore
 ) {
-    DispatchQueue.global(qos: .userInitiated).async {
-        while true {
-            var clientAddr = sockaddr_un()
-            var clientAddrLen = socklen_t(MemoryLayout<sockaddr_un>.size)
-            let clientFD = withUnsafeMutablePointer(to: &clientAddr) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
-                    Darwin.accept(listenerFD, sockaddrPtr, &clientAddrLen)
-                }
-            }
-            guard clientFD >= 0 else {
-                if errno == EINTR { continue }
-                return
-            }
-            DispatchQueue.global(qos: .userInitiated).async {
-                handleClient(
-                    clientFD,
-                    state: state,
-                    workspaceID: workspaceID,
-                    focusedSurfaceID: focusedSurfaceID,
-                    ttyName: ttyName,
-                    resolvedSurfaceID: resolvedSurfaceID,
-                    feedSeen: feedSeen
-                )
-            }
-        }
-    }
+    CLIMockAcceptLoopRegistry.shared.start(
+        listenerFD: listenerFD,
+        onConnection: { clientFD in
+            handleClient(
+                clientFD,
+                state: state,
+                workspaceID: workspaceID,
+                focusedSurfaceID: focusedSurfaceID,
+                ttyName: ttyName,
+                resolvedSurfaceID: resolvedSurfaceID,
+                feedSeen: feedSeen
+            )
+        },
+        onListenerClosed: {}
+    )
 }
 
 private func handleClient(

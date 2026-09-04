@@ -1,8 +1,7 @@
 public import Foundation
 
 /// Sidebar git metadata probing for workspace panels: local branch/dirty
-/// probes with retry, filesystem watchers on git paths, and the slow
-/// fallback re-poll.
+/// probes with retry and event-driven filesystem watchers on Git-relevant paths.
 ///
 /// Implemented by ``SidebarGitMetadataService``; the host (per-window
 /// `TabManager`) stores this seam, never the concrete type, and forwards its
@@ -32,7 +31,7 @@ public protocol SidebarGitMetadataServing: AnyObject {
     func updateSurfaceGitBranch(workspaceId: UUID, panelId: UUID, branch: String, isDirty: Bool?)
     /// Clears a panel's branch/badge state and re-probes the directory.
     func clearSurfaceGitBranch(workspaceId: UUID, panelId: UUID)
-    /// Re-probes every tracked poll candidate panel (fallback timer body).
+    /// Explicitly re-probes every tracked candidate panel (diagnostic/test seam).
     func refreshTrackedWorkspaceGitMetadata(reason: String)
     /// Reacts to the sidebar git watch setting toggling (tear down or
     /// restart watching).
@@ -41,7 +40,7 @@ public protocol SidebarGitMetadataServing: AnyObject {
     func clearWorkspaceGitProbes(workspaceId: UUID)
     /// Clears every probe and tracked directory (session restore swap).
     func resetAllWorkspaceGitProbeTracking()
-    /// Panel ids the fallback poll would currently re-probe (test seam).
+    /// Panel ids an explicit refresh would currently re-probe (test seam).
     func trackedWorkspaceGitMetadataPollCandidatePanelIds(workspaceId: UUID) -> Set<UUID>
     /// Panel ids with live probe state or probe tasks (test seam).
     func activeWorkspaceGitProbePanelIds(workspaceId: UUID) -> Set<UUID>

@@ -4,6 +4,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::sync::OnceLock;
 
+use crate::{PaneId, ScreenId, SplitId, SurfaceId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -140,6 +141,28 @@ pub enum ResourceOperation {
     SessionCreationResolve,
     #[serde(rename = "session.events")]
     SessionEvents,
+    #[serde(rename = "session.journal.subscribe")]
+    SessionJournalSubscribe,
+    #[serde(rename = "session.journal.producer.list")]
+    SessionJournalProducerList,
+    #[serde(rename = "session.journal.producer.put")]
+    SessionJournalProducerPut,
+    #[serde(rename = "session.journal.append")]
+    SessionJournalAppend,
+    #[serde(rename = "session.journal.checkpoint.create")]
+    SessionJournalCheckpointCreate,
+    #[serde(rename = "session.journal.checkpoint.list")]
+    SessionJournalCheckpointList,
+    #[serde(rename = "session.journal.hook.list")]
+    SessionJournalHookList,
+    #[serde(rename = "session.journal.hook.put")]
+    SessionJournalHookPut,
+    #[serde(rename = "session.journal.restore.preview")]
+    SessionJournalRestorePreview,
+    #[serde(rename = "session.journal.segment.list")]
+    SessionJournalSegmentList,
+    #[serde(rename = "session.journal.segment.seal")]
+    SessionJournalSegmentSeal,
     #[serde(rename = "session.ping")]
     SessionPing,
     #[serde(rename = "session.shutdown")]
@@ -274,6 +297,8 @@ pub enum ResourceOperation {
     TerminalHistoryRead,
     #[serde(rename = "terminal.history.clear")]
     TerminalHistoryClear,
+    #[serde(rename = "terminal.output_read")]
+    TerminalOutputRead,
     #[serde(rename = "terminal.wait")]
     TerminalWait,
     #[serde(rename = "terminal.wait_exit")]
@@ -389,6 +414,7 @@ impl ResourceOperation {
         if matches!(
             self,
             Self::SessionEvents
+                | Self::SessionJournalSubscribe
                 | Self::TerminalAttach
                 | Self::BrowserAttach
                 | Self::SidebarViewAttach
@@ -419,6 +445,11 @@ impl ResourceOperation {
                 | Self::SessionSnapshot
                 | Self::SessionCreationResolve
                 | Self::SessionPing
+                | Self::SessionJournalProducerList
+                | Self::SessionJournalHookList
+                | Self::SessionJournalCheckpointList
+                | Self::SessionJournalRestorePreview
+                | Self::SessionJournalSegmentList
                 | Self::ClientList
                 | Self::ClientGet
                 | Self::PairingRequestList
@@ -438,6 +469,7 @@ impl ResourceOperation {
                 | Self::TerminalScreenRead
                 | Self::TerminalStateRead
                 | Self::TerminalHistoryRead
+                | Self::TerminalOutputRead
                 | Self::TerminalWait
                 | Self::TerminalWaitExit
                 | Self::TerminalCopy
@@ -456,6 +488,160 @@ impl ResourceOperation {
 
     pub const fn is_mutation(self) -> bool {
         matches!(self.class(), OperationClass::Mutation)
+    }
+}
+
+#[cfg(test)]
+mod resource_operation_wire_name_tests {
+    use super::ResourceOperation;
+
+    #[test]
+    fn wire_name_round_trips_through_serde() {
+        for name in [
+            "machine.list",
+            "session.journal.append",
+            "workspace.create",
+            "terminal.output_read",
+            "browser.close",
+            "stream.cancel",
+        ] {
+            let operation: ResourceOperation =
+                serde_json::from_str(&format!("\"{name}\"")).expect("known operation");
+            assert_eq!(operation.wire_name(), name);
+            assert_eq!(serde_json::to_string(&operation).unwrap(), format!("\"{name}\""));
+        }
+    }
+}
+
+impl ResourceOperation {
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::MachineList => "machine.list",
+            Self::MachineGet => "machine.get",
+            Self::SessionList => "session.list",
+            Self::SessionOpen => "session.open",
+            Self::SessionGet => "session.get",
+            Self::SessionSnapshot => "session.snapshot",
+            Self::SessionCreationResolve => "session.creation.resolve",
+            Self::SessionEvents => "session.events",
+            Self::SessionJournalSubscribe => "session.journal.subscribe",
+            Self::SessionJournalProducerList => "session.journal.producer.list",
+            Self::SessionJournalProducerPut => "session.journal.producer.put",
+            Self::SessionJournalAppend => "session.journal.append",
+            Self::SessionJournalCheckpointCreate => "session.journal.checkpoint.create",
+            Self::SessionJournalCheckpointList => "session.journal.checkpoint.list",
+            Self::SessionJournalHookList => "session.journal.hook.list",
+            Self::SessionJournalHookPut => "session.journal.hook.put",
+            Self::SessionJournalRestorePreview => "session.journal.restore.preview",
+            Self::SessionJournalSegmentList => "session.journal.segment.list",
+            Self::SessionJournalSegmentSeal => "session.journal.segment.seal",
+            Self::SessionPing => "session.ping",
+            Self::SessionShutdown => "session.shutdown",
+            Self::SessionReloadConfig => "session.reload_config",
+            Self::SessionTerminalDefaultsUpdate => "session.terminal_defaults.update",
+            Self::ClientList => "client.list",
+            Self::ClientGet => "client.get",
+            Self::ClientMetadataUpdate => "client.metadata.update",
+            Self::ClientSizingSet => "client.sizing.set",
+            Self::ClientSizingRelease => "client.sizing.release",
+            Self::ClientCellPixelsSet => "client.cell_pixels.set",
+            Self::ClientDetach => "client.detach",
+            Self::SessionWindowTitleSet => "session.window.title.set",
+            Self::SessionWindowTitleClear => "session.window.title.clear",
+            Self::PairingRequestList => "pairing_request.list",
+            Self::PairingRequestResolve => "pairing_request.resolve",
+            Self::RequestCancel => "request.cancel",
+            Self::FrontendProjectionGet => "frontend_projection.get",
+            Self::FrontendProjectionPut => "frontend_projection.put",
+            Self::WorkspaceList => "workspace.list",
+            Self::WorkspaceGet => "workspace.get",
+            Self::WorkspaceCreate => "workspace.create",
+            Self::WorkspaceRename => "workspace.rename",
+            Self::WorkspaceMove => "workspace.move",
+            Self::WorkspaceFocus => "workspace.focus",
+            Self::WorkspaceClose => "workspace.close",
+            Self::WorkspaceRun => "workspace.run",
+            Self::WorkspaceLayoutApply => "workspace.layout.apply",
+            Self::ScreenList => "screen.list",
+            Self::ScreenGet => "screen.get",
+            Self::ScreenCreate => "screen.create",
+            Self::ScreenRename => "screen.rename",
+            Self::ScreenFocus => "screen.focus",
+            Self::ScreenClose => "screen.close",
+            Self::ScreenLayoutExport => "screen.layout.export",
+            Self::ScreenLayoutUndo => "screen.layout.undo",
+            Self::PaneList => "pane.list",
+            Self::PaneGet => "pane.get",
+            Self::PaneCreate => "pane.create",
+            Self::PaneSplit => "pane.split",
+            Self::PaneRename => "pane.rename",
+            Self::PaneFocus => "pane.focus",
+            Self::PaneFocusDirection => "pane.focus_direction",
+            Self::PaneNeighborGet => "pane.neighbor.get",
+            Self::PaneSwap => "pane.swap",
+            Self::PaneZoom => "pane.zoom",
+            Self::PaneSplitRatioSet => "pane.split_ratio.set",
+            Self::PaneViewportWidthSet => "pane.viewport_width.set",
+            Self::PaneClose => "pane.close",
+            Self::PaneRun => "pane.run",
+            Self::TabList => "tab.list",
+            Self::TabGet => "tab.get",
+            Self::TabCreateTerminal => "tab.create_terminal",
+            Self::TabCreateBrowser => "tab.create_browser",
+            Self::TabRename => "tab.rename",
+            Self::TabMove => "tab.move",
+            Self::TabFocus => "tab.focus",
+            Self::TabClose => "tab.close",
+            Self::TerminalList => "terminal.list",
+            Self::TerminalGet => "terminal.get",
+            Self::TerminalInputWrite => "terminal.input.write",
+            Self::TerminalInputKeys => "terminal.input.keys",
+            Self::TerminalInputMouse => "terminal.input.mouse",
+            Self::TerminalInputFocus => "terminal.input.focus",
+            Self::TerminalScreenRead => "terminal.screen.read",
+            Self::TerminalStateRead => "terminal.state.read",
+            Self::TerminalHistoryRead => "terminal.history.read",
+            Self::TerminalHistoryClear => "terminal.history.clear",
+            Self::TerminalOutputRead => "terminal.output_read",
+            Self::TerminalWait => "terminal.wait",
+            Self::TerminalWaitExit => "terminal.wait_exit",
+            Self::TerminalCopy => "terminal.copy",
+            Self::TerminalProcessGet => "terminal.process.get",
+            Self::TerminalRendererGrantCreate => "terminal.renderer_grant.create",
+            Self::TerminalViewerResize => "terminal.viewer.resize",
+            Self::TerminalViewerRelease => "terminal.viewer.release",
+            Self::TerminalViewportScroll => "terminal.viewport.scroll",
+            Self::TerminalMove => "terminal.move",
+            Self::TerminalProject => "terminal.project",
+            Self::TerminalAttach => "terminal.attach",
+            Self::TerminalClose => "terminal.close",
+            Self::BrowserList => "browser.list",
+            Self::BrowserGet => "browser.get",
+            Self::BrowserNavigate => "browser.navigate",
+            Self::BrowserBack => "browser.back",
+            Self::BrowserForward => "browser.forward",
+            Self::BrowserReload => "browser.reload",
+            Self::BrowserActivate => "browser.activate",
+            Self::BrowserInputKey => "browser.input.key",
+            Self::BrowserInputText => "browser.input.text",
+            Self::BrowserInputMouse => "browser.input.mouse",
+            Self::BrowserInputWheel => "browser.input.wheel",
+            Self::BrowserViewerResize => "browser.viewer.resize",
+            Self::BrowserViewerRelease => "browser.viewer.release",
+            Self::BrowserAttach => "browser.attach",
+            Self::BrowserClose => "browser.close",
+            Self::NotificationList => "notification.list",
+            Self::NotificationCreate => "notification.create",
+            Self::AgentList => "agent.list",
+            Self::AgentReport => "agent.report",
+            Self::SidebarViewGet => "sidebar_view.get",
+            Self::SidebarViewEnsure => "sidebar_view.ensure",
+            Self::SidebarViewAttach => "sidebar_view.attach",
+            Self::SidebarViewInput => "sidebar_view.input",
+            Self::SidebarViewResize => "sidebar_view.resize",
+            Self::SidebarViewReload => "sidebar_view.reload",
+            Self::StreamCancel => "stream.cancel",
+        }
     }
 }
 
@@ -947,6 +1133,7 @@ pub(crate) const RESOURCE_ERROR_CODES: &[&str] = &[
     "local.io",
     "mutation.indeterminate",
     "operation.failed",
+    "operation.unsupported",
     "resource.not_found",
     "revision.conflict",
     "selector.ambiguous",
@@ -1374,23 +1561,23 @@ impl ResourceJournal {
 
 #[derive(Debug, Default, Clone)]
 pub struct PublicSlotIndexes {
-    pub workspaces: HashMap<WorkspacePublicId, crate::WorkspaceId>,
-    pub screens: HashMap<ScreenPublicId, crate::ScreenId>,
-    pub panes: HashMap<PanePublicId, crate::PaneId>,
-    pub tabs: HashMap<TabPublicId, crate::SurfaceId>,
+    pub workspaces: HashMap<WorkspacePublicId, WorkspaceId>,
+    pub screens: HashMap<ScreenPublicId, ScreenId>,
+    pub panes: HashMap<PanePublicId, PaneId>,
+    pub tabs: HashMap<TabPublicId, SurfaceId>,
     /// Every view placement of a content resource. Terminal content may have
     /// any number of placements; browser content currently has one.
-    pub content_placements: HashMap<ContentPublicId, Vec<crate::SurfaceId>>,
-    pub workspace_ids: HashMap<crate::WorkspaceId, WorkspacePublicId>,
-    pub screen_ids: HashMap<crate::ScreenId, ScreenPublicId>,
-    pub pane_ids: HashMap<crate::PaneId, PanePublicId>,
-    pub tab_ids: HashMap<crate::SurfaceId, TabPublicId>,
-    pub content_ids: HashMap<crate::SurfaceId, ContentPublicId>,
-    pub splits: HashMap<SplitPublicId, crate::SplitId>,
-    pub split_ids: HashMap<crate::SplitId, SplitPublicId>,
-    pub screen_workspace: HashMap<crate::ScreenId, crate::WorkspaceId>,
-    pub pane_screen: HashMap<crate::PaneId, crate::ScreenId>,
-    pub tab_pane: HashMap<crate::SurfaceId, crate::PaneId>,
+    pub content_placements: HashMap<ContentPublicId, Vec<SurfaceId>>,
+    pub workspace_ids: HashMap<WorkspaceId, WorkspacePublicId>,
+    pub screen_ids: HashMap<ScreenId, ScreenPublicId>,
+    pub pane_ids: HashMap<PaneId, PanePublicId>,
+    pub tab_ids: HashMap<SurfaceId, TabPublicId>,
+    pub content_ids: HashMap<SurfaceId, ContentPublicId>,
+    pub splits: HashMap<SplitPublicId, SplitId>,
+    pub split_ids: HashMap<SplitId, SplitPublicId>,
+    pub screen_workspace: HashMap<ScreenId, WorkspaceId>,
+    pub pane_screen: HashMap<PaneId, ScreenId>,
+    pub tab_pane: HashMap<SurfaceId, PaneId>,
 }
 
 #[cfg(test)]
@@ -1469,6 +1656,11 @@ mod tests {
             (
                 "operation.failed",
                 json!({"operation":"workspace.close","reason":"failed","extra":{"errno":5}}),
+                false,
+            ),
+            (
+                "operation.unsupported",
+                json!({"capability":"session-journal-v1","action":"restart_session"}),
                 false,
             ),
             (
@@ -1696,6 +1888,7 @@ mod tests {
     fn operation_classes_keep_stream_and_connection_control_out_of_durable_idempotency() {
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::TerminalAttach,
             ResourceOperation::BrowserAttach,
             ResourceOperation::SidebarViewAttach,
@@ -1728,6 +1921,7 @@ mod tests {
 
         for operation in [
             ResourceOperation::SessionEvents,
+            ResourceOperation::SessionJournalSubscribe,
             ResourceOperation::RequestCancel,
             ResourceOperation::StreamCancel,
             ResourceOperation::ClientMetadataUpdate,

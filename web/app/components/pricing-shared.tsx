@@ -1,7 +1,9 @@
 import type { ReactNode } from "react";
 
-export const SHOW_VAULT = false;
-export const SHOW_HOSTED_NETWORKING = false;
+export type PricingFeatureVisibility = {
+  readonly vault: boolean;
+  readonly hostedNetworking: boolean;
+};
 
 export type CompareRow = {
   label: string;
@@ -11,12 +13,6 @@ export type CompareRow = {
   enterprise: string;
   vault?: boolean;
   hostedNetworking?: boolean;
-};
-
-export type SizeRow = {
-  size: string;
-  use: string;
-  rate: string;
 };
 
 export type FaqItem = {
@@ -32,15 +28,17 @@ export function visibleProFeatures({
   base,
   vault,
   hostedNetworking,
+  visibility,
 }: {
   base: string[];
   vault: string[];
   hostedNetworking: string[];
+  visibility: PricingFeatureVisibility;
 }) {
-  let features = SHOW_VAULT
+  let features = visibility.vault
     ? [...base.slice(0, 2), ...vault, ...base.slice(2)]
     : base;
-  if (SHOW_HOSTED_NETWORKING) {
+  if (visibility.hostedNetworking) {
     features = [
       ...features.slice(0, -1),
       ...hostedNetworking,
@@ -50,16 +48,22 @@ export function visibleProFeatures({
   return features;
 }
 
-export function visibleCompareRows(rows: CompareRow[]) {
+export function visibleCompareRows(
+  rows: CompareRow[],
+  visibility: PricingFeatureVisibility,
+) {
   return rows.filter(
     (row) =>
-      (SHOW_VAULT || !row.vault) &&
-      (SHOW_HOSTED_NETWORKING || !row.hostedNetworking),
+      (visibility.vault || !row.vault) &&
+      (visibility.hostedNetworking || !row.hostedNetworking),
   );
 }
 
-export function visibleFaqItems(items: FaqItem[]) {
-  return items.filter((item) => SHOW_VAULT || !item.vault);
+export function visibleFaqItems(
+  items: FaqItem[],
+  visibility: PricingFeatureVisibility,
+) {
+  return items.filter((item) => visibility.vault || !item.vault);
 }
 
 export function PlanCard({
@@ -235,66 +239,6 @@ export function PricingCompareTable({
         </table>
       </div>
     </div>
-  );
-}
-
-export function PricingSizeTable({
-  rows,
-  title,
-  body,
-  colSize,
-  colUse,
-  colRate,
-}: {
-  rows: SizeRow[];
-  title: string;
-  body: string;
-  colSize: string;
-  colUse: string;
-  colRate: string;
-}) {
-  return (
-    <section className="mt-16 border-t border-border pt-10">
-      <h2 className="mb-3 text-xs font-medium tracking-tight text-muted">
-        {title}
-      </h2>
-      <p className="max-w-2xl text-[15px] text-muted">{body}</p>
-      <div className="mt-4 max-md:overflow-x-auto">
-        <table className="w-full max-md:min-w-[42rem] border-collapse text-[15px]">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="py-3 pr-4 text-left align-bottom font-medium min-w-[10rem]">
-                {colSize}
-              </th>
-              <th className="px-4 py-3 text-left align-bottom font-medium">
-                {colUse}
-              </th>
-              <th className="whitespace-nowrap px-4 py-3 text-left align-bottom font-medium">
-                {colRate}
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i} className="border-b border-border">
-                <th
-                  scope="row"
-                  className="whitespace-nowrap py-3 pr-4 text-left align-top font-normal"
-                >
-                  {row.size}
-                </th>
-                <td className="px-4 py-3 text-left align-top text-muted">
-                  {row.use}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3 text-left align-top tabular-nums">
-                  {row.rate}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
   );
 }
 

@@ -80,7 +80,12 @@ public actor MobileIrohRouteCatalog {
         var replacement: [String: [String: [CmxAttachRoute]]] = [:]
         replacement.reserveCapacity(grouped.count)
         for (deviceID, bindings) in grouped {
-            let bindingsByTag = Dictionary(grouping: bindings, by: \.tag)
+            let bindingsByTag = Dictionary(grouping: bindings) { binding in
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: deviceID,
+                    instanceTag: binding.tag
+                ).instanceTag ?? ""
+            }
             var routesByTag: [String: [CmxAttachRoute]] = [:]
             for (tag, taggedBindings) in bindingsByTag {
                 let ordered = taggedBindings.sorted {
@@ -121,15 +126,14 @@ public actor MobileIrohRouteCatalog {
             grouping: pairableMacs,
             by: \CmxIrohBrokerBinding.endpointID
         ).mapValues(\.count)
-        struct DeviceTag: Hashable {
-            let deviceID: String
-            let tag: String
-        }
         let unambiguousEndpoints = pairableMacs.filter {
             endpointCounts[$0.endpointID] == 1
         }
         let bindingsByDeviceTag = Dictionary(grouping: unambiguousEndpoints) {
-            DeviceTag(deviceID: cmxCanonicalDeviceID($0.deviceID), tag: $0.tag)
+            CmxMacAppInstanceIdentity(
+                macDeviceID: $0.deviceID,
+                instanceTag: $0.tag
+            )
         }
         let selectedBindingIDs = Set(
             bindingsByDeviceTag.values.compactMap { candidates in
@@ -160,12 +164,18 @@ public actor MobileIrohRouteCatalog {
                       endpoint: .peer(identity: binding.endpointID, pathHints: []),
                       priority: preferredRoutePriority
                   ) else { return nil }
+            let identity = CmxMacAppInstanceIdentity(
+                macDeviceID: binding.deviceID,
+                instanceTag: binding.tag
+            )
             return MobileDiscoveredIrohMac(
-                deviceID: cmxCanonicalDeviceID(binding.deviceID),
+                deviceID: identity.macDeviceID,
                 displayName: binding.displayName,
-                instanceTag: binding.tag,
+                instanceTag: identity.instanceTag ?? "",
                 routes: [route],
-                lastSeenAt: timestampParser.parse(binding.lastSeenAt)
+                lastSeenAt: timestampParser.parse(binding.lastSeenAt),
+                capabilities: binding.capabilities,
+                clientNamespace: binding.clientNamespace
             )
         }
     }
@@ -177,20 +187,54 @@ public actor MobileIrohRouteCatalog {
     /// builds and then broker recency.
     public func liveMacCandidates(
         preferredTag: String,
-        compatibleWith policy: MobileMacBuildCompatibilityPolicy? = nil
+        compatibleWith policy: MobileMacBuildCompatibilityPolicy? = nil,
+        limit: Int? = nil
     ) -> [MobileDiscoveredIrohMac] {
-        liveMacs
-            .filter { policy?.allows(instanceTag: $0.instanceTag) ?? true }
-            .sorted { left, right in
-                let leftRank = Self.tagRank(left.instanceTag, preferred: preferredTag)
-                let rightRank = Self.tagRank(right.instanceTag, preferred: preferredTag)
-                if leftRank != rightRank { return leftRank < rightRank }
-                if left.lastSeenAt != right.lastSeenAt {
-                    return left.lastSeenAt > right.lastSeenAt
+        guard let limit else {
+            return liveMacs
+                .filter {
+                    policy?.allows(
+                        instanceTag: $0.instanceTag,
+                        clientNamespace: $0.clientNamespace
+                    ) ?? true
                 }
-                if left.deviceID != right.deviceID { return left.deviceID < right.deviceID }
-                return left.instanceTag < right.instanceTag
-            }
+                .sorted { Self.candidateSortsBefore($0, $1, preferredTag: preferredTag) }
+        }
+        guard limit > 0 else { return [] }
+
+        // Automatic admission only needs the best few candidates. Keep a
+        // bounded ordered buffer so a large authenticated fleet costs O(n*k)
+        // instead of sorting every row at O(n log n), where k is the limit.
+        var best: [MobileDiscoveredIrohMac] = []
+        best.reserveCapacity(min(limit, liveMacs.count))
+        for candidate in liveMacs
+            where policy?.allows(
+                instanceTag: candidate.instanceTag,
+                clientNamespace: candidate.clientNamespace
+            ) ?? true {
+            let insertionIndex = best.firstIndex {
+                Self.candidateSortsBefore(candidate, $0, preferredTag: preferredTag)
+            } ?? best.endIndex
+            guard insertionIndex < limit || best.count < limit else { continue }
+            best.insert(candidate, at: insertionIndex)
+            if best.count > limit { best.removeLast() }
+        }
+        return best
+    }
+
+    private static func candidateSortsBefore(
+        _ left: MobileDiscoveredIrohMac,
+        _ right: MobileDiscoveredIrohMac,
+        preferredTag: String
+    ) -> Bool {
+        let leftRank = tagRank(left.instanceTag, preferred: preferredTag)
+        let rightRank = tagRank(right.instanceTag, preferred: preferredTag)
+        if leftRank != rightRank { return leftRank < rightRank }
+        if left.lastSeenAt != right.lastSeenAt {
+            return left.lastSeenAt > right.lastSeenAt
+        }
+        if left.deviceID != right.deviceID { return left.deviceID < right.deviceID }
+        return left.instanceTag < right.instanceTag
     }
 
     /// Drops live first-pair candidates without disturbing verified routes for
@@ -215,7 +259,11 @@ public actor MobileIrohRouteCatalog {
             return []
         }
         if let instanceTag {
-            return routesByTag[instanceTag] ?? []
+            let canonicalTag = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            ).instanceTag ?? ""
+            return routesByTag[canonicalTag] ?? []
         }
         guard routesByTag.count == 1 else { return [] }
         return routesByTag.values.first ?? []

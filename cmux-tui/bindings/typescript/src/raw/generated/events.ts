@@ -1,8 +1,17 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1. */
+/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
 
 
 import type * as T from "./types.js";
+
+/** Protocol v11; emission: emitted; streams: subscribe. */
+export type AgentChangedEvent = { event: "agent-changed" } & {
+  "session": (string) | null;
+  "source": T.AgentSource;
+  "state": T.AgentState;
+  "surface": T.Id;
+  "updated_at_ms": bigint;
+};
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
 export type BellEvent = { event: "bell" } & {
@@ -107,6 +116,11 @@ export type GraphicsStatusEvent = { event: "graphics-status" } & {
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
+  "usage": (T.MachineUsage) | null;
 };
 
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
@@ -382,8 +396,9 @@ export interface UnknownEvent {
   [key: string]: unknown;
 }
 
-/** Every event emitted by protocol v11. */
+/** Every event emitted by protocol v12. */
 export type KnownCmuxEvent =
+  | AgentChangedEvent
   | BellEvent
   | BrowserStateEvent
   | ClientAttachedEvent
@@ -397,6 +412,7 @@ export type KnownCmuxEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OutputEvent
   | OverflowEvent
@@ -435,6 +451,7 @@ export type SerializedButNotEmittedEvent =
 
 /** Known subscribe stream events. */
 export type KnownSubscribeEvent =
+  | AgentChangedEvent
   | BellEvent
   | ClientAttachedEvent
   | ClientChangedEvent
@@ -444,6 +461,7 @@ export type KnownSubscribeEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | LayoutChangedEvent
+  | MachineUsageChangedEvent
   | NotificationEvent
   | OverflowEvent
   | PairingRequestedEvent

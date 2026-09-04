@@ -4,7 +4,7 @@ import Foundation
 public struct VaultHistoryRetentionPolicy: Sendable {
     /// Maximum number of recorded events retained in memory and after compaction.
     public let maxStoredEvents: Int
-    /// File size that triggers a compacting rewrite after an append.
+    /// Maximum persisted JSONL size after an accepted append.
     public let maxFileBytes: Int
     /// Maximum number of tail bytes read while loading an existing log.
     public let maxLoadBytes: Int
@@ -20,7 +20,7 @@ public struct VaultHistoryRetentionPolicy: Sendable {
     ///
     /// - Parameters:
     ///   - maxStoredEvents: Maximum number of retained events.
-    ///   - maxFileBytes: File size that triggers compaction.
+    ///   - maxFileBytes: Maximum persisted JSONL size after an accepted append.
     ///   - maxLoadBytes: Tail-read byte budget used during initial load.
     public init(maxStoredEvents: Int, maxFileBytes: Int, maxLoadBytes: Int) {
         self.maxStoredEvents = max(1, maxStoredEvents)

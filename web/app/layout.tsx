@@ -16,6 +16,11 @@ const geistMono = Geist_Mono({
 
 const nextIntlLocaleHeader = "x-next-intl-locale";
 
+// The document attributes and RSS metadata depend on the locale injected by
+// the request proxy. Deeper route segments can still opt into instant
+// navigation validation independently.
+export const instant = false;
+
 function localeFromHeader(value: string | null): Locale {
   return routing.locales.includes(value as Locale)
     ? (value as Locale)

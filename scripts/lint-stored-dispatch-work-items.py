@@ -2,10 +2,11 @@
 """Reject deferred-action handles that can build recursive release chains.
 
 The parent-repository gate covers DispatchWorkItem declarations in Sources,
-CLI, ios, and package Sources. It also audits stored Task handles in ContentView,
-whose unusually large Swift value snapshots make replacement chains especially
-dangerous. Gitlink dependencies such as Ghostty and Bonsplit remain
-dependency-owned and must be audited when their pinned revisions change.
+CLI, ios, package Sources, and the pinned Bonsplit sources. It also rejects
+closure-bearing deferred handles stored inline in macOS SwiftUI State, where a
+successor closure can capture a value snapshot that still owns its predecessor.
+Other gitlink dependencies such as Ghostty remain dependency-owned and must be
+audited when their pinned revisions change.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ SOURCES_ROOT = REPO_ROOT / "Sources"
 CLI_ROOT = REPO_ROOT / "CLI"
 IOS_ROOT = REPO_ROOT / "ios"
 PACKAGES_ROOT = REPO_ROOT / "Packages"
+BONSPLIT_SOURCES_ROOT = REPO_ROOT / "vendor" / "bonsplit" / "Sources"
 TYPE_DECLARATIONS = {"actor", "class", "enum", "extension", "protocol", "struct"}
 CALLABLE_DECLARATIONS = {"deinit", "func", "init", "subscript"}
 STATEMENT_STARTERS = {
@@ -41,6 +43,13 @@ KEYWORDS = TYPE_DECLARATIONS | CALLABLE_DECLARATIONS | STATEMENT_STARTERS | {
     "willSet",
 }
 IDENTIFIER_KINDS = {"escaped_identifier", "identifier"}
+SWIFTUI_STATE_AUDITED_HANDLE_TYPES = ("Task", "DispatchSourceTimer", "Timer")
+MACOS_SWIFTUI_SOURCE_PREFIXES = (
+    "Sources/",
+    "Packages/Shared/",
+    "Packages/macOS/",
+    "vendor/bonsplit/Sources/",
+)
 
 
 @dataclass(frozen=True)
@@ -80,6 +89,10 @@ class Allowance:
     reason: str
 
 
+class RequiredSourceRootMissingError(RuntimeError):
+    """Raised when an audited dependency source tree is unavailable."""
+
+
 # These declarations cannot link replaced queued work through their owner's
 # stored state. Context is part of each key so moving a function-local timeout
 # into stored owner state cannot inherit an allowance merely by preserving its
@@ -102,31 +115,7 @@ ALLOWANCES = (
         "function-local, single-shot UI-test deadline",
     ),
     Allowance(
-        "Sources/ContentView.swift",
-        "commandPaletteSearchIndexBuildTask",
-        "Task<Void,Never>?",
-        "member:ContentView",
-        1,
-        "cancellation helper clears the prior handle before detached index replacement",
-    ),
-    Allowance(
-        "Sources/ContentView.swift",
-        "commandPaletteSearchTask",
-        "Task<Void,Never>?",
-        "member:ContentView",
-        1,
-        "cancellation helper clears the prior handle before detached search replacement",
-    ),
-    Allowance(
-        "Sources/ContentView.swift",
-        "commandPaletteForkableAgentAvailabilityTasksByPanelKey",
-        "[String:Task<Void,Never>]",
-        "member:ContentView",
-        1,
-        "same-panel handle is removed before a replacement probe captures view state",
-    ),
-    Allowance(
-        "Sources/Panels/MarkdownRemoteImageLoader.swift",
+        "Packages/Shared/CmuxAgentChat/Sources/CmuxAgentChat/MarkdownViewer/MarkdownRemoteImageLoader.swift",
         "timeoutWorkItem",
         "DispatchWorkItem?",
         "member:MarkdownPinnedRemoteImageLoader",
@@ -329,6 +318,24 @@ def _significant(tokens: list[Token], start: int, step: int = 1) -> int | None:
     return None
 
 
+def _has_attribute(
+    tokens: list[Token], declaration_start: int, attribute: str
+) -> bool:
+    index = declaration_start - 1
+    while index >= 0:
+        token = tokens[index]
+        if token.value in {"{", "}", ";"}:
+            return False
+        if token.kind == "keyword" and token.value in STATEMENT_STARTERS | CALLABLE_DECLARATIONS:
+            return False
+        if token.value == attribute:
+            at_index = _significant(tokens, index - 1, step=-1)
+            if at_index is not None and tokens[at_index].value == "@":
+                return True
+        index -= 1
+    return False
+
+
 def _scope_for_open_brace(tokens: list[Token], brace_index: int) -> Scope:
     start = brace_index - 1
     while start >= 0 and tokens[start].value not in {"{", "}", ";"}:
@@ -470,6 +477,35 @@ def _annotated_type_text(
     return None
 
 
+def _is_direct_collection_initializer(
+    initializer: list[str],
+    audited_type: str,
+) -> bool:
+    if initializer[0] == "[":
+        return audited_type in initializer
+    if len(initializer) < 4 or initializer[0] not in {"Array", "Dictionary"}:
+        return False
+    if initializer[1] != "<":
+        return False
+
+    angle_depth = 0
+    generic_end: int | None = None
+    for index, value in enumerate(initializer[1:], start=1):
+        if value == "<":
+            angle_depth += 1
+        elif value == ">":
+            angle_depth -= 1
+            if angle_depth == 0:
+                generic_end = index
+                break
+    if generic_end is None or generic_end + 1 >= len(initializer):
+        return False
+    return (
+        initializer[generic_end + 1] == "("
+        and audited_type in initializer[2:generic_end]
+    )
+
+
 def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
     values = [token.value for token in declaration_tokens if token.kind != "newline"]
     if "DispatchWorkItem" not in values:
@@ -505,8 +541,57 @@ def _dispatch_type_text(declaration_tokens: list[Token]) -> str | None:
         return None
     if initializer[0] == "DispatchWorkItem":
         return "<inferred:DispatchWorkItem>"
-    if initializer[0] == "[" and "DispatchWorkItem" in initializer:
+    if _is_direct_collection_initializer(initializer, "DispatchWorkItem"):
         return "<inferred:[DispatchWorkItem]>"
+    return None
+
+
+def _swiftui_state_handle_type_text(
+    declaration_tokens: list[Token],
+) -> str | None:
+    for audited_type in SWIFTUI_STATE_AUDITED_HANDLE_TYPES:
+        if type_text := _annotated_type_text(declaration_tokens, audited_type):
+            return type_text
+
+    values = [token.value for token in declaration_tokens if token.kind != "newline"]
+    paren_depth = 0
+    bracket_depth = 0
+    angle_depth = 0
+    equals: int | None = None
+    for index, value in enumerate(values):
+        if value == "=" and paren_depth == bracket_depth == angle_depth == 0:
+            equals = index
+            break
+        if value == "(":
+            paren_depth += 1
+        elif value == ")":
+            paren_depth = max(0, paren_depth - 1)
+        elif value == "[":
+            bracket_depth += 1
+        elif value == "]":
+            bracket_depth = max(0, bracket_depth - 1)
+        elif value == "<":
+            angle_depth += 1
+        elif value == ">" and angle_depth:
+            angle_depth -= 1
+
+    if equals is None:
+        return None
+    initializer = values[equals + 1 :]
+    if not initializer:
+        return None
+    if initializer[0] == "Task":
+        return "<inferred:Task>"
+    if _is_direct_collection_initializer(initializer, "Task"):
+        return "<inferred:[Task]>"
+    if initializer[:3] == ["DispatchSource", ".", "makeTimerSource"]:
+        return "<inferred:DispatchSourceTimer>"
+    if _is_direct_collection_initializer(initializer, "DispatchSourceTimer"):
+        return "<inferred:[DispatchSourceTimer]>"
+    if initializer[:3] == ["Timer", ".", "scheduledTimer"]:
+        return "<inferred:Timer>"
+    if _is_direct_collection_initializer(initializer, "Timer"):
+        return "<inferred:[Timer]>"
     return None
 
 
@@ -589,10 +674,11 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
         type_text = _dispatch_type_text(declaration_tokens)
         if (
             type_text is None
-            and path == "Sources/ContentView.swift"
-            and context == "member:ContentView"
+            and path.startswith(MACOS_SWIFTUI_SOURCE_PREFIXES)
+            and context.startswith("member:")
+            and _has_attribute(tokens, index, "State")
         ):
-            type_text = _annotated_type_text(declaration_tokens, "Task")
+            type_text = _swiftui_state_handle_type_text(declaration_tokens)
         if type_text is None:
             continue
         declarations.append(
@@ -608,10 +694,16 @@ def scan_declarations(source: str, path: str) -> list[Declaration]:
 
 
 def declarations() -> list[Declaration]:
+    if not BONSPLIT_SOURCES_ROOT.is_dir():
+        raise RequiredSourceRootMissingError(
+            f"required audited source root is missing: {BONSPLIT_SOURCES_ROOT}"
+        )
+
     found: list[Declaration] = []
-    # Deliberately exclude gitlink dependencies: their source blobs are absent
-    # from the parent-only checkout used by this guard.
-    source_roots = [SOURCES_ROOT, CLI_ROOT, IOS_ROOT]
+    # CI initializes Bonsplit before this audit so a parent-repository change
+    # cannot silently reintroduce the SwiftUI State ownership pattern that
+    # produced the recursive release chain.
+    source_roots = [SOURCES_ROOT, CLI_ROOT, IOS_ROOT, BONSPLIT_SOURCES_ROOT]
     source_roots.extend(sorted(PACKAGES_ROOT.glob("*/*/Sources")))
     paths = {
         path
@@ -625,7 +717,11 @@ def declarations() -> list[Declaration]:
 
 
 def main() -> int:
-    found = declarations()
+    try:
+        found = declarations()
+    except RequiredSourceRootMissingError as error:
+        print(f"lint-stored-dispatch-work-items: {error}", file=sys.stderr)
+        return 1
     unexpected, stale = compare_allowances(found)
     if not unexpected and not stale:
         print(
@@ -635,9 +731,10 @@ def main() -> int:
         return 0
 
     print(
-        "Stored DispatchWorkItem declarations, and Task handles in ContentView, can rebuild "
-        "recursive release chains. Use a scheduler that cannot retain prior queued work, or "
-        "prove that replacement drops the predecessor before capturing owner state.",
+        "Stored DispatchWorkItem declarations and closure-bearing handles in macOS SwiftUI "
+        "State can rebuild recursive release chains. Use a scheduler that cannot retain "
+        "prior queued work, or prove that replacement drops the predecessor before capturing "
+        "owner state.",
         file=sys.stderr,
     )
     lines_by_key: dict[tuple[str, str, str, str], list[int]] = collections.defaultdict(list)

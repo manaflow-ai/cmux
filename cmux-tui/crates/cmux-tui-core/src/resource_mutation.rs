@@ -8,7 +8,7 @@
 use serde_json::Value;
 
 use crate::State;
-use crate::workspace_registry::{ResourcePatch, ResourcePatchCommit};
+use crate::workspace_registry::{ResourcePatch, ResourcePatchCommit, ResourceWorkspaceLedger};
 
 type StateApply = Box<dyn FnOnce(&mut State) + Send + 'static>;
 
@@ -25,6 +25,7 @@ pub(crate) struct ResourceMutationPlan {
     pub(crate) result: Value,
     pub(crate) deltas: Value,
     pub(crate) metrics: ResourceMutationMetrics,
+    pub(crate) workspace_ledger: Option<ResourceWorkspaceLedger>,
     apply: StateApply,
 }
 
@@ -40,6 +41,7 @@ impl ResourceMutationPlan {
             result,
             deltas,
             metrics: ResourceMutationMetrics::default(),
+            workspace_ledger: None,
             apply: Box::new(apply),
         }
     }
@@ -49,13 +51,31 @@ impl ResourceMutationPlan {
         self
     }
 
+    /// Declare that this plan changes the workspace projection, so its commit
+    /// must advance the legacy workspace ledger in the same transaction. The
+    /// in-memory `state.workspace_revision` is then set to the committed
+    /// ledger revision (never bumped independently), keeping the revision the
+    /// daemon reports equal to the one the legacy CAS checks.
+    pub(crate) fn with_workspace_ledger(mut self, ledger: ResourceWorkspaceLedger) -> Self {
+        self.workspace_ledger = Some(ledger);
+        self
+    }
+
     /// This call occurs only after the matching durable transaction commits.
     /// Plan builders reserve all needed capacities before returning.
-    pub(crate) fn apply(self, state: &mut State, commit: &ResourcePatchCommit) {
+    pub(crate) fn apply(
+        self,
+        state: &mut State,
+        commit: &ResourcePatchCommit,
+        workspace_revision: Option<u64>,
+    ) {
         if commit.replayed {
             return;
         }
         (self.apply)(state);
+        if let Some(workspace_revision) = workspace_revision {
+            state.workspace_revision = workspace_revision;
+        }
         state.resource_revision = commit.revision;
     }
 }

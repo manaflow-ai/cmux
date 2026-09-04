@@ -356,6 +356,7 @@ def strip_rust_comments(source: str) -> str:
 def rust_tokens(source: str) -> list[str]:
     """Tokenize the Rust subset needed to inspect JSON event construction."""
     tokens: list[str] = []
+    identifier_re = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
     index = 0
     while index < len(source):
         if source[index].isspace():
@@ -379,7 +380,10 @@ def rust_tokens(source: str) -> list[str]:
             tokens.append(source[index:end])
             index = end
             continue
-        identifier = re.match(r"[A-Za-z_][A-Za-z0-9_]*", source[index:])
+        # Use the regex position argument. Slicing ``source[index:]`` copies
+        # the remaining source on every byte and makes tokenization quadratic
+        # for the 800KB server source.
+        identifier = identifier_re.match(source, index)
         if identifier:
             token = identifier.group(0)
             tokens.append(token)
@@ -744,6 +748,14 @@ def menu_action_variants() -> set[str]:
 
 
 MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
+    "RunConfigured": {
+        "classification": "composite",
+        "route": "frontend configured menu + the referenced action's own route",
+    },
+    "RenameClientMachine": {
+        "classification": "composite",
+        "route": "frontend prompt + client-local machine catalog",
+    },
     "RenameManagedMachine": {
         "classification": "external-protocol",
         "route": "machine-provider rename_machine",
@@ -788,6 +800,10 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
         "classification": "direct",
         "route": "browser-activate",
     },
+    "RenameSurface": {
+        "classification": "composite",
+        "route": "frontend prompt + rename-surface",
+    },
     "CopyTabId": {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
@@ -795,6 +811,18 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "CopyPaneId": {
         "classification": "presentation-only",
         "route": "tree snapshot + frontend clipboard",
+    },
+    "CopyStatusMessage": {
+        "classification": "presentation-only",
+        "route": "status snapshot + frontend clipboard",
+    },
+    "ActivateSidebarProfile": {
+        "classification": "presentation-only",
+        "route": "frontend sidebar profile composition",
+    },
+    "SetSidebarViewVisible": {
+        "classification": "presentation-only",
+        "route": "frontend per-profile view visibility",
     },
     "SetClientSizing": {
         "classification": "direct",
@@ -819,6 +847,18 @@ MENU_ONLY_METADATA: dict[str, dict[str, str]] = {
     "InvokeProviderAction": {
         "classification": "external-protocol",
         "route": "machine-provider invoke_action",
+    },
+    "CreateMachineFrom": {
+        "classification": "composite",
+        "route": "native source picker + client-local machine catalog",
+    },
+    "ConnectMachineTarget": {
+        "classification": "composite",
+        "route": "SSH config picker + client-local machine connector",
+    },
+    "ConnectOtherMachine": {
+        "classification": "composite",
+        "route": "frontend prompt + client-local machine connector",
     },
 }
 

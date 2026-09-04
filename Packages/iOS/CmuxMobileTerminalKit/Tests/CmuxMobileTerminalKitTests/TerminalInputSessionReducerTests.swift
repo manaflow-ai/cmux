@@ -129,6 +129,18 @@ import Testing
         #expect(state.actualOwner == .terminal)
     }
 
+    @Test func visibleFocusRequestReassertsUIKitFocusWhenAlreadyOwned() {
+        var state = TerminalInputSessionState()
+
+        _ = state.handle(.requestFocus(.terminal))
+        _ = state.handle(.focusCompleted(owner: .terminal, succeeded: true))
+
+        let repeatRequest = state.handle(.requestVisibleFocus(.terminal))
+        #expect(repeatRequest.commands == [.focus(.terminal)])
+        #expect(state.requestedOwner == .terminal)
+        #expect(state.actualOwner == .terminal)
+    }
+
     @Test func failedHandoffKeepsTheActualOwnerUntilACommandSucceeds() {
         var state = TerminalInputSessionState()
         _ = state.handle(.requestFocus(.composer))

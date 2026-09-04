@@ -65,6 +65,53 @@ public final class Session {
         return client.openStream(Operations.SESSION_EVENTS, params, Session::decodeEvent);
     }
 
+    public ResourceStream<SessionJournalRecord> journal(Options.SessionJournal options) {
+        Map<String, Object> params = withExtra(route.params(), options.stream().extra());
+        options.cursor().ifPresent(cursor -> params.put(Wire.CURSOR, cursorMap(cursor)));
+        options.start().ifPresent(start -> params.put(Wire.START, start.toWire()));
+        options.follow().ifPresent(follow -> params.put("follow", follow));
+        options.filter().ifPresent(filter -> {
+            Map<String, Object> encoded = Wire.map();
+            if (!filter.kinds().isEmpty()) encoded.put("kinds", filter.kinds());
+            if (!filter.classes().isEmpty()) {
+                encoded.put(
+                    "classes",
+                    filter.classes().stream()
+                        .map(value -> value.name().toLowerCase(java.util.Locale.ROOT))
+                        .toList()
+                );
+            }
+            if (!filter.subjects().isEmpty()) {
+                encoded.put("subjects", filter.subjects().stream().map(subject -> {
+                    Map<String, Object> value = Wire.map();
+                    subject.kind().ifPresent(kind -> value.put("kind", kind));
+                    subject.id().ifPresent(id -> value.put("id", id));
+                    if (value.isEmpty()) {
+                        throw new IllegalArgumentException(
+                            "journal subject filter requires kind or id"
+                        );
+                    }
+                    return value;
+                }).toList());
+            }
+            filter.maxSensitivity().ifPresent(value -> encoded.put(
+                "max_sensitivity",
+                value.name().toLowerCase(java.util.Locale.ROOT)
+            ));
+            filter.regex().ifPresent(regex -> encoded.put("regex", Map.of(
+                "pattern", regex.pattern(),
+                "field", regex.field().toWire(),
+                "case_sensitive", regex.caseSensitive()
+            )));
+            if (!encoded.isEmpty()) params.put("filter", encoded);
+        });
+        return client.openStream(
+            Operations.SESSION_JOURNAL_SUBSCRIBE,
+            params,
+            Session::decodeJournalRecord
+        );
+    }
+
     public Results.PingResult ping(Options.Read options) {
         return Client.decodePingResult(client.requestValue(
             Operations.SESSION_PING,
@@ -427,6 +474,113 @@ public final class Session {
             );
         }
         return new SessionEvent.Unknown(kind, fields);
+    }
+
+    private static SessionJournalRecord decodeJournalRecord(
+        Object value,
+        Cursor envelopeCursor
+    ) {
+        if (envelopeCursor == null) {
+            throw new ProtocolError("journal stream items require an envelope cursor");
+        }
+        Map<String, Object> fields = Wire.object(value, "session journal record");
+        Client.requireExactFields(
+            fields,
+            "session journal record",
+            "sequence", "event_id", "schema_version", Wire.KIND, "class", "replay",
+            "occurred_at_ms", "committed_at_ms", "producer", "authority",
+            "causation_id", "correlation_id", "causation_depth", "subjects",
+            "sensitivity", "payload", "resource_revision", "previous_resource_revision"
+        );
+        for (String required : List.of("authority", "payload")) {
+            if (!fields.containsKey(required)) {
+                throw new ProtocolError(
+                    "session journal record omitted required field " + required
+                );
+            }
+        }
+        Decimal sequence = Wire.decimal(fields.get("sequence"), "journal sequence");
+        if (!sequence.equals(envelopeCursor.revision())) {
+            throw new ProtocolError("journal sequence must match its stream cursor");
+        }
+        int schemaVersion = Client.integer(fields, "schema_version");
+        int causationDepth = Client.integer(fields, "causation_depth");
+        if (schemaVersion < 1 || causationDepth < 0 || causationDepth > 65_535) {
+            throw new ProtocolError("journal numeric fields are outside their allowed range");
+        }
+        Map<String, Object> producer = Wire.object(fields.get("producer"), "journal producer");
+        Client.requireExactFields(producer, "journal producer", Wire.KIND, "id");
+        Optional<SessionJournalRecord.Authority> authority = Optional.empty();
+        if (fields.get("authority") != null) {
+            Map<String, Object> raw = Wire.object(fields.get("authority"), "journal authority");
+            Client.requireExactFields(
+                raw, "journal authority", "principal_id", "lease_id", Wire.GENERATION, "role"
+            );
+            authority = Optional.of(new SessionJournalRecord.Authority(
+                Wire.string(raw.get("principal_id"), "journal principal_id"),
+                Wire.string(raw.get("lease_id"), "journal lease_id"),
+                Wire.string(raw.get(Wire.GENERATION), "journal generation"),
+                Wire.string(raw.get("role"), "journal role")
+            ));
+        }
+        List<SessionJournalRecord.Subject> subjects = Wire.array(
+            fields.get("subjects"), "journal subjects"
+        ).stream().map(subjectValue -> {
+            Map<String, Object> subject = Wire.object(subjectValue, "journal subject");
+            Client.requireExactFields(subject, "journal subject", Wire.KIND, "id");
+            return new SessionJournalRecord.Subject(
+                Wire.string(subject.get(Wire.KIND), "journal subject kind"),
+                Wire.string(subject.get("id"), "journal subject id")
+            );
+        }).toList();
+        try {
+            return new SessionJournalRecord(
+                sequence,
+                Wire.string(fields.get("event_id"), "journal event_id"),
+                schemaVersion,
+                Wire.string(fields.get(Wire.KIND), "journal kind"),
+                SessionJournalRecord.JournalClass.valueOf(
+                    Wire.string(fields.get("class"), "journal class")
+                        .toUpperCase(java.util.Locale.ROOT)
+                ),
+                SessionJournalRecord.ReplayPolicy.valueOf(
+                    Wire.string(fields.get("replay"), "journal replay")
+                        .toUpperCase(java.util.Locale.ROOT)
+                ),
+                Wire.decimal(fields.get("occurred_at_ms"), "journal occurred_at_ms"),
+                Wire.decimal(fields.get("committed_at_ms"), "journal committed_at_ms"),
+                new SessionJournalRecord.Producer(
+                    Wire.string(producer.get(Wire.KIND), "journal producer kind"),
+                    Wire.string(producer.get("id"), "journal producer id")
+                ),
+                authority,
+                Client.requiredNullableString(fields, "causation_id"),
+                Client.requiredNullableString(fields, "correlation_id"),
+                causationDepth,
+                subjects,
+                SessionJournalRecord.Sensitivity.valueOf(
+                    Wire.string(fields.get("sensitivity"), "journal sensitivity")
+                        .toUpperCase(java.util.Locale.ROOT)
+                ),
+                JsonValue.of(fields.get("payload")),
+                requiredNullableDecimal(fields, "resource_revision"),
+                requiredNullableDecimal(fields, "previous_resource_revision")
+            );
+        } catch (IllegalArgumentException error) {
+            throw new ProtocolError("invalid session journal record", error);
+        }
+    }
+
+    private static Optional<Decimal> requiredNullableDecimal(
+        Map<String, Object> fields,
+        String key
+    ) {
+        if (!fields.containsKey(key)) {
+            throw new ProtocolError(key + " is required, although it may be null");
+        }
+        return fields.get(key) == null
+            ? Optional.empty()
+            : Optional.of(Wire.decimal(fields.get(key), key));
     }
 
     private static void requireEnvelopeCursor(

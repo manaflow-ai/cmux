@@ -265,13 +265,16 @@ struct SurfaceResumeAgentBindingGenerationTests {
         let restoredBinding = codexBinding(sessionID: restoredSessionID)
 
         #expect(workspace.setSurfaceResumeBinding(restoredBinding, panelId: panelID))
-        workspace.restoredAgentSnapshotsByPanelId[panelID] = SessionRestorableAgentSnapshot(
-            kind: .codex,
-            sessionId: restoredSessionID,
-            workingDirectory: "/tmp/repo",
-            launchCommand: nil
+        workspace.restoredAgentLifecycle.setSnapshot(
+            SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: restoredSessionID,
+                workingDirectory: "/tmp/repo",
+                launchCommand: nil
+            ),
+            panelId: panelID
         )
-        workspace.restoredAgentResumeStatesByPanelId[panelID] = .autoResumeCommandRunning
+        workspace.restoredAgentLifecycle.setResumeState(.autoResumeCommandRunning, panelId: panelID)
 
         let sameSessionRefresh = SurfaceResumeBindingSnapshot(
             name: "Codex",

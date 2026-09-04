@@ -37,5 +37,6 @@ struct MobileAuthenticatedShellPresentationTests {
             hasHiddenComputers: false
         ) == .workspace)
     }
+
 }
 #endif

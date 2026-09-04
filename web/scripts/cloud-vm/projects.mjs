@@ -25,6 +25,11 @@ export const projects = {
 export const requiredRuntimeEnvKeys = [
   "AWS_REGION",
   "AWS_ROLE_ARN",
+  // Without the Slack sink every triggered VM alert drops silently while the
+  // alert cron keeps returning 200, so an unset webhook is an observability
+  // outage, not a tuning choice. The only waiver is a recorded operator
+  // decision in the env itself (alertSinkAudit.mjs).
+  "CMUX_ALERTS_SLACK_WEBHOOK_URL",
   // The application can build without APNs credentials, but a promoted
   // runtime cannot deliver the Push Alerts feature without the complete set.
   "CMUX_APNS_KEY_ID",
@@ -33,12 +38,20 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_DB_DRIVER",
   "CMUX_VM_CREATE_ENABLED",
   "CMUX_VM_DEFAULT_PROVIDER",
-  "CMUX_VM_E2B_ENABLED",
+  // Freestyle is the production default provider (CMUX_VM_DEFAULT_PROVIDER):
+  // without credentials and a snapshot selector every create 503s.
   "CMUX_VM_FREESTYLE_ENABLED",
-  "E2B_API_KEY",
-  "E2B_CMUXD_WS_TEMPLATE",
+  // Every Vercel cron (VM alerts included) refuses to run without it.
+  "CRON_SECRET",
+  // Coderouter: the usage ledger (customer-facing usage, alert source) and
+  // the credential vault key. Coderouter analytics use the main PostHog
+  // project (POSTHOG_PROJECT_KEY has an in-code default).
+  "CLICKHOUSE_DATABASE",
+  "CLICKHOUSE_PASSWORD",
+  "CLICKHOUSE_URL",
+  "CLICKHOUSE_USER",
+  "CODEROUTER_KMS_KEY_ID",
   "FREESTYLE_API_KEY",
-  "FREESTYLE_SANDBOX_SNAPSHOT",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
   "PGDATABASE",
@@ -50,6 +63,15 @@ export const requiredRuntimeEnvKeys = [
 
 export const recommendedRuntimeEnvKeys = [
   "CMUX_DB_POOL_MAX",
+  // Kill switches are off-only: unset means enabled, so requiring presence
+  // would fail a healthy deployment. Freestyle's own flag is required rather
+  // than recommended because it is the only provider, so a missing value there
+  // is a real outage risk.
+  // CMUX_VM_ALLOW_FREE_PROVISIONING / CMUX_VM_REQUIRE_PRO are deliberately
+  // absent from every presence list: unset is the safe value, and their
+  // VALUES are audited by freeProvisioningAudit.mjs (a permissive value fails).
+  // CMUX_ALERTS_SINK_UNCONFIGURED_ACK is absent for the same reason; its VALUE
+  // is audited by alertSinkAudit.mjs.
   "CMUX_DB_SSL_REJECT_UNAUTHORIZED",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_HEADERS",
@@ -62,12 +84,44 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Blaxel, E2B, and Daytona were removed by the provider migrations. Keep
+  // their keys visible to the audit until operators remove them from Vercel.
+  "BL_API_KEY",
+  "BL_WORKSPACE",
+  "BLAXEL_SANDBOX_IMAGE",
+  "BLAXEL_SANDBOX_DESKTOP_IMAGE",
+  "CMUX_VM_BLAXEL_ENABLED",
+  "E2B_API_KEY",
+  "E2B_CMUXD_WS_TEMPLATE",
+  "E2B_SANDBOX_TEMPLATE",
+  "CMUX_VM_E2B_ENABLED",
+  "DAYTONA_API_KEY",
+  "DAYTONA_API_URL",
+  "DAYTONA_SANDBOX_SNAPSHOT",
+  "CMUX_VM_DAYTONA_ENABLED",
   "CMUX_RIVET_INTERNAL_SECRET",
   "RIVET_ENDPOINT",
   "RIVET_NAMESPACE",
   "RIVET_PUBLIC_ENDPOINT",
   "RIVET_RUNNER_VERSION",
   "RIVET_TOKEN",
+  // Subrouter and coderouter access gates were removed: team membership is
+  // the only requirement. The runtime ignores these keys; delete them.
+  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+  "SUBROUTER_ALLOWED_TEAM_IDS",
+  "CODEROUTER_HOSTED_PRO_REQUIRED",
+  // The isolated coderouter PostHog project (HMAC pseudonyms, PostHog
+  // Endpoints) was retired on 2026-09-03: coderouter events now go to the main
+  // cmux project keyed by Stack user id. The runtime ignores these keys.
+  "CODEROUTER_ANALYTICS_SCOPE_SECRET",
+  "POSTHOG_CODEROUTER_API_HOST",
+  "POSTHOG_CODEROUTER_ENDPOINT_NAME",
+  "POSTHOG_CODEROUTER_ENDPOINT_SECRET",
+  "POSTHOG_CODEROUTER_ENVIRONMENT_ID",
+  "POSTHOG_CODEROUTER_INGEST_HOST",
+  "POSTHOG_CODEROUTER_PERSONAL_API_KEY",
+  "POSTHOG_CODEROUTER_PROJECT_ID",
+  "POSTHOG_CODEROUTER_PROJECT_KEY",
 ];
 
 export function normalizeTarget(value) {
@@ -145,6 +199,8 @@ export function requireEnvKeys(env, keys, label) {
 
 export function runVercel(args, options = {}) {
   const stdio = options.stdio ?? "inherit";
+  // The Vercel CLI reads VERCEL_TOKEN from the environment, so CI needs no
+  // --token in argv (argv leaks into process listings and thrown errors).
   const env = { ...process.env, ...options.env };
   const command = process.env.VERCEL_CLI;
   if (command) return execFileSync(command, args, { ...options, env, stdio });

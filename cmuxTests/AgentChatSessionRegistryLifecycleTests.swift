@@ -1,4 +1,5 @@
 import CMUXAgentLaunch
+import CmuxFoundation
 import Foundation
 import Testing
 
@@ -9,6 +10,25 @@ import Testing
 #endif
 
 struct AgentChatSessionRegistryLifecycleTests {
+    @MainActor
+    @Test("Feed v1 ids are decoded before chat records are indexed")
+    func canonicalFeedIDIsDecodedBeforeChatBinding() throws {
+        let sessionID = "thread-with-hyphens"
+        let canonicalID = try #require(
+            FeedWorkstreamIdentifier(agentID: "codex", sessionID: sessionID)?.rawValue
+        )
+        let registry = AgentChatSessionRegistry()
+
+        let record = registry.noteHookEvent(WorkstreamEvent(
+            sessionId: canonicalID,
+            hookEventName: .sessionStart,
+            source: "codex"
+        ))
+
+        #expect(record.sessionID == sessionID)
+        #expect(record.hookStoreSessionID == sessionID)
+    }
+
     @MainActor
     @Test func hookStoreSeedDoesNotRestoreStalePIDOntoExistingLiveRecord() async throws {
         let home = try temporaryHomeDirectory()

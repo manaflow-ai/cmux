@@ -13,7 +13,7 @@ public struct WindowAppearanceResolver {
 
     /// Resolves window appearance from explicit user settings.
     public func current(settings: WindowAppearanceUserSettingsSnapshot) -> WindowAppearanceSnapshot {
-        WindowAppearanceSnapshot(
+        return WindowAppearanceSnapshot(
             terminalBackgroundColor: terminalAppearance.backgroundColor,
             terminalBackgroundOpacity: WindowAppearanceSnapshot.clampedOpacity(terminalAppearance.backgroundOpacity),
             terminalBackgroundBlur: terminalAppearance.backgroundBlur,
@@ -31,6 +31,8 @@ public struct WindowAppearanceResolver {
                 tintOpacity: settings.sidebarTintOpacity,
                 cornerRadius: settings.sidebarCornerRadius,
                 blurOpacity: settings.sidebarBlurOpacity,
+                // The snapshot initializer replaces this compatibility value
+                // with the terminal authority below.
                 colorScheme: settings.colorScheme
             ),
             windowGlassSettings: WindowGlassSettingsSnapshot(
@@ -42,6 +44,12 @@ public struct WindowAppearanceResolver {
                 terminalGlassTintColor: terminalAppearance.backgroundColor.withAlphaComponent(
                     WindowAppearanceSnapshot.clampedOpacity(terminalAppearance.backgroundOpacity)
                 )
+            ),
+            resolvedColorScheme: WindowAppearanceSnapshot.resolvedChromeColorScheme(
+                terminalScheme: terminalAppearance.resolvedColorScheme,
+                backgroundColor: terminalAppearance.backgroundColor,
+                opacity: terminalAppearance.backgroundOpacity,
+                ambientScheme: settings.colorScheme
             )
         )
     }
@@ -49,12 +57,22 @@ public struct WindowAppearanceResolver {
     /// Resolves window appearance from a `UserDefaults` store.
     public func currentFromUserDefaults(
         defaults: UserDefaults,
-        colorScheme: ColorScheme
+        colorScheme: ColorScheme? = nil
     ) -> WindowAppearanceSnapshot {
         let tintDefaults = WindowChromeSidebarTintDefaults()
+        // Without an injected ambient scheme, fail closed to the terminal
+        // authority: compositing over a base that matches the terminal scheme
+        // keeps opaque and translucent chrome on the terminal-derived answer
+        // instead of guessing that the window is light.
+        let ambientScheme = colorScheme
+            ?? terminalAppearance.resolvedColorScheme
+            ?? WindowAppearanceSnapshot.colorScheme(
+                forTerminalBackgroundColor: terminalAppearance.backgroundColor,
+                opacity: terminalAppearance.backgroundOpacity
+            )
         return current(settings: WindowAppearanceUserSettingsSnapshot(
             unifySurfaceBackdrops: defaults.object(forKey: "sidebarMatchTerminalBackground") as? Bool ?? false,
-            colorScheme: colorScheme,
+            colorScheme: ambientScheme,
             sidebarMaterial: defaults.string(forKey: "sidebarMaterial") ?? WindowChromeSidebarMaterialOption.sidebar.rawValue,
             sidebarBlendMode: defaults.string(forKey: "sidebarBlendMode") ?? WindowChromeSidebarBlendModeOption.withinWindow.rawValue,
             sidebarState: defaults.string(forKey: "sidebarState") ?? WindowChromeSidebarStateOption.followWindow.rawValue,

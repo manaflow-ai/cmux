@@ -6,6 +6,13 @@ import Foundation
 actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
     private var records: [MobilePairedMac]
 
+    private func identityID(macDeviceID: String, instanceTag: String?) -> String {
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
+    }
+
     init(records: [MobilePairedMac]) {
         self.records = records
     }
@@ -55,7 +62,10 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
                 return copy
             }
         }
-        if let index = records.firstIndex(where: { $0.macDeviceID == macDeviceID }) {
+        if let index = records.firstIndex(where: {
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+        }) {
             records[index].displayName = displayName
             records[index].routes = routes
             records[index].instanceTag = instanceTag
@@ -89,15 +99,31 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
+        let expectedInstanceTag: String?
+        switch condition {
+        case .matchingInstanceTag(let tag):
+            expectedInstanceTag = tag
+        case .unclaimed:
+            expectedInstanceTag = nil
+        }
         let index = records.firstIndex {
-            $0.macDeviceID == macDeviceID
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: expectedInstanceTag)
                 && isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID)
         }
         switch condition {
-        case .matchingInstanceTag(let expectedInstanceTag):
-            guard let index, records[index].instanceTag == expectedInstanceTag else { return false }
+        case .matchingInstanceTag:
+            guard index != nil else { return false }
         case .unclaimed:
-            guard index.flatMap({ records[$0].instanceTag }) == nil else { return false }
+            let hasClaimedSibling = records.contains {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).macDeviceID == cmxCanonicalDeviceID(macDeviceID)
+                    && $0.instanceTag != nil
+                    && isVisibleInLoadScope($0, stackUserID: stackUserID, teamID: teamID)
+            }
+            guard !hasClaimedSibling else { return false }
         }
         if markActive == true {
             records = records.map { mac in
@@ -122,7 +148,8 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
                 lastSeenAt: now,
                 isActive: markActive ?? false,
                 stackUserID: stackUserID,
-                teamID: teamID
+                teamID: teamID,
+                instanceTag: expectedInstanceTag
             ))
         }
         return true
@@ -142,10 +169,30 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
     }
 
     func setActive(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let matches = records.filter {
+            cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+                && isVisibleInActiveScope($0, stackUserID: stackUserID, teamID: teamID)
+        }
+        guard matches.count == 1, let target = matches.first else { return }
+        try await setActive(
+            macDeviceID: macDeviceID,
+            instanceTag: target.instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    func setActive(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
         records = records.map { mac in
             var copy = mac
             if isVisibleInActiveScope(copy, stackUserID: stackUserID, teamID: teamID) {
-                copy.isActive = copy.macDeviceID == macDeviceID
+                copy.isActive = identityID(macDeviceID: copy.macDeviceID, instanceTag: copy.instanceTag)
+                        == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
             }
             return copy
         }
@@ -170,8 +217,33 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        let matches = records.indices.filter {
+            cmxCanonicalDeviceID(records[$0].macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+                && records[$0].stackUserID == stackUserID
+                && records[$0].teamID == teamID
+        }
+        guard matches.count == 1, let index = matches.first else { return }
+        records[index].customName = customName
+        records[index].customColor = customColor
+        records[index].customIcon = customIcon
+        records[index].lastSeenAt = now
+    }
+
+    func setCustomization(
+        macDeviceID: String,
+        instanceTag: String?,
+        customName: String?,
+        customColor: String?,
+        customIcon: String?,
+        stackUserID: String?,
+        teamID: String?,
+        now: Date
+    ) async throws {
         guard let index = records.firstIndex(where: {
-            $0.macDeviceID == macDeviceID && $0.stackUserID == stackUserID && $0.teamID == teamID
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+                && $0.stackUserID == stackUserID
+                && $0.teamID == teamID
         }) else { return }
         records[index].customName = customName
         records[index].customColor = customColor
@@ -180,8 +252,31 @@ actor HideComputersVerifierPairedMacStore: MobilePairedMacStoring {
     }
 
     func remove(macDeviceID: String, stackUserID: String?, teamID: String?) async throws {
+        let matches = records.filter {
+            cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+                && $0.stackUserID == stackUserID
+                && $0.teamID == teamID
+        }
+        guard matches.count == 1, let target = matches.first else { return }
+        try await remove(
+            macDeviceID: macDeviceID,
+            instanceTag: target.instanceTag,
+            stackUserID: stackUserID,
+            teamID: teamID
+        )
+    }
+
+    func remove(
+        macDeviceID: String,
+        instanceTag: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
         records.removeAll {
-            $0.macDeviceID == macDeviceID && $0.stackUserID == stackUserID && $0.teamID == teamID
+            identityID(macDeviceID: $0.macDeviceID, instanceTag: $0.instanceTag)
+                == identityID(macDeviceID: macDeviceID, instanceTag: instanceTag)
+                && $0.stackUserID == stackUserID
+                && $0.teamID == teamID
         }
     }
 

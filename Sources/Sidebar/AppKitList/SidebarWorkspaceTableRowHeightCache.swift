@@ -20,7 +20,7 @@ final class SidebarWorkspaceTableRowHeightCache {
             row candidate: SidebarWorkspaceTableRowConfiguration,
             columnWidth candidateWidth: CGFloat
         ) -> Bool {
-            columnWidth == candidateWidth && row.hasEquivalentContent(to: candidate)
+            columnWidth == candidateWidth && row.hasEquivalentHeightContent(to: candidate)
         }
     }
 
@@ -120,11 +120,13 @@ final class SidebarWorkspaceTableRowHeightCache {
         return changedHeights
     }
 
-    /// Live-resize partial pass: re-measures only `indexes` at the live
-    /// width, leaving every other entry at its previous width. Only the
-    /// deterministic pure-AppKit rows re-measure here; hosted SwiftUI rows
-    /// keep their entry and settle in the next full `prepareHostedRows`
-    /// pass. Returns the indexes whose height changed.
+    /// Partial live-width pass: re-measures only `indexes` at the live width,
+    /// leaving every other entry at its previous width. Only deterministic
+    /// AppKit-backed rows re-measure here; hosted SwiftUI rows keep their entry
+    /// and settle in the next full `prepareHostedRows` pass. The controller
+    /// also uses this bounded path for AppKit rows whose authoritative model
+    /// changes during a width transition. Returns the indexes whose height
+    /// changed.
     func prepareRows(
         at indexes: IndexSet,
         in rows: [SidebarWorkspaceTableRowConfiguration],
@@ -162,7 +164,7 @@ final class SidebarWorkspaceTableRowHeightCache {
         // the lookup still uses the last settled width; a content-matched
         // entry at another width is that fresher measurement, and the settle
         // pass re-measures every width-mismatched entry afterward.
-        guard entry.row.hasEquivalentContent(to: row) else { return nil }
+        guard entry.row.hasEquivalentHeightContent(to: row) else { return nil }
         return entry.height
     }
 

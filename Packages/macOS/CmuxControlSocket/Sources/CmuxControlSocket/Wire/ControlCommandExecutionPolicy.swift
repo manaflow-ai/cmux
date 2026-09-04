@@ -16,12 +16,13 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     /// from the main thread.
     case socketWorker(mainThreadCallable: Bool)
 
-    /// Classifies a method: every `vm.`-, `remotes.`-, and
-    /// `aiAccounts.`-prefixed method and the fixed socket-worker set run on the
+    /// Classifies a method: every `vm.`-, `remotes.`-, `aiAccounts.`-, and
+    /// `coderouter.`-prefixed method and the fixed socket-worker set run on the
     /// worker; everything else runs on the main actor.
     ///
-    /// `remotes.*` (the `cmux remotes` device-registry verbs) and
-    /// `aiAccounts.*` (the team's subrouter AI-account verbs) make blocking,
+    /// `remotes.*` (the `cmux remotes` device-registry verbs), `aiAccounts.*`
+    /// (the team's subrouter AI-account verbs), and `coderouter.*` (the team's
+    /// coderouter Claude upstream and per-machine usage) make blocking,
     /// authenticated web API calls just like `vm.*`, so they must stay off the
     /// main actor; prefix matches keep each verb family in lockstep without
     /// listing each method.
@@ -38,7 +39,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         }
 #endif
         if method.hasPrefix("vm.") || method.hasPrefix("remotes.") || method.hasPrefix("aiAccounts.")
-            || Self.socketWorkerMethods.contains(method) {
+            || method.hasPrefix("coderouter.") || Self.socketWorkerMethods.contains(method) {
             self = .socketWorker(
                 mainThreadCallable: Self.mainThreadCallableSocketWorkerMethods.contains(method)
             )
@@ -83,6 +84,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "auth.begin_sign_in",
         "auth.sign_out",
         "feedback.submit",
+        // `feed.jump` awaits its actor-owned hook-session lookup while the
+        // socket worker waits for the response.
+        "feed.jump",
         "feed.push",
         "feed.permission.reply",
         "feed.question.reply",
@@ -104,8 +108,30 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // routes it to the main-actor processV2Command switch, which lacks the
         // case, and the control socket returns method_not_found.
         "mobile.terminal.set_font",
+        // Same profile as set_font: UserDefaults reads/writes plus a push
+        // event through thread-safe MobileHostService statics.
+        "mobile.compatible_tags.get",
+        "mobile.compatible_tags.set",
+        // Panel artifact reads are mobile data-plane file IO for non-terminal
+        // surfaces. Keep them on the worker lane so markdown/file-preview panes
+        // reach TerminalController's mobile.panel.artifact.* dispatcher instead
+        // of the main-actor switch returning method_not_found.
+        "mobile.panel.artifact.stat",
+        "mobile.panel.artifact.fetch",
+        "mobile.panel.artifact.thumbnail",
         "system.top",
         "system.memory",
+        // vault.* scans agent transcript stores on disk (~/.claude/projects,
+        // ~/.codex/sessions, OpenCode SQLite). That is unbounded-latency file
+        // I/O; on the main actor it would stall the run loop, so the whole
+        // family runs on the socket worker. `vault.fork` streams a multi-MB
+        // transcript here and takes exactly one v2MainSync hop when asked to
+        // open the forked session. None are mainThreadCallable.
+        "vault.sessions",
+        "vault.search",
+        "vault.checkpoints",
+        "vault.checkpoint",
+        "vault.fork",
         // `surface.read_text` reads a terminal's visible or full-scrollback
         // text and formats it (line tailing, candidate scoring, base64
         // encoding). On the main actor that formatting stalls the run loop
@@ -120,6 +146,20 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // never runs inline on the main thread, and no in-process main-thread
         // caller needs it.
         "surface.read_text",
+        // Selection providers own AppKit/WebKit state on the main actor, then
+        // return one immutable snapshot for response shaping on this worker.
+        // The async bridge must never be entered inline by a main-thread caller.
+        "surface.read_selection",
+        // The surface catalog verbs await main-actor catalog work that can sit on the
+        // network (a cloud provider materializing a pane); like `vm.*` they park the
+        // worker instead of holding the main actor.
+        "surface.catalog",
+        "surface.project",
+        "surface.new_terminal",
+        // SSH-session attach resolves ownership and reads the remote PTY
+        // registry before any surface mutation; keep the bounded remote query
+        // off the main actor.
+        "surface.ssh_session_attach.resolve",
         // `workspace.env` is a read that resolves a workspace and copies its
         // env dictionary behind a `v2MainSync` hop, so it runs on the worker
         // lane like the other workspace reads below.
@@ -159,6 +199,9 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         // connection-owned shutdown path, which awaits asynchronous writers.
         // Keep that wait off the main actor.
         "debug.mobile.transport.disconnect",
+        // Presents the Cloud tree style gallery window: one v2MainSync hop for
+        // the presentation, like debug.window.screenshot's capture wait.
+        "debug.cloudtree.gallery",
         // Browser automation methods that wait on page JavaScript, WebKit
         // cookies, or capture callbacks run on the socket worker: on the main
         // actor they block SwiftUI updates for their full duration, and on a
@@ -398,6 +441,17 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "clear_notifications",
     ]
 
+    /// The v1 agent-journal family: `agent_journal_append` commits one
+    /// semantic agent event to the append-only journal and replies with the
+    /// committed sequence — the emitting hook's durable acknowledgement. The
+    /// body runs on the socket worker (parse + one bounded SQLite
+    /// transaction); it is deliberately NOT main-thread callable so the
+    /// durability fsync can never run inline on the main thread. Internal
+    /// (not private) so the package tests can pin the exact set.
+    static let agentJournalV1Commands: Set<String> = [
+        "agent_journal_append",
+    ]
+
     /// The v1 terminal-read family (tranche C): `read_screen` is the v1 twin
     /// of `surface.read_text` — the Ghostty FFI capture takes one minimal
     /// `v2MainSync` hop and the (possibly multi-MB) tail/merge/base64
@@ -458,6 +512,7 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
     static let socketWorkerV1Commands: Set<String> =
         sidebarTelemetryV1Commands
             .union(notificationV1Commands)
+            .union(agentJournalV1Commands)
             .union(terminalReadV1Commands)
             .union(diagnosticReadV1Commands)
             .union(resolutionReadV1Commands)

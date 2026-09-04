@@ -30,9 +30,20 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(fallbackStart)))
         XCTAssertEqual(notifications.count, 1, "Unclassified fallback re-notification should dedupe, saw \(notifications)")
+        // The meta may carry trailing agent-event context (`;a=<kind>[;n=<0|1>]`);
+        // the nested flag depends on the host process ancestry, so assert the
+        // gating fields and agent kind without pinning it.
         XCTAssertTrue(
-            notifications.first?.hasSuffix("|c=idle-reminder;p=0") == true,
+            notifications.first?.contains("|c=idle-reminder;p=0") == true,
             "Fallback re-notification should be gateable as idle-reminder, saw \(notifications)"
+        )
+        XCTAssertTrue(
+            notifications.first?.contains(";a=grok") == true,
+            "Fallback re-notification should carry the agent kind, saw \(notifications)"
+        )
+        XCTAssertTrue(
+            notifications.first?.contains(";s=needsInput") == true,
+            "Fallback re-notification should carry the sound alert type, saw \(notifications)"
         )
     }
 
@@ -83,7 +94,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         let firstTurnNotifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(firstTurnNotifications.count, 1, "Repeated identical permission prompts should dedupe per turn, saw \(firstTurnNotifications)")
         XCTAssertTrue(
-            firstTurnNotifications.first?.hasSuffix("|c=needs-permission;p=0") == true,
+            firstTurnNotifications.first?.contains("|c=needs-permission;p=0") == true,
             firstTurnNotifications.joined(separator: "\n")
         )
 
@@ -92,7 +103,8 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(notifications.count, 2, "Prompt submit should re-arm permission prompt delivery for the next turn, saw \(notifications)")
-        XCTAssertTrue(notifications.allSatisfy { $0.hasSuffix("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertTrue(notifications.allSatisfy { $0.contains("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertTrue(notifications.allSatisfy { $0.contains(";s=needsInput") }, notifications.joined(separator: "\n"))
     }
 
     func testGrokDistinctPermissionPromptsAlwaysDeliver() throws {
@@ -106,10 +118,11 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(notifications.count, 2, "Distinct permission prompts should each deliver, saw \(notifications)")
-        XCTAssertTrue(notifications.allSatisfy { $0.hasSuffix("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertTrue(notifications.allSatisfy { $0.contains("|c=needs-permission;p=0") }, notifications.joined(separator: "\n"))
+        XCTAssertTrue(notifications.allSatisfy { $0.contains(";s=needsInput") }, notifications.joined(separator: "\n"))
     }
 
-    func testAntigravityErrorNotificationRemainsUntagged() throws {
+    func testAntigravityErrorNotificationCarriesErrorSoundContext() throws {
         let context = try makeGrokNoiseContext(name: "antigravity-error", agent: "antigravity")
         defer { context.cleanup() }
 
@@ -119,9 +132,10 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let notifications = notifyCommands(in: Array(context.state.snapshot().dropFirst(start)))
         XCTAssertEqual(notifications.count, 1, "Expected one Antigravity error notification, saw \(notifications)")
-        XCTAssertFalse(
-            notifications.first?.contains("|c=") == true,
-            "Error notifications should remain untagged, saw \(notifications)"
+        XCTAssertTrue(
+            notifications.first?.contains(";a=antigravity") == true
+                && notifications.first?.contains(";s=errorStalled") == true,
+            "Error notifications should carry the error sound context, saw \(notifications)"
         )
     }
 

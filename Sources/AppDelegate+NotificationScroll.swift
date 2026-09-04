@@ -7,6 +7,11 @@ extension AppDelegate {
         surfaceId: UUID?,
         panelId: UUID?
     ) -> TerminalNotificationScrollPosition? {
+        if let surfaceId,
+           let dock = existingWindowDock(forWindowId: tabId),
+           let panel = dock.panels[surfaceId] as? TerminalPanel {
+            return panel.notificationScrollPosition
+        }
         guard let workspace = workspaceFor(tabId: tabId) ?? tabManager?.tabs.first(where: { $0.id == tabId }) else {
             return nil
         }
@@ -26,6 +31,15 @@ extension AppDelegate {
         }
         _ = terminalPanelForNotificationScroll(workspace: workspace, surfaceId: surfaceId, panelId: panelId)?
             .restoreNotificationScrollPosition(position)
+    }
+
+    func restoreWindowDockNotificationScrollPosition(
+        _ position: TerminalNotificationScrollPosition?,
+        dock: DockSplitStore,
+        panelId: UUID
+    ) {
+        guard let panel = dock.panels[panelId] as? TerminalPanel else { return }
+        _ = panel.restoreNotificationScrollPosition(position)
     }
 
     private func terminalPanelForNotificationScroll(

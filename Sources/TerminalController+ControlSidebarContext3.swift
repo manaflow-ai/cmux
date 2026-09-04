@@ -161,10 +161,11 @@ extension TerminalController {
         }
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
-        guard let newPaneId = tab.bonsplitController.splitPane(
+        guard let newPaneId = tab.splitPaneMovingTab(
             orientation: orientation,
             movingTab: bonsplitTabId,
-            insertFirst: insertFirst
+            insertFirst: insertFirst,
+            focusIntent: .preserveCurrent
         ) else {
             return .splitFailed
         }
@@ -380,8 +381,9 @@ extension TerminalController {
         // (resets cached metrics so the Metal layer drawable resizes correctly)
         var refreshedCount = 0
         for panel in tab.panels.values {
-            if let terminalPanel = panel as? TerminalPanel {
-                terminalPanel.surface.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
+            if panel is TerminalPanel,
+               let target = tab.controlSocketTerminalTarget(for: panel.id) {
+                target.forceRefresh(reason: "terminalController.refreshAllTerminalPanels")
                 refreshedCount += 1
             }
         }

@@ -98,8 +98,17 @@ struct SettingCatalogTests {
         #expect(ids.contains("automation.socketPassword"))
     }
 
+    @Test func browserCatalogIncludesDefaultZoomLevel() {
+        let ids = Set(SettingCatalog().browser.all.map(\.id))
+        #expect(ids.contains("browser.defaultZoomLevel"))
+    }
+
     @Test func focusHistoryDefaultsToWorkspacesOnly() {
         #expect(!SettingCatalog().app.focusHistoryIncludesPanesAndTabs.defaultValue)
+    }
+
+    @Test func adaptiveDefaultTerminalThemeDefaultsOnForUntouchedConfigs() {
+        #expect(SettingCatalog().terminal.adaptiveDefaultTheme.defaultValue)
     }
 
     @Test func keyIdsMatchTheirSectionPrefix() {

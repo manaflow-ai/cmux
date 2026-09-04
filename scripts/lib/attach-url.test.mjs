@@ -9,7 +9,11 @@ import {
   RELEASE_URL_SCHEME,
   buildAttachURL,
   filterRoutes,
+  isCanonicalAttachURL,
+  schemeForIOSBundleIdentifier,
 } from "./attach-url.mjs";
+
+const DEV_EXACT_SCHEME = schemeForIOSBundleIdentifier("dev.cmux.ios.feature-a");
 
 function samplePayload() {
   return {
@@ -39,35 +43,45 @@ function decodePayload(url) {
   return JSON.parse(Buffer.from(b64, "base64url").toString("utf8"));
 }
 
-test("builds a dev-scheme attach URL with the version and base64url ticket", () => {
-  // Default scheme is the dev channel's so a QR rendered by the debug-CLI
-  // routes to the dev iOS build via the system Camera, not an installed
-  // TestFlight/App Store build.
-  const { attachURL } = buildAttachURL(samplePayload());
-  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+test("builds an exact-bundle attach URL with the version and ticket", () => {
+  const { attachURL } = buildAttachURL(samplePayload(), {
+    scheme: DEV_EXACT_SCHEME,
+  });
+  assert.match(
+    attachURL,
+    /^cmux-ios-dev\.cmux\.ios\.feature-a:\/\/attach\?v=1&payload=/,
+  );
   const decoded = decodePayload(attachURL);
   assert.equal(decoded.version, 1);
   assert.equal(decoded.authToken, "secret-token");
   assert.equal(decoded.routes.length, 2);
 });
 
-test("emits the release scheme when explicitly requested", () => {
-  const { attachURL } = buildAttachURL(samplePayload(), { scheme: RELEASE_URL_SCHEME });
-  assert.match(attachURL, /^cmux-ios:\/\/attach\?v=1&payload=/);
-  // The dev default and the release override are the two channel schemes.
+test("refuses historical shared schemes for newly encoded URLs", () => {
+  assert.throws(
+    () => buildAttachURL(samplePayload(), { scheme: RELEASE_URL_SCHEME }),
+    /exact-bundle/,
+  );
+  assert.throws(
+    () => buildAttachURL(samplePayload(), { scheme: DEV_URL_SCHEME }),
+    /exact-bundle/,
+  );
   assert.equal(DEV_URL_SCHEME, "cmux-ios-dev");
   assert.equal(RELEASE_URL_SCHEME, "cmux-ios");
 });
 
 test("round-trips the encoded ticket back to the original object", () => {
   const payload = samplePayload();
-  const { attachURL } = buildAttachURL(payload);
+  const { attachURL } = buildAttachURL(payload, { scheme: DEV_EXACT_SCHEME });
   const decoded = decodePayload(attachURL);
   assert.deepEqual(decoded, payload.ticket);
 });
 
 test("filters routes by kind and narrows the encoded ticket", () => {
-  const { attachURL, routes } = buildAttachURL(samplePayload(), { routeKind: "tailscale" });
+  const { attachURL, routes } = buildAttachURL(samplePayload(), {
+    routeKind: "tailscale",
+    scheme: DEV_EXACT_SCHEME,
+  });
   assert.equal(routes.length, 1);
   assert.equal(routes[0].id, "ts");
   const decoded = decodePayload(attachURL);
@@ -76,13 +90,22 @@ test("filters routes by kind and narrows the encoded ticket", () => {
 });
 
 test("filters routes by id", () => {
-  const { routes } = buildAttachURL(samplePayload(), { routeID: "lo" });
+  const { routes } = buildAttachURL(samplePayload(), {
+    routeID: "lo",
+    scheme: DEV_EXACT_SCHEME,
+  });
   assert.equal(routes.length, 1);
   assert.equal(routes[0].id, "lo");
 });
 
 test("throws when no route matches the filter", () => {
-  assert.throws(() => buildAttachURL(samplePayload(), { routeKind: "nope" }), /No matching route/);
+  assert.throws(
+    () => buildAttachURL(samplePayload(), {
+      routeKind: "nope",
+      scheme: DEV_EXACT_SCHEME,
+    }),
+    /No matching route/,
+  );
 });
 
 test("throws when the payload has no ticket routes", () => {
@@ -93,7 +116,7 @@ test("throws when the payload has no ticket routes", () => {
 test("defaults version to 1 when the ticket omits it", () => {
   const payload = samplePayload();
   delete payload.ticket.version;
-  const { attachURL } = buildAttachURL(payload);
+  const { attachURL } = buildAttachURL(payload, { scheme: DEV_EXACT_SCHEME });
   assert.match(attachURL, /\?v=1&/);
 });
 
@@ -104,9 +127,31 @@ test("prefers the canonical attach_url returned by the Mac RPC", () => {
   assert.equal(routes.length, 2);
 });
 
+test("recognizes exact-bundle canonical attach URLs", () => {
+  assert.equal(
+    isCanonicalAttachURL(
+      "cmux-ios-dev.cmux.app.internal://attach?v=2&r=100.1.2.3:8080",
+    ),
+    true,
+  );
+  assert.equal(
+    isCanonicalAttachURL(
+      "cmux-ios-dev.cmux.ios.feature-a://attach?v=2&r=100.1.2.3:8080",
+    ),
+    true,
+  );
+  assert.equal(isCanonicalAttachURL("cmux-ios-*://attach?v=2"), false);
+});
+
 test("does not reuse canonical attach_url after local route filtering", () => {
-  const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), { routeKind: "tailscale" });
-  assert.match(attachURL, /^cmux-ios-dev:\/\/attach\?v=1&payload=/);
+  const { attachURL, routes } = buildAttachURL(samplePayloadWithCanonicalURL(), {
+    routeKind: "tailscale",
+    scheme: DEV_EXACT_SCHEME,
+  });
+  assert.match(
+    attachURL,
+    /^cmux-ios-dev\.cmux\.ios\.feature-a:\/\/attach\?v=1&payload=/,
+  );
   assert.equal(routes.length, 1);
   const decoded = decodePayload(attachURL);
   assert.equal(decoded.routes.length, 1);
@@ -120,6 +165,9 @@ test("filterRoutes returns all routes when no filter is given", () => {
 
 test("does not mutate the caller's payload", () => {
   const payload = samplePayload();
-  buildAttachURL(payload, { routeKind: "tailscale" });
+  buildAttachURL(payload, {
+    routeKind: "tailscale",
+    scheme: DEV_EXACT_SCHEME,
+  });
   assert.equal(payload.ticket.routes.length, 2);
 });

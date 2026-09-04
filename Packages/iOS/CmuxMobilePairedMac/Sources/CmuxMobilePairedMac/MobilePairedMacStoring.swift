@@ -186,6 +186,29 @@ public protocol MobilePairedMacStoring: Sendable {
     /// Remove all paired Macs.
     func removeAll() async throws
 
+    /// Persist THIS device's connection-method choice for one tagged Mac
+    /// (an opaque raw value owned by the shell; `nil` clears the choice back
+    /// to the app default). Device-local: the value never syncs, never backs
+    /// up, and must not bump LWW freshness.
+    func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
+    /// Persist THIS device's Direct-method dial candidates for one tagged Mac
+    /// (a JSON payload owned by the shell; `nil` clears the list). Device-local
+    /// like the connection method.
+    func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws
+
     /// Record device-local authorization for Tailscale routes the user entered
     /// as a pairing code from their Mac.
     ///
@@ -204,13 +227,39 @@ public protocol MobilePairedMacStoring: Sendable {
 }
 
 extension MobilePairedMacStoring {
+    /// Compatibility no-op for stores that predate per-Computer Direct
+    /// addresses (test fixtures); the SQLite store and decorators override.
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
+    /// Compatibility no-op for stores that predate per-Computer connection
+    /// methods (test fixtures); the SQLite store and decorators override.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {}
+
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func setActive(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await setActive(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
@@ -219,6 +268,8 @@ extension MobilePairedMacStoring {
     }
 
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func setCustomization(
         macDeviceID: String,
         instanceTag: String?,
@@ -229,6 +280,10 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws {
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
@@ -241,12 +296,18 @@ extension MobilePairedMacStoring {
     }
 
     /// Compatibility fallback for stores that predate tagged row identity.
+    /// Tagged mutations fail closed because a device-only implementation
+    /// cannot prove which sibling build it would change.
     public func remove(
         macDeviceID: String,
         instanceTag: String?,
         stackUserID: String?,
         teamID: String?
     ) async throws {
+        guard CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).instanceTag == nil else { return }
         try await remove(
             macDeviceID: macDeviceID,
             stackUserID: stackUserID,
@@ -319,13 +380,27 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID) == cmxCanonicalDeviceID(macDeviceID)
+            }
+        let existing: MobilePairedMac?
         switch condition {
-        case .matchingInstanceTag(let expectedInstanceTag):
-            guard let existing, existing.instanceTag == expectedInstanceTag else { return false }
+        case .matchingInstanceTag(let tag):
+            let expectedID = CmxMacAppInstanceIdentity(
+                macDeviceID: macDeviceID,
+                instanceTag: tag
+            ).id
+            existing = matches.first {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).id == expectedID
+            }
+            guard existing != nil else { return false }
         case .unclaimed:
-            guard existing?.instanceTag == nil else { return false }
+            guard !matches.contains(where: { $0.instanceTag != nil }) else { return false }
+            existing = matches.first { $0.instanceTag == nil }
         }
         try await upsert(
             macDeviceID: macDeviceID,
@@ -356,14 +431,30 @@ extension MobilePairedMacStoring {
         teamID: String?,
         now: Date
     ) async throws -> Bool {
-        let existing = try await loadAll(stackUserID: stackUserID, teamID: teamID)
-            .first { $0.macDeviceID == macDeviceID }
+        let expectedIdentity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let matches = try await loadAll(stackUserID: stackUserID, teamID: teamID)
+            .filter {
+                cmxCanonicalDeviceID($0.macDeviceID) == expectedIdentity.macDeviceID
+            }
+        if expectedIdentity.instanceTag == nil,
+           matches.contains(where: { $0.instanceTag != nil }) {
+            return false
+        }
+        let existing = matches.first {
+                CmxMacAppInstanceIdentity(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag
+                ).id == expectedIdentity.id
+            }
         if let existing, existing.lastSeenAt >= now { return false }
         try await upsert(
             macDeviceID: macDeviceID,
             displayName: displayName,
             routes: routes,
-            instanceTag: instanceTag,
+            instanceTag: expectedIdentity.instanceTag,
             markActive: markActive,
             stackUserID: stackUserID,
             teamID: teamID,
@@ -371,7 +462,7 @@ extension MobilePairedMacStoring {
         )
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: existing?.instanceTag,
+            instanceTag: expectedIdentity.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,

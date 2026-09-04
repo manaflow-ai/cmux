@@ -30,8 +30,8 @@ struct TerminalTextSheetView: View {
     /// read is in flight.
     @State private var snapshot: TerminalTextSnapshot?
     @State private var isLoading = true
-    /// Legacy fallback while the Toasts beta flag is off: flips the Copy All
-    /// label to a checkmark after a copy. Reset is the next presentation
+    /// Legacy fallback while the toast presenter is disabled: flips the Copy
+    /// All label to a checkmark after a copy. Reset is the next presentation
     /// (fresh `@State`), so no timer is needed.
     @State private var didCopy = false
 

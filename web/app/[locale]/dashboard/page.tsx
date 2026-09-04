@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
+import { isVaultEnabled } from "@/services/vault/config";
 
-export const dynamic = "force-dynamic";
 
 export default async function DashboardIndexPage({
   params,
@@ -24,18 +24,26 @@ export default async function DashboardIndexPage({
   const t = await getTranslations({ locale, namespace: "dashboard.home" });
   const products = [
     {
-      href: "/dashboard/vault",
-      name: t("vaultName"),
-      description: t("vaultDescription"),
-      link: t("vaultLink"),
-    },
-    {
       href: "/dashboard/coderouter",
       name: t("coderouterName"),
       description: t("coderouterDescription"),
       link: t("coderouterLink"),
     },
+    {
+      href: "/dashboard/testflight",
+      name: t("iosAppName"),
+      description: t("iosAppDescription"),
+      link: t("iosLink"),
+    },
   ];
+  if (isVaultEnabled()) {
+    products.unshift({
+      href: "/dashboard/vault",
+      name: t("vaultName"),
+      description: t("vaultDescription"),
+      link: t("vaultLink"),
+    });
+  }
 
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-4">

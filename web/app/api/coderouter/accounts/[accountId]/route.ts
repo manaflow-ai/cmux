@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import { removeAccount } from "../../../../../services/coderouter/accounts";
 import { resolveCodeRouterRequestContext } from "../../../../../services/coderouter/requestContext";
 import { captureCoderouterEvent } from "../../../../../services/coderouter/analytics";
@@ -6,8 +7,6 @@ import {
   reportCoderouterFailure,
 } from "../../../../../services/coderouter/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -23,7 +22,7 @@ export function createDeleteAccountHandler(dependencies: {
     request: Request,
     context: { params: Promise<{ accountId: string }> },
   ): Promise<Response> => {
-    const resolved = await dependencies.resolve(request, "manage");
+    const resolved = await dependencies.resolve(request);
     if (!resolved.ok) return resolved.response;
     const { accountId } = await context.params;
     if (!UUID.test(accountId)) {
@@ -66,6 +65,7 @@ export function createDeleteAccountHandler(dependencies: {
       userId: resolved.value.user.id,
       teamId: resolved.value.team.teamId,
       properties: {
+        source: "native_api",
         last_account: result.lastAccount,
         legacy_cleanup_pending: result.legacyCleanupPending,
       },
@@ -80,8 +80,8 @@ export function createDeleteAccountHandler(dependencies: {
   };
 }
 
-export const DELETE = createDeleteAccountHandler({
+export const DELETE = coderouterControlRoute("accounts", "/api/coderouter/accounts/[accountId]", createDeleteAccountHandler({
   resolve: resolveCodeRouterRequestContext,
   remove: async ({ teamId, accountId }) =>
     await removeAccount(teamId, accountId),
-});
+}));

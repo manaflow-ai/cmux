@@ -4,6 +4,44 @@ import Foundation
 
 @MainActor
 extension AppDelegate {
+    func windowDockSurfaceIsUnread(_ target: WindowDockUnreadTarget) -> Bool {
+        guard let notificationStore else { return false }
+        return notificationStore.hasManualUnread(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        ) || notificationStore.hasVisibleNotificationIndicator(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+    }
+
+    func markWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        notificationStore?.markWindowDockSurfaceUnread(
+            windowId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+    }
+
+    func clearWindowDockSurfaceUnread(_ target: WindowDockUnreadTarget) {
+        notificationStore?.markRead(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+        notificationStore?.clearFocusedReadIndicator(
+            forTabId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+    }
+
+    func markLatestWindowDockNotificationAsOldestUnread(
+        _ target: WindowDockUnreadTarget
+    ) -> UUID? {
+        notificationStore?.markLatestWindowDockNotificationAsOldestUnread(
+            windowId: target.windowId,
+            surfaceId: target.surfaceId
+        )
+    }
+
     func focusedPanel(forTabId tabId: UUID, surfaceId: UUID?) -> FocusedPanel? {
         guard let surfaceId,
               let workspace = workspaceFor(tabId: tabId) else {

@@ -291,7 +291,15 @@ struct RemoteDaemonManifestRepositoryTests {
         #expect(try repository.validatedCachedBinary(entry: entry, version: "0.99.0") == cacheURL)
         #expect(FileManager.default.fileExists(atPath: cacheURL.path), "a valid hit is not deleted")
 
+        // Present + executable but empty: treated as corrupt and removed.
+        try Data().write(to: cacheURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cacheURL.path)
+        #expect(try repository.validatedCachedBinary(entry: entry, version: "0.99.0") == nil)
+        #expect(!FileManager.default.fileExists(atPath: cacheURL.path))
+
         // Present + stale bytes: removed, nil.
+        try binary.write(to: cacheURL)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cacheURL.path)
         try Data("tampered".utf8).write(to: cacheURL)
         #expect(try repository.validatedCachedBinary(entry: entry, version: "0.99.0") == nil)
         #expect(!FileManager.default.fileExists(atPath: cacheURL.path))

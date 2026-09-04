@@ -18,10 +18,13 @@ use serde_json::Value;
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::sync::{Semaphore, oneshot, watch};
+use tokio::task::JoinSet;
 
 use crate::daemon::RemoteDaemon;
 use crate::identity::{EnrollmentRelayAccess, IdentityError};
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketError};
+use crate::unix_socket::{
+    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
+};
 
 const MAX_ADMIN_MESSAGE_BYTES: usize = 64 * 1024;
 const MAX_ADMIN_CONNECTIONS: usize = 32;
@@ -142,6 +145,7 @@ pub struct DaemonStatus {
 
 pub struct AdminServer {
     path: PathBuf,
+    socket_cleanup: Arc<UnixSocketCleanup>,
     shutdown: Option<oneshot::Sender<()>>,
     task: Option<tokio::task::JoinHandle<Result<(), AdminError>>>,
 }
@@ -166,8 +170,18 @@ impl AdminServer {
 
 impl Drop for AdminServer {
     fn drop(&mut self) {
+        // The listener is owned by the accept task. Unlink the path here as
+        // well, because aborting a task only schedules cancellation; its
+        // listener may not be dropped before this wrapper returns.
+        let _ = self.socket_cleanup.unlink();
         if let Some(shutdown) = self.shutdown.take() {
             let _ = shutdown.send(());
+        }
+        // Dropping a JoinHandle detaches the accept loop. Abort it as a
+        // fallback so an AdminServer dropped during runtime shutdown cannot
+        // leave a listener task alive until the executor drains it.
+        if let Some(task) = self.task.take() {
+            task.abort();
         }
     }
 }
@@ -194,13 +208,19 @@ pub async fn serve_admin_with_shutdown(
             AdminError::Protocol(format!("could not own admin Unix socket: {message}"))
         }
     })?;
+    let socket_cleanup = listener.cleanup();
     let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
     let permits = Arc::new(Semaphore::new(MAX_ADMIN_CONNECTIONS));
     let task = tokio::spawn(async move {
         let mut accept_backoff = UnixAcceptBackoff::new();
+        let mut connections = JoinSet::new();
         loop {
             tokio::select! {
-                _ = &mut shutdown_rx => return Ok(()),
+                _ = &mut shutdown_rx => {
+                    connections.shutdown().await;
+                    return Ok(())
+                },
+                Some(_) = connections.join_next(), if !connections.is_empty() => {},
                 accepted = listener.listener().accept() => {
                     let (stream, _) = match accepted {
                         Ok(accepted) => {
@@ -218,7 +238,10 @@ pub async fn serve_admin_with_shutdown(
                                 )));
                             };
                             tokio::select! {
-                                _ = &mut shutdown_rx => return Ok(()),
+                                _ = &mut shutdown_rx => {
+                                    connections.shutdown().await;
+                                    return Ok(())
+                                },
                                 _ = tokio::time::sleep(delay) => {}
                             }
                             continue;
@@ -234,7 +257,7 @@ pub async fn serve_admin_with_shutdown(
                     let default_route_hints = default_route_hints.clone();
                     let lifecycle_id = lifecycle_id.clone();
                     let owner_shutdown = owner_shutdown.clone();
-                    tokio::spawn(async move {
+                    connections.spawn(async move {
                         let _permit = permit;
                         let _ = serve_connection(
                             daemon,
@@ -249,7 +272,7 @@ pub async fn serve_admin_with_shutdown(
             }
         }
     });
-    Ok(AdminServer { path, shutdown: Some(shutdown_tx), task: Some(task) })
+    Ok(AdminServer { path, socket_cleanup, shutdown: Some(shutdown_tx), task: Some(task) })
 }
 
 pub async fn call_admin(

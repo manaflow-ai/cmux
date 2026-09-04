@@ -125,4 +125,39 @@ import Testing
         #expect(resolver.navigableURL(from: "mailto:test@example.com") == nil)
         #expect(resolver.navigableURL(from: "ftp://example.com/file.html") == nil)
     }
+
+    @Test func resolvesBareAbsolutePOSIXPathAsFileURL() throws {
+        let resolved = try #require(resolver.navigableURL(from: "/Users/x/y.html"))
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/Users/x/y.html")
+        #expect(resolved.absoluteString == "file:///Users/x/y.html")
+    }
+
+    @Test func resolvesBareAbsolutePathWithSpacesAsFileURL() throws {
+        let resolved = try #require(resolver.navigableURL(from: "/tmp/a b/c.html"))
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/a b/c.html")
+        #expect(resolved.absoluteString == "file:///tmp/a%20b/c.html")
+    }
+
+    @Test func resolvesTildePathAsFileURL() throws {
+        let homeDirectoryURL = URL(fileURLWithPath: "/Users/test", isDirectory: true)
+        let resolver = BrowserURLResolver(homeDirectoryURL: homeDirectoryURL)
+        let resolved = try #require(resolver.navigableURL(from: "~/Desktop/report.html"))
+        let expectedPath = homeDirectoryURL
+            .appending(path: "Desktop/report.html")
+            .path
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == expectedPath)
+    }
+
+    @Test func preservesExplicitFileURLWithSpaces() throws {
+        let resolved = try #require(resolver.navigableURL(from: "file:///tmp/a b/c.html"))
+
+        #expect(resolved.isFileURL)
+        #expect(resolved.path == "/tmp/a b/c.html")
+    }
 }

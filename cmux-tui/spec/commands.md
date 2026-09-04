@@ -1,10 +1,10 @@
 # Command Contract
 
-This file specifies private protocol-v11 commands for cmux frontends and raw
+This file specifies private protocol-v12 commands for cmux frontends and raw
 SDK adapters. Application code should use
 [`cmux.protocol/2`](resource-api-v2.md).
 
-Implemented commands match protocol v11 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
+Implemented commands match protocol v12 in `cmux-tui/crates/cmux-tui-core/src/server.rs`.
 
 ## Notation
 
@@ -141,13 +141,13 @@ browser surface still has one live tab. When a browser tab becomes hidden, the
 client sends `release-surface-size`; detaching or disconnecting also removes
 its report. Internal server-only resizes do not update client reports.
 
-Size-aware creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `split`, and `run`. Their rules are:
+Optional-size creation commands are `apply-layout`, `new-tab`, `new-browser-tab`, `new-workspace`, `new-screen`, `new-pane`, `new-pane-right`, `split`, and `run`. The `split` command uses `dir:"right"` or `dir:"down"`; receipt operations may use `split-right` or `split-down`. `create-terminal` and `create-surface-with-receipt` also accept dimensions but require the pair. `attach-surface` requires the pair when `attach-initial-size` is used. Their rules are:
 
 | Input | Behavior |
 | --- | --- |
 | both `cols` and `rows` supplied | Clamp each to `1..10000`, use the pair for the new surface or surfaces, and record the effective grid as the latest client size |
 | neither supplied | Use the latest active client size, or the configured server default when no client reports remain |
-| only one supplied | Preserve protocol-v6 behavior: the incomplete pair is ignored; clients must always send both |
+| only one supplied | Optional-size commands ignore the incomplete pair. `create-terminal`, `create-surface-with-receipt`, and `attach-surface` are strict exceptions: they return an error and require `cols` and `rows` together. |
 
 `resize-surface` requires both fields and clamps each to `1..10000`. Attached
 clients retain the report until release; an unattached one-shot report is
@@ -161,6 +161,17 @@ requesting connection. An explicit `client` may be used by an authorized
 controller. Omitting `client` and `exclusive` releases any owner and freezes
 the terminal. For browsers, the same command retains the legacy include,
 exclude, and exclusive reducer controls.
+
+### Relay attachment sizing boundary
+
+The Rust `chatmux-relay` wrapper can have several relay viewers for one
+terminal. When its local owner leaves, disconnects, or receives an
+unsuccessful report response, the wrapper closes that attachment and does not
+issue a replacement claim from another relay socket. The core server has no
+generation token for ordering such a cross-socket hand-off, so geometry stays
+frozen until a newly attached relay viewer makes an explicit report and
+`set-client-sizing` claim. This relay boundary preserves the core server rule;
+it does not elect a survivor implicitly.
 
 Frontends report their grid after a surface becomes visible and whenever that viewport changes. They release the report when the surface becomes hidden, even if its attach stream remains cached. A frontend must not re-report merely because another client changed the authoritative surface size. See [`render.md`](render.md#sizing-and-multi-client-presentation) for presentation guidance.
 
@@ -210,7 +221,7 @@ object{app:"cmux-tui",version:string,build_commit?:string|null,ghostty_commit?:s
 
 `build_commit` and `ghostty_commit` are additive build-stamp fields. They are omitted or `null` when the binary was built without the corresponding stamp, so clients must preserve compatibility with older servers and unstamped local builds.
 
-`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, while `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
+`capabilities` is additive build-level feature negotiation within a protocol version. Clients must treat a missing field as an empty list. `daemon-handoff-force-v1` advertises the optional `force` field on `shutdown-daemon`. `browser-provider-v1` advertises the trusted-local, connection-scoped native browser provider lease used by cmux-browser and local automation. `browser-pointer-frame-guard-v1` advertises authoritative `pointer_frame_seq` and `pointer_frame_floor_seq` browser attach/frame state plus the additive `browser-frame-presented`, `browser-mouse-guarded`, and `browser-wheel-guarded` commands. Each admitted bitmap receives a new guard even when its document and dimensions match the previous bitmap. The reported floor through latest range proves route membership only. `browser-frame-presented` advances one exact acknowledged token for that connection, and only that token authorizes a new guarded pointer action. A guarded pointer command implicitly acknowledges its own token. Each connection retains one token, while the bounded browser input queue owns actions admitted before a later presentation. Navigation or geometry changes clear the range and all acknowledgements. An accepted press keeps its original guard for motion across ordinary repaints while document and geometry remain valid; invalidation suppresses further motion but retains its balancing release. A capable client echoes that value in `set-client-info`; browser attach requires the bilateral capability while PTY attach remains available without it. The legacy `browser-mouse` and `browser-wheel` schemas retain their optional guard, but guarded servers reject a missing guard before surface lookup. `viewport-splits-v1` advertises `new-pane-right` and the `Screen.viewport_splits` field. `viewport-column-resize-v1` advertises `set-viewport-pane-width` and `Screen.viewport_base_width`. `layout-undo-v1` advertises server-owned structural layout history and `undo-layout`. `view-attachment-lease-v1` returns a connection-owned lease for each attach and enables lease-fenced sizing. `view-attachment-detach-v1` enables targeted stream cleanup. `creation-receipts-v1` enables idempotent destination creation, `creation-attempt-keys-v1` separates a stable correlation from the same-key or new-key execution attempt selected by `session.creation.resolve`, and `creation-selector-fallbacks-v1` adds bounded ordered destination continuations. `provider-managed-workspace-authority-v2` advertises pre-provisioned provider ownership and authority-gated post-provider rename and close commits.
 
 Errors:
 
@@ -232,10 +243,10 @@ Example:
 
 ```json
 {"id":1,"cmd":"identify"}
-{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":11,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
+{"id":1,"ok":true,"data":{"app":"cmux-tui","version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12,"capabilities":["attach-initial-size","surface-subscribe-filter","workspace-registry-v1","daemon-handoff-force-v1","browser-provider-v1","browser-pointer-frame-guard-v1","viewport-splits-v1","viewport-column-resize-v1","layout-undo-v1","clear-history-v1","clear-history-key-v1","view-attachment-lease-v1","view-attachment-detach-v1","creation-receipts-v1","creation-attempt-keys-v1","creation-selector-fallbacks-v1","provider-managed-workspace-authority-v2"],"session":"main","pid":12345}}
 ```
 
-The current server reports protocol `11` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, and protocol 11 before decoding terminal lifecycle creation results or minting terminal renderer credentials.
+The current server reports protocol `12` in this field and in `ping`. Clients must negotiate protocol 8 before requiring stable split ids or sending `set-split-ratio`, protocol 9 before decoding stack layouts or sending `new-pane`, protocol 10 before using per-surface client sizing, protocol 11 before decoding terminal lifecycle creation results or minting terminal renderer credentials, and protocol 12 before decoding lifecycle readiness from `identify`.
 
 ### shutdown-daemon
 
@@ -297,8 +308,64 @@ Example:
 
 ```json
 {"id":2,"cmd":"ping"}
-{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":11}}
+{"id":2,"ok":true,"data":{"ok":true,"version":"0.1.0","build_commit":"abc123","ghostty_commit":"def456","protocol":12}}
 ```
+
+### server-stats
+
+| Field | Value |
+| --- | --- |
+| name | `server-stats` |
+| status | implemented |
+| since | protocol 12, capability `server-stats-v1` |
+
+Reports where the daemon spends its time so an operator or agent can locate a
+bottleneck without sampling the process: registry mutex contention with the
+source site that holds it, journal writer batch shape and commit latency, and
+control-socket admission. Counters accumulate since daemon start. The command
+reads atomics and never touches SQLite or the journal, so it is safe to poll.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  schema:uint32,
+  uptime_ms:uint64,
+  registry_lock:object{
+    wait_us:histogram, hold_us:histogram,
+    contended_acquisitions:uint64, stalls:uint64,
+    holder:object{site:string,held_for_us:uint64}|null,
+    last_stall:object{waiter:string,blocker:string|null,waited_us:uint64}|null,
+    top_sites:array<object{site:string,acquisitions:uint64,hold_total_us:uint64,hold_max_us:uint64}>
+  },
+  journal_writer:object{
+    batches:uint64, terminal_events:uint64, durable_events:uint64,
+    batch_size:histogram, commit_us:histogram, commit_lock_wait_us:histogram,
+    receipt_wait_us:histogram, commit_failures:uint64, deadline_expiries:uint64,
+    terminal_queued:uint64, durable_queued:uint64,
+    phase:"idle"|"waiting_lock"|"committing", phase_for_us:uint64
+  }|null,
+  connections:object{active:uint64,peak:uint64,limit:uint64,accepted:uint64,refused:uint64}
+}
+histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+```
+
+`schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
+events. Percentiles are log-linear bucket upper bounds and overestimate by at
+most 25%. `site` values are `file:line` of the code that acquired the registry
+lock. `contended_acquisitions` counts waits of at least 1 ms and `stalls`
+counts waits of at least 100 ms. `journal_writer` is `null` for ephemeral
+sessions. `connections.refused` counts sockets dropped at `limit`; for hook
+producers each one is a lost event.
+
+Errors: `bad request: ...`.
+
+CLI mapping: `cmux server stats [--session <name>] [--socket <path>]`; plain
+stdout renders the object as nested `key: value` lines; `--json` prints the
+exact result object. Against a server without `server-stats-v1` the CLI exits
+1 with `server.stats_unsupported`.
 
 ### set-client-info
 
@@ -389,6 +456,102 @@ Example:
 {"id":4,"cmd":"list-clients"}
 {"id":4,"ok":true,"data":[{"client":1,"transport":"unix","name":"host","kind":"tui","connected_seconds":12,"attached":[7],"sizes":[{"surface":7,"cols":120,"rows":36,"size_participating":true}],"self":true}]}
 ```
+
+### machine-usage
+
+| Field | Value |
+| --- | --- |
+| name | `machine-usage` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `machine-usage-v1` |
+
+Returns the machine-level model spend readout hosted by this daemon. Inside a cmux Cloud VM the daemon polls coderouter for the trailing-window totals of the machine's model traffic; anywhere else, or while coderouter has no ready totals, `usage` is null and frontends hide the readout. Servers advertise `machine-usage-v1` in `identify.capabilities`.
+
+Params: none.
+
+Result:
+
+```text
+object{
+  usage:object{
+    vm_id:string,
+    period_days:uint32,
+    total_tokens:uint64,
+    api_equivalent_usd:float64,
+    as_of:string|null
+  }|null
+}
+```
+
+Example:
+
+```json
+{"id":9,"cmd":"machine-usage"}
+{"id":9,"ok":true,"data":{"usage":{"vm_id":"3f1c...","period_days":30,"total_tokens":184220,"api_equivalent_usd":1.23,"as_of":"2026-09-01T00:00:00Z"}}}
+```
+
+### register-browser-provider / get-browser-provider
+
+| Field | Value |
+| --- | --- |
+| names | `register-browser-provider`, `get-browser-provider`, `unregister-browser-provider` |
+| status | implemented |
+| since | protocol 10 additive extension |
+| capability | `browser-provider-v1` |
+| authority | local-admin |
+
+These commands lease cmux-browser's native CDP endpoint and canonical tab targets to cmux-tui. The lease is live process state, scoped to the registering Unix-classified control connection, and never enters SQLite or the session journal. Disconnecting the control connection releases its complete target set automatically.
+
+`register-browser-provider` replaces the calling connection's full contribution. Multiple control clients from one native browser process may publish disjoint target sets when their `provider_id`, endpoint, and authentication agree. The deterministic oldest connection supplies a duplicated tab until it disconnects. A different provider process cannot replace the live owner.
+
+Registration params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `provider_id` | `string` | required | 1..128 ASCII identifier characters |
+| `endpoint` | `string` | required | Explicit loopback `ws://` URL with a port and no credentials or fragment |
+| `authentication` | `"none"|"bearer"` | required | Selects the CDP WebSocket upgrade policy |
+| `bearer_token` | `string|null` | default `null` | Required only for bearer authentication; 1..4096 visible ASCII bytes |
+| `targets` | `array<object{tab_id:string,target_id:string}>` | required | Complete set for this connection; unique stable tab ids; at most 16,384 entries |
+
+`register-browser-provider` and `get-browser-provider` return:
+
+```text
+object{
+  available:boolean,
+  provider_id?:string,
+  endpoint?:string,
+  authentication?:"none"|"bearer",
+  revision:uint64,
+  clients?:uint64,
+  targets:array<object{tab_id:string,target_id:string}>
+}
+```
+
+When unavailable, provider-specific fields are omitted and `targets` is empty. `unregister-browser-provider` returns `object{removed:boolean}` and affects only the calling connection. Endpoints and targets are disclosed only through this trusted-local command; WebSocket control clients are rejected. Bearer tokens are accepted only during registration and are never returned. Bearer mode adds `Authorization: Bearer <token>` to the CDP WebSocket upgrade and is intended for a configurable loopback gateway. The default native endpoint uses an ephemeral loopback port and no bearer.
+
+There is intentionally no dedicated browser automation CLI. Local tools can use `cmux raw command --request-json ...`, select the target by stable `tab_id`, and treat CDP only as a data plane. When cmux-browser owns the session, its bundled helper exposes an upstream `agent-browser.plugin.v1` `browser.provider` adapter: it resolves the caller's workspace from `CMUX_TUI_TERMINAL_ID`, returns a page-scoped target, and never consults shared active/focus state or spawns Chrome.
+
+Example:
+
+```json
+{"id":5,"cmd":"register-browser-provider","provider_id":"browser-process-1","endpoint":"ws://127.0.0.1:49152/devtools/browser/secret","authentication":"none","targets":[{"tab_id":"tab_00000000000000000000000000000001","target_id":"page-target-1"}]}
+{"id":5,"ok":true,"data":{"available":true,"provider_id":"browser-process-1","endpoint":"ws://127.0.0.1:49152/devtools/browser/secret","authentication":"none","revision":1,"clients":1,"targets":[{"tab_id":"tab_00000000000000000000000000000001","target_id":"page-target-1"}]}}
+```
+
+### unregister-browser-provider
+
+| Field | Value |
+| --- | --- |
+| name | `unregister-browser-provider` |
+| status | implemented |
+| since | protocol 10 additive extension |
+| capability | `browser-provider-v1` |
+| authority | local-admin |
+
+Explicitly removes the calling connection's provider contribution and returns `object{removed:boolean}`. Closing that control connection has the same release effect. Other clients from the same `provider_id` and consumer CDP attachments remain independent.
+
+Params: none.
 
 ### set-client-sizing
 
@@ -488,7 +651,7 @@ Example:
 | status | implemented |
 | since | protocol 6 |
 
-Requests that attached TUI frontends re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback) and redraw. Headless servers acknowledge the command but have no TUI state to update.
+Requests the server owner and attached TUI frontends to re-read the cmux-tui config from the same source as startup config loading (`CMUX_TUI_CONFIG`, then legacy `CMUX_MUX_CONFIG`, then `cmux-tui.json` with legacy `mux.json` fallback). Interactive owners redraw; headless owners apply server-owned settings without a TUI frame.
 
 Params: none.
 
@@ -498,7 +661,7 @@ Result:
 object{reloaded:true,path:string|null}
 ```
 
-Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates local server launch options for future browser surfaces when a local TUI is present; existing browser runtimes, already-open browser surfaces, and remote headless servers may require restart for browser endpoint/profile/binary changes.
+Live reapply: theme/colors, tab display settings, sidebar width settings, scrollbar placement, and keybindings apply on the next TUI frame. Browser config updates server launch options for future browser surfaces; existing browser runtimes and already-open browser surfaces may require restart for browser endpoint/profile/binary changes.
 
 Errors: `bad request: ...`.
 
@@ -651,6 +814,37 @@ object{frontend:string,scope:string,subject_key:string,schema_version:uint32,pro
 
 Missing projections return revision/schema `0` and `projection:null`.
 Documents larger than 1 MiB are rejected.
+
+### journal-frontend-event
+
+| Field | Value |
+| --- | --- |
+| name | `journal-frontend-event` |
+| status | implemented |
+| since | protocol 10 |
+
+Appends one frontend observation to the session journal. The server derives
+the producer identity from the authenticated control client rather than
+accepting it from the request.
+
+Params contain one `event` tagged by `kind`:
+
+```text
+object{kind:"focus",event_id:string,generation:string,target:"pane"|"machine_rail"|"workspace_rail"|"tabs_rail"|"projection_rail",workspace_id?:string,screen_id?:string,pane_id?:string,tab_id?:string,content_id?:string}
+| object{kind:"resize",event_id:string,generation:string,cols:uint16,rows:uint16,cell_width:uint16,cell_height:uint16}
+| object{kind:"viewport",event_id:string,generation:string,screen_id?:string,offset:uint64,target:uint64,settled:boolean}
+```
+
+`event_id` provides idempotency. `generation` rejects observations from a
+stale frontend attachment. Focus identities are optional because the rails
+have no pane or tab. Viewport observations record both the current and target
+offset so replay can distinguish motion from a settled position.
+
+Result:
+
+```text
+object{committed:boolean}
+```
 
 ### export-layout
 
@@ -1003,7 +1197,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. Initial dimensions follow [Sizing](#sizing).
+Creates a new PTY tab in a pane and makes it the active tab. If `pane` is absent, the active pane of the active screen is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and terminal and preserves `cwd`. If the session has no workspaces, the command creates a workspace containing the tab; that legacy fallback ignores `cwd`. The new tab inherits the active surface working directory of the target pane when `cwd` is absent. When there is nothing to inherit, the terminal starts in the directory the session daemon was launched from, and falls back to the user home directory only when that directory no longer exists. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -1056,7 +1250,7 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Creates a browser tab in a pane and makes it active. If `pane` is absent, the active pane is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and browser tab. If the session has no workspaces, the command creates a workspace containing the browser tab. The browser runtime may connect to an external CDP endpoint or launch Chrome according to mux configuration. Initial dimensions follow [Sizing](#sizing).
+Creates a browser tab in a pane and makes it active. If `pane` is absent, the active pane is used. If the selected workspace exists but has no screens, the command materializes its first screen, pane, and browser tab. If the session has no workspaces, the command creates a workspace containing the browser tab. The canonical tab waits for cmux-browser to publish its stable `tab_id` target; the mux never discovers or launches Chrome. An explicit configured CDP URL remains a development-only compatibility path. Initial dimensions follow [Sizing](#sizing).
 
 Params:
 
@@ -1756,19 +1950,27 @@ CLI mapping: verb `zoom-pane`; flags `[--pane <id>] [--mode toggle|on|off]`; pla
 | status | implemented |
 | since | protocol 6 |
 
-Returns PTY child metadata for a surface.
+Returns PTY child metadata for a surface. `pid`, `command`, and `cwd` are
+recorded spawn and shell-reported metadata. `foreground_cwd` is read live at
+request time: it is the working directory of the process group leader that
+currently owns the PTY (the `tcgetpgrp` value of the child's controlling
+terminal), so it tracks a foreground subshell that changed directory. It is
+null whenever the lookup fails: no live child, the leader exited, the child
+detached from the terminal, the platform denied the read, or an unsupported
+platform. The field is additive within protocol 12; current daemons always
+emit it, and clients treat a missing field from an older daemon as null.
 
 Params: `object{surface:Id}`.
 
 Result:
 
 ```text
-object{pid:uint32|null,command:string|null,cwd:string|null}
+object{pid:uint32|null,command:string|null,cwd:string|null,foreground_cwd?:string|null}
 ```
 
 Errors: `unknown surface <id>`, `browser surface does not support PTY/VT socket commands`, `bad request: ...`.
 
-CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v>`; JSON stdout prints the exact result object.
+CLI mapping: verb `process-info`; flags `--surface <id>`; plain stdout prints `pid=<v> command=<v> cwd=<v> foreground_cwd=<v>`; JSON stdout prints the exact result object.
 
 ### set-default-colors
 
@@ -2667,6 +2869,65 @@ Example:
 {"id":25,"ok":true,"data":{}}
 ```
 
+### report-focus
+
+| Field | Value |
+| --- | --- |
+| name | `report-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+Reports one client's focus. Records it as the session's last reported focus (the adoption default a later `client-focus` query falls back to) and remembers it per `client_id` so that client's own later `client-focus` query restores it. A report only writes this memory; it never moves the live session focus, so clients that are already attached stay where they are. The memory is in-process and bounded; a server restart degrades to the tree's own focus.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+| `pane` | `Id` | required | Must be a live pane |
+| `tab` | `usize` | default null | Tab index within the pane |
+
+Result:
+
+```text
+object{}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+| `unknown pane ...` | Pane is not alive |
+
+### client-focus
+
+| Field | Value |
+| --- | --- |
+| name | `client-focus` |
+| status | implemented |
+| since | protocol 12, capability `client-focus-v1` |
+
+The focus last reported by `client_id` via `report-focus`, falling back to the session's last reported focus from any client, or nulls when neither exists or the pane no longer does.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `client_id` | `string` | required | 1-128 bytes, ASCII graphic |
+
+Result:
+
+```text
+object{pane: Id | null, tab: usize | null}
+```
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `bad request: invalid client_id` | Empty, oversized, or non-graphic id |
+
 ### move-tab
 
 | Field | Value |
@@ -2675,7 +2936,16 @@ Example:
 | status | implemented |
 | since | protocol 5 |
 
-Moves an existing tab, identified by `surface`, into `pane` at zero-based `index`. Moving a tab to its current pane and current index is an `ok:true` no-op. This command is documented from the consumer-side landed contract; it is not present in this branch's `server.rs`, so out-of-range index behavior and event emission could not be verified here.
+Moves an existing tab, identified by `surface`, into `pane` at zero-based
+`index`. The destination index uses the pre-move tab list's insertion
+coordinates. For a same-pane move, the server removes the tab, subtracts one
+from `index` when it is greater than the tab's current index, then clamps the
+adjusted index to the last valid position in the shortened list. For example,
+with tabs `[A,B,C]`, moving `A` with `index:2` produces `[B,A,C]`, while
+`index:3` produces `[B,C,A]`; `index:0` and `index:1` leave the order unchanged.
+A same-pane no-op returns `ok:true` and leaves the active tab unchanged. A
+cross-pane move removes the tab from its source, collapses an empty source
+pane, and inserts it at the clamped destination index.
 
 Params:
 
@@ -2695,10 +2965,8 @@ Errors:
 
 | Error | Condition |
 | --- | --- |
-| `unknown surface <id>` | Surface id does not exist |
-| `unknown pane <id>` | Destination pane does not exist |
+| `unknown surface/pane` | The surface, destination pane, or the surface's current pane does not exist |
 | `bad request: ...` | Missing fields or wrong JSON type |
-| unverified error string | Non-same-position out-of-range index behavior could not be checked in this branch |
 
 CLI mapping:
 
@@ -3154,10 +3422,14 @@ Example:
 | since | protocol 10 with `creation-receipts-v1` |
 
 Executes one destination-creating frontend intent behind a durable receipt.
-The frontend chooses `origin` and `receipt` before sending the request. A retry
-with identical semantics returns the original `surface` with `replayed:true`;
-reusing the pair for different semantics fails. This prevents lost responses
-and concurrent tree refreshes from duplicating or retargeting a creation.
+The frontend chooses `origin` and stable correlation `receipt` before sending
+the request. With `creation-attempt-keys-v1`, optional `idempotency_key` names
+one execution attempt and defaults to `receipt`. The frontend changes it only
+when `session.creation.resolve` returns `retry_new_idempotency_key`; same-key
+recovery reuses the exact reported key. A retry with identical semantics
+returns the original `surface` with `replayed:true`; reusing the correlation
+for different semantics fails. This prevents lost responses and concurrent
+tree refreshes from duplicating or retargeting a creation.
 
 `operation` is `new-tab`, `run-command`, `new-browser-tab`, `new-workspace`,
 `new-screen`, `new-pane`, `new-pane-right`, `split-right`, or `split-down`.
@@ -3507,62 +3779,16 @@ Example:
 {"id":108,"ok":true,"data":{"surface":1,"state":"working","source":"socket","session":"abc"}}
 ```
 
-## Proposed Hooks Config
+## Journal hooks
 
-Hooks are proposed protocol v10 config, not a socket command. They are declared in `~/.config/cmux/cmux-tui.json` under `hooks`, with legacy `mux.json` still accepted.
-
-Schema:
-
-```text
-object{
-  hooks?: object{
-    on-bell?: array<HookCommand>,
-    on-agent-blocked?: array<HookCommand>,
-    on-agent-done?: array<HookCommand>,
-    on-surface-exit?: array<HookCommand>
-  }
-}
-
-HookCommand =
-  object{
-    argv: array<string>,
-    cwd?: string|null,
-    timeout_ms?: uint64,
-    env?: object<string,string>
-  }
-| object{
-    command: string,
-    cwd?: string|null,
-    timeout_ms?: uint64,
-    env?: object<string,string>
-  }
-```
-
-Exactly one of `argv` or `command` is required. `argv` executes directly. `command` executes through the session shell as `shell -lc <command>`. The default timeout is 5000 ms. Hook failures are reported through the debug log and may post a `warning` notification; they must not block the mux event loop indefinitely.
-
-Common environment:
-
-| Env var | Meaning |
-| --- | --- |
-| `CMUX_MUX_SESSION` | Session name |
-| `CMUX_TUI_SOCKET` | Unix socket path when available |
-| `CMUX_MUX_EVENT` | Hook event name |
-| `CMUX_MUX_SURFACE` | Surface id when the event is surface-scoped |
-| `CMUX_MUX_WORKSPACE` | Workspace id when known |
-| `CMUX_MUX_SCREEN` | Screen id when known |
-| `CMUX_MUX_PANE` | Pane id when known |
-| `CMUX_MUX_AGENT_STATE` | Agent state for agent hooks |
-| `CMUX_MUX_AGENT_SOURCE` | Agent source for agent hooks |
-| `CMUX_MUX_AGENT_SESSION` | Upstream agent session id when reported |
-
-Hook event mapping:
-
-| Hook | Trigger |
-| --- | --- |
-| `on-bell` | Implemented `bell` event |
-| `on-agent-blocked` | Proposed agent state becomes `blocked` |
-| `on-agent-done` | Proposed agent state becomes `done` |
-| `on-surface-exit` | Implemented terminal runtime exits or browser surface closes; terminal placements may remain |
+Hooks are versioned resource-API manifests over the canonical session journal,
+not protocol-v10 socket commands or event-specific config arrays. Use
+`session <selector> journal hook put` and `hook list`. The session-owned
+dispatcher, durable cursor, delivery receipts, retry policy, loop prevention,
+authority, and replay semantics are specified in
+[`session-journal.md`](session-journal.md#hook-subscriptions). The strict
+runtime config parser continues to reject hook manifests so there is one
+durable installation path.
 
 ## Compatibility Notes
 

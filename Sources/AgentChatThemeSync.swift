@@ -166,7 +166,7 @@ enum AgentChatThemeSync {
         var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
             reason: "agentChatThemeSync",
             loadConfig: {
-                GhosttyConfig.load(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
+                GhosttyConfig.loadForCmux(globalFontMagnificationPercent: GlobalFontMagnification.storedPercent)
             }
         )
         config.backgroundBlur = GhosttyApp.shared.defaultBackgroundBlur

@@ -39,6 +39,9 @@ XCODE_PACKAGE_REFERENCE_TOKENS = (
     "branch",
     "requirement =",
 )
+XCODE_PRODUCT_PACKAGE_LINK_RE = re.compile(
+    r"\bpackage\s*=\s*[^;]*\bXCRemoteSwiftPackageReference\b"
+)
 
 
 class PackageNode(NamedTuple):
@@ -309,6 +312,12 @@ def xcode_package_reference_changed(
     for line in diff.splitlines():
         if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
             continue
+        # A product dependency's `package = ... XCRemoteSwiftPackageReference`
+        # field only links a product to an already-declared package. Adding or
+        # removing that linkage does not change Xcode's resolved package graph,
+        # so it must not require a Package.resolved diff.
+        if XCODE_PRODUCT_PACKAGE_LINK_RE.search(line):
+            continue
         if any(token in line for token in XCODE_PACKAGE_REFERENCE_TOKENS):
             return True
     return False
@@ -430,6 +439,20 @@ def main() -> int:
         )
         & changed_dependency_roots
     )
+    if ios_workspace_dependencies_changed and merge_base is not None:
+        # Same dependent-closure escape as per-root lockfiles: if the union of
+        # remote dependency calls reachable from the workspace's roots is
+        # unchanged, resolution is byte-identical and no diff can exist.
+        current_ws_calls = set()
+        for ws_root in current_ios_workspace_roots:
+            current_ws_calls |= closure_remote_dependency_calls(ws_root, graph)
+        previous_ws_calls = set()
+        for ws_root in previous_ios_workspace_roots:
+            previous_ws_calls |= closure_remote_dependency_calls(
+                ws_root, previous_graph
+            )
+        if current_ws_calls == previous_ws_calls:
+            ios_workspace_dependencies_changed = False
     changed_ios_workspace_members = (
         current_ios_workspace_roots ^ previous_ios_workspace_roots
     )
@@ -499,6 +522,15 @@ def main() -> int:
         if not affected_dependency_roots:
             continue
         if expected_lockfile in changed_files:
+            continue
+        # A dependent whose own reachable `.package(url:)` set is unchanged
+        # resolves to byte-identical pins, so demanding a lockfile diff is
+        # unsatisfiable (the issue #8871 case, extended to dependents: e.g.
+        # adding a leaf local package whose only remote dependency is already
+        # pinned identically elsewhere in this root's closure).
+        if merge_base is not None and closure_remote_dependency_calls(
+            root, graph
+        ) == closure_remote_dependency_calls(root, previous_graph):
             continue
         changed_manifests = ", ".join(
             all_manifests[changed_root].as_posix()

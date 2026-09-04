@@ -1,38 +1,74 @@
 import Foundation
+import CMUXMobileCore
 import Testing
 @testable import CmuxMobileToast
 
 @MainActor
 struct ToastCenterTests {
+    @Test func recordsLifecycleWithoutToastCopy() async throws {
+        let log = DiagnosticLog(capacity: 8)
+        let center = ToastCenter(clock: ContinuousClock(), enabled: true, diagnosticLog: log)
+        let toast = Toast.failure("private message")
+
+        center.present(toast)
+        center.dismissCurrent()
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while await log.processedCount() < 2, clock.now < deadline {
+            await Task.yield()
+        }
+        #expect(await log.processedCount() >= 2)
+        let report = await log.snapshot()
+        #expect(DiagnosticAppEventKind.toastPresented.rawValue == 537)
+        #expect(DiagnosticAppEventKind.toastDismissed.rawValue == 541)
+        #expect(report.events.map(\.a) == [
+            DiagnosticAppEventKind.toastPresented.rawValue,
+            DiagnosticAppEventKind.toastDismissed.rawValue,
+        ])
+        #expect(report.events.map(\.c) == [
+            DiagnosticToastStyle.failure.rawValue,
+            DiagnosticToastDismissReason.caller.rawValue,
+        ])
+        let encoded = try JSONEncoder().encode(report)
+        #expect(!String(decoding: encoded, as: UTF8.self).contains("private message"))
+    }
+
     private func makeCenter() -> (ToastCenter, ManualClock) {
         let clock = ManualClock()
         let center = ToastCenter(
             clock: clock,
-            defaults: UserDefaults(suiteName: "toast-tests-\(UUID().uuidString)")!
+            enabled: true
         )
-        center.isEnabled = true
         center.prefersExtendedDwell = { false }
         return (center, clock)
     }
 
     @Test func disabledCenterDropsEveryPresent() {
         let clock = ManualClock()
-        let center = ToastCenter(
-            clock: clock,
-            defaults: UserDefaults(suiteName: "toast-tests-\(UUID().uuidString)")!
-        )
-        // Off by default (beta flag).
+        let center = ToastCenter(clock: clock)
+        // The shipped product policy is permanently off.
         #expect(center.isEnabled == false)
         center.present(.success("dropped"))
         #expect(center.presented == nil)
         #expect(center.queue.isEmpty)
 
+        // The internal injection still exercises the dormant presenter logic.
         center.isEnabled = true
         center.present(.success("shown"))
         #expect(center.presented?.toast.message == "shown")
 
         // Turning the flag off clears anything on screen.
         center.isEnabled = false
+        #expect(center.presented == nil)
+    }
+
+    @Test func productionInitializerRemainsDisabled() {
+        // A value left by the removed beta setting cannot affect a new
+        // presenter because the production initializer reads no preference.
+        let center = ToastCenter()
+        #expect(center.isEnabled == false)
+        center.present(.success("still disabled"))
         #expect(center.presented == nil)
     }
 

@@ -84,6 +84,12 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             flags = 0
             try appendLengthPrefixedString(resourceID.value, lengthByteCount: 1, to: &payload)
             append(offset, to: &payload)
+
+        case let .simulatorStream(resourceID):
+            laneCode = 5
+            credentialCode = 0
+            flags = 0
+            try appendLengthPrefixedString(resourceID.value, lengthByteCount: 1, to: &payload)
         }
 
         let totalByteCount = Self.fixedPrefixByteCount + payload.count
@@ -186,6 +192,15 @@ public struct CmxIrohStreamHeaderCodec: Sendable {
             let resourceID = try readResourceID(payload: &payload)
             let offset = try payload.readUInt64()
             return try CmxIrohStreamHeader(lane: .artifact(resourceID: resourceID, offset: offset))
+        case 5:
+            guard flags == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidFlags(flags)
+            }
+            guard credentialCode == 0 else {
+                throw CmxIrohStreamHeaderCodecError.invalidCredentialKind(credentialCode)
+            }
+            let resourceID = try readResourceID(payload: &payload)
+            return try CmxIrohStreamHeader(lane: .simulatorStream(resourceID: resourceID))
         default:
             throw CmxIrohStreamHeaderCodecError.unknownLane(laneCode)
         }

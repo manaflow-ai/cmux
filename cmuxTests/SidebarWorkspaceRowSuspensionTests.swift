@@ -9,6 +9,7 @@ import Testing
 @MainActor
 struct SidebarWorkspaceRowSuspensionTests {
     private static func makeSnapshot(
+        customDescription: String? = nil,
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = []
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
@@ -18,8 +19,9 @@ struct SidebarWorkspaceRowSuspensionTests {
                 showsAgentActivity: false
             ),
             title: "Workspace",
-            customDescription: nil,
+            customDescription: customDescription,
             isPinned: false,
+            isMuted: false,
             customColorHex: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
@@ -57,6 +59,7 @@ struct SidebarWorkspaceRowSuspensionTests {
     }
 
     static func makeModel(
+        customDescription: String? = nil,
         checklistAddFieldActivationToken: Int = 0,
         manualTaskStatus: WorkspaceTaskStatus? = nil,
         checklistItems: [WorkspaceChecklistItem] = [],
@@ -78,6 +81,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             workspaceId: workspaceId,
             index: 0,
             snapshot: makeSnapshot(
+                customDescription: customDescription,
                 manualTaskStatus: manualTaskStatus,
                 checklistItems: checklistItems
             ),
@@ -135,6 +139,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             allRemoteContextMenuTargetsDisconnected: false,
             contextMenuPinState: nil,
             workspaceGroupMenuSnapshot: WorkspaceGroupMenuSnapshot(items: []),
+            colorScheme: model.colorSchemeIsDark ? .dark : .light,
             refreshSnapshot: {},
             readSelectedTabIds: { [] },
             writeSelectedTabIds: { _ in },

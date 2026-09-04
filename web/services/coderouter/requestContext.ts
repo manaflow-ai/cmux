@@ -14,6 +14,7 @@ import {
 } from "../vms/auth";
 import { resolveTeam } from "../subrouter/routeHelpers";
 import { authenticateRouteToken } from "./repository";
+import { recordCoderouterIdentity } from "./requestTelemetry";
 
 export type CodeRouterRequestContext = {
   readonly user: AuthedUser;
@@ -36,10 +37,15 @@ export async function resolveCoderouterUsageTeam(
   if (token?.startsWith("crt_")) {
     const routed = await authenticateRouteToken(token);
     if (routed) {
+      recordCoderouterIdentity({
+        teamId: routed.teamId,
+        stackUserId: routed.stackUserId,
+        vmId: routed.vmId ?? null,
+      });
       return { ok: true, teamId: routed.teamId, stackUserId: routed.stackUserId };
     }
   }
-  const resolved = await resolveCodeRouterRequestContext(request, "use-or-manage");
+  const resolved = await resolveCodeRouterRequestContext(request);
   return resolved.ok
     ? {
       ok: true,
@@ -51,7 +57,6 @@ export async function resolveCoderouterUsageTeam(
 
 export async function resolveCodeRouterRequestContext(
   request: Request,
-  permission: "use" | "manage" | "use-or-manage" = "use",
 ): Promise<
   | { readonly ok: true; readonly value: CodeRouterRequestContext }
   | { readonly ok: false; readonly response: Response }
@@ -72,16 +77,15 @@ export async function resolveCodeRouterRequestContext(
       return { ok: false, response: jsonResponse({ error: "forbidden" }, 403) };
     }
 
-    const team = await resolveTeam(request, user);
+    // Membership is the only requirement; resolveTeam already rejected
+    // non-members with team_not_found.
+    const team = resolveTeam(request, user);
     if (!team.ok) return team;
-    const permitted = permission === "manage"
-      ? team.manageAccounts
-      : permission === "use-or-manage"
-      ? team.use || team.manageAccounts
-      : team.use;
-    if (!permitted) {
-      return { ok: false, response: jsonResponse({ error: "forbidden" }, 403) };
-    }
+
+    // Browser-authenticated control-plane requests do not have a route token,
+    // so record the resolved Stack identity and team together for the
+    // PostHog trace.
+    recordCoderouterIdentity({ teamId: team.teamId, stackUserId: user.id, vmId: null });
 
     // Parse native tokens so malformed mixed auth never falls through as a
     // browser-cookie request. Verification above remains authoritative.

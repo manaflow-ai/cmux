@@ -12,7 +12,7 @@ use super::{
 };
 use crate::resource::{
     FrontendProjectionPublicId, PairingRequestPublicId, ResourceError, ResourceOperation, Selector,
-    SessionPublicId, SidebarViewPublicId, TerminalPublicId,
+    SessionPublicId, SidebarViewPublicId, TerminalPublicId, WireDecimal,
 };
 use crate::sidebar_resource::{resolve_sidebar_view, sidebar_snapshot, sidebar_view_id};
 use crate::{AgentSource, AgentState, Mux, ResourceSelectors, ResourceTarget, WorkspaceMutation};
@@ -145,11 +145,11 @@ fn get_frontend_projection(
         .get_frontend_projection("resource-api", "session", projection_id.as_str())
         .map_err(resource_operation_error)?
         .ok_or_else(|| ResourceError::not_found("frontend_projection", projection_id.as_str()))?;
-    Ok(json!({
-        "id":projection_id,
-        "session_id":session_id,
-        "projection":projection.projection,
-    }))
+    crate::resource_api::public_frontend_projection_snapshot(
+        &session_id,
+        &projection_id,
+        &projection,
+    )
 }
 
 fn put_frontend_projection(
@@ -159,12 +159,24 @@ fn put_frontend_projection(
     let projection_id = resolve_projection_id(&request.selectors)?;
     let mutation = mutation(&request)?;
     let projection = request.fields.get("projection").expect("catalog requires projection");
+    let stored_projection = json!({
+        "frontend_id":request.fields["frontend_id"],
+        "window_id":request.fields["window_id"],
+        "generation":request.fields["generation"],
+        "projection":projection,
+    });
+    let expected_projection_revision =
+        request.fields.get("expected_projection_revision").map(|value| {
+            serde_json::from_value::<WireDecimal>(value.clone())
+                .expect("catalog validates projection revisions")
+                .get()
+        });
     let commit = mux
         .resource_put_frontend_projection_selected(
             request.selectors,
             &projection_id,
-            projection,
-            expected_revision(&request.fields)?,
+            &stored_projection,
+            expected_projection_revision,
             &mutation,
         )
         .map_err(resource_operation_error)?;
@@ -798,7 +810,12 @@ mod tests {
                 ResourceOperation::FrontendProjectionPut,
                 Some("projection-put-once"),
                 selected.clone(),
-                json!({"projection":{"columns":[{"workspace":"α"}]}}),
+                json!({
+                    "frontend_id":"cmux-test",
+                    "window_id":"window-test",
+                    "generation":"launch-test",
+                    "projection":{"columns":[{"workspace":"α"}]},
+                }),
             )
         };
         let first = dispatch(&mux, put_request()).unwrap();
@@ -822,6 +839,65 @@ mod tests {
         )
         .unwrap();
         assert_eq!(got, first["value"]);
+    }
+
+    #[test]
+    fn frontend_projection_cas_is_window_local() {
+        let mux = Mux::new_for_test("aux-projection-window-cas", SurfaceOptions::default());
+        let first_id = FrontendProjectionPublicId::random().unwrap();
+        let second_id = FrontendProjectionPublicId::random().unwrap();
+        let fields = |window: &str, generation: &str, selected: &str| {
+            json!({
+                "frontend_id":"cmux-swift",
+                "window_id":window,
+                "generation":generation,
+                "projection":{"selected_workspace":selected},
+            })
+        };
+        let mut first = session_selectors();
+        first.frontend_projection = Some(first_id.to_string());
+        let mut second = session_selectors();
+        second.frontend_projection = Some(second_id.to_string());
+
+        let initial = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first"),
+                first.clone(),
+                fields("window-a", "launch-a", "alpha"),
+            ),
+        )
+        .unwrap();
+        assert_eq!(initial["value"]["projection_revision"], "1");
+
+        dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-second"),
+                second,
+                fields("window-b", "launch-b", "beta"),
+            ),
+        )
+        .unwrap();
+
+        let updated = dispatch(
+            &mux,
+            request(
+                ResourceOperation::FrontendProjectionPut,
+                Some("projection-window-first-update"),
+                first,
+                {
+                    let mut fields = fields("window-a", "launch-a", "gamma");
+                    fields["expected_projection_revision"] = json!("1");
+                    fields
+                },
+            ),
+        )
+        .unwrap();
+        assert_eq!(updated["value"]["projection_revision"], "2");
+        assert_eq!(updated["value"]["projection"]["selected_workspace"], "gamma");
     }
 
     #[test]

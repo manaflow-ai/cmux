@@ -190,9 +190,15 @@ impl JsonLineConnection {
         operation: impl FnOnce(&mut Self) -> Result<T>,
     ) -> Result<T> {
         let previous = self.read_timeout;
-        self.reader.get_ref().set_read_timeout(None).map_err(|error| {
-            CmuxError::Connection(format!("clear read timeout failed: {error}"))
-        })?;
+        if let Err(error) = self.reader.get_ref().set_read_timeout(None) {
+            if error.kind() == std::io::ErrorKind::InvalidInput {
+                // macOS can reject SO_RCVTIMEO changes after the peer queues
+                // its final frame and closes. The existing timeout still lets
+                // us drain that frame or observe EOF without blocking forever.
+                return operation(self);
+            }
+            return Err(CmuxError::Connection(format!("clear read timeout failed: {error}")));
+        }
         let result = operation(self);
         if self.reader.get_ref().set_read_timeout(Some(previous)).is_ok() {
             self.read_timeout = previous;
@@ -566,10 +572,11 @@ fn wait_for_connect_with_poll_checks(
 }
 
 fn connect_error(socket_path: &Path, error: std::io::Error) -> CmuxError {
-    CmuxError::Connection(format!(
-        "cannot connect to session socket {}: {error}",
-        socket_path.display()
-    ))
+    let kind = error.kind();
+    CmuxError::ConnectionIo {
+        message: format!("cannot connect to session socket {}: {error}", socket_path.display()),
+        kind,
+    }
 }
 
 fn connect_timeout_error(socket_path: &Path) -> CmuxError {

@@ -52,6 +52,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
 
     /// Injected clock read for the parked-tombstone eviction stamps.
     private let now: @Sendable () -> Date
+    private let diagnosticLog: DiagnosticLog?
 
     /// Upper bound on the parked account-wide tombstone set (see
     /// ``removeExactScopes(_:)``); mirrors the discovery snapshot's 256-binding
@@ -66,7 +67,8 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         restoreBoundary: PairedMacRestoreBoundary = PairedMacRestoreBoundary(),
         pendingDeleteStore: any PairedMacPendingDeleteStoring = InMemoryPairedMacPendingDeleteStore(),
         backupTeamStore: any PairedMacBackupTeamStoring = InMemoryPairedMacBackupTeamStore(),
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         self.inner = inner
         self.backup = backup
@@ -75,6 +77,7 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         self.pendingDeleteStore = pendingDeleteStore
         self.backupTeamStore = backupTeamStore
         self.now = now
+        self.diagnosticLog = diagnosticLog
     }
 
     /// Mapping key for one pairing's server-verified backup team. The ROW's
@@ -370,12 +373,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
-            stackUserID: target?.stackUserID,
+            stackUserID: target.stackUserID,
             teamID: team,
             now: now
         )
@@ -409,9 +413,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setActive(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -517,9 +522,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await setCustomization(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             customName: customName,
             customColor: customColor,
             customIcon: customIcon,
@@ -530,6 +536,46 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     }
 
     /// Persist customizations for one exact tagged pairing.
+    /// Device-local per-Computer Direct addresses: forwarded verbatim and
+    /// deliberately NOT mirrored into the account backup.
+    public func setDirectAddresses(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawJSON: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let team = await resolvedTeam(teamID)
+        try await inner.setDirectAddresses(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawJSON: rawJSON,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+    }
+
+    /// Device-local per-Computer connection method: forwarded verbatim and
+    /// deliberately NOT mirrored into the account backup.
+    public func setConnectionMethod(
+        macDeviceID: String,
+        instanceTag: String?,
+        rawValue: String?,
+        stackUserID: String?,
+        teamID: String?
+    ) async throws {
+        let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let team = await resolvedTeam(teamID)
+        try await inner.setConnectionMethod(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            rawValue: rawValue,
+            stackUserID: stackUserID,
+            teamID: team
+        )
+    }
+
     public func setCustomization(
         macDeviceID: String,
         instanceTag: String?,
@@ -585,9 +631,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             teamID: team,
             requiresExactInstanceTag: false
         )
+        guard let target else { return }
         try await remove(
             macDeviceID: macDeviceID,
-            instanceTag: target?.instanceTag,
+            instanceTag: target.instanceTag,
             stackUserID: stackUserID,
             teamID: team
         )
@@ -957,6 +1004,10 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
     /// local store untouched (``PairedMacRestore`` no-ops on a failed fetch).
     public func refreshFromBackup(stackUserID: String?) async {
         guard let account = stackUserID, !account.isEmpty else { return }
+        diagnosticLog?.recordAppEvent(
+            .pairedMacBackupRefreshStarted,
+            correlationID: account
+        )
         lastSignedInAccount = account
         // Coalesce with any in-flight restore for this scope so we never run two
         // merges concurrently against the same store.
@@ -981,8 +1032,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             let pendingDeletes = await restoreSuppressions(scope: scope, account: account)
             let boundaryGeneration = restoreBoundary.generation
             let restoreBoundary = restoreBoundary
+            let diagnosticLog = diagnosticLog
             let created = Task {
-                await restore.run(
+                diagnosticLog?.recordAppEvent(
+                    .pairedMacRestoreStarted,
+                    correlationID: scope
+                )
+                let outcome = await restore.run(
                     accountID: account,
                     teamID: restoreTeam,
                     boundary: restoreBoundary,
@@ -1001,12 +1057,29 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                         )
                     }
                 )
+                diagnosticLog?.recordAppEvent(
+                    outcome.completed
+                        ? .pairedMacRestoreSucceeded
+                        : .pairedMacRestoreFailed,
+                    correlationID: scope,
+                    failure: outcome.completed ? nil : .unknown,
+                    count: outcome.restored
+                )
+                return outcome
             }
             inFlight[scope] = created
             task = created
         }
         let generation = resetGeneration
         let outcome = await task.value
+        diagnosticLog?.recordAppEvent(
+            outcome.completed
+                ? .pairedMacBackupRefreshSucceeded
+                : .pairedMacBackupRefreshFailed,
+            correlationID: scope,
+            failure: outcome.completed ? nil : .unknown,
+            count: outcome.restored
+        )
         // A sign-out wipe across the await already cleared inFlight/restoredScopes;
         // do not re-touch them (clobbering a post-wipe inFlight entry, or memoizing
         // a scope the wipe removed and suppressing a same-launch re-sign-in restore).
@@ -1053,10 +1126,19 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         requiresExactInstanceTag: Bool
     ) async throws -> MobilePairedMac? {
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        return try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).first {
+        let matches = try await inner.loadAll(stackUserID: stackUserID, teamID: teamID).filter {
             cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                && (!requiresExactInstanceTag || $0.instanceTag == instanceTag)
+                && (!requiresExactInstanceTag
+                    || MacPairingKey(
+                        macDeviceID: $0.macDeviceID,
+                        instanceTag: $0.instanceTag
+                    ) == MacPairingKey(
+                        macDeviceID: macDeviceID,
+                        instanceTag: instanceTag
+                    ))
         }
+        guard requiresExactInstanceTag || matches.count == 1 else { return nil }
+        return matches.first
     }
 
     /// Build a backup record for a Mac from the local row. Callers choose whether
@@ -1092,12 +1174,42 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
         instanceAuthority: PairedMacBackupInstanceAuthorityWriteMode = .authoritative
     ) async -> Bool {
         let macDeviceID = cmxCanonicalDeviceID(macDeviceID)
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        diagnosticLog?.recordAppEvent(
+            .pairedMacBackupWriteStarted,
+            correlationID: pairingID
+        )
         let team = await resolvedTeam(teamID)
-        guard let mac = (try? await inner.loadAll(stackUserID: account, teamID: team))?
-            .first(where: {
-                cmxCanonicalDeviceID($0.macDeviceID) == macDeviceID
-                    && $0.instanceTag == instanceTag
-            }) else { return false }
+        let localMacs: [MobilePairedMac]
+        do {
+            localMacs = try await inner.loadAll(stackUserID: account, teamID: team)
+        } catch {
+            diagnosticLog?.recordAppEvent(
+                .pairedMacBackupWriteFailed,
+                correlationID: pairingID,
+                failure: DiagnosticFailureKind.classify(error)
+            )
+            return false
+        }
+        guard let mac = localMacs.first(where: {
+            MacPairingKey(
+                macDeviceID: $0.macDeviceID,
+                instanceTag: $0.instanceTag
+            ) == MacPairingKey(
+                macDeviceID: macDeviceID,
+                instanceTag: instanceTag
+            )
+        }) else {
+            diagnosticLog?.recordAppEvent(
+                .pairedMacBackupWriteFailed,
+                correlationID: pairingID,
+                failure: .localStateUnavailable
+            )
+            return false
+        }
         let record = Self.backupRecord(from: mac)
         let op: PairedMacBackupOp
         if allowTombstoneRevive {
@@ -1119,6 +1231,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             ops: [op],
             teamID: team,
             expectedUserID: account
+        )
+        diagnosticLog?.recordAppEvent(
+            outcome.succeeded
+                ? .pairedMacBackupWriteSucceeded
+                : .pairedMacBackupWriteFailed,
+            correlationID: pairingID,
+            failure: outcome.succeeded ? nil : .unknown
         )
         // Remember where the server SAID it stored this record. A nil-team
         // upload is resolved server-side, and that resolution can drift by the
@@ -1174,8 +1293,13 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
             let pendingDeletes = await restoreSuppressions(scope: scope, account: account)
             let boundaryGeneration = restoreBoundary.generation
             let restoreBoundary = restoreBoundary
+            let diagnosticLog = diagnosticLog
             let created = Task {
-                await restore.run(
+                diagnosticLog?.recordAppEvent(
+                    .pairedMacRestoreStarted,
+                    correlationID: scope
+                )
+                let outcome = await restore.run(
                     accountID: account,
                     teamID: restoreTeam,
                     boundary: restoreBoundary,
@@ -1194,6 +1318,15 @@ public actor BackingUpPairedMacStore: MobilePairedMacStoring, PairedMacBackupRef
                         )
                     }
                 )
+                diagnosticLog?.recordAppEvent(
+                    outcome.completed
+                        ? .pairedMacRestoreSucceeded
+                        : .pairedMacRestoreFailed,
+                    correlationID: scope,
+                    failure: outcome.completed ? nil : .unknown,
+                    count: outcome.restored
+                )
+                return outcome
             }
             inFlight[scope] = created
             task = created

@@ -15,7 +15,9 @@ struct SettingsSearchIndexTests {
         assertSearch("cmd q", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "warn-before-quit"))
         assertSearch("sound file", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "notification-sound"))
         assertSearch("disable browser", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser"))
+        assertSearch("default browser zoom", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "default-zoom-level"))
         assertSearch("http allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "http-allowlist"))
+        assertSearch("browser url allowlist", contains: SettingsSearchIndex.settingID(for: .browser, idSuffix: "url-allowlist"))
         assertSearch("claude executable", contains: SettingsSearchIndex.settingID(for: .automation, idSuffix: "claude-path"))
         assertSearch("resume on reopen", contains: SettingsSearchIndex.settingID(for: .terminal, idSuffix: "agent-auto-resume"))
         assertSearch("workspace cwd", contains: SettingsSearchIndex.settingID(for: .app, idSuffix: "workspace-inherit-working-directory"))
@@ -63,6 +65,13 @@ struct SettingsSearchIndexTests {
         #expect(
             SettingsSearchIndex.anchorID(forSettingsPath: "browser.enabled")
                 == SettingsSearchIndex.settingID(for: .browser, idSuffix: "enable-browser")
+        )
+    }
+
+    @Test func settingsPathAnchorIncludesBrowserDefaultZoomLevel() {
+        #expect(
+            SettingsSearchIndex.anchorID(forSettingsPath: "browser.defaultZoomLevel")
+                == SettingsSearchIndex.settingID(for: .browser, idSuffix: "default-zoom-level")
         )
     }
 

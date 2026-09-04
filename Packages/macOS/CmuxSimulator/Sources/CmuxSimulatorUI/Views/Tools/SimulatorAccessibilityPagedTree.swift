@@ -30,8 +30,10 @@ struct SimulatorAccessibilityPagedTree: View {
             }
             if pageCount > 1 {
                 HStack {
-                    Button(simulatorStrings.previousPage) {
+                    Button {
                         requestedPage = max(0, pageIndex - 1)
+                    } label: {
+                        Text(simulatorStrings.previousPage)
                     }
                     .disabled(pageIndex == 0)
                     Spacer()
@@ -39,8 +41,10 @@ struct SimulatorAccessibilityPagedTree: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button(simulatorStrings.nextPage) {
+                    Button {
                         requestedPage = min(pageCount - 1, pageIndex + 1)
+                    } label: {
+                        Text(simulatorStrings.nextPage)
                     }
                     .disabled(pageIndex + 1 >= pageCount)
                 }

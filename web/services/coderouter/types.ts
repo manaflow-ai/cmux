@@ -41,4 +41,7 @@ export type CodeRouterAccountSummary = {
   readonly state: "active" | "refreshing" | "expired" | "broken";
   readonly credentialExpiresAt: string | null;
   readonly lastFailureCode: string | null;
+  readonly cooldownUntil: string | null;
+  /** Sessions bound to this account with traffic in the recent window. */
+  readonly activeSessions: number;
 };

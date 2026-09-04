@@ -4,6 +4,8 @@ import { IrohDatabaseError, IrohQuotaExceededError } from "../services/iroh/erro
 import {
   buildConnectivityInvalidationRequest,
   handleIrohRoute,
+  requiresStackSession,
+  type IrohRouteOperation,
 } from "../services/iroh/routeHandler";
 import type { IrohTrustBrokerShape } from "../services/iroh/trustBroker";
 import type { AuthedUser } from "../services/vms/auth";
@@ -16,14 +18,11 @@ const USER: AuthedUser = {
   billingCustomerType: "team",
   billingTeamId: "selected-team-id",
   selectedTeamId: "selected-team-id",
-  teams: [{ id: "selected-team-id", displayName: null, billingPlanId: null }],
+  teams: [{ id: "selected-team-id", displayName: null, billingPlanId: null, billingSeats: null }],
   teamIds: ["selected-team-id"],
       userBillingPlanId: null,
       billingPlanId: null,
-      resolveSubrouterPermissions: async () => ({
-        use: false,
-        manageAccounts: false,
-      }),
+      billingSeats: null,
 };
 
 describe("Iroh route boundary", () => {
@@ -192,6 +191,74 @@ describe("Iroh route boundary", () => {
     expect(called).toBe(false);
   });
 
+  test("only high-volume operations use the local token fast path", async () => {
+    const seen: Array<[IrohRouteOperation, boolean]> = [];
+    for (const operation of [
+      "challenge", "register", "discover", "endpoint_attestation",
+      "revoke", "pair_grant", "relay_token",
+    ] as const) {
+      await handleIrohRoute(authedPost("/api/devices/iroh/x", {}), operation, {
+        verify: async (_request, options) => {
+          seen.push([operation, options.requireStackSession]);
+          return null;
+        },
+        broker: broker(),
+      });
+    }
+    expect(seen).toEqual([
+      ["challenge", false],
+      ["register", false],
+      ["discover", false],
+      ["endpoint_attestation", false],
+      ["revoke", true],
+      ["pair_grant", true],
+      ["relay_token", true],
+    ]);
+    expect(requiresStackSession("pair_grant")).toBe(true);
+  });
+
+  test("maps a Stack Auth throttle to 429 with Retry-After instead of 401", async () => {
+    let called = false;
+    const response = await handleIrohRoute(
+      authedPost("/api/devices/iroh/register", {}),
+      "register",
+      {
+        verify: async () => {
+          throw new AggregateError([
+            new Error("Rate limited, no retry-after header received"),
+          ]);
+        },
+        broker: broker({
+          register: () => {
+            called = true;
+            return Effect.succeed({});
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+    expect(called).toBe(false);
+  });
+
+  test("maps other Stack Auth provider failures to 503 instead of 401", async () => {
+    const response = await handleIrohRoute(
+      authedPost("/api/devices/iroh/challenge", {}),
+      "challenge",
+      {
+        verify: async () => {
+          throw new Error("Stack Auth unreachable");
+        },
+        broker: broker(),
+      },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "authentication_unavailable" });
+  });
+
   test("rejects malformed discovery cursors before broker work", async () => {
     let brokerCalled = false;
     const response = await handleIrohRoute(
@@ -308,6 +375,55 @@ describe("Iroh route boundary", () => {
     expect(response.status).toBe(200);
     expect(receivedUserId).toBe("personal-user-id");
     expect(receivedUserId).not.toBe("selected-team-id");
+  });
+
+  test("forwards the exact app namespace to every mutation", async () => {
+    const received: string[] = [];
+    const receivedBindingIDs: string[] = [];
+    const namespaced = (
+      _userId: string,
+      _raw: unknown,
+      _now?: Date,
+      clientNamespace?: string,
+      bindingProof?: { bindingId: string },
+    ) => {
+      received.push(clientNamespace ?? "");
+      receivedBindingIDs.push(bindingProof?.bindingId ?? "");
+      return Effect.succeed({});
+    };
+    const namespacedBroker = broker({
+      issueEndpointAttestation: namespaced,
+      revoke: namespaced,
+      issuePairGrant: namespaced,
+      issueRelayToken: namespaced,
+    });
+    const operations = [
+      "endpoint_attestation",
+      "revoke",
+      "pair_grant",
+      "relay_token",
+    ] as const;
+    for (const operation of operations) {
+      const base = authedPost("/api/devices/iroh", {});
+      const headers = new Headers(base.headers);
+      headers.set("x-cmux-app-namespace", "dev.cmux.app.demo");
+      headers.set(
+        "x-cmux-iroh-binding-id",
+        "123e4567-e89b-42d3-a456-426614174000",
+      );
+      headers.set("x-cmux-iroh-request-time", "1785384000");
+      headers.set("x-cmux-iroh-request-signature", "A".repeat(86));
+      const response = await handleIrohRoute(
+        new Request(base, { headers }),
+        operation,
+        { verify: async () => USER, broker: namespacedBroker },
+      );
+      expect(response.status).toBe(operation === "revoke" ? 200 : 201);
+    }
+    expect(received).toEqual(Array(4).fill("dev.cmux.app.demo"));
+    expect(receivedBindingIDs).toEqual(
+      Array(4).fill("123e4567-e89b-42d3-a456-426614174000"),
+    );
   });
 
   test("maps DB-authoritative quota failures to typed 429 with Retry-After", async () => {

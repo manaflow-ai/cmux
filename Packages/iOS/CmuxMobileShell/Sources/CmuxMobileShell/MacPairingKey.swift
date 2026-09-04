@@ -21,9 +21,12 @@ public struct MacPairingKey: Hashable, Sendable {
 
     /// Creates a key from raw identity fields.
     public init(macDeviceID: String, instanceTag: String?) {
-        self.canonicalMacDeviceID = cmxCanonicalDeviceID(macDeviceID)
-        let trimmed = instanceTag?.trimmingCharacters(in: .whitespacesAndNewlines)
-        self.normalizedInstanceTag = (trimmed?.isEmpty == false) ? trimmed : nil
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        self.canonicalMacDeviceID = identity.macDeviceID
+        self.normalizedInstanceTag = identity.instanceTag
     }
 
     /// Parses either spelling of the string contract: a bare device id, or the
@@ -53,10 +56,10 @@ public struct MacPairingKey: Hashable, Sendable {
     /// device id when untagged) — the wire/persistence contract shared with
     /// `MobilePairedMac.pairingID`.
     public var pairingID: String {
-        MobilePairedMac.pairingID(
+        CmxMacAppInstanceIdentity(
             macDeviceID: canonicalMacDeviceID,
             instanceTag: normalizedInstanceTag
-        )
+        ).id
     }
 
     /// Whether this key names an app instance on the given physical device.

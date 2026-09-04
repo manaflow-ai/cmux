@@ -103,15 +103,43 @@ import Testing
         }
 
         let events = await store.recentEvents()
-        #expect(events.map(\.id) == ["e49", "e48", "e47", "e46", "e45"])
+        #expect(!events.isEmpty)
+        #expect(events.count <= retention.maxStoredEvents)
+        #expect(events.first?.id == "e49")
+        let expectedIDs = (0..<events.count).map { "e\(49 - $0)" }
+        #expect(events.map(\.id) == expectedIDs)
 
         let fileSize = try #require(
             try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int
         )
-        #expect(fileSize <= 1_536)
+        #expect(fileSize <= retention.maxFileBytes)
 
         let reloaded = VaultHistoryEventStore(fileURL: fileURL, retention: retention)
-        #expect(await reloaded.recentEvents().map(\.id) == ["e49", "e48", "e47", "e46", "e45"])
+        #expect(await reloaded.recentEvents().map(\.id) == expectedIDs)
+    }
+
+    @Test func oversizedEventIsRejectedWithoutDisplacingReadableHistory() async throws {
+        let fileURL = try makeTempFileURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let retention = VaultHistoryRetentionPolicy(
+            maxStoredEvents: 5,
+            maxFileBytes: 1_024,
+            maxLoadBytes: 4_096
+        )
+        let store = VaultHistoryEventStore(fileURL: fileURL, retention: retention)
+        #expect(await store.append(event(id: "accepted", secondsAgo: 1)))
+        #expect(await store.append(event(
+            id: "oversized",
+            secondsAgo: 0,
+            title: String(repeating: "x", count: 2_048)
+        )) == false)
+
+        #expect(await store.recentEvents().map(\.id) == ["accepted"])
+        let fileSize = try #require(
+            try FileManager.default.attributesOfItem(atPath: fileURL.path)[.size] as? Int
+        )
+        #expect(fileSize <= retention.maxFileBytes)
     }
 
     @Test func loadIsBoundedAndSkipsPartialLeadingLine() async throws {

@@ -8,6 +8,19 @@ internal import Foundation
 // coordinator's general exec argv, including the non-batch and
 // drop-ControlPath variants the batch builders do not have.)
 extension RemoteSessionCoordinator {
+    /// Builds batch SSH arguments for daemon bootstrap traffic.
+    ///
+    /// Bootstrap owns the binary-install transaction, so it must not inherit
+    /// an existing multiplexed channel: a half-open ControlMaster can report
+    /// healthy while forwarding no payload bytes. `ControlPath=none` is placed
+    /// before caller options because OpenSSH keeps the first value it obtains.
+    func daemonBootstrapSSHArguments() -> [String] {
+        ["-o", "ControlPath=none"] + sshCommonArguments(
+            batchMode: true,
+            dropControlPath: true
+        )
+    }
+
     func sshCommonArguments(batchMode: Bool, dropControlPath: Bool = false) -> [String] {
         let effectiveSSHOptions: [String] = {
             if batchMode {

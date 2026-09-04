@@ -28,15 +28,16 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_SMART_RENDERER, FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure,
-    HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN,
+    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_SMART_RENDERER,
+    FLAG_VIEWER_SIZE_ACKS, Frame, HostLaunchFailure, HostLaunchFailureKind,
+    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
     MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
     RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame, wait_for_native_child_status,
-    write_frame,
+    encode_host_launch_failure, encode_terminal_exit, read_frame,
+    wait_for_native_child_status_with_reap_result, write_frame,
 };
 
-const HOST_RECORD_VERSION: u32 = 3;
+const HOST_RECORD_VERSION: u32 = 4;
 const LEGACY_PROTOCOL_VERSION: u16 = 1;
 const SMART_RENDERER_PROTOCOL_VERSION: u16 = 3;
 const HOST_EXIT_RECORD_VERSION: u32 = 1;
@@ -512,6 +513,98 @@ mod unix {
         }
     }
 
+    /// Own a PTY child until the host's reaper thread has taken responsibility
+    /// for it.  Every fallible setup step after `pty.spawn` keeps this guard
+    /// alive, so a failed reader, writer, callback, or thread setup cannot
+    /// leave the interactive child detached from its parent.
+    struct SpawnedPtyChild {
+        child: Option<Box<dyn cmux_pty::Child + Send + Sync>>,
+        process_groups: [Option<libc::pid_t>; 2],
+    }
+
+    fn validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+    ) -> Vec<libc::pid_t> {
+        let mut valid = Vec::new();
+        for group in groups.into_iter().flatten() {
+            if group > 0 && group != host_group && !valid.contains(&group) {
+                valid.push(group);
+            }
+        }
+        valid
+    }
+
+    fn signal_validated_process_groups(
+        groups: impl IntoIterator<Item = Option<libc::pid_t>>,
+        host_group: libc::pid_t,
+        signal: libc::c_int,
+        mut send: impl FnMut(libc::pid_t, libc::c_int) -> bool,
+    ) -> bool {
+        let mut all_succeeded = true;
+        for group in validated_process_groups(groups, host_group) {
+            all_succeeded &= send(group, signal);
+        }
+        all_succeeded
+    }
+
+    impl SpawnedPtyChild {
+        fn new(
+            child: Box<dyn cmux_pty::Child + Send + Sync>,
+            process_group_leader: Option<libc::pid_t>,
+        ) -> Self {
+            let child_pid = child.process_id().and_then(|pid| libc::pid_t::try_from(pid).ok());
+            Self { child: Some(child), process_groups: [child_pid, process_group_leader] }
+        }
+
+        fn child(&self) -> &dyn cmux_pty::Child {
+            self.child.as_deref().expect("PTY child is present")
+        }
+
+        fn child_mut(&mut self) -> &mut (dyn cmux_pty::Child + Send + Sync) {
+            self.child.as_deref_mut().expect("PTY child is present")
+        }
+
+        fn wait_and_disarm(&mut self) -> TerminalExit {
+            let (exit, reaped) = wait_for_native_child_status_with_reap_result(self.child_mut());
+            if reaped {
+                self.disarm();
+            }
+            exit
+        }
+
+        fn disarm(&mut self) {
+            let _ = self.child.take();
+            self.process_groups = [None, None];
+        }
+    }
+
+    impl Drop for SpawnedPtyChild {
+        fn drop(&mut self) {
+            let host_group = unsafe { libc::getpgrp() };
+            let groups = validated_process_groups(self.process_groups, host_group);
+            let groups_signaled = signal_validated_process_groups(
+                groups.iter().copied().map(Some),
+                host_group,
+                libc::SIGKILL,
+                |group, signal| {
+                    // SAFETY: the group was returned by the PTY or child, is
+                    // positive, and is not the terminal-host process group.
+                    unsafe { libc::killpg(group, signal) == 0 }
+                },
+            );
+            if let Some(child) = self.child.as_deref_mut() {
+                // A valid process group already includes the child. Avoid a
+                // second direct PID signal unless group signaling failed, which
+                // could leave the child running while the guard waits below.
+                if groups.is_empty() || !groups_signaled {
+                    let _ = child.kill();
+                }
+                let _ = child.wait();
+            }
+        }
+    }
+
     #[derive(Debug)]
     struct HostLaunch {
         endpoint: String,
@@ -862,6 +955,10 @@ mod unix {
         /// handshake and complete Surface materialization. Adoption never
         /// carries this guard.
         launch_process: Option<SpawnedHostProcess>,
+        /// The first authenticated admin attachment may inherit a protocol-v4
+        /// launch barrier. A launcher releases it after committing topology;
+        /// an adopter releases an abandoned barrier after validating the host.
+        launch_activation_pending: bool,
     }
 
     impl std::fmt::Debug for HostAttachment {
@@ -1127,11 +1224,14 @@ mod unix {
             let mut payload = Vec::with_capacity(KITTY_GRAPHICS_LIMITS_ENCODED_LEN);
             encode_kitty_graphics_limits(&mut payload, limits)?;
             let response = self
-                .send_control_request_until(
+                .send_control_request_with_policy(
                     MessageKind::SetKittyGraphicsLimits,
                     MessageKind::KittyGraphicsLimitsAck,
                     payload,
                     deadline,
+                    // Advisory control: a missed ack must degrade graphics for
+                    // this surface, not tear down a healthy host connection.
+                    false,
                 )
                 .map_err(ClearHistoryFailure::into_error)
                 .context("terminal host did not acknowledge Kitty graphics limits")?;
@@ -1441,6 +1541,34 @@ mod unix {
             let _ = self.writer.lock().unwrap().shutdown(std::net::Shutdown::Both);
         }
 
+        /// Remove this daemon from host publication only after the reader has
+        /// consumed every source frame admitted before the request. Record-v4
+        /// hosts implement the source fence; older hosts cannot make this
+        /// shutdown guarantee.
+        pub(crate) fn detach_for_daemon_shutdown_until(
+            &self,
+            deadline: Instant,
+        ) -> anyhow::Result<()> {
+            anyhow::ensure!(
+                self.smart_renderer && self.record.record_version >= HOST_RECORD_VERSION,
+                "terminal host does not support a source-ordered detach fence"
+            );
+            let response = self
+                .send_control_request_until(
+                    MessageKind::Detach,
+                    MessageKind::DetachAck,
+                    Vec::new(),
+                    deadline,
+                )
+                .map_err(ClearHistoryFailure::into_error)?;
+            anyhow::ensure!(response.is_empty(), "terminal host returned a malformed detach fence");
+            Ok(())
+        }
+
+        pub(crate) fn supports_journal_detach_fence(&self) -> bool {
+            self.smart_renderer && self.record.record_version >= HOST_RECORD_VERSION
+        }
+
         /// Commit the launch ownership handoff after every fallible Surface
         /// setup step succeeds. Until then, dropping this attachment exact-
         /// kills and waits the child process through SpawnedHostProcess.
@@ -1453,6 +1581,19 @@ mod unix {
             let _ = thread::Builder::new().name("terminal-host-reaper".into()).spawn(move || {
                 let _ = child.wait();
             });
+        }
+
+        /// Release a newly launched protocol-v4 host only after its public
+        /// topology is durable. The state flips after the complete frame is
+        /// accepted by the local socket, so a retry cannot duplicate it.
+        pub(crate) fn activate_launched_host(&mut self) -> std::io::Result<bool> {
+            if !self.launch_activation_pending {
+                return Ok(false);
+            }
+            debug_assert!(self.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION);
+            self.send(MessageKind::Activate, &[])?;
+            self.launch_activation_pending = false;
+            Ok(true)
         }
 
         pub fn identity(&self) -> TerminalHostIdentity {
@@ -1494,6 +1635,29 @@ mod unix {
             response_kind: MessageKind,
             payload: Vec<u8>,
             deadline: Instant,
+        ) -> Result<Vec<u8>, ClearHistoryFailure> {
+            self.send_control_request_with_policy(
+                request_kind,
+                response_kind,
+                payload,
+                deadline,
+                true,
+            )
+        }
+
+        /// `disconnect_on_timeout` = false keeps the channel alive when the
+        /// ack misses the deadline. Responses are matched by request id and
+        /// an unknown id is dropped on arrival, so a late ack is harmless.
+        /// Advisory controls (Kitty graphics limits) use this: tearing down
+        /// a healthy host over a slow ack forced a full terminal reconnect,
+        /// which reset the budget blocklist and re-armed the retry storm.
+        fn send_control_request_with_policy(
+            &self,
+            request_kind: MessageKind,
+            response_kind: MessageKind,
+            payload: Vec<u8>,
+            deadline: Instant,
+            disconnect_on_timeout: bool,
         ) -> Result<Vec<u8>, ClearHistoryFailure> {
             let request_id = self.next_request.fetch_add(1, Ordering::Relaxed);
             if request_id == 0 {
@@ -1539,7 +1703,9 @@ mod unix {
                 Ok(frame) => Ok(frame.payload),
                 Err(error) => {
                     self.control_responses.waiters.lock().unwrap().remove(&request_id);
-                    self.disconnect();
+                    if disconnect_on_timeout {
+                        self.disconnect();
+                    }
                     Err(ClearHistoryFailure::ambiguous(anyhow::anyhow!(
                         "terminal host did not acknowledge {request_kind:?}: {error}"
                     )))
@@ -1721,16 +1887,20 @@ mod unix {
             rows: options.rows,
             cell_pixels,
             scrollback: options.scrollback,
-            cwd: options.cwd.clone().or_else(|| {
-                crate::platform::home_dir().map(|path| path.to_string_lossy().into_owned())
-            }),
+            cwd: options.cwd.clone().or_else(crate::platform::default_terminal_cwd),
             command,
             extra_env: options.extra_env.clone(),
             default_colors,
             kitty_graphics_limits,
         };
 
-        let binary = std::env::current_exe().context("resolve cmux-tui terminal-host binary")?;
+        // Exec the daemon's own running build (open inode on Linux): after an
+        // in-place binary upgrade, resolving the executable path yields
+        // "<path> (deleted)" and exec fails, which broke every new tab/split
+        // on a long-lived daemon. This also guarantees daemon and host can
+        // never run skewed builds.
+        let binary = crate::platform::self_exe_for_spawn()
+            .context("resolve cmux-tui terminal-host binary")?;
         let mut command = Command::new(binary);
         command
             .args(["__terminal-host", "--bootstrap-stdio"])
@@ -1783,7 +1953,7 @@ mod unix {
         }
         if launched_frame.kind == MessageKind::LaunchFailed {
             let failure = decode_host_launch_failure(&launched_frame.payload)?;
-            anyhow::bail!(failure.message);
+            return Err(failure.into());
         }
         if launched_frame.kind != MessageKind::Ready {
             anyhow::bail!("terminal host did not acknowledge launch");
@@ -1813,6 +1983,10 @@ mod unix {
         // row Exited.
         let mut attachment = connect_record(record, record_path)?;
         attachment.launch_process = Some(process);
+        debug_assert_eq!(
+            attachment.launch_activation_pending,
+            attachment.protocol_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION
+        );
         Ok(attachment)
     }
 
@@ -1821,7 +1995,9 @@ mod unix {
         record_path: PathBuf,
     ) -> anyhow::Result<HostAttachment> {
         validate_terminal_host_record(&record_path, &record)?;
-        connect_record(record, record_path)
+        let mut attachment = connect_record(record, record_path)?;
+        attachment.activate_launched_host()?;
+        Ok(attachment)
     }
 
     pub(crate) fn adopt_current_terminal_host(
@@ -1841,21 +2017,23 @@ mod unix {
             .validate()
             .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
         let connect = |record: TerminalHostRecord, record_path: PathBuf| {
-            if record.supports_terminate_ack {
+            if record.record_version >= HOST_RECORD_VERSION {
                 // Current records guarantee the current smart protocol. Keep
                 // startup and reconnect head-of-line blocking to one bounded
                 // handshake; only legacy records need version probing.
                 adopt_current_terminal_host(record, record_path)
             } else {
-                adopt_terminal_host(record, record_path)
+                connect_record(record, record_path)
             }
         };
         let mut attachment = connect(record.clone(), record_path.clone())?;
         if kitty_graphics_limits_within(attachment.snapshot.kitty_state.limits, ceiling) {
+            attachment.activate_launched_host()?;
             return Ok(attachment);
         }
 
         attachment.reconfigure_kitty_graphics_for_adoption(ceiling)?;
+        attachment.activate_launched_host()?;
         attachment.disconnect();
         drop(attachment);
 
@@ -1873,7 +2051,7 @@ mod unix {
         record_path: &Path,
         record: &TerminalHostRecord,
     ) -> anyhow::Result<TerminalHostIdentity> {
-        if !matches!(record.record_version, 1 | 2 | HOST_RECORD_VERSION) {
+        if !matches!(record.record_version, 1 | 2 | 3 | HOST_RECORD_VERSION) {
             anyhow::bail!("unsupported terminal-host record version {}", record.record_version);
         }
         let terminal_id = TerminalId::from_hex(&record.terminal_id)
@@ -2304,8 +2482,8 @@ mod unix {
         record_path: PathBuf,
         handshake_timeout: Duration,
     ) -> anyhow::Result<HostAttachment> {
-        if record.supports_terminate_ack {
-            // Receipt-capable records are emitted only by the current smart
+        if record.record_version >= HOST_RECORD_VERSION {
+            // Fence-capable records are emitted only by the current smart
             // protocol. After an existing owner connection fails, probing
             // every legacy version can outlive the control request while the
             // already-terminating host removes its socket. One current
@@ -2372,11 +2550,18 @@ mod unix {
         let hello_frame = read_required_frame(&mut stream, "host hello")?;
         if hello_frame.kind != MessageKind::HostHello
             || hello_frame.version != protocol_version
+            || hello_frame.flags
+                & !(FLAG_VIEWER_SIZE_ACKS | FLAG_SMART_RENDERER | FLAG_LAUNCH_ACTIVATION_REQUIRED)
+                != 0
             || hello_frame.request_id != 1
             || hello_frame.sequence != 0
             || (smart_renderer && hello_frame.flags & FLAG_SMART_RENDERER == 0)
         {
             anyhow::bail!("terminal host rejected owner handshake");
+        }
+        let launch_activation_pending = hello_frame.flags & FLAG_LAUNCH_ACTIVATION_REQUIRED != 0;
+        if launch_activation_pending && protocol_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION {
+            anyhow::bail!("legacy terminal host requested launch activation");
         }
         let host_hello = HostHello::decode(&hello_frame.payload)?;
         if host_hello.selected_version != protocol_version
@@ -2442,6 +2627,7 @@ mod unix {
             // every connection at the snapshot grid.
             viewer_size: Mutex::new(Some(snapshot_size)),
             launch_process: None,
+            launch_activation_pending,
         };
         attachment.release_viewer_size()?;
         Ok(attachment)
@@ -2731,6 +2917,18 @@ mod unix {
             // writer's local HostTap still owns a sender. Enqueue one private
             // sentinel so an input-side EOF always releases an otherwise-idle
             // writer. Socket shutdown releases a writer blocked in write_frame.
+            let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
+            let retained = crate::terminal_host_protocol::HEADER_LEN;
+            self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
+            if self.sender.send(wake).is_err() {
+                self.queued_bytes.fetch_sub(retained, Ordering::AcqRel);
+            }
+        }
+
+        fn wake_writer(&self) {
+            // The source-ordered DetachAck is already queued. This private
+            // sentinel closes the writer loop after it writes that receipt,
+            // without shutting the socket before the receipt is drained.
             let wake = Frame::new(MessageKind::ResyncRequired, Vec::new());
             let retained = crate::terminal_host_protocol::HEADER_LEN;
             self.queued_bytes.fetch_add(retained, Ordering::AcqRel);
@@ -3087,6 +3285,7 @@ mod unix {
         dead: AtomicBool,
         launch_owner_claimed: AtomicBool,
         launch_owner_stream_ready: AtomicBool,
+        launch_owner_stream_gate: (Mutex<()>, Condvar),
         active_client_streams: AtomicUsize,
         child_exit: (Mutex<Option<TerminalExit>>, Condvar),
         child_waitable: AtomicBool,
@@ -3123,8 +3322,7 @@ mod unix {
             if !self.claimed {
                 return;
             }
-            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
-            self.host.publish_exit_if_drained();
+            self.host.mark_launch_owner_stream_ready();
         }
     }
 
@@ -3137,8 +3335,7 @@ mod unix {
             // a successful one. The launching daemon reports the handshake
             // failure, while the independently hosted process can still
             // publish or clean up its terminal exit.
-            self.host.launch_owner_stream_ready.store(true, Ordering::Release);
-            self.host.publish_exit_if_drained();
+            self.host.mark_launch_owner_stream_ready();
         }
     }
 
@@ -3247,11 +3444,52 @@ mod unix {
         frames
     }
 
-    fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+    /// Persist a local spawn path with host-authenticated provenance. A host
+    /// can outlive its daemon, so a raw OSC 7 URL here would become the next
+    /// surface's inherited spawn directory after reattachment.
+    fn snapshot_cwd(
+        term: &Terminal,
+        spawn_cwd: Option<&str>,
+        owner_token: &CapabilityToken,
+        protocol_version: u16,
+    ) -> Option<String> {
+        // OSC 7 is terminal-controlled metadata and cannot prove that a path
+        // belongs to this host. Use only the authenticated spawn fallback.
+        let _ = term;
+        let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
+        // Only the negotiated current protocol understands authenticated
+        // provenance markers. Treat legacy and unknown values as legacy wire
+        // format so peers never receive a marker they cannot decode.
+        if protocol_version != PROTOCOL_VERSION {
+            return Some(path.to_string_lossy().into_owned());
+        }
+        Some(format!(
+            "{}{}:{}",
+            crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+            encode_hex(owner_token.as_bytes()),
+            path.to_string_lossy()
+        ))
     }
 
     impl HostShared {
+        fn mark_launch_owner_stream_ready(&self) {
+            let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
+                self.launch_owner_stream_gate.1.notify_all();
+            }
+            self.publish_exit_if_drained();
+        }
+
+        fn wait_for_launch_owner_stream_ready(&self) {
+            if self.launch_owner_stream_ready.load(Ordering::Acquire) {
+                return;
+            }
+            let mut gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            while !self.launch_owner_stream_ready.load(Ordering::Acquire) {
+                gate = self.launch_owner_stream_gate.1.wait(gate).unwrap();
+            }
+        }
+
         fn note_parser_progress(&self) {
             let mut generation = self.parser_progress.0.lock().unwrap();
             *generation = generation.wrapping_add(1);
@@ -3514,6 +3752,15 @@ mod unix {
             );
         }
 
+        fn fence_client_detach(&self, client: u64, request_id: u64, target: &HostTap) -> bool {
+            let mut response = Frame::new(MessageKind::DetachAck, Vec::new());
+            response.request_id = request_id;
+            let _source_order = self.source_order_lock.lock().unwrap();
+            self.taps.lock().unwrap().remove(&client);
+            self.smart.remove(client);
+            target.try_send(response)
+        }
+
         fn set_viewer_size(
             &self,
             client: u64,
@@ -3581,7 +3828,7 @@ mod unix {
                 let master = self.master.lock().unwrap();
                 if let Err(error) = master.resize(next_size) {
                     self.smart.close_failed_transition(source_cursor);
-                    return Err(error.into());
+                    return Err(error);
                 }
                 if let Err(error) =
                     term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))
@@ -4683,8 +4930,7 @@ mod unix {
                 // A launcher that vanished before authenticating must not
                 // retain an already-exited host forever. A live PTY remains
                 // adoptable; only its eventual exit is now unblocked.
-                shared.launch_owner_stream_ready.store(true, Ordering::Release);
-                shared.publish_exit_if_drained();
+                shared.mark_launch_owner_stream_ready();
             }
             if shared.dead.load(Ordering::Acquire)
                 && shared.active_client_streams.load(Ordering::Acquire) == 0
@@ -4737,15 +4983,20 @@ mod unix {
         let mut command = PtyCommand::new(&launch.command[0]);
         command.args(launch.command[1..].iter().cloned());
         command.env("TERM", &launch.term);
+        // Terminal-host children get the same truecolor guarantee as directly
+        // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
+        command.env("COLORTERM", "truecolor");
         for (key, value) in &launch.extra_env {
             command.env(key, value);
         }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);
         }
-        let cmux_pty::SpawnedPty { master, mut child } = pty.spawn(command)?;
-        let pid = child.process_id();
-        let killer = child.clone_killer();
+        let cmux_pty::SpawnedPty { master, child } = pty.spawn(command)?;
+        let process_group_leader = master.process_group_leader();
+        let mut child = SpawnedPtyChild::new(child, process_group_leader);
+        let pid = child.child().process_id();
+        let killer = child.child().clone_killer();
         let pty_poll_fd = master.as_raw_fd().context("open terminal-host PTY poll fd")?;
         let mut pty_reader = master.try_clone_reader()?;
         let pty_writer = master.take_writer()?;
@@ -4810,6 +5061,7 @@ mod unix {
             dead: AtomicBool::new(false),
             launch_owner_claimed: AtomicBool::new(false),
             launch_owner_stream_ready: AtomicBool::new(false),
+            launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
             active_client_streams: AtomicUsize::new(0),
             child_exit: (Mutex::new(None), Condvar::new()),
             child_waitable: AtomicBool::new(false),
@@ -4832,6 +5084,19 @@ mod unix {
         thread::Builder::new().name("terminal-host-parser".into()).spawn(move || {
             let mut last_colors = initial_colors;
             let mut last_pwd = None;
+            // Ghostty can answer terminal queries without producing a parser
+            // frame. Flush those answers after every parser command, not only
+            // after PTY output, so lifecycle operations (for example resize
+            // during a Pi reload) cannot leave replies queued in memory and
+            // deliver them to a later TUI write.
+            let flush_pending_responses = || {
+                let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
+                if !responses.is_empty() {
+                    let mut writer = parser_host.writer.lock().unwrap();
+                    let _ = writer.write_all(&responses);
+                    let _ = writer.flush();
+                }
+            };
             while let Ok(command) = parser_command_receiver.recv() {
                 match command {
                     ParserCommand::Output { bytes, source_cursor, accounted_bytes } => {
@@ -4877,12 +5142,7 @@ mod unix {
                         if bell.swap(false, Ordering::AcqRel) {
                             parser_host.broadcast(MessageKind::Bell, Vec::new());
                         }
-                        let responses = std::mem::take(&mut *pending_responses.lock().unwrap());
-                        if !responses.is_empty() {
-                            let mut writer = parser_host.writer.lock().unwrap();
-                            let _ = writer.write_all(&responses);
-                            let _ = writer.flush();
-                        }
+                        flush_pending_responses();
                     }
                     ParserCommand::Resize {
                         cols,
@@ -4901,11 +5161,13 @@ mod unix {
                             targeted_ack,
                             cell_pixels,
                         );
+                        flush_pending_responses();
                         let _ = response.send(result);
                     }
                     ParserCommand::SetDefaults { colors, source_cursor, response } => {
                         let colors = *colors;
                         last_colors = parser_host.apply_parser_defaults(colors, source_cursor);
+                        flush_pending_responses();
                         let _ = response.send(());
                     }
                     ParserCommand::ClearHistory { fallback_key, response } => {
@@ -4916,6 +5178,7 @@ mod unix {
                             parser_host.note_parser_progress();
                             parser_host.stream_progress.notify();
                         }
+                        flush_pending_responses();
                         let _ = response.send(result);
                     }
                     ParserCommand::Drain => {
@@ -4923,6 +5186,7 @@ mod unix {
                         // the PTY reader has reached the authoritative parser.
                         parser_host.mark_pty_drained();
                         parser_host.publish_exit_if_drained();
+                        flush_pending_responses();
                         break;
                     }
                 }
@@ -4931,6 +5195,7 @@ mod unix {
 
         let reader_host = shared.clone();
         thread::Builder::new().name("terminal-host-pty".into()).spawn(move || {
+            reader_host.wait_for_launch_owner_stream_ready();
             let mut buffer = [0u8; 64 * 1024];
             let mut forced_at = None;
             let mut pty_drain_waiter = pty_drain_waiter;
@@ -4993,7 +5258,7 @@ mod unix {
                         child_host.termination_started.load(Ordering::Acquire);
                     let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
                     if escalation_complete || (!termination_started && pty_drained) {
-                        let exit = wait_for_native_child_status(child.as_mut());
+                        let exit = child.wait_and_disarm();
                         child_host.child_reaped.store(true, Ordering::Release);
                         drop(signal);
                         *child_host.child_exit.0.lock().unwrap() = Some(exit);
@@ -5016,7 +5281,7 @@ mod unix {
             } else {
                 // Native Unix PTYs always expose a PID and support waitid;
                 // retain a conservative fallback for alternate backends.
-                let exit = wait_for_native_child_status(child.as_mut());
+                let exit = child.wait_and_disarm();
                 child_host.child_reaped.store(true, Ordering::Release);
                 child_host.mark_child_waitable();
                 let mut exited = child_host.child_exit.0.lock().unwrap();
@@ -5068,6 +5333,10 @@ mod unix {
         let selected_version = response.selected_version;
         let granted_rights = response.granted_rights;
         let launch_owner = LaunchOwnerConnection::claim(host.clone(), granted_rights);
+        let launch_owner_claimed = launch_owner.claimed;
+        let activation_required = launch_owner_claimed
+            && selected_version >= LAUNCH_ACTIVATION_PROTOCOL_VERSION
+            && !host.launch_owner_stream_ready.load(Ordering::Acquire);
         let viewer_size_acks = hello_frame.flags & FLAG_VIEWER_SIZE_ACKS != 0
             && granted_rights.contains(CapabilityRights::RESIZE);
         let smart_renderer = selected_version >= SMART_RENDERER_PROTOCOL_VERSION
@@ -5076,6 +5345,9 @@ mod unix {
         let mut hello_response = Frame::new(MessageKind::HostHello, response.encode());
         if viewer_size_acks {
             hello_response.flags |= FLAG_VIEWER_SIZE_ACKS;
+        }
+        if activation_required {
+            hello_response.flags |= FLAG_LAUNCH_ACTIVATION_REQUIRED;
         }
         if smart_renderer {
             hello_response.flags |= FLAG_SMART_RENDERER;
@@ -5198,7 +5470,12 @@ mod unix {
                     colors: colors.clone(),
                     pid: host.pid,
                     command: host.command.clone(),
-                    cwd: snapshot_cwd(&term, host.cwd.as_deref()),
+                    cwd: snapshot_cwd(
+                        &term,
+                        host.cwd.as_deref(),
+                        &host.owner_token,
+                        selected_version,
+                    ),
                 },
                 colors,
                 snapshot_sequence,
@@ -5213,10 +5490,12 @@ mod unix {
             let _ = write_frame(&mut stream, &frame);
             return Ok(());
         }
-        // The tap and snapshot boundary are now atomic members of the live
-        // stream. Releasing a deferred fast-exit event here places Exit after
-        // that boundary even if the PTY finished before this connection.
-        launch_owner.stream_ready();
+        // Legacy hosts began reading as soon as the first owner tap joined.
+        // Protocol v4 waits for Activate so public topology and its journal
+        // record commit before the first exact PTY bytes can be observed.
+        if !activation_required {
+            launch_owner.stream_ready();
+        }
         let mut snapshot_frame = Frame::new(MessageKind::Snapshot, encode_snapshot(&snapshot)?);
         snapshot_frame.sequence = snapshot_sequence;
         write_frame(&mut stream, &snapshot_frame)?;
@@ -5233,6 +5512,7 @@ mod unix {
         let mut command_stream = stream.try_clone()?;
         let command_host = host.clone();
         thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
+            let mut detached = false;
             while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
                 // Client-to-host messages currently define no flags and never
                 // participate in the host live-stream sequence.
@@ -5240,6 +5520,16 @@ mod unix {
                     break;
                 }
                 match frame.kind {
+                    MessageKind::Activate => {
+                        if selected_version < LAUNCH_ACTIVATION_PROTOCOL_VERSION
+                            || !launch_owner_claimed
+                            || frame.request_id != 0
+                            || !frame.payload.is_empty()
+                        {
+                            break;
+                        }
+                        command_host.mark_launch_owner_stream_ready();
+                    }
                     MessageKind::Input => {
                         if !granted_rights.contains(CapabilityRights::INPUT) {
                             break;
@@ -5300,6 +5590,9 @@ mod unix {
                         if !granted_rights.contains(CapabilityRights::TERMINATE) {
                             break;
                         }
+                        if launch_owner_claimed {
+                            command_host.mark_launch_owner_stream_ready();
+                        }
                         let receipt_queued = if frame.request_id == 0 {
                             true
                         } else {
@@ -5312,6 +5605,23 @@ mod unix {
                         if !receipt_queued {
                             break;
                         }
+                    }
+                    MessageKind::Detach => {
+                        if !granted_rights.contains(CapabilityRights::TERMINATE)
+                            || frame.request_id == 0
+                        {
+                            break;
+                        }
+                        if !command_host.fence_client_detach(
+                            client,
+                            frame.request_id,
+                            &command_sender,
+                        ) {
+                            break;
+                        }
+                        command_sender.wake_writer();
+                        detached = true;
+                        break;
                     }
                     MessageKind::SetDefaults => {
                         if !granted_rights.contains(CapabilityRights::MINT_CAPABILITY) {
@@ -5421,7 +5731,9 @@ mod unix {
             // Wake a writer that is waiting on an otherwise-empty live-frame
             // channel. The socket is shut down first, so this private wakeup
             // frame can never be mistaken for a sequenced host transition.
-            command_sender.close_and_wake_writer();
+            if !detached {
+                command_sender.close_and_wake_writer();
+            }
             command_host.remove_client(client);
         })?;
         client_setup.disarm();
@@ -5969,6 +6281,7 @@ mod unix {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use cmux_pty::Child;
 
         fn test_kitty_state() -> KittyReplayState {
             KittyReplayState {
@@ -6032,6 +6345,75 @@ mod unix {
             }
         }
 
+        #[derive(Debug)]
+        struct GuardTestChild {
+            kills: Arc<AtomicUsize>,
+        }
+
+        impl ChildKiller for GuardTestChild {
+            fn kill(&mut self) -> std::io::Result<()> {
+                self.kills.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }
+
+            fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {
+                Box::new(Self { kills: Arc::clone(&self.kills) })
+            }
+        }
+
+        impl Child for GuardTestChild {
+            fn try_wait(&mut self) -> std::io::Result<Option<cmux_pty::ExitStatus>> {
+                Ok(Some(cmux_pty::ExitStatus::with_exit_code(0)))
+            }
+
+            fn wait(&mut self) -> std::io::Result<cmux_pty::ExitStatus> {
+                Ok(cmux_pty::ExitStatus::with_exit_code(0))
+            }
+
+            fn process_id(&self) -> Option<u32> {
+                Some(42)
+            }
+        }
+
+        #[test]
+        fn spawned_pty_child_disarm_prevents_late_kill() {
+            let kills = Arc::new(AtomicUsize::new(0));
+            let child = GuardTestChild { kills: Arc::clone(&kills) };
+            let mut guard = SpawnedPtyChild::new(Box::new(child), Some(123));
+            let _ = guard.wait_and_disarm();
+            assert_eq!(guard.process_groups, [None, None]);
+            drop(guard);
+            assert_eq!(kills.load(Ordering::Relaxed), 0);
+        }
+
+        #[test]
+        fn startup_child_cleanup_excludes_host_process_group() {
+            let host_group = unsafe { libc::getpgrp() };
+            let mut signaled = Vec::new();
+            signal_validated_process_groups(
+                [Some(host_group), Some(host_group + 1), Some(0), Some(-1)],
+                host_group,
+                libc::SIGKILL,
+                |group, signal| {
+                    signaled.push((group, signal));
+                    true
+                },
+            );
+            assert_eq!(signaled, vec![(host_group + 1, libc::SIGKILL)]);
+        }
+
+        #[test]
+        fn startup_child_cleanup_reports_group_signal_failure() {
+            let host_group = unsafe { libc::getpgrp() };
+            let all_succeeded = signal_validated_process_groups(
+                [Some(host_group + 1)],
+                host_group,
+                libc::SIGKILL,
+                |_group, _signal| false,
+            );
+            assert!(!all_succeeded);
+        }
+
         fn exited_host_fixture_with_parser_at(
             exit_record_parent: PathBuf,
         ) -> (Arc<HostShared>, Receiver<ParserCommand>) {
@@ -6075,6 +6457,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(true),
                 launch_owner_stream_ready: AtomicBool::new(true),
+                launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
                 active_client_streams: AtomicUsize::new(0),
                 child_exit: (
                     Mutex::new(Some(TerminalExit {
@@ -6164,6 +6547,7 @@ mod unix {
                 dead: AtomicBool::new(false),
                 launch_owner_claimed: AtomicBool::new(false),
                 launch_owner_stream_ready: AtomicBool::new(false),
+                launch_owner_stream_gate: (Mutex::new(()), Condvar::new()),
                 active_client_streams: AtomicUsize::new(0),
                 child_exit: (Mutex::new(None), Condvar::new()),
                 child_waitable: AtomicBool::new(false),
@@ -6437,7 +6821,7 @@ mod unix {
         }
 
         #[test]
-        fn snapshot_payload_matches_the_cross_language_v3_golden_bytes() {
+        fn snapshot_payload_matches_the_cross_language_current_golden_bytes() {
             let snapshot = HostSnapshot {
                 cols: 1,
                 rows: 2,
@@ -6644,6 +7028,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -6696,6 +7081,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -6744,6 +7130,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let peer = thread::spawn(move || {
                 let mut header = [0; crate::terminal_host_protocol::HEADER_LEN];
@@ -7087,22 +7474,25 @@ mod unix {
             prepare_private_dir(endpoint.parent().unwrap()).unwrap();
             let _ = fs::remove_file(&endpoint);
             let listener = UnixListener::bind(&endpoint).unwrap();
-            let stalled = thread::spawn(move || {
-                let (_stream, _) = listener.accept().unwrap();
-                thread::sleep(Duration::from_millis(200));
+            let connect_record = record.clone();
+            let connect_record_path = record_path.clone();
+            let (result_sender, result_receiver) = std::sync::mpsc::channel();
+            let connector = thread::spawn(move || {
+                result_sender
+                    .send(
+                        connect_record_with_timeout(
+                            connect_record,
+                            connect_record_path,
+                            Duration::from_millis(30),
+                        )
+                        .is_err(),
+                    )
+                    .unwrap();
             });
 
-            let started = Instant::now();
-            assert!(
-                connect_record_with_timeout(
-                    record.clone(),
-                    record_path.clone(),
-                    Duration::from_millis(30),
-                )
-                .is_err()
-            );
-            assert!(started.elapsed() < Duration::from_secs(1));
-            stalled.join().unwrap();
+            let (_stalled_stream, _) = listener.accept().unwrap();
+            assert!(result_receiver.recv_timeout(Duration::from_secs(1)).unwrap());
+            connector.join().unwrap();
             let _ = fs::remove_file(endpoint);
             drop(lease);
             assert!(remove_stale_terminal_host_record(&record_path, &record).unwrap());
@@ -7194,6 +7584,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let (release_ack_tx, release_ack_rx) = std::sync::mpsc::channel();
             let resolver = {
@@ -7255,6 +7646,87 @@ mod unix {
             control_responses.fail_all();
 
             assert_eq!(settled_rx.recv_timeout(Duration::from_secs(1)).unwrap(), (7, (9, 18)));
+        }
+
+        #[test]
+        fn detach_fence_queues_prior_source_output_and_removes_the_client() {
+            let host = test_host_shared();
+            let (target_socket, _target_peer) = UnixStream::pair().unwrap();
+            let (target_tx, target_rx) = mpsc_channel();
+            let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
+            host.smart.taps.lock().unwrap().insert(7, target.clone());
+
+            let before = host.smart.publish(Frame::new(MessageKind::Output, b"before".to_vec()));
+            assert!(host.fence_client_detach(7, 42, &target));
+            host.smart.publish(Frame::new(MessageKind::Output, b"after".to_vec()));
+
+            let output = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(output.kind, MessageKind::Output);
+            assert_eq!(output.sequence, before);
+            assert_eq!(output.payload, b"before");
+            let receipt = target_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert_eq!(receipt.kind, MessageKind::DetachAck);
+            assert_eq!(receipt.request_id, 42);
+            assert!(target_rx.try_recv().is_err());
+        }
+
+        #[test]
+        fn detach_fence_reports_a_delayed_receipt_after_output_as_a_failure() {
+            let (record_path, record, lease) = record_fixture("detach-delayed-ack");
+            let root = record_path.parent().unwrap().to_path_buf();
+            let (client, mut host) = UnixStream::pair().unwrap();
+            let control_responses = Arc::new(ControlResponses::new());
+            let attachment = HostAttachment {
+                record,
+                record_path,
+                snapshot: HostSnapshot {
+                    cols: 80,
+                    rows: 24,
+                    cell_pixels: DEFAULT_CELL_PIXELS,
+                    replay: Vec::new(),
+                    kitty_image_aliases: Vec::new(),
+                    kitty_state: test_kitty_state(),
+                    sequence_boundary: 0,
+                    colors: TerminalColorOverrides::default(),
+                    pid: None,
+                    command: Vec::new(),
+                    cwd: None,
+                },
+                protocol_version: PROTOCOL_VERSION,
+                smart_renderer: true,
+                reader: None,
+                writer: Arc::new(Mutex::new(client)),
+                control_responses: control_responses.clone(),
+                next_request: AtomicU64::new(2),
+                viewer_size: Mutex::new(None),
+                launch_process: None,
+                launch_activation_pending: false,
+            };
+            let (output_queued, output_seen) = sync_channel(1);
+            let (release_ack, ack_release) = sync_channel(1);
+            let responder = thread::spawn(move || {
+                let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
+                assert_eq!(request.kind, MessageKind::Detach);
+                let mut output = Frame::new(MessageKind::Output, b"before-timeout".to_vec());
+                output.sequence = 1;
+                write_frame(&mut host, &output).unwrap();
+                output_queued.send(()).unwrap();
+                ack_release.recv().unwrap();
+                let mut response = Frame::new(MessageKind::DetachAck, Vec::new());
+                response.request_id = request.request_id;
+                assert!(!control_responses.resolve(&response));
+            });
+
+            let deadline = Instant::now() + Duration::from_millis(100);
+            let result = attachment.detach_for_daemon_shutdown_until(deadline);
+            output_seen.recv_timeout(Duration::from_secs(1)).unwrap();
+            assert!(result.unwrap_err().to_string().contains("timed out"));
+            release_ack.send(()).unwrap();
+            responder.join().unwrap();
+
+            drop(attachment);
+            drop(lease);
+            let _ = fs::remove_dir_all(root);
         }
 
         #[test]
@@ -7387,6 +7859,7 @@ mod unix {
                 next_request: AtomicU64::new(2),
                 viewer_size: Mutex::new(None),
                 launch_process: None,
+                launch_activation_pending: false,
             };
             let responder = thread::spawn(move || {
                 let request = read_frame(&mut host, MAX_FRAME_PAYLOAD).unwrap().unwrap();
@@ -7640,6 +8113,7 @@ mod unix {
             let attachment = result.expect("legacy fallback did not adopt the live shell");
             assert!(saw_legacy);
             assert!(!attachment.is_smart_renderer());
+            assert!(!attachment.supports_journal_detach_fence());
             assert_eq!(attachment.snapshot.replay, b"legacy host survived");
             drop(attachment);
 
@@ -8797,13 +9271,48 @@ mod unix {
         #[test]
         fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            let marker = format!(
+                "{}{}:/spawn",
+                crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+                encode_hex(owner_token.as_bytes())
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file:///live".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker)
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION),
+                None
+            );
+        }
+
+        #[test]
+        fn snapshot_cwd_uses_legacy_path_for_old_and_unknown_protocols() {
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            for protocol_version in [LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION + 1] {
+                let snapshot = snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version);
+                assert_eq!(snapshot, Some("/spawn".into()));
+                assert_eq!(
+                    crate::platform::snapshot_cwd_to_local_path(snapshot.as_deref().unwrap(), None),
+                    Some(PathBuf::from("/spawn"))
+                );
+            }
         }
 
         #[test]

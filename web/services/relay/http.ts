@@ -1,8 +1,10 @@
 import * as Effect from "effect/Effect";
 
 import {
+  RelayAuthenticationError,
   RelayConfigurationError,
   RelayRateLimitError,
+  type RelayRateLimitSource,
   type RelayServiceError,
 } from "./errors";
 
@@ -22,6 +24,11 @@ export async function runRelayEffect<A, E>(
 export function enforceRelayRateLimit(input: {
   readonly request: Request;
   readonly accountId: string;
+  /**
+   * Override the key sent to Vercel. `null` deliberately omits the override,
+   * making Vercel use the request IP for a cheap pre-auth ingress gate.
+   */
+  readonly rateLimitKey?: string | null;
   /**
    * Optional per-device partition (endpoint id). When present the budget is
    * per account+device, so one storming device cannot starve the account's
@@ -45,17 +52,28 @@ export function enforceRelayRateLimit(input: {
   return Effect.tryPromise({
     try: () => input.check(ruleId, {
       request: input.request,
-      rateLimitKey: input.devicePartition
-        ? `${input.accountId}:${input.devicePartition}`
-        : input.accountId,
+      ...(input.rateLimitKey === null
+        ? {}
+        : {
+          rateLimitKey: input.rateLimitKey ?? (input.devicePartition
+            ? `${input.accountId}:${input.devicePartition}`
+            : input.accountId),
+        }),
     }),
     catch: () => new RelayRateLimitError({ code: "rate_limit_unavailable" }),
   }).pipe(
     Effect.flatMap(({ rateLimited, error }) => {
       if (rateLimited || error === "blocked") {
+        const source: RelayRateLimitSource = input.rateLimitKey === null
+          ? "ingress_ip"
+          : input.devicePartition
+            ? "device_budget"
+            : "account_budget";
+        console.warn("relay.rate_limited", { source });
         const retryAfterSeconds = input.retryAfterSeconds;
         return Effect.fail(new RelayRateLimitError({
           code: "rate_limited",
+          source,
           ...(retryAfterSeconds !== undefined &&
           Number.isSafeInteger(retryAfterSeconds) &&
           retryAfterSeconds >= 1 &&
@@ -84,10 +102,24 @@ export function enforceRelayRateLimit(input: {
 
 export function relayErrorResponse(error: unknown): Response {
   const tag = (error as { _tag?: string } | null)?._tag;
+  if (tag === "RelayAuthenticationError") {
+    const typed = error as RelayAuthenticationError;
+    const rateLimited = typed.code === "rate_limited";
+    const source = rateLimited ? { source: "auth_provider" } : {};
+    console.error("relay.auth.unavailable", { reason: typed.code });
+    return jsonResponse(
+      { error: rateLimited ? "rate_limited" : "authentication_unavailable", ...source },
+      rateLimited ? 429 : 503,
+      typed.retryAfterSeconds === undefined
+        ? undefined
+        : { "retry-after": String(typed.retryAfterSeconds) },
+    );
+  }
   if (tag === "RelayRateLimitError") {
     const code = (error as RelayRateLimitError).code;
+    const limitSource = (error as RelayRateLimitError).source;
     return jsonResponse(
-      { error: code },
+      { error: code, ...(limitSource ? { source: limitSource } : {}) },
       code === "rate_limited" ? 429 : 503,
       code === "rate_limited" &&
       (error as RelayRateLimitError).retryAfterSeconds !== undefined

@@ -115,6 +115,73 @@ struct WorkspaceIsStaleAgentHookBindingTests {
     }
 
     @Test
+    func plainSSHProcessBindingSurvivesATransientMissedProcessScan() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            cwd: "/Users/test",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.reconcileSurfaceResumeBindings(
+            using: .empty,
+            restorableAgentIndex: .empty
+        )
+
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == binding)
+        #expect(
+            workspace.effectiveSurfaceResumeBinding(
+                panelId: panelId,
+                surfaceResumeBindingIndex: .empty
+        ) == binding
+        )
+    }
+
+    @Test
+    func plainSSHProcessBindingIsRetiredAfterTheSSHChildExits() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        // One empty scan is a process-scan hiccup; the second is authoritative
+        // absence after the observed SSH process has ended.
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) != nil)
+        workspace.reconcileSurfaceResumeBindings(using: .empty, restorableAgentIndex: .empty)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
+    }
+
+    @Test
+    func plainSSHProcessBindingIsClearedWhenShellReturnsToPrompt() throws {
+        let workspace = Workspace()
+        defer { workspace.teardownAllPanels() }
+        let panelId = try #require(workspace.focusedPanelId)
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "ssh",
+            command: "'/usr/bin/ssh' 'tinybox'",
+            source: "process-detected",
+            autoResume: true
+        )
+        #expect(workspace.setSurfaceResumeBinding(binding, panelId: panelId))
+
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+        workspace.updatePanelShellActivityState(panelId: panelId, state: .promptIdle)
+        #expect(workspace.surfaceResumeBinding(panelId: panelId) == nil)
+    }
+
+    @Test
     func reconciliationKeepsPiBindingAfterResumeScannerResolvesUUIDToSessionPath() throws {
         let workspace = Workspace()
         let panelId = try #require(workspace.focusedPanelId)

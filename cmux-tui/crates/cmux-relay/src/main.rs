@@ -58,6 +58,10 @@ async fn main() -> anyhow::Result<()> {
                 .await
                 .context("relay server failed");
             cleanup.abort();
+            // `abort` only requests cancellation. Await the handle so the
+            // cleanup task is fully stopped before the runtime begins to
+            // tear down, instead of leaving its final poll implicit.
+            let _ = cleanup.await;
             result
         }
     }

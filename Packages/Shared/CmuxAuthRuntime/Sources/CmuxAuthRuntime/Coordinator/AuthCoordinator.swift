@@ -250,6 +250,25 @@ public final class AuthCoordinator {
         await checkExistingSession()
     }
 
+    /// Supersede parked timed-out auth phases before an explicit interactive
+    /// attempt (a pairing attempt, a tapped retry). One Stack call hung on a
+    /// dead pooled connection times its phase out and dampens it for 30s;
+    /// without this, the very next user action fails in milliseconds with
+    /// ``AuthError/timedOut`` even though a fresh request would succeed. The
+    /// timed-out operation was already cancelled at its deadline and its
+    /// writes are dropped by the sign-in chokepoint, so releasing its slot is
+    /// safe; live operations keep their exclusivity.
+    public func supersedeTimedOutAuthPhases() async {
+        // Both dampers: sign-in exchanges park in the phase registry, and
+        // token-touching work (access-token fetches, session probes) parks in
+        // the coordinator's own timed-out states. Token-touching phases allow
+        // concurrent actives by construction (write safety is generational,
+        // via finishTokenTouchingPhase), so dropping the damper alone is
+        // sufficient there.
+        await phaseTimeoutRegistry.supersedeTimedOutPhases()
+        timedOutTokenTouchingPhaseStates.removeAll()
+    }
+
     // MARK: - Sign-in flows
 
     /// Send a sign-in code to `email`, or run the debug `42` shortcut.
@@ -619,13 +638,21 @@ public final class AuthCoordinator {
         // fetch) must not clear or overwrite this newer session when it
         // resumes. Which publications count as transitions is the caller's
         // declaration — see ``SessionPublication``.
+        let shouldRunPostSignInHook: Bool
         switch publication {
         case .signIn:
             advanceSessionGeneration()
+            shouldRunPostSignInHook = true
         case .revalidation:
-            if !isAuthenticated || currentUser?.id != user.id {
+            let isSessionTransition = !isAuthenticated || currentUser?.id != user.id
+            if isSessionTransition {
                 advanceSessionGeneration()
             }
+            // Foreground and launch revalidation refresh the published user and
+            // teams, but a same-account validation did not establish a new
+            // session. Re-running side effects such as the push-token upload on
+            // every foreground return turns a read into a write storm.
+            shouldRunPostSignInHook = isSessionTransition
         }
         let generation = sessionGeneration
         currentUser = user
@@ -639,6 +666,7 @@ public final class AuthCoordinator {
         // already cleared by it, so skip the signed-in side effects (push
         // token re-upload would re-register the account the user just left).
         guard generation == sessionGeneration else { return }
+        guard shouldRunPostSignInHook else { return }
         // Bound the post-sign-in hook (e.g. push token re-upload) too: it runs
         // while `isLoading` is still true, so an unbounded hook would hold the
         // sign-in spinner after the session is already published. Failure and

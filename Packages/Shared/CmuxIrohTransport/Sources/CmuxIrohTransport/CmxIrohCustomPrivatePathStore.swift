@@ -4,13 +4,22 @@ import Foundation
 
 /// Validated device-local settings for one authenticated Mac.
 public struct CmxIrohCustomPrivatePathConfiguration: Codable, Equatable, Sendable {
+    /// The shared device-plus-build identity for this configuration.
+    public var id: String {
+        CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
+    }
     public let macDeviceID: String
+    public let instanceTag: String?
     public let macDisplayName: String
     public let addresses: [CmxIrohCustomPrivateAddress]
     public let isEnabled: Bool
 
     public init(
         macDeviceID: String,
+        instanceTag: String? = nil,
         macDisplayName: String,
         addresses: [CmxIrohCustomPrivateAddress],
         isEnabled: Bool
@@ -32,7 +41,12 @@ public struct CmxIrohCustomPrivatePathConfiguration: Codable, Equatable, Sendabl
               }) else {
             throw CmxIrohCustomPrivatePathStoreError.invalidConfiguration
         }
-        self.macDeviceID = canonicalDeviceID
+        let identity = CmxMacAppInstanceIdentity(
+            macDeviceID: canonicalDeviceID,
+            instanceTag: instanceTag
+        )
+        self.macDeviceID = identity.macDeviceID
+        self.instanceTag = identity.instanceTag
         self.macDisplayName = displayName
         self.addresses = addresses
         self.isEnabled = isEnabled
@@ -42,6 +56,10 @@ public struct CmxIrohCustomPrivatePathConfiguration: Codable, Equatable, Sendabl
         let container = try decoder.container(keyedBy: CodingKeys.self)
         try self.init(
             macDeviceID: container.decode(String.self, forKey: .macDeviceID),
+            instanceTag: container.decodeIfPresent(
+                String.self,
+                forKey: .instanceTag
+            ),
             macDisplayName: container.decode(String.self, forKey: .macDisplayName),
             addresses: container.decode(
                 [CmxIrohCustomPrivateAddress].self,
@@ -144,7 +162,7 @@ public actor CmxIrohCustomPrivatePathStore {
         let scope = try storageScope(accountID)
         var state = try state(for: scope)
         if let index = state.configurations.firstIndex(where: {
-            $0.macDeviceID == configuration.macDeviceID
+            $0.id == configuration.id
         }) {
             state.configurations[index] = configuration
         } else {
@@ -153,7 +171,7 @@ public actor CmxIrohCustomPrivatePathStore {
             }
             state.configurations.append(configuration)
         }
-        state.configurations.sort { $0.macDeviceID < $1.macDeviceID }
+        state.configurations.sort { $0.id < $1.id }
         state.generation = nextGeneration(state.generation)
         try persist(state, scope: scope)
         states[scope] = state
@@ -162,17 +180,19 @@ public actor CmxIrohCustomPrivatePathStore {
 
     public func remove(
         macDeviceID: String,
+        instanceTag: String? = nil,
         accountID: String
     ) throws -> CmxIrohCustomPrivatePathSnapshot {
-        let canonical = cmxCanonicalDeviceID(
-            macDeviceID.trimmingCharacters(in: .whitespacesAndNewlines)
-        )
+        let requestedID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
         let scope = try storageScope(accountID)
         var state = try state(for: scope)
-        guard state.configurations.contains(where: { $0.macDeviceID == canonical }) else {
+        guard state.configurations.contains(where: { $0.id == requestedID }) else {
             throw CmxIrohCustomPrivatePathStoreError.missingConfiguration
         }
-        state.configurations.removeAll { $0.macDeviceID == canonical }
+        state.configurations.removeAll { $0.id == requestedID }
         state.generation = nextGeneration(state.generation)
         try persist(state, scope: scope)
         states[scope] = state
@@ -182,17 +202,25 @@ public actor CmxIrohCustomPrivatePathStore {
     /// Returns paths only for the exact expected Mac and current account.
     public func enabledPaths(
         forMacDeviceID macDeviceID: String,
+        instanceTag: String? = nil,
         accountID: String
     ) -> [CmxIrohCustomPrivatePathBootstrap] {
+        let requestedID = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        ).id
         guard let scope = try? storageScope(accountID),
               let state = try? state(for: scope),
               let configuration = state.configurations.first(where: {
-                  $0.macDeviceID == cmxCanonicalDeviceID(macDeviceID)
+                  $0.id == requestedID
               }),
               configuration.isEnabled,
               let profile = try? profile(
                   accountScope: scope,
-                  macDeviceID: configuration.macDeviceID
+                  identity: CmxMacAppInstanceIdentity(
+                      macDeviceID: configuration.macDeviceID,
+                      instanceTag: configuration.instanceTag
+                  )
               ) else { return [] }
         return configuration.addresses.compactMap {
             try? CmxIrohCustomPrivatePathBootstrap(
@@ -212,6 +240,7 @@ public actor CmxIrohCustomPrivatePathStore {
         }
         return try CmxIrohCustomPrivatePathConfiguration(
             macDeviceID: draft.macDeviceID,
+            instanceTag: draft.instanceTag,
             macDisplayName: draft.macDisplayName,
             addresses: addresses,
             isEnabled: draft.isEnabled
@@ -235,14 +264,14 @@ public actor CmxIrohCustomPrivatePathStore {
                   record.version == Self.recordVersion,
                   record.generation > 0,
                   record.configurations.count <= Self.maximumConfigurationCount,
-                  Set(record.configurations.map(\.macDeviceID)).count
+                  Set(record.configurations.map(\.id)).count
                     == record.configurations.count else {
                 throw CmxIrohCustomPrivatePathStoreError.invalidStoredConfiguration
             }
             loaded = State(
                 generation: record.generation,
                 configurations: record.configurations.sorted {
-                    $0.macDeviceID < $1.macDeviceID
+                    $0.id < $1.id
                 }
             )
         } else {
@@ -273,7 +302,10 @@ public actor CmxIrohCustomPrivatePathStore {
         where configuration.isEnabled && !configuration.addresses.isEmpty {
             profiles.insert(try profile(
                 accountScope: scope,
-                macDeviceID: configuration.macDeviceID
+                identity: CmxMacAppInstanceIdentity(
+                    macDeviceID: configuration.macDeviceID,
+                    instanceTag: configuration.instanceTag
+                )
             ))
         }
         return CmxIrohCustomPrivatePathSnapshot(
@@ -285,10 +317,23 @@ public actor CmxIrohCustomPrivatePathStore {
 
     private func profile(
         accountScope: String,
-        macDeviceID: String
+        identity: CmxMacAppInstanceIdentity
     ) throws -> CmxIrohNetworkProfileKey {
+        let namespace: String
+        let identityComponent: String
+        if identity.instanceTag == nil {
+            // Retain the original profile authority for persisted v1
+            // device-only configurations across the build-scoped upgrade.
+            namespace = "custom-private-path-v1"
+            identityComponent = identity.macDeviceID
+        } else {
+            namespace = "custom-private-path-v2"
+            identityComponent = identity.id
+        }
         let digest = SHA256.hash(
-            data: Data("custom-private-path-v1\0\(accountScope)\0\(macDeviceID)".utf8)
+            data: Data(
+                "\(namespace)\0\(accountScope)\0\(identityComponent)".utf8
+            )
         )
         var encoded = [UInt8]()
         encoded.reserveCapacity(SHA256.Digest.byteCount * 2)

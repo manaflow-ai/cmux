@@ -52,16 +52,16 @@ summary = json.loads(
         ]
     )
 )
-expected = 5
+expected = 6
 observed = int(summary.get("totalTestCount", 0))
 passed = int(summary.get("passedTests", 0))
 failed = int(summary.get("failedTests", 0))
 if summary.get("result") != "Passed" or observed != expected or passed != expected or failed:
     raise SystemExit(
-        "Mac compatibility gate did not execute exactly five passing tests: "
+        "Mac compatibility gate did not execute exactly six passing tests: "
         f"result={summary.get('result')} total={observed} passed={passed} failed={failed}"
     )
-print("Mac compatibility gate: 5/5 passed")
+print("Mac compatibility gate: 6/6 passed")
 PY
 }
 
@@ -104,10 +104,11 @@ run_app_host_gate
 
 run_package_gate \
   Packages/iOS/CmuxMobileShell \
-  'ReconnectRouteSelectionTests/(legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP|legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate|rejectedIrohReconnectNeverDowngradesToRawTailscale|storedReconnectPinsIrohAndExcludesRawFallbacks|switchToLegacySavedMacUpgradesFromRegistryWithoutRescan)' \
-  5 \
+  'ReconnectRouteSelectionTests/(legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP|legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate|preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade|rejectedIrohReconnectNeverDowngradesToRawTailscale|storedReconnectPinsIrohAndExcludesRawFallbacks|switchToLegacySavedMacUpgradesFromRegistryWithoutRescan)' \
+  6 \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/legacyMacWithoutIrohFailsClosedInsteadOfSendingBearerOverTCP()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/legacySavedMacWithoutPublishedIrohIsRetainedAndRequestsMacUpdate()' \
+  'CmuxMobileShellTests.ReconnectRouteSelectionTests/preIrohPairingContinuesOverItsExactTailscaleRouteAfterIOSUpgrade()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/rejectedIrohReconnectNeverDowngradesToRawTailscale()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/storedReconnectPinsIrohAndExcludesRawFallbacks()' \
   'CmuxMobileShellTests.ReconnectRouteSelectionTests/switchToLegacySavedMacUpgradesFromRegistryWithoutRescan()'

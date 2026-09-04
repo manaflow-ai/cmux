@@ -26,4 +26,15 @@ describe("Next monorepo module boundary", () => {
       MANAGED_IROH_RELAY_CATALOG.relays.map((relay) => relay.url),
     );
   });
+
+  test("enables the Next 16.3 instant navigation stack", () => {
+    expect(nextConfig.cacheComponents).toBeTrue();
+    expect(nextConfig.partialPrefetching).toBeTrue();
+    expect(nextConfig.experimental?.instantInsights).toEqual({
+      validationLevel: "warning",
+    });
+    expect(
+      nextConfig.experimental?.exposeTestingApiInProductionBuild,
+    ).toBeFalse();
+  });
 });

@@ -35,6 +35,11 @@ struct OnboardingBalancedText: UIViewRepresentable {
     let role: Role
     let alignment: TextAlignment
     let maximumNumberOfLines: Int?
+    /// Whether the label claims its full line-limit height even when the text
+    /// needs fewer lines. Pages whose copy shares a screen-filling sibling
+    /// (the onboarding visual takes the remaining height) reserve the space so
+    /// a one-line body and a two-line body produce identically sized visuals.
+    let reservesMaximumLines: Bool
 
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -42,12 +47,14 @@ struct OnboardingBalancedText: UIViewRepresentable {
         _ text: String,
         role: Role,
         alignment: TextAlignment,
-        maximumNumberOfLines: Int? = nil
+        maximumNumberOfLines: Int? = nil,
+        reservesMaximumLines: Bool = false
     ) {
         self.text = text
         self.role = role
         self.alignment = alignment
         self.maximumNumberOfLines = maximumNumberOfLines
+        self.reservesMaximumLines = reservesMaximumLines
     }
 
     func makeUIView(context: Context) -> OnboardingBalancedLabel {
@@ -115,7 +122,14 @@ struct OnboardingBalancedText: UIViewRepresentable {
         label.balancedDrawingWidth = balancedSize.width < width
             ? balancedSize.width
             : nil
-        return CGSize(width: width, height: balancedSize.height)
+        var height = balancedSize.height
+        if reservesMaximumLines, let maximumNumberOfLines, maximumNumberOfLines > 0 {
+            height = max(
+                height,
+                ceil(label.font.lineHeight * CGFloat(maximumNumberOfLines)) + 1
+            )
+        }
+        return CGSize(width: width, height: height)
     }
 
     static func balancedSize(

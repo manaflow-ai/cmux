@@ -47,18 +47,18 @@ unknown ownership signal rejects the action instead of selecting either route.
 
 ## Required vNext primitives
 
-The implemented v10 inventory is complete as a description of current wire behavior. The following primitives are required before the affected feature family can claim portable automation completeness.
+The implemented v12 inventory is complete as a description of current wire behavior. The machine-readable `secondary_protocols.terminal_host_v1` key remains a stable legacy alias for the terminal-host-v4 daemon message catalog. The protocol-domain row and [`terminal-host.md`](terminal-host.md) describe that daemon v4 contract; the current cross-language renderer is v3. Renderer attach to a newly launched host is not a supported route until renderer v4 support or explicit mutually supported version negotiation exists. The following primitives are required before the affected feature family can claim portable automation completeness.
 
 | Feature family | Current route | Required addition |
 | --- | --- | --- |
 | Stream lifecycle | Repeated `subscribe` and `attach-surface` registrations share a connection and have no public identity | Client-generated `stream_id`, echoed events, and idempotent `cancel-stream` |
-| Event recovery | Snapshot plus coarse invalidation; overflow loses the cursor | `generation`, sequence, cursor resume, replay gap, event filters, and heartbeat |
+| Event recovery | Local consumers can replay or tail the session journal with durable cursors, structured filters, and compiled regex; remote consumers receive token-gated metadata with redaction | Classify remaining transient producers and expose retained-range discovery |
 | Mutating retries | Workspace and durable-terminal mutations have partial mutation ledgers; some legacy acknowledgements do not prove a commit | One operation identity and receipt format for every side effect; success must identify committed, changed, or no-op state |
 | Errors | Response `error` is one string | `{code,message,details,retryable}` with stable codes |
 | TUI presentation | State stays inside one frontend | `register-frontend`, `describe-frontend-actions`, `invoke-frontend-action`, and `frontend-action-result` |
 | PTY keyboard | `send-key` emits semantic keyboard input for PTYs | Preserve this route and add negotiated key capability discovery |
 | PTY mouse and focus | Native TUI encodes mouse/focus bytes locally | `send-mouse` and `send-focus`, with current terminal modes in render state |
-| Terminal-host resize | The host produces a length-prefixed replay, while the current consumer includes that length word in replay bytes | Repair the decoder, add producer-consumer and cross-language fixtures, then promote terminal-host v1 from partial |
+| Terminal-host resize | The daemon-side v4 decoder accepts v1-v4 and keeps the v3 payload unchanged. The current renderer defaults to protocol v3 and decodes negotiated v1-v3 payload layouts, including the length-prefixed replay and version-specific Kitty state. Newly launched hosts require v4 in `CapabilityStore::accept`; the minted one-use capability token is versionless, and no grant API exposes mutually supported downgrade negotiation, so renderer attach to those hosts is unsupported | Add renderer v4 support or explicit mutually supported grant negotiation, then keep producer-consumer and cross-language fixtures current and complete typed SDK coverage before promoting this family to complete |
 | PTY selection | Native selection is frontend-local and `copy selection` cannot reconstruct it remotely | `extract-text` by absolute range; optional frontend-local selection adapter |
 | Terminal search | Clients page scrollback and search themselves | Cursor-based `search-scrollback` with revision and match ranges |
 | Process outcome | `terminal.process.get`, `terminal.wait_exit`, and `TerminalSnapshot.exit` expose one durable child outcome per terminal | Separate execution IDs and lifecycle events for multiple sequential processes in one terminal |
@@ -67,9 +67,9 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Browser lifecycle | Browser success is asynchronous and CDP failures arrive later | Correlated operation ids, target/crash/dialog/download events, viewport revision, and optional raw CDP profile |
 | Client identity | `list-clients` exposes transient connection ids | `hello` or `whoami` with client instance, authenticated principal, rights, credential expiry, and protocol selection |
 | Pairing | Trusted Unix clients approve requests; request ids are JSON numbers | Origin allowlist, Origin-aware challenges, JavaScript-safe string ids, and typed SDK callbacks |
-| Agents | One in-memory record per surface, polling only | Authenticated producer context, durable agent ids, multiple agents, revision/history, leases, and transition events |
+| Agents | Explicit reports have durable journal history, but the projection still stores one current agent per terminal | Authenticated adapter context, durable agent ids, multiple agents, root leases, continuations, and semantic transition events |
 | Notifications | Creation and one unread marker per inactive surface | Durable records, list/get/read/unread/dismiss/clear/open commands, counts, and lifecycle events |
-| Hooks and feeds | Hook config is proposed but rejected by the current strict config parser | Versioned manifests, bounded execution records, feed operations, loop prevention, and events |
+| Hooks and feeds | Versioned producer and hook manifests, schema-validated ingress, durable cursors, receipts, bounded retries, and causal loop prevention are implemented | Add declarative feed projections and stronger principal-scoped permissions |
 | Config | Local JSON contains many unversioned leaves | Versioned JSON Schema, ownership, hot/restart metadata, `get-config`, `validate-config`, `patch-config`, and `config-changed` |
 | Plugins | Trusted executable sidebar plugin is implemented | Manifest v1, contribution points, permissions, trust decisions, transactional install/update/remove, and typed management |
 | File sidebar | Native TUI reads the host filesystem directly | Classify as local-only, or add a separately permissioned list/stat/read/watch filesystem capability |
@@ -80,7 +80,7 @@ The implemented v10 inventory is complete as a description of current wire behav
 | Host terminal integration | OSC colors, clipboard, pointer shape, graphics, and cell-pixel probing are local side channels | Negotiated host capabilities with ownership, fallback, size, and delivery-result contracts |
 | Localization | Native English/Japanese catalogs own part of the chrome | Stable message keys, locale precedence, catalog completeness checks, and frontend-local rendering rules |
 | Diagnostics and retention | Transient status plus local debug dumps and bounded subprocess stderr | Permissioned, redacted records with bounds, retention, export, and explicit sensitive-data warnings |
-| Session restore/import | SQLite registries and terminal-host adoption restore identity and processes, not exact live topology | Versioned whole-session export/import with topology, process, projection, compatibility, and secret-exclusion rules |
+| Session restore/import | Versioned checkpoints capture projections and content-addressed terminal replay; a pure reducer previews checkpoint-plus-tail restoration; immutable segments preserve sealed prefixes | Apply reduced models live, add continuous content offsets, process and agent continuation policy, export/import, and secret-exclusion rules |
 | Distribution identity | Binary, protocol, SDK, and registry packages version independently | One support matrix defining version relationships, platform floors, package namespaces, and compatibility guarantees |
 | Window integration | Window title requests and frontend projections cover only part of host-window state | Frontend-owned window schema and actions for create, close, focus, move, size, and host capability failures |
 
@@ -101,7 +101,7 @@ The inventory assigns each command to one disjoint authority group. Generated SD
 | `local-admin` | `control` plus the `local-admin` group on a trusted Unix-classified transport, including the current stdio relay |
 | `provider-authority` | `control` plus the `provider-authority` group after separate authority authentication |
 | `machine-provider` | Separate provider v0/v1 client and server types |
-| `terminal-renderer` | Separate terminal-host v1 frame types with a minted capability |
+| `terminal-renderer` | Separate terminal-host frame types with a minted capability. The minted one-use token is versionless; the host handshake selects a version, and the current remote renderer accepts v1-v3 only. Newly launched hosts select v4, outside that supported range, so this profile is partial and does not advertise attach to newly launched hosts until renderer v4 support or explicit mutually supported version negotiation exists |
 
 An SDK must refuse a profile when the selected transport cannot satisfy its trust boundary.
 
@@ -111,8 +111,14 @@ Each implemented command needs success, invalid request, target-not-found, and n
 
 Feature-family `wire_status` records whether a current transport exists. `programmability` records portable typed SDK and conformance completeness. This distinction prevents a live raw command, such as browser control, from being reported as complete while language clients remain uneven.
 
-The initial inventory gate prevents undocumented runtime drift. It does not claim that the current 11 shared fixtures cover all 83 commands. Fixture coverage becomes a required per-command field when deterministic schema-driven generation replaces the current prompt-based binding script.
+The initial inventory gate prevents undocumented runtime drift. It does not claim
+that the current 11 shared fixtures cover every command in the inventory.
+Fixture coverage becomes a required per-command field when deterministic
+schema-driven generation replaces the current prompt-based binding script.
 
-## Pending protocol heads
+## Protocol head history
 
-The inventory is based on `main`. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698) adds clear-history and structured shortcut work and remains `pending` in `inventory.json`. Per-surface client sizing landed with protocol 10 and is part of the implemented inventory.
+The inventory is based on `main`. [PR 8698](https://github.com/manaflow-ai/cmux/pull/8698)
+merged on 2026-07-27 and its clear-history and structured shortcut work is now
+represented in the implemented command and action inventory. Per-surface client
+sizing landed with protocol 10 and remains part of the implemented inventory.

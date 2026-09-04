@@ -15,6 +15,7 @@ extension CmxIrohClientRuntime {
         let expectation = try CmxIrohLocalBindingExpectation(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
             tag: configuration.tag,
             platform: .ios,
             endpointID: expectedEndpointID,
@@ -101,6 +102,7 @@ extension CmxIrohClientRuntime {
         )
         let prepared = try signer.prepare(payload: payload)
         let registration: CmxIrohRegistrationResponse?
+        var registrationFailure: (any Error)?
         do {
             registration = try await broker.register(prepared: prepared, signer: signer)
         } catch {
@@ -108,6 +110,7 @@ extension CmxIrohClientRuntime {
                 // Registration backpressure blocks mutation, while a fresh
                 // authenticated discovery can still confirm an existing tuple.
                 registration = nil
+                registrationFailure = error
             } else {
                 guard !prefetchedDiscoveryRejectedCachedBinding,
                       Self.recoversWithCachedPolicy(error),
@@ -130,12 +133,38 @@ extension CmxIrohClientRuntime {
         if let registration, !expectation.matches(registration.binding) {
             throw CmxIrohClientRuntimeError.invalidLocalBinding
         }
+        if registration == nil,
+           !(await broker.hasBindingAuthorization()) {
+            // No registration response means this broker instance did not get
+            // a chance to install fresh proof. Do not drain revocations or
+            // issue namespaced discovery requests without persisted proof.
+            throw registrationFailure
+                ?? CmxIrohTrustBrokerClientError.invalidAuthentication
+        }
         if registration != nil {
             lastRegistrationRefreshState = refreshState
         }
+        let revokedPendingBinding: Bool
+        let activeBindingID: String?
+        if let registration {
+            activeBindingID = registration.binding.bindingID
+        } else {
+            activeBindingID = await broker.bindingAuthorizationID()
+        }
+        guard let activeBindingID else {
+            throw CmxIrohTrustBrokerClientError.invalidAuthentication
+        }
+        revokedPendingBinding = try await pendingRevocations.reconcilePending(
+            accountID: configuration.accountID,
+            beforeRegisteringTag: configuration.tag,
+            activeBindingID: activeBindingID,
+            using: broker
+        )
+        try requireCurrent(revision)
         let discovery: CmxIrohDiscoveryResponse
         do {
-            if let embedded = registration?.discovery,
+            if !revokedPendingBinding,
+               let embedded = registration?.discovery,
                registration?.embeddedDiscoveryComplete == true {
                 guard let snapshotRevision = embedded.revision,
                       let registrationRevision = registration?.revision,
@@ -264,6 +293,7 @@ extension CmxIrohClientRuntime {
         return try CmxIrohRegistrationPayload(
             deviceID: configuration.deviceID,
             appInstanceID: configuration.appInstanceID,
+            clientNamespace: configuration.clientNamespace,
             tag: configuration.tag,
             platform: .ios,
             displayName: configuration.displayName,
@@ -287,12 +317,6 @@ extension CmxIrohClientRuntime {
     }
 
     func preparePolicyResolution(revision: UInt64) async throws {
-        try await pendingRevocations.revokePending(
-            accountID: configuration.accountID,
-            beforeRegisteringTag: configuration.tag,
-            using: broker
-        )
-        try requireCurrent(revision)
         try await broker.preflight(operation: .discovery)
         try requireCurrent(revision)
     }
@@ -367,6 +391,7 @@ extension CmxIrohClientRuntime {
                 offlinePolicy: offlinePolicy,
                 lanFallback: lanFallback,
                 customPrivateFallback: customPrivateFallback,
+                diagnostics: diagnosticLog,
                 verifiedDiscovery: policy.discovery,
                 now: now
             )

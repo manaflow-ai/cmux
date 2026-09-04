@@ -41,6 +41,12 @@ actor RoutingHostRouter {
         var surfaceID: String
         var text: String
     }
+    struct AttachmentUploadRecord: Sendable {
+        var fileName: String
+        var offset: Int
+        var last: Bool
+        var totalBytes: Int
+    }
     struct WorkspaceCreateRecord: Sendable, Equatable {
         var groupID: String?
         var title: String?
@@ -51,6 +57,8 @@ actor RoutingHostRouter {
     }
     private(set) var pasteImages: [PasteImageRecord] = []
     private(set) var pastes: [PasteRecord] = []
+    private(set) var attachmentUploads: [AttachmentUploadRecord] = []
+    private var rejectAttachmentUpload = false
     let terminalInputRecorder = RoutingTerminalInputRecorder()
     private(set) var directorySearchQueries: [String] = []
     private(set) var dismisses: [(notificationIDs: [String], clientID: String?)] = []
@@ -71,14 +79,23 @@ actor RoutingHostRouter {
     private(set) var directoryListRequests: [(path: String, offset: Int, limit: Int)] = []
     private var directoryListError: (code: String?, message: String)?
     private var directorySearchError: (code: String?, message: String)?
+    private var taskModelsByProvider: [String: [MobileTaskAgentModel]] = [:]
+    private var taskModelListProviders: [String] = []
+    private var holdTaskModelList = false
+    private var taskModelListHeld = false
+    private var taskModelListContinuation: CheckedContinuation<Void, Never>?
+    private var taskModelListReachedWaiters: [CheckedContinuation<Void, Never>] = []
     private var holdFirstWorkspaceCreate = false
     private var firstWorkspaceCreateHeld = false
     private var firstWorkspaceCreateContinuation: CheckedContinuation<Void, Never>?
     private var firstWorkspaceCreateReachedWaiters: [CheckedContinuation<Void, Never>] = []
+    private var createdTerminalExists = false
+    private var terminalCreateWaiters: [CheckedContinuation<Void, Never>] = []
 
     static let workspaceID = "ws-route"
     static let terminalA = "term-route-a"
     static let terminalB = "term-route-b"
+    static let createdTerminal = "term-route-created"
 
     /// Reject every terminal.paste_image with an error frame, modeling a host
     /// that cannot accept the image (the composer must keep the attachment).
@@ -113,6 +130,11 @@ actor RoutingHostRouter {
         continuation?.resume()
     }
 
+    func awaitTerminalCreateRequested() async {
+        if createdTerminalExists { return }
+        await withCheckedContinuation { terminalCreateWaiters.append($0) }
+    }
+
     func setRejectWorkspaceCreate(_ reject: Bool) {
         rejectWorkspaceCreate = reject
     }
@@ -141,6 +163,28 @@ actor RoutingHostRouter {
         hostCapabilities = capabilities
     }
 
+    func setTaskModels(
+        _ models: [MobileTaskAgentModel],
+        provider: MobileTaskAgentProvider
+    ) {
+        taskModelsByProvider[provider.rawValue] = models
+    }
+
+    func setHoldTaskModelList(_ hold: Bool) {
+        holdTaskModelList = hold
+    }
+
+    func awaitTaskModelListReached() async {
+        if taskModelListHeld { return }
+        await withCheckedContinuation { taskModelListReachedWaiters.append($0) }
+    }
+
+    func releaseTaskModelList() {
+        let continuation = taskModelListContinuation
+        taskModelListContinuation = nil
+        continuation?.resume()
+    }
+
     func setHoldFirstWorkspaceCreate(_ hold: Bool) {
         holdFirstWorkspaceCreate = hold
     }
@@ -162,7 +206,16 @@ actor RoutingHostRouter {
 
     func recordedPasteImages() -> [PasteImageRecord] { pasteImages }
     func recordedPastes() -> [PasteRecord] { pastes }
+    func recordedAttachmentUploads() -> [AttachmentUploadRecord] { attachmentUploads }
+
+    /// Reject every mobile.task.attachment.upload with an error frame, modeling
+    /// a host that cannot store the file (the composer must keep the chip and
+    /// leave the text unsent).
+    func setRejectAttachmentUpload(_ reject: Bool) {
+        rejectAttachmentUpload = reject
+    }
     func recordedDirectorySearchQueries() -> [String] { directorySearchQueries }
+    func recordedTaskModelListProviders() -> [String] { taskModelListProviders }
     func recordedDirectoryListRequests() -> [(path: String, offset: Int, limit: Int)] {
         directoryListRequests
     }
@@ -190,6 +243,11 @@ actor RoutingHostRouter {
         var directoryPath: String?
         var directoryOffset: Int?
         var directoryLimit: Int?
+        var provider: String?
+        var fileName: String?
+        var uploadOffset: Int?
+        var uploadLast: Bool?
+        var uploadTotalBytes: Int?
     }
 
     func response(_ info: RequestInfo) async -> Data? {
@@ -197,32 +255,13 @@ actor RoutingHostRouter {
         let id = info.id
         switch method {
         case "workspace.list", "mobile.workspace.list":
-            return try? Self.resultFrame(id: id, result: [
-                "workspaces": [
-                    [
-                        "id": Self.workspaceID,
-                        "title": "Routing Workspace",
-                        "current_directory": "/tmp/route",
-                        "is_selected": true,
-                        "terminals": [
-                            [
-                                "id": Self.terminalA,
-                                "title": "A",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": true,
-                            ],
-                            [
-                                "id": Self.terminalB,
-                                "title": "B",
-                                "current_directory": "/tmp/route",
-                                "is_ready": true,
-                                "is_focused": false,
-                            ],
-                        ],
-                    ],
-                ],
-            ])
+            return try? workspaceListFrame(id: id)
+        case "terminal.create":
+            createdTerminalExists = true
+            let waiters = terminalCreateWaiters
+            terminalCreateWaiters = []
+            for waiter in waiters { waiter.resume() }
+            return try? workspaceListFrame(id: id, createdTerminalID: Self.createdTerminal)
         case "mobile.host.status":
             return try? Self.resultFrame(id: id, result: [
                 "terminal_fidelity": "render_grid",
@@ -349,6 +388,40 @@ actor RoutingHostRouter {
                 "total_count": allEntries.count,
                 "next_offset": end < allEntries.count ? end : NSNull() as Any,
             ])
+        case "mobile.task.models.list":
+            let provider = info.provider ?? ""
+            taskModelListProviders.append(provider)
+            if holdTaskModelList {
+                taskModelListHeld = true
+                let reachedWaiters = taskModelListReachedWaiters
+                taskModelListReachedWaiters = []
+                for waiter in reachedWaiters { waiter.resume() }
+                await withCheckedContinuation { taskModelListContinuation = $0 }
+            }
+            let models: [[String: Any]] = taskModelsByProvider[provider, default: []].map { model in
+                var object: [String: Any] = [
+                    "id": model.id,
+                    "display_name": model.displayName,
+                    "efforts": model.efforts.map { effort in
+                        var effortObject: [String: Any] = [
+                            "id": effort.id,
+                            "display_name": effort.displayName,
+                        ]
+                        if let description = effort.description {
+                            effortObject["description"] = description
+                        }
+                        return effortObject
+                    },
+                ]
+                if let defaultEffortID = model.defaultEffortID {
+                    object["default_effort_id"] = defaultEffortID
+                }
+                return object
+            }
+            return try? Self.resultFrame(id: id, result: [
+                "source": "discovered",
+                "models": models,
+            ])
         case "terminal.paste_image":
             let surfaceID = info.surfaceID ?? ""
             let format = info.imageFormat ?? ""
@@ -370,6 +443,24 @@ actor RoutingHostRouter {
             let text = info.text ?? ""
             pastes.append(PasteRecord(surfaceID: surfaceID, text: text))
             return try? Self.resultFrame(id: id, result: [:])
+        case "mobile.task.attachment.upload":
+            let fileName = info.fileName ?? ""
+            let last = info.uploadLast ?? false
+            let totalBytes = info.uploadTotalBytes ?? 0
+            attachmentUploads.append(AttachmentUploadRecord(
+                fileName: fileName,
+                offset: info.uploadOffset ?? 0,
+                last: last,
+                totalBytes: totalBytes
+            ))
+            if rejectAttachmentUpload {
+                return try? Self.errorFrame(id: id, message: "attachment upload rejected")
+            }
+            var result: [String: Any] = ["received_bytes": totalBytes]
+            if last {
+                result["path"] = "/tmp/uploads/\(fileName)"
+            }
+            return try? Self.resultFrame(id: id, result: result)
         case "terminal.input":
             return await terminalInputResponse(info)
         case "notification.dismiss":
@@ -394,6 +485,47 @@ actor RoutingHostRouter {
         default:
             return try? Self.errorFrame(id: id, message: "Unexpected method \(method ?? "nil")")
         }
+    }
+
+    private func workspaceListFrame(id: String?, createdTerminalID: String? = nil) throws -> Data {
+        var terminals: [[String: Any]] = [
+            [
+                "id": Self.terminalA,
+                "title": "A",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": true,
+            ],
+            [
+                "id": Self.terminalB,
+                "title": "B",
+                "current_directory": "/tmp/route",
+                "is_ready": true,
+                "is_focused": false,
+            ],
+        ]
+        if createdTerminalExists {
+            terminals.append([
+                "id": Self.createdTerminal,
+                "title": "Created",
+                "current_directory": "/tmp/route",
+                "is_ready": false,
+                "is_focused": false,
+            ])
+        }
+        var result: [String: Any] = [
+            "workspaces": [[
+                "id": Self.workspaceID,
+                "title": "Routing Workspace",
+                "current_directory": "/tmp/route",
+                "is_selected": true,
+                "terminals": terminals,
+            ]],
+        ]
+        if let createdTerminalID {
+            result["created_terminal_id"] = createdTerminalID
+        }
+        return try Self.resultFrame(id: id, result: result)
     }
 
     static func resultFrame(id: String?, result: [String: Any]) throws -> Data {
@@ -477,7 +609,12 @@ private actor RoutingTransport: CmxByteTransport {
                 query: params?["query"] as? String,
                 directoryPath: params?["path"] as? String,
                 directoryOffset: params?["offset"] as? Int,
-                directoryLimit: params?["limit"] as? Int
+                directoryLimit: params?["limit"] as? Int,
+                provider: params?["provider"] as? String,
+                fileName: params?["file_name"] as? String,
+                uploadOffset: params?["offset"] as? Int,
+                uploadLast: params?["last"] as? Bool,
+                uploadTotalBytes: params?["total_bytes"] as? Int
             )
             Task { [router, weak self] in
                 guard let response = await router.response(info) else {

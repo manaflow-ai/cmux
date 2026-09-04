@@ -1,8 +1,6 @@
 import { runVmAlertChecks } from "../../../../services/observability/vmAlerts";
 import { jsonResponse } from "../../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   const cronSecret = process.env.CRON_SECRET?.trim();
@@ -16,5 +14,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const checks = await runVmAlertChecks();
-  return jsonResponse({ checks });
+  // Top-level `configured` makes a sink-less production deployment visible to
+  // anything scraping the cron response, not only readers of the summary.
+  return jsonResponse({ configured: checks.alertSink.configured, checks });
 }

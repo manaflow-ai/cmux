@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "cc0bb86c58cfcbf271fe3380614f198fe15fa25b62972bf0cf082f5495c839ca",
+  "catalog_sha256": "2479d038387ac83af736875b3314a4b33d867243191a50bab477d0a723bc7ab0",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -175,6 +175,39 @@
     "session.get": {
       "class": "read"
     },
+    "session.journal.append": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.create": {
+      "class": "mutation"
+    },
+    "session.journal.checkpoint.list": {
+      "class": "read"
+    },
+    "session.journal.hook.list": {
+      "class": "read"
+    },
+    "session.journal.hook.put": {
+      "class": "mutation"
+    },
+    "session.journal.producer.list": {
+      "class": "read"
+    },
+    "session.journal.producer.put": {
+      "class": "mutation"
+    },
+    "session.journal.restore.preview": {
+      "class": "read"
+    },
+    "session.journal.segment.list": {
+      "class": "read"
+    },
+    "session.journal.segment.seal": {
+      "class": "mutation"
+    },
+    "session.journal.subscribe": {
+      "class": "stream_open"
+    },
     "session.list": {
       "class": "read"
     },
@@ -282,6 +315,9 @@
     },
     "terminal.move": {
       "class": "mutation"
+    },
+    "terminal.output_read": {
+      "class": "read"
     },
     "terminal.process.get": {
       "class": "read"

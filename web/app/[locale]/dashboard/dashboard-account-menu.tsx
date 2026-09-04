@@ -5,7 +5,8 @@ import { UserAvatar, useUser } from "@stackframe/stack";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
-import { Link } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
+import { clearCoderouterOrganizationScope } from "@/services/coderouter/organizationScope";
 
 const menuItemClass =
   "flex min-h-9 w-full cursor-default select-none items-center gap-2 px-2.5 py-2 text-left text-sm text-foreground no-underline outline-none data-[highlighted]:bg-code-bg";
@@ -13,6 +14,7 @@ const menuItemClass =
 export function DashboardAccountMenu() {
   const t = useTranslations("dashboard.accountMenu");
   const locale = useLocale();
+  const router = useRouter();
   const user = useUser({ or: "return-null" });
   const [signOutPending, setSignOutPending] = useState(false);
   const [signOutError, setSignOutError] = useState(false);
@@ -32,66 +34,70 @@ export function DashboardAccountMenu() {
   }
 
   return (
-    <Menu.Root>
-      <Menu.Trigger
-        className="flex min-w-0 flex-1 items-center gap-2.5 px-1.5 py-1 text-left outline-none hover:bg-code-bg focus-visible:bg-code-bg"
-        aria-label={t("label")}
-      >
-        <UserAvatar size={24} user={user} />
-        <span className="hidden min-w-0 flex-1 truncate font-medium sm:block">
-          {user.displayName || user.primaryEmail}
-        </span>
-        <ChevronsUpDown />
-      </Menu.Trigger>
-      <Menu.Portal>
-        <Menu.Positioner side="top" align="start" sideOffset={8} className="z-50">
-          <Menu.Popup className="w-52 border border-border bg-background p-1 text-foreground shadow-xl shadow-black/10 outline-none">
-            <div className="border-b border-border px-2.5 py-2">
-              <div className="truncate text-sm font-medium">
-                {user.displayName || user.primaryEmail}
+    <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <Menu.Root>
+        <Menu.Trigger
+          className="flex w-full min-w-0 items-center gap-2.5 px-1.5 py-1 text-left outline-none hover:bg-code-bg focus-visible:bg-code-bg"
+          aria-label={t("label")}
+        >
+          <UserAvatar size={24} user={user} />
+          <span className="hidden min-w-0 flex-1 truncate font-medium sm:block">
+            {user.displayName || user.primaryEmail}
+          </span>
+          <ChevronsUpDown />
+        </Menu.Trigger>
+        <Menu.Portal>
+          <Menu.Positioner side="top" align="start" sideOffset={8} className="z-50">
+            <Menu.Popup className="w-52 border border-border bg-background p-1 text-foreground shadow-xl shadow-black/10 outline-none">
+              <div className="border-b border-border px-2.5 py-2">
+                <div className="truncate text-sm font-medium">
+                  {user.displayName || user.primaryEmail}
+                </div>
+                {user.displayName ? (
+                  <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
+                ) : null}
               </div>
-              {user.displayName ? (
-                <div className="truncate text-xs text-muted">{user.primaryEmail}</div>
+              <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
+                <SettingsIcon />
+                <span>{t("settings")}</span>
+              </Menu.Item>
+              <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
+                <BillingIcon />
+                <span>{t("billing")}</span>
+              </Menu.Item>
+              <Menu.Separator className="mx-1 my-1 h-px bg-border" />
+              <Menu.Item
+                className={`${menuItemClass} text-red-600 dark:text-red-400`}
+                disabled={signOutPending}
+                onClick={async (event) => {
+                  event.preventDefault();
+                  if (signOutPending) return;
+                  setSignOutPending(true);
+                  setSignOutError(false);
+                  try {
+                    await user.signOut();
+                    clearCoderouterOrganizationScope();
+                    router.replace("/");
+                    router.refresh();
+                  } catch {
+                    setSignOutPending(false);
+                    setSignOutError(true);
+                  }
+                }}
+              >
+                <SignOutIcon />
+                <span>{signOutPending ? t("signingOut") : t("signOut")}</span>
+              </Menu.Item>
+              {signOutError ? (
+                <p role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
+                  {t("signOutError")}
+                </p>
               ) : null}
-            </div>
-            <Menu.Item render={<Link href="/dashboard/team" />} className={menuItemClass}>
-              <SettingsIcon />
-              <span>{t("settings")}</span>
-            </Menu.Item>
-            <Menu.Item render={<Link href="/dashboard/billing" />} className={menuItemClass}>
-              <BillingIcon />
-              <span>{t("billing")}</span>
-            </Menu.Item>
-            <Menu.Separator className="mx-1 my-1 h-px bg-border" />
-            <Menu.Item
-              className={`${menuItemClass} text-red-600 dark:text-red-400`}
-              disabled={signOutPending}
-              onClick={async (event) => {
-                event.preventDefault();
-                if (signOutPending) return;
-                setSignOutPending(true);
-                setSignOutError(false);
-                try {
-                  await user.signOut();
-                  window.location.assign(`/${locale}`);
-                } catch {
-                  setSignOutPending(false);
-                  setSignOutError(true);
-                }
-              }}
-            >
-              <SignOutIcon />
-              <span>{signOutPending ? t("signingOut") : t("signOut")}</span>
-            </Menu.Item>
-            {signOutError ? (
-              <p role="alert" className="px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400">
-                {t("signOutError")}
-              </p>
-            ) : null}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+    </div>
   );
 }
 

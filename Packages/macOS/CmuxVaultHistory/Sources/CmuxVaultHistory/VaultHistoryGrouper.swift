@@ -26,20 +26,42 @@ public struct VaultHistoryGrouper: Sendable {
         by key: VaultHistoryGroupKey,
         now: Date
     ) -> [VaultHistoryGroup] {
-        let sortedEvents = events.sorted(by: VaultHistoryEvent.newestFirst)
+        groups(
+            newestFirstEvents: events.sorted(by: VaultHistoryEvent.newestFirst),
+            by: key,
+            now: now
+        )
+    }
+
+    /// Groups an already ordered event snapshot without another sorting pass.
+    ///
+    /// Use this overload when a timeline owner caches events in
+    /// ``VaultHistoryEvent/newestFirst(_:_:)`` order and needs to regroup the
+    /// same snapshot repeatedly.
+    ///
+    /// - Parameters:
+    ///   - newestFirstEvents: Events already ordered newest first.
+    ///   - key: Dimension used to partition the list.
+    ///   - now: Reference time used for date buckets.
+    /// - Returns: Ordered groups that preserve the supplied event order.
+    public func groups(
+        newestFirstEvents: [VaultHistoryEvent],
+        by key: VaultHistoryGroupKey,
+        now: Date
+    ) -> [VaultHistoryGroup] {
         switch key {
         case .date:
-            return dateGroups(events: sortedEvents, now: now)
+            return dateGroups(events: newestFirstEvents, now: now)
         case .workspace:
-            return identityGroups(events: sortedEvents, key: key) { event in
+            return identityGroups(events: newestFirstEvents, key: key) { event in
                 event.subject.workspaceId.map(VaultHistoryGroupIdentity.workspace) ?? .other
             }
         case .window:
-            return identityGroups(events: sortedEvents, key: key) { event in
+            return identityGroups(events: newestFirstEvents, key: key) { event in
                 event.subject.windowId.map(VaultHistoryGroupIdentity.window) ?? .other
             }
         case .agent:
-            return identityGroups(events: sortedEvents, key: key) { event in
+            return identityGroups(events: newestFirstEvents, key: key) { event in
                 guard let agent = event.subject.agent?.trimmingCharacters(in: .whitespacesAndNewlines),
                       !agent.isEmpty else {
                     return .other
@@ -47,7 +69,7 @@ public struct VaultHistoryGrouper: Sendable {
                 return .agent(agent)
             }
         case .kind:
-            return identityGroups(events: sortedEvents, key: key) { event in
+            return identityGroups(events: newestFirstEvents, key: key) { event in
                 .kind(event.kind)
             }
         }

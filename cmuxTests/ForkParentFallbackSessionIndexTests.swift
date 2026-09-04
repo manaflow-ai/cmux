@@ -10,7 +10,7 @@ import Testing
 
 @Suite
 struct ForkParentFallbackSessionIndexTests {
-    @Test func unpromptedForkPaneUsesParentSessionFallbackWithoutStealingParentPane() throws {
+    @Test func unpromptedForkPaneDoesNotUseParentResumeArgumentAsIdentity() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -18,30 +18,39 @@ struct ForkParentFallbackSessionIndexTests {
             fixture: fixture,
             argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session", "--model", "sonnet"]
         )
+        #expect(detected[forkPanelKey(fixture)] == nil)
+
         let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
-
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
-        #expect(forkSnapshot.kind == .claude)
-        #expect(forkSnapshot.sessionId == fixture.parentSessionId)
-        #expect(forkSnapshot.workingDirectory == fixture.cwd.path)
-        #expect(forkSnapshot.launchCommand?.arguments == ["/usr/local/bin/claude", "--model", "sonnet"])
-        let forkCommand = try #require(forkSnapshot.forkCommand)
-        #expect(forkCommand.contains(fixture.parentSessionId), "\(forkCommand)")
-        #expect(forkCommand.contains("--fork-session"), "\(forkCommand)")
-
+        #expect(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == nil)
         let parentSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.parentPanelId))
         #expect(parentSnapshot.sessionId == fixture.parentSessionId)
     }
 
     @Test func promptedForkPaneHookIdentityWinsOverParentFallback() throws {
-        let fixture = try makeFixture(forkedSessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb")
+        // SessionStart registers the fork's pid on its hook record immediately,
+        // so live-process evidence flows from the record, never from --resume argv.
+        let fixture = try makeFixture(
+            forkedSessionId: "bbbbbbbb-2222-2222-2222-bbbbbbbbbbbb",
+            forkPaneRecordCarriesProcessIdentity: true
+        )
         defer { fixture.cleanup() }
 
-        let detected = detectedSnapshots(
-            fixture: fixture,
-            argv: ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session"]
+        let forkArgv = ["/usr/local/bin/claude", "--resume", fixture.parentSessionId, "--fork-session"]
+        let detected = detectedSnapshots(fixture: fixture, argv: forkArgv)
+        #expect(detected[forkPanelKey(fixture)] == nil)
+
+        let processArguments = claudeProcessArguments(fixture: fixture, argv: forkArgv)
+        let identity = AgentPIDProcessIdentity(
+            pid: pid_t(fixture.forkProcessID),
+            startSeconds: Self.forkProcessStartSeconds,
+            startMicroseconds: 0
         )
-        let index = loadIndex(fixture: fixture, detectedSnapshots: detected)
+        let index = loadIndex(
+            fixture: fixture,
+            detectedSnapshots: detected,
+            processArgumentsProvider: { $0 == fixture.forkProcessID ? processArguments : nil },
+            processIdentityProvider: { $0 == fixture.forkProcessID ? identity : nil }
+        )
 
         let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
         let forkedSessionId = try #require(fixture.forkedSessionId)
@@ -70,7 +79,7 @@ struct ForkParentFallbackSessionIndexTests {
         )] == nil)
     }
 
-    @Test func forkParentFallbackAcceptsCustomClaudeBinaryMatchingLaunchExecutable() throws {
+    @Test func customClaudeForkDoesNotUseParentResumeArgumentAsIdentity() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -84,15 +93,7 @@ struct ForkParentFallbackSessionIndexTests {
             processPath: "/opt/tools/claude-custom"
         )
 
-        let entry = try #require(detected[RestorableAgentSessionIndex.PanelKey(
-            workspaceId: fixture.workspaceId,
-            panelId: fixture.forkPanelId
-        )])
-        #expect(entry.snapshot.sessionId == fixture.parentSessionId)
-        // The custom binary is an executable boundary: sanitizer-preserved flags stay,
-        // and the logical executable is bare "claude" (the cmux wrapper resolves
-        // CMUX_CUSTOM_CLAUDE_PATH at exec time).
-        #expect(entry.snapshot.launchCommand?.arguments == ["claude", "--model", "sonnet"])
+        #expect(detected[forkPanelKey(fixture)] == nil)
     }
 
     @Test func forkParentFallbackIgnoresExplicitlyDisabledForkSessionFlag() throws {
@@ -112,11 +113,9 @@ struct ForkParentFallbackSessionIndexTests {
         )] == nil)
     }
 
-    @Test func staleSamePaneHookRecordDoesNotCaptureForkLaunchedAfterIt() throws {
-        // The fork pane reuses a terminal whose older claude session (updatedAt 10)
-        // is still in the hook store, and the fork process started later
-        // (startSeconds 15): the stale record must not absorb the fork's live
-        // process evidence; the pane resolves to the parent-session fallback.
+    @Test func staleSamePaneHookRecordNeverFallsBackToForkParentIdentity() throws {
+        // The scanner must not replace any hook record with the source id from
+        // --resume. SessionStart owns reconciliation of the new child identity.
         let fixture = try makeFixture(
             forkedSessionId: "dddddddd-4444-4444-4444-dddddddddddd",
             forkPaneRecordUpdatedAt: 10
@@ -137,8 +136,11 @@ struct ForkParentFallbackSessionIndexTests {
             }
         )
 
-        let forkSnapshot = try #require(index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId))
-        #expect(forkSnapshot.sessionId == fixture.parentSessionId)
+        #expect(detected[forkPanelKey(fixture)] == nil)
+        #expect(
+            index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId
+                != fixture.parentSessionId
+        )
     }
 
     @Test func forkParentFallbackYieldsToOtherAgentKindHookEntryOnSamePane() throws {
@@ -227,7 +229,7 @@ struct ForkParentFallbackSessionIndexTests {
         )] == nil)
     }
 
-    @Test func forkParentFallbackDoesNotEvictParentHookEntryForSameSession() throws {
+    @Test func forkParentArgumentDoesNotCreateSecondParentIdentity() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -243,11 +245,11 @@ struct ForkParentFallbackSessionIndexTests {
         )
         #expect(
             index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId)?.sessionId
-                == fixture.parentSessionId
+                == nil
         )
     }
 
-    @Test func unpromptedForkPaneIsForkValidatedFromLiveProcessFallback() throws {
+    @Test func unpromptedForkPaneIsNotForkValidatedFromParentArgument() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
 
@@ -271,10 +273,8 @@ struct ForkParentFallbackSessionIndexTests {
             processIdentityProvider: { $0 == fixture.forkProcessID ? identity : nil }
         ).loadResultSynchronously()
 
-        #expect(result.forkValidatedPanels.contains(RestorableAgentSessionIndex.PanelKey(
-            workspaceId: fixture.workspaceId,
-            panelId: fixture.forkPanelId
-        )))
+        #expect(!result.forkValidatedPanels.contains(forkPanelKey(fixture)))
+        #expect(result.index.snapshot(workspaceId: fixture.workspaceId, panelId: fixture.forkPanelId) == nil)
     }
 
     private struct Fixture {
@@ -294,9 +294,12 @@ struct ForkParentFallbackSessionIndexTests {
         }
     }
 
+    private static let forkProcessStartSeconds: Int64 = 15
+
     private func makeFixture(
         forkedSessionId: String? = nil,
-        forkPaneRecordUpdatedAt: TimeInterval = 20
+        forkPaneRecordUpdatedAt: TimeInterval = 20,
+        forkPaneRecordCarriesProcessIdentity: Bool = false
     ) throws -> Fixture {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
@@ -329,7 +332,7 @@ struct ForkParentFallbackSessionIndexTests {
         ]
         if let forkedSessionId {
             try writeTranscript(sessionId: forkedSessionId, transcriptDir: projectDir, cwd: cwd)
-            sessions[forkedSessionId] = hookRecord(
+            var forkRecord = hookRecord(
                 sessionId: forkedSessionId,
                 workspaceId: workspaceId,
                 panelId: forkPanelId,
@@ -337,6 +340,12 @@ struct ForkParentFallbackSessionIndexTests {
                 configDir: configDir.path,
                 updatedAt: forkPaneRecordUpdatedAt
             )
+            if forkPaneRecordCarriesProcessIdentity {
+                forkRecord["pid"] = 4_242
+                forkRecord["pidStartSeconds"] = Self.forkProcessStartSeconds
+                forkRecord["pidStartMicroseconds"] = 0
+            }
+            sessions[forkedSessionId] = forkRecord
         }
         try writeHookStore(root: root, sessions: sessions)
 
@@ -375,9 +384,17 @@ struct ForkParentFallbackSessionIndexTests {
         )
     }
 
+    private func forkPanelKey(_ fixture: Fixture) -> RestorableAgentSessionIndex.PanelKey {
+        RestorableAgentSessionIndex.PanelKey(
+            workspaceId: fixture.workspaceId,
+            panelId: fixture.forkPanelId
+        )
+    }
+
     private func loadIndex(
         fixture: Fixture,
         detectedSnapshots: [RestorableAgentSessionIndex.PanelKey: RestorableAgentSessionIndex.ProcessDetectedSnapshotEntry],
+        processArgumentsProvider: @escaping (Int) -> CmuxTopProcessArguments? = { _ in nil },
         processIdentityProvider: @escaping (Int) -> AgentPIDProcessIdentity? = { _ in nil }
     ) -> RestorableAgentSessionIndex {
         RestorableAgentSessionIndex.load(
@@ -385,7 +402,7 @@ struct ForkParentFallbackSessionIndexTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: detectedSnapshots,
-            processArgumentsProvider: { _ in nil },
+            processArgumentsProvider: processArgumentsProvider,
             processIdentityProvider: processIdentityProvider
         )
     }

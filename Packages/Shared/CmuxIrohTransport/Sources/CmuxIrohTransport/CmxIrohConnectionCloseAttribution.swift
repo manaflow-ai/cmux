@@ -13,6 +13,8 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
     public let applicationErrorCode: Int64?
     /// The bounded failure category derived from the cause.
     public let failureKind: DiagnosticFailureKind
+    /// A whitelisted peer close token, when the protocol supplied one.
+    public let remoteReason: DiagnosticRemoteCloseReason
 
     /// Creates a classified connection-close attribution.
     ///
@@ -23,11 +25,13 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
     public init(
         initiator: CmxIrohConnectionCloseInitiator,
         applicationErrorCode: Int64?,
-        failureKind: DiagnosticFailureKind
+        failureKind: DiagnosticFailureKind,
+        remoteReason: DiagnosticRemoteCloseReason = .unknown
     ) {
         self.initiator = initiator
         self.applicationErrorCode = applicationErrorCode
         self.failureKind = failureKind
+        self.remoteReason = remoteReason
     }
 
     /// Classifies an opaque iroh-ffi close cause without retaining its text.
@@ -39,10 +43,12 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
     /// - Parameter cause: The ephemeral close-cause string from IrohLib.
     /// - Returns: A bounded attribution containing no raw cause text.
     public static func classify(_ cause: String) -> Self {
-        Self(
+        let remoteReason = remoteReason(in: cause)
+        return Self(
             initiator: initiator(in: cause),
             applicationErrorCode: applicationErrorCode(in: cause),
-            failureKind: failureKind(in: cause)
+            failureKind: failureKind(in: cause, remoteReason: remoteReason),
+            remoteReason: remoteReason
         )
     }
 
@@ -129,7 +135,26 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
         return Int64(token)
     }
 
-    private static func failureKind(in cause: String) -> DiagnosticFailureKind {
+    private static func failureKind(
+        in cause: String,
+        remoteReason: DiagnosticRemoteCloseReason
+    ) -> DiagnosticFailureKind {
+        switch remoteReason {
+        case .clientClosed, .serverCancelled:
+            return .cancelled
+        case .superseded:
+            return .superseded
+        case .admissionLeaseExpired:
+            return .admissionLeaseExpired
+        case .admissionRevalidationFailed:
+            return .admissionRevalidationFailed
+        case .sendQueueOverflow:
+            return .sendQueueOverflow
+        case .serverFailure:
+            return .connectionClosed
+        case .serverClosed, .unknown:
+            break
+        }
         if cause.contains("ConnectionLost(TimedOut)") || cause == "timed out" {
             return .transportIdleTimedOut
         }
@@ -165,6 +190,12 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             || cause.contains("Failed to resolve") {
             return .dnsFailed
         }
+        // Only classify route words after structured close and DNS markers.
+        // A peer-chosen reason such as "No route found" is not evidence that
+        // this device lacked a route.
+        if let routeFailure = CmxIrohRouteFailureClassifier.classify(cause) {
+            return routeFailure
+        }
         if cause.contains("Tls")
             || cause.contains("TLS")
             || cause.contains("CryptoError")
@@ -181,6 +212,41 @@ public struct CmxIrohConnectionCloseAttribution: Sendable, Equatable {
             || cause.contains("Reset(")
             || cause.contains("Stopped(") {
             return .connectionClosed
+        }
+        return .unknown
+    }
+
+    /// Extracts only protocol-owned reason tokens. Free-form peer text is
+    /// intentionally ignored so it cannot spoof a diagnostic category.
+    private static func remoteReason(
+        in cause: String
+    ) -> DiagnosticRemoteCloseReason {
+        let tokens: [String: DiagnosticRemoteCloseReason] = [
+            "client_closed": .clientClosed,
+            "server_closed": .serverClosed,
+            "superseded_session": .superseded,
+            "admission_lease_expired": .admissionLeaseExpired,
+            "admission_revalidation_failed": .admissionRevalidationFailed,
+            "send_queue_overflow": .sendQueueOverflow,
+            "server_failed": .serverFailure,
+            "server_cancelled": .serverCancelled,
+        ]
+        let displayToken: String? = {
+            for prefix in ["closed by peer: ", "aborted by peer: "] {
+                guard cause.hasPrefix(prefix) else { continue }
+                let remainder = cause.dropFirst(prefix.count)
+                return remainder.split(
+                    whereSeparator: { $0 == " " || $0 == "(" }
+                ).first.map(String.init)
+            }
+            return nil
+        }()
+        for (token, reason) in tokens {
+            if cause.contains("reason: \"\(token)\"")
+                || cause.contains("reason: b\"\(token)\"")
+                || displayToken == token {
+                return reason
+            }
         }
         return .unknown
     }

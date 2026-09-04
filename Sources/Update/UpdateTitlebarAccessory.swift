@@ -1174,7 +1174,7 @@ struct TitlebarControlsView: View {
             .background(NotificationsAnchorView { viewModel.notificationsAnchorView = $0 })
             .safeHelp(KeyboardShortcutSettings.Action.showNotifications.tooltip(String(localized: "titlebar.notifications.tooltip", defaultValue: "Show notifications")))
 
-            TitlebarNewWorkspaceCloudSplitButton(
+            TitlebarNewWorkspaceSplitButton(
                 config: config,
                 foregroundColor: foregroundColor,
                 onNewTab: {
@@ -1184,6 +1184,7 @@ struct TitlebarControlsView: View {
                     onNewTab()
                 }
             )
+
             TitlebarControlButton(
                 config: config,
                 foregroundColor: foregroundColor,
@@ -1588,10 +1589,10 @@ struct HiddenTitlebarSidebarControlsView: View {
                     onToggleNotifications(anchorView)
                 case .newTab:
                     onNewTab()
-                case .cloudVM:
+                case .newWorkspaceMenu:
                     _ = AppDelegate.shared?.showNewWorkspaceContextMenu(
                         anchorView: anchorView,
-                        debugSource: "titlebar.minimalSidebar.cloudMenu"
+                        debugSource: "titlebar.minimalSidebar.newWorkspaceMenu"
                     )
                 case .focusHistoryBack:
                     let availability = focusHistoryNavigationAvailability(
@@ -2732,10 +2733,58 @@ final class UpdateTitlebarAccessoryController {
 
     func start() {
         guard !didStart else { return }
+        prewarmTitlebarSymbols()
         didStart = true
         attachToExistingWindows()
         installObservers()
         scheduleStartupWindowScans()
+    }
+
+    private func prewarmTitlebarSymbols() {
+        let iconSizes = TitlebarControlsStyle.allCases.map { $0.config.iconSize }
+        let dropdownSizes = TitlebarControlsStyle.allCases.map {
+            TitlebarNewWorkspaceSplitButtonMetrics.dropdownIconSize(config: $0.config)
+        }
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell", "arrow.left", "arrow.right"],
+            pointSizes: iconSizes,
+            weight: .regular
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["plus"],
+            pointSizes: iconSizes,
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.down"],
+            pointSizes: dropdownSizes,
+            weight: .bold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["arrow.down.to.line"],
+            pointSizes: [10],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["iphone"],
+            pointSizes: [12],
+            weight: .medium
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["chevron.right"],
+            pointSizes: [9],
+            weight: .semibold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["xmark"],
+            pointSizes: [9],
+            weight: .bold
+        )
+        RenderableSystemSymbol.prewarmAppKitImages(
+            systemNames: ["bell.slash", "bell.badge"],
+            pointSizes: [30],
+            weight: .light
+        )
     }
 
     func attach(to window: NSWindow) {

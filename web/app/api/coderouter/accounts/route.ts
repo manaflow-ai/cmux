@@ -1,3 +1,4 @@
+import { coderouterControlRoute } from "@/services/coderouter/requestTelemetry";
 import {
   addAccount,
   parseCredential,
@@ -13,12 +14,12 @@ import {
   reportCoderouterFailure,
 } from "../../../../services/coderouter/observability";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 128 * 1_024;
 
-export async function GET(request: Request): Promise<Response> {
+export const GET = coderouterControlRoute("accounts", "/api/coderouter/accounts", handleGet);
+
+async function handleGet(request: Request): Promise<Response> {
   const startedAt = performance.now();
   const authStartedAt = performance.now();
   const resolved = await resolveCoderouterUsageTeam(request);
@@ -46,9 +47,9 @@ export async function GET(request: Request): Promise<Response> {
   ].join(", ");
   captureCoderouterEvent({
     event: "coderouter_account_status_viewed",
-    userId: resolved.stackUserId,
     teamId: resolved.teamId,
     properties: {
+      source: "native_api",
       account_count: result.accounts.length,
       account_error_count: result.accounts.filter(
         (account) => "usageError" in account && Boolean(account.usageError),
@@ -72,8 +73,24 @@ export async function GET(request: Request): Promise<Response> {
   });
 }
 
-export async function POST(request: Request): Promise<Response> {
-  const resolved = await resolveCodeRouterRequestContext(request, "manage");
+type AccountsPostDependencies = {
+  readonly resolveContext: typeof resolveCodeRouterRequestContext;
+  readonly add: typeof addAccount;
+};
+
+const defaultAccountsPostDependencies: AccountsPostDependencies = {
+  resolveContext: resolveCodeRouterRequestContext,
+  add: addAccount,
+};
+
+export const POST = coderouterControlRoute("accounts", "/api/coderouter/accounts", makeCoderouterAccountsPostHandler());
+
+export function makeCoderouterAccountsPostHandler(
+  dependencies: AccountsPostDependencies = defaultAccountsPostDependencies,
+) {
+  return async function POST(request: Request): Promise<Response> {
+  // Team membership is the only requirement; there is no account cap.
+  const resolved = await dependencies.resolveContext(request);
   if (!resolved.ok) return resolved.response;
   const length = Number(request.headers.get("content-length") ?? "0");
   if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
@@ -94,13 +111,14 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   try {
-    const result = await addAccount(resolved.value.team.teamId, credential);
+    const result = await dependencies.add(resolved.value.team.teamId, credential);
     captureCoderouterEvent({
       event: "coderouter_account_added",
       userId: resolved.value.user.id,
       teamId: resolved.value.team.teamId,
       properties: {
         provider: credential.provider,
+        source: "native_api",
         already_exists: result.alreadyExists,
       },
     });
@@ -130,6 +148,7 @@ export async function POST(request: Request): Promise<Response> {
       },
     );
   }
+  };
 }
 
 function timing(name: string, duration: number): string {

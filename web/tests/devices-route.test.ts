@@ -29,6 +29,9 @@ const { DELETE, GET, POST } = await import("../app/api/devices/route");
 const { hostIsLoopback, hostIsTailscaleAttachable, manualRoutesAreValid } = await import(
   "../app/api/devices/route-classification"
 );
+const { clearNativeAuthCacheForTests, clearStackThrottleCircuitForTests } = await import(
+  "../services/vms/auth"
+);
 
 let sql: Sql | null = null;
 
@@ -68,10 +71,15 @@ const publicIrohRoute = {
   },
 };
 
+// Tokens are per simulated user. `verifyRequest` caches successful native
+// verifications keyed by the exact access/refresh pair, and in production two
+// users can never present the same Stack token pair, so impersonating user 2
+// under user 1's literal tokens is unrealizable and would replay user 1's
+// cached identity, silently bypassing the ownership guards under test.
 function authHeaders(teamId?: string): Record<string, string> {
   const base: Record<string, string> = {
-    authorization: "Bearer access-token",
-    "x-stack-refresh-token": "refresh-token",
+    authorization: `Bearer access-token-${currentUserId}`,
+    "x-stack-refresh-token": `refresh-token-${currentUserId}`,
     "content-type": "application/json",
   };
   if (teamId) base["x-cmux-team-id"] = teamId;
@@ -101,13 +109,38 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  clearNativeAuthCacheForTests();
+  // The Stack-throttle case above opens the 10 s circuit; close it so the
+  // cases that follow see the route, not the circuit's 429.
+  clearStackThrottleCircuitForTests();
+  currentUserId = "registry-user-1";
+  getUser.mockClear();
   if (!sql) return;
   await sql`truncate devices, device_app_instances, account_deletion_tombstones restart identity cascade`;
-  getUser.mockClear();
-  currentUserId = "registry-user-1";
 });
 
 describe("device registry route", () => {
+  test("maps Stack Auth throttles instead of returning a platform 500", async () => {
+    (getUser as unknown as {
+      mockImplementationOnce(implementation: () => Promise<never>): void;
+    }).mockImplementationOnce(async () => {
+      throw new AggregateError([
+        new Error("Rate limited, no retry-after header received"),
+      ]);
+    });
+
+    const response = await GET(
+      new Request("https://cmux.test/api/devices", {
+        method: "GET",
+        headers: authHeaders(),
+      }),
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
+    expect(await response.json()).toEqual({ error: "rate_limited" });
+  });
+
   dbTest("blocks registration while account deletion is in progress", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -226,6 +259,55 @@ describe("device registry route", () => {
     expect(list.devices[0].instances[0].routes[0].endpoint.host).toBe("100.9.9.9");
   });
 
+  dbTest("an unchanged re-registration is answered without touching the rows", async () => {
+    if (!sql) throw new Error("test database not initialized");
+
+    const body = {
+      deviceId: DEVICE_A,
+      platform: "mac",
+      displayName: "Registry Mac",
+      tag: "default",
+      routes: [privateIrohRoute],
+    };
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    const [first] = await sql<{ updated_at: Date; last_seen_at: Date }[]>`
+      select updated_at, last_seen_at from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+
+    // The Mac republishes the same route set: its own dedupe key includes hint
+    // timestamps this route strips before storing, so it re-POSTs identical
+    // rows. The server must answer without writing.
+    expect((await POST(registerRequest(body))).status).toBe(200);
+    const [second] = await sql<{ updated_at: Date; last_seen_at: Date }[]>`
+      select updated_at, last_seen_at from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+    expect(second.updated_at.getTime()).toBe(first.updated_at.getTime());
+    expect(second.last_seen_at.getTime()).toBe(first.last_seen_at.getTime());
+
+    // A genuinely changed route set still writes through immediately.
+    const changed = await POST(registerRequest({
+      ...body,
+      routes: [legacyTailscaleRoute],
+    }));
+    expect(changed.status).toBe(200);
+    const [third] = await sql<{ routes: unknown[] }[]>`
+      select routes from device_app_instances
+      where tag = 'default' and device_id in (
+        select id from devices where device_uuid = ${DEVICE_A}
+      )
+    `;
+    expect((third.routes[0] as { kind: string }).kind).toBe("tailscale");
+  }, 30_000);
+
+  // 26 sequential registrations, each a full HTTP + transaction round trip
+  // against a containerized Postgres. The assertion is the instance cap, not
+  // latency, and the default 5s budget leaves no headroom for a cold pool.
   dbTest("caps app instances per device when the tag varies", async () => {
     if (!sql) throw new Error("test database not initialized");
 
@@ -257,7 +339,7 @@ describe("device registry route", () => {
       registerRequest({ deviceId: DEVICE_A, platform: "mac", tag: "tag-0", routes: [] }),
     );
     expect(reRegister.status).toBe(200);
-  });
+  }, 30_000);
 
   dbTest("drops structurally invalid route entries on register", async () => {
     if (!sql) throw new Error("test database not initialized");

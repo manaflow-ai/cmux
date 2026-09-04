@@ -54,7 +54,7 @@ struct TerminalArtifactGalleryItemView: View, Equatable {
     @State private var thumbnail: ChatArtifactThumbnail?
     @State private var fileActionPresentation: ChatArtifactFileActionPresentation?
     @State private var isFileActionRunning = false
-    @State private var showsFileActionError = false
+    @State private var fileActionFailure: ChatArtifactError?
     @ScaledMetric(relativeTo: .subheadline) private var gridNameMinHeight: CGFloat = 38
     @ScaledMetric(relativeTo: .caption2) private var gridMetadataMinHeight: CGFloat = 28
     @ScaledMetric(relativeTo: .body) private var gridSymbolSize: CGFloat = 48
@@ -119,20 +119,12 @@ struct TerminalArtifactGalleryItemView: View, Equatable {
         }
         .chatArtifactFileActionPresentation($fileActionPresentation)
         .alert(
-            String(
-                localized: "terminal.artifact.gallery.action_failed.title",
-                defaultValue: "Couldn't complete action",
-                bundle: .module
-            ),
-            isPresented: $showsFileActionError
+            fileActionFailurePresentation.title,
+            isPresented: fileActionFailureBinding
         ) {
             Button(String(localized: "terminal.artifact.gallery.ok", defaultValue: "OK", bundle: .module)) {}
         } message: {
-            Text(String(
-                localized: "terminal.artifact.gallery.action_failed.message",
-                defaultValue: "Check the connection to your Mac and try again.",
-                bundle: .module
-            ))
+            Text(fileActionFailurePresentation.message)
         }
         .task(id: "\(artifact.path)#\(Self.thumbnailDimension)") {
             guard artifact.kind == .image, artifact.exists else { return }
@@ -159,10 +151,26 @@ struct TerminalArtifactGalleryItemView: View, Equatable {
             } catch is CancellationError {
                 // The row disappeared while its file was being prepared.
             } catch {
-                showsFileActionError = true
+                fileActionFailure = (error as? ChatArtifactError) ?? .loadFailed
             }
             isFileActionRunning = false
         }
+    }
+
+    private var fileActionFailureBinding: Binding<Bool> {
+        Binding(
+            get: { fileActionFailure != nil },
+            set: { isPresented in
+                if !isPresented { fileActionFailure = nil }
+            }
+        )
+    }
+
+    private var fileActionFailurePresentation: ChatArtifactFailurePresentation {
+        ChatArtifactFailurePresentation(
+            error: fileActionFailure ?? .loadFailed,
+            scope: value.openScope == .session ? .chat : .terminal
+        )
     }
 
     private func open() {

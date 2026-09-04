@@ -1,9 +1,6 @@
 import { redirect } from "next/navigation";
 import { getPathname } from "@/i18n/navigation";
 
-export const dynamic = "force-dynamic";
-
-// AI-account management moved into the coderouter section. Keep this route as a
 // redirect so existing links and bookmarks (including ?team=…) still resolve.
 export default async function AiAccountsRedirectPage({
   params,

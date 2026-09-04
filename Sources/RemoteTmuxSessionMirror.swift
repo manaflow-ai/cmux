@@ -119,6 +119,10 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
     /// Per-pane filter that strips the screen/tmux `ESC k <title> ST` window-title
     /// escape from `%output` (stateful across chunk boundaries).
     var titleFilters: [Int: RemoteTmuxScreenTitleFilter] = [:]
+    /// Per-pane filter that intercepts OSC 777/9 desktop-notification escapes
+    /// from `%output` (stateful across chunk boundaries) so a remote process
+    /// inside the mirrored session can notify locally (issue #833).
+    var notificationFilters: [Int: RemoteTmuxNotificationOSCFilter] = [:]
     /// Authoritative seed bytes waiting for Ghostty's terminal grid to consume
     /// the pane's published dimensions. Surface sizing APIs expose the requested
     /// grid before Ghostty's I/O thread applies it, so seed delivery cannot use
@@ -237,6 +241,7 @@ final class RemoteTmuxSessionMirror: RemoteTmuxControlPaneMutationOwner {
                 // arrives while not connected).
                 if state != .connected {
                     self?.titleFilters.removeAll()
+                    self?.notificationFilters.removeAll()
                     self?.clearPendingPaneSeedDeliveries()
                     self?.windowMirrorByWindowId.values.forEach {
                         $0.cancelPendingControlPaneFocus()

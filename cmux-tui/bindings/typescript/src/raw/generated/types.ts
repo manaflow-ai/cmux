@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 11, IR 5299d9228d2d800423d244630722c8606297370f5962458962b88af542fd5cc1. */
+/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -47,6 +47,27 @@ export type BrowserFrame = {
   "height": number;
   "seq": bigint;
   "width": number;
+};
+
+export type BrowserProviderAuthentication = "none" | "bearer";
+
+export type BrowserProviderSnapshot = {
+  "authentication"?: BrowserProviderAuthentication;
+  "available": boolean;
+  "clients"?: bigint;
+  "endpoint"?: string;
+  "provider_id"?: string;
+  "revision": bigint;
+  "targets": Array<BrowserProviderTarget>;
+};
+
+export type BrowserProviderTarget = {
+  "tab_id": string;
+  "target_id": string;
+};
+
+export type BrowserProviderUnregisterResult = {
+  "removed": boolean;
 };
 
 export type CellPixelFailure = {
@@ -145,6 +166,39 @@ export type FocusDirectionResult = {
   "pane": Id;
 };
 
+export type FrontendFocusTarget = "pane" | "machine_rail" | "workspace_rail" | "tabs_rail" | "projection_rail";
+
+export type FrontendJournalEvent = ({ "kind": "focus" } & {
+  "content_id"?: (string) | null;
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "focus";
+  "pane_id"?: (string) | null;
+  "screen_id"?: (string) | null;
+  "tab_id"?: (string) | null;
+  "target": FrontendFocusTarget;
+  "workspace_id"?: (string) | null;
+}) | ({ "kind": "resize" } & {
+  "cell_height": number;
+  "cell_width": number;
+  "cols": number;
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "resize";
+  "rows": number;
+}) | ({ "kind": "viewport" } & {
+  "event_id": string;
+  "frontend_projection_id": string;
+  "generation": string;
+  "kind": "viewport";
+  "offset": bigint;
+  "screen_id"?: (string) | null;
+  "settled": boolean;
+  "target": bigint;
+});
+
 export type FrontendProjection = {
   "frontend": string;
   "projection": (JsonValue) | null;
@@ -176,6 +230,7 @@ export type IdentifyResult = {
   "daemon_handoff": 1;
   "generation": string;
   "ghostty_commit"?: (string) | null;
+  "lifecycle_ready"?: boolean;
   "pid": number;
   "protocol": number;
   "registry_id": string;
@@ -260,6 +315,18 @@ export type LivePane = {
   "tabs": Array<Tab>;
 };
 
+export type MachineUsage = {
+  "api_equivalent_usd": number;
+  "as_of": (string) | null;
+  "period_days": number;
+  "total_tokens": bigint;
+  "vm_id": string;
+};
+
+export type MachineUsageResult = {
+  "usage": (MachineUsage) | null;
+};
+
 export type MintTerminalRendererResult = {
   "endpoint": string;
   "incarnation": string;
@@ -317,6 +384,8 @@ export type PingResult = {
 export type ProcessInfoResult = {
   "command": (string) | null;
   "cwd": (string) | null;
+  /** Working directory of the process group that owns the PTY, read at request time. Null when the lookup fails; absent from daemons that predate the field. Clients treat absence as null. */
+  "foreground_cwd"?: (string) | null;
   "pid": (number) | null;
 };
 
@@ -478,6 +547,77 @@ export type Screen = {
   "short_id"?: string;
   "zoomed_pane": (Id) | null;
 };
+
+export type ServerStatsConnections = {
+  "accepted": bigint;
+  "active": bigint;
+  "limit": bigint;
+  "peak": bigint;
+  "refused": bigint;
+};
+
+export type ServerStatsHistogram = {
+  "count": bigint;
+  "max": bigint;
+  "mean": bigint;
+  "p50": bigint;
+  "p90": bigint;
+  "p99": bigint;
+};
+
+export type ServerStatsJournalWriter = {
+  "batch_size": ServerStatsHistogram;
+  "batches": bigint;
+  "commit_failures": bigint;
+  "commit_lock_wait_us": ServerStatsHistogram;
+  "commit_us": ServerStatsHistogram;
+  "deadline_expiries": bigint;
+  "durable_events": bigint;
+  "durable_queued": bigint;
+  "phase": ServerStatsWriterPhase;
+  "phase_for_us": bigint;
+  "receipt_wait_us": ServerStatsHistogram;
+  "terminal_events": bigint;
+  "terminal_queued": bigint;
+};
+
+export type ServerStatsLockHolder = {
+  "held_for_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockSite = {
+  "acquisitions": bigint;
+  "hold_max_us": bigint;
+  "hold_total_us": bigint;
+  "site": string;
+};
+
+export type ServerStatsLockStall = {
+  "blocker": (string) | null;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsRegistryLock = {
+  "contended_acquisitions": bigint;
+  "hold_us": ServerStatsHistogram;
+  "holder": (ServerStatsLockHolder) | null;
+  "last_stall": (ServerStatsLockStall) | null;
+  "stalls": bigint;
+  "top_sites": Array<ServerStatsLockSite>;
+  "wait_us": ServerStatsHistogram;
+};
+
+export type ServerStatsResult = {
+  "connections": ServerStatsConnections;
+  "journal_writer": (ServerStatsJournalWriter) | null;
+  "registry_lock": ServerStatsRegistryLock;
+  "schema": number;
+  "uptime_ms": bigint;
+};
+
+export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
 
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;

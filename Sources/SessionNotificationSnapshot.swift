@@ -1,3 +1,4 @@
+import CmuxSettings
 import Foundation
 
 struct SessionNotificationSnapshot: Codable, Sendable {
@@ -12,6 +13,9 @@ struct SessionNotificationSnapshot: Codable, Sendable {
     var correlationKey: String?
     var scrollPosition: TerminalNotificationScrollPosition?
     var clickAction: TerminalNotificationClickAction?
+    /// Agent/alert identity used if a restored notification is redelivered.
+    /// Optional keeps snapshots written before per-agent sounds compatible.
+    var soundContext: NotificationSoundOverrideContext?
 
     init(
         id: UUID,
@@ -24,7 +28,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         retargetsToLiveSurfaceOwner: Bool? = nil,
         correlationKey: String? = nil,
         scrollPosition: TerminalNotificationScrollPosition? = nil,
-        clickAction: TerminalNotificationClickAction? = nil
+        clickAction: TerminalNotificationClickAction? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         self.id = id
         self.title = title
@@ -37,6 +42,7 @@ struct SessionNotificationSnapshot: Codable, Sendable {
         self.correlationKey = correlationKey
         self.scrollPosition = scrollPosition
         self.clickAction = clickAction
+        self.soundContext = soundContext
     }
 
     init(notification: TerminalNotification) {
@@ -54,7 +60,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             retargetsToLiveSurfaceOwner: notification.retargetsToLiveSurfaceOwner,
             correlationKey: notification.correlationKey,
             scrollPosition: persistedScrollPosition,
-            clickAction: notification.clickAction
+            clickAction: notification.clickAction,
+            soundContext: notification.soundContext
         )
     }
 
@@ -76,7 +83,8 @@ struct SessionNotificationSnapshot: Codable, Sendable {
             isRead: isRead,
             paneFlash: paneFlash ?? true,
             scrollPosition: restoredScrollPosition,
-            clickAction: clickAction
+            clickAction: clickAction,
+            soundContext: soundContext
         )
     }
 }

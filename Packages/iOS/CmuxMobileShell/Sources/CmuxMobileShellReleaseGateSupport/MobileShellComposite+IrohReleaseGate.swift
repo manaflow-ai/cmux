@@ -53,6 +53,10 @@ extension MobileShellComposite {
         }
         mobileIrohReleaseGateProbeLog.info("probe stage=host_status state=completed")
 
+        mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=begin")
+        try await verifyRPCMethodInventory(client: remoteClient)
+        mobileIrohReleaseGateProbeLog.info("probe stage=rpc_method_inventory state=completed")
+
         guard let target = irohReleaseGateForegroundTarget() else {
             throw MobileIrohReleaseGateProbeFailure.workspaceMutationUnavailable
         }
@@ -140,6 +144,7 @@ extension MobileShellComposite {
 
         return MobileIrohReleaseGateProbeResult(
             hostStatusVerified: true,
+            rpcMethodInventoryVerified: true,
             terminalRoundTripVerified: true,
             workspaceMutationVerified: true,
             independentEventsVerified: true,
@@ -155,6 +160,40 @@ extension MobileShellComposite {
             unrefreshedExpiryDisconnectVerified: unrefreshedExpiryDisconnectVerified,
             soakDurationSeconds: scenario == .relayRollover ? soakDurationSeconds : 0
         )
+    }
+
+    private func verifyRPCMethodInventory(client: MobileCoreRPCClient) async throws {
+        let response: Data
+        do {
+            let request = try MobileCoreRPCClient.requestData(
+                method: "mobile.rpc.methods",
+                params: [:]
+            )
+            response = try await client.sendRequest(request)
+        } catch let error as MobileShellConnectionError {
+            if case .rpcError = error {
+                throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryRejected
+            }
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryTransportFailed
+        } catch {
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryTransportFailed
+        }
+
+        switch MobileIrohReleaseGateResponseValidator.rpcMethodInventoryFailure(
+            response,
+            required: Self.irohReleaseGateRequiredRPCMethods
+        ) {
+        case nil:
+            return
+        case .malformed:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryMalformed
+        case .schemaMismatch:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventorySchemaMismatch
+        case .duplicateMethods:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryDuplicateMethods
+        case .missingMethods:
+            throw MobileIrohReleaseGateProbeFailure.rpcMethodInventoryMissingMethods
+        }
     }
 
     private struct RelayRolloverContinuity {

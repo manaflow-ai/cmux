@@ -20,6 +20,7 @@ struct MobileStateSyncFrameCodingTests {
             previewAt: 1_700_000_000,
             lastActivityAt: 1_700_000_001,
             hasUnread: true,
+            unreadCount: 4,
             sortIndex: 3,
             terminals: [
                 WorkspaceSyncRecord.Terminal(
@@ -28,6 +29,33 @@ struct MobileStateSyncFrameCodingTests {
                     currentDirectory: "/repo",
                     isReady: true,
                     isFocused: false
+                )
+            ],
+            surfaces: [
+                WorkspaceSyncRecord.Surface(
+                    surfaceID: "surface-future",
+                    kind: "simulator",
+                    title: "iPhone 17 Pro",
+                    filePath: nil,
+                    isFocused: true
+                ),
+                WorkspaceSyncRecord.Surface(
+                    surfaceID: "surface-todo",
+                    kind: MobileSurfaceKind.todo.rawValue,
+                    title: "Todo",
+                    filePath: nil,
+                    todo: MobileTodoSnapshot(
+                        status: .needsAttention,
+                        statusHidden: false,
+                        items: [
+                            MobileTodoItem(
+                                id: "item-1",
+                                text: "Review the renderer",
+                                state: .inProgress,
+                                origin: .agent
+                            ),
+                        ]
+                    )
                 )
             ]
         )
@@ -47,10 +75,56 @@ struct MobileStateSyncFrameCodingTests {
         #expect(object["preview_at"] as? Double == 1_700_000_000)
         #expect(object["last_activity_at"] as? Double == 1_700_000_001)
         #expect(object["has_unread"] as? Bool == true)
+        #expect(object["unread_count"] as? Int == 4)
         #expect(object["sort_index"] as? Int == 3)
         let terminals = object["terminals"] as? [[String: Any]]
         #expect(terminals?.first?["is_ready"] as? Bool == true)
         #expect(terminals?.first?["is_focused"] as? Bool == false)
+        let surfaces = object["surfaces"] as? [[String: Any]]
+        #expect(surfaces?.first?["surface_id"] as? String == "surface-future")
+        #expect(surfaces?.first?["kind"] as? String == "simulator")
+        #expect(surfaces?.first?["file_path"] == nil)
+        #expect(surfaces?.first?["is_focused"] as? Bool == true)
+        let todo = surfaces?[1]["todo"] as? [String: Any]
+        #expect(todo?["status"] as? String == "needs-attention")
+        #expect(todo?["status_hidden"] as? Bool == false)
+        let items = todo?["items"] as? [[String: Any]]
+        #expect(items?.first?["id"] as? String == "item-1")
+        #expect(items?.first?["state"] as? String == "in_progress")
+        #expect(items?.first?["origin"] as? String == "agent")
+    }
+
+    @Test func mobileSurfaceKindPreservesUnknownRawValues() throws {
+        let kind = MobileSurfaceKind(rawValue: "simulator")
+        let data = try JSONEncoder().encode(kind)
+        #expect(String(decoding: data, as: UTF8.self) == #""simulator""#)
+        #expect(try JSONDecoder().decode(MobileSurfaceKind.self, from: data) == kind)
+    }
+
+    @Test func workspaceRecordWithoutSurfacesDecodesAndReencodesWithoutTheField() throws {
+        let json = #"{"id":"ws-old","title":"old","is_selected":false,"is_pinned":false,"last_activity_at":1,"has_unread":false,"sort_index":0,"terminals":[]}"#
+        let decoded = try MobileSyncFrameCoder().decode(
+            WorkspaceSyncRecord.self,
+            fromJSONString: json
+        )
+        #expect(decoded.surfaces == nil)
+        // A Mac old enough not to emit unread_count decodes to an unknown
+        // count (dot fallback) and re-encodes without inventing the field.
+        #expect(decoded.unreadCount == nil)
+        let object = try MobileSyncFrameCoder().jsonObject(from: decoded)
+        #expect(object["surfaces"] == nil)
+        #expect(object["unread_count"] == nil)
+    }
+
+    @Test func workspaceRecordRoundTripsSurfaceInventory() throws {
+        let decoded = try JSONDecoder().decode(
+            WorkspaceSyncRecord.self,
+            from: JSONEncoder().encode(workspace)
+        )
+        #expect(decoded == workspace)
+        #expect(decoded.surfaces?.first?.kind == "simulator")
+        #expect(decoded.surfaces?[1].todo?.status == .needsAttention)
+        #expect(decoded.surfaces?[1].todo?.items.first?.state == .inProgress)
     }
 
     @Test func workspaceRecordDefaultsMissingDescriptionTruncatedFlagToFalse() throws {
@@ -107,6 +181,58 @@ struct MobileStateSyncFrameCodingTests {
             """
         )
         #expect(decodedOlder.iconSymbol == nil)
+    }
+
+    @Test func emptyGroupRecordCarriesExplicitEmptyStateWithoutWorkspaceAnchor() throws {
+        let group = GroupSyncRecord(
+            id: "group-empty",
+            name: "Pinned",
+            isCollapsed: false,
+            isPinned: true,
+            anchorWorkspaceID: nil,
+            sortIndex: 0,
+            isEmpty: true
+        )
+        let object = try MobileSyncFrameCoder().jsonObject(from: group)
+        #expect(object["is_empty"] as? Bool == true)
+        #expect(object["anchor_workspace_id"] as? String == "group-empty")
+
+        let decoded = try MobileSyncFrameCoder().decode(
+            GroupSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "group-empty",
+              "name": "Pinned",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "is_empty": true,
+              "anchor_workspace_id": "group-empty",
+              "sort_index": 0
+            }
+            """
+        )
+        #expect(decoded.isEmpty)
+        #expect(decoded.anchorWorkspaceID == "group-empty")
+    }
+
+    @Test func nullAnchorForcesEmptyStateWhenWireBitDisagrees() throws {
+        let decoded = try MobileSyncFrameCoder().decode(
+            GroupSyncRecord.self,
+            fromJSONString: """
+            {
+              "id": "group-null",
+              "name": "Pinned",
+              "is_collapsed": false,
+              "is_pinned": true,
+              "is_empty": false,
+              "anchor_workspace_id": null,
+              "sort_index": 0
+            }
+            """
+        )
+
+        #expect(decoded.anchorWorkspaceID == nil)
+        #expect(decoded.isEmpty)
     }
 
     @Test func deltaEventRoundTripsThroughJSONObject() throws {

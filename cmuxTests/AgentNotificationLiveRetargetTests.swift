@@ -427,13 +427,20 @@ extension AgentNotificationRegressionTests {
             surfaceID: nil,
             paneID: nil
         )
-        #expect(TerminalController.shared.controlNotificationCreate(
+        let primaryResolution = TerminalController.shared.controlNotificationCreate(
             routing: routing,
             explicitSurfaceID: fixture.panelId,
             title: "Primary notify",
             subtitle: "",
             body: "Body"
-        ) == .delivered(workspaceID: fixture.owningWorkspace.id, surfaceID: fixture.panelId))
+        )
+        guard case .delivered(let primaryWorkspaceID, let primarySurfaceID, let primaryNotificationID) = primaryResolution else {
+            Issue.record("Expected a delivered primary notification, got \(primaryResolution)")
+            return
+        }
+        #expect(primaryWorkspaceID == fixture.owningWorkspace.id)
+        #expect(primarySurfaceID == fixture.panelId)
+        #expect(primaryNotificationID != nil)
         let resolution = TerminalController.shared.controlNotificationCreateForSurface(
             routing: routing,
             surfaceID: fixture.panelId,
@@ -441,7 +448,7 @@ extension AgentNotificationRegressionTests {
             subtitle: "",
             body: "Body"
         )
-        guard case .delivered(let workspaceID, let surfaceID, _) = resolution else {
+        guard case .delivered(let workspaceID, let surfaceID, _, _) = resolution else {
             Issue.record("A moved surface must be re-homed, not rejected; got \(resolution)")
             return
         }

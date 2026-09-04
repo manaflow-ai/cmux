@@ -111,7 +111,7 @@ public struct NotificationFeedPreviewView: View {
                 openSettings: {},
                 openDevices: {},
                 title: L10n.string(
-                    "mobile.workspaces.macPicker.allMacs",
+                    "mobile.workspaces.macPicker.allConnections",
                     defaultValue: "All Computers"
                 ),
                 isLoading: false,
@@ -157,7 +157,9 @@ public struct NotificationFeedPreviewView: View {
             markAllRead: {
                 items = items.map { $0.updating(isRead: true) }
             },
-            refresh: {}
+            refresh: {},
+            loadMore: {},
+            filterChanged: { _ in }
         )
     }
 

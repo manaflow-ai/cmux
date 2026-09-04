@@ -15,14 +15,15 @@ final class GhosttyTitleUpdateIngress {
     /// Ghostty serializes action callbacks for a view; no other context reads
     /// or writes this duplicate-rejection snapshot.
     private var lastSubmittedUpdate: GhosttyTitleUpdate?
-
     init(
         center: NotificationCenter = .default,
-        titleChurnFilter: TerminalTitleChurnFilter = TerminalTitleChurnFilter()
+        titleChurnFilter: TerminalTitleChurnFilter = TerminalTitleChurnFilter(),
+        schedule: GhosttyTitleUpdateDispatcher.Scheduler? = nil
     ) {
         let attachmentGeneration = AtomicUInt64Generation()
         let dispatcher = GhosttyTitleUpdateDispatcher(
-            attachmentGeneration: attachmentGeneration
+            attachmentGeneration: attachmentGeneration,
+            schedule: schedule
         ) { updates in
 #if DEBUG
             let timingStart = CmuxTypingTiming.start()
@@ -32,7 +33,8 @@ final class GhosttyTitleUpdateIngress {
                     tabId: update.tabId,
                     surfaceId: update.surfaceId,
                     title: update.title,
-                    sourceSurfaceIdentifier: update.sourceSurfaceIdentifier
+                    sourceSurfaceIdentifier: update.sourceSurfaceIdentifier,
+                    terminalLifecycleID: update.terminalLifecycleID
                 )
                 center.post(name: .ghosttyDidSetTitle, object: nil, userInfo: change.userInfo)
             }
@@ -67,15 +69,28 @@ final class GhosttyTitleUpdateIngress {
     /// when the update duplicates the callback-local snapshot, or when the
     /// ingress has already terminated.
     @discardableResult
-    func submit(tabId: UUID, surfaceId: UUID, sourceSurface: AnyObject, title: String) -> Bool {
-        guard let stableTitle = titleChurnFilter.stableTitle(for: title) else {
+    func submit(
+        tabId: UUID,
+        surfaceId: UUID,
+        sourceSurfaceIdentifier: ObjectIdentifier,
+        terminalLifecycleID: UUID,
+        title: String,
+        titleOverride: String? = nil
+    ) -> Bool {
+        let stableTitle: String
+        if let titleOverride {
+            stableTitle = titleOverride
+        } else if let churnStableTitle = titleChurnFilter.stableTitle(for: title) {
+            stableTitle = churnStableTitle
+        } else {
             return false
         }
         let update = GhosttyTitleUpdate(
             tabId: tabId,
             surfaceId: surfaceId,
             title: stableTitle,
-            sourceSurfaceIdentifier: ObjectIdentifier(sourceSurface),
+            sourceSurfaceIdentifier: sourceSurfaceIdentifier,
+            terminalLifecycleID: terminalLifecycleID,
             attachmentGeneration: attachmentGeneration.loadRelaxed()
         )
         guard update != lastSubmittedUpdate else { return false }

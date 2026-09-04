@@ -414,7 +414,7 @@ private func simulatorPointIsNormalized(_ point: SimulatorPoint) -> Bool {
         return send(message)
     }
 
-    func sendSystemGesture(endY: Double) async -> Bool {
+    func sendSystemGesture(endY: Double, holdAtEnd: Duration = .zero) async -> Bool {
         let edge = SimulatorEdge.bottom
         var succeeded = send(
             SimulatorPointerEvent(
@@ -449,6 +449,18 @@ private func simulatorPointIsNormalized(_ point: SimulatorPoint) -> Bool {
                 _ = send(SimulatorPointerEvent(
                     phase: .cancelled,
                     primary: SimulatorPoint(x: 0.5, y: y),
+                    edge: edge
+                ))
+                return false
+            }
+        }
+        if holdAtEnd > .zero {
+            do {
+                try await sleeper.sleep(for: holdAtEnd)
+            } catch {
+                _ = send(SimulatorPointerEvent(
+                    phase: .cancelled,
+                    primary: SimulatorPoint(x: 0.5, y: endY),
                     edge: edge
                 ))
                 return false

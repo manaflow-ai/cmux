@@ -35,5 +35,11 @@ let package = Package(
             name: "CmuxSwiftRenderUITests",
             dependencies: ["CmuxSwiftRenderUI"]
         ),
+        // Dev-only GUI lab for iterating on the reorderable drag interaction
+        // without an app build. Run: swift run reorder-lab
+        .executableTarget(
+            name: "reorder-lab",
+            dependencies: ["CmuxSwiftRenderUI"]
+        ),
     ]
 )

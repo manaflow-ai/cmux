@@ -21,7 +21,10 @@ struct GotoSplitCycleUITestSupport {
         previousShortcutDisplay: String,
         nextShortcutDisplay: String
     ) {
-        let tab = tabManager.addTab()
+        guard let tab = tabManager.addWorkspaceIfActive() else {
+            writeData(["setupError": "Failed to create workspace"])
+            return
+        }
         guard let initialPanelId = tab.focusedPanelId else {
             writeData(["setupError": "Missing initial panel id"])
             return

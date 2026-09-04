@@ -26,6 +26,12 @@ extension CMUXCLI {
         let format: HookFormat
         let events: [HookEvent]
         let aliases: Set<String>
+        /// How installed hooks find the cmux instance that owns them.
+        ///
+        /// `.ambient` is appropriate when an agent preserves the launch environment. `.pinned`
+        /// embeds the installing CLI and socket, which is required for agents that sanitize hook
+        /// subprocess environments and keeps callbacks attributed to the correct tagged app.
+        let dispatch: HookDispatch
         let publishesStopNotification: Bool
         /// Whether this agent's `SessionEnd`/`session-end` hook fires once per
         /// conversation turn rather than at a true session teardown.
@@ -59,12 +65,28 @@ extension CMUXCLI {
             case antigravityJSON(timeoutSeconds: Int) // ~/.gemini/config/hooks.json named hook groups
             case rovoDevYAML
             case hermesAgentYAML
-            case tomlArrayTable // ~/.kimi/config.toml [[hooks]] array-of-tables
+            case tomlArrayTable // Kimi config.toml [[hooks]] array-of-tables
+        }
+
+        enum HookDispatch {
+            case ambient
+            case pinned(marker: String)
         }
 
         struct HookEvent {
             let agentEvent: String
             let cmuxSubcommand: String
+            let matcher: String?
+
+            init(
+                agentEvent: String,
+                cmuxSubcommand: String,
+                matcher: String? = nil
+            ) {
+                self.agentEvent = agentEvent
+                self.cmuxSubcommand = cmuxSubcommand
+                self.matcher = matcher
+            }
         }
 
         enum PostInstallAction {
@@ -109,6 +131,7 @@ extension CMUXCLI {
              sessionStoreSuffix: String, disableEnvVar: String, hookMarker: String,
              format: HookFormat, events: [HookEvent],
              aliases: Set<String> = [],
+             dispatch: HookDispatch = .ambient,
              publishesStopNotification: Bool = true,
              sessionEndIsTurnBoundary: Bool = false,
              feedHookEvents: [String] = [],
@@ -123,6 +146,7 @@ extension CMUXCLI {
             self.binaryName = binaryName ?? name
             self.sessionStoreSuffix = sessionStoreSuffix; self.disableEnvVar = disableEnvVar
             self.hookMarker = hookMarker; self.format = format; self.events = events
+            self.dispatch = dispatch
             self.publishesStopNotification = publishesStopNotification
             self.sessionEndIsTurnBoundary = sessionEndIsTurnBoundary
             self.aliases = Set(aliases.compactMap { alias in
@@ -136,7 +160,9 @@ extension CMUXCLI {
     }
 
     enum AgentHookAction {
-        case sessionStart, promptSubmit, stop, notification, approvalResponse, sessionEnd, sessionFinalize, noop
+        case sessionStart, promptSubmit, stop, notification, approvalResponse
+        case codexSubagentStart, codexSubagentStop
+        case shellObserved, shellDone, shellFailed, sessionEnd, sessionFinalize, noop
     }
 
     static let subcommandActions: [String: AgentHookAction] = [
@@ -147,13 +173,20 @@ extension CMUXCLI {
         "notify": .notification,
         "agent-response": .stop,
         "approval-response": .approvalResponse,
+        "subagent-start": .codexSubagentStart,
+        "subagent-stop": .codexSubagentStop,
         "shell-exec": .promptSubmit,
-        "shell-done": .noop,
+        "shell-done": .shellDone,
+        "shell-failed": .shellFailed,
         "session-end": .sessionEnd,
         "session-finalize": .sessionFinalize,
     ]
 
-    static func hookCommandString(for def: AgentHookDef, event: AgentHookDef.HookEvent) -> String {
+    static func hookCommandString(
+        for def: AgentHookDef,
+        event: AgentHookDef.HookEvent,
+        materializeCodexScripts: Bool = true
+    ) -> String {
         let command = "cmux hooks \(def.name) \(event.cmuxSubcommand)"
         let inline: String
         if def.name == "codex", codexHookCanRunFireAndForget(event.cmuxSubcommand) {
@@ -162,7 +195,11 @@ extension CMUXCLI {
             inline = agentHookShellCommand(command, for: def)
         }
         if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: event.cmuxSubcommand)
+            return codexPersistentHookScriptCommand(
+                inline,
+                eventTag: event.cmuxSubcommand,
+                materialize: materializeCodexScripts
+            )
         }
         return inline
     }
@@ -173,8 +210,13 @@ extension CMUXCLI {
     /// the `command` string directly and fail an inline shell snippet with
     /// "No such file or directory (os error 2)". Falls back to the inline command
     /// on any write failure, so the persistent install can never regress.
-    private static func codexPersistentHookScriptCommand(_ inlineCommand: String, eventTag: String) -> String {
-        guard let dir = codexHookScriptsDirectory(),
+    private static func codexPersistentHookScriptCommand(
+        _ inlineCommand: String,
+        eventTag: String,
+        materialize: Bool = true
+    ) -> String {
+        guard materialize,
+              let dir = codexHookScriptsDirectory(),
               let path = writeCodexHookScript(
                   subcommand: "persistent-\(eventTag)", body: inlineCommand, in: dir
               ) else {
@@ -187,18 +229,31 @@ extension CMUXCLI {
         subcommand == "session-start" || subcommand == "prompt-submit" || subcommand == "stop"
     }
 
-    static func feedHookCommandString(for def: AgentHookDef, agentEvent: String) -> String {
+    static func feedHookCommandString(
+        for def: AgentHookDef,
+        agentEvent: String,
+        materializeCodexScripts: Bool = true
+    ) -> String {
         if def.name == "codex",
            let injectedEvent = CodexHookInjectionSchema.current.events.first(where: {
                $0.agentEvent == agentEvent
            }) {
-            let inline = codexFireAndForgetAgentHookShellCommand(
-                "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
-                for: def
-            )
+            let inline: String
+            if injectedEvent.isSynchronous {
+                inline = codexSynchronousAgentHookShellCommand(
+                    "cmux hooks feed --source codex --event \(agentEvent)",
+                    for: def
+                )
+            } else {
+                inline = codexFireAndForgetAgentHookShellCommand(
+                    "cmux hooks codex \(injectedEvent.cmuxSubcommand)",
+                    for: def
+                )
+            }
             return codexPersistentHookScriptCommand(
                 inline,
-                eventTag: "feed-\(agentEvent)"
+                eventTag: "feed-\(agentEvent)",
+                materialize: materializeCodexScripts
             )
         }
 
@@ -219,7 +274,11 @@ extension CMUXCLI {
             )
         }
         if def.name == "codex" {
-            return codexPersistentHookScriptCommand(inline, eventTag: "feed-\(agentEvent)")
+            return codexPersistentHookScriptCommand(
+                inline,
+                eventTag: "feed-\(agentEvent)",
+                materialize: materializeCodexScripts
+            )
         }
         return inline
     }
@@ -246,20 +305,28 @@ extension CMUXCLI {
         return "{ \(command); }"
     }
 
-    private static let grokPinnedHookMarker = "cmux-grok-hook-v2"
-    private static let antigravityPinnedHookMarker = "cmux-antigravity-hook-v2"
-
-    private static func agentHookShellCommand(
+    static func agentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"
     ) -> String {
-        if usesPinnedHookDispatch(def) {
+        if case .pinned = def.dispatch {
             return pinnedAgentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
         }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then { if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; } || \(noOpSnippet); else \(noOpSnippet); fi"
+    }
+
+    /// Synchronous Codex lifecycle hook command. Capturing the callback's
+    /// parent PID before dispatch prevents a descendant from reusing an
+    /// inherited `CMUX_CODEX_PID` as its own owner identity.
+    static func codexSynchronousAgentHookShellCommand(
+        _ command: String,
+        for def: AgentHookDef
+    ) -> String {
+        let dispatch = agentHookShellCommand(command, for: def)
+        return "CMUX_CODEX_HOOK_PID=\"${PPID:-}\"; export CMUX_CODEX_HOOK_PID; \(dispatch)"
     }
 
     private static func exitTwoPropagatingAgentHookShellCommand(
@@ -272,19 +339,14 @@ extension CMUXCLI {
         return "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"; if [ -z \"$cmux_cli\" ] || [ ! -x \"$cmux_cli\" ]; then cmux_cli=\"$(command -v cmux 2>/dev/null || true)\"; fi; if [ -n \"$CMUX_SURFACE_ID\" ] && [ \"$\(def.disableEnvVar)\" != \"1\" ] && [ -n \"$cmux_cli\" ]; then if [ -n \"${CMUX_SOCKET_PATH:-}\" ]; then \"$cmux_cli\" --socket \"$CMUX_SOCKET_PATH\" \(routedArguments); else \"$cmux_cli\" \(routedArguments); fi; status=$?; if [ \"$status\" -eq 2 ]; then exit 2; fi; if [ \"$status\" -ne 0 ]; then \(noOpSnippet); fi; else \(noOpSnippet); fi"
     }
 
-    private static func usesPinnedHookDispatch(_ def: AgentHookDef) -> Bool {
-        def.name == "grok" || def.name == "antigravity"
-    }
-
-    private static func pinnedHookMarker(for def: AgentHookDef) -> String {
-        def.name == "antigravity" ? antigravityPinnedHookMarker : grokPinnedHookMarker
-    }
-
     private static func pinnedAgentHookShellCommand(
         _ command: String,
         for def: AgentHookDef,
         noOpCommand: String = "echo '{}'"
     ) -> String {
+        guard case .pinned(let marker) = def.dispatch else {
+            return agentHookShellCommand(command, for: def, noOpCommand: noOpCommand)
+        }
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
         let socketPath = pinnedAgentHookSocketPath()
         let noOpSnippet = shellNoOpSnippet(noOpCommand)
@@ -324,7 +386,7 @@ extension CMUXCLI {
         } else {
             dispatch = "command -v cmux >/dev/null 2>&1 && \(fallbackInvocation) || \(noOpSnippet)"
         }
-        return ": \(pinnedHookMarker(for: def)); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
+        return ": \(marker); \(shellTraceStart); printenv \(def.disableEnvVar) | grep -qx 1 && { \(shellTraceDisabled); \(noOpSnippet); } || { \(dispatch); cmux_hook_status=$?; \(shellTraceExit); exit $cmux_hook_status; }"
     }
 
     private static func pinnedHookInvocation(
@@ -389,6 +451,17 @@ extension CMUXCLI {
         return "/tmp/cmux-debug-\(slug).sock"
     }
 
+    static func validateHookInstallDispatch(for def: AgentHookDef) throws {
+        guard case .pinned = def.dispatch,
+              pinnedAgentHookSocketPath() == nil else {
+            return
+        }
+        throw CLIError(message: String(
+            localized: "cli.hooks.error.pinnedTargetMissing",
+            defaultValue: "cmux could not connect this hook installation to a running app. Open a cmux workspace and run this command again."
+        ))
+    }
+
     private static func pinnedHookShellTraceCommand(
         agentName: String,
         phase: String,
@@ -433,15 +506,32 @@ extension CMUXCLI {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    static func isCmuxOwnedHookCommand(_ command: String, for def: AgentHookDef, includeLegacy: Bool = true) -> Bool {
-        if usesPinnedHookDispatch(def), command.contains(pinnedHookMarker(for: def)) {
+    static func isCmuxOwnedHookCommand(
+        _ command: String,
+        for def: AgentHookDef,
+        includeLegacy: Bool = true,
+        materializeCodexScripts: Bool = true
+    ) -> Bool {
+        if case .pinned(let marker) = def.dispatch, command.contains(marker) {
             return true
         }
         if def.name == "codex", isCmuxOwnedCodexHookScriptCommand(command) {
             return true
         }
-        if def.events.contains(where: { hookCommandString(for: def, event: $0) == command })
-            || def.feedHookEvents.contains(where: { feedHookCommandString(for: def, agentEvent: $0) == command })
+        if def.events.contains(where: {
+            hookCommandString(
+                for: def,
+                event: $0,
+                materializeCodexScripts: materializeCodexScripts
+            ) == command
+        })
+            || def.feedHookEvents.contains(where: {
+                feedHookCommandString(
+                    for: def,
+                    agentEvent: $0,
+                    materializeCodexScripts: materializeCodexScripts
+                ) == command
+            })
         {
             return true
         }
@@ -449,7 +539,7 @@ extension CMUXCLI {
     }
 
     private static func isCmuxOwnedCodexHookScriptCommand(_ command: String) -> Bool {
-        guard let hooksDirectory = codexHookScriptsDirectory() else { return false }
+        let hooksDirectory = codexHookScriptsURL()
         let url = URL(fileURLWithPath: command, isDirectory: false)
         let name = url.lastPathComponent
         return CodexHookScriptName(filename: name) != nil

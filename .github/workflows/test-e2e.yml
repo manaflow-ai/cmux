@@ -175,6 +175,11 @@ jobs:
           set -euo pipefail
           ./scripts/select-ci-xcode.sh
 
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: latest
+
       - name: Download pre-built GhosttyKit.xcframework
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -189,12 +194,6 @@ jobs:
       - name: Install Rust
         run: |
           ./scripts/install-rust-ci.sh
-
-      - name: Install Bun for Feed sidebar tests
-        if: ${{ steps.filter.outputs.target == 'cmuxUITests' && (steps.filter.outputs.filter == 'FeedSidebarUITests' || startsWith(steps.filter.outputs.filter, 'FeedSidebarUITests/')) }}
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: latest
 
       - name: Create virtual display
         if: ${{ steps.filter.outputs.target == 'cmuxUITests' && steps.filter.outputs.filter != 'DisplayResolutionRegressionUITests' }}
@@ -502,11 +501,10 @@ jobs:
           # one xcodebuild invocation; a filter can select a suite living in either.
           xctest = [int(value) for value in re.findall(r"Executed\s+(\d+)\s+tests?\b", text)]
           swift_testing = [int(value) for value in re.findall(r"Test run with\s+(\d+)\s+tests?\b", text)]
-          counts = []
-          if xctest:
-              counts.append(xctest[-1])
-          if swift_testing:
-              counts.append(swift_testing[-1])
+          # App-hosted Swift Testing can emit a selected run followed by an
+          # auxiliary zero-test run. Count every summary so the later host
+          # teardown cannot erase a test that actually executed.
+          counts = xctest + swift_testing
           if counts:
               print(max(counts))
           PY

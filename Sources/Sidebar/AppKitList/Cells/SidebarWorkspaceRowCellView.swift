@@ -27,6 +27,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let leadingBadge = SidebarRowUnreadBadgeView()
     private var leadingSpinner: GPUSpinnerNSView?
     private let pinImageView = NSImageView()
+    private let muteImageView = NSImageView()
     private let mediaAudioView = NSImageView()
     private let mediaMicView = NSImageView()
     private let mediaCameraView = NSImageView()
@@ -38,7 +39,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     // Detail slots
     private let descriptionView = SidebarRowTextView(lines: 12)
     private let subtitleView = SidebarRowTextView(lines: 2)
-    private let compactStatusLine = SidebarRowCompactStatusLine()
     private let remoteTargetView = SidebarRowTextView(lines: 1)
     private let remoteStatusView = SidebarRowTextView(lines: 1)
     private let remoteReconnectButton = NSButton()
@@ -68,6 +68,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private var renameSession: SidebarRowInlineRenameSession?
     var isEditing: Bool { renameSession != nil }
     private var pumpCancellables: [AnyCancellable] = []
+    private weak var pumpWorkspace: Workspace?
+    private var pumpRebuild: (@MainActor () -> Void)?
     private var isPresentationActive = true
 
 #if DEBUG
@@ -75,27 +77,32 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// optimistic press/deselect, hover enforcement).
     var applyModelProbeForTesting: ((SidebarWorkspaceRowModel) -> Void)?
 #endif
-
     /// Per-row churn pump: mirrors TabItemView's onReceive subscriptions so
     /// metadata/branch/PR updates repaint just this cell without any
-    /// container re-render. Installed per configure; replaced on reuse.
+    /// container re-render; installation also replays the current model.
     func installPump(
         workspace: Workspace,
         rebuild: @escaping @MainActor () -> Void
     ) {
+        pumpRebuild = rebuild
+        guard pumpWorkspace !== workspace else { return }
         pumpCancellables.removeAll()
+        pumpWorkspace = workspace
         workspace.sidebarImmediateObservationPublisher
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
         workspace.sidebarObservationPublisher
+            .dropFirst()
             .debounce(for: .milliseconds(40), scheduler: DispatchQueue.main)
-            .sink { _ in
-                MainActor.assumeIsolated { rebuild() }
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.pumpRebuild?() }
             }
             .store(in: &pumpCancellables)
+        rebuild()
     }
 
     /// Measurement/apply entry used by the pump path.
@@ -158,11 +165,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     }
 
     /// True when a press at this view should not repaint selection (the
-    /// close button closes without selecting; the status glyph, compact
-    /// status menu, and checklist controls act without activating the row,
+    /// close button closes without selecting; the status glyph and checklist
+    /// controls act without activating the row,
     /// exactly like their legacy SwiftUI Buttons).
     func selectionPreviewShouldIgnore(_ hitView: NSView) -> Bool {
-        for control in [closeButton, statusGlyphButton, compactStatusLine, checklistSection] {
+        for control in [closeButton, statusGlyphButton, checklistSection] {
             if hitView === control || hitView.isDescendant(of: control) {
                 return true
             }
@@ -194,6 +201,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         pinImageView.imageScaling = .scaleProportionallyDown
         contentContainer.addSubview(pinImageView)
+        muteImageView.imageScaling = .scaleProportionallyDown
+        contentContainer.addSubview(muteImageView)
         for view in [mediaAudioView, mediaMicView, mediaCameraView] {
             view.imageScaling = .scaleProportionallyDown
             contentContainer.addSubview(view)
@@ -214,9 +223,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             self.actions?.onOpenWorkspaceDescriptionURL(url)
         }
         contentContainer.addSubview(subtitleView)
-        compactStatusLine.isHidden = true
-        compactStatusLine.menuProvider = { [weak self] in self?.makeCompactStatusMenu() ?? NSMenu() }
-        contentContainer.addSubview(compactStatusLine)
         contentContainer.addSubview(remoteTargetView)
         contentContainer.addSubview(remoteStatusView)
         remoteReconnectButton.isBordered = false
@@ -248,7 +254,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        suspendPresentation()
+        for action in retirePresentation() {
+            action()
+        }
         model = nil
         hintPill.resetForReuse()
     }
@@ -289,13 +297,25 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         contextMenuDidClose = nil
         contextMenuVisible = false
         pumpCancellables.removeAll()
+        pumpWorkspace = nil
+        pumpRebuild = nil
         setPresentationActive(false)
         return postUpdateActions
     }
 
+    /// Ends the row's semantic lifetime and releases link proxies before reuse.
+    func retirePresentation(commitEdits: Bool = false) -> [@MainActor () -> Void] {
+        invalidateLinkAccessibility()
+        return detachPresentation(commitEdits: commitEdits)
+    }
+
     func configurePresentation(model: SidebarWorkspaceRowModel) {
+        let previous = self.model
         suspendPresentation()
-        guard self.model != model else { return }
+        guard previous != model else { return }
+        if previous?.workspaceId != model.workspaceId {
+            invalidateLinkAccessibility()
+        }
         self.model = model
         applyModel(model)
         needsLayout = true
@@ -326,6 +346,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let hoverChanged = self.isPointerHovering != isPointerHovering
         self.isPointerHovering = isPointerHovering
         if previous?.workspaceId != model.workspaceId {
+            invalidateLinkAccessibility()
             cancelInlineRename()
             if statusPopoverPresenter.isShown {
                 statusPopoverPresenter.close()
@@ -336,6 +357,14 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         self.model = model
         applyModel(model)
         needsLayout = true
+    }
+
+    /// Invalidates the only text views that vend row-owned web-link proxies.
+    private func invalidateLinkAccessibility() {
+        descriptionView.invalidateLinkAccessibility()
+        for view in markdownBlocks {
+            view.invalidateLinkAccessibility()
+        }
     }
 
     private func palette(_ model: SidebarWorkspaceRowModel) -> SidebarRowPalette {
@@ -369,7 +398,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         applyBackgroundStyle(style)
         if settings.activeTabIndicatorStyle == .solidFill, model.isActive {
             backgroundView.layer?.borderWidth = 1.5
-            backgroundView.layer?.borderColor = NSColor.labelColor.withAlphaComponent(0.5).cgColor
+            backgroundView.layer?.borderColor = palette.semantic(.labelColor, opacity: 0.5).cgColor
         } else {
             backgroundView.layer?.borderWidth = 0
         }
@@ -391,6 +420,17 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
             pinImageView.contentTintColor = palette.secondary(0.8)
             pinImageView.toolTip = String(localized: "sidebar.pinnedWorkspaceProtected.tooltip", defaultValue: "Pinned workspace — protected from Close")
+        }
+        muteImageView.isHidden = !snapshot.isMuted
+        if snapshot.isMuted {
+            muteImageView.image = RenderableSystemSymbol.configuredAppKitImage(
+                systemName: "bell.slash.fill", pointSize: model.scaled(9), weight: .semibold
+            )
+            muteImageView.contentTintColor = palette.secondary(0.8)
+            muteImageView.toolTip = String(
+                localized: "sidebar.mutedWorkspace.tooltip",
+                defaultValue: "Notifications muted for this workspace"
+            )
         }
         let media = snapshot.mediaActivity
         mediaAudioView.isHidden = !media.isPlayingAudio
@@ -428,7 +468,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     status: taskStatus,
                     hasOverride: true,
                     usesMonochrome: model.isActive,
-                    fontScale: model.fontScale
+                    fontScale: model.fontScale,
+                    colorScheme: palette.colorScheme
                 ),
                 monochromeColor: palette.secondary(0.8),
                 neutralColor: palette.secondary(0.8)
@@ -454,6 +495,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.stringValue = boundedTitle
         titleView.font = .systemFont(ofSize: model.scaled(12.5), weight: .semibold)
         titleView.textColor = palette.primaryText
+        titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
         // Badges / spinner / close
         let showsSpinner = model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
@@ -478,16 +520,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         descriptionView.isHidden = description == nil
         if let description {
             let display = description.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
+            let descriptionColor = palette.secondary(0.84, inactiveOpacity: 0.95)
             if let rendered = SidebarMarkdownRenderer(markdown: display).workspaceDescription {
-                descriptionView.attributedStringValue = SidebarRowPalette.attributed(
+                descriptionView.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10.5)),
-                    color: model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                    color: descriptionColor,
+                    linkColor: palette.linkText
                 )
             } else {
-                descriptionView.stringValue = display
-                descriptionView.font = .systemFont(ofSize: model.scaled(10.5))
-                descriptionView.textColor = model.isActive ? palette.secondary(0.84) : NSColor.secondaryLabelColor.withAlphaComponent(0.95)
+                descriptionView.configurePlainText(
+                    display,
+                    font: .systemFont(ofSize: model.scaled(10.5)),
+                    color: descriptionColor
+                )
             }
         }
 
@@ -507,18 +553,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             )
             subtitleView.font = .systemFont(ofSize: model.scaled(10))
             subtitleView.textColor = palette.secondary(0.8)
-        }
-
-        // Compact status row (legacy `compactWorkspaceStatusMenu`): in
-        // hide-all-details mode, any visible status renders as a flag +
-        // "Status: X" line that opens the lanes menu.
-        let showsCompactStatus = model.todoControlsEnabled
-            && settings.hidesAllDetails
-            && snapshot.taskStatus != nil
-            && snapshot.todoStatusMenuModel != nil
-        compactStatusLine.isHidden = !showsCompactStatus
-        if showsCompactStatus, let taskStatus = snapshot.taskStatus {
-            compactStatusLine.configure(status: taskStatus, model: model, palette: palette)
         }
 
         // Remote
@@ -562,8 +596,8 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             emphasis: model.isActive ? 1.0 : 0.9,
             representedIdentity: model.workspaceId
         )
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
+        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor(for: palette.colorScheme).cgColor
         topDropIndicator.isHidden = !model.topDropIndicatorVisible
         bottomDropIndicator.isHidden = !model.bottomDropIndicatorVisible
         alphaValue = model.isBeingDragged ? 0.6 : 1
@@ -583,8 +617,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     /// false, so no SwiftUI rows rebuild runs per gap change) and moves it
     /// with two direct view mutations instead of a full-list apply.
     func paintControllerDropIndicator(top: Bool, bottom: Bool) {
-        topDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
-        bottomDropIndicator.layer?.backgroundColor = cmuxAccentNSColor().cgColor
+        let colorScheme = model.map { $0.colorSchemeIsDark ? ColorScheme.dark : .light }
+            ?? SidebarAppearanceColorResolver().currentColorScheme()
+        let accent = cmuxAccentNSColor(for: colorScheme)
+        topDropIndicator.layer?.backgroundColor = accent.cgColor
+        bottomDropIndicator.layer?.backgroundColor = accent.cgColor
         topDropIndicator.isHidden = !top
         bottomDropIndicator.isHidden = !bottom
     }
@@ -605,7 +642,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             if let hex = model.settings.notificationBadgeColorHex, let color = NSColor(hex: hex) {
                 return color
             }
-            return model.isActive ? palette.primaryText.withAlphaComponent(0.25) : cmuxAccentNSColor()
+            return model.isActive
+                ? palette.primaryText.withAlphaComponent(0.25)
+                : cmuxAccentNSColor(for: palette.colorScheme)
         }()
         let badgeText: NSColor = model.isActive ? palette.primaryText : .white
         let badgeFont = NSFont.systemFont(ofSize: model.scaled(9), weight: .semibold)
@@ -624,13 +663,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             trailingBadge.configure(count: model.unreadCount, fillColor: badgeFill, textColor: badgeText, font: badgeFont)
         }
 
-        let spinnerColor: NSColor = model.isActive
-            ? palette.selectedForeground(0.55)
-            : .secondaryLabelColor
+        let spinnerColor = palette.secondary(0.55)
         leadingSpinner = Self.updateSpinner(
             existing: leadingSpinner,
             visible: leadingSpinnerVisible,
             color: spinnerColor,
+            colorScheme: palette.colorScheme,
             presentationActive: isPresentationActive,
             in: contentContainer
         )
@@ -638,6 +676,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             existing: trailingSpinner,
             visible: trailingSpinnerVisible && !showsCloseNow,
             color: spinnerColor,
+            colorScheme: palette.colorScheme,
             presentationActive: isPresentationActive,
             in: contentContainer
         )
@@ -656,6 +695,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         existing: GPUSpinnerNSView?,
         visible: Bool,
         color: NSColor,
+        colorScheme: ColorScheme,
         presentationActive: Bool,
         in parent: NSView
     ) -> GPUSpinnerNSView? {
@@ -663,6 +703,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             let spinner = existing ?? GPUSpinnerNSView()
             spinner.style = .macOSSpokes
             spinner.color = color
+            spinner.colorScheme = colorScheme
             spinner.isPresentationActive = presentationActive
             if spinner.superview == nil {
                 parent.addSubview(spinner)
@@ -720,7 +761,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     ? palette.selectedForeground(1.0)
                     : palette.secondary(0.95).withAlphaComponent(0.84)
             } else {
-                entryColor = explicitColor ?? .secondaryLabelColor
+                entryColor = explicitColor ?? palette.secondary()
             }
             metadataRows[index].configureMetadataEntry(
                 entry,
@@ -732,9 +773,7 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             }
         }
         let toggleFont = NSFont.systemFont(ofSize: model.scaled(10), weight: .semibold)
-        let toggleColor = model.isActive
-            ? palette.secondary(0.9)
-            : NSColor.secondaryLabelColor.withAlphaComponent(0.9)
+        let toggleColor = palette.secondary(0.9, inactiveOpacity: 0.9)
         metadataToggleButton.isHidden = allEntries.count <= 3
         if !metadataToggleButton.isHidden {
             metadataToggleButton.configure(
@@ -761,17 +800,25 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         Self.pool(&markdownBlocks, count: blocks.count, parent: contentContainer) { SidebarRowTextView(lines: 12) }
         for (index, block) in blocks.enumerated() {
             let view = markdownBlocks[index]
+            view.onOpenLink = { [weak self] url in
+                guard let self else { return }
+                self.actions?.commands.updateSelection()
+                self.actions?.onOpenStatusURL(url)
+            }
             let display = block.markdown.sidebarBoundedDisplayString(maxDisplayedLines: 12, maxDisplayedCharacters: 4096)
             if let rendered = SidebarMetadataMarkdownRenderer.rendered(display) {
-                view.attributedStringValue = SidebarRowPalette.attributed(
+                view.configureAttributedText(
                     rendered,
                     font: .systemFont(ofSize: model.scaled(10)),
-                    color: model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                    color: palette.secondary(0.8),
+                    linkColor: palette.linkText
                 )
             } else {
-                view.stringValue = display
-                view.font = .systemFont(ofSize: model.scaled(10))
-                view.textColor = model.isActive ? palette.secondary(0.8) : .secondaryLabelColor
+                view.configurePlainText(
+                    display,
+                    font: .systemFont(ofSize: model.scaled(10)),
+                    color: palette.secondary(0.8)
+                )
             }
         }
     }
@@ -789,8 +836,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             progressView.configure(
                 fraction: CGFloat(progress.value),
                 barHeight: max(3, 3 * model.fontScale),
-                trackColor: model.isActive ? palette.selectedForeground(0.15) : NSColor.secondaryLabelColor.withAlphaComponent(0.2),
-                fillColor: model.isActive ? palette.selectedForeground(0.8) : cmuxAccentNSColor(),
+                trackColor: model.isActive
+                    ? palette.selectedForeground(0.15)
+                    : palette.semantic(.secondaryLabelColor, opacity: 0.2),
+                fillColor: model.isActive
+                    ? palette.selectedForeground(0.8)
+                    : cmuxAccentNSColor(for: palette.colorScheme),
                 labelText: progress.label,
                 labelFont: labelFont,
                 labelColor: palette.secondary(0.6)
@@ -957,44 +1008,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
     }
 
-    /// The compact status line's lanes menu (legacy `compactWorkspaceStatusMenu`):
-    /// the Auto row, a divider, the five status lanes, a divider, then None —
-    /// selection checkmarks included, applying to this row's workspace only.
-    private func makeCompactStatusMenu() -> NSMenu? {
-        guard let menuModel = model?.snapshot.todoStatusMenuModel,
-              let actions else { return nil }
-        // Freeze the workspace-bound closures at menu-build time: menu
-        // tracking allows model updates, so a row recycled while its menu is
-        // open must not route the selection to the cell's NEW workspace.
-        let applyStatus = actions.applyTodoStatus
-        let hideStatus = actions.hideTodoStatus
-        let menu = NSMenu()
-        menu.autoenablesItems = false
-        let lanes = WorkspaceTodoStatusLane.lanes(
-            inferred: menuModel.inferred,
-            activeOverride: menuModel.activeOverride,
-            isHidden: false
-        )
-        for lane in lanes {
-            if lane.isNone {
-                menu.addItem(.separator())
-            }
-            let item = SidebarRowClosureMenuItem(title: lane.title) {
-                if lane.isNone {
-                    hideStatus()
-                } else {
-                    applyStatus(lane.status)
-                }
-            }
-            item.state = lane.isSelected ? .on : .off
-            menu.addItem(item)
-            if lane.status == nil, !lane.isNone {
-                menu.addItem(.separator())
-            }
-        }
-        return menu
-    }
-
     func beginInlineRename() {
         guard let model, renameSession == nil else { return }
         let session = SidebarRowInlineRenameSession(
@@ -1124,6 +1137,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             place(pinImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
             x += side + titleRowSpacing
         }
+        if !muteImageView.isHidden {
+            let side = model.scaled(9) + 4
+            place(muteImageView, size: NSSize(width: side, height: side), centerY: firstLineCenter)
+            x += side + titleRowSpacing
+        }
         for view in [mediaAudioView, mediaMicView, mediaCameraView] where !view.isHidden {
             let side = model.scaled(9) + 4
             place(view, size: NSSize(width: side, height: side), centerY: firstLineCenter)
@@ -1184,15 +1202,6 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
 
         placeBlock(descriptionView)
         placeBlock(subtitleView)
-
-        if !compactStatusLine.isHidden {
-            y += spacing
-            let height = compactStatusLine.measuredHeight(width: contentWidth)
-            if apply {
-                compactStatusLine.frame = NSRect(x: leading, y: y, width: contentWidth, height: height)
-            }
-            y += height
-        }
 
         if !remoteTargetView.isHidden {
             y += model.latestNotificationText == nil ? 1 : 2

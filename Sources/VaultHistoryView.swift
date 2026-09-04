@@ -36,7 +36,10 @@ private struct VaultHistoryContentView: View {
             }
         }
         .onAppear {
-            if sessionStore.entries.isEmpty && !sessionStore.isLoading {
+            // History projects session activity from the durable agent indexes.
+            // Refresh on every mount so a warm in-memory cache cannot hide
+            // sessions written while this tab was not visible.
+            if !sessionStore.isLoading {
                 sessionStore.reload()
             }
             model.refresh(sessionEntries: sessionStore.entries)
@@ -96,15 +99,20 @@ private struct VaultHistoryContentView: View {
                     .cmuxFont(size: 10, weight: .medium)
             }
             .buttonStyle(.borderless)
-            .help(String(
-                localized: "vaultHistory.reload.tooltip",
-                defaultValue: "Reload History"
-            ))
+            .help(reloadLabel)
+            .accessibilityLabel(reloadLabel)
             .disabled(model.isLoading || sessionStore.isLoading)
             .titlebarInteractiveControl()
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder()
+    }
+
+    private var reloadLabel: String {
+        String(
+            localized: "vaultHistory.reload.tooltip",
+            defaultValue: "Reload History"
+        )
     }
 
     private var loadingView: some View {

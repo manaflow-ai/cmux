@@ -45,6 +45,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// *text* does not use this path; it rides ``onText``.
     var onPasteImage: ((Data, String) -> Void)?
     var onZoom: ((TerminalFontZoomDirection) -> Void)?
+    var onToolbarDiagnosticAction: ((TerminalToolbarDiagnosticAction) -> Void)?
     var onHideKeyboard: (() -> Void)?
     /// Fired by the trailing "customize" button so the SwiftUI host can present
     /// the toolbar shortcuts editor.
@@ -330,7 +331,6 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     /// recolor it from the new theme's background.
     private weak var accessoryBarBackgroundView: UIView?
     func refreshThemeColors() {
-        accessoryBarBackgroundView?.backgroundColor = themeBarColor
         dismissButton?.tintColor = themeChromeColor.withAlphaComponent(0.78)
         accessoryArrowNub?.applyTheme(background: themeBarColor, foreground: themeChromeColor)
         refreshAccessoryButtonStyles()
@@ -345,26 +345,64 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         container.frame = CGRect(x: 0, y: 0, width: 0, height: Self.dockedButtonRowHeight)
 
         let backgroundView = UIView()
-        backgroundView.backgroundColor = themeBarColor
+        // Clear, not the theme bar fill: the scroll-edge band renders live
+        // scrollback rows behind this strip and the host's dock-anchored
+        // fade provides the legibility wash. Everywhere the band is off,
+        // what shows through is the same theme-colored surface this fill
+        // used to match, so nothing changes visually there.
+        backgroundView.backgroundColor = .clear
         backgroundView.translatesAutoresizingMaskIntoConstraints = false
         self.accessoryBarBackgroundView = backgroundView
 
         // Pinned keyboard dismiss button on the left
         let dismissButton = UIButton(type: .system)
-        dismissButton.setImage(UIImage(systemName: "keyboard.chevron.compact.down", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
+        // Constructed in the SHOW state (keyboard down): `setKeyboardShown`
+        // only fires on visibility TRANSITIONS, so a surface that opens with
+        // the keyboard down would otherwise keep whatever glyph was built
+        // here — a workspace used to open showing "hide" while nothing was
+        // up. The host syncs the real state right after the toolbar installs.
+        dismissButton.setImage(UIImage(systemName: "keyboard", withConfiguration: Self.accessoryButtonSymbolConfig), for: .normal)
         dismissButton.tintColor = themeChromeColor.withAlphaComponent(0.78)
         dismissButton.addTarget(self, action: #selector(handleHideKeyboard), for: .touchUpInside)
+
+        // iOS 26: Liquid Glass circle behind the toggle glyph so it stays
+        // legible over band rows. A SIBLING under the button, not a button
+        // subview: UIButton manages its own subview order and sandwiched
+        // the glyph beneath the glass. Non-interactive; the button — sized
+        // to the same circle, matching the row's control height — owns the
+        // whole tap area.
+        var dismissGlass: UIVisualEffectView?
+        if #available(iOS 26.0, *) {
+            let glass = UIVisualEffectView(effect: UIGlassEffect())
+            glass.isUserInteractionEnabled = false
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            glass.layer.cornerRadius = Self.accessoryButtonHeight / 2
+            glass.clipsToBounds = true
+            dismissGlass = glass
+        }
         dismissButton.accessibilityIdentifier = "terminal.inputAccessory.hideKeyboard"
-        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.hideKeyboard", defaultValue: "Hide Keyboard")
+        dismissButton.accessibilityLabel = String(localized: "terminal.input_accessory.showKeyboard", defaultValue: "Show Keyboard")
         dismissButton.translatesAutoresizingMaskIntoConstraints = false
         self.dismissButton = dismissButton
 
-        // Scrollable action buttons
-        let scrollView = UIScrollView()
+        // Scrollable action buttons. The fade subclass dissolves keys under
+        // the leading edge (against the pinned composer button) incrementally
+        // as the row scrolls, instead of hard-clipping them.
+        let scrollView = AccessoryEdgeFadeScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.alwaysBounceHorizontal = true
         scrollView.translatesAutoresizingMaskIntoConstraints = false
+        // The scroll view's FRAME starts flush at the composer button's
+        // trailing edge; the 4pt visual gap the frame constant used to carry
+        // lives INSIDE the scroll view as a leading content inset. At rest the
+        // bar reads identically (first key sits 4pt after the composer, offset
+        // -4), but a scrolled key now travels through that gap and dissolves
+        // AT the composer's edge, fading into the empty gap instead of
+        // clipping against an invisible line 4pt short of the button.
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.contentInset.left = 4
+        scrollView.contentOffset = CGPoint(x: -4, y: 0)
 
         let stack = UIStackView()
         stack.axis = .horizontal
@@ -401,6 +439,9 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         self.composerButton = composerButton
 
         container.addSubview(backgroundView)
+        if let dismissGlass {
+            container.addSubview(dismissGlass)
+        }
         container.addSubview(dismissButton)
         container.addSubview(nub)
         container.addSubview(composerButton)
@@ -422,7 +463,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
         // A short fixed-height strip pinned to the container's BOTTOM (minus
         // ``dockedBottomPadding``) that holds the button row. The host pins that
-        // bottom edge through the composer to `keyboardLayoutGuide.topAnchor`, so
+        // bottom edge through the composer to its keyboard-driven dock edge, so
         // bottom-pinning the controls keeps them glued to the system keyboard edge.
         // `dockedBottomPadding` lifts the strip off the very bottom edge so the
         // controls have breathing room.
@@ -452,7 +493,11 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             // scroll view.)
             dismissLeadingConstraint,
             dismissButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
-            dismissButton.widthAnchor.constraint(equalToConstant: 32),
+            // Sized to the glass capsule: the row's shared control height,
+            // widened so the glyph gets breathing room, and the whole
+            // visible capsule is tappable (the glass tracks these anchors).
+            dismissButton.widthAnchor.constraint(equalToConstant: Self.accessoryButtonHeight + 12),
+            dismissButton.heightAnchor.constraint(equalToConstant: Self.accessoryButtonHeight),
 
             nub.leadingAnchor.constraint(equalTo: dismissButton.trailingAnchor, constant: 6),
             nub.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
@@ -461,13 +506,13 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
 
             // Pinned composer toggle: directly after the nub (same 6pt gap the
             // scroll view used to take), centered on the shared strip line. The
-            // scroll view starts after it with the 4pt inter-button spacing the
-            // stack uses, so the bar reads identically to before — only now the
-            // composer can never scroll away.
+            // scroll view starts FLUSH after it; the 4pt inter-button gap is a
+            // leading content inset (see above) so scrolled keys fade out at
+            // the composer's edge rather than at a line 4pt short of it.
             composerButton.leadingAnchor.constraint(equalTo: nub.trailingAnchor, constant: 6),
             composerButton.centerYAnchor.constraint(equalTo: buttonRow.centerYAnchor),
 
-            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor, constant: 4),
+            scrollView.leadingAnchor.constraint(equalTo: composerButton.trailingAnchor),
             scrollTrailingConstraint,
             scrollView.topAnchor.constraint(equalTo: buttonRow.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: buttonRow.bottomAnchor),
@@ -484,6 +529,15 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             stack.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
             stack.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
         ])
+
+        if let dismissGlass {
+            NSLayoutConstraint.activate([
+                dismissGlass.centerXAnchor.constraint(equalTo: dismissButton.centerXAnchor),
+                dismissGlass.centerYAnchor.constraint(equalTo: dismissButton.centerYAnchor),
+                dismissGlass.widthAnchor.constraint(equalTo: dismissButton.widthAnchor),
+                dismissGlass.heightAnchor.constraint(equalTo: dismissButton.heightAnchor),
+            ])
+        }
 
         accessoryBackgroundLeadingConstraint = backgroundLeadingConstraint
         accessoryBackgroundTrailingConstraint = backgroundTrailingConstraint
@@ -697,8 +751,8 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         // keyboard's `inputAccessoryView`; `GhosttySurfaceView` docks
         // `toolbarView` persistently at the bottom so it survives keyboard
         // dismissal. Leaving `inputAccessoryView` nil means the keyboard shows
-        // without its own accessory (the docked bar rides above it via
-        // `keyboardLayoutGuide`).
+        // without its own accessory (the docked bar rides above it on the
+        // host's notification-driven keyboard edge).
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleAccessoryConfigurationChanged),
@@ -1042,6 +1096,16 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
             config.preferredSymbolConfigurationForImage = isComposer
                 ? Self.composerButtonSymbolConfig
                 : Self.accessoryButtonSymbolConfig
+            // Hierarchical SF Symbols such as `ellipsis.circle` can retain
+            // UIKit's default tint when installed on a glass configuration.
+            // Apply the same explicit foreground transform used by the text
+            // and background styling so resting custom icons stay white and
+            // armed built-ins keep their blue active state.
+            let restingForeground = themeChromeColor
+            let activeForeground = UIColor.systemBlue.terminalReadableForeground
+            config.imageColorTransformer = UIConfigurationColorTransformer { _ in
+                armed || sticky ? activeForeground : restingForeground
+            }
             config.attributedTitle = nil
         } else {
             var attributed = AttributedString(title)
@@ -1099,6 +1163,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         _ action: TerminalInputAccessoryAction,
         sourceView: UIView? = nil
     ) {
+        onToolbarDiagnosticAction?(.accessory(action))
         if action == .composer {
             // Opening the composer moves first responder off this proxy, so clear
             // any armed modifier first (like Paste/Zoom do); otherwise a
@@ -1397,12 +1462,12 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         if !armed { consumeModifier(.shift) }
     }
 
-    #if DEBUG
     /// Maps a `UIResponder` to its compact ``InputResponderIdentity`` for the
     /// composer-dock diagnostics. Used to encode *which* view owns first
     /// responder into the integer ``DiagnosticEvent`` payload. The `.other` case
     /// is paired with the responder's class name in the companion `anchormux`
-    /// string log for a human-readable readback.
+    /// string log for a human-readable readback. This mapping is also used by
+    /// the release-safe structured diagnostic events.
     static func responderIdentity(of responder: UIResponder?) -> InputResponderIdentity {
         switch responder {
         case nil: return .none
@@ -1414,6 +1479,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
         }
     }
 
+    #if DEBUG
     /// The responder's concrete class name for the human-readable `anchormux`
     /// readback (the integer ``InputResponderIdentity`` collapses every
     /// unexpected class to `.other`; this preserves the exact type for the copied

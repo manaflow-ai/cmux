@@ -1,4 +1,5 @@
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxWorkspaces
 import SwiftUI
 
@@ -87,20 +88,34 @@ enum WorkspaceTodoPaneKeyboardNavigationPolicy {
 }
 
 private struct WorkspaceTodoPanelOpaqueBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        WorkspaceTodoPanelOpaqueBackgroundView()
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeNSView(context: Context) -> WorkspaceTodoPanelOpaqueBackgroundView {
+        let view = WorkspaceTodoPanelOpaqueBackgroundView()
+        view.colorScheme = colorScheme
+        view.appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+        return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
+    func updateNSView(_ nsView: WorkspaceTodoPanelOpaqueBackgroundView, context: Context) {
+        nsView.colorScheme = colorScheme
         nsView.needsDisplay = true
     }
 }
 
 private final class WorkspaceTodoPanelOpaqueBackgroundView: NSView {
+    var colorScheme: ColorScheme = .light {
+        didSet {
+            guard colorScheme != oldValue else { return }
+            appearance = WindowAppearanceSnapshot.appKitAppearance(for: colorScheme)
+            needsDisplay = true
+        }
+    }
+
     override var isOpaque: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
+        WindowAppearanceSnapshot.resolvedColor(.windowBackgroundColor, for: colorScheme).setFill()
         dirtyRect.fill()
     }
 }

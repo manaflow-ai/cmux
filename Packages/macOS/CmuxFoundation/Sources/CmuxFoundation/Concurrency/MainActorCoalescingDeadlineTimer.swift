@@ -1,5 +1,24 @@
 import Foundation
 
+/// Owns the dispatch source independently of main-actor isolation.
+///
+/// Dispatch sources support thread-safe cancellation, but older Swift 6
+/// compilers do not model `DispatchSourceTimer` as `Sendable`. Keeping cleanup
+/// in this deliberately unchecked owner lets the main-actor timer remain
+/// isolated while its nonisolated destruction safely releases the source.
+private final class MainActorCoalescingTimerStorage: @unchecked Sendable {
+    let timer: any DispatchSourceTimer
+
+    init(timer: any DispatchSourceTimer) {
+        self.timer = timer
+    }
+
+    deinit {
+        timer.setEventHandler {}
+        timer.cancel()
+    }
+}
+
 /// Coalesces a hot stream of main-actor deadline updates onto one timer handle.
 ///
 /// The action and weak owner are installed once. Rescheduling only updates the
@@ -9,8 +28,12 @@ import Foundation
 public final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
     private weak var owner: Owner?
     private let action: @MainActor (Owner) -> Void
-    private let timer: any DispatchSourceTimer
+    private let timerStorage: MainActorCoalescingTimerStorage
     private var scheduledDeadlineUptimeNanoseconds: UInt64?
+
+    private var timer: any DispatchSourceTimer {
+        timerStorage.timer
+    }
 
     /// Creates a reusable deadline timer for `owner`.
     ///
@@ -29,7 +52,7 @@ public final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
         // A reusable dispatch timer is intentional here: this synchronous hot
         // path has no async context to host a clock sleep without one Task per event.
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        self.timer = timer
+        self.timerStorage = MainActorCoalescingTimerStorage(timer: timer)
         timer.schedule(deadline: .distantFuture)
         timer.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
@@ -80,10 +103,5 @@ public final class MainActorCoalescingDeadlineTimer<Owner: AnyObject> {
             9_000_000_000_000_000_000
         )
         return .nanoseconds(Int(nanoseconds))
-    }
-
-    deinit {
-        timer.setEventHandler {}
-        timer.cancel()
     }
 }

@@ -30,6 +30,97 @@ struct MobileHostIdentityTests {
         ) == "future-one")
     }
 
+    @Test func stableMacOffersAndPersistsExactReleaseLaneTarget() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobileIOSPairingTargetStore(
+            defaults: defaults,
+            macInstanceTag: "default"
+        )
+
+        #expect(store.availableNamespaces.map(\.bundleIdentifier) == [
+            "com.cmux.app",
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ])
+        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
+        #expect(
+            store.selectedPairingURLScheme?.rawValue
+                == "cmux-ios-com.cmux.app"
+        )
+        #expect(
+            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
+        )
+
+        let internalNamespace = try #require(MobileIOSAppNamespace(
+            bundleIdentifier: "dev.cmux.app.internal"
+        ))
+        #expect(store.select(internalNamespace))
+        #expect(store.selectedNamespace == internalNamespace)
+        #expect(store.pushTargetNamespace == internalNamespace)
+        #expect(
+            store.selectedPairingURLScheme?.rawValue
+                == "cmux-ios-dev.cmux.app.internal"
+        )
+    }
+
+    @Test func nightlyMacOffersOfficialIOSBuildsInsteadOfTaggedDev() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = MobileIOSPairingTargetStore(
+            defaults: defaults,
+            macInstanceTag: "nightly"
+        )
+
+        #expect(store.availableNamespaces.map(\.bundleIdentifier) == [
+            "com.cmux.app",
+            "dev.cmux.app.beta",
+            "dev.cmux.app.internal",
+            "dev.cmux.app.demo",
+        ])
+        #expect(store.selectedNamespace?.bundleIdentifier == "com.cmux.app")
+        #expect(
+            store.selectedPairingURLScheme?.rawValue
+                == "cmux-ios-com.cmux.app"
+        )
+        #expect(
+            store.pushTargetNamespace?.bundleIdentifier == "com.cmux.app"
+        )
+    }
+
+    @Test func taggedMacTargetsOnlyItsMatchingTaggedIOSBuild() throws {
+        let suiteName = "mobile-ios-target-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(
+            "dev.cmux.app.demo",
+            forKey: MobileIOSPairingTargetStore.defaultsKey
+        )
+        let store = MobileIOSPairingTargetStore(
+            defaults: defaults,
+            macInstanceTag: "future-one"
+        )
+
+        #expect(store.availableNamespaces.map(\.bundleIdentifier) == [
+            "dev.cmux.ios.future-one",
+        ])
+        #expect(
+            store.selectedNamespace?.bundleIdentifier
+                == "dev.cmux.ios.future-one"
+        )
+        let demoNamespace = try #require(MobileIOSAppNamespace(
+            bundleIdentifier: "dev.cmux.app.demo"
+        ))
+        #expect(!store.select(demoNamespace))
+        #expect(
+            defaults.string(forKey: MobileIOSPairingTargetStore.defaultsKey)
+                == "dev.cmux.app.demo"
+        )
+    }
+
     @Test func irohRegistrationUsesAuthoritativeAppInstanceTag() {
         let cases: [([String: String], String)] = [
             ([:], "com.cmuxterm.app"),
@@ -63,13 +154,40 @@ struct MobileHostIdentityTests {
 
         let payload = MobileHostService.identityStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] as? String == "future-one")
+        #expect((payload["mac_client_namespace"] as? String)?.hasPrefix("mac:") == true)
         #expect(!(payload["terminal_theme_revision_epoch"] as? String ?? "").isEmpty)
+        #expect(payload["mac_compatible_mac_tags"] as? [String] != nil)
+    }
+
+    @Test func authenticatedStatusAdvertisesGrantedCompatibleMacTags() throws {
+        let suiteName = "mobile-host-compatible-tags-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        // Reserved release lanes and duplicates never make it into the grant
+        // set; what is stored is exactly what authenticated status advertises.
+        let stored = MobileCompatibleMacTags.set(
+            [" IRPLY ", "hello", "irply", "default", "nightly", "rc", "staging", ""],
+            in: defaults
+        )
+        #expect(stored == ["hello", "irply"])
+        #expect(MobileCompatibleMacTags.tags(in: defaults) == ["hello", "irply"])
+        #expect(MobileCompatibleMacTags.rejectedTags(
+            from: ["default", "hello", "RC"]
+        ) == ["default", "rc"])
+
+        let payload = MobileHostService.identityStatusPayload(
+            routes: [],
+            phonePushDefaults: defaults
+        )
+        #expect(payload["mac_compatible_mac_tags"] as? [String] == ["hello", "irply"])
     }
 
     @Test func publicStatusOmitsInstanceTag() {
         let payload = MobileHostService.publicStatusPayload(routes: [])
         #expect(payload["mac_instance_tag"] == nil)
         #expect(payload["terminal_theme_revision_epoch"] == nil)
+        #expect(payload["mac_compatible_mac_tags"] == nil)
     }
 
     @Test func authenticatedStatusReportsLivePhoneForwardingGateAndOrigin() throws {

@@ -10,6 +10,7 @@ public import Observation
 @Observable
 public final class BrowserStreamStore: BrowserStreamEventReceiving {
     private var descriptorsByWorkspace: [String: [MobileBrowserPanelDescriptor]] = [:]
+    private var panelDiscoveryRevisionsByWorkspace: [String: UInt64] = [:]
     private var statesByPanel: [String: BrowserStreamSurfaceState] = [:]
     private var activePanelByWorkspace: [String: String] = [:]
     private var pendingDialogsByPanel: [String: MobileBrowserDialogEvent] = [:]
@@ -71,12 +72,22 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
         descriptorsByWorkspace[workspaceID] ?? []
     }
 
+    /// Monotonic discovery token for a workspace's browser panel list.
+    ///
+    /// SwiftUI uses this instead of scanning the full descriptor list during
+    /// body evaluation, so selection refreshes still run when panels arrive or
+    /// disappear without turning render passes into O(P) work.
+    public func panelDiscoveryRevision(in workspaceID: String) -> UInt64 {
+        panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0]
+    }
+
     /// Replaces the discovered panels for a workspace while preserving existing stream state.
     /// - Parameters:
     ///   - workspaceID: The Mac-local workspace identifier.
     ///   - descriptors: The current browser panel descriptors.
     public func replacePanels(in workspaceID: String, with descriptors: [MobileBrowserPanelDescriptor]) {
         descriptorsByWorkspace[workspaceID] = descriptors
+        panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0] &+= 1
         let currentIDs = Set(descriptors.map(\.panelID))
         for descriptor in descriptors {
             if let state = statesByPanel[descriptor.panelID] {
@@ -235,41 +246,59 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
     /// - Parameters:
     ///   - payload: The raw event payload.
     ///   - acknowledge: Called after an accepted frame is installed for display.
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
     public func receiveBrowserFramePayload(
         _ payload: Data,
         acknowledge: @escaping BrowserStreamFrameAcknowledging
-    ) {
-        guard let event = try? JSONDecoder().decode(MobileBrowserFrameEvent.self, from: payload) else { return }
+    ) -> String? {
+        guard let event = try? JSONDecoder().decode(MobileBrowserFrameEvent.self, from: payload) else {
+            return nil
+        }
         acknowledgeFrame = acknowledge
         Task { await decoder(for: event.panelID).submit(event) }
+        return event.panelID
     }
 
     /// Decodes and applies a raw browser state event.
     /// - Parameter payload: The raw event payload.
-    public func receiveBrowserStatePayload(_ payload: Data) {
-        guard let event = try? JSONDecoder().decode(MobileBrowserStateEvent.self, from: payload) else { return }
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    public func receiveBrowserStatePayload(_ payload: Data) -> String? {
+        guard let event = try? JSONDecoder().decode(MobileBrowserStateEvent.self, from: payload) else {
+            return nil
+        }
         statesByPanel[event.panelID]?.apply(event)
+        return event.panelID
     }
 
     /// Decodes and installs a native browser dialog push.
     /// - Parameter payload: Raw `browser.dialog` event payload.
-    public func receiveBrowserDialogPayload(_ payload: Data) {
-        guard let dialog = try? JSONDecoder().decode(MobileBrowserDialogEvent.self, from: payload) else { return }
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    public func receiveBrowserDialogPayload(_ payload: Data) -> String? {
+        guard let dialog = try? JSONDecoder().decode(MobileBrowserDialogEvent.self, from: payload) else {
+            return nil
+        }
         installDialog(dialog)
+        return dialog.panelID
     }
 
     /// Decodes and applies a native browser dialog resolution push.
     /// - Parameter payload: Raw `browser.dialog.resolved` event payload.
-    public func receiveBrowserDialogResolvedPayload(_ payload: Data) {
+    /// - Returns: The decoded panel identifier, or `nil` for malformed data.
+    @discardableResult
+    public func receiveBrowserDialogResolvedPayload(_ payload: Data) -> String? {
         guard let resolved = try? JSONDecoder().decode(
             MobileBrowserDialogResolvedEvent.self,
             from: payload
-        ) else { return }
+        ) else { return nil }
         lastResolvedDialogIDByPanel[resolved.panelID] = resolved.dialogID
         if pendingDialogsByPanel[resolved.panelID]?.dialogID == resolved.dialogID {
             pendingDialogsByPanel[resolved.panelID] = nil
         }
         statesByPanel[resolved.panelID]?.resolveDialog(dialogID: resolved.dialogID)
+        return resolved.panelID
     }
 
     /// Optimistically claims the visible dialog before its response RPC is sent.
@@ -311,7 +340,10 @@ public final class BrowserStreamStore: BrowserStreamEventReceiving {
             activePanelByWorkspace[workspaceID] = nil
         }
         for (workspaceID, descriptors) in descriptorsByWorkspace {
-            descriptorsByWorkspace[workspaceID] = descriptors.filter { $0.panelID != event.panelID }
+            let filtered = descriptors.filter { $0.panelID != event.panelID }
+            guard filtered.count != descriptors.count else { continue }
+            descriptorsByWorkspace[workspaceID] = filtered
+            panelDiscoveryRevisionsByWorkspace[workspaceID, default: 0] &+= 1
         }
         return event.panelID
     }

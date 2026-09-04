@@ -10,6 +10,8 @@ public enum PendingSocketInput: Sendable {
     case processOutput(Data)
     /// A named-key press to replay.
     case key(PendingKeyEvent)
+    /// Raw key text to replay as one Ghostty key event.
+    case keyText(String)
 
     /// The byte cost this entry contributes to the pending-input budget.
     public var estimatedBytes: Int {
@@ -18,6 +20,8 @@ public enum PendingSocketInput: Sendable {
             return data.count
         case .key(let event):
             return event.queuedByteCost
+        case .keyText(let text):
+            return max(text.utf8.count, 1)
         }
     }
 }

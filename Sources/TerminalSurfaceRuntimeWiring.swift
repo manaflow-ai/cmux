@@ -28,11 +28,16 @@ extension GhosttyApp: TerminalEngineHosting {
 /// Creates the concrete `GhosttyNSView` + `GhosttySurfaceScrollView` pair the
 /// surface model historically constructed in its initializer.
 struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
+    let imageTransferPreparation: TerminalImageTransferPreparationService
+
     @MainActor
     func makeSurfaceViews(
         initialFrame: NSRect
     ) -> (surfaceView: any TerminalSurfaceNativeViewing, paneHost: any TerminalSurfacePaneHosting) {
-        let view = GhosttyNSView(frame: initialFrame)
+        let view = GhosttyNSView(
+            frame: initialFrame,
+            imageTransferPreparation: imageTransferPreparation
+        )
         return (view, GhosttySurfaceScrollView(surfaceView: view))
     }
 }
@@ -44,6 +49,9 @@ struct TerminalSurfaceViewFactory: TerminalSurfaceViewProviding {
 /// `SidebarWorkspaceDetailDefaults`, and `TerminalController`'s socket path).
 @MainActor
 final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProviding {
+    private let computerUseConfigStore = JSONConfigStore(fileURL: CmuxConfigLocation().userConfigFile)
+    private let computerUseEnabledKey = SettingCatalog().computerUse.enabled
+
     func currentSpawnPolicy() -> TerminalSurfaceSpawnPolicy {
         let integrations = AgentIntegrationSettingsStore(defaults: .standard)
         return TerminalSurfaceSpawnPolicy(
@@ -60,7 +68,8 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
             ampHooksEnabled: integrations.ampHooksEnabled,
             shellIntegrationEnabled: UserDefaults.standard.object(forKey: "sidebarShellIntegration") as? Bool ?? true,
             watchGitStatusEnabled: SidebarWorkspaceDetailDefaults.watchGitStatusValue(defaults: .standard),
-            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard)
+            showPullRequestsEnabled: SidebarWorkspaceDetailDefaults.showPullRequestsValue(defaults: .standard),
+            computerUseEnabled: computerUseConfigStore.snapshotValue(for: computerUseEnabledKey)
         )
     }
 
@@ -141,14 +150,20 @@ final class TerminalAgentHibernationRecorder: AgentHibernationRecording {
 
 extension TerminalSurfaceRuntimeFilesystem {
     static func live() -> TerminalSurfaceRuntimeFilesystem {
-        TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
-            installClaudeCommandShim: {
-                TerminalSurface.installClaudeCommandShimIfPossible(
-                    wrapperURL: $0,
+        let hermesProfileAliasCatalog = HermesProfileAliasCatalog(
+            wrapperDirectoryURL: FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".local/bin", isDirectory: true)
+        )
+        return TerminalSurfaceRuntimeFilesystem(
+            agentCommandShimTemporaryDirectory: FileManager.default.temporaryDirectory,
+            installAgentCommandShims: {
+                let fileManager = FileManager.default
+                return await TerminalSurface.installAgentCommandShimsIfPossible(
+                    wrapperDirectoryURL: $0,
                     surfaceId: $1,
                     temporaryDirectory: $2,
-                    fileManager: .default
+                    hermesProfileAliasCatalog: hermesProfileAliasCatalog,
+                    fileManager: fileManager
                 )
             },
             isExecutableFile: { FileManager.default.isExecutableFile(atPath: $0) }

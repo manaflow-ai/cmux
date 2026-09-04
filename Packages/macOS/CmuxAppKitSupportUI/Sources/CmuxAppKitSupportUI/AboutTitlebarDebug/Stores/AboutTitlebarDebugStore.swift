@@ -23,14 +23,24 @@ public final class AboutTitlebarDebugStore {
     @ObservationIgnored
     private weak var decorator: (any WindowDecorating)?
 
+    @ObservationIgnored
+    private let copyText: @MainActor (String) -> Void
+
     /// Creates a store.
     ///
-    /// - Parameter decorator: The seam used to apply standard window chrome after
-    ///   a debug option change. Held weakly because the app-side conformer
-    ///   (`AppDelegate`) is a singleton that also owns this store, so a strong
-    ///   reference would form a retain cycle.
-    public init(decorator: (any WindowDecorating)?) {
+    /// - Parameters:
+    ///   - decorator: The seam used to apply standard window chrome after a
+    ///     debug option change. Held weakly because the app-side conformer
+    ///     (`AppDelegate`) is a singleton that also owns this store, so a
+    ///     strong reference would form a retain cycle.
+    ///   - copyText: Publishes copied configuration through the host's shared
+    ///     clipboard owner. The no-op default keeps package tests headless.
+    public init(
+        decorator: (any WindowDecorating)?,
+        copyText: @escaping @MainActor (String) -> Void = { _ in }
+    ) {
         self.decorator = decorator
+        self.copyText = copyText
     }
 
     /// Returns the current options for a window kind.
@@ -102,9 +112,7 @@ public final class AboutTitlebarDebugStore {
     /// Copies a human-readable snapshot of the current About options to the
     /// general pasteboard.
     public func copyConfigToPasteboard() {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(configSnapshot(), forType: .string)
+        copyText(configSnapshot())
     }
 
     private func apply(_ options: AboutTitlebarDebugOptions, to window: NSWindow, for kind: AboutWindowKind) {

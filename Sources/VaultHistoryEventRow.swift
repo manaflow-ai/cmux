@@ -65,8 +65,8 @@ struct VaultHistoryEventRow: View, Equatable {
         if event.kind == .workspaceRenamed,
            let previousTitle = event.previousTitle,
            !previousTitle.isEmpty {
-            parts.append(String(
-                format: String(
+            parts.append(String.localizedStringWithFormat(
+                String(
                     localized: "vaultHistory.detail.renamedFrom",
                     defaultValue: "was “%@”"
                 ),

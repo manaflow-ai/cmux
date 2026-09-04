@@ -40,6 +40,10 @@ pub struct ReconnectPolicy {
     pub initial_delay: Duration,
     pub maximum_delay: Duration,
     /// Bound one carrier reattachment, including authentication and replay.
+    /// Also deadlines each link's prelude and Noise exchange on every dial,
+    /// including an invitation dial whose overall budget is the much larger
+    /// enrollment window, so an endpoint that accepts the transport and then
+    /// never speaks fails instead of holding the connection open.
     pub attempt_timeout: Duration,
     /// Randomize each backoff uniformly between zero and its current ceiling.
     pub full_jitter: bool,
@@ -126,6 +130,9 @@ pub struct ClientConnection {
     reconnecting: Arc<Mutex<()>>,
     lane_sends: [Mutex<()>; 4],
     receiving: Mutex<()>,
+    /// Linearizes shutdown start with the short reconnect publication window.
+    /// Reconnect attempts do not hold this gate while dialing or replaying.
+    shutdown_gate: Mutex<()>,
     deferred_receive: StdMutex<Option<Result<ReceivedFrame, ConnectionError>>>,
     last_received: StdMutex<Instant>,
     closed: AtomicBool,
@@ -135,6 +142,10 @@ pub struct ClientConnection {
 #[derive(Clone, Debug)]
 enum CloseState {
     Pending,
+    /// Shutdown has started, but the cleanup task has not published its
+    /// terminal result yet. Background work uses this transition as its
+    /// cancellation signal; callers still wait for `Complete` or `Failed`.
+    Started,
     Complete,
     Failed(CloseFailure),
 }
@@ -244,6 +255,7 @@ impl ClientConnection {
             reconnecting: Arc::new(Mutex::new(())),
             lane_sends: std::array::from_fn(|_| Mutex::new(())),
             receiving: Mutex::new(()),
+            shutdown_gate: Mutex::new(()),
             deferred_receive: StdMutex::new(None),
             last_received: StdMutex::new(Instant::now()),
             closed: AtomicBool::new(false),
@@ -481,16 +493,44 @@ impl ClientConnection {
         }
     }
 
-    /// Replace a failed provider group while preserving reliable application
-    /// sequence numbers and replaying only frames the daemon did not ack.
-    pub async fn reconnect(&self, group: Arc<dyn LinkGroup>) -> Result<(), ConnectionError> {
-        let _reconnecting = self.reconnecting.lock().await;
+    /// Acquire the single reconnect owner while remaining interruptible by
+    /// shutdown. A Tokio mutex queues waiters, so subscribing before the lock
+    /// avoids making a waiter sit behind cleanup after close has started.
+    async fn lock_reconnecting(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<tokio::sync::OwnedMutexGuard<()>, ConnectionError> {
         if self.closed.load(Ordering::Acquire) {
             return Err(ConnectionError::Closed);
         }
+        let lock = self.reconnecting.clone().lock_owned();
+        tokio::pin!(lock);
+        tokio::select! {
+            biased;
+            _ = close_state.changed() => Err(ConnectionError::Closed),
+            guard = &mut lock => {
+                if self.closed.load(Ordering::Acquire) {
+                    drop(guard);
+                    Err(ConnectionError::Closed)
+                } else {
+                    Ok(guard)
+                }
+            }
+        }
+    }
+
+    /// Replace a failed provider group while preserving reliable application
+    /// sequence numbers and replaying only frames the daemon did not ack.
+    pub async fn reconnect(&self, group: Arc<dyn LinkGroup>) -> Result<(), ConnectionError> {
+        let mut close_state = self.close_state.subscribe();
+        let _reconnecting = self.lock_reconnecting(&mut close_state).await?;
         let previous_state = self.diagnostics_state();
         self.set_diagnostics_state(ConnectionState::Reconnecting);
-        let result = self.reconnect_once(group).await;
+        let result = tokio::select! {
+            biased;
+            _ = close_state.changed() => Err(ConnectionError::Closed),
+            result = self.reconnect_once(group) => result,
+        };
         // Explicit route replacement preserves the previously published
         // carrier when setup or replay of the candidate fails.
         if !self.closed.load(Ordering::Acquire) {
@@ -531,6 +571,9 @@ impl ClientConnection {
             current.resume_cursors(),
         )
         .await?;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ConnectionError::Closed);
+        }
         if daemon_key != self.daemon_public_key {
             return Err(ConnectionError::Crypto(CryptoError::DaemonKeyMismatch {
                 expected: crate::crypto::public_key_fingerprint(&self.daemon_public_key),
@@ -540,18 +583,32 @@ impl ClientConnection {
         let lane_bindings = lane_bindings(self.config.lane_policy, group.capabilities());
         let physical_link_count = lane_bindings.len();
         let transport = group.transport_snapshot().await;
-        // Take both publication guards before the cancellation-sensitive replay
-        // transition. ReliableSession commits only after replay succeeds, and
-        // there is no await between that commit and publishing both wrappers.
+        // Keep the connection publication locks while preparing the candidate,
+        // but do not mutate shared reliability state until shutdown owns the
+        // publication gate below. A dropped preparation therefore leaves the
+        // old session fully usable.
         let mut active_group = self.group.write().await;
         let mut active_session = self.session.write().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ConnectionError::Closed);
+        }
         if active_session.generation() != current.generation() {
             return Err(ConnectionError::GenerationChanged {
                 expected: current.generation(),
                 actual: active_session.generation(),
             });
         }
-        let next = current.reconnect_to(Arc::new(link), &daemon_resume, generation).await?;
+        let prepared =
+            current.prepare_reconnect_to(Arc::new(link), &daemon_resume, generation).await?;
+        // The transaction has not changed shared reliability state yet. Once
+        // this gate is acquired, `commit` and all wrapper publication below
+        // contain no await points, so close cannot observe a half-published
+        // generation and cancellation cannot strand one.
+        let shutdown_gate = self.shutdown_gate.lock().await;
+        if self.closed.load(Ordering::Acquire) {
+            return Err(ConnectionError::Closed);
+        }
+        let next = prepared.commit()?;
         let generation = next.generation();
         let previous = std::mem::replace(&mut *active_group, group.clone());
         *active_session = next;
@@ -573,21 +630,28 @@ impl ClientConnection {
                 diagnostics.state = ConnectionState::Connected;
             }
         }
+        drop(shutdown_gate);
         drop(active_session);
         drop(active_group);
         // Publishing the replacement first lets blocked readers recover onto
         // it when closing the prior carrier wakes them. The provider group may
         // be reused across generations, so close the old session link even
-        // when the group identity did not change.
+        // when the group identity did not change. Keep this bounded retirement
+        // in an owned task. If the caller is cancelled after publication, the
+        // dropped JoinHandle detaches a task that still owns both old carriers
+        // and closes them instead of leaking the displaced group.
         let close_previous_group = !Arc::ptr_eq(&previous, &group);
-        let _ = tokio::time::timeout(TERMINAL_SHUTDOWN_TIMEOUT, async {
-            if close_previous_group {
-                let _ = tokio::join!(current.close(), previous.close());
-            } else {
-                let _ = current.close().await;
-            }
-        })
-        .await;
+        let retirement = tokio::spawn(async move {
+            let _ = tokio::time::timeout(TERMINAL_SHUTDOWN_TIMEOUT, async {
+                if close_previous_group {
+                    let _ = tokio::join!(current.close(), previous.close());
+                } else {
+                    let _ = current.close().await;
+                }
+            })
+            .await;
+        });
+        let _ = retirement.await;
         Ok(())
     }
 
@@ -608,19 +672,23 @@ impl ClientConnection {
     }
 
     async fn recover(&self, observed_generation: u64) -> Result<(), ConnectionError> {
-        let _reconnecting = self.reconnecting.lock().await;
+        let mut close_state = self.close_state.subscribe();
+        let _reconnecting = self.lock_reconnecting(&mut close_state).await?;
         if self.session.read().await.generation() != observed_generation {
             return Ok(());
         }
         self.set_diagnostics_state(ConnectionState::Reconnecting);
-        let result = self.recover_locked().await;
+        let result = self.recover_locked(&mut close_state).await;
         if result.is_err() && !self.closed.load(Ordering::Acquire) {
             self.set_diagnostics_state(ConnectionState::Disconnected);
         }
         result
     }
 
-    async fn recover_locked(&self) -> Result<(), ConnectionError> {
+    async fn recover_locked(
+        &self,
+        close_state: &mut watch::Receiver<CloseState>,
+    ) -> Result<(), ConnectionError> {
         let mut attempt = 0_u32;
         let mut delay = self.config.reconnect.initial_delay;
         let mut group = self.group.read().await.clone();
@@ -629,17 +697,23 @@ impl ClientConnection {
                 return Err(ConnectionError::Closed);
             }
             attempt = attempt.saturating_add(1);
-            let reconnect = tokio::time::timeout(
-                self.config.reconnect.attempt_timeout,
-                self.reconnect_once(group.clone()),
-            )
-            .await;
+            let reconnect = tokio::select! {
+                biased;
+                _ = close_state.changed() => return Err(ConnectionError::Closed),
+                reconnect = tokio::time::timeout(
+                    self.config.reconnect.attempt_timeout,
+                    self.reconnect_once(group.clone()),
+                ) => reconnect,
+            };
             let result = match reconnect {
                 Ok(result) => result,
                 Err(_) => Err(ConnectionError::ReconnectAttemptTimedOut {
                     timeout: self.config.reconnect.attempt_timeout,
                 }),
             };
+            if self.closed.load(Ordering::Acquire) && result.is_ok() {
+                return Err(ConnectionError::Closed);
+            }
             match result {
                 Ok(()) => {
                     if !self.closed.load(Ordering::Acquire) {
@@ -659,16 +733,25 @@ impl ClientConnection {
                             last: error.to_string(),
                         });
                     }
-                    if let Some(source) = &self.reconnect_groups
-                        && let Some(next) = resolve_reconnect_group(
-                            source.as_ref(),
-                            self.config.reconnect.attempt_timeout,
-                        )
-                        .await
-                    {
-                        group = next;
+                    if let Some(source) = &self.reconnect_groups {
+                        let next = tokio::select! {
+                            biased;
+                            _ = close_state.changed() => return Err(ConnectionError::Closed),
+                            next = resolve_reconnect_group(
+                                source.as_ref(),
+                                self.config.reconnect.attempt_timeout,
+                            ) => next,
+                        };
+                        if let Some(next) = next {
+                            group = next;
+                        }
                     }
-                    tokio::time::sleep(self.config.reconnect.retry_delay(delay)).await;
+                    let retry_delay = self.config.reconnect.retry_delay(delay);
+                    tokio::select! {
+                        biased;
+                        _ = tokio::time::sleep(retry_delay) => {}
+                        _ = close_state.changed() => return Err(ConnectionError::Closed),
+                    }
                     delay = (delay * 2).min(self.config.reconnect.maximum_delay);
                 }
                 Err(error) => return Err(error),
@@ -677,9 +760,20 @@ impl ClientConnection {
     }
 
     pub async fn close(&self) -> Result<(), ConnectionError> {
+        // Acquire the short publication gate before making shutdown visible.
+        // A reconnect that already owns it finishes publishing first; one
+        // that has not reached publication observes `closed` and aborts.
+        let shutdown_gate = self.shutdown_gate.lock().await;
         if self.closed.swap(true, Ordering::AcqRel) {
+            drop(shutdown_gate);
             return wait_for_close(self.close_state.subscribe()).await;
         }
+        // Publish shutdown intent before taking any cleanup locks. Reconnect
+        // and heartbeat tasks may be blocked in transport futures for a long
+        // time, so waiting only for the eventual terminal state would leave
+        // them alive after the caller has requested close.
+        self.close_state.send_replace(CloseState::Started);
+        drop(shutdown_gate);
         self.set_diagnostics_state(ConnectionState::Closed);
         // The cleanup task owns every lock needed to snapshot the final carrier.
         // It therefore survives cancellation of this caller after `closed` is
@@ -743,7 +837,7 @@ async fn resolve_reconnect_group(
 async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), ConnectionError> {
     loop {
         match state.borrow().clone() {
-            CloseState::Pending => {}
+            CloseState::Pending | CloseState::Started => {}
             CloseState::Complete => return Ok(()),
             CloseState::Failed(failure) => return Err(failure.to_error()),
         }
@@ -755,8 +849,20 @@ async fn wait_for_close(mut state: watch::Receiver<CloseState>) -> Result<(), Co
 }
 
 async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout: Duration) {
+    let Some(initial) = weak.upgrade() else { return };
+    let mut close_state = initial.close_state.subscribe();
+    // A new watch receiver considers the current value seen. The atomic flag
+    // closes the gap when shutdown started immediately before subscription.
+    if initial.closed.load(Ordering::Acquire) {
+        return;
+    }
+    drop(initial);
     loop {
-        tokio::time::sleep(interval).await;
+        tokio::select! {
+            biased;
+            _ = tokio::time::sleep(interval) => {}
+            _ = close_state.changed() => return,
+        }
         let Some(connection) = weak.upgrade() else { return };
         if connection.closed.load(Ordering::Acquire) {
             return;
@@ -774,18 +880,19 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
         let observed = connection.last_received();
         let generation = connection.session.read().await.generation();
         let deadline = tokio::time::Instant::now() + timeout;
-        match tokio::time::timeout_at(
-            deadline,
-            connection.send_in_generation(
-                Some(generation),
-                Lane::Control,
-                0,
-                Bytes::new(),
-                FrameFlags::HEARTBEAT_REQUEST,
-            ),
-        )
-        .await
-        {
+        let send = connection.send_in_generation(
+            Some(generation),
+            Lane::Control,
+            0,
+            Bytes::new(),
+            FrameFlags::HEARTBEAT_REQUEST,
+        );
+        let send_result = tokio::select! {
+            biased;
+            result = tokio::time::timeout_at(deadline, send) => result,
+            _ = close_state.changed() => return,
+        };
+        match send_result {
             Ok(Ok(_)) => {}
             Ok(Err(_)) => continue,
             Err(_) => {
@@ -793,10 +900,11 @@ async fn run_heartbeat(weak: Weak<ClientConnection>, interval: Duration, timeout
                 continue;
             }
         }
-        let live =
-            tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed))
-                .await
-                .unwrap_or(false);
+        let live = tokio::select! {
+            biased;
+            result = tokio::time::timeout_at(deadline, connection.probe_liveness(generation, observed)) => result.unwrap_or(false),
+            _ = close_state.changed() => return,
+        };
         if connection.closed.load(Ordering::Acquire)
             || connection.session.read().await.generation() != generation
         {
@@ -911,6 +1019,7 @@ async fn authenticate_one(
             generation: context.generation,
             connection_attempt: context.connection_attempt,
             resume,
+            handshake_timeout: config.reconnect.attempt_timeout,
         },
     )
     .await?;
@@ -1009,6 +1118,7 @@ impl ConnectionError {
             Self::Provider(error) => error.is_retryable_carrier_failure(),
             Self::Crypto(CryptoError::LinkError(LinkError::Closed | LinkError::Transport(_)))
             | Self::Crypto(CryptoError::UnexpectedEof)
+            | Self::Crypto(CryptoError::HandshakeTimeout { .. })
             | Self::Link(LinkError::Closed | LinkError::Transport(_))
             | Self::Session(SessionError::Link(LinkError::Closed | LinkError::Transport(_)))
             | Self::Session(SessionError::LinkMessage(_))
@@ -1302,6 +1412,128 @@ mod tests {
         );
     }
 
+    /// A transport whose endpoint accepts the connection and then goes silent:
+    /// sends are swallowed and no frame ever arrives, like a preview-gateway
+    /// edge that still accepts TCP for a deleted machine.
+    struct SilentEndpointLink {
+        closed: Arc<AtomicBool>,
+        close_signal: Arc<Notify>,
+    }
+
+    #[async_trait]
+    impl FrameLink for SilentEndpointLink {
+        fn description(&self) -> &str {
+            "silent-endpoint-link"
+        }
+
+        fn maximum_frame_bytes(&self) -> usize {
+            65_535
+        }
+
+        async fn send(&self, _frame: Bytes) -> Result<(), LinkError> {
+            if self.closed.load(Ordering::Acquire) {
+                return Err(LinkError::Closed);
+            }
+            Ok(())
+        }
+
+        async fn receive(&self) -> Result<Option<Bytes>, LinkError> {
+            loop {
+                let notified = self.close_signal.notified();
+                if self.closed.load(Ordering::Acquire) {
+                    return Err(LinkError::Closed);
+                }
+                notified.await;
+            }
+        }
+
+        async fn close(&self) -> Result<(), LinkError> {
+            self.closed.store(true, Ordering::Release);
+            self.close_signal.notify_waiters();
+            Ok(())
+        }
+    }
+
+    struct SilentEndpointGroup {
+        link_closed: Arc<AtomicBool>,
+        close_signal: Arc<Notify>,
+        evidence: CarrierEvidence,
+    }
+
+    #[async_trait]
+    impl LinkGroup for SilentEndpointGroup {
+        fn description(&self) -> &str {
+            "silent-endpoint-group"
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::STREAM
+        }
+
+        fn evidence(&self) -> &CarrierEvidence {
+            &self.evidence
+        }
+
+        async fn open(&self, _request: LinkRequest) -> Result<Box<dyn FrameLink>, ProviderError> {
+            Ok(Box::new(SilentEndpointLink {
+                closed: self.link_closed.clone(),
+                close_signal: self.close_signal.clone(),
+            }))
+        }
+
+        async fn close(&self) -> Result<(), ProviderError> {
+            self.link_closed.store(true, Ordering::Release);
+            self.close_signal.notify_waiters();
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn initial_connect_fails_fast_when_the_endpoint_accepts_but_never_handshakes() {
+        let link_closed = Arc::new(AtomicBool::new(false));
+        let group = Arc::new(SilentEndpointGroup {
+            link_closed: link_closed.clone(),
+            close_signal: Arc::new(Notify::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        });
+        let connect = ClientConnection::connect(
+            group,
+            ClientConnectionConfig {
+                identity: StaticIdentity::generate().unwrap(),
+                expected_daemon: None,
+                auth: ClientAuthMode::Carrier,
+                device_name: "silent-endpoint-client".into(),
+                session: SessionId([77; 16]),
+                lane_policy: LanePolicy::Single,
+                limits: SessionLimits::default(),
+                reconnect: ReconnectPolicy {
+                    attempt_timeout: Duration::from_millis(200),
+                    maximum_attempts: Some(1),
+                    ..ReconnectPolicy::default()
+                },
+            },
+        );
+        // The outer timeout converts the historical symptom (the dial holds the
+        // dead endpoint's transport open forever) into a deterministic failure.
+        let result = tokio::time::timeout(Duration::from_secs(5), connect)
+            .await
+            .expect("connect held a silent endpoint open past its handshake deadline");
+        let error =
+            result.expect_err("connect succeeded against an endpoint that never handshakes");
+        assert!(
+            error.to_string().contains("handshake timed out"),
+            "handshake deadline produced the wrong error: {error}"
+        );
+        assert!(
+            error.is_retryable_carrier_failure(),
+            "a handshake timeout must stay a retryable carrier failure: {error}"
+        );
+        assert!(
+            link_closed.load(Ordering::Acquire),
+            "handshake deadline left the physical link open"
+        );
+    }
+
     struct BlockingReplayClientLink {
         inner: FaultLink,
         received_frames: AtomicUsize,
@@ -1427,6 +1659,20 @@ mod tests {
 
     struct HangingCloseGroup {
         inner: Arc<FaultGroup>,
+        close_started: Arc<Semaphore>,
+        release_close: Arc<Semaphore>,
+        close_finished: Arc<Semaphore>,
+    }
+
+    impl HangingCloseGroup {
+        fn new(inner: Arc<FaultGroup>) -> Arc<Self> {
+            Arc::new(Self {
+                inner,
+                close_started: Arc::new(Semaphore::new(0)),
+                release_close: Arc::new(Semaphore::new(0)),
+                close_finished: Arc::new(Semaphore::new(0)),
+            })
+        }
     }
 
     struct MutableSnapshotGroup {
@@ -1635,7 +1881,11 @@ mod tests {
         }
 
         async fn close(&self) -> Result<(), ProviderError> {
-            std::future::pending().await
+            self.close_started.add_permits(1);
+            self.release_close.acquire().await.unwrap().forget();
+            self.inner.close().await?;
+            self.close_finished.add_permits(1);
+            Ok(())
         }
     }
 
@@ -2098,13 +2348,14 @@ mod tests {
         let auth =
             AuthDatabase::load_or_create(directory.path(), "cancel-reconnect", true).unwrap();
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
-        let initial = Arc::new(HangingCloseGroup {
-            inner: Arc::new(FaultGroup {
-                daemon: daemon.clone(),
-                epochs: Mutex::new(Vec::new()),
-                evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
-            }),
-        });
+        let initial = HangingCloseGroup::new(Arc::new(FaultGroup {
+            daemon: daemon.clone(),
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        }));
+        let initial_close_started = initial.close_started.clone();
+        let initial_release_close = initial.release_close.clone();
+        let initial_close_finished = initial.close_finished.clone();
         let client = ClientConnection::connect(
             initial,
             ClientConnectionConfig {
@@ -2146,6 +2397,17 @@ mod tests {
 
         reconnect.abort();
         assert!(reconnect.await.unwrap_err().is_cancelled());
+        tokio::time::timeout(Duration::from_secs(1), initial_close_started.acquire())
+            .await
+            .expect("cancelled reconnect did not start displaced-group retirement")
+            .unwrap()
+            .forget();
+        initial_release_close.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(1), initial_close_finished.acquire())
+            .await
+            .expect("displaced-group retirement did not finish after reconnect cancellation")
+            .unwrap()
+            .forget();
         let snapshot = client.snapshot().await;
         assert_eq!(snapshot.generation, 1);
         assert_eq!(snapshot.state, ConnectionState::Connected);
@@ -2218,6 +2480,7 @@ mod tests {
             epochs: Mutex::new(Vec::new()),
             evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
         });
+        let reconnect_group = group.clone();
         let client = ClientConnection::connect(
             group,
             ClientConnectionConfig {
@@ -2235,6 +2498,11 @@ mod tests {
         .unwrap();
 
         let publication = client.reconnecting.lock().await;
+        let mut close_state = client.close_state.subscribe();
+        let waiting_reconnect = tokio::spawn({
+            let client = client.clone();
+            async move { client.reconnect(reconnect_group).await }
+        });
         let closing = tokio::spawn({
             let client = client.clone();
             async move { client.close().await }
@@ -2246,7 +2514,23 @@ mod tests {
         })
         .await
         .expect("close did not begin");
+        tokio::time::timeout(Duration::from_secs(1), close_state.changed())
+            .await
+            .expect("shutdown start was not published while cleanup was blocked")
+            .expect("close state channel closed before shutdown completed");
+        assert!(matches!(*close_state.borrow(), CloseState::Started));
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            run_heartbeat(Arc::downgrade(&client), Duration::from_secs(60), Duration::from_secs(1)),
+        )
+        .await
+        .expect("heartbeat missed shutdown that was published before subscription");
         assert!(!closing.is_finished(), "close bypassed reconnect publication serialization");
+        let waiting_result = tokio::time::timeout(Duration::from_secs(1), waiting_reconnect)
+            .await
+            .expect("reconnect waiter remained behind cleanup after shutdown started")
+            .expect("reconnect waiter task panicked");
+        assert!(matches!(waiting_result, Err(ConnectionError::Closed)));
         closing.abort();
         assert!(closing.await.unwrap_err().is_cancelled());
 
@@ -2262,13 +2546,11 @@ mod tests {
         let directory = tempdir().unwrap();
         let auth = AuthDatabase::load_or_create(directory.path(), "failed-close", true).unwrap();
         let (daemon, _accepted) = RemoteDaemon::new(auth, SessionLimits::default());
-        let group = Arc::new(HangingCloseGroup {
-            inner: Arc::new(FaultGroup {
-                daemon,
-                epochs: Mutex::new(Vec::new()),
-                evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
-            }),
-        });
+        let group = HangingCloseGroup::new(Arc::new(FaultGroup {
+            daemon,
+            epochs: Mutex::new(Vec::new()),
+            evidence: CarrierEvidence::LocalPeer { uid: None, pid: None },
+        }));
         let client = ClientConnection::connect(
             group,
             ClientConnectionConfig {

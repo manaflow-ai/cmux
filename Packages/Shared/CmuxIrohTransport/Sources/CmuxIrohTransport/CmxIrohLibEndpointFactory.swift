@@ -1,6 +1,6 @@
 public import CMUXMobileCore
 import Foundation
-import IrohLib
+public import IrohLib
 
 /// Production endpoint factory using the forked Iroh Swift bindings.
 public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
@@ -83,5 +83,16 @@ public struct CmxIrohLibEndpointFactory: CmxIrohEndpointFactory {
             initialMaxConcurrentBiStreams: 0,
             initialMaxConcurrentUniStreams: 0
         )
+    }
+}
+
+extension CmxIrohLibEndpointFactory {
+    /// Wraps a QUIC connection accepted by a foreign endpoint owner so the
+    /// legacy dialect can be served over it (dual-ALPN compatibility: one
+    /// endpoint/identity, old protocol for old peers).
+    public static func adoptAcceptedConnection(
+        _ driver: Connection
+    ) throws -> any CmxIrohConnection {
+        try CmxIrohLibConnection(driver: driver)
     }
 }

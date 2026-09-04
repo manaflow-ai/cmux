@@ -3,19 +3,13 @@ import { readFile } from "fs/promises";
 import { NextRequest } from "next/server";
 import { join } from "path";
 import sharp from "sharp";
-import {
-  dynamic as localizedImageDynamic,
-  GET,
-} from "../app/[locale]/opengraph-image/route";
-import {
-  dynamic as browserImageDynamic,
-  GET as getBrowserImage,
-} from "../app/browser-opengraph-image/route";
+import { GET } from "../app/[locale]/opengraph-image/route";
+import { GET as getBrowserImage } from "../app/browser-opengraph-image/route";
 import {
   openGraphLocaleFonts,
   openGraphTaglineFallbackFont,
 } from "../app/lib/open-graph-font-config";
-import { dynamic as defaultImageDynamic } from "../app/opengraph-image/route";
+import { GET as getDefaultImage } from "../app/opengraph-image/route";
 import { articleSchema } from "../app/[locale]/components/json-ld";
 import {
   browserOpenGraphImage,
@@ -73,10 +67,18 @@ describe("Open Graph image discovery", () => {
     }
   });
 
-  test("caches every immutable image route", () => {
-    expect(defaultImageDynamic).toBe("force-static");
-    expect(localizedImageDynamic).toBe("force-static");
-    expect(browserImageDynamic).toBe("force-static");
+  test("caches every immutable image route", async () => {
+    const responses = await Promise.all([
+      getDefaultImage(),
+      renderLocaleOpenGraphImage("ja"),
+      getBrowserImage(),
+    ]);
+
+    for (const response of responses) {
+      expect(response.headers.get("cache-control")).toBe(
+        "public, max-age=0, s-maxage=31536000, immutable",
+      );
+    }
   });
 
   test("serves a platform-neutral browser social card", async () => {

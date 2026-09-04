@@ -10,6 +10,8 @@ struct TaskComposerPromptEditor: UIViewRepresentable {
     let isDisabled: Bool
     let accessibilityLabel: String
     let accessibilityHint: String
+    /// Stages pasted images/files as attachments; `true` consumes the paste.
+    let pasteAttachments: () -> Bool
 
     func makeCoordinator() -> TaskComposerPromptEditorCoordinator {
         TaskComposerPromptEditorCoordinator(text: $text, isFocused: $isFocused)
@@ -34,6 +36,7 @@ struct TaskComposerPromptEditor: UIViewRepresentable {
             guard let textView else { return }
             coordinator?.restoreManualContentOffset(in: textView)
         }
+        textView.pasteAttachments = pasteAttachments
         updateInteractionState(of: textView)
         return textView
     }
@@ -42,6 +45,7 @@ struct TaskComposerPromptEditor: UIViewRepresentable {
         context.coordinator.update(text: $text, isFocused: $isFocused)
         textView.accessibilityLabel = accessibilityLabel
         textView.accessibilityHint = accessibilityHint
+        textView.pasteAttachments = pasteAttachments
         updateInteractionState(of: textView)
 
         // Assigning the same text again resets UITextView's selection/caret

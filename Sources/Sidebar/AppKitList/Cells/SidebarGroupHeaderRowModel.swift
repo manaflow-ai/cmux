@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import SwiftUI
 
 /// Value-snapshot render input for one pure-AppKit sidebar group header row.
 ///
@@ -37,6 +38,8 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool
     let bottomDropIndicatorVisible: Bool
+    /// Resolved cmux scheme used by native group-header chrome.
+    let colorSchemeIsDark: Bool
 }
 
 /// Behavior bundle for one group header row; recreated per apply and excluded
@@ -58,4 +61,6 @@ struct SidebarGroupHeaderRowActions {
     let onDelete: () -> Void
     let onEditConfig: () -> Void
     let onOpenDocs: () -> Void
+    /// Resolves current notification availability for retained rows.
+    var notificationState: () -> NotificationState = { .unavailable }
 }

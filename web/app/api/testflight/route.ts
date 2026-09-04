@@ -19,8 +19,6 @@ import { captureAscError } from "../../../services/errors";
 import { withAccountDeletionUserMutation } from "../../../services/account/deletionLock";
 import { browserMutationOriginAllowed } from "../../../services/vms/routeHelpers";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 type TestflightAction = "join" | "leave";
 

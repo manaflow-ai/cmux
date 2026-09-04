@@ -3,64 +3,59 @@ import CmuxMobilePairedMac
 import CmuxMobileShellModel
 import SwiftUI
 
-/// Groups the optional workspace title with the Mac and directory that define
-/// where the task will run.
+/// Groups the optional workspace title with the Mac, group, and directory that
+/// define where the task will run.
 struct TaskComposerContextSection: View {
     @Binding var workspaceName: String
     let machines: [MobilePairedMac]
     let selectedMacPairingID: String
     let buildLabelsByID: [String: String]
+    let workspaceGroups: [MobileWorkspaceGroupPreview]
+    let selectedWorkspaceGroupID: MobileWorkspaceGroupPreview.ID?
+    let workspaceGroupSelectionPending: Bool
+    let workspaceGroupSelectionRequiresResolution: Bool
+    let showsWorkspaceGroupPicker: Bool
     let directory: String
-    let modelPickerVariant: TaskComposerModelPickerVariant
-    let models: [MobileTaskAgentModel]
-    let selectedModelID: String?
     let isDisabled: Bool
     let endWorkspaceNameEditing: () -> Void
     let selectMachine: (String, String?) -> Void
+    let selectWorkspaceGroup: (MobileWorkspaceGroupPreview.ID?) -> Void
     let selectDirectory: () -> Void
-    let selectModel: (String?) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 12) {
             TaskComposerWorkspaceNameField(
                 workspaceName: $workspaceName,
                 isDisabled: isDisabled,
                 endEditing: endWorkspaceNameEditing
             )
-
-            Divider()
-                .padding(.horizontal, 10)
+            .background(cardBackground, in: cardShape)
 
             TaskComposerRoutePicker(
                 machines: machines,
                 selectedMacPairingID: selectedMacPairingID,
                 buildLabelsByID: buildLabelsByID,
+                workspaceGroups: workspaceGroups,
+                selectedWorkspaceGroupID: selectedWorkspaceGroupID,
+                workspaceGroupSelectionPending: workspaceGroupSelectionPending,
+                workspaceGroupSelectionRequiresResolution: workspaceGroupSelectionRequiresResolution,
+                showsWorkspaceGroupPicker: showsWorkspaceGroupPicker,
                 directory: directory,
                 isDisabled: isDisabled,
                 selectMachine: selectMachine,
+                selectWorkspaceGroup: selectWorkspaceGroup,
                 selectDirectory: selectDirectory
             )
-
-            if !models.isEmpty,
-               modelPickerVariant.renderedVariant == .contextRow {
-                Divider()
-                    .padding(.horizontal, 10)
-
-                TaskComposerModelContextRow(
-                    models: models,
-                    selectedModelID: selectedModelID,
-                    isDisabled: isDisabled,
-                    selectModel: selectModel
-                )
-            }
+            .background(cardBackground, in: cardShape)
         }
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07), lineWidth: 1)
-                .allowsHitTesting(false)
-        }
-        .shadow(color: Color.black.opacity(0.04), radius: 12, y: 5)
+    }
+
+    private var cardBackground: Color {
+        Color(uiColor: .secondarySystemGroupedBackground)
+    }
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
     }
 }
 #endif

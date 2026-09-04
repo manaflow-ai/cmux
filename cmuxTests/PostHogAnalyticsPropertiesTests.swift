@@ -249,6 +249,29 @@ struct PostHogAnalyticsPropertiesTests {
     }
 
     @MainActor
+    @Test("Mobile terminal Files chip defaults enabled and accepts a remote disable")
+    func mobileTerminalFilesChipFeatureFlagKillSwitch() throws {
+        let suiteName = "cmux.feature.flags.mobile-terminal-files-chip.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        var remoteValues: [String: Any] = [:]
+        let flags = CmuxFeatureFlags(defaults: defaults) { key in
+            remoteValues[key]
+        }
+        #expect(flags.isMobileTerminalFilesChipEnabled)
+
+        remoteValues[CmuxFeatureFlags.mobileTerminalFilesChipFlag.key] = false
+        flags.applyLoadedFlags()
+        #expect(!flags.isMobileTerminalFilesChipEnabled)
+
+        let offlineRelaunch = CmuxFeatureFlags(defaults: defaults) { _ in nil }
+        #expect(!offlineRelaunch.isMobileTerminalFilesChipEnabled)
+    }
+
+    @MainActor
     @Test("successful control-plane omission clears a cached remote disable")
     func successfulControlPlaneOmissionClearsCachedDisable() async throws {
         let flag = try #require(CmuxFeatureFlags.allFlags.first {

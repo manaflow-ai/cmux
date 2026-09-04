@@ -67,7 +67,11 @@ extension WorkspaceListView {
 
     var requestWorkspaceCustomization: ((CmuxMobileShellModel.MobileWorkspacePreview.ID) -> Void)? {
         guard customizeWorkspace != nil else { return nil }
-        return { workspacePendingCustomizationID = $0 }
+        return { workspaceID in
+            workspaceCustomizationPresentation.present {
+                workspacePendingCustomizationID = workspaceID
+            }
+        }
     }
 
     var requestWorkspaceGroupRename: ((MobileWorkspaceGroupPreview.ID) -> Void)? {
@@ -104,14 +108,17 @@ extension WorkspaceListView {
         )
     }
 
-    var workspaceCustomizationIsPresented: Binding<Bool> {
-        Binding(
-            get: { workspacePendingCustomizationID != nil },
-            set: { isPresented in
-                if !isPresented {
-                    workspacePendingCustomizationID = nil
-                }
-            }
+    var workspaceCustomizationPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.customization),
+            fallback: $isWorkspaceCustomizationPresented
+        )
+    }
+
+    var workspaceChangesPresentation: MobileChildSheetPresentation {
+        resolvedPresentation(
+            for: .workspaceList(.changes),
+            fallback: $isWorkspaceChangesPresented
         )
     }
 

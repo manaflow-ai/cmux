@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 
 import {
+  isAnalyticsTestRun,
   POSTHOG_HOST,
   POSTHOG_PROJECT_KEY,
 } from "./iosEventPolicy";
@@ -29,7 +30,7 @@ export type StripeBillingAnalyticsSubject =
 export async function captureStripeBillingEvent(
   event: Stripe.Event,
   subject: StripeBillingAnalyticsSubject,
-  postHogFetch: typeof fetch = fetch,
+  postHogFetch?: typeof fetch,
 ): Promise<void> {
   const mapped = mappedBillingEvent(event, subject);
   if (!mapped) return;
@@ -49,7 +50,7 @@ export async function captureBillingCheckoutStarted(
     readonly plan: "pro" | "team";
     readonly billingInterval: "month" | "year";
   },
-  postHogFetch: typeof fetch = fetch,
+  postHogFetch?: typeof fetch,
 ): Promise<void> {
   await captureBillingPayload({
     name: "cmux_billing_checkout_started",
@@ -160,10 +161,12 @@ function mappedBillingEvent(
   }
 }
 
-function subjectDistinctId(subject: StripeBillingAnalyticsSubject): string {
-  return subject.scope === "user"
+function subjectDistinctId(subject: StripeBillingAnalyticsSubject): string | null {
+  const principalId = subject.scope === "user"
     ? subject.stackUserId
-    : `stack-team:${subject.stackTeamId}`;
+    : subject.stackTeamId;
+  if (typeof principalId !== "string" || principalId.trim().length === 0) return null;
+  return subject.scope === "user" ? principalId : `stack-team:${principalId}`;
 }
 
 async function captureBillingPayload(
@@ -173,13 +176,21 @@ async function captureBillingPayload(
     readonly subject: StripeBillingAnalyticsSubject;
     readonly properties: Record<string, unknown>;
   },
-  postHogFetch: typeof fetch,
+  postHogFetch?: typeof fetch,
 ): Promise<void> {
+  // The production transport is unavailable in test runs. An explicitly
+  // injected fetch remains a deliberate unit-test seam for payload mapping;
+  // normal callers omit it and fail closed here.
+  if (isAnalyticsTestRun() && !postHogFetch) return;
+  const fetchImpl = postHogFetch ?? fetch;
+  const distinctId = subjectDistinctId(input.subject);
+  if (!distinctId) return;
+
   const body = JSON.stringify({
     api_key: POSTHOG_PROJECT_KEY,
     event: input.name,
     properties: {
-      distinct_id: subjectDistinctId(input.subject),
+      distinct_id: distinctId,
       $insert_id: input.insertId,
       ...(input.subject.scope === "team"
         ? { $groups: { stack_team: input.subject.stackTeamId } }
@@ -189,7 +200,7 @@ async function captureBillingPayload(
   });
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const response = await postHogFetch(`${POSTHOG_HOST}/capture/`, {
+      const response = await fetchImpl(`${POSTHOG_HOST}/capture/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,

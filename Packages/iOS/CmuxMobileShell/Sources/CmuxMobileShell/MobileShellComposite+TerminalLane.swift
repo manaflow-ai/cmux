@@ -4,6 +4,10 @@ import Foundation
 
 extension MobileShellComposite {
     func ensureTerminalLane(surfaceID: String) {
+        // Demo surfaces have no Mac-side lane; without this guard a mounted
+        // demo terminal would open a lane at whatever REAL Mac holds the
+        // foreground ticket, for a surface that Mac has never heard of.
+        guard !demonstrationOwnsSurface(surfaceID) else { return }
         guard let terminalLaneCoordinator,
               connectionState == .connected,
               terminalOutputTransport != .renderGrid,
@@ -13,11 +17,19 @@ extension MobileShellComposite {
               let activeTicket else {
             return
         }
+        // A lane request can redial the peer session, so it must carry the
+        // same method-pinned allowlist as the control dial or a Direct or
+        // Tailscale Only Computer's lane reconnect could ride relay or
+        // discovered paths the method forbids.
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
-            sessionPurpose: .featureLane
+            sessionPurpose: .featureLane,
+            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
+                forMacDeviceID: activeTicket.macDeviceID,
+                instanceTag: activeMacInstanceTag
+            )
         )
         let connectionGeneration = connectionGeneration
         let lifecycleID = terminalLaneLifecycleID
@@ -44,6 +56,9 @@ extension MobileShellComposite {
                       self.terminalLaneLifecycleID == lifecycleID else { return }
                 if ready {
                     self.terminalLaneOutputReadySurfaceIDs.insert(surfaceID)
+                    await terminalLaneCoordinator.retireUnfocusedLanes(
+                        surfaceID: surfaceID
+                    )
                 } else {
                     self.terminalLaneOutputReadySurfaceIDs.remove(surfaceID)
                 }
@@ -64,12 +79,19 @@ extension MobileShellComposite {
         terminalLaneLifecycleID = UUID()
         let lifecycleID = terminalLaneLifecycleID
         terminalLaneOutputReadySurfaceIDs.removeAll()
+        let mountedSurfaceIDs = Array(
+            terminalByteContinuationsBySurfaceID.keys
+        )
+        guard !mountedSurfaceIDs.isEmpty else {
+            Task { await terminalLaneCoordinator.deactivateAll() }
+            return
+        }
         Task { @MainActor [weak self] in
-            await terminalLaneCoordinator.deactivateAll()
             guard let self,
                   self.terminalLaneLifecycleID == lifecycleID,
                   self.connectionState == .connected else { return }
-            for surfaceID in self.terminalByteContinuationsBySurfaceID.keys {
+            for surfaceID in mountedSurfaceIDs
+            where self.terminalByteContinuationsBySurfaceID[surfaceID] != nil {
                 self.ensureTerminalLane(surfaceID: surfaceID)
             }
         }

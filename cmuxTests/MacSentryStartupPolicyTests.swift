@@ -7,6 +7,13 @@ import Foundation
 @testable import cmux
 #endif
 
+private func canonicalAppHostPath(_ path: String) -> String {
+    URL(fileURLWithPath: path)
+        .resolvingSymlinksInPath()
+        .standardizedFileURL
+        .path
+}
+
 private func validateAppHostUserConfigurationHome(
     environment: [String: String],
     isolationRequired: Bool
@@ -29,26 +36,35 @@ private func validateAppHostUserConfigurationHome(
     #expect(environment["CFFIXED_USER_HOME"] == expectedHome)
     #expect(environment["XDG_CONFIG_HOME"] == expectedXDGConfigHome)
     #expect(environment["SSH_AUTH_SOCK"] == "")
-    #expect(FileManager.default.homeDirectoryForCurrentUser.path == expectedHome)
+    #expect(
+        canonicalAppHostPath(
+            FileManager.default.homeDirectoryForCurrentUser.path
+        ) == canonicalAppHostPath(expectedHome)
+    )
     #expect(
         FileManager.default.urls(
             for: .applicationSupportDirectory,
             in: .userDomainMask
-        ).first?.path
-            == URL(fileURLWithPath: expectedHome, isDirectory: true)
-                .appendingPathComponent(
-                    "Library/Application Support",
-                    isDirectory: true
-                ).path
+        ).first.map { canonicalAppHostPath($0.path) }
+            == canonicalAppHostPath(
+                URL(fileURLWithPath: expectedHome, isDirectory: true)
+                    .appendingPathComponent(
+                        "Library/Application Support",
+                        isDirectory: true
+                    ).path
+            )
     )
     #expect(
-        NSString(string: "~/Library/Application Support")
-            .expandingTildeInPath
-            == URL(fileURLWithPath: expectedHome, isDirectory: true)
+        canonicalAppHostPath(
+            NSString(string: "~/Library/Application Support")
+                .expandingTildeInPath
+        ) == canonicalAppHostPath(
+            URL(fileURLWithPath: expectedHome, isDirectory: true)
                 .appendingPathComponent(
                     "Library/Application Support",
                     isDirectory: true
                 ).path
+        )
     )
 }
 
@@ -82,7 +98,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: true,
-                allowUnderXCTest: false
+                allowUnderXCTest: false,
+                allowsBuildIdentity: true
             ).shouldStart == false
         )
     }
@@ -92,7 +109,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: true,
-                allowUnderXCTest: true
+                allowUnderXCTest: true,
+                allowsBuildIdentity: true
             ).shouldStart == true
         )
     }
@@ -102,7 +120,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: true,
                 isRunningUnderXCTest: false,
-                allowUnderXCTest: false
+                allowUnderXCTest: false,
+                allowsBuildIdentity: true
             ).shouldStart == true
         )
     }
@@ -112,7 +131,8 @@ private var appHostIsolationRequiredByBuild: Bool {
             MacSentryStartupPolicy(
                 telemetryEnabled: false,
                 isRunningUnderXCTest: false,
-                allowUnderXCTest: false
+                allowUnderXCTest: false,
+                allowsBuildIdentity: true
             ).shouldStart == false
         )
     }
@@ -143,6 +163,43 @@ private var appHostIsolationRequiredByBuild: Bool {
                     "CMUX_TEST_SENTRY_ENABLED": "1"
                 ],
                 telemetryEnabled: true
+            ).shouldStart == true
+        )
+    }
+
+    @Test func foreignBundleIdentityPreventsSentryStartup() {
+        // A rebranded public-repo fork keeping the hardcoded cmux DSN must
+        // not start Sentry (Sentry issue CMUXTERM-MACOS-1RZF).
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true,
+                bundleIdentifier: "mosaic.com.emergent.app"
+            ).shouldStart == false
+        )
+    }
+
+    @Test func missingBundleIdentityPreventsSentryStartup() {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true,
+                bundleIdentifier: nil
+            ).shouldStart == false
+        )
+    }
+
+    @Test(arguments: [
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.nightly",
+        "com.cmuxterm.app.debug.snmsc"
+    ])
+    func cmuxBundleIdentityStartsSentry(_ bundleIdentifier: String) {
+        #expect(
+            MacSentryStartupPolicy(
+                environment: [:],
+                telemetryEnabled: true,
+                bundleIdentifier: bundleIdentifier
             ).shouldStart == true
         )
     }

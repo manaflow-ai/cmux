@@ -1,4 +1,4 @@
-import XCTest
+@preconcurrency import XCTest
 import AppKit
 import Darwin
 #if canImport(cmux_DEV)
@@ -7,15 +7,17 @@ import Darwin
 @testable import cmux
 #endif
 
+// This existing socket suite stays on XCTest because its lifecycle uses
+// XCTestCase setUp/tearDown and XCTestExpectation-backed socket delivery.
 @MainActor
 final class TerminalNotificationCallerTests: XCTestCase {
     override func setUp() {
         super.setUp()
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
     }
 
     override func tearDown() {
-        TerminalController.shared.stop()
+        TerminalController.shared.stop(cleanupDiscoveryState: true)
         super.tearDown()
     }
 
@@ -41,7 +43,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
         appDelegate.notificationStore = store
         AppFocusState.overrideIsFocused = false
 
-        let workspace = manager.addWorkspace(select: true)
+        let workspace = manager.addWorkspace(select: true, eagerLoadTerminal: true)
         defer {
             if manager.tabs.contains(where: { $0.id == workspace.id }) {
                 manager.closeWorkspace(workspace)
@@ -55,7 +57,9 @@ final class TerminalNotificationCallerTests: XCTestCase {
         }
 
         let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        workspace.surfaceTTYNames[focusedPanelId] = "/dev/ttys777"
+        let focusedTerminal = try XCTUnwrap(workspace.panels[focusedPanelId] as? TerminalPanel)
+        let callerTTY = try await TerminalControllingTTYWaiter().wait(for: focusedTerminal)
+        workspace.surfaceTTYNames[focusedPanelId] = callerTTY
 
         TerminalController.shared.start(
             tabManager: manager,
@@ -69,7 +73,7 @@ final class TerminalNotificationCallerTests: XCTestCase {
             params: [
                 "preferred_workspace_id": UUID().uuidString,
                 "preferred_surface_id": UUID().uuidString,
-                "caller_tty": "/dev/ttys777",
+                "caller_tty": callerTTY,
                 "prefer_tty": false,
                 "title": "Caller",
                 "subtitle": "TTY",

@@ -1,4 +1,6 @@
+import CmuxCore
 import Foundation
+import CmuxWorkspaces
 
 extension TerminalController {
     /// Mobile-gated workspace-group creation that mirrors mobile workspace.create.
@@ -6,6 +8,8 @@ extension TerminalController {
         guard let tabManager = v2ResolveTabManager(params: params) else {
             return .err(code: "unavailable", message: "Workspace context is unavailable", data: nil)
         }
+        let identity = mobileWorkspaceGroupExternalID(params: params)
+        if let error = identity.error { return error }
         let title = v2RawString(params, "title")?.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = title?.isEmpty == false ? title ?? "" : ""
 
@@ -14,7 +18,8 @@ extension TerminalController {
             guard tabManager.createWorkspaceGroup(
                 name: name,
                 selectAnchor: false,
-                collapseSidebarSelection: false
+                collapseSidebarSelection: false,
+                externalID: identity.value
             ) != nil else {
                 mutationError = .err(code: "not_created", message: "Group was not created", data: nil)
                 return
@@ -71,21 +76,78 @@ extension TerminalController {
                 }
                 tabManager.renameWorkspaceGroup(groupId: groupID, name: title)
             case .ungroup:
-                tabManager.ungroupWorkspaceGroup(groupId: groupID)
-            case .delete:
-                let memberCount = tabManager.tabs.filter { $0.groupId == groupID }.count
-                guard memberCount > 0 else {
+                let removeGeneratedAnchor: Bool
+                if !v2HasNonNullParam(params, "remove_generated_anchor") {
+                    removeGeneratedAnchor = false
+                } else if let value = params["remove_generated_anchor"] as? Bool {
+                    removeGeneratedAnchor = value
+                } else {
+                    mutationError = .err(
+                        code: "invalid_params",
+                        message: controlWorkspaceGroupStrings().removeGeneratedAnchorMustBeBoolean,
+                        data: nil
+                    )
+                    return
+                }
+                switch tabManager.ungroupWorkspaceGroup(
+                    groupId: groupID,
+                    removeGeneratedAnchor: removeGeneratedAnchor
+                ) {
+                case .groupNotFound:
+                    mutationError = .err(code: "not_found", message: "Group not found", data: nil)
+                case .emptyPinnedCannotUngroup:
                     mutationError = .err(
                         code: "invalid_request",
-                        message: "Group has no workspaces to close",
+                        message: String(
+                            localized: "workspaceGroup.error.emptyPinnedCannotUngroup",
+                            defaultValue: "A pinned empty group can only be removed with Delete Group"
+                        ),
+                        data: ["group_id": groupID.uuidString]
+                    )
+                case .dissolved, .removedGeneratedAnchor:
+                    break
+                case .generatedAnchorRequiresAnchorOnly:
+                    mutationError = .err(
+                        code: "invalid_state",
+                        message: controlWorkspaceGroupStrings().generatedAnchorRequiresAnchorOnly,
+                        data: nil
+                    )
+                case .generatedAnchorNotOwned:
+                    mutationError = .err(
+                        code: "invalid_state",
+                        message: controlWorkspaceGroupStrings().generatedAnchorNotOwned,
+                        data: nil
+                    )
+                case .generatedAnchorRemovalFailed:
+                    mutationError = .err(
+                        code: "not_removed",
+                        message: controlWorkspaceGroupStrings().generatedAnchorRemovalFailed,
+                        data: nil
+                    )
+                }
+            case .delete:
+                let memberCount = tabManager.tabs.filter { $0.groupId == groupID }.count
+                let isPinnedEmptyGroup = tabManager.workspaceGroups.first {
+                    $0.id == groupID
+                }.map { $0.isPinned && $0.isEmpty } == true
+                guard memberCount > 0 || isPinnedEmptyGroup else {
+                    mutationError = .err(
+                        code: "invalid_request",
+                        message: String(
+                            localized: "workspaceGroup.error.noWorkspacesToClose",
+                            defaultValue: "Group has no workspaces to close"
+                        ),
                         data: ["group_id": groupID.uuidString]
                     )
                     return
                 }
-                guard memberCount < tabManager.tabs.count else {
+                guard isPinnedEmptyGroup || memberCount < tabManager.tabs.count else {
                     mutationError = .err(
                         code: "invalid_request",
-                        message: "Cannot delete every workspace in a window",
+                        message: String(
+                            localized: "workspaceGroup.error.cannotDeleteEveryWorkspace",
+                            defaultValue: "Cannot delete every workspace in a window"
+                        ),
                         data: [
                             "group_id": groupID.uuidString,
                             "workspace_count": memberCount,
@@ -94,10 +156,13 @@ extension TerminalController {
                     return
                 }
                 let closed = tabManager.deleteWorkspaceGroup(groupId: groupID)
-                guard closed == memberCount else {
+                guard (isPinnedEmptyGroup ? closed == 0 : closed == memberCount) else {
                     mutationError = .err(
                         code: "invalid_request",
-                        message: "Could not close every workspace in the group",
+                        message: String(
+                            localized: "workspaceGroup.error.couldNotCloseEveryWorkspace",
+                            defaultValue: "Could not close every workspace in the group"
+                        ),
                         data: [
                             "group_id": groupID.uuidString,
                             "requested_close_count": memberCount,
@@ -140,6 +205,63 @@ extension TerminalController {
             return nil
         }
         return trimmed
+    }
+
+    /// Parses the shared caller-owned identity accepted by mobile and control
+    /// workspace-group creation. The control-socket path supplies localized
+    /// errors; this mobile path is only reached after authenticated RPC gating.
+    private func mobileWorkspaceGroupExternalID(
+        params: [String: Any]
+    ) -> (value: String?, error: V2CallResult?) {
+        do {
+            let resolution = try WorkspaceGroupIdentityResolution(
+                externalID: mobileWorkspaceGroupIdentityInput(params["external_id"]),
+                idempotencyKey: mobileWorkspaceGroupIdentityInput(params["idempotency_key"])
+            )
+            return (resolution.value, nil)
+        } catch let error as WorkspaceGroupIdentityResolution.ValidationError {
+            let message: String
+            switch error {
+            case .nonString:
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                )
+            case .empty:
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
+                    defaultValue: "The group identity must not be empty"
+                )
+            case .mismatchedAliases:
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeysMustMatch",
+                    defaultValue: "external_id and idempotency_key must match"
+                )
+            }
+            return (nil, .err(
+                code: "invalid_params",
+                message: message,
+                data: nil
+            ))
+        } catch {
+            assertionFailure("Unexpected workspace-group identity validation error: \(error)")
+            return (nil, .err(
+                code: "invalid_params",
+                message: String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                ),
+                data: nil
+            ))
+        }
+    }
+
+    private func mobileWorkspaceGroupIdentityInput(
+        _ value: Any?
+    ) -> WorkspaceGroupIdentityResolution.Input {
+        guard let value, !(value is NSNull) else { return .absent }
+        guard let raw = value as? String else { return .invalid }
+        return .string(raw)
     }
 }
 

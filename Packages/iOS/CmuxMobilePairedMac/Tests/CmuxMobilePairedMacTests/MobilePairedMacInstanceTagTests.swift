@@ -228,6 +228,42 @@ import Testing
         #expect(authenticated.routes == [route])
     }
 
+    @Test func deviceOnlyMutationsFailClosedWhenSiblingBuildsExist() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let stableRoute = try route(id: "stable", port: 51_001)
+        let nightlyRoute = try route(id: "nightly", port: 51_002)
+        try await store.upsert(
+            macDeviceID: "mac-a", displayName: "Stable", routes: [stableRoute],
+            instanceTag: "stable", markActive: true,
+            stackUserID: "user-1", teamID: "team-a",
+            now: Date(timeIntervalSince1970: 1)
+        )
+        try await store.upsert(
+            macDeviceID: "mac-a", displayName: "Nightly", routes: [nightlyRoute],
+            instanceTag: "nightly", markActive: false,
+            stackUserID: "user-1", teamID: "team-a",
+            now: Date(timeIntervalSince1970: 2)
+        )
+
+        try await store.setActive(
+            macDeviceID: "mac-a", stackUserID: "user-1", teamID: "team-a"
+        )
+        try await store.setCustomization(
+            macDeviceID: "mac-a", customName: "Ambiguous", customColor: nil,
+            customIcon: nil, stackUserID: "user-1", teamID: "team-a"
+        )
+        try await store.remove(
+            macDeviceID: "mac-a", stackUserID: "user-1", teamID: "team-a"
+        )
+
+        let rows = try await store.loadAll(stackUserID: "user-1", teamID: "team-a")
+        #expect(rows.count == 2)
+        #expect(rows.first { $0.instanceTag == "stable" }?.isActive == true)
+        #expect(rows.first { $0.instanceTag == "nightly" }?.isActive == false)
+        #expect(rows.allSatisfy { $0.customName == nil })
+    }
+
     private func makeStore() throws -> (MobilePairedMacStore, URL) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

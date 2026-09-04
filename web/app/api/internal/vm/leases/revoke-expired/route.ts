@@ -2,8 +2,6 @@ import { timingSafeEqual } from "node:crypto";
 import { jsonResponse } from "@/services/vms/routeHelpers";
 import { revokeExpiredIdentityLeases, runVmWorkflow } from "@/services/vms/workflows";
 
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
 
 export async function GET(request: Request): Promise<Response> {
   return handle(request);

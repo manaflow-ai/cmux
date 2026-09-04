@@ -18,10 +18,14 @@ public struct WorkspaceChangesSheet: View {
     @State private var totals = ChangesTotals(filesChanged: 0, additions: 0, deletions: 0)
     @State private var files: [ChangedFileItem] = []
     @State private var listState: WorkspaceChangesListState = .loading
-    @State private var presentationCache = FileDiffPresentationCache()
+    // Reference store held in @State only for identity: mutations are
+    // deliberately invisible to rendering so diff loads and LRU churn
+    // cannot rebuild the pager mid-swipe.
+    @State private var presentationStore = FileDiffPresentationStore()
     @State private var fontSize: Double
     @State private var navigationPath: [WorkspaceChangesNavigationRoute] = []
     @State private var inlineActionHost = ChatArtifactInlineActionHost()
+    @State private var inlineActionDescriptor: ChatArtifactInlineActionDescriptor?
     @Environment(\.dismiss) private var dismiss
 
     /// Creates a changes sheet for one remote workspace.
@@ -49,22 +53,35 @@ public struct WorkspaceChangesSheet: View {
             totals: totals,
             files: files,
             listState: listState,
-            cachedPresentations: presentationCache.presentations,
+            presentationStore: presentationStore,
             fontSize: fontSize,
             listActions: listActions,
             pagerActions: pagerActions,
             inlineActionHost: inlineActionHost,
+            inlineActionDescriptor: inlineActionDescriptor,
             path: $navigationPath,
             onClose: { dismiss() }
         )
         .task(id: workspaceID) {
             await loadChangedFiles(invalidateCache: true)
         }
+        .onAppear {
+            store.recordAppEvent(.changesOpened, correlationID: workspaceID)
+        }
+        .onDisappear {
+            store.recordAppEvent(.changesClosed, correlationID: workspaceID)
+        }
     }
 
     private var listActions: WorkspaceChangesListActions {
         WorkspaceChangesListActions(
-            onSelectFile: { _ in },
+            onSelectFile: { index in
+                store.recordAppEvent(
+                    .changedFileSelected,
+                    correlationID: workspaceID,
+                    count: index
+                )
+            },
             onRefresh: { await loadChangedFiles(invalidateCache: true) },
             onRetry: { Task { await loadChangedFiles(invalidateCache: true) } }
         )
@@ -84,7 +101,11 @@ public struct WorkspaceChangesSheet: View {
         let loadCurrentLines: @MainActor @Sendable (String) async throws -> DiffExpansionCurrentFile =
             store.workspaceChangesCurrentFileLinesLoader(workspaceID: workspaceID)
         let presentationAccess: @MainActor @Sendable (String) -> Void = { path in
-            presentationCache.touch(path: path)
+            presentationStore.touch(path: path)
+            // Selection moved; a still-mounted neighbor's preview cannot
+            // retract its own preference across the hosting boundary, so the
+            // toolbar actions reset here and the selected page republishes.
+            inlineActionDescriptor = nil
         }
         let persistFontSize: @MainActor @Sendable (Double) -> Void = { pointSize in
             fontSize = pointSize
@@ -92,6 +113,7 @@ public struct WorkspaceChangesSheet: View {
         }
         let copy: @MainActor @Sendable (String) -> Void = { text in
             UIPasteboard.general.string = text
+            store.recordAppEvent(.diffCopied, correlationID: workspaceID)
         }
         let inlinePreview: @MainActor @Sendable (Int, FileDiffPreviewRevision) -> AnyView = {
             index,
@@ -131,12 +153,17 @@ public struct WorkspaceChangesSheet: View {
             )
             .environment(\.chatArtifactLoader, loader)
             .id("\(revision.rawValue)\u{0}\(resolvedPath)")
+            // Observed inside the page's hosting boundary; preference keys
+            // do not cross UIHostingController into the navigation toolbar.
+            .onPreferenceChange(ChatArtifactInlineActionsPreferenceKey.self) { descriptor in
+                inlineActionDescriptor = descriptor
+            }
         )
     }
 
     @MainActor
     private func loadChangedFiles(invalidateCache: Bool) async {
-        if invalidateCache { presentationCache.removeAll() }
+        if invalidateCache { presentationStore.removeAll() }
         listState = .loading
         do {
             let response = try await store.fetchChangedFiles(workspaceID: workspaceID)
@@ -186,8 +213,19 @@ public struct WorkspaceChangesSheet: View {
     ) async throws -> FileDiffPresentation {
         if maxLines == nil,
            !forceRefresh,
-           let cached = presentationCache.presentation(forPath: path) {
+           let cached = presentationStore.presentation(forPath: path) {
+            store.recordAppEvent(
+                .fileDiffCacheHit,
+                correlationID: workspaceID
+            )
             return cached
+        }
+        if let maxLines {
+            store.recordAppEvent(
+                .fileDiffExpanded,
+                correlationID: workspaceID,
+                count: maxLines
+            )
         }
         let response = try await store.fetchFileDiff(
             workspaceID: workspaceID,
@@ -204,7 +242,7 @@ public struct WorkspaceChangesSheet: View {
         )
         try Task.checkCancellation()
         if maxLines == nil {
-            presentationCache.insert(presentation, forPath: path)
+            presentationStore.insert(presentation, forPath: path)
         }
         return presentation
     }

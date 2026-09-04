@@ -1,4 +1,32 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operacija Cloud VM-a nije dostupna",
+      "reason": "Ova vrsta mašine ne pruža ovu operaciju.",
+      "message": {
+        "snapshot": "Ovaj Cloud VM ne podržava sačuvano stanje VM-a.",
+        "restore": "Ova vrsta Cloud VM-a ne podržava vraćanje sačuvanog stanja VM-a.",
+        "fork": "Ovaj Cloud VM ne podržava kopiranje u novi VM.",
+        "openPort": "Provajder ovog Cloud VM-a ne može izložiti portove mašine kao URL-ove za pregled.",
+        "default": "Ovaj Cloud VM ne podržava traženu operaciju."
+      },
+      "action": {
+        "snapshot": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
+        "restore": "Ne pokušavajte ponovo. Rad na ovoj vrsti mašine čuva se na njenom trajnom kućnom volumenu.",
+        "fork": "Ne pokušavajte ponovo. Kreirajte novi VM pomoću `cmux vm new`.",
+        "openPort": "Ne pokušavajte ponovo. Pristupite usluzi iz mašine pomoću `cmux vm exec` ili koristite tip mašine koji može otvoriti portove.",
+        "default": "Ne pokušavajte ponovo. Pokrenite `cmux vm ls` ili kontaktirajte podršku ako mislite da je ovo greška."
+      }
+    },
+    "requiresPro": {
+      "title": "Potreban je cmux Pro",
+      "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
+      "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
+    }
+  },
+  "billingRecovery": {
+    "message": "Ako smo pronašli nalog, provjerite e-poštu za sljedeće korake"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Nastavite u terminalu",
@@ -27,6 +55,22 @@
     "description": "Besplatan i otvorenog koda nativni macOS terminal izgrađen na Ghostty. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom. Vertikalni tabovi, notifikacijski prstenovi, podijeljeni paneli i socket API.",
     "ogDescription": "Besplatan i otvorenog koda macOS terminal za AI agente za kodiranje. Radi s Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i bilo kojim CLI alatom."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Potvrdite e-poštu za nastavak",
+    "emailUnverifiedBody": "Prijavite se metodom koji ste prvobitno koristili, a zatim potvrdite e-poštu prije korištenja ovog načina prijave.",
+    "genericTitle": "Prijava nije dovršena",
+    "genericBody": "Pokušajte ponovo. Ako problem potraje, kontaktirajte podršku.",
+    "backToSignIn": "Nazad na prijavu"
+  },
+  "cloudPublicationAccess": {
+    "title": "Nemate pristup",
+    "signIn": "Prijavite se na cmux",
+    "signedInAs": "Prijavljeni ste kao {identity}",
+    "switchAccount": "Promijeni nalog",
+    "invalidTitle": "Ovaj link za pristup nije važeći",
+    "invalidBody": "Vratite se na stranicu i pokušajte ponovo.",
+    "footer": "Pristupom upravlja cmux."
+  },
   "common": {
     "downloadForMac": "Preuzmi za Mac",
     "viewOnGitHub": "Pogledaj na GitHub-u",
@@ -43,6 +87,7 @@
     "blog": "Blog",
     "changelog": "Zapisnik promjena",
     "community": "Zajednica",
+    "jobs": "Poslovi",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +97,10 @@
     "social": "Društvene mreže",
     "blog": "Blog",
     "community": "Zajednica",
+    "jobs": "Poslovi",
     "docs": "Dokumentacija",
     "changelog": "Zapisnik promjena",
+    "support": "Podrška",
     "privacy": "Privatnost",
     "terms": "Uslovi korištenja",
     "eula": "EULA",
@@ -68,6 +115,79 @@
     "openSource": "Otvoreni kod",
     "guides": "Vodiči",
     "compare": "Uporedi"
+  },
+  "jobs": {
+    "metaTitle": "Founding Engineer u cmuxu",
+    "metaDescription": "Pridružite se cmuxu kao Founding Engineer i gradite budućnost programiranja uz AI na macOS-u, Windowsu, Linuxu, iOS-u i Cloudu.",
+    "section": "Poslovi",
+    "eyebrow": "Zapošljavamo",
+    "title": "Founding Engineer",
+    "tagline": "Gradite budućnost programiranja uz AI.",
+    "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
+    "hiring": "Tražimo talentovane inženjere da s nama grade budućnost programiranja uz AI.",
+    "whatYoullDo": "Šta ćete raditi",
+    "whatYoullDoItems": [
+      "Gradite napredne alate za programere kroz cijeli stack: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux i više.",
+      "Pomažete izmisliti najkorisniji proizvod za programere koji rade s AI-jem.",
+      "Preuzimate proizvode i funkcije od početka do kraja, uključujući povratne informacije korisnika.",
+      "Stalno koristite, testirate i provjeravate cmux; koristite cmux da izgradite cmux."
+    ],
+    "excitedLead": "Posebno nas raduje ako:",
+    "excitedItems": [
+      "Koristite više od 10B tokena dnevno.",
+      "Svestrani ste i kreativno rješavate probleme.",
+      "Imate odličan osjećaj za dizajn i brinete o zanatu.",
+      "Imate iskustvo sa Swift/AppKit, C++, Rustom, Go-om ili Chromiumom.",
+      "Održavate open source, bivši ste osnivač ili ste isporučili kompletne proizvode.",
+      "Šaljete cmux PR-ove na pregled ili demonstrirate vlastite plugine i tokove rada."
+    ],
+    "details": "Detalji",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Naknada",
+    "compensation": "$130k–$170k + 0,5%–1,5% udjela",
+    "benefitsLabel": "Pogodnosti",
+    "benefits": "Zdravstveno, stomatološko i osiguranje vida",
+    "locationLabel": "Lokacija",
+    "location": "San Francisco",
+    "applyAriaLabel": "Prijavite se e-mailom za Founding Engineer poziciju",
+    "applyEmailSubject": "Prijava za Founding Engineer u cmuxu",
+    "applyCta": "Pošalji e-mail",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer u cmuxu",
+      "metaDescription": "Pridružite se cmuxu kao Founding Designer i dizajnirajte budućnost programiranja uz AI na macOS-u, TUI-ju, Windowsu, Linuxu, iOS-u, Cloudu, cmux.comu i chatmuxu.",
+      "section": "Poslovi",
+      "eyebrow": "O ulozi",
+      "title": "Founding Designer",
+      "tagline": "Dizajnirajte budućnost programiranja uz AI.",
+      "intro": "cmux je nativni macOS terminal izgrađen na Ghosttyju, dizajniran za paralelno pokretanje više AI coding agenata. Stotine hiljada programera koristi cmux za svoje agentske coding tokove.",
+      "hiring": "Tražimo talentovanog dizajnera da s nama dizajnira budućnost programiranja uz AI.",
+      "whatYoullDo": "Šta ćete raditi",
+      "whatYoullDoItems": [
+        "Dizajnirate napredne alate za programere kroz cijeli stack: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux i više.",
+        "Pomažete dizajnirati najkorisniji proizvod za programere koji rade s AI-jem.",
+        "Preuzimate izgled, osjećaj i model interakcije od početka do kraja, uključujući povratne informacije.",
+        "Stalno koristite cmux, pravite prototipe i isporučujete."
+      ],
+      "excitedLead": "Posebno nas raduje ako:",
+      "excitedItems": [
+        "Živa ste enciklopedija dizajnerskih komponenti iz svih vrsta aplikacija.",
+        "Ljudi vas stalno pitaju za dizajnerske reference.",
+        "Opsesivno volite nativne macOS aplikacije i alate za programere.",
+        "Prototipizirate u kodu i isporučujete pravi UI.",
+        "Brinete o tipografiji, pokretu i sistemskom razmišljanju, do svakog 1px detalja i razmaka."
+      ],
+      "details": "Detalji",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Naknada",
+      "compensation": "$130k–$170k + 0,5%–1,5% udjela",
+      "benefitsLabel": "Pogodnosti",
+      "benefits": "Zdravstveno, stomatološko i osiguranje vida",
+      "locationLabel": "Lokacija",
+      "location": "San Francisco",
+      "applyAriaLabel": "Prijavite se e-mailom za Founding Designer poziciju",
+      "applyEmailSubject": "Prijava za Founding Designer u cmuxu",
+      "applyCta": "Pošalji e-mail"
+    }
   },
   "home": {
     "taglinePrefix": "Terminal napravljen za ",
@@ -143,13 +263,27 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Usmjeravajte LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
-      "coderouterLink": "otvori coderouter"
+      "coderouterLink": "otvori coderouter",
+      "iosAppName": "iOS aplikacija",
+      "iosAppDescription": "Instalirajte cmux iOS aplikaciju putem TestFlight-a (beta pristup).",
+      "iosLink": "Otvori iOS aplikaciju"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Upravljajte zajedničkim AI računima i usmjeravajte zahtjeve pomoću coderoutera.",
       "title": "coderouter",
-      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji."
+      "description": "coderouter usmjerava LLM zahtjeve između računa pružalaca uz prebacivanje i raspoređivanje prema potrošnji.",
+      "machines": {
+        "title": "Mašine",
+        "description": "Korištenje coderoutera po mašini za {team} u posljednjih {days} dana.",
+        "machineColumn": "Mašina",
+        "tokensColumn": "Ukupno tokena",
+        "apiEquivalentColumn": "API ekvivalentna vrijednost",
+        "unnamed": "Mašina bez naziva",
+        "empty": "Nijedna mašina nije koristila coderouter u posljednjih {days} dana.",
+        "unavailable": "Korištenje po mašini trenutno nije dostupno.",
+        "estimateNote": "API ekvivalentna vrijednost je procjena na osnovu javnih cjenovnika, a ne stvarni trošak."
+      }
     },
     "accountMenu": {
       "label": "Meni računa",
@@ -158,6 +292,7 @@
       "signOut": "Odjavi se",
       "signingOut": "Odjava…",
       "signOutError": "Odjava nije uspjela. Pokušajte ponovo.",
+      "organizationSwitchError": "Nije moguće promijeniti organizaciju. Pokušajte ponovo.",
       "signIn": "Prijavi se"
     },
     "aiAccounts": {
@@ -210,7 +345,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -796,6 +937,22 @@
     "remoteTmux": {
       "moshContrast": "Za roaming između mreža koristite cmux mosh-tmux. Otvara punopravni Mosh terminal spojen na imenovanu tmux sesiju; ne zamjenjuje izvorno preslikavanje radnih prostora, kartica i podjela koje pruža SSH tmux kontrolni režim."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Kreira tmux shim u privremenom shim direktoriju trenutne površine. Putanja sadrži UUID površine i mijenja se za svaki panel i pri svakom pokretanju sistema, pa se ne može navesti fiksna putanja",
+      "shimStep2": "Postavlja TMUX i TMUX_PANE radi simuliranja tmuxa za sesiju pokretanja Claude Teams",
+      "shimDiagnostic": "Shim usmjerava na cmux samo kada je postavljen <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>; u suprotnom transparentno prosljeđuje poziv sljedećoj stvarnoj tmux izvršnoj datoteci. Zato <which>which tmux</which> ne pokazuje da li je Claude Teams presretanje aktivno.",
+      "envTmux": "Sintetička putanja tmux socketa za sesiju koja je pokrenula cmux claude-teams",
+      "envTmuxPane": "Sintetički identifikator tmux panela za sesiju koja je pokrenula cmux claude-teams; prazan je u novostvorenim agentskim panelima",
+      "envSurface": "UUID trenutne površine; koristite ga kao identifikator površine unutar kreiranog agentskog panela",
+      "envScope": "Sintetičke vrijednosti <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> i povezane tmux-kompatibilne vrijednosti opisuju sesiju u kojoj je pokrenut <command>cmux claude-teams</command>, a ne kreirane panele. Iz agentskog panela koristite <surface>CMUX_SURFACE_ID</surface> i pokrenite <tree>cmux tree --json</tree>; objekt <caller>caller</caller> u izlazu identificira panel koji je pozvao komandu.",
+      "dirShimPath": "Direktorij za svaku površinu unutar sistemskog privremenog direktorija (nema fiksne putanje)",
+      "dirShim": "Sadrži aktivni tmux shim i dodaje se na početak PATH-a za tu površinu",
+      "dirStore": "Trajna pohrana za tmux-compat buffere, hookove i stanje položaja/rasporeda podjela",
+      "storeDetails": "Ključevi za rutiranje podjela su:",
+      "storeLastSplitSurface": "Mapira UUID svakog radnog prostora na UUID površine kreirane posljednjom podjelom. Postavlja početno sidro kolone agenata koje određuje gdje će završiti sljedeća main-vertical podjela.",
+      "storeMainVerticalLayouts": "Mapira UUID svakog radnog prostora na <mainSurfaceId>mainSurfaceId</mainSurfaceId> (glavnu ili vodeću površinu) i <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (najnižu površinu u koloni agenata). Naredne teammate podjele ciljaju tu kolonu i slažu se prema dolje.",
+      "storeTroubleshooting": "Provjerite ove ključeve rutiranja kada se teammate panel pojavi kao kartica iza postojeće površine umjesto kao podjela pored nje."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Početak rada",
@@ -990,12 +1147,16 @@
           "focusTextBoxOnNewTerminals": "Podrazumijevano fokusira beta TextBox unos za novokreirane radne prostore, terminalske tabove i podjele. Fokusiranje također prikazuje TextBox."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea."
+          "suppressOnlyFocusedSurface": "Kada je uključeno, baner notifikacije se automatski povlači samo kada je njegova površina tačno fokusirana površina. Baner isporučen za nefokusiranu površinu u trenutno vidljivom workspaceu ostaje prikazan dok ne fokusirate tu površinu (ili je kliknete/odbacite), umjesto da bude povučen kada workspace postane vidljiv. Isključeno zadržava staro ponašanje povlačenja na osnovu vidljivosti workspacea.",
+          "agentIdleReminder": "Pošalji obavijest kada agent miruje i čeka vaš unos (oko 60 sekundi nakon završetka turna). Utišano je dok je pozadinski rad prethodnog turna još na čekanju, pa pokrenuta izgradnja ili nadzor ne izazivaju pogrešnu obavijest o čekanju.",
+          "soundOverrides": "Rijetka nadjačavanja zvuka obavijesti po agentu i vrsti upozorenja. Ćelije koje nedostaju koriste notifications.sound.",
+          "soundOverride": "Nadjačavanje zvuka obavijesti. default koristi notifications.sound, none onemogućava reprodukciju, a ostale vrijednosti biraju ugrađeni ili prilagođeni zvuk."
         },
         "browser": {
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
-          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL."
+          "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
+          "urlAllowlist": "Obrasci hostova ili URL-ova koji ograničavaju navigaciju u ugrađenom pregledniku. Postavke predlažu lokalne razvojne izvore; spremanje liste uključuje opcionalno ograničenje. Uklonite stavke da ih blokirate ili ostavite korisničku vrijednost praznom bez upravljane politike da isključite ograničenje."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna zadana vrijednost za mjesto gdje Cmd-N unutar grupe, + dugme u zaglavlju grupe i podešene grupne akcije stavljaju novi workspace: `afterCurrent` (poslije aktivnog workspacea u grupi, uz povratak na top), `top` (druga pozicija, odmah poslije sidra) ili `end` (poslije zadnjeg člana).",
@@ -1470,7 +1631,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Dodaj prilagođene TUI kontrole u desnu bočnu traku cmuxa pomoću Dock JSON-a.",
       "title": "Dock",
-      "intro": "Dock ti omogućava da dodaš TUI kontrole u desnu bočnu traku. Svaka kontrola je komanda iz JSON-a, prikazana u vlastitoj Ghostty terminal sekciji. Koristi ga za feedove, logove, redove, git status, razvojne servere ili bilo koji TUI koji tim želi imati pored svakog workspacea.",
+      "intro": "Dock ti omogućava da dodaš terminalske i pregledničke kontrole u desnu bočnu traku. Terminalske kontrole pokreću komande u sekcijama zasnovanim na Ghosttyju, dok pregledničke kontrole ugrađuju web stranice. Koristi ga za feedove, logove, redove, git status, razvojne servere, nadzorne ploče ili referentne stranice koje tim želi imati pored svakog workspacea.",
       "configTitle": "Konfiguracija",
       "configIntro": "cmux traži Dock konfiguraciju ovim redom:",
       "projectConfig": "za trenutni repo, najbliži roditeljski projekat i ugniježđene projektne direktorije.",
@@ -1484,9 +1645,12 @@
       "descriptionHeader": "Opis",
       "fieldId": "Stabilan jedinstveni identifikator kontrole. Neka bude kratak i nemoj ga ponovo koristiti za drugu komandu.",
       "fieldTitle": "Oznaka prikazana u Dock zaglavlju.",
-      "fieldCommand": "Komanda koja se pokreće u Dock terminalu. Pokreće se unutar tvog login shella.",
+      "fieldCommand": "Komanda koja se pokreće u Dock terminalu. Obavezna je za terminalske kontrole i pokreće se u login shellu.",
+      "fieldType": "Opcionalna vrsta kontrole: terminal (zadano) ili browser.",
+      "fieldUrl": "Stranica koja se otvara. Obavezna je za kontrole preglednika.",
+      "fieldChrome": "Opcionalna vidljivost interfejsa preglednika. Zadana vrijednost je true; false skriva adresnu i alatnu traku, čini Fokusiranje adresne trake bez učinka u tom oknu, a cmux browser goto/reload ostaju dostupni.",
       "fieldCwd": "Opcioni radni direktorij. Relativne putanje se rješavaju od korijena projekta za projektne konfiguracije ili od home direktorija za globalne konfiguracije.",
-      "fieldHeight": "Opciona tražena visina terminala u pointima. Kontrole bez height dijele preostali prostor.",
+      "fieldHeight": "Opcionalna visina kontrole. Kontrole bez height dijele preostali prostor.",
       "fieldEnv": "Opcione environment varijable proslijeđene samo toj kontroli.",
       "sharingTitle": "Dijeljenje s timom",
       "sharingIntro": "Dock je napravljen za dijeljenje kroz source control kada komande pripadaju repou.",
@@ -1496,7 +1660,7 @@
       "agentPromptTitle": "Zatraži od agenta da ga postavi",
       "agentPromptIntro": "Koristi ovaj prompt kada želiš da coding agent napravi Dock kontrole. On kaže agentu da pokrene `cmux docs dock`, pregleda projekat i pita prije nego što pogađa.",
       "agentPromptCodeTitle": "Agent prompt",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Obnova sesije",
@@ -3640,6 +3804,52 @@
       "secondaryCta": "Debian paket (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Jednom pokrenite instalacijski program za trenutnog korisnika. Instalirat će cmux u ~/.local bez root ovlaštenja i omogućiti potpisana ažuriranja unutar aplikacije. Ako želite da ažuriranjima upravlja vaš upravitelj paketa, umjesto toga odaberite Debian paket."
+    }
+  },
+  "support": {
+    "metaTitle": "Podrška | cmux",
+    "metaDescription": "Dobij pomoć za cmux. Pošalji nam poruku i odgovorit ćemo ti emailom, ili nas potraži na Discordu i GitHub-u.",
+    "section": "Podrška",
+    "title": "Dobij pomoć za cmux.",
+    "body": "Pošalji nam poruku i odgovorit ćemo ti emailom. Napiši šta si radio, šta si očekivao i šta se desilo umjesto toga, da ti možemo brže pomoći.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentacija",
+        "description": "Vodiči za početak rada, konfiguraciju i rješavanje problema."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Pitaj zajednicu i tim u realnom vremenu."
+      },
+      "github": {
+        "label": "GitHub issues",
+        "description": "Prijavi greške i predloži nove funkcije javno."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Više voliš email? Piši nam direktno."
+      }
+    },
+    "formAriaLabel": "Kontakt forma za podršku",
+    "form": {
+      "name": "Ime",
+      "email": "Email adresa",
+      "topic": "Tema",
+      "message": "Kako ti možemo pomoći?",
+      "selectPlaceholder": "Odaberi jedno",
+      "topicOptions": [
+        "Prijava greške",
+        "Naplata ili pretplata",
+        "Račun ili prijava",
+        "Cloud VMs",
+        "Prijedlog za funkciju",
+        "Ostalo"
+      ],
+      "privacy": "Tvoju email adresu koristimo samo za odgovor na tvoj zahtjev za podršku. Ne prodajemo kontakt podatke.",
+      "submit": "Pošalji poruku",
+      "submitting": "Slanje…",
+      "success": "Hvala. Primili smo tvoju poruku i odgovorit ćemo ti na email sa adrese founders@manaflow.com.",
+      "error": "Nešto je pošlo po zlu. Pokušaj ponovo ili nam piši na founders@manaflow.com."
     }
   },
   "emails": {

@@ -41,6 +41,7 @@ extension BrowserPanel {
             instanceID: webViewInstanceID,
             targetURL: targetURL,
             allowsSameDocumentCompletion: navigationDelegate?.activeErrorPageDisplayURL == nil
+                && navigationDelegate?.activePolicyBlockedURL == nil
         )
         navigate(
             to: targetURL,

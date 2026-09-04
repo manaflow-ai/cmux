@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNotifications
+import CmuxSettings
 import Darwin
 import Foundation
 
@@ -16,6 +18,37 @@ struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
     var hookId: String?
     var appFocused: Bool
     var focusedPanel: Bool
+    /// Trusted agent/alert identity used only for sound selection.
+    var soundContext: NotificationSoundOverrideContext? = nil
+}
+
+/// Agent-event context attached to notifications that originate from an agent
+/// completion signal (CLI agent hooks, PTY prompt-turn detection). Purely
+/// informational input for the user's notification-policy hooks — hooks can
+/// filter on it (e.g. silence subagent completions) but cannot patch it.
+/// Absent entirely for non-agent notifications (OSC 9/99/777, legacy senders).
+struct TerminalNotificationPolicyAgentContext: Codable, Sendable, Equatable {
+    /// Stable lowercase agent slug (`claude`, `codex`, `grok`, …).
+    var kind: String?
+    /// `AgentNotifyCategory` raw value (`turn-complete`, `needs-permission`,
+    /// `idle-reminder`).
+    var category: String?
+    /// Whether background work was still running when the turn ended.
+    var pending: Bool?
+    /// Whether the event came from a nested subagent session.
+    var isSubagent: Bool?
+
+    init(
+        kind: String? = nil,
+        category: String? = nil,
+        pending: Bool? = nil,
+        isSubagent: Bool? = nil
+    ) {
+        self.kind = kind
+        self.category = category
+        self.pending = pending
+        self.isSubagent = isSubagent
+    }
 }
 
 struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
@@ -38,6 +71,21 @@ struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
     }
 
     init() {}
+
+    /// Every delivery effect disabled. Workspace mute is an admission gate;
+    /// keeping this constructor exhaustive prevents a newly added effect from
+    /// accidentally leaking through a muted workspace.
+    static var allSuppressed: Self {
+        var effects = Self()
+        effects.record = false
+        effects.markUnread = false
+        effects.reorderWorkspace = false
+        effects.desktop = false
+        effects.sound = false
+        effects.command = false
+        effects.paneFlash = false
+        return effects
+    }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -138,6 +186,7 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
     var hookId: String??
     var appFocused: Bool?
     var focusedPanel: Bool?
+    var soundContext: NotificationSoundOverrideContext??
 
     private enum CodingKeys: String, CodingKey {
         case cwd
@@ -145,6 +194,7 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
         case hookId
         case appFocused
         case focusedPanel
+        case soundContext
     }
 
     init(from decoder: Decoder) throws {
@@ -154,9 +204,16 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
         hookId = try container.decodeNullableValueIfPresent(String.self, forKey: .hookId)
         appFocused = try container.decodeIfNonNullValuePresent(Bool.self, forKey: .appFocused)
         focusedPanel = try container.decodeIfNonNullValuePresent(Bool.self, forKey: .focusedPanel)
+        soundContext = try container.decodeNullableValueIfPresent(
+            NotificationSoundOverrideContext.self,
+            forKey: .soundContext
+        )
     }
 
-    func merged(into context: TerminalNotificationPolicyContext) -> TerminalNotificationPolicyContext {
+    func merged(
+        into context: TerminalNotificationPolicyContext,
+        preservingSoundContext baselineSoundContext: NotificationSoundOverrideContext?
+    ) -> TerminalNotificationPolicyContext {
         var merged = context
         if let cwd {
             merged.cwd = cwd
@@ -173,6 +230,16 @@ private struct TerminalNotificationPolicyContextPatch: Decodable {
         if let focusedPanel {
             merged.focusedPanel = focusedPanel
         }
+        if let soundContext {
+            // Hooks may explicitly clear the inherited identity, but cannot
+            // replace it with a different agent or alert class.
+            if let candidate = soundContext {
+                guard candidate == baselineSoundContext else { return merged }
+                merged.soundContext = candidate
+            } else {
+                merged.soundContext = nil
+            }
+        }
         return merged
     }
 }
@@ -181,8 +248,27 @@ struct TerminalNotificationPolicyEnvelope: Codable, Sendable, Equatable {
     var version: Int = 1
     var notification: TerminalNotificationPolicyPayload
     var context: TerminalNotificationPolicyContext
+    /// Present only for agent-originated notifications; omitted from the hook
+    /// stdin JSON otherwise. Additive to the version-1 envelope contract.
+    var agent: TerminalNotificationPolicyAgentContext?
     var effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects()
     var stop: Bool?
+
+    init(
+        version: Int = 1,
+        notification: TerminalNotificationPolicyPayload,
+        context: TerminalNotificationPolicyContext,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        effects: TerminalNotificationPolicyEffects = TerminalNotificationPolicyEffects(),
+        stop: Bool? = nil
+    ) {
+        self.version = version
+        self.notification = notification
+        self.context = context
+        self.agent = agent
+        self.effects = effects
+        self.stop = stop
+    }
 }
 struct TerminalNotificationPolicyRequest: Sendable {
     let tabId: UUID
@@ -193,9 +279,12 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let title: String
     let subtitle: String
     let body: String
+    let replyShape: TerminalNotificationReplyShape
     let cwd: String?
     let isAppFocused: Bool
     let isFocusedPanel: Bool
+    let agent: TerminalNotificationPolicyAgentContext?
+    let soundContext: NotificationSoundOverrideContext?
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -205,9 +294,12 @@ struct TerminalNotificationPolicyRequest: Sendable {
         title: String,
         subtitle: String,
         body: String,
+        replyShape: TerminalNotificationReplyShape = .none,
         cwd: String?,
         isAppFocused: Bool,
-        isFocusedPanel: Bool
+        isFocusedPanel: Bool,
+        agent: TerminalNotificationPolicyAgentContext? = nil,
+        soundContext: NotificationSoundOverrideContext? = nil
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
@@ -217,9 +309,12 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.title = title
         self.subtitle = subtitle
         self.body = body
+        self.replyShape = replyShape
         self.cwd = cwd
         self.isAppFocused = isAppFocused
         self.isFocusedPanel = isFocusedPanel
+        self.agent = agent
+        self.soundContext = soundContext
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
@@ -231,7 +326,12 @@ struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
 enum TerminalNotificationPolicyEngine {
     private static let maxOutputBytes = 1_048_576
 
-    static func evaluate(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func evaluate(
         request: TerminalNotificationPolicyRequest,
         hooks: [CmuxResolvedNotificationHook]
     ) async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
@@ -248,14 +348,21 @@ enum TerminalNotificationPolicyEngine {
                 configPath: nil,
                 hookId: nil,
                 appFocused: request.isAppFocused,
-                focusedPanel: request.isFocusedPanel
-            )
+                focusedPanel: request.isFocusedPanel,
+                soundContext: request.soundContext
+            ),
+            agent: request.agent
         )
 
         return await evaluate(envelope: initialEnvelope, hooks: hooks)
     }
 
-    static func evaluate(
+    #if compiler(>=6.2)
+    @concurrent
+    #else
+    @Sendable
+    #endif
+    nonisolated static func evaluate(
         envelope initialEnvelope: TerminalNotificationPolicyEnvelope,
         hooks: [CmuxResolvedNotificationHook]
     ) async -> Result<TerminalNotificationPolicyEnvelope, TerminalNotificationPolicyFailure> {
@@ -554,12 +661,37 @@ private final class NotificationHookProcessRun: @unchecked Sendable {
     }
     private func environmentStrings() -> [String] {
         var env = ProcessInfo.processInfo.environment
+        // The envelope is the sole source of hook agent context: clear any
+        // inherited values so an absent field reads as unset, never as a
+        // stale identity from the app's own environment.
+        for key in [
+            "CMUX_NOTIFICATION_AGENT_KIND",
+            "CMUX_NOTIFICATION_AGENT_CATEGORY",
+            "CMUX_NOTIFICATION_AGENT_PENDING",
+            "CMUX_NOTIFICATION_AGENT_IS_SUBAGENT",
+        ] {
+            env.removeValue(forKey: key)
+        }
         env["CMUX_NOTIFICATION_TITLE"] = envelope.notification.title
         env["CMUX_NOTIFICATION_SUBTITLE"] = envelope.notification.subtitle
         env["CMUX_NOTIFICATION_BODY"] = envelope.notification.body
         env["CMUX_NOTIFICATION_WORKSPACE_ID"] = envelope.notification.workspaceId
         env["CMUX_NOTIFICATION_SURFACE_ID"] = envelope.notification.surfaceId ?? ""
         env["CMUX_NOTIFICATION_POLICY_JSON"] = String(data: inputData, encoding: .utf8) ?? ""
+        if let agent = envelope.agent {
+            if let kind = agent.kind {
+                env["CMUX_NOTIFICATION_AGENT_KIND"] = kind
+            }
+            if let category = agent.category {
+                env["CMUX_NOTIFICATION_AGENT_CATEGORY"] = category
+            }
+            if let pending = agent.pending {
+                env["CMUX_NOTIFICATION_AGENT_PENDING"] = pending ? "1" : "0"
+            }
+            if let isSubagent = agent.isSubagent {
+                env["CMUX_NOTIFICATION_AGENT_IS_SUBAGENT"] = isSubagent ? "1" : "0"
+            }
+        }
         return env.map { "\($0.key)=\($0.value)" }
     }
     private func addDup2(
@@ -924,7 +1056,12 @@ private struct TerminalNotificationPolicyEnvelopePatch: Decodable {
         TerminalNotificationPolicyEnvelope(
             version: version ?? envelope.version,
             notification: notification?.merged(into: envelope.notification) ?? envelope.notification,
-            context: context?.merged(into: envelope.context) ?? envelope.context,
+            context: context?.merged(
+                into: envelope.context,
+                preservingSoundContext: envelope.context.soundContext
+            ) ?? envelope.context,
+            // Agent context is informational input, not hook-patchable state.
+            agent: envelope.agent,
             effects: effects?.merged(into: envelope.effects) ?? envelope.effects,
             stop: stop ?? envelope.stop
         )

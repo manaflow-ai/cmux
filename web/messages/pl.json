@@ -1,4 +1,32 @@
 {
+  "vmErrors": {
+    "unsupported": {
+      "title": "Operacja Cloud VM jest niedostępna",
+      "reason": "Ten typ maszyny nie udostępnia tej operacji.",
+      "message": {
+        "snapshot": "Ta Cloud VM nie obsługuje zapisanego stanu VM.",
+        "restore": "Ten typ Cloud VM nie obsługuje przywracania zapisanego stanu VM.",
+        "fork": "Ta Cloud VM nie obsługuje kopiowania do nowej VM.",
+        "openPort": "Dostawca tej Cloud VM nie może udostępniać portów maszyny jako adresów URL podglądu.",
+        "default": "Ta Cloud VM nie obsługuje żądanej operacji."
+      },
+      "action": {
+        "snapshot": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
+        "restore": "Nie ponawiaj próby. Praca na tym typie maszyny jest zachowywana na trwałym woluminie domowym.",
+        "fork": "Nie ponawiaj próby. Utwórz nową VM za pomocą `cmux vm new`.",
+        "openPort": "Nie ponawiaj próby. Uzyskaj dostęp do usługi z wnętrza maszyny za pomocą `cmux vm exec` lub użyj typu maszyny, który może otwierać porty.",
+        "default": "Nie ponawiaj próby. Uruchom `cmux vm ls` lub skontaktuj się z pomocą, jeśli uważasz, że to błąd."
+      }
+    },
+    "requiresPro": {
+      "title": "Wymagany cmux Pro",
+      "message": "Cloud VM wymagają planu cmux Pro.",
+      "action": "Przejdź na cmux Pro na stronie {upgradeUrl}, aby tworzyć Cloud VM."
+    }
+  },
+  "billingRecovery": {
+    "message": "Jeśli znaleźliśmy konto, sprawdź e-mail, aby poznać kolejne kroki"
+  },
   "cloudBillingReturn": {
     "eyebrow": "cmux Cloud",
     "returnTitle": "Kontynuuj w terminalu",
@@ -27,6 +55,22 @@
     "description": "Darmowy i otwartoźródłowy natywny terminal dla macOS zbudowany na Ghostty. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI. Pionowe karty, pierścienie powiadomień, dzielone panele i socket API.",
     "ogDescription": "Darmowy i otwartoźródłowy terminal dla macOS dla agentów kodowania AI. Działa z Claude Code, Codex, OpenCode, Gemini CLI, Kiro, Aider i dowolnym narzędziem CLI."
   },
+  "authError": {
+    "emailUnverifiedTitle": "Zweryfikuj e-mail, aby kontynuować",
+    "emailUnverifiedBody": "Zaloguj się metodą używaną pierwotnie, a następnie zweryfikuj e-mail przed użyciem tej metody logowania.",
+    "genericTitle": "Nie udało się zalogować",
+    "genericBody": "Spróbuj ponownie. Jeśli problem będzie się powtarzał, skontaktuj się z pomocą.",
+    "backToSignIn": "Wróć do logowania"
+  },
+  "cloudPublicationAccess": {
+    "title": "Nie masz dostępu",
+    "signIn": "Zaloguj się do cmux",
+    "signedInAs": "Zalogowano jako {identity}",
+    "switchAccount": "Zmień konto",
+    "invalidTitle": "Ten link dostępu jest nieprawidłowy",
+    "invalidBody": "Wróć do witryny i spróbuj ponownie.",
+    "footer": "Dostępem zarządza cmux."
+  },
   "common": {
     "downloadForMac": "Pobierz na Mac",
     "viewOnGitHub": "Zobacz na GitHub",
@@ -43,6 +87,7 @@
     "blog": "Blog",
     "changelog": "Dziennik zmian",
     "community": "Społeczność",
+    "jobs": "Praca",
     "github": "GitHub"
   },
   "footer": {
@@ -52,8 +97,10 @@
     "social": "Media społecznościowe",
     "blog": "Blog",
     "community": "Społeczność",
+    "jobs": "Praca",
     "docs": "Dokumentacja",
     "changelog": "Dziennik zmian",
+    "support": "Pomoc",
     "privacy": "Prywatność",
     "terms": "Regulamin",
     "eula": "EULA",
@@ -68,6 +115,79 @@
     "openSource": "Otwarte źródło",
     "guides": "Przewodniki",
     "compare": "Porównaj"
+  },
+  "jobs": {
+    "metaTitle": "Founding Engineer w cmux",
+    "metaDescription": "Dołącz do cmux jako Founding Engineer i buduj przyszłość programowania z AI na macOS, Windows, Linux, iOS i w Cloud.",
+    "section": "Praca",
+    "eyebrow": "Zatrudniamy",
+    "title": "Founding Engineer",
+    "tagline": "Buduj przyszłość programowania z AI.",
+    "intro": "cmux to natywny terminal macOS zbudowany na Ghostty, zaprojektowany do równoległego uruchamiania wielu agentów programistycznych AI. Setki tysięcy programistów używają cmux w swoich agentowych przepływach pracy.",
+    "hiring": "Szukamy utalentowanych inżynierów, którzy pomogą nam budować przyszłość programowania z AI.",
+    "whatYoullDo": "Zakres obowiązków",
+    "whatYoullDoItems": [
+      "Budujesz zaawansowane narzędzia deweloperskie w całym stacku: cmux macOS (Swift/AppKit), cmux Windows/Linux (C++/Chromium), cmux iOS, cmux Cloud, sub-router (Go), chatmux i nie tylko.",
+      "Pomagasz wymyślać najbardziej użyteczny produkt dla programistów pracujących z AI.",
+      "Prowadzisz produkty i funkcje od początku do końca, w tym pętle informacji zwrotnej od użytkowników.",
+      "Stale używasz, testujesz i weryfikujesz cmux; używasz cmux do budowania cmux."
+    ],
+    "excitedLead": "Szczególnie ucieszy nas, jeśli:",
+    "excitedItems": [
+      "Używasz ponad 10B tokenów dziennie.",
+      "Jesteś wszechstronny i kreatywnie rozwiązujesz problemy.",
+      "Masz świetne wyczucie designu i dbasz o jakość wykonania.",
+      "Masz doświadczenie w Swift/AppKit, C++, Rust, Go lub Chromium.",
+      "Jesteś maintainerem open source, byłym founderem lub dostarczałeś kompletne produkty.",
+      "Wysyłasz PR-y cmux do sprawdzenia albo prezentujesz własne pluginy i workflow."
+    ],
+    "details": "Szczegóły",
+    "roleTitle": "Founding Engineer",
+    "compensationLabel": "Wynagrodzenie",
+    "compensation": "$130k–$170k + 0,5%–1,5% udziałów",
+    "benefitsLabel": "Benefity",
+    "benefits": "Ubezpieczenie zdrowotne, dentystyczne i okulistyczne",
+    "locationLabel": "Lokalizacja",
+    "location": "San Francisco",
+    "applyAriaLabel": "Aplikuj e-mailem na stanowisko Founding Engineer",
+    "applyEmailSubject": "Aplikacja na Founding Engineer w cmux",
+    "applyCta": "Wyślij e-mail",
+    "foundingDesigner": {
+      "metaTitle": "Founding Designer w cmux",
+      "metaDescription": "Dołącz do cmux jako Founding Designer i projektuj przyszłość programowania z AI na macOS, TUI, Windows, Linux, iOS, Cloud, cmux.com i chatmux.",
+      "section": "Praca",
+      "eyebrow": "O roli",
+      "title": "Founding Designer",
+      "tagline": "Projektuj przyszłość programowania z AI.",
+      "intro": "cmux to natywny terminal macOS zbudowany na Ghostty, zaprojektowany do równoległego uruchamiania wielu agentów programistycznych AI. Setki tysięcy programistów używają cmux w swoich agentowych przepływach pracy.",
+      "hiring": "Szukamy utalentowanego projektanta, który pomoże nam projektować przyszłość programowania z AI.",
+      "whatYoullDo": "Zakres obowiązków",
+      "whatYoullDoItems": [
+        "Projektujesz zaawansowane narzędzia deweloperskie w całym stacku: cmux macOS, cmux TUI, cmux Windows/Linux, cmux iOS, cmux Cloud, cmux.com, chatmux i nie tylko.",
+        "Pomagasz projektować najbardziej użyteczny produkt dla programistów pracujących z AI.",
+        "Prowadzisz wygląd, charakter i model interakcji od początku do końca, w tym pętle informacji zwrotnej.",
+        "Stale używasz cmux, tworzysz prototypy i dostarczasz kolejne wersje."
+      ],
+      "excitedLead": "Szczególnie ucieszy nas, jeśli:",
+      "excitedItems": [
+        "Jesteś chodzącą encyklopedią komponentów projektowych z różnych aplikacji.",
+        "Ludzie często proszą Cię o referencje projektowe.",
+        "Masz obsesyjnie dobry gust w natywnych aplikacjach macOS i narzędziach deweloperskich.",
+        "Prototypujesz w kodzie i dostarczasz prawdziwy interfejs.",
+        "Dbasz o typografię, ruch i myślenie systemowe, a także o każdy detal 1 px i odstępy."
+      ],
+      "details": "Szczegóły",
+      "roleTitle": "Founding Designer",
+      "compensationLabel": "Wynagrodzenie",
+      "compensation": "$130k–$170k + 0,5%–1,5% udziałów",
+      "benefitsLabel": "Benefity",
+      "benefits": "Ubezpieczenie zdrowotne, dentystyczne i okulistyczne",
+      "locationLabel": "Lokalizacja",
+      "location": "San Francisco",
+      "applyAriaLabel": "Aplikuj e-mailem na stanowisko Founding Designer",
+      "applyEmailSubject": "Aplikacja na Founding Designer w cmux",
+      "applyCta": "Wyślij e-mail"
+    }
   },
   "home": {
     "taglinePrefix": "Terminal stworzony dla ",
@@ -143,13 +263,27 @@
     "home": {
       "coderouterName": "coderouter",
       "coderouterDescription": "Kieruj żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
-      "coderouterLink": "otwórz coderouter"
+      "coderouterLink": "otwórz coderouter",
+      "iosAppName": "aplikacja iOS",
+      "iosAppDescription": "Zainstaluj aplikację cmux na iOS przez TestFlight (dostęp beta).",
+      "iosLink": "Otwórz aplikację iOS"
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",
       "metaDescription": "Zarządzaj współdzielonymi kontami AI i kieruj żądania za pomocą coderouter.",
       "title": "coderouter",
-      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia."
+      "description": "coderouter kieruje żądania LLM między kontami dostawców z przełączaniem awaryjnym i planowaniem według użycia.",
+      "machines": {
+        "title": "Maszyny",
+        "description": "Użycie coderouter na maszynę dla {team} w ciągu ostatnich {days} dni.",
+        "machineColumn": "Maszyna",
+        "tokensColumn": "Łącznie tokenów",
+        "apiEquivalentColumn": "Wartość równoważna API",
+        "unnamed": "Maszyna bez nazwy",
+        "empty": "Żadna maszyna nie korzystała z coderouter w ciągu ostatnich {days} dni.",
+        "unavailable": "Użycie na maszynę jest tymczasowo niedostępne.",
+        "estimateNote": "Wartość równoważna API to szacunek oparty na publicznych cenach katalogowych, a nie rzeczywisty koszt."
+      }
     },
     "accountMenu": {
       "label": "Menu konta",
@@ -158,6 +292,7 @@
       "signOut": "Wyloguj się",
       "signingOut": "Wylogowywanie…",
       "signOutError": "Nie udało się wylogować. Spróbuj ponownie.",
+      "organizationSwitchError": "Nie udało się zmienić organizacji. Spróbuj ponownie.",
       "signIn": "Zaloguj się"
     },
     "aiAccounts": {
@@ -210,7 +345,13 @@
       "claudeJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"expiresAt\":1770000000000}",
       "codexJsonPlaceholder": "{\"accessToken\":\"...\",\"refreshToken\":\"...\",\"idToken\":\"...\",\"accountID\":\"...\"}",
       "anthropicKeyPlaceholder": "sk-ant-...",
-      "openAiKeyPlaceholder": "sk-..."
+      "openAiKeyPlaceholder": "sk-...",
+      "cliAddBody": "Add provider accounts securely from your terminal. Sign in with your team, then run one of these commands:",
+      "codexTool": "Codex",
+      "codexCommand": "Copy codex command",
+      "opencodeTool": "OpenCode",
+      "opencodeCommand": "Copy opencode command",
+      "copied": "Copied"
     },
     "billing": {
       "plan": {
@@ -796,6 +937,22 @@
     "remoteTmux": {
       "moshContrast": "Do przełączania się między sieciami użyj cmux mosh-tmux. Otwiera on w pełni zintegrowany terminal Mosh dołączony do nazwanej sesji tmux; nie zastępuje natywnego odwzorowania workspace’ów, kart i podziałów udostępnianego przez tryb sterowania tmux przez SSH."
     },
+    "claudeCodeTeams": {
+      "shimStep1": "Tworzy shim tmux w tymczasowym katalogu shimów bieżącej powierzchni. Ścieżka zawiera UUID powierzchni i zmienia się dla każdego panelu oraz przy każdym uruchomieniu systemu, dlatego nie można podać stałej ścieżki",
+      "shimStep2": "Ustawia TMUX i TMUX_PANE, aby symulować tmux w sesji uruchamiającej Claude Teams",
+      "shimDiagnostic": "Shim kieruje do cmux tylko wtedy, gdy ustawiono <marker>CMUX_CLAUDE_TEAMS_CMUX_BIN</marker>; w przeciwnym razie przezroczyście przechodzi do następnego prawdziwego pliku wykonywalnego tmux. Dlatego <which>which tmux</which> nie informuje, czy przechwytywanie Claude Teams jest aktywne.",
+      "envTmux": "Syntetyczna ścieżka gniazda tmux dla sesji, która uruchomiła cmux claude-teams",
+      "envTmuxPane": "Syntetyczny identyfikator panelu tmux dla sesji, która uruchomiła cmux claude-teams; pusty w utworzonych panelach agentów",
+      "envSurface": "UUID bieżącej powierzchni; użyj go jako identyfikatora powierzchni w utworzonym panelu agenta",
+      "envScope": "Syntetyczne wartości <tmux>TMUX</tmux>, <tmuxPane>TMUX_PANE</tmuxPane> i powiązane wartości zgodności z tmux opisują sesję, w której uruchomiono <command>cmux claude-teams</command>, a nie utworzone panele. W panelu agenta użyj <surface>CMUX_SURFACE_ID</surface> i uruchom <tree>cmux tree --json</tree>; obiekt <caller>caller</caller> w wynikach identyfikuje panel wywołujący.",
+      "dirShimPath": "Katalog dla każdej powierzchni w systemowym katalogu tymczasowym (brak stałej ścieżki)",
+      "dirShim": "Zawiera aktywny shim tmux i jest dodawany na początku PATH dla tej powierzchni",
+      "dirStore": "Trwałe miejsce przechowywania buforów i hooków tmux-compat oraz stanu rozmieszczenia/układu podziałów",
+      "storeDetails": "Klucze routingu podziałów to:",
+      "storeLastSplitSurface": "Mapuje UUID każdego obszaru roboczego na UUID powierzchni utworzonej przez ostatni podział. Inicjalizuje kotwicę kolumny agentów, która określa miejsce kolejnego podziału main-vertical.",
+      "storeMainVerticalLayouts": "Mapuje UUID każdego obszaru roboczego na <mainSurfaceId>mainSurfaceId</mainSurfaceId> (główną lub wiodącą powierzchnię) oraz <lastColumnSurfaceId>lastColumnSurfaceId</lastColumnSurfaceId> (najniższą powierzchnię w kolumnie agentów). Kolejne podziały członków zespołu są kierowane do tej kolumny i układane w dół.",
+      "storeTroubleshooting": "Sprawdź te klucze routingu, gdy panel członka zespołu pojawia się jako karta za istniejącą powierzchnią zamiast jako podział obok niej."
+    },
     "layoutTitle": "cmux docs",
     "gettingStarted": {
       "title": "Szybki start",
@@ -991,12 +1148,16 @@
           "focusTextBoxOnNewTerminals": "Domyślnie ustawia fokus na wejściu TextBox beta dla nowo utworzonych obszarów roboczych, kart terminala i podziałów. Fokus pokazuje też TextBox."
         },
         "notifications": {
-          "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace."
+          "suppressOnlyFocusedSurface": "Gdy włączone, baner powiadomienia jest automatycznie wycofywany tylko wtedy, gdy jego Surface jest dokładnie tym Surface, który ma fokus. Baner dostarczony dla Surface bez fokusu w aktualnie widocznym workspace pozostaje wyświetlony, dopóki nie ustawisz fokusu na tym Surface (albo go nie klikniesz/odrzucisz), zamiast być wycofywany, gdy workspace stanie się widoczny. Wyłączone zachowuje dawne wycofywanie oparte na widoczności workspace.",
+          "agentIdleReminder": "Powiadamiaj, gdy agent jest bezczynny i czeka na dane wejściowe (około 60 sekund po zakończeniu tury). Powiadomienie jest wstrzymywane, dopóki trwa praca w tle z poprzedniej tury, aby uruchomiony build lub obserwator nie wywołał fałszywego alertu oczekiwania.",
+          "soundOverrides": "Rzadkie zastąpienia dźwięku powiadomień dla agenta i typu alertu. Brakujące komórki używają notifications.sound.",
+          "soundOverride": "Zastąpienie dźwięku powiadomienia. default używa notifications.sound, none wyłącza odtwarzanie, a pozostałe wartości wybierają dźwięk wbudowany lub niestandardowy."
         },
         "browser": {
           "defaultSearchEngine": "Domyślna wyszukiwarka dla wpisów w pasku adresu przeglądarki, które nie są URL-ami. Użyj custom z customSearchEngineURLTemplate dla innych dostawców.",
           "customSearchEngineName": "Nazwa wyświetlana, gdy defaultSearchEngine ma wartość custom.",
-          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL."
+          "customSearchEngineURLTemplate": "URL wyszukiwania używany, gdy defaultSearchEngine ma wartość custom. Dodaj symbol zastępczy zapytania lub %s dla zakodowanego zapytania. Bez symbolu zastępczego cmux doda q= do URL.",
+          "urlAllowlist": "Wzorce hostów lub adresów URL ograniczające nawigację w osadzonej przeglądarce. Ustawienia sugerują lokalne źródła deweloperskie; zapisanie listy włącza opcjonalne ograniczenie. Usuń wpisy, aby je zablokować, albo pozostaw wartość użytkownika pustą bez zarządzanej zasady, aby wyłączyć ograniczenie."
         },
         "workspaceGroups": {
           "newWorkspacePlacement": "Globalna wartość domyślna określająca, gdzie Cmd-N w grupie, przycisk + w nagłówku grupy i skonfigurowane akcje grupy umieszczają nowy workspace: `afterCurrent` (po aktywnym workspace w grupie, z fallbackiem do top), `top` (druga pozycja, tuż za kotwicą) albo `end` (po ostatnim członku).",
@@ -1471,7 +1632,7 @@
       "metaTitle": "Dock",
       "metaDescription": "Dodaj własne kontrolki TUI do prawego paska bocznego cmux za pomocą Dock JSON.",
       "title": "Dock",
-      "intro": "Dock pozwala dodawać kontrolki TUI do prawego paska bocznego. Każda kontrolka jest poleceniem z JSON i renderuje się we własnej sekcji terminala opartej na Ghostty. Użyj tego dla feedów, logów, kolejek, statusu git, serwerów deweloperskich lub dowolnego TUI, które zespół chce mieć przy każdym workspace.",
+      "intro": "Dock pozwala dodawać kontrolki terminala i przeglądarki do prawego paska bocznego. Kontrolki terminala uruchamiają polecenia w sekcjach opartych na Ghostty, a kontrolki przeglądarki osadzają strony internetowe. Użyj go do feedów, logów, kolejek, statusu git, serwerów deweloperskich, pulpitów lub stron referencyjnych, które zespół chce mieć przy każdym workspace.",
       "configTitle": "Konfiguracja",
       "configIntro": "cmux szuka konfiguracji Dock w tej kolejności:",
       "projectConfig": "dla bieżącego repozytorium, najbliższego projektu nadrzędnego oraz zagnieżdżonych katalogów projektów.",
@@ -1485,9 +1646,12 @@
       "descriptionHeader": "Opis",
       "fieldId": "Stabilny, unikalny identyfikator kontrolki. Niech będzie krótki i nie używaj go ponownie dla innego polecenia.",
       "fieldTitle": "Etykieta widoczna w nagłówku Dock.",
-      "fieldCommand": "Polecenie uruchamiane w terminalu Dock. Startuje w login shell.",
+      "fieldCommand": "Polecenie uruchamiane w terminalu Dock. Wymagane dla kontrolek terminala i uruchamiane w powłoce logowania.",
+      "fieldType": "Opcjonalny typ kontrolki: terminal (domyślny) lub browser.",
+      "fieldUrl": "Strona do otwarcia. Wymagana dla kontrolek przeglądarki.",
+      "fieldChrome": "Opcjonalna widoczność interfejsu przeglądarki. Domyślnie true; false ukrywa pasek adresu i pasek narzędzi, sprawia, że „Ustaw fokus na pasku adresu” nie działa w tym panelu, a cmux browser goto/reload pozostają dostępne.",
       "fieldCwd": "Opcjonalny katalog roboczy. Ścieżki względne są rozwiązywane od katalogu głównego projektu dla konfiguracji projektowych albo od katalogu domowego dla konfiguracji globalnych.",
-      "fieldHeight": "Opcjonalna żądana wysokość terminala w punktach. Kontrolki bez height dzielą pozostałe miejsce.",
+      "fieldHeight": "Opcjonalna wysokość kontrolki. Kontrolki bez height współdzielą pozostałe miejsce.",
       "fieldEnv": "Opcjonalne zmienne środowiskowe przekazywane tylko do tej kontrolki.",
       "sharingTitle": "Udostępnianie zespołowi",
       "sharingIntro": "Dock jest zaprojektowany do udostępniania przez source control, gdy polecenia należą do repozytorium.",
@@ -1497,7 +1661,7 @@
       "agentPromptTitle": "Poproś agenta o konfigurację",
       "agentPromptIntro": "Użyj tego promptu, gdy chcesz, aby agent kodujący utworzył kontrolki Dock. Poleca agentowi uruchomić `cmux docs dock`, sprawdzić projekt i zapytać przed zgadywaniem.",
       "agentPromptCodeTitle": "Prompt dla agenta",
-      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal control area. A Dock config is JSON with a top-level `controls` array. Each control runs a command in its own Ghostty-backed terminal section using the user's login shell. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or a custom TUI such as `cmux feed tui --opentui` when that feed is useful.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
+      "agentPrompt": "Set up cmux Dock controls for the current context.\n\nFirst, learn the feature before editing:\n1. Run `cmux docs dock` if the cmux CLI is available. If it is not, read https://cmux.com/docs/dock.\n2. Inspect the repository or current directory to understand the project type, scripts, package manager, dev servers, logs, task runners, test commands, and any existing TUI tools.\n3. If the desired Dock is ambiguous, ask the user what they want monitored or controlled before writing files.\n\nDock is cmux's right-sidebar terminal and browser control area. A Dock config is JSON with a top-level `controls` array. Terminal controls run commands in Ghostty-backed sections using the user's login shell; browser controls embed URLs. Controls are useful for project dashboards, git/status views, dev server or build status, test watchers, log tails, queues, local services, or fixed web dashboards.\n\nChoose where to write the config:\n- In a repository or project directory, create or edit `.cmux/dock.json` so teammates can share it.\n- For a personal default outside a repo, create or edit `~/.config/cmux/dock.json`.\n- If both exist, project `.cmux/dock.json` is more specific for that project. Nested project configs apply to that directory tree; use the nearest relevant project config instead of writing unrelated controls globally.\n- If there is no repo and no clear project root, use the global config only after confirming the user wants a personal Dock.\n\nSchema:\n{\n  \"controls\": [\n    {\n      \"id\": \"short-stable-id\",\n      \"title\": \"Human label\",\n      \"command\": \"safe command to run\",\n      \"cwd\": \"optional/path\",\n      \"height\": 220,\n      \"env\": { \"NAME\": \"value\" }\n    },\n    {\n      \"id\": \"dashboard\",\n      \"title\": \"Dashboard\",\n      \"type\": \"browser\",\n      \"url\": \"http://127.0.0.1:3000\",\n      \"chrome\": false\n    }\n  ]\n}\n\nRules:\n- Keep ids stable, lowercase, and unique.\n- `type` is optional: `terminal` is the default, or use `browser`.\n- Terminal controls require `command`; browser controls require `url`.\n- Browser controls default to `chrome: true`. Set `chrome: false` to hide browser chrome, including the address bar and toolbar; Focus Address Bar then does nothing for that pane, while `cmux browser goto` and `cmux browser reload` remain available.\n- Use `cwd` for subdirectories; relative paths resolve from the config base.\n- Use `height` only when a control needs a fixed amount of vertical space.\n- Use `env` only for non-secret values needed by one control.\n- Do not put secrets, tokens, or machine-specific private paths in a shared project config.\n- Prefer commands that are safe to start repeatedly and make sense in a terminal.\n- Do not invent unavailable scripts. Read package files, Makefiles, Procfiles, README docs, config files, and existing tooling first.\n- Keep shared project Docks portable for teammates. Put personal or machine-specific controls in the global Dock.\n\nDeliverable:\n- Create or update the appropriate dock.json.\n- Preserve existing useful controls unless the user asked to replace them.\n- Validate that the JSON parses.\n- Summarize what each control does and any commands the user should review before trusting the Dock config."
     },
     "sessionRestore": {
       "title": "Przywracanie sesji",
@@ -3640,6 +3804,52 @@
       "secondaryCta": "Pakiet Debiana (.deb)",
       "requirements": "Linux · x64",
       "installBody": "Uruchom raz instalator dla bieżącego użytkownika. Zainstaluje cmux w ~/.local bez uprawnień roota i włączy podpisane aktualizacje w aplikacji. Jeśli chcesz, aby aktualizacjami zarządzał menedżer pakietów, wybierz zamiast niego pakiet Debiana."
+    }
+  },
+  "support": {
+    "metaTitle": "Pomoc | cmux",
+    "metaDescription": "Uzyskaj pomoc z cmux. Wyślij nam wiadomość, a odpowiemy e-mailem, albo skontaktuj się z nami przez Discord i GitHub.",
+    "section": "Pomoc",
+    "title": "Uzyskaj pomoc z cmux.",
+    "body": "Wyślij nam wiadomość, a odpowiemy e-mailem. Opisz, co robiłeś, czego oczekiwałeś i co wydarzyło się zamiast tego — dzięki temu pomożemy szybciej.",
+    "channels": {
+      "docs": {
+        "label": "Dokumentacja",
+        "description": "Przewodniki dotyczące szybkiego startu, konfiguracji i rozwiązywania problemów."
+      },
+      "discord": {
+        "label": "Discord",
+        "description": "Pytaj społeczność i zespół w czasie rzeczywistym."
+      },
+      "github": {
+        "label": "Zgłoszenia na GitHub",
+        "description": "Zgłaszaj błędy i proponuj nowe funkcje publicznie."
+      },
+      "email": {
+        "label": "founders@manaflow.com",
+        "description": "Wolisz e-mail? Napisz do nas bezpośrednio."
+      }
+    },
+    "formAriaLabel": "Formularz kontaktowy pomocy",
+    "form": {
+      "name": "Imię i nazwisko",
+      "email": "Adres e-mail",
+      "topic": "Temat",
+      "message": "W czym możemy pomóc?",
+      "selectPlaceholder": "Wybierz opcję",
+      "topicOptions": [
+        "Zgłoszenie błędu",
+        "Rozliczenia lub subskrypcja",
+        "Konto lub logowanie",
+        "Cloud VMs",
+        "Prośba o funkcję",
+        "Inne"
+      ],
+      "privacy": "Twojego adresu e-mail używamy wyłącznie po to, aby odpowiedzieć na Twoje zgłoszenie. Nie sprzedajemy danych kontaktowych.",
+      "submit": "Wyślij wiadomość",
+      "submitting": "Wysyłanie…",
+      "success": "Dziękujemy. Otrzymaliśmy Twoją wiadomość i odpowiemy na Twój e-mail z adresu founders@manaflow.com.",
+      "error": "Coś poszło nie tak. Spróbuj ponownie lub napisz na founders@manaflow.com."
     }
   },
   "emails": {

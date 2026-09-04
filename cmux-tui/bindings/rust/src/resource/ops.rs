@@ -8,6 +8,7 @@ pub(crate) const SESSION_GET: &str = "session.get";
 pub(crate) const SESSION_CREATION_RESOLVE: &str = "session.creation.resolve";
 pub(crate) const SESSION_SNAPSHOT: &str = "session.snapshot";
 pub(crate) const SESSION_EVENTS: &str = "session.events";
+pub(crate) const SESSION_JOURNAL_SUBSCRIBE: &str = "session.journal.subscribe";
 pub(crate) const SESSION_PING: &str = "session.ping";
 pub(crate) const SESSION_SHUTDOWN: &str = "session.shutdown";
 pub(crate) const SESSION_RELOAD_CONFIG: &str = "session.reload_config";

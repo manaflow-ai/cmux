@@ -6,6 +6,11 @@ public actor CmxIrohClientSession {
     public typealias PrivateFallbackContextProvider = @Sendable () async throws -> CmxIrohClientContext
 
     private let endpoint: any CmxIrohEndpoint
+    /// Bound on each public or private dial phase. A path that never answers
+    /// must hand control back to discovery and recovery; otherwise a blocked
+    /// firewall path can hold the whole reconnect owner until its larger outer
+    /// deadline.
+    private let dialPhaseTimeout: Duration
     private let targetIdentity: CmxIrohPeerIdentity
     private let dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
@@ -13,6 +18,8 @@ public actor CmxIrohClientSession {
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
     private let privateFallbackContextProvider: PrivateFallbackContextProvider?
     private let protocolConfiguration: CmxIrohProtocolConfiguration
+    private let diagnostics: DiagnosticLog?
+    private let peerAlias: UInt32?
     private let headerCodec: CmxIrohStreamHeaderCodec
     private let admissionCodec = CmxIrohAdmissionAckCodec()
     private var connectionTask: Task<CmxIrohConnectedControl, any Error>?
@@ -34,6 +41,8 @@ public actor CmxIrohClientSession {
     ///     the plan's private hints.
     ///   - privateFallbackValidator: The provider that can re-read current
     ///     network state immediately before a private dial.
+    ///   - dialPhaseTimeout: Maximum time allowed for each public or private
+    ///     endpoint dial before the next recovery phase is considered.
     ///   - protocolConfiguration: The ALPN and stream-header limit.
     /// - Throws: A stream-codec configuration error.
     public init(
@@ -44,7 +53,9 @@ public actor CmxIrohClientSession {
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
-        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1
+        dialPhaseTimeout: Duration = .seconds(5),
+        protocolConfiguration: CmxIrohProtocolConfiguration = .cmuxMobileV1,
+        diagnostics: DiagnosticLog? = nil
     ) throws {
         self.endpoint = endpoint
         self.targetIdentity = targetIdentity
@@ -53,7 +64,10 @@ public actor CmxIrohClientSession {
         self.privateFallbackAuthorization = privateFallbackAuthorization
         self.privateFallbackValidator = privateFallbackValidator
         self.privateFallbackContextProvider = privateFallbackContextProvider
+        self.dialPhaseTimeout = dialPhaseTimeout
         self.protocolConfiguration = protocolConfiguration
+        self.diagnostics = diagnostics
+        self.peerAlias = DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 
@@ -127,10 +141,11 @@ public actor CmxIrohClientSession {
         try await controlStream.sendStream.send(data)
     }
 
-    /// Opens a terminal or artifact bidirectional lane on the admitted connection.
+    /// Opens a terminal, artifact, or simulator-stream bidirectional lane on
+    /// the admitted connection.
     ///
     /// - Parameters:
-    ///   - lane: A terminal or artifact lane declaration.
+    ///   - lane: A terminal, artifact, or simulator-stream lane declaration.
     ///   - priority: The Iroh relative stream priority selected by the caller.
     /// - Returns: The stream after its lane header has been written.
     /// - Throws: A transport, framing, or lifecycle error.
@@ -139,7 +154,7 @@ public actor CmxIrohClientSession {
         priority: Int32
     ) async throws -> CmxIrohBidirectionalStream {
         switch lane {
-        case .terminal, .artifact:
+        case .terminal, .artifact, .simulatorStream:
             break
         case .control, .serverEvents:
             throw CmxIrohClientSessionError.invalidOutgoingLane
@@ -281,58 +296,134 @@ public actor CmxIrohClientSession {
     private func establishConnection() async throws -> CmxIrohConnectedControl {
         var establishedConnection: (any CmxIrohConnection)?
         var publicConnectionError: (any Error)?
+        diagnostics?.record(DiagnosticEvent(
+            .transportDialPlanBuilt,
+            surface: peerAlias,
+            a: dialPlan.publicPaths.count,
+            b: dialPlan.privateFallbackPaths.count,
+            c: dialPlan.publicPaths.reduce(into: 0) { count, hint in
+                if hint.kind == .relayURL {
+                    count += 1
+                }
+            }
+        ))
         if !dialPlan.publicPaths.isEmpty {
+            let phaseStartedAt = DispatchTime.now().uptimeNanoseconds
             do {
-                establishedConnection = try await endpoint.connect(
+                establishedConnection = try await connectBounded(
                     to: CmxIrohEndpointAddress(
                         identity: targetIdentity,
                         pathHints: dialPlan.publicPaths
-                    ),
-                    alpn: protocolConfiguration.alpn
+                    )
                 )
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegSucceeded,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.publicPaths.rawValue
+                ))
             } catch {
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.publicPaths.rawValue,
+                    b: DiagnosticFailureKind.classify(error).rawValue
+                ))
                 try Task.checkCancellation()
                 publicConnectionError = error
             }
         }
         if establishedConnection == nil {
+            let phaseStartedAt = DispatchTime.now().uptimeNanoseconds
             let fallbackContext: CmxIrohClientContext
-            if let privateFallbackContextProvider {
-                fallbackContext = try await privateFallbackContextProvider()
-                guard fallbackContext.credential == credential,
-                      fallbackContext.dialPlan.publicPaths == dialPlan.publicPaths else {
-                    throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
+            do {
+                if let privateFallbackContextProvider {
+                    fallbackContext = try await privateFallbackContextProvider()
+                    guard fallbackContext.credential == credential,
+                          fallbackContext.dialPlan.publicPaths == dialPlan.publicPaths else {
+                        throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
+                    }
+                } else {
+                    fallbackContext = CmxIrohClientContext(
+                        dialPlan: dialPlan,
+                        credential: credential,
+                        privateFallbackAuthorization: privateFallbackAuthorization
+                    )
                 }
-            } else {
-                fallbackContext = CmxIrohClientContext(
-                    dialPlan: dialPlan,
-                    credential: credential,
-                    privateFallbackAuthorization: privateFallbackAuthorization
-                )
+            } catch {
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+                    b: DiagnosticFailureKind.classify(error).rawValue
+                ))
+                throw error
             }
             let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
             guard !fallbackPaths.isEmpty else {
+                // The fallback leg had zero dialable hints, so this attempt
+                // never sent a packet on the private leg.
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+                    b: DiagnosticFailureKind.noRoute.rawValue
+                ))
                 if let publicConnectionError { throw publicConnectionError }
                 throw CmxIrohRegistryContextError.dialPlanUnavailable
             }
             guard let privateFallbackValidator else {
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+                    b: DiagnosticFailureKind.noRoute.rawValue
+                ))
                 throw CmxIrohPrivateFallbackValidationError.unavailable
             }
             guard let authorization = fallbackContext.privateFallbackAuthorization,
                   authorization.pathHints == fallbackPaths else {
-                throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
+                let error = CmxIrohPrivateFallbackValidationError.authorizationMismatch
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+                    b: DiagnosticFailureKind.classify(error).rawValue
+                ))
+                throw error
             }
-            try await privateFallbackValidator.validatePrivateFallback(
-                authorization
-            )
-            try Task.checkCancellation()
-            establishedConnection = try await endpoint.connect(
-                to: CmxIrohEndpointAddress(
-                    identity: targetIdentity,
-                    pathHints: fallbackPaths
-                ),
-                alpn: protocolConfiguration.alpn
-            )
+            do {
+                try await privateFallbackValidator.validatePrivateFallback(
+                    authorization
+                )
+                try Task.checkCancellation()
+                establishedConnection = try await connectBounded(
+                    to: CmxIrohEndpointAddress(
+                        identity: targetIdentity,
+                        pathHints: fallbackPaths
+                    )
+                )
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegSucceeded,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue
+                ))
+            } catch {
+                diagnostics?.record(DiagnosticEvent(
+                    .transportDialLegFailed,
+                    surface: peerAlias,
+                    ms: elapsedMilliseconds(since: phaseStartedAt),
+                    a: DiagnosticDirectDialLeg.privateFallback.rawValue,
+                    b: DiagnosticFailureKind.classify(error).rawValue
+                ))
+                throw error
+            }
         }
         guard let establishedConnection else {
             throw CmxIrohRegistryContextError.dialPlanUnavailable
@@ -390,6 +481,39 @@ public actor CmxIrohClientSession {
         } catch {
             await establishedConnection.close(errorCode: 1, reason: "admission_failed")
             throw error
+        }
+    }
+
+    private func elapsedMilliseconds(since start: UInt64) -> UInt32 {
+        let now = DispatchTime.now().uptimeNanoseconds
+        let elapsed = now >= start ? now - start : 0
+        return UInt32(clamping: elapsed / 1_000_000)
+    }
+
+    /// Runs one endpoint dial with a bounded phase deadline. The endpoint
+    /// implementation owns cancellation of its native attempt; the task-group
+    /// race ensures a stale path cannot monopolize the session actor.
+    private func connectBounded(
+        to address: CmxIrohEndpointAddress
+    ) async throws -> any CmxIrohConnection {
+        let endpoint = endpoint
+        let alpn = protocolConfiguration.alpn
+        let bound = dialPhaseTimeout
+        return try await withThrowingTaskGroup(
+            of: (any CmxIrohConnection)?.self
+        ) { group in
+            group.addTask {
+                try await endpoint.connect(to: address, alpn: alpn)
+            }
+            group.addTask {
+                try await ContinuousClock().sleep(for: bound)
+                return nil
+            }
+            defer { group.cancelAll() }
+            guard let first = try await group.next(), let connection = first else {
+                throw CmxIrohClientSessionError.dialTimedOut
+            }
+            return connection
         }
     }
 

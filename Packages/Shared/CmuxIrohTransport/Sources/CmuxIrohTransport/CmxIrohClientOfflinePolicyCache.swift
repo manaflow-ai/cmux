@@ -90,8 +90,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         )
         var merged = [candidate]
         merged.append(contentsOf: retained.filter {
-            $0.binding.deviceID != targetBinding.deviceID
-                && $0.binding.endpointID != targetBinding.endpointID
+            $0.binding.endpointID != targetBinding.endpointID
                 && $0.binding.bindingID != targetBinding.bindingID
         })
         let record = CmxIrohStoredClientPolicyRecord(
@@ -457,6 +456,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         left.bindingID == right.bindingID
             && left.deviceID == right.deviceID
             && left.appInstanceID == right.appInstanceID
+            && left.clientNamespace == right.clientNamespace
             && left.tag == right.tag
             && left.platform == right.platform
             && left.endpointID == right.endpointID
@@ -470,7 +470,7 @@ public actor CmxIrohClientOfflinePolicyCache {
         for expectation: CmxIrohClientOfflinePolicyExpectation
     ) -> String {
         let transcript = Data(
-            "cmux/iroh/offline-client-policy-scope/v1\0\(expectation.accountID)\0\(expectation.localBindingExpectation.appInstanceID)".utf8
+            "cmux/iroh/offline-client-policy-scope/v2\0\(expectation.accountID)\0\(expectation.localBindingExpectation.clientNamespace)\0\(expectation.localBindingExpectation.appInstanceID)".utf8
         )
         return SHA256.hash(data: transcript)
             .map { String(format: "%02x", $0) }

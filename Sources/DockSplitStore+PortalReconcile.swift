@@ -28,6 +28,7 @@ extension DockSplitStore {
     private static let maxDockPortalLayoutWakeAttempts = 8
 
     func scheduleDockPortalReconcile(reason: String) {
+        guard !isRetired else { return }
         let state = dockPortalReconcileState
         state.scheduledRequestCount += 1
         state.reason = reason
@@ -248,6 +249,14 @@ extension DockSplitStore {
         guard dockBrowserPortalAnchorReady(anchorView) else { return true }
 
         let webView = browser.webView
+        let paneDropContext = paneId(forPanelId: browser.id).map {
+            BrowserPaneDropContext(
+                workspaceId: workspaceId,
+                panelId: browser.id,
+                paneId: $0,
+                isDockHosted: true
+            )
+        }
         let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: webView)
         if snapshot?.visibleInUI == false {
             BrowserWindowPortalRegistry.updateEntryVisibility(
@@ -264,9 +273,19 @@ extension DockSplitStore {
                 webView: webView,
                 to: anchorView,
                 visibleInUI: true,
-                zPriority: 1
+                zPriority: 1,
+                paneDropContext: paneDropContext
             )
         }
+        // Reconciliation is also responsible for clearing an obsolete active
+        // drop target when the panel-to-pane mapping briefly disappears. The
+        // portal keeps Dock divider ownership separately while its visible slot
+        // is mounted, so a nil context is safe here and will not lose the
+        // trailing-edge hit-test classification.
+        BrowserWindowPortalRegistry.updatePaneDropContext(
+            for: webView,
+            context: paneDropContext
+        )
 
         if !wasReady && !dockBrowserPortalReady(browser) {
             BrowserWindowPortalRegistry.synchronizeForAnchor(anchorView)

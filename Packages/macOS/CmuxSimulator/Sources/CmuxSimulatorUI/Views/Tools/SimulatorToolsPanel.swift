@@ -15,7 +15,7 @@ struct SimulatorToolsPanel: View {
                     }
                 }
                 if let failure = coordinator.controlFailure {
-                    Label(simulatorStrings.failure(failure.code), systemImage: "exclamationmark.triangle.fill")
+                    SimulatorLocalizedLabel(simulatorStrings.failure(failure.code), systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                     DisclosureGroup {
                         Text(verbatim: failure.code)

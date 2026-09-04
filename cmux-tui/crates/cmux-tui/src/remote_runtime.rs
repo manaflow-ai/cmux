@@ -1893,7 +1893,8 @@ async fn run_daemon(
                         state_dir.join("workspace-http.token"),
                     )
                     .await?;
-                    eprintln!(
+                    crate::client_log::stderr_log!(
+                        "remote",
                         "cmux-tui: authenticated workspace HTTP at http://{}; bearer token file {}",
                         server.local_addr(),
                         server.token_file().display()

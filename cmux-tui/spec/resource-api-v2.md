@@ -325,7 +325,24 @@ covered cursor, it replays through the captured head before live delivery. A
 generation mismatch or expired cursor sends a fresh snapshot with
 `reset_reason`; a cursor ahead of head returns `cursor.invalid`. One atomic
 transaction produces one `session.delta` batch with `previous_revision` and
-the new revision. The journal retains at most 4096 batches and 16 MiB.
+the new revision. Durable resource batches are append-only. A registry upgraded
+from the earlier bounded store preserves its oldest retained revision and sends
+a fresh snapshot when a requested cursor predates that boundary. Transport
+stream queues remain bounded independently.
+
+`session.journal.subscribe` is the append-only feed. Omitting a cursor tails
+from the captured head; `start:"beginning"` replays retained history first.
+`follow:false` bounds replay to the head captured when the stream opens and
+ends it with reason `completed`; this is the primitive behind CLI `journal
+read`.
+Its cursor generation is the immutable session ID and its revision is the
+journal sequence. Structured and compiled-regex filters are server-side and
+never alter cursor order. Unix clients may read through `sensitive`; remote
+clients are capped at `metadata`, receive redacted authority and causal fields,
+and may run regex only on kind or subjects. A slow subscriber receives
+`stream_end` with reason `gap` and the last recoverable cursor, then reconnects
+from that cursor. Producer, hook, checkpoint, restore-preview, and segment
+operations require a trusted local connection.
 
 Terminal and browser attachments have independent decimal-string sequences.
 Their initial snapshot is delivered after the open response. Overflow
@@ -381,9 +398,9 @@ defines the catalog format. Unknown parameter and result fields are rejected.
 
 | Class | Operations |
 | --- | --- |
-| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
-| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
-| stream_open | `browser.attach`, `session.events`, `sidebar_view.attach`, `terminal.attach` |
+| read | `agent.list`, `browser.get`, `browser.list`, `client.get`, `client.list`, `frontend_projection.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `pane.get`, `pane.list`, `pane.neighbor.get`, `screen.get`, `screen.layout.export`, `screen.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_view.get`, `tab.get`, `tab.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `workspace.get`, `workspace.list` |
+| mutation | `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `frontend_projection.put`, `notification.create`, `pairing_request.resolve`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.rename`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.rename`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `workspace.close`, `workspace.create`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.rename`, `workspace.run` |
+| stream_open | `browser.attach`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
 
@@ -425,6 +442,11 @@ excludes `expected_revision`, `correlation_key`, and idempotency metadata.
 Reusing the key for different semantics returns non-retryable
 `creation.conflict`.
 
+Every mutation, including `workspace.create`, accepts `expected_revision`
+against the session resource cursor. A prepared creation re-checks that guard
+before executing; a committed replay returns its original result regardless
+of a now-stale guard.
+
 `session.creation.resolve` reports `pending`, `created`, `not_applied`, or
 `indeterminate` with one exact recovery action. A created resolution includes
 the committed path, generation, and revision. Callers retry only when the
@@ -457,7 +479,10 @@ the code.
 Layout documents round-trip leaf, split, stack, and horizontal viewport
 structures. Viewport columns retain stable IDs and widths. The document also
 retains active and zoomed pane IDs. Nested same-direction splits are not
-flattened. `screen.create` returns the complete created terminal path.
+flattened. A rightward `pane.split` may include `viewport_width` from 0.1
+through 1.0 to create the terminal as a separate scrolling viewport column;
+ordinary splits omit it. `screen.create` returns the complete created terminal
+path.
 
 `workspace.create` requires `initial_content: terminal|empty`.
 `workspace.run` and `pane.run` accept exactly one of a nonempty `argv`

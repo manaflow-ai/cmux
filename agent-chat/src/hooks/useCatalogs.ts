@@ -69,6 +69,17 @@ export function providerOptionMap(providers: Provider[], providerOptions: Record
   ]));
 }
 
+export function loadingProviderOptionIds(
+  providers: Provider[],
+  providerOptions: Record<string, SessionOption[]>,
+): ReadonlySet<string> {
+  return new Set(
+    providers
+      .filter((provider) => provider.installed !== false && !Object.hasOwn(providerOptions, provider.id))
+      .map((provider) => provider.id),
+  );
+}
+
 export function useCwdValidation(
   ready: boolean,
   connectionEpoch: number,

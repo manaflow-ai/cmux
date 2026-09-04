@@ -92,6 +92,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
                     refreshToken: "stale-refresh"
                 )
             }),
+            clientNamespace: "legacy",
             transport: transport
         )
 
@@ -169,6 +170,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
                 snapshot: { await snapshots.snapshot() },
                 forceRefresh: { await snapshots.forceRefresh() }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
 
@@ -200,6 +202,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
                 snapshot: { await snapshots.snapshot() },
                 forceRefresh: { await snapshots.forceRefresh() }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
 
@@ -212,7 +215,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
     @Test
     func cachedPolicyRecoveryFailsClosedForAuthRejections() {
         #expect(CmxIrohClientRuntime.recoversWithCachedPolicy(
-            CmxIrohTrustBrokerClientError.connectivity
+            CmxIrohTrustBrokerClientError.connectivity(nil)
         ))
         #expect(!CmxIrohClientRuntime.recoversWithCachedPolicy(
             CmxIrohTrustBrokerClientError.rejected(
@@ -248,6 +251,7 @@ struct CmxIrohTrustBrokerClientAuthRecoveryTests {
                     await recorder.recover(rejected)
                 }
             ),
+            clientNamespace: "legacy",
             transport: transport
         )
     }

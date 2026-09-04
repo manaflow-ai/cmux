@@ -39,6 +39,9 @@ public final class Pane {
         Map<String, Object> params = withExtra(route.params(), options.mutation().extra());
         params.put(Wire.DIRECTION, options.direction().toWire());
         options.ratio().ifPresent(value -> params.put(Wire.RATIO, value));
+        options.viewportWidth().ifPresent(
+            value -> params.put(Wire.VIEWPORT_WIDTH, value)
+        );
         options.cwd().ifPresent(value -> params.put(Wire.CWD, value));
         options.columns().ifPresent(value -> params.put(Wire.COLS, value));
         options.rows().ifPresent(value -> params.put(Wire.ROWS, value));

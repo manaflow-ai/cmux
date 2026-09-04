@@ -87,7 +87,7 @@ final class TerminalOutputCollector {
 // cached-session-validation assertions moved there with the AuthCoordinator
 // lift; see Packages/Shared/CmuxAuthRuntime/Tests.
 
-@Test func mobileRuntimeDefaultsToThirtySecondRPCTimeout() {
+@Test func mobileRuntimeDefaultsAllowSlowRelayPairingWithinOneHardDeadline() {
     let runtime = CMUXMobileRuntime(
         supportedRouteKinds: [.debugLoopback],
         transportFactory: ScriptedTransportFactory(responses: ScriptedTransportResponses([])),
@@ -95,7 +95,8 @@ final class TerminalOutputCollector {
     )
 
     #expect(runtime.rpcRequestTimeoutNanoseconds == 30 * 1_000_000_000)
-    #expect(runtime.pairingRequestTimeoutNanoseconds == 8 * 1_000_000_000)
+    #expect(runtime.pairingRequestTimeoutNanoseconds == 30 * 1_000_000_000)
+    #expect(runtime.pairingAttemptTimeoutNanoseconds == 30 * 1_000_000_000)
 }
 
 @Test func mobileRuntimeMapsTimedOutStackTokenToRequestTimeout() {
@@ -633,7 +634,7 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleMagicDNSWithoutSendingAuth() async throws {
+@Test func manualHostPairingRejectsTailscaleMagicDNSWithNumericGuidance() async throws {
     let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
@@ -647,6 +648,7 @@ final class TerminalOutputCollector {
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
     #expect(store.activeRoute == nil)
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -670,7 +672,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -694,51 +696,51 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleBeforeLegacyProbeOrFallback() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingAuthorizesExactNumericTailscaleDestination() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Work Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
-        stackAccessToken: "stack-token-for-fallback"
+        stackAccessToken: "test-stack-token"
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: 15432)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeRoute == nil)
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.first?.method == "workspace.list")
+    #expect(requests.first?.stackAccessToken == "test-stack-token")
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleWithFreshPairingGuidance() async throws {
-    let route = try CmxAttachRoute(
-        id: "tailscale",
-        kind: .tailscale,
-        endpoint: .hostPort(host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
-    )
+@Test func manualHostPairingRejectsMagicDNSBeforeDialing() async throws {
+    let responses = ScriptedTransportResponses([])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
-        transportFactory: HangingTransportFactory(),
-        pairingRequestTimeoutNanoseconds: 1_000_000
+        transportFactory: ScriptedTransportFactory(responses: responses)
     )
     let store = CMUXMobileShellStore.preview(runtime: runtime)
 
     store.signIn()
     await store.connectManualHost(name: "Slow Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(route.kind == .tailscale)
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(store.connectionErrorGuidance == "Open the pairing window on your Mac and scan a fresh QR or link.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
+    #expect(store.connectionErrorGuidance == nil)
+    #expect(try await responses.sentRequests().isEmpty)
 }
 
 @MainActor
@@ -758,7 +760,7 @@ final class TerminalOutputCollector {
     )
 
     store.signIn()
-    await store.connectManualHost(name: "Work Mac", host: "work-mac.tailnet.ts.net", port: CmxMobileDefaults.defaultHostPort)
+    await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
     #expect(store.phase == .pairing)
     #expect(store.connectionState == .disconnected)
@@ -1003,7 +1005,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "This pairing route is not trusted. Enter the Mac's numeric Tailscale IP and port, or scan its pairing QR.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -1835,8 +1837,11 @@ final class TerminalOutputCollector {
 }
 
 @MainActor
-@Test func manualHostPairingRejectsTailscaleIPWithoutSendingStackToken() async throws {
-    let responses = ScriptedTransportResponses([])
+@Test func manualHostPairingNumericTailscaleSendsBearerOnlyAfterExactAuthorization() async throws {
+    let responses = ScriptedTransportResponses([
+        try rpcWorkspaceListFrame(workspaceID: "manual-workspace", title: "Work Workspace"),
+        try rpcHostStatusFrame(renderGrid: false),
+    ])
     let runtime = testRuntime(
         supportedRouteKinds: [.tailscale],
         transportFactory: ScriptedTransportFactory(responses: responses),
@@ -1847,12 +1852,11 @@ final class TerminalOutputCollector {
     store.signIn()
     await store.connectManualHost(name: "Work Mac", host: "100.71.210.41", port: CmxMobileDefaults.defaultHostPort)
 
-    #expect(store.phase == .pairing)
-    #expect(store.connectionState == .disconnected)
-    #expect(store.activeTicket == nil)
-    #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
-    #expect(try await responses.sentRequests().isEmpty)
+    #expect(store.phase == .workspaces)
+    #expect(store.connectionState == .connected)
+    #expect(store.activeRoute?.kind == .tailscale)
+    let requests = try await responses.sentRequests()
+    #expect(requests.first?.stackAccessToken == "stack-token-for-tailscale-ip")
 }
 
 @MainActor
@@ -1875,7 +1879,7 @@ final class TerminalOutputCollector {
     #expect(store.connectionState == .disconnected)
     #expect(store.activeTicket == nil)
     #expect(store.activeRoute == nil)
-    #expect(store.connectionError == "This pairing route is not allowed. Enter a host and port, or pair with a QR/link from that computer.")
+    #expect(store.connectionError == "For Tailscale pairing, enter the Mac's numeric Tailscale IP or scan its QR. MagicDNS names and local or LAN hosts aren't supported.")
     #expect(try await responses.sentRequests().isEmpty)
 }
 
@@ -4115,6 +4119,8 @@ struct InertPushRegistration: PushRegistering {
         }
     }
     func setEnabled(_ enabled: Bool) async {}
+    func applyEnabledIntent(_ enabled: Bool, generation: UInt64) async {}
+    func reconcileEnabledIntent(generation: UInt64) async {}
     func register(deviceToken: Data) async {}
     func deviceTokenRegistrationFailed() async {}
     func syncTokenIfPossible() async {}

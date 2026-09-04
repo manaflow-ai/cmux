@@ -5,13 +5,12 @@ import com.cmux.Transport;
 import com.cmux.raw.Json;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.net.StandardProtocolFamily;
-import java.net.UnixDomainSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -34,18 +33,26 @@ public final class UnixTransport implements Transport {
             throws IOException {
         this.maxRequestBytes = positive(maxRequestBytes, "maxRequestBytes");
         this.maxResponseBytes = positive(maxResponseBytes, "maxResponseBytes");
-        SocketChannel opened = SocketChannel.open(StandardProtocolFamily.UNIX);
-        try {
-            opened.connect(UnixDomainSocketAddress.of(socket));
-        } catch (IOException | RuntimeException error) {
-            try {
-                opened.close();
-            } catch (IOException closeError) {
-                error.addSuppressed(closeError);
-            }
-            throw error;
-        }
-        channel = opened;
+        channel = UnixSocketConnector.open(socket);
+        readBuffer.limit(0);
+    }
+
+    /**
+     * Opens a Unix-domain transport with a bounded initial connection.
+     *
+     * <p>The original constructor remains unbounded for source and binary
+     * compatibility. Resource clients should pass their configured operation
+     * timeout through this overload.
+     */
+    public UnixTransport(
+        Path socket,
+        int maxRequestBytes,
+        int maxResponseBytes,
+        Duration connectTimeout
+    ) throws IOException {
+        this.maxRequestBytes = positive(maxRequestBytes, "maxRequestBytes");
+        this.maxResponseBytes = positive(maxResponseBytes, "maxResponseBytes");
+        channel = UnixSocketConnector.open(socket, connectTimeout);
         readBuffer.limit(0);
     }
 
@@ -94,6 +101,11 @@ public final class UnixTransport implements Transport {
                 readBuffer.clear();
                 int count = channel.read(readBuffer);
                 if (count < 0) {
+                    // A negative read is the channel's end-of-stream signal.
+                    // Retire the transport as well, so later operations fail
+                    // deterministically instead of repeatedly touching an EOF
+                    // channel (and so a client cannot accidentally reuse it).
+                    close();
                     throw new IOException("session socket closed");
                 }
                 readBuffer.flip();

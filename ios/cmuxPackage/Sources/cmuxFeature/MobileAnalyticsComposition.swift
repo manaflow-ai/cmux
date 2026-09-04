@@ -59,12 +59,14 @@ public struct MobileAnalyticsComposition {
     ///     short-timeout session (see ``analyticsSession()``) so a hung analytics
     ///     request cannot keep the emitter's consumer pinned in `upload` for long;
     ///     pass an explicit session in tests.
+    ///   - diagnosticLog: Optional privacy-safe app diagnostic recorder.
     @MainActor public init(
         apiBaseURL: String,
         tokenProvider: any TokenProviding,
         defaults: UserDefaults = .standard,
         consent: (any AnalyticsConsentProviding)? = nil,
-        session: URLSession? = nil
+        session: URLSession? = nil,
+        diagnosticLog: DiagnosticLog? = nil
     ) {
         let networkSession = session ?? Self.analyticsSession()
         let uploadSession = session ?? Self.analyticsSession()
@@ -84,7 +86,8 @@ public struct MobileAnalyticsComposition {
         let emitter = AnalyticsEmitter(
             uploader: uploader,
             consent: consent,
-            anonymousID: anonymousID
+            anonymousID: anonymousID,
+            diagnosticLog: diagnosticLog
         )
         emitter.setSuperProperties(Self.deviceSuperProperties(anonymousID: anonymousID))
         if resolved.created {
@@ -119,6 +122,9 @@ public struct MobileAnalyticsComposition {
     @MainActor private static func deviceSuperProperties(anonymousID: String) -> [String: AnalyticsValue] {
         let info = Bundle.main.infoDictionary
         var props: [String: AnalyticsValue] = ["client_id": .string(anonymousID)]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }
@@ -140,6 +146,9 @@ public struct MobileAnalyticsComposition {
             "client_id": .string(anonymousID),
             "platform": .string("ios"),
         ]
+        if let bundleIdentifier = Bundle.main.bundleIdentifier {
+            props["bundle_identifier"] = .string(bundleIdentifier)
+        }
         if let version = info?["CFBundleShortVersionString"] as? String {
             props["app_version"] = .string(version)
         }

@@ -109,7 +109,7 @@ import CmuxTerminalCore
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
         let surface = makeSurface(scheduler: scheduler, nativeView: nativeView, paneHost: paneHost)
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
 
@@ -117,16 +117,16 @@ import CmuxTerminalCore
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
-    @Test func restorePacedTerminalSurfaceWaitsForClaudeShimBeforeEnteringSpawnQueue() async throws {
+    @Test func restorePacedTerminalSurfaceWaitsForAgentShimsBeforeEnteringSpawnQueue() async throws {
         _ = try #require(Bundle.main.resourceURL)
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
-        let shimInstaller = ManualClaudeCommandShimInstaller()
+        let shimInstaller = ManualAgentCommandShimInstaller()
         let runtimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-            installClaudeCommandShim: {
-                await shimInstaller.install(wrapperURL: $0, surfaceId: $1, temporaryDirectory: $2)
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            installAgentCommandShims: {
+                await shimInstaller.install(wrapperDirectoryURL: $0, surfaceId: $1, temporaryDirectory: $2)
             },
             isExecutableFile: { _ in false }
         )
@@ -161,7 +161,7 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
         scheduler.runScheduledOperation()
@@ -181,12 +181,46 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
 
         #expect(scheduler.scheduledSurfaceIds.isEmpty)
         #expect(surface.runtimeSurfacePointer == nil)
+    }
+
+    @Test func startupRestoreRuntimeWaitsForExplicitAdmission() {
+        let nativeView = FakeTerminalSurfaceNativeView(
+            frame: NSRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        let paneHost = FakeTerminalSurfacePaneHost(
+            surfaceView: nativeView,
+            attachesThroughSurfaceModel: true
+        )
+        let scheduler = RecordingRestoreSpawnScheduler()
+        let surface = makeSurface(
+            runtimeSpawnPolicy: .heldForStartupRestoreAdmission,
+            scheduler: scheduler,
+            nativeView: nativeView,
+            paneHost: paneHost
+        )
+        surface.agentCommandShimInstallCompleted = true
+        defer { surface.closeHeadlessStartupWindowIfNeeded() }
+
+        surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "before-admission")
+        surface.createSurface(for: nativeView, source: .inputDemand)
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 0)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+
+        surface.admitStartupRestoreRuntime()
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
+        #expect(scheduler.scheduledSurfaceIds.isEmpty)
+
+        surface.admitStartupRestoreRuntime()
+
+        #expect(surface.debugRuntimeSurfaceCreateAttemptCountForTesting() == 1)
     }
 
     @Test func configurationReloadDefersAndPromotesRuntimeCreation() {
@@ -206,7 +240,7 @@ import CmuxTerminalCore
             paneHost: paneHost,
             engine: engine
         )
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
         surface.createSurface(
@@ -247,7 +281,7 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
 
         surface.createSurface(for: nativeView)
         surface.createSurface(for: nativeView, source: .inputDemand)
@@ -269,10 +303,10 @@ import CmuxTerminalCore
         surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-ready-slot")
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
         surface.attachedView = nativeView
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
 
         #expect(nativeView.window != nil)
-        surface.resumeSurfaceCreationAfterClaudeCommandShimReady(
+        surface.resumeSurfaceCreationAfterAgentCommandShimsReady(
             view: nativeView,
             source: .scheduledRestore
         )
@@ -291,9 +325,9 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
 
-        surface.resumeSurfaceCreationAfterClaudeCommandShimReady(
+        surface.resumeSurfaceCreationAfterAgentCommandShimsReady(
             view: nativeView,
             source: .scheduledRestore
         )
@@ -334,7 +368,7 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
         surface.scheduleHeadlessRuntimeStartIfNeeded(reason: "test-input-demand", source: .inputDemand)
@@ -344,7 +378,7 @@ import CmuxTerminalCore
         #expect(surface.runtimeSurfacePointer == nil)
     }
 
-    @Test func inputDemandPromotesInFlightClaudeShimCreationSource() {
+    @Test func inputDemandPromotesInFlightAgentShimCreationSource() {
         let nativeView = FakeTerminalSurfaceNativeView(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         let paneHost = FakeTerminalSurfacePaneHost(surfaceView: nativeView)
         let scheduler = RecordingRestoreSpawnScheduler()
@@ -353,17 +387,17 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
-        surface.claudeCommandShimInstallTask = Task { nil }
+        surface.agentCommandShimInstallTask = Task { nil }
         defer {
-            surface.claudeCommandShimInstallTask?.cancel()
-            surface.claudeCommandShimInstallTask = nil
-            surface.claudeCommandShimPendingCreationSource = nil
+            surface.agentCommandShimInstallTask?.cancel()
+            surface.agentCommandShimInstallTask = nil
+            surface.agentCommandShimPendingCreationSource = nil
         }
 
-        _ = surface.claudeCommandShimStateForSurface(view: nativeView, source: .scheduledRestore)
-        _ = surface.claudeCommandShimStateForSurface(view: nativeView, source: .inputDemand)
+        _ = surface.agentCommandShimStateForSurface(view: nativeView, source: .scheduledRestore)
+        _ = surface.agentCommandShimStateForSurface(view: nativeView, source: .inputDemand)
 
-        #expect(surface.claudeCommandShimPendingCreationSource == .inputDemand)
+        #expect(surface.agentCommandShimPendingCreationSource == .inputDemand)
     }
 
     @Test func inputDemandShimFallbackStartsHeadlessWithoutRestoreQueue() {
@@ -375,10 +409,10 @@ import CmuxTerminalCore
             nativeView: nativeView,
             paneHost: paneHost
         )
-        surface.claudeCommandShimInstallCompleted = true
+        surface.agentCommandShimInstallCompleted = true
         defer { surface.closeHeadlessStartupWindowIfNeeded() }
 
-        surface.resumeSurfaceCreationAfterClaudeCommandShimReady(
+        surface.resumeSurfaceCreationAfterAgentCommandShimsReady(
             view: nil,
             source: .inputDemand
         )
@@ -403,8 +437,8 @@ import CmuxTerminalCore
         paneHost: FakeTerminalSurfacePaneHost,
         engine: FakeTerminalEngine = FakeTerminalEngine(),
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem = TerminalSurfaceRuntimeFilesystem(
-            claudeCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
-            installClaudeCommandShim: { _, _, _ in nil },
+            agentCommandShimTemporaryDirectory: URL(fileURLWithPath: "/tmp/cmux-terminal-tests", isDirectory: true),
+            installAgentCommandShims: { _, _, _ in nil },
             isExecutableFile: { _ in false }
         )
     ) -> TerminalSurface {

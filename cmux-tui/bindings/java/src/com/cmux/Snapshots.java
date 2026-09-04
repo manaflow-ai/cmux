@@ -158,7 +158,6 @@ public final class Snapshots {
 
     public record TerminalSnapshot(
         Ids.TerminalId id,
-        Optional<Ids.TabId> tabId,
         List<Ids.TabId> tabIds,
         String title,
         Optional<String> cwd,
@@ -171,13 +170,7 @@ public final class Snapshots {
     ) implements ResourceEntitySnapshot {
         public TerminalSnapshot {
             Objects.requireNonNull(id, "id");
-            tabId = opt(tabId);
             tabIds = List.copyOf(tabIds);
-            if (!tabId.equals(tabIds.stream().findFirst())) {
-                throw new IllegalArgumentException(
-                    "tabId must be the first tabIds item"
-                );
-            }
             Objects.requireNonNull(title, "title");
             cwd = opt(cwd);
             positiveUint16(cols, "cols");
@@ -352,13 +345,21 @@ public final class Snapshots {
     public record FrontendProjectionSnapshot(
         Ids.ProjectionId id,
         Ids.SessionId sessionId,
+        String frontendId,
+        String windowId,
+        String generation,
         JsonValue projection,
+        Decimal projectionRevision,
         Map<String, Object> extra
     ) implements ResourceEntitySnapshot {
         public FrontendProjectionSnapshot {
             Objects.requireNonNull(id, "id");
             Objects.requireNonNull(sessionId, "sessionId");
+            Objects.requireNonNull(frontendId, "frontendId");
+            Objects.requireNonNull(windowId, "windowId");
+            Objects.requireNonNull(generation, "generation");
             Objects.requireNonNull(projection, "projection");
+            Objects.requireNonNull(projectionRevision, "projectionRevision");
             extra = copy(extra);
         }
     }

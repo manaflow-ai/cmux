@@ -1,10 +1,11 @@
-# Raw protocol-11 SDK conformance
+# Raw protocol-12 SDK conformance
 
-This suite exercises generated protocol-11 APIs through the explicit
+This suite exercises generated protocol-12 APIs through the explicit
 `raw` package in Python, TypeScript, Rust, Go, Java, C++, and Zig. The public
 resource API conformance suite lives one directory above this file.
-Metadata coverage retains the protocol-10 baseline from commit `34741cdc96`
-and requires protocol-11 metadata to remain a superset.
+Metadata coverage retains the protocol-10 and protocol-11 baselines from
+commits `34741cdc96` and `236f57ff60`, and requires protocol-12 metadata to
+remain a superset of both.
 
 The deterministic fake server covers partial frames, exact `uint64` limits,
 oversized responses, invalid UTF-8, timeouts, events before acknowledgement,

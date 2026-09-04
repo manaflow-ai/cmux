@@ -30,7 +30,7 @@ public struct TerminalSurfaceRuntimeDependencies {
     /// The agent-hibernation input recorder.
     public let hibernationRecorder: any AgentHibernationRecording
 
-    /// The serialized native-surface free queue.
+    /// The bounded native-surface teardown coordinator.
     public let runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator
 
     /// The paced native-surface creation queue for restored terminal sessions.
@@ -40,15 +40,15 @@ public struct TerminalSurfaceRuntimeDependencies {
     public let runtimeFilesystem: TerminalSurfaceRuntimeFilesystem
 
     /// The bounded grace period runtime creation waits for the optional
-    /// Claude command-shim install before spawning without it.
+    /// agent command-shim install before spawning without it.
     ///
     /// The shim is a PATH convenience; a hung install must never starve PTY
     /// spawn (issue #9769). Defaults to five seconds.
-    public let claudeCommandShimInstallDeadline: Duration
+    public let agentCommandShimInstallDeadline: Duration
 
-    /// The clock driving ``claudeCommandShimInstallDeadline``; injectable so
+    /// The clock driving ``agentCommandShimInstallDeadline``; injectable so
     /// tests control the deadline deterministically.
-    public let claudeCommandShimInstallDeadlineClock: any Clock<Duration>
+    public let agentCommandShimInstallDeadlineClock: any Clock<Duration>
 
     /// The first port of the per-session `CMUX_PORT` allocation
     /// (snapshotted once per app session by the composition root).
@@ -77,8 +77,8 @@ public struct TerminalSurfaceRuntimeDependencies {
         runtimeTeardown: TerminalSurfaceRuntimeTeardownCoordinator,
         restoreSpawnScheduler: any TerminalSurfaceRuntimeSpawnScheduling,
         runtimeFilesystem: TerminalSurfaceRuntimeFilesystem,
-        claudeCommandShimInstallDeadline: Duration = .seconds(5),
-        claudeCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
+        agentCommandShimInstallDeadline: Duration = .seconds(5),
+        agentCommandShimInstallDeadlineClock: any Clock<Duration> = ContinuousClock(),
         sessionPortBase: Int,
         sessionPortRangeSize: Int,
         scrollbackReplayEnvironmentKey: String,
@@ -94,8 +94,8 @@ public struct TerminalSurfaceRuntimeDependencies {
         self.runtimeTeardown = runtimeTeardown
         self.restoreSpawnScheduler = restoreSpawnScheduler
         self.runtimeFilesystem = runtimeFilesystem
-        self.claudeCommandShimInstallDeadline = claudeCommandShimInstallDeadline
-        self.claudeCommandShimInstallDeadlineClock = claudeCommandShimInstallDeadlineClock
+        self.agentCommandShimInstallDeadline = agentCommandShimInstallDeadline
+        self.agentCommandShimInstallDeadlineClock = agentCommandShimInstallDeadlineClock
         self.sessionPortBase = sessionPortBase
         self.sessionPortRangeSize = sessionPortRangeSize
         self.scrollbackReplayEnvironmentKey = scrollbackReplayEnvironmentKey

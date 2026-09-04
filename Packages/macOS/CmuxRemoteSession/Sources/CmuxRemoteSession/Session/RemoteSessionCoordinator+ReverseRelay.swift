@@ -28,6 +28,11 @@ extension RemoteSessionCoordinator {
         guard reverseRelayControlMasterForwardSpec == nil else { return }
         guard controlMasterReapState.startupPhase
             .allowsRelayLaunch else { return }
+        // A new relay attempt owns readiness from this point forward.  The
+        // daemon hello may already be valid, but the local proxy cannot use
+        // the remote listener until the forward and metadata transaction
+        // complete.
+        reverseRelayReady = false
 
         cancelReverseRelayRestartLocked()
         launchReverseRelayLocked(
@@ -87,8 +92,13 @@ extension RemoteSessionCoordinator {
                     scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
                     return
                 }
+                reverseRelayReady = true
                 restoreReadyDaemonStatusLocked()
                 recordHeartbeatActivityLocked()
+                // A relay restart can happen after the original bootstrap
+                // caller has returned; reacquire the proxy/PTY bridge now
+                // that the forward and metadata invariant is restored.
+                startProxyLocked()
                 debugLog(
                     "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
                     "target=\(configuration.displayTarget) controlMaster=1"
@@ -192,8 +202,12 @@ extension RemoteSessionCoordinator {
             scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: 2.0)
             return
         }
+        reverseRelayReady = true
         restoreReadyDaemonStatusLocked()
         recordHeartbeatActivityLocked()
+        // The relay is now a usable transport.  This is the first point at
+        // which a proxy/PTY bridge may be acquired for a standalone fallback.
+        startProxyLocked()
         debugLog(
             "remote.relay.start relayPort=\(relayPort) localRelayPort=\(localRelayPort) " +
             "target=\(configuration.displayTarget) controlMaster=0"
@@ -206,6 +220,7 @@ extension RemoteSessionCoordinator {
     ) {
         guard reverseRelayProcess === process else { return }
         reverseRelayProcess = nil
+        reverseRelayReady = false
 
         guard !isStopping else { return }
         guard let remotePath = daemonRemotePath,
@@ -220,10 +235,11 @@ extension RemoteSessionCoordinator {
         remotePath: String
     ) {
         let retryDelay = 2.0
-        publishDaemonStatus(
-            .error,
-            detail: strings.reverseRelayUnavailableRetrying
-        )
+        // Relay startup is itself retryable.  Keep the sidebar in the
+        // reconnecting phase until the bounded supervisor gives up; otherwise
+        // a short ControlMaster handoff paints a false daemon error.
+        publishDaemonStatus(.bootstrapping, detail: nil)
+        publishState(.reconnecting, detail: nil)
         scheduleReverseRelayRestartLocked(remotePath: remotePath, delay: retryDelay)
     }
 
@@ -272,6 +288,7 @@ extension RemoteSessionCoordinator {
             reverseRelayProcess.terminate()
         }
         reverseRelayProcess = nil
+        reverseRelayReady = false
         stopReverseRelayViaControlMasterLocked()
         cliRelayServer?.stop()
         cliRelayServer = nil
@@ -289,6 +306,7 @@ extension RemoteSessionCoordinator {
         }
         reverseRelayProcess = nil
         reverseRelayControlMasterForwardSpec = nil
+        reverseRelayReady = false
         cliRelayServer?.stop()
         cliRelayServer = nil
     }

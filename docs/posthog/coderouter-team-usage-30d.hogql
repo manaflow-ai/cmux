@@ -1,0 +1,23 @@
+-- Historical operator query. The customer app reads ClickHouse directly;
+-- it does not call a PostHog Endpoint. If an operator publishes this query,
+-- use the main cmux project and provide `team_id` as a required string.
+SELECT
+  toString(toDate(timestamp)) AS day,
+  sum(toInt(coalesce(properties.$ai_input_tokens, 0))) AS input_tokens,
+  sum(toInt(coalesce(properties.$ai_cache_read_input_tokens, 0))) AS cached_input_tokens,
+  sum(toInt(coalesce(properties.$ai_output_tokens, 0))) AS output_tokens,
+  sum(toInt(coalesce(properties.coderouter_total_tokens, 0))) AS total_tokens,
+  sum(toFloat(coalesce(properties.$ai_total_cost_usd, 0))) AS api_equivalent_usd,
+  sum(toInt(coalesce(properties.coderouter_priced_tokens, 0))) AS priced_tokens,
+  sum(toInt(coalesce(properties.coderouter_unpriced_tokens, 0))) AS unpriced_tokens
+FROM events
+WHERE event = '$ai_generation'
+  AND properties.product = 'coderouter'
+  AND toDate(timestamp) >= toDate(now()) - INTERVAL 29 DAY
+  AND toDate(timestamp) <= toDate(now())
+  AND properties.$groups.stack_team = {variables.team_id}
+GROUP BY day
+ORDER BY day ASC
+-- Fetch one overflow sentinel rather than silently trimming if a future query
+-- change violates the exactly-30-UTC-day invariant. The caller rejects >30 rows.
+LIMIT 31

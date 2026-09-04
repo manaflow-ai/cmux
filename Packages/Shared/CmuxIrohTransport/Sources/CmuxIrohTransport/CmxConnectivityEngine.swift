@@ -503,6 +503,19 @@ public actor CmxConnectivityEngine {
         await peer.updateControlPurpose(ownerID: ownerID, purpose: purpose)
     }
 
+    /// Resolves the admitted session correlation for one exact peer request.
+    /// This is intentionally a local query used only to link dial and session
+    /// events after the shared peer actor has completed admission.
+    func diagnosticSessionID(
+        for request: CmxByteTransportRequest
+    ) async -> Int? {
+        guard let peerID = try? CmxConnectivityPeerID(request: request),
+              let peer = peers[peerID] else {
+            return nil
+        }
+        return await peer.diagnosticSessionID()
+    }
+
     private func activePeer(
         for request: CmxByteTransportRequest
     ) throws -> CmxConnectivityPeerSession {
@@ -538,13 +551,21 @@ public actor CmxConnectivityEngine {
                             basedOn: context
                         )
                     },
-                    protocolConfiguration: protocolConfiguration
+                    protocolConfiguration: protocolConfiguration,
+                    diagnostics: diagnosticLog
                 )
                 do {
                     try await session.connect()
                     return session
                 } catch {
                     await session.close()
+                    if !(Task.isCancelled || error is CancellationError) {
+                        await contextProvider.noteDialFailure(
+                            for: request,
+                            dialPlan: context.dialPlan,
+                            failure: DiagnosticFailureKind.classify(error)
+                        )
+                    }
                     throw error
                 }
             },
@@ -735,7 +756,7 @@ public actor CmxConnectivityEngine {
         } catch {
             guard routeRevision != nil,
                   CmxIrohTrustBrokerClientError
-                    .preservesVerifiedPolicyDuringRefresh(error) else {
+                    .preservesVerifiedStateDuringRefresh(error) else {
                 throw error
             }
         }

@@ -76,6 +76,14 @@ struct MobilePrimaryTabScaffold<
                     )
                     .padding(.trailing, iOS26BottomControlInset)
                     .padding(.bottom, iOS26TaskComposerBottomPadding)
+                    // Compose anchors to the screen, not the keyboard. The
+                    // only keyboard that can appear while it is visible
+                    // belongs to an overlaying sheet (the composer's
+                    // auto-focused prompt), whose inset dragged the button
+                    // toward mid-screen and stranded it there whenever the
+                    // hide update was missed.
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    .ignoresSafeArea(.keyboard, edges: .bottom)
                 }
             }
             .ignoresSafeArea(.container, edges: .bottom)
@@ -101,9 +109,15 @@ struct MobilePrimaryTabScaffold<
         Binding(
             get: { selection },
             set: { newValue in
-                if (selection == .search || searchCoordinator.isPresented),
-                   newValue.searchScope != nil {
-                    searchCoordinator.deactivateCurrentSearch()
+                if newValue.searchScope != nil {
+                    if searchCoordinator.isPresented {
+                        // The round X returns selection to the previous tab
+                        // while search is still presented; it cancels the
+                        // query rather than committing it as a filter.
+                        searchCoordinator.cancelPresentedSearch()
+                    } else if selection == .search {
+                        searchCoordinator.deactivateCurrentSearch()
+                    }
                 }
                 selection = newValue
             }

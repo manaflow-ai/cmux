@@ -1,10 +1,14 @@
 import { getLocale, getTranslations } from "next-intl/server";
 import { Link } from "../../../i18n/navigation";
-import { fallbackContentLocales } from "../../../i18n/locale-availability";
+import {
+  fallbackContentLocales,
+  jobsContentLocales,
+} from "../../../i18n/locale-availability";
 import type { Locale } from "../../../i18n/routing";
 import { LanguageSwitcher } from "./language-switcher";
 import { ProUpgradeVisibility } from "./pro-upgrade-visibility";
 import { ContentLocaleLink } from "./content-locale-link";
+import { getCurrentYear } from "@/app/lib/current-year";
 
 function isExternal(href: string) {
   return href.startsWith("http") || href.startsWith("mailto:");
@@ -26,7 +30,7 @@ type FooterColumn = {
 export async function SiteFooter() {
   const t = await getTranslations("footer");
   const locale = await getLocale();
-  const year = new Date().getFullYear();
+  const year = await getCurrentYear();
 
   const columns: FooterColumn[] = [
     {
@@ -42,6 +46,11 @@ export async function SiteFooter() {
         { label: t("community"), href: "/community" },
         { label: t("nightly"), href: "/nightly" },
         { label: t("assets"), href: "/assets" },
+        {
+          label: t("jobs"),
+          href: "/jobs",
+          contentLocales: jobsContentLocales,
+        },
       ] satisfies FooterLink[],
     },
     {
@@ -51,6 +60,7 @@ export async function SiteFooter() {
         { label: t("guides"), href: "/guides" },
         { label: t("compare"), href: "/compare" },
         { label: t("changelog"), href: "/docs/changelog" },
+        { label: t("support"), href: "/support" },
       ] satisfies FooterLink[],
     },
     {

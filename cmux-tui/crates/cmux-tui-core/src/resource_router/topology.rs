@@ -1084,7 +1084,7 @@ mod tests {
     }
 
     #[test]
-    fn topology_close_commit_failure_leaves_every_projection_live() {
+    fn topology_close_commit_failure_leaves_every_projection_live_and_fences_replay() {
         let mux = mux();
         let created = terminal_workspace(&mux, "atomic-close-rollback");
         let workspace = created["value"]["workspace_id"].as_str().unwrap();
@@ -1103,8 +1103,20 @@ mod tests {
             ),
         )
         .unwrap_err();
-        assert_eq!(error.code, "operation.failed");
+        assert_eq!(error.code, "mutation.indeterminate");
         mux.set_resource_patch_failure_for_test(false);
+
+        let replay = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceClose,
+                selectors(Some(workspace), None, None, None),
+                json!({}),
+                Some("atomic-close-rollback-effect"),
+            ),
+        )
+        .unwrap_err();
+        assert_eq!(replay.code, "mutation.indeterminate");
 
         assert_eq!(mux.with_state(|state| state.resource_revision), before_resource);
         assert_eq!(mux.with_state(|state| state.workspace_revision), before_workspace);
@@ -1396,7 +1408,7 @@ mod tests {
             parsed(
                 ResourceOperation::PaneSplit,
                 selectors(None, None, Some(&pane_id), None),
-                json!({"direction":"right","ratio":0.5}),
+                json!({"direction":"right","viewport_width":0.5}),
                 Some("all-pane-split"),
             ),
         )
@@ -1457,6 +1469,15 @@ mod tests {
             public_session_snapshot(&mux).unwrap()["terminals"].as_array().unwrap().len(),
             7
         );
+        let snapshot = public_session_snapshot(&mux).unwrap();
+        let created_screen = snapshot["screens"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|candidate| candidate["id"] == screen_id)
+            .unwrap();
+        assert_eq!(created_screen["layout"]["root"]["kind"], "viewport");
+        assert_eq!(created_screen["layout"]["root"]["columns"][1]["width"], 0.5);
     }
 
     #[test]

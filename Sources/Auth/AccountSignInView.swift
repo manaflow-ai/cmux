@@ -5,12 +5,24 @@ import SwiftUI
 struct AccountSignInView: View {
     let model: AccountSignInModel
     let automaticallyStartsSignIn: Bool
+    /// Idle-state heading; hosts embed their own context (e.g. the Cloud
+    /// machines pane) so they never stack a second header above this view.
+    var idleTitle = String(localized: "account.signIn.heading", defaultValue: "Sign in to cmux")
+    /// Idle-state supporting line under ``idleTitle``.
+    var idleSubtitle = String(
+        localized: "account.signIn.prompt",
+        defaultValue: "Continue with your cmux account."
+    )
 
     var body: some View {
         VStack(spacing: 16) {
             switch model.phase {
             case .idle:
-                AccountSignInIdleView(onSignIn: model.presentSignIn)
+                AccountSignInIdleView(
+                    title: idleTitle,
+                    subtitle: idleSubtitle,
+                    onSignIn: model.presentSignIn
+                )
             case let .loading(stage):
                 AccountSignInLoadingView(
                     stage: stage,
@@ -45,6 +57,8 @@ struct AccountSignInView: View {
 }
 
 private struct AccountSignInIdleView: View {
+    let title: String
+    let subtitle: String
     let onSignIn: () -> Void
 
     var body: some View {
@@ -52,12 +66,9 @@ private struct AccountSignInIdleView: View {
             Image(systemName: "person.crop.circle.badge.plus")
                 .cmuxFont(size: 34)
                 .foregroundStyle(.tint)
-            Text(String(localized: "account.signIn.heading", defaultValue: "Sign in to cmux"))
+            Text(title)
                 .cmuxFont(.title2, weight: .semibold)
-            Text(String(
-                localized: "account.signIn.prompt",
-                defaultValue: "Continue with your Stack account."
-            ))
+            Text(subtitle)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
             Button(String(localized: "account.signIn.start", defaultValue: "Sign In"), action: onSignIn)
@@ -160,7 +171,7 @@ private struct AccountSignInSuccessView: View {
             }
             Text(String(
                 localized: "account.signIn.successBody",
-                defaultValue: "cmux is connected to your Stack account."
+                defaultValue: "Your cmux account is connected."
             ))
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -245,7 +256,7 @@ private extension AccountSignInModel.LoadingStage {
         case .openingBrowser:
             return String(
                 localized: "account.signIn.loading.opening.instructions",
-                defaultValue: "cmux is preparing a secure Stack sign-in window."
+                defaultValue: "cmux is preparing a secure sign-in window."
             )
         case .waiting:
             return String(
@@ -260,7 +271,7 @@ private extension AccountSignInModel.LoadingStage {
         case .finishing:
             return String(
                 localized: "account.signIn.loading.finishing.instructions",
-                defaultValue: "cmux is verifying your Stack account. Keep this pane open."
+                defaultValue: "cmux is verifying your account. Keep this pane open."
             )
         }
     }
@@ -278,19 +289,19 @@ private extension AccountSignInModel.Failure {
         case .offline:
             return String(localized: "account.signIn.error.offline.title", defaultValue: "No internet connection")
         case .network:
-            return String(localized: "account.signIn.error.network.title", defaultValue: "Couldn’t reach Stack")
+            return String(localized: "account.signIn.error.network.title", defaultValue: "Couldn’t reach cmux")
         case .timedOut:
             return String(localized: "account.signIn.error.timedOut.title", defaultValue: "Sign-in timed out")
         case .server:
-            return String(localized: "account.signIn.error.server.title", defaultValue: "Stack is temporarily unavailable")
+            return String(localized: "account.signIn.error.server.title", defaultValue: "cmux sign-in is temporarily unavailable")
         case .invalidLink:
             return String(localized: "account.signIn.error.invalidLink.title", defaultValue: "That sign-in link is no longer valid")
         case .browserUnavailable:
             return String(localized: "account.signIn.error.browserUnavailable.title", defaultValue: "Couldn’t open sign-in")
         case .unauthorized:
-            return String(localized: "account.signIn.error.unauthorized.title", defaultValue: "Stack couldn’t authorize this sign-in")
+            return String(localized: "account.signIn.error.unauthorized.title", defaultValue: "cmux couldn’t authorize this sign-in")
         case .rejected:
-            return String(localized: "account.signIn.error.rejected.title", defaultValue: "Stack rejected the sign-in")
+            return String(localized: "account.signIn.error.rejected.title", defaultValue: "cmux couldn’t complete the sign-in")
         case .unknown:
             return String(localized: "account.signIn.error.unknown.title", defaultValue: "Couldn’t finish sign-in")
         }
@@ -336,7 +347,7 @@ private extension AccountSignInModel.Failure {
         case .unauthorized:
             return String(
                 localized: "account.signIn.error.unauthorized.recovery",
-                defaultValue: "Confirm you’re using the intended Stack account, then try again."
+                defaultValue: "Confirm you’re using the intended cmux account, then try again."
             )
         case .rejected:
             return String(

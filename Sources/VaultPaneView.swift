@@ -7,6 +7,9 @@ import SwiftUI
 struct VaultPaneView: View {
     @ObservedObject var store: SessionIndexStore
     let onResume: ((SessionEntry) -> Void)?
+    let onOpen: ((SessionEntry) -> Void)?
+    let activeSessionKeys: Set<String>
+    let onFocus: ((SessionEntry) -> Void)?
     let historyLog: VaultHistoryEventLog
     @AppStorage("vaultPane.tab") private var selectedTabRawValue = VaultPaneTab.sessions.rawValue
 
@@ -19,7 +22,13 @@ struct VaultPaneView: View {
             tabBar
             switch selectedTab {
             case .sessions:
-                SessionIndexView(store: store, onResume: onResume)
+                SessionIndexView(
+                    store: store,
+                    onResume: onResume,
+                    onOpen: onOpen,
+                    activeSessionKeys: activeSessionKeys,
+                    onFocus: onFocus
+                )
             case .history:
                 VaultHistoryView(sessionStore: store, log: historyLog)
             }

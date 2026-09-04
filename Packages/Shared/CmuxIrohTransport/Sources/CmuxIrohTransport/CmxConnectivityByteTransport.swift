@@ -6,6 +6,7 @@ actor CmxConnectivityByteTransport:
     CmxByteTransport,
     CmxByteTransportClosureObserving,
     CmxByteTransportContinuityIdentifying,
+    CmxByteTransportDiagnosticSessionIdentifying,
     CmxByteTransportSessionPurposeUpdating
 {
     private var request: CmxByteTransportRequest
@@ -77,6 +78,10 @@ actor CmxConnectivityByteTransport:
 
     func transportContinuityID() async -> UInt64? {
         await session?.connectionContinuityID()
+    }
+
+    func transportDiagnosticSessionID() async -> Int? {
+        await engine.diagnosticSessionID(for: request)
     }
 
     func transportClosureObservation() -> CmxTransportClosureObservation? {

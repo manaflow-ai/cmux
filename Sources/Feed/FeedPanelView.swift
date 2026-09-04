@@ -74,6 +74,7 @@ struct FeedPanelView: View {
 
     @State private var filter: Filter = .actionable
     @StateObject private var viewModel = FeedPanelViewModel()
+    let chromeBackgroundColor: NSColor
 
     var body: some View {
         VStack(spacing: 0) {
@@ -103,7 +104,7 @@ struct FeedPanelView: View {
             #endif
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
         .reportRightSidebarChromeGeometryForBonsplitUITest(role: .secondaryBar, isVisible: true, titlebarHeight: RightSidebarChromeMetrics.secondaryBarHeight)
     }
 
@@ -961,12 +962,12 @@ struct FeedRowActions {
             },
             jump: { workstreamId in
                 Task { @MainActor in
-                    _ = FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
+                    _ = await FeedCoordinator.shared.focusIfPossible(workstreamId: workstreamId)
                 }
             },
             sendText: { workstreamId, text in
                 Task { @MainActor in
-                    FeedCoordinator.shared.sendTextToWorkstream(
+                    _ = await FeedCoordinator.shared.sendTextToWorkstream(
                         workstreamId: workstreamId,
                         text: text
                     )

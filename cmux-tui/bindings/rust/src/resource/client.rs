@@ -89,24 +89,45 @@ fn connect_with_budget(
     config: &Config,
     operation: &str,
     budget: &CallBudget,
+    allow_legacy_fallback: bool,
 ) -> Result<JsonLineConnection> {
     let timeout = budget.remaining(operation)?;
     let poll_interval =
         if budget.cancellation.is_some() { CANCELLATION_POLL_INTERVAL } else { timeout };
-    JsonLineConnection::connect_with_poll_checks(
+    let result = JsonLineConnection::connect_with_poll_checks(
         &config.socket_path,
         timeout,
         config.timeout,
         config.max_response_bytes,
         poll_interval,
         || budget.check(operation),
-    )
+    );
+    if let Err(Error::ConnectionIo { kind, .. }) = &result
+        && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+        && allow_legacy_fallback
+        && let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
+    {
+        return JsonLineConnection::connect_with_poll_checks(
+            &legacy,
+            timeout,
+            config.timeout,
+            config.max_response_bytes,
+            poll_interval,
+            || budget.check(operation),
+        );
+    }
+    result
 }
 
 /// Connection and bound configuration for the resource SDK.
+/// Resource connection settings.
 #[derive(Clone, Debug)]
 pub struct Config {
+    /// Primary socket path. This path is authoritative for `Client::connect`;
+    /// legacy fallback is available only through the explicit compatibility
+    /// constructor.
     pub socket_path: PathBuf,
+    /// Maximum time to wait for a connection and each request operation.
     pub timeout: Duration,
     pub max_request_bytes: usize,
     pub max_response_bytes: usize,
@@ -126,10 +147,25 @@ impl Config {
         }
     }
 
+    /// Builds a configuration from the environment or a named session.
+    ///
+    /// This source-compatible convenience API uses an isolated deterministic
+    /// path for invalid derived session input when no socket environment
+    /// override is set. An explicit or inherited socket path is authoritative
+    /// and bypasses session derivation. Use
+    /// [`Self::try_from_env_or_default_session`] to receive the error.
     pub fn from_env_or_default_session(session: &str) -> Self {
-        let socket_path = crate::client::env_socket_path()
-            .unwrap_or_else(|| crate::client::default_socket_path(session));
+        let env = crate::client::env_socket_path();
+        let socket_path = crate::client::compatibility_socket_path_for_session(session, env);
         Self::from_socket_path(socket_path)
+    }
+
+    /// Builds a resource configuration and reports invalid derived session
+    /// input. An explicit or inherited socket path is accepted as-is.
+    pub fn try_from_env_or_default_session(session: &str) -> Result<Self> {
+        let socket_path =
+            crate::client::socket_path_for_session(session, crate::client::env_socket_path())?;
+        Ok(Self::from_socket_path(socket_path))
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
@@ -183,12 +219,14 @@ impl Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Self::from_env_or_default_session("main")
+        Self::try_from_env_or_default_session("main")
+            .expect("the built-in main session name is valid")
     }
 }
 
 struct SharedClient {
     config: Config,
+    allow_legacy_fallback: bool,
     control: Mutex<Option<JsonLineConnection>>,
     next_request: AtomicU64,
     closed: AtomicBool,
@@ -214,17 +252,52 @@ impl std::fmt::Debug for Client {
 }
 
 impl Client {
+    /// Connects to exactly `config.socket_path`.
+    ///
+    /// This constructor never redirects to a legacy socket. Use
+    /// [`Self::connect_with_legacy_fallback`] when that compatibility behavior
+    /// is explicitly required.
     pub fn connect(config: Config) -> Result<Self> {
+        Self::connect_inner(config, false)
+    }
+
+    /// Connects using `config.socket_path`, then explicitly opts into trying
+    /// its legacy hashed-session socket when the primary path is unavailable.
+    ///
+    /// This is a compatibility escape hatch, not automatic routing. The
+    /// configured path remains the first and authoritative attempt.
+    pub fn connect_with_legacy_fallback(config: Config) -> Result<Self> {
+        Self::connect_inner(config, true)
+    }
+
+    fn connect_inner(config: Config, allow_legacy_fallback: bool) -> Result<Self> {
         config.validate()?;
-        let connection = JsonLineConnection::connect(
+        let mut config = config;
+        let mut connection = JsonLineConnection::connect(
             &config.socket_path,
             config.timeout,
             config.timeout,
             config.max_response_bytes,
-        )?;
+        );
+        if let Err(Error::ConnectionIo { kind, .. }) = &connection
+            && matches!(kind, std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
+            && allow_legacy_fallback
+            && let Some(legacy) = crate::client::hashed_socket_legacy_path(&config.socket_path)
+            && let Ok(candidate) = JsonLineConnection::connect(
+                &legacy,
+                config.timeout,
+                config.timeout,
+                config.max_response_bytes,
+            )
+        {
+            config.socket_path = legacy;
+            connection = Ok(candidate);
+        }
+        let connection = connection?;
         Ok(Self {
             shared: Arc::new(SharedClient {
                 config,
+                allow_legacy_fallback,
                 control: Mutex::new(Some(connection)),
                 next_request: AtomicU64::new(1),
                 closed: AtomicBool::new(false),
@@ -308,11 +381,6 @@ impl Client {
         let request_options = options.request.merged_over(&self.scoped_request_options());
         let idempotency_key = options.idempotency_key;
         if let Some(revision) = options.expected_revision {
-            if !operation_accepts_revision(operation) {
-                return Err(Error::InvalidArgument(format!(
-                    "{operation} does not accept expected_revision"
-                )));
-            }
             params = params.u64(field::EXPECTED_REVISION, revision);
         }
         let mut dispatched = false;
@@ -356,7 +424,12 @@ impl Client {
         let params = params.id(field::STREAM_ID, &stream_id);
         let cancel_params = params.cancellation_scope(&stream_id);
         let envelope = request_envelope(&id, operation, params.into_value(), None);
-        let mut connection = connect_with_budget(&self.shared.config, operation, &budget)?;
+        let mut connection = connect_with_budget(
+            &self.shared.config,
+            operation,
+            &budget,
+            self.shared.allow_legacy_fallback,
+        )?;
         let send_timeout = budget.remaining(operation)?;
         connection.with_write_timeout(send_timeout, |connection| {
             connection.send_with_limit(&envelope, self.shared.config.max_request_bytes)
@@ -431,10 +504,13 @@ impl Client {
                 }
             }
         };
-        if let Err(error) = validate_stream_open_ack(&response, &stream_id) {
-            connection.close();
-            return Err(error);
-        }
+        let attachment_lease = match validate_stream_open_ack(operation, &response, &stream_id) {
+            Ok(attachment_lease) => attachment_lease,
+            Err(error) => {
+                connection.close();
+                return Err(error);
+            }
+        };
         let writer = match connection.shutdown_clone() {
             Ok(writer) => writer,
             Err(error) => {
@@ -444,6 +520,7 @@ impl Client {
         };
         ResourceStream::from_parts(StreamParts {
             id: stream_id,
+            attachment_lease,
             connection,
             writer,
             cancel_params,
@@ -504,7 +581,12 @@ impl Client {
         }
         if connection.is_none() {
             budget.check(operation)?;
-            *connection = Some(connect_with_budget(&self.shared.config, operation, &budget)?);
+            *connection = Some(connect_with_budget(
+                &self.shared.config,
+                operation,
+                &budget,
+                self.shared.allow_legacy_fallback,
+            )?);
         }
         budget.check(operation)?;
         *dispatched = true;
@@ -648,11 +730,6 @@ fn discard_connection_after(error: &Error) -> bool {
     )
 }
 
-fn operation_accepts_revision(operation: &str) -> bool {
-    use super::ops;
-    operation != ops::WORKSPACE_CREATE
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum OperationClass {
     Read,
@@ -666,7 +743,11 @@ fn operation_class(operation: &str) -> OperationClass {
 
     if matches!(
         operation,
-        ops::SESSION_EVENTS | ops::TERMINAL_ATTACH | ops::BROWSER_ATTACH | ops::SIDEBAR_VIEW_ATTACH
+        ops::SESSION_EVENTS
+            | ops::SESSION_JOURNAL_SUBSCRIBE
+            | ops::TERMINAL_ATTACH
+            | ops::BROWSER_ATTACH
+            | ops::SIDEBAR_VIEW_ATTACH
     ) {
         OperationClass::StreamOpen
     } else if matches!(
@@ -829,7 +910,11 @@ fn stream_overflow_error() -> Error {
     }
 }
 
-fn validate_stream_open_ack(response: &Value, expected: &StreamId) -> Result<()> {
+fn validate_stream_open_ack(
+    operation: &str,
+    response: &Value,
+    expected: &StreamId,
+) -> Result<Option<String>> {
     let object = response
         .as_object()
         .ok_or_else(|| Error::UnexpectedEnvelope("stream open result must be an object".into()))?;
@@ -845,9 +930,28 @@ fn validate_stream_open_ack(response: &Value, expected: &StreamId) -> Result<()>
     if let Some(cursor) = object.get("cursor") {
         super::wire::parse_cursor(cursor)?;
     }
+    let is_view_attachment = matches!(operation, ops::TERMINAL_ATTACH | ops::BROWSER_ATTACH);
+    let attachment_lease = if is_view_attachment {
+        let lease = object.get("attachment_lease").and_then(Value::as_str).ok_or_else(|| {
+            Error::UnexpectedEnvelope(
+                "terminal and browser stream results require attachment_lease".into(),
+            )
+        })?;
+        if lease.is_empty() || lease.len() > 128 {
+            return Err(Error::UnexpectedEnvelope(
+                "stream attachment_lease must contain 1 to 128 bytes".into(),
+            ));
+        }
+        Some(lease.to_string())
+    } else {
+        None
+    };
     let mut unknown = object
         .keys()
-        .filter(|field| !matches!(field.as_str(), "stream_id" | "cursor"))
+        .filter(|field| {
+            !(matches!(field.as_str(), "stream_id" | "cursor")
+                || is_view_attachment && field.as_str() == "attachment_lease")
+        })
         .cloned()
         .collect::<Vec<_>>();
     unknown.sort();
@@ -857,7 +961,7 @@ fn validate_stream_open_ack(response: &Value, expected: &StreamId) -> Result<()>
             unknown.join(", ")
         )));
     }
-    Ok(())
+    Ok(attachment_lease)
 }
 
 pub(crate) fn decode_response(response: Value, expected_id: &str) -> Result<Value> {
@@ -970,6 +1074,19 @@ fn random_stream_id() -> Result<StreamId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest as _, Sha256};
+    use std::os::unix::net::UnixListener;
+    use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
+
+    static NEXT_TEST_SOCKET: AtomicU64 = AtomicU64::new(1);
+
+    struct SocketFile(PathBuf);
+
+    impl Drop for SocketFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
 
     #[test]
     fn cancellable_connect_reuses_one_socket_across_poll_slices() {
@@ -983,7 +1100,7 @@ mod tests {
         let config = Config::from_socket_path("pending-connect.sock");
 
         assert!(matches!(
-            connect_with_budget(&config, ops::SESSION_LIST, &budget),
+            connect_with_budget(&config, ops::SESSION_LIST, &budget, false),
             Err(Error::Timeout(_))
         ));
         assert_eq!(probe.polls(), 3, "the connect should span the configured poll slices");
@@ -1018,7 +1135,7 @@ mod tests {
         let config = Config::from_socket_path("cancel-pending-connect.sock");
 
         assert!(matches!(
-            connect_with_budget(&config, ops::SESSION_LIST, &budget),
+            connect_with_budget(&config, ops::SESSION_LIST, &budget, false),
             Err(Error::Cancelled(_))
         ));
         canceler.join().unwrap();
@@ -1032,5 +1149,72 @@ mod tests {
         assert_eq!(operation_class(ops::REQUEST_CANCEL), OperationClass::ConnectionControl);
         assert_eq!(operation_class(ops::TERMINAL_VIEWER_RESIZE), OperationClass::ConnectionControl);
         assert_eq!(operation_class(ops::TAB_CREATE_TERMINAL), OperationClass::Mutation);
+    }
+
+    #[test]
+    fn compatibility_config_constructor_does_not_panic_for_invalid_session() {
+        let result = std::panic::catch_unwind(|| Config::from_env_or_default_session("../escape"));
+        assert!(result.is_ok(), "source-compatible constructor must not panic");
+    }
+
+    #[test]
+    fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
+        let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
+        let session = format!("resource-fallback-{}-{id}", std::process::id());
+        let dir = PathBuf::from("/tmp").join(crate::client::private_runtime_dir_name());
+        std::fs::create_dir_all(&dir).unwrap();
+        let legacy = SocketFile(dir.join(format!("{session}.sock")));
+        let runtime_name = crate::client::private_runtime_dir_name();
+        let uid = runtime_name.strip_prefix("cmux-tui-").unwrap();
+        let hashed_dir = PathBuf::from("/tmp").join(format!("cmux-tui-hashed-{uid}"));
+        std::fs::create_dir_all(&hashed_dir).unwrap();
+        let digest = format!("{:x}.sock", Sha256::digest(session.as_bytes()));
+        let config = Config::from_socket_path(hashed_dir.join(digest));
+        assert!(
+            config
+                .socket_path
+                .parent()
+                .and_then(std::path::Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().starts_with("cmux-tui-hashed-"))
+        );
+        let listener = UnixListener::bind(&legacy.0).unwrap();
+        assert_eq!(
+            crate::client::hashed_socket_legacy_path(&config.socket_path),
+            Some(legacy.0.clone())
+        );
+
+        let client = Client::connect_with_legacy_fallback(config).unwrap();
+        assert_eq!(client.config().socket_path, legacy.0);
+        drop(listener);
+    }
+
+    #[test]
+    fn explicit_socket_authority_does_not_install_a_legacy_fallback() {
+        let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
+        let explicit = std::env::temp_dir()
+            .join(format!("cmux-resource-explicit-{}-{id}.sock", std::process::id()));
+        let config = Config::from_socket_path(&explicit);
+        assert_eq!(config.socket_path, explicit);
+    }
+
+    #[test]
+    fn protocol_retry_classification_preserves_the_typed_retryable_field() {
+        for retryable in [false, true] {
+            let error = decode_protocol_error(&serde_json::json!({
+                "code": "resource.busy",
+                "message": "try later",
+                "details": {"resource": "workspace_test"},
+                "retryable": retryable,
+            }))
+            .unwrap();
+            assert!(matches!(
+                error,
+                Error::Protocol {
+                    code,
+                    retryable: actual,
+                    ..
+                } if code == "resource.busy" && actual == retryable
+            ));
+        }
     }
 }
