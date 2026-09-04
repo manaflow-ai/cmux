@@ -6,10 +6,7 @@ Expands the Cloud VM rules in [../SKILL.md](../SKILL.md).
 
 Postgres owns VM lifecycle state, active VM limits, idempotency records, usage events, provider identifiers, and team/account ownership. Provider state is observed and reconciled, not treated as canonical. When provider state and database state disagree, make the reconciliation explicit in code.
 
-Cloud VM backend logic lives in hosted route handlers and Effect services.
-Request-time workflows must be idempotent; durable state belongs in Postgres.
-Do not reintroduce a temporary actor runtime or raw actor protocol unless a
-later architecture document explicitly changes this control plane.
+Cloud VM backend logic lives in Vercel route handlers and Effect services. Request-time workflows must be idempotent; durable state belongs in Postgres. Do not reintroduce Rivet or a raw actor protocol unless a later architecture document explicitly changes this control plane.
 
 ## Migrations
 
