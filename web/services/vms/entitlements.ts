@@ -1,6 +1,11 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
-import { TEAM_PLAN_ID, isPaidPlanId } from "../billing/pro";
+import {
+  isDevelopmentProAccessEnabled,
+  PRO_PLAN_ID,
+  TEAM_PLAN_ID,
+  isPaidPlanId,
+} from "../billing/pro";
 import { PAID_MAX_ACTIVE_VMS_DEFAULT, PLAN_MACHINE_MEMORY_MB } from "./machineSpec";
 
 export {
@@ -50,6 +55,14 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(env)) {
+    return {
+      planId: PRO_PLAN_ID,
+      billingCustomerType: billing.billingCustomerType,
+      billingTeamId: billing.billingTeamId,
+      maxActiveVms: maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats }),
+    };
+  }
   const configuredDefaultPlan = env.CMUX_VM_DEFAULT_PLAN;
   // A deployment-wide default is useful for local/demo fixtures, but it must
   // never grant a paid entitlement to an account with no billing metadata in
