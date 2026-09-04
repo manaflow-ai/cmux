@@ -2610,7 +2610,12 @@ struct ComputerUseUXTests {
         #expect(skill.contains(
             "Actions return a compact dispatch acknowledgement"
         ))
-        #expect(skill.contains(
+        // Markdown wrapping is presentation-only; assert the instruction's
+        // words rather than depending on a particular source line break.
+        let normalizedSkill = skill
+            .split(whereSeparator: \.isWhitespace)
+            .joined(separator: " ")
+        #expect(normalizedSkill.contains(
             "call `get_app_state` before deciding what to do next"
         ))
         #expect(skill.contains(
