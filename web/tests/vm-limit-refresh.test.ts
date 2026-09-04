@@ -104,6 +104,70 @@ describe("lazy active-limit provider refresh", () => {
     expect(beginReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 131072 });
   });
 
+  test("keeps the baked image disk in a memory-sized paid reservation", async () => {
+    const requested = row({
+      id: "00000000-0000-4000-8000-000000000107",
+      status: "provisioning",
+      providerVmId: null,
+    });
+    const running = row({
+      id: "00000000-0000-4000-8000-000000000108",
+      status: "running",
+      providerVmId: "provider-vm-memory-image",
+    });
+    let beginReservation: unknown;
+    const repo = {
+      beginCreate: (input: { resourceReservation?: unknown }) => {
+        beginReservation = input.resourceReservation;
+        return Effect.succeed({ inserted: true, vm: requested });
+      },
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" as const }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      markCreateRunning: () => Effect.succeed(running),
+      markCreateFailed: () => Effect.void,
+      recordUsageEvent: () => Effect.void,
+      recordUsageEvents: () => Effect.void,
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      create: () => Effect.succeed({
+        provider: "freestyle" as const,
+        providerVmId: running.providerVmId!,
+        status: "running" as const,
+        image: "snapshot-test",
+        createdAt: FIXTURE_NOW.getTime(),
+      }),
+      destroy: () => Effect.void,
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+    } as unknown as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      createVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: "snapshot-test",
+        memoryMb: 16 * 1024,
+        imageSize: { name: "xl", cpu: 16, memoryMb: 32 * 1024, storageMb: 128 * 1024 },
+      }).pipe(Effect.provide(Layer.mergeAll(
+        Layer.succeed(VmRepository, repo),
+        Layer.succeed(VmProviderGateway, provider),
+        Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+      ))),
+    );
+
+    expect(beginReservation).toEqual({
+      vcpus: 4,
+      memoryMb: 16 * 1024,
+      diskMb: 128 * 1024,
+    });
+  });
+
   test("refreshes stale rows for every provider with a status read, not just freestyle", async () => {
     const requested = row({ status: "provisioning", providerVmId: null });
     const running = row({
