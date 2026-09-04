@@ -312,6 +312,10 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.machine_sidebar_area(frame.area().height) else { return };
     let Some(machine_ui) = app.machine_ui.as_ref() else { return };
     let machines = machine_ui.snapshot.machines.clone();
+    let connection_phases = machines
+        .iter()
+        .map(|machine| machine_ui.connection_phase(machine.key))
+        .collect::<Vec<_>>();
     let active = app.selected_machine();
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
@@ -394,7 +398,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         let recoverable = managed.is_some_and(|managed| {
             managed.status == crate::machine::ManagedMachineStatus::Recoverable
         });
-        let connection_phase = machine_ui.connection_phase(machine.key);
+        let connection_phase = connection_phases[index];
         let status = match connection_phase {
             crate::machine::MachineConnectionPhase::Connecting => messages.connecting,
             crate::machine::MachineConnectionPhase::Failed => messages.unavailable,

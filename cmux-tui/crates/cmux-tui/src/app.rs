@@ -28745,7 +28745,8 @@ mod tests {
         RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
         SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
         SidebarActionTarget, SidebarHiddenReason, SidebarHiddenView, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarSplitGroupPlacement,
+        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarRailScrollState,
+        SidebarSplitGroupPlacement,
         SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
         SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
         TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
@@ -33036,7 +33037,7 @@ mod tests {
         let mux = Mux::new("sidebar-profile-split-fractions-test", SurfaceOptions::default());
         let mut first = split_sidebar_config();
         let mut second_layout = first.sidebar.layout.clone();
-        if let Some(crate::config::SidebarLayoutNode::Split(split)) = second_layout.first_mut() {
+        if let Some(SidebarLayoutNode::Split(split)) = second_layout.first_mut() {
             split.weights = vec![3, 1];
         }
         let first_profile = SidebarProfileSpec {
@@ -33484,7 +33485,7 @@ mod tests {
         // hit map until the next draw, so dispatch must validate its geometry
         // before accepting the drag.
         app.drag = None;
-        if let Some(crate::config::SidebarLayoutNode::Split(split)) =
+        if let Some(SidebarLayoutNode::Split(split)) =
             app.config.sidebar.layout.first_mut()
         {
             split.weights = vec![3, 1];
