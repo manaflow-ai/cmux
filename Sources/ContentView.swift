@@ -10869,6 +10869,25 @@ extension SidebarDragState {
 /// so pressing/releasing the modifier key while the menu is up does not flip
 /// the underlying row's shortcut badges (which would be visible around the
 /// open context menu). All other rows transition live.
+
+/// Resolves live workspaces by identity while retaining the first entry for
+/// duplicate ids. Provider snapshots can contain an id that is no longer
+/// live, so callers must treat a missing lookup as an empty result.
+func cmuxSidebarWorkspaceIndex<Value>(
+    _ values: [Value],
+    id: (Value) -> UUID
+) -> [UUID: Value] {
+    var index: [UUID: Value] = [:]
+    index.reserveCapacity(values.count)
+    for value in values {
+        let valueID = id(value)
+        if index[valueID] == nil {
+            index[valueID] = value
+        }
+    }
+    return index
+}
+
 struct VerticalTabsSidebar: View, Equatable {
     // Equatable gates only parent-driven re-evaluation: closures and
     // Bindings are excluded on purpose (recreated per parent eval but
@@ -12787,11 +12806,7 @@ struct VerticalTabsSidebar: View, Equatable {
         // snapshot O(workspaces²). Build the identity index once while
         // retaining the old first-match behavior if corrupt state contains
         // duplicate workspace ids.
-        var liveWorkspacesByID: [UUID: Workspace] = [:]
-        liveWorkspacesByID.reserveCapacity(tabs.count)
-        for tab in tabs where liveWorkspacesByID[tab.id] == nil {
-            liveWorkspacesByID[tab.id] = tab
-        }
+        let liveWorkspacesByID = cmuxSidebarWorkspaceIndex(tabs, id: \.id)
         return CmuxSidebarSnapshot(
             sequence: snapshot.sequence,
             windowID: snapshot.windowId,
