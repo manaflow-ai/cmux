@@ -368,6 +368,7 @@ enum BrowserSettingsFileMapping {
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
+        .init(jsonKey: "defaultEngine", defaultsKey: "browser.defaultEngine"),
         .init(jsonKey: "reactGrabVersion", defaultsKey: ReactGrabSettings.versionKey),
     ]
 
@@ -514,6 +515,9 @@ extension CmuxSettingsFileStore {
         "automation.portRange",
         "browser.defaultSearchEngine",
         "browser.defaultZoomLevel",
+        "browser.defaultEngine",
+        "browser.remoteDebuggingPort",
+        "browser.extensionDirectories",
         "browser.customSearchEngineName",
         "browser.customSearchEngineURLTemplate",
         "browser.showSearchSuggestions",

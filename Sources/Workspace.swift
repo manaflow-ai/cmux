@@ -712,6 +712,8 @@ extension Workspace {
                 browserSnapshot = SessionBrowserPanelSnapshot(
                     urlString: browserPanel.preferredURLStringForSessionSnapshot(),
                     profileID: browserPanel.profileID,
+                    engine: browserPanel.engineKind,
+                    chromiumStorageID: browserPanel.engineKind == .chromium ? browserPanel.chromiumStorageID : nil,
                     shouldRenderWebView: browserPanel.shouldRenderWebViewForSessionSnapshot(),
                     pageZoom: Double(browserPanel.currentPageZoomFactor()),
                     developerToolsVisible: browserPanel.isDeveloperToolsVisible(),
@@ -2146,7 +2148,9 @@ extension Workspace {
                 focus: false,
                 preferredProfileID: snapshot.browser?.profileID,
                 creationPolicy: .restoration,
-                transparentBackground: snapshot.browser?.transparentBackground ?? false
+                transparentBackground: snapshot.browser?.transparentBackground ?? false,
+                engine: snapshot.browser?.engine ?? .webkit,
+                chromiumStorageID: snapshot.browser?.chromiumStorageID
             ) else {
                 return nil
             }
@@ -4694,6 +4698,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
+                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4705,6 +4710,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     preferredProfileID: sourcePanel.profileID,
                     focus: true,
                     allowsExternalBrowserFallback: false,
+                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4721,6 +4727,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     insertAtEnd: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
+                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4753,6 +4760,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     focus: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
+                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4764,6 +4772,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     preferredProfileID: sourcePanel.profileID,
                     focus: true,
                     allowsExternalBrowserFallback: false,
+                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -4780,6 +4789,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                     insertAtEnd: true,
                     preferredProfileID: sourcePanel.profileID,
                     allowsExternalBrowserFallback: false,
+                    engine: sourcePanel.engineKind,
                     websiteDataStore: websiteDataStore
                 ) != nil
             },
@@ -9567,6 +9577,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
+        engine: BrowserEngineKind? = nil,
+        chromiumStorageID: UUID? = nil,
         initialDividerPosition: CGFloat? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
@@ -9610,6 +9622,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: panelId
             ),
+            chromiumStorageID: chromiumStorageID,
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
@@ -9618,6 +9631,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
+            engine: engine,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             websiteDataStore: websiteDataStore
@@ -9695,6 +9709,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         chromeVisibility: BrowserChromeVisibility = .visible,
         transparentBackground: Bool = false,
         bypassRemoteProxy: Bool = false,
+        engine: BrowserEngineKind? = nil,
+        chromiumStorageID: UUID? = nil,
         websiteDataStore: WKWebsiteDataStore? = nil
     ) -> BrowserPanel? {
         guard !isRetiredFromOwningTabManager else { return nil }
@@ -9730,6 +9746,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 preferredProfileID: preferredProfileID,
                 sourcePanelId: sourcePanelId
             ),
+            chromiumStorageID: chromiumStorageID,
             initialURL: url,
             initialRequest: initialRequest,
             renderInitialNavigation: browserEnabled || creationPolicy != .restoration,
@@ -9739,6 +9756,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             transparentBackground: transparentBackground,
             proxyEndpoint: remoteProxyEndpoint,
             bypassRemoteProxy: bypassRemoteProxy,
+            engine: engine,
             isRemoteWorkspace: isRemoteWorkspace,
             remoteWebsiteDataStoreIdentifier: isRemoteWorkspace && !bypassRemoteProxy ? id : nil,
             websiteDataStore: websiteDataStore
@@ -10674,6 +10692,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             workspaceId: id,
             url: resolvedURL,
             profileID: browserPanel.profileID,
+            engine: browserPanel.engineKind,
+            chromiumStorageID: browserPanel.engineKind == .chromium ? browserPanel.chromiumStorageID : nil,
             originalPaneId: pane.id,
             originalTabIndex: tabIndex,
             fallbackSplitOrientation: fallbackPlan?.orientation,
@@ -11985,7 +12005,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     }
 
     private func browserPortalReady(for browserPanel: BrowserPanel) -> Bool {
-        browserPortalAnchorReady(for: browserPanel) &&
+        // Chromium is painted by its own host view. It has no WKWebView portal
+        // entry to bind, so the portal registry must never gate layout follow-up.
+        if browserPanel.isChromiumBacked { return true }
+        return browserPortalAnchorReady(for: browserPanel) &&
             browserPanel.webView.window != nil &&
             browserPanel.webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             BrowserWindowPortalRegistry.isWebView(browserPanel.webView, boundTo: browserPanel.portalAnchorView)
@@ -12000,6 +12023,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         let selectionConverged =
             bonsplitController.focusedPaneId == paneId &&
             bonsplitController.selectedTab(inPane: paneId)?.id == tabId
+        if browserPanel.isChromiumBacked {
+            return !selectionConverged
+        }
         return !selectionConverged || !browserPortalAnchorReady(for: browserPanel)
     }
 
@@ -12016,6 +12042,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
               let browserPanel = browserPanel(for: panelId) else {
             return false
         }
+        if browserPanel.isChromiumBacked { return false }
         return !browserPortalReady(for: browserPanel)
     }
 
@@ -12067,21 +12094,25 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         if let browserPanelId = layoutFollowUpBrowserPanelId {
             if let browserPanel = browserPanel(for: browserPanelId) {
-                let anchorReady = browserPortalAnchorReady(for: browserPanel)
-                let wasReady = browserPortalReady(for: browserPanel)
-                if anchorReady && !wasReady {
-                    BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
-                }
-                let isReady = browserPortalReady(for: browserPanel)
-                if isReady,
-                   (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
-                    BrowserWindowPortalRegistry.refresh(
-                        webView: browserPanel.webView,
-                        reason: reason
-                    )
-                }
-                if isReady {
+                if browserPanel.isChromiumBacked {
                     layoutFollowUpBrowserPanelId = nil
+                } else {
+                    let anchorReady = browserPortalAnchorReady(for: browserPanel)
+                    let wasReady = browserPortalReady(for: browserPanel)
+                    if anchorReady && !wasReady {
+                        BrowserWindowPortalRegistry.synchronizeForAnchor(browserPanel.portalAnchorView)
+                    }
+                    let isReady = browserPortalReady(for: browserPanel)
+                    if isReady,
+                       (!wasReady || BrowserWindowPortalRegistry.debugSnapshot(for: browserPanel.webView)?.containerHidden == true) {
+                        BrowserWindowPortalRegistry.refresh(
+                            webView: browserPanel.webView,
+                            reason: reason
+                        )
+                    }
+                    if isReady {
+                        layoutFollowUpBrowserPanelId = nil
+                    }
                 }
             } else {
                 layoutFollowUpBrowserPanelId = nil
@@ -12340,6 +12371,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
+            if browserPanel.isChromiumBacked { continue }
             // Canvas-inline-hosted webviews live in the pane hierarchy; portal
             // rebinds/refreshes here would steal them back into the portal.
             if browserPanel.canvasInlineHostingActive { continue }
@@ -12402,6 +12434,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         for panel in panels.values {
             guard let browserPanel = panel as? BrowserPanel else { continue }
+            if browserPanel.isChromiumBacked { continue }
             guard visiblePanelIds.contains(browserPanel.id) else { continue }
             let anchorView = browserPanel.portalAnchorView
             let anchorReady =
@@ -12480,6 +12513,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             url: url,
             focus: true,
             preferredProfileID: sourceBrowser?.profileID,
+            engine: sourceBrowser?.engineKind,
             websiteDataStore: sourceBrowser?.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return }
         _ = reorderSurface(panelId: newPanel.id, toIndex: targetIndex)
@@ -12498,6 +12532,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             preferredProfileID: browser.profileID,
             chromeVisibility: browser.chromeVisibility,
             bypassRemoteProxy: browser.bypassesRemoteWorkspaceProxyForTabDuplication,
+            engine: browser.engineKind,
             websiteDataStore: browser.explicitEphemeralWebsiteDataStoreForSibling
         ) else { return nil }
         newPanel.setMuted(browser.isMuted)

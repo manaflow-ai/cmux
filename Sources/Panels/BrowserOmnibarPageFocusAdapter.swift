@@ -23,6 +23,13 @@ final class BrowserOmnibarPageFocusAdapter: BrowserOmnibarScriptEvaluating {
             return
         }
         let bridge = BrowserJavaScriptCompletionBridge()
+        if panel.isChromiumBacked {
+            Task { @MainActor in
+                do { completion(try await panel.evaluateChromiumJavaScript(script).anyValue, nil) }
+                catch { completion(nil, error) }
+            }
+            return
+        }
         panel.webView.evaluateJavaScript(script) { result, error in
             // WebKit may invoke an Objective-C completion without an active
             // main-actor executor during nested menu tracking. The bridge

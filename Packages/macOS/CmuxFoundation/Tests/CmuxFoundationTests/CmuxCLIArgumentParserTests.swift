@@ -20,6 +20,13 @@ struct CmuxCLIArgumentParserTests {
         #expect(result.remaining == ["run", "--command", "--json"])
     }
 
+    @Test("engine values cannot be consumed as presentation flags")
+    func preservesEngineValue() throws {
+        let result = try parser.parse(["open", "--engine", "--json"])
+        #expect(!result.jsonOutput)
+        #expect(result.remaining == ["open", "--engine", "--json"])
+    }
+
     @Test("terminator stops presentation parsing")
     func honorsTerminator() throws {
         let result = try parser.parse(["run", "--", "--json"])

@@ -312,6 +312,8 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
         let profileKeys = ["profile", "profile_id", "profile_name"]
+        let parsedEngine = browserEngineParameter(params)
+        if let error = parsedEngine.error { return error }
 
         let inputs = ControlPaneCreateInputs(
             directionRaw: string(params, "direction"),
@@ -320,6 +322,7 @@ extension ControlCommandCoordinator {
             profileRaw: string(params, "profile")
                 ?? string(params, "profile_id")
                 ?? string(params, "profile_name"),
+            engine: parsedEngine.engine,
             hasInvalidProfileParam: profileKeys.contains {
                 hasNonNull(params, $0) && string(params, $0) == nil
             },
