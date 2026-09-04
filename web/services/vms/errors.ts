@@ -33,6 +33,11 @@ export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError
   readonly reason: "below_current" | "above_max";
 }> {}
 
+/** A grow-only disk resize is already running for this machine. */
+export class VmResizeInProgressError extends Data.TaggedError("VmResizeInProgressError")<{
+  readonly vmId: string;
+}> {}
+
 /**
  * A private-network or tunnel operation on a deployment that does not serve
  * one — the provider has no `privateNetworking`, or
@@ -180,6 +185,7 @@ export type VmWorkflowError =
   | VmOperationUnsupportedError
   | VmNotFoundError
   | VmResizeInvalidError
+  | VmResizeInProgressError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
@@ -213,6 +219,10 @@ export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
 
 export function isVmResizeInvalidError(err: unknown): err is VmResizeInvalidError {
   return (err as { _tag?: string } | null)?._tag === "VmResizeInvalidError";
+}
+
+export function isVmResizeInProgressError(err: unknown): err is VmResizeInProgressError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInProgressError";
 }
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
@@ -300,6 +310,7 @@ const vmWorkflowErrorTagRecord = {
   VmOperationUnsupportedError: true,
   VmNotFoundError: true,
   VmResizeInvalidError: true,
+  VmResizeInProgressError: true,
   VmSnapshotNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,

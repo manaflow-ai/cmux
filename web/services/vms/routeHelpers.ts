@@ -39,6 +39,7 @@ import {
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
   isVmResizeInvalidError,
+  isVmResizeInProgressError,
   isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
@@ -718,6 +719,18 @@ export async function vmWorkflowErrorResponse(
       phase: "resize",
       retryable: false,
       details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
+    });
+  }
+
+  if (isVmResizeInProgressError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_resize_in_progress",
+      status: 409,
+      message: "A disk resize is already running for this Cloud VM.",
+      action: "Wait for the current resize to finish, then retry.",
+      phase: "resize",
+      retryable: true,
+      retryAfterSeconds: 5,
     });
   }
 

@@ -13,6 +13,7 @@ import {
 import {
   VmFreeAccessExpiredError,
   VmNotFoundError,
+  VmResizeInProgressError,
   VmSharedResourceLimitExceededError,
 } from "../services/vms/errors";
 import {
@@ -171,6 +172,19 @@ describe("Cloud VM route error adapters", () => {
     });
     expect(fork?.status).toBe(409);
     expect((await responseBody(fork!)).error).toBe("vm_shared_resource_limit_exceeded");
+  });
+
+  test("maps a concurrent disk resize to a retryable conflict", async () => {
+    const response = await vmWorkflowErrorResponse(new VmResizeInProgressError({
+      vmId: "vm-resize-in-progress",
+    }));
+    expect(response?.status).toBe(409);
+    expect(response?.headers.get("retry-after")).toBe("5");
+    expect(await responseBody(response!)).toMatchObject({
+      error: "vm_resize_in_progress",
+      retryable: true,
+      retryAfterSeconds: 5,
+    });
   });
 
   test("keeps fork and restore provisioning guidance distinct", async () => {

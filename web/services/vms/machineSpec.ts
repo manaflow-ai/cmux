@@ -6,9 +6,9 @@
  * The count allowance and the resource pool are separate limits. Postgres
  * records each machine's reservation, and the VM repository checks the live
  * claims while holding the billing-team lock. CPU and memory are shared
- * ceilings, so the largest live claim wins; persistent disk reservations add
- * across live machines. A provider image can be overprovisioned to the nearest
- * baked shape; that physical shape is not extra plan capacity. Keeping the
+ * ceilings, so every live claim adds to the pool. A provider image can be
+ * overprovisioned to the nearest baked shape; that physical shape is not extra
+ * plan capacity. Keeping the
  * policy here gives pricing tests, workflows, and provider sizing one source of
  * truth.
  *
@@ -132,13 +132,48 @@ export function firstExceededSharedResource(input: {
   return null;
 }
 
-/** CPU and memory share one ceiling; persistent disk reservations are additive. */
+/** Every resource claim adds to the account-wide shared pool. */
 export function sharedResourceUsage(
   resource: VmSharedResourceName,
   used: number,
   requested: number,
 ): number {
-  return resource === "diskMb" ? used + requested : Math.max(used, requested);
+  return used + requested;
+}
+
+export type VmResourceResizePending = {
+  /** Unique request generation used to protect confirmation and rollback. */
+  readonly operationId: string;
+  readonly requestedDiskMb: number;
+  readonly previousDiskMb: number;
+};
+
+/** Read a validated in-flight resize marker from provider metadata. */
+export function vmResourceResizePendingFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): VmResourceResizePending | null {
+  const raw = metadata?.[VM_RESOURCE_RESIZE_PENDING_METADATA_KEY];
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const candidate = raw as Record<string, unknown>;
+  const operationId = candidate.operationId;
+  const requestedDiskMb = candidate.requestedDiskMb;
+  const previousDiskMb = candidate.previousDiskMb;
+  if (
+    typeof operationId !== "string" ||
+    operationId.trim().length === 0 ||
+    operationId.length > 200 ||
+    !isPositiveSafeInteger(requestedDiskMb) ||
+    !isPositiveSafeInteger(previousDiskMb)
+  ) return null;
+  return {
+    operationId: operationId.trim(),
+    requestedDiskMb,
+    previousDiskMb,
+  };
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 /** Read a persisted reservation, falling back safely for legacy VM rows. */

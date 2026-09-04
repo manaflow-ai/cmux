@@ -26,12 +26,15 @@ import {
 import { vmCreateDisabledReason } from "./config";
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
+  PLAN_SHARED_DISK_MB,
   VM_DISK_MB_MAX,
   VM_DISK_MB_STEP,
+  VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
+  vmResourceResizePendingFromMetadata,
   type VmResourceReservation,
 } from "./machineSpec";
 import {
@@ -41,6 +44,7 @@ import {
   VmCreateDisabledError,
   VmCreateFailedError,
   VmCreateInProgressError,
+  VmDatabaseError,
   VmFreeAccessExpiredError,
   VmModelPlaneError,
   VmNotFoundError,
@@ -54,7 +58,6 @@ import {
   isVmSharedResourceLimitExceededError,
   isVmModelPlaneError,
   vmWorkflowErrorCause,
-  type VmDatabaseError,
   type VmWorkflowError,
 } from "./errors";
 import {
@@ -1015,7 +1018,9 @@ export function snapshotVm(input: {
         name: input.name ?? null,
         // Persist the source claim with the snapshot event. Restores can then
         // reserve the captured disk even after the source VM is gone or grows.
-        diskMb: snapshotDiskMb ?? VM_DISK_MB_MAX,
+        // An old provider event has no durable disk field. Claim the complete
+        // shared pool so a restore cannot make an unknown snapshot look free.
+        diskMb: snapshotDiskMb ?? PLAN_SHARED_DISK_MB,
       },
     });
     return snapshot;
@@ -1059,8 +1064,8 @@ export function restoreVm(input: {
       ? snapshotReservation ?? {
         ...DEFAULT_VM_RESOURCE_RESERVATION,
         // A snapshot event written before resource metadata existed has no
-        // trustworthy disk size. Fail closed until it is measured.
-        diskMb: VM_DISK_MB_MAX,
+        // trustworthy disk size. Claim the complete shared pool.
+        diskMb: PLAN_SHARED_DISK_MB,
       }
       : undefined;
     return yield* createVm({
@@ -1097,9 +1102,9 @@ function resourceReservationForFork(
     return Effect.succeed(reservation);
   }
 
-  // VM_DISK_MB_MAX is above Pro's shared pool. It is a conservative marker for
-  // an unknown legacy disk and therefore cannot silently permit an overage.
-  const unknownDisk = { ...reservation, diskMb: VM_DISK_MB_MAX };
+  // An unknown legacy disk claims the complete pool. This keeps the fallback
+  // bounded by the entitlement instead of making every restore impossible.
+  const unknownDisk = { ...reservation, diskMb: PLAN_SHARED_DISK_MB };
   if (!providers.getStats) return Effect.succeed(unknownDisk);
   return providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
     Effect.map((stats) => {
@@ -1416,19 +1421,41 @@ function reconcileLegacyResourceReservations(
     yield* Effect.forEach(candidates, (vm) => {
       const providerVmId = vm.providerVmId;
       if (!providerVmId) return Effect.void;
+      const metadata = vm.providerMetadata ?? {};
+      const hasPendingMarker = Object.prototype.hasOwnProperty.call(
+        metadata,
+        VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+      );
+      const pending = vmResourceResizePendingFromMetadata(metadata);
+      // A malformed pending marker is deliberately left in place. Clearing
+      // it without a request generation could release a newer resize claim.
+      if (hasPendingMarker && !pending) return Effect.void;
       return getStats(vm.provider, providerVmId).pipe(
         Effect.flatMap((stats) => {
           const diskMb = positiveDiskSize(stats.diskTotalMb);
           if (diskMb === null) return Effect.void;
-          return setReservation({
-            id: vm.id,
-            reservation: {
+          const existing = vmResourceReservationFromMetadata(metadata);
+          if (pending && diskMb < pending.requestedDiskMb) return Effect.void;
+          const reservation = pending
+            ? {
+              ...existing,
+              vcpus: positiveDiskSize(stats.cpus) ?? existing.vcpus,
+              memoryMb: positiveDiskSize(stats.memoryTotalMb) ?? existing.memoryMb,
+              diskMb: Math.max(pending.requestedDiskMb, diskMb),
+            }
+            : {
               ...DEFAULT_VM_RESOURCE_RESERVATION,
+              vcpus: positiveDiskSize(stats.cpus) ?? existing.vcpus,
+              memoryMb: positiveDiskSize(stats.memoryTotalMb) ?? existing.memoryMb,
               // Never replace the logical starting profile with a smaller
               // provider report. A larger report remains visible and fails
               // closed against the shared pool.
               diskMb: Math.max(DEFAULT_VM_RESOURCE_RESERVATION.diskMb, diskMb),
-            },
+            };
+          return setReservation({
+            id: vm.id,
+            reservation,
+            ...(pending ? { expectedResizeOperationId: pending.operationId } : {}),
           }).pipe(Effect.asVoid);
         }),
         // An unavailable provider leaves the marker absent, so the SQL quota
@@ -2238,6 +2265,7 @@ export function resizeVm(input: {
         id: vm.id,
         expectedDiskMb: reservation.reservedDiskMb,
         previousDiskMb: reservation.previousDiskMb,
+        operationId: reservation.operationId,
       }).pipe(Effect.catchAll(() => Effect.void))
       : Effect.void;
     const rollbackIfProviderDidNotGrow = (
@@ -2266,14 +2294,21 @@ export function resizeVm(input: {
     // Missing or malformed stats fail closed at the per-VM maximum.
     const confirmedDiskMb = positiveDiskSize(updated.diskTotalMb) ?? VM_DISK_MB_MAX;
     if (reservation && repo.confirmVmResize) {
-      yield* repo.confirmVmResize({
+      const confirmed = yield* repo.confirmVmResize({
         id: vm.id,
         expectedDiskMb: reservation.reservedDiskMb,
         ...(reservation.requestedDiskMb === undefined
           ? {}
           : { minimumDiskMb: reservation.requestedDiskMb }),
         confirmedDiskMb,
+        operationId: reservation.operationId,
       });
+      if (!confirmed) {
+        return yield* Effect.fail(new VmDatabaseError({
+          operation: "confirmVmResize",
+          cause: new Error("resize confirmation no longer owns the pending generation"),
+        }));
+      }
     }
     yield* repo.recordUsageEvent({
       userId: input.userId,

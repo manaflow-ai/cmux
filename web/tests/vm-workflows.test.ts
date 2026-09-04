@@ -194,6 +194,7 @@ describe("VM Effect workflows", () => {
       id: string;
       expectedDiskMb: number;
       confirmedDiskMb: number;
+      operationId: string;
     }> = [];
     let statsCalls = 0;
     const repo = {
@@ -201,6 +202,7 @@ describe("VM Effect workflows", () => {
       reserveVmResize: () => Effect.succeed({
         previousDiskMb: 32768,
         reservedDiskMb: 65536,
+        operationId: "resize-operation-confirmed",
       }),
       confirmVmResize: (confirmation: typeof confirmations[number]) =>
         Effect.sync(() => {
@@ -235,6 +237,7 @@ describe("VM Effect workflows", () => {
       id: vm.id,
       expectedDiskMb: 65536,
       confirmedDiskMb: 73728,
+      operationId: "resize-operation-confirmed",
     }]);
   });
 
@@ -2677,7 +2680,7 @@ describe("VM Effect workflows", () => {
         ${vmId}, 'user-workflow-resize-headroom', ${teamId}, 'pro', 'freestyle',
         'provider-vm-resize-headroom', 'snapshot-test', 'running',
         ${sql.json({
-          cmuxResourceReservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 32768 },
+          cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
         })}
       )
     `;
@@ -2699,12 +2702,12 @@ describe("VM Effect workflows", () => {
       maxActiveVms: 50,
     }));
 
-    expect(reservation).toEqual({
+    expect(reservation).toMatchObject({
       previousDiskMb: 32768,
       reservedDiskMb: 200 * 1024,
       requestedDiskMb: 65536,
-      operationId: expect.any(String),
     });
+    expect(typeof reservation?.operationId).toBe("string");
     const [pending] = await sql<{ pending: boolean }[]>`
       select provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending
       from cloud_vms
@@ -2722,12 +2725,13 @@ describe("VM Effect workflows", () => {
           image: "snapshot-test",
           maxActiveVms: 50,
           idempotencyKey: "blocked-while-resizing",
-          resourceReservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 32768 },
+          resourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
           sharedResourceCapacity: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 },
         });
       }).pipe(Effect.flip, Effect.provide(VmRepositoryLive)),
     );
-    expect(blocked).toMatchObject({ _tag: "VmSharedResourceLimitExceededError", resource: "diskMb" });
+    const blockedFailure = Array.isArray(blocked) ? blocked[0] : blocked;
+    expect(blockedFailure).toMatchObject({ _tag: "VmSharedResourceLimitExceededError", resource: "diskMb" });
 
     const confirmed = await runRepo((repo) => repo.confirmVmResize!({
       id: vmId,
@@ -2752,7 +2756,7 @@ describe("VM Effect workflows", () => {
       image: "snapshot-test",
       maxActiveVms: 50,
       idempotencyKey: "after-resize-confirmed",
-      resourceReservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 32768 },
+      resourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: 32768 },
       sharedResourceCapacity: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 },
     }));
     expect(created.inserted).toBe(true);
@@ -2838,7 +2842,7 @@ describe("VM Effect workflows", () => {
       storageMb: 65536,
       maxActiveVms: 50,
     }));
-    expect(first?.operationId).toEqual(expect.any(String));
+    expect(typeof first?.operationId).toBe("string");
 
     await sql`
       update cloud_vms
