@@ -80,7 +80,11 @@ public actor InMemoryArtifactRepository: ArtifactStoring {
     }
 
     public func replace(records: [ArtifactRecord], scope: ArtifactScope) async throws {
-        for (key, record) in recordsByIdentity where matches(record, scope: scope) && !records.contains(where: { $0.identityKey == key }) {
+        let incomingKeys = Set(records.map(\.identityKey))
+        let keysToRemove = recordsByIdentity.compactMap { key, record in
+            matches(record, scope: scope) && !incomingKeys.contains(key) ? key : nil
+        }
+        for key in keysToRemove {
             recordsByIdentity.removeValue(forKey: key)
         }
         for record in records { recordsByIdentity[record.identityKey] = record }
@@ -101,7 +105,10 @@ public actor InMemoryArtifactRepository: ArtifactStoring {
     }
 
     public func clear(scope: ArtifactScope) async throws {
-        for (key, record) in recordsByIdentity where matches(record, scope: scope) { recordsByIdentity.removeValue(forKey: key) }
+        let keysToRemove = recordsByIdentity.compactMap { key, record in
+            matches(record, scope: scope) ? key : nil
+        }
+        for key in keysToRemove { recordsByIdentity.removeValue(forKey: key) }
         notify(.cleared(scope))
     }
 
@@ -180,7 +187,8 @@ public actor InMemoryArtifactRepository: ArtifactStoring {
             retained.formUnion(pinned.map(\.identityKey))
             retained.formUnion(automatic.prefix(max(0, configuration.retentionLimit - pinned.count)).map(\.identityKey))
         }
-        for key in recordsByIdentity.keys where !retained.contains(key) {
+        let keysToRemove = recordsByIdentity.keys.filter { !retained.contains($0) }
+        for key in keysToRemove {
             recordsByIdentity.removeValue(forKey: key)
         }
     }

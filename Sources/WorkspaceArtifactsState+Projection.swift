@@ -69,10 +69,10 @@ extension WorkspaceArtifactsState {
     }
 
     func upsertProjection(_ record: ArtifactRecord) {
-        if let existing = recordsByIdentity[record.identityKey], existing.id != record.id {
+        if let existing = recordsByIdentity[record.identityKey] {
             recordsByIdentity[record.identityKey] = existing.merging(
                 source: record.source,
-                lastSeenAt: record.lastSeenAt,
+                lastSeenAt: max(existing.lastSeenAt, record.lastSeenAt),
                 title: record.title,
                 metadata: record.metadata,
                 occurrenceIncrement: max(0, record.occurrenceCount - existing.occurrenceCount)

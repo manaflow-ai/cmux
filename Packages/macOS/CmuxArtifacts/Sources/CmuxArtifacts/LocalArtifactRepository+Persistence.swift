@@ -114,7 +114,11 @@ extension LocalArtifactRepository {
             retainedKeys.formUnion(pinned.map(\.identityKey))
             retainedKeys.formUnion(automatic.prefix(automaticSlots).map(\.identityKey))
         }
-        for (key, record) in recordsByIdentity where !retainedKeys.contains(key) {
+        let keysToRemove = recordsByIdentity.compactMap { key, _ in
+            retainedKeys.contains(key) ? nil : key
+        }
+        for key in keysToRemove {
+            guard let record = recordsByIdentity[key] else { continue }
             recordsByIdentity.removeValue(forKey: key)
             try removePayloadIfUnreferenced(record)
         }

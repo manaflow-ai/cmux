@@ -148,9 +148,20 @@ public actor LocalArtifactRepository: ArtifactStoring {
     public func replace(records: [ArtifactRecord], scope: ArtifactScope) async throws {
         try ensureLoaded()
         try Task.checkCancellation()
-        let incoming = Dictionary(uniqueKeysWithValues: records.map { ($0.identityKey, normalizedRecord($0)) })
-        for (key, record) in recordsByIdentity where matches(record, scope: scope) {
-            if incoming[key] == nil { recordsByIdentity.removeValue(forKey: key) }
+        var incoming: [String: ArtifactRecord] = [:]
+        for record in records {
+            let normalized = normalizedRecord(record)
+            // A replacement is scoped by the caller's workspace/project. Do
+            // not allow a malformed or stale projection to smuggle a record
+            // owned by another scope into the global catalog.
+            guard matches(normalized, scope: scope) else { continue }
+            incoming[normalized.identityKey] = normalized
+        }
+        let keysToRemove = recordsByIdentity.compactMap { key, record in
+            matches(record, scope: scope) && incoming[key] == nil ? key : nil
+        }
+        for key in keysToRemove {
+            recordsByIdentity.removeValue(forKey: key)
         }
         for record in incoming.values { recordsByIdentity[record.identityKey] = record }
         try enforceRetention(at: now())
