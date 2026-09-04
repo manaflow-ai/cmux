@@ -109,6 +109,30 @@ import CmuxSettings
         #expect(path == "/tmp/cmux-custom.sock")
     }
 
+    @Test func nightlyBuildIgnoresAnInheritedSocketOverride() {
+        let untagged = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-from-dev.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.nightly",
+            isDebugBuild: true,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .missing }
+        )
+        let tagged = SocketControlSettings.socketPath(
+            environment: [
+                "CMUX_SOCKET_PATH": "/tmp/cmux-debug-from-dev.sock",
+            ],
+            bundleIdentifier: "com.cmuxterm.app.nightly.vpn-probe",
+            isDebugBuild: true,
+            currentUserID: 501,
+            probeStableDefaultPathEntry: { _ in .missing }
+        )
+
+        #expect(untagged == "/tmp/cmux-nightly.sock")
+        #expect(tagged == "/tmp/cmux-nightly-vpn-probe.sock")
+    }
+
     @Test func bareDebugXCTestLaunchUsesScopedSocketFallback() {
         let environment = [
             "XCTestConfigurationFilePath": "/tmp/Test-cmux-unit-2026.06.17.xctestconfiguration",
