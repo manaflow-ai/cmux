@@ -116,6 +116,7 @@ export function vmResourceReservationForCreate(input: {
   readonly env?: Record<string, string | undefined>;
 } = {}): VmResourceReservation {
   if (input.imageSize) {
+    const configuredDiskMb = vmDiskMb(input.env);
     const imageReservation = normalizeResourceReservation({
       vcpus: input.imageSize.cpu,
       memoryMb: input.imageSize.memoryMb,
@@ -124,17 +125,18 @@ export function vmResourceReservationForCreate(input: {
     // A resolver can provide both the caller's requested memory and the baked
     // image selected to satisfy it. CPU and memory stay logical entitlement
     // claims. The provider grows a small baked image to the documented starting
-    // disk, so the reservation must include that minimum too.
+    // disk, or the operator override, so the reservation must include the
+    // effective provider disk size.
     if (input.memoryMb !== undefined) {
       return normalizeResourceReservation({
         vcpus: vcpusForMemoryMb(input.memoryMb),
         memoryMb: input.memoryMb,
-        diskMb: Math.max(VM_DISK_MB_DEFAULT, imageReservation.diskMb),
+        diskMb: Math.max(configuredDiskMb, imageReservation.diskMb),
       });
     }
     return {
       ...imageReservation,
-      diskMb: Math.max(VM_DISK_MB_DEFAULT, imageReservation.diskMb),
+      diskMb: Math.max(configuredDiskMb, imageReservation.diskMb),
     };
   }
   const memoryMb = input.memoryMb ?? PLAN_MACHINE_MEMORY_MB;
