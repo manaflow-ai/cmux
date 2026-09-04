@@ -389,6 +389,7 @@ cmux cloud workspace list|create|get|rename|close|delete
 cmux cloud workspace layout export|apply
 cmux cloud terminal list|get|send|read|wait|resize|signal|close
 cmux cloud process list|get|wait|events|cancel
+cmux cloud projection list|attach|move|detach
 cmux cloud vm repo clone
 ~~~
 
@@ -454,6 +455,11 @@ broker checks machine, session, workspace, revision, nonce, expiry,
 idempotency, size, and rate limits. It never forwards a local socket or a
 generic RPC method.
 
+Use separate wire types for `GuestPath`, `HostPath`, `VmFileRef`, `VmUrl`, and
+`HostUrl`. A `VmFileRef` contains only a grant ID, normalized relative path,
+and digest. The VM browser may translate it to a `file:` URL inside the guest;
+the host never sees or resolves that URL.
+
 Topology control flows through the VM daemon, not directly to the Mac:
 
 ~~~text
@@ -503,14 +509,16 @@ policy is `vm-vpc`; public egress and the machine's published domain are
 explicit machine policies. The VM firewall and browser proxy enforce
 this policy for DNS, redirects, subresources, WebSockets, and WebRTC, and
 block the host gateway, Mac LAN, link-local, metadata, and private ranges
-unless a directed peer grant allows them. VPC reachability never grants cmux
-control of another VM.
+unless a directed peer grant allows them. Address checks canonicalize IPv4,
+IPv6, mapped, integer, and DNS forms before every connection. VPC reachability
+never grants cmux control of another VM.
 
 Use `vm-vpc` as the default agent egress policy. It permits the VM's loopback,
-assigned interface addresses, its own published service, and exact peer IP and
-port grants. `internet` is an explicit user or team policy that adds public
-destinations while keeping host, metadata, and unapproved private ranges
-blocked. The guest firewall and browser proxy enforce the policy.
+assigned interface addresses, and exact peer IP and port grants. `internet` is
+an explicit user or team policy that adds public destinations. An own published
+domain must be separately allowlisted if the agent needs to test it. Every
+policy keeps host, metadata, and unapproved private ranges blocked. The guest
+firewall and browser proxy enforce the policy.
 
 Browser downloads stay in the VM. A host-side `cloud vm pull` with a selected
 destination is the only path to the Mac. Drag, drop, paste, camera, and

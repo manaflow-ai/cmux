@@ -189,12 +189,15 @@ separate:
 | Browser navigation, frame, input, and DOM message schemas | Displays VM frames and forwards explicit input | Owns the browser process, profile, DOM, and network policy |
 | CodeRouter action and handoff schemas | cmux frontend and keyring adapter | Guest process receives only a short-lived route authority |
 
-Use distinct types for `GuestPath`, `HostPath`, `VmUrl`, and `HostUrl`. Do not
-let a generic string path or URL cross the boundary. The placement planner can
-be shared because it consumes opaque resource IDs and a typed destination. The
-host adapter alone can resolve a local placement ID; the VM adapter alone can
-resolve a guest path or browser target. This gives one command experience and
-one result schema without one authority domain becoming another.
+Use distinct types for `GuestPath`, `HostPath`, `VmFileRef`, `VmUrl`, and
+`HostUrl`. Do not let a generic string path or URL cross the boundary. The
+wire format carries a `VmFileRef {grant_id, relative_path, digest}` rather than
+a raw `file:` URL; the VM browser may translate it to a local file URL only
+inside the guest. The placement planner can be shared because it consumes
+opaque resource IDs and a typed destination. The host adapter alone can resolve
+a local placement ID; the VM adapter alone can resolve a guest path or browser
+target. This gives one command experience and one result schema without one
+authority domain becoming another.
 
 The browser protocol is transport-neutral, but the browser engine is not
 shared. A VM browser adapter owns Chromium or the desktop browser in the VM.
@@ -471,7 +474,7 @@ The request envelope is bounded and carries all scope:
   "machine_id": "machine_...",
   "session_id": "session_...",
   "workspace_id": "ws_...",
-  "action": "surface.move",
+  "action_id": "surface.move",
   "resource_id": "surface_...",
   "expected_revision": 12,
   "nonce": "...",
@@ -507,15 +510,18 @@ Remote viewer actions stay inside the VM:
   resolve DNS in the VM and recheck every redirect, subresource, WebSocket,
   WebRTC connection, and DNS result. They block the host gateway, the Mac LAN,
   link-local and metadata addresses, and private ranges unless a directed VPC
-  peer grant allows that exact range. VPC reachability is network access only;
+  peer grant allows that exact range. Address checks canonicalize IPv4, IPv6,
+  mapped, integer, and DNS forms before every connection. VPC reachability is
+  network access only;
   it never grants another VM's cmux daemon control.
 
 `vm-vpc` is the default browser egress policy. It permits the VM's loopback,
-assigned interface addresses, its own published service, and exact directed
-peer IP and port grants. `internet` is an explicit user or team policy that
-adds public destinations while keeping host, metadata, and unapproved private
-ranges blocked. The URL parser is only a user-facing check; the guest firewall
-and proxy are the enforcement points.
+assigned interface addresses, and exact directed peer IP and port grants.
+`internet` is an explicit user or team policy that adds public destinations.
+An own published domain must be separately allowlisted if the agent needs to
+test it. Every policy keeps host, metadata, and unapproved private ranges
+blocked. The URL parser is only a user-facing check; the guest firewall and
+proxy are the enforcement points.
 
 Browser downloads stay in the VM file grant. Moving one to the Mac uses an
 explicit host-side `cloud vm pull` action with a selected destination. Drag,

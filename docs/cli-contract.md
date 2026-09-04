@@ -70,7 +70,8 @@ checks for redirects, DNS, subresources, WebSockets,
 and WebRTC. The host gateway, Mac LAN, metadata, link-local, and private ranges
 are blocked unless a directed peer grant allows them. The default agent policy
 is `vm-vpc`; public internet and a machine's published domain require an
-explicit machine policy.
+explicit machine policy. Address checks canonicalize IPv4, IPv6, mapped,
+integer, and DNS forms before each connection.
 
 Local files and the local browser are not remote agent targets. A user can open
 a local item separately or explicitly transfer one selected, bounded file to a
@@ -92,6 +93,22 @@ The guest image has no host socket, host profile directory, or host environment.
 If a guest daemon is unavailable, the command fails. It never falls back to a
 local socket. A host Cloud command also fails with a remote error instead of
 silently operating on a local workspace.
+
+Guest examples keep the normal cmux verbs:
+
+```text
+cmux workspace list|create|rename|move|close
+cmux tab list|create|rename|move|close
+cmux pane list|create|split|move|close
+cmux surface list|open|move|close
+cmux open ./README.md
+cmux diff --repo .
+cmux markdown open ./plan.md
+cmux browser open|navigate|input|close
+```
+
+They return VM resource IDs and revisions. Local placement is a host-only
+`cloud projection` action.
 
 ## Global Invocation
 

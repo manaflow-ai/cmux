@@ -44,6 +44,25 @@ make publication a port-open alias. Preserve the URL-first output, labelled
 DNS checklist, generated-name default, access modes, and sign-in or denial
 flow documented in the shared domain contract.
 
+In a Cloud guest, the same noun-first verbs operate on the leased VM graph:
+
+```text
+cmux workspace list|create|rename|move|close
+cmux tab list|create|rename|move|close
+cmux pane list|create|split|move|close
+cmux surface list|open|move|close
+cmux open <vm-relative-path>
+cmux diff --repo <vm-relative-repo>
+cmux markdown open <vm-relative-path>
+cmux browser open|navigate|input|close
+```
+
+The guest command set returns remote IDs and revisions. It does not expose
+host placement selectors. Host-side `cloud projection` commands are the only
+way to choose local placement. File arguments are encoded as a VM grant ID plus
+a normalized relative path, not as a host path or a raw cross-boundary `file:`
+URL.
+
 ## Process modes
 
 These modes start or connect a TUI process. They do not send a public resource
@@ -449,6 +468,8 @@ subresources, WebSockets, and WebRTC, blocking the
 host gateway, Mac LAN, metadata, link-local, and private ranges unless a
 directed peer grant allows them. The default agent policy is `vm-vpc`; public
 internet and a machine's published domain require an explicit machine policy.
+Address checks canonicalize IPv4, IPv6, mapped, integer, and DNS forms before
+each connection.
 VPC network access does not grant another VM's cmux control.
 
 Local files and the local browser are not remote agent targets. A user may

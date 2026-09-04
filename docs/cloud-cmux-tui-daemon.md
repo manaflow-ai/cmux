@@ -333,6 +333,21 @@ closed; it never falls back to a local socket. Browser processes and file
 readers are guest services. They return VM-owned frames or bounded snapshots,
 not host paths or host UI state.
 
+The minimum guest-facing operation set is:
+
+| Method | Scope and result |
+| --- | --- |
+| `workspace.list`, `workspace.create`, `workspace.rename`, `workspace.close` | Lease-scoped remote workspace IDs and revisions; a created workspace joins the lease |
+| `surface.list`, `surface.create`, `surface.move`, `surface.rename`, `surface.close` | Lease-scoped remote tab, pane, terminal, browser, file, diff, and Markdown surfaces |
+| `layout.get`, `layout.apply` | Revision-fenced atomic layout for the leased workspace |
+| `file.open`, `diff.open`, `markdown.open` | VM-root path resolution and bounded immutable viewer snapshots |
+| `browser.open`, `browser.navigate`, `browser.input`, `browser.state` | VM browser process, VM network policy, and remote frame/state stream; DOM and script results stay on the guest agent channel |
+
+Every mutating method carries `machine_id`, `session_id`, `workspace_id`,
+`request_id`, `nonce`, `expires_at`, `expected_revision`, and an idempotency
+key. The daemon rejects a missing scope before parsing a path or URL. It never
+returns a host placement ID.
+
 ## Surface catalog
 
 Terminals, VNC screens and Cloud browsers are *resources*; panes and
@@ -373,7 +388,9 @@ events back to the VM. VM network policy is enforced in the guest namespace and
 at the browser proxy: VM loopback, assigned interface addresses, and exact peer
 IPs from directed VPC grants may be allowed, while
 the host gateway, Mac LAN, metadata, link-local, and unapproved private ranges
-are denied. VPC reachability does not authorize a second VM's daemon.
+are denied. Address checks canonicalize IPv4, IPv6, mapped, integer, and DNS
+forms before each connection. VPC reachability does not authorize a second
+VM's daemon.
 
 The `vm.tree`, `vm.terminal_open`, `vm.terminal_new`, `vm.desktop_open`,
 `vm.port_open` and `vm.link_socket` verbs keep their shapes and are wrappers
