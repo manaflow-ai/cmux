@@ -83,7 +83,9 @@ const SUFFIX_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";
 export type VmSlugRandom = (upperExclusive: number) => number;
 
 function pick(list: readonly string[], random: VmSlugRandom): string {
-  return list[random(list.length)]!;
+  const value = list[random(list.length)];
+  if (value === undefined) throw new Error("VM slug word list is empty");
+  return value;
 }
 
 /** A fresh `adjective-color-animal` slug. `random` is injectable for tests. */
