@@ -537,10 +537,10 @@ async function reservedResourceTotals(
     readonly excludeVmId?: string;
   },
 ): Promise<VmResourceReservation> {
-  // Every resource is an aggregate claim across the account's live machines.
-  // Personal rows may have a NULL billing_team_id, so use the same account
-  // scope predicate as ownership and list queries instead of matching a
-  // synthetic user id in the team column.
+  // CPU and memory are shared ceilings across the account's live machines;
+  // persistent disk is additive. Personal rows may have a NULL billing_team_id,
+  // so use the same account scope predicate as ownership and list queries
+  // instead of matching a synthetic user id in the team column.
   const fields = reservedResourceFields();
   const predicates = [
     inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
@@ -549,8 +549,8 @@ async function reservedResourceTotals(
   if (input.excludeVmId) predicates.push(ne(cloudVms.id, input.excludeVmId));
   const [row] = await tx
     .select({
-      vcpus: sql<number>`coalesce(sum(${fields.vcpus}), 0)`,
-      memoryMb: sql<number>`coalesce(sum(${fields.memoryMb}), 0)`,
+      vcpus: sql<number>`coalesce(max(${fields.vcpus}), 0)`,
+      memoryMb: sql<number>`coalesce(max(${fields.memoryMb}), 0)`,
       diskMb: sql<number>`coalesce(sum(${fields.diskMb}), 0)`,
     })
     .from(cloudVms)
