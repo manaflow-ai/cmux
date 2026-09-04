@@ -90,19 +90,123 @@ public struct TerminalPathResolver: Sendable {
         return nil
     }
 
+    /// Resolves an open-URL request payload to an existing local file.
+    ///
+    /// The resolver tries the literal file spelling before interpreting a
+    /// trailing `:line` or `:line:column` suffix. This keeps legitimate file
+    /// names such as `report:42` addressable while still accepting the form
+    /// emitted by compilers, test runners, and coding agents. Local `file://`
+    /// URLs are accepted; URL schemes for remote or non-file resources are
+    /// left to the URL router.
+    ///
+    /// - Parameters:
+    ///   - rawText: The raw open-URL text from the runtime.
+    ///   - cwd: The surface's working directory.
+    /// - Returns: The first existing reference, or `nil`.
+    public func resolveOpenURLFileReference(
+        _ rawText: String,
+        cwd: String?
+    ) -> TerminalFileReference? {
+        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        for token in trimmed.pathResolutionCandidates() {
+            let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedToken.isEmpty else { continue }
+
+            if let path = localFilePath(for: normalizedToken),
+               let resolvedPath = resolveQuicklookPath(path, cwd: cwd) {
+                return TerminalFileReference(path: resolvedPath)
+            }
+
+            guard let location = parseLocationSuffix(in: normalizedToken),
+                  let path = localFilePath(for: location.path) else {
+                continue
+            }
+
+            // A relative name such as `report:42` is parsed by Foundation as
+            // a custom URL scheme. Once its suffix is known to be a location
+            // and the location path itself is schemeless, probe the complete
+            // spelling before treating it as `path:line`. This preserves a
+            // real file named `report:42` without admitting non-file URLs.
+            if !isExplicitFileURL(normalizedToken),
+               let literalPath = resolveQuicklookPath(normalizedToken, cwd: cwd) {
+                return TerminalFileReference(path: literalPath)
+            }
+            guard let resolvedPath = resolveQuicklookPath(path, cwd: cwd) else {
+                continue
+            }
+            return TerminalFileReference(
+                path: resolvedPath,
+                line: location.line,
+                column: location.column
+            )
+        }
+
+        return nil
+    }
+
     /// Resolves an open-URL request payload to an existing file path.
     ///
-    /// Text that parses as a URL with a scheme is never treated as a file
-    /// path; everything else goes through ``resolveQuicklookPath(_:cwd:)``.
+    /// Location information is intentionally discarded by this compatibility
+    /// API. Call ``resolveOpenURLFileReference(_:cwd:)`` when the caller needs
+    /// the source line or column.
     ///
     /// - Parameters:
     ///   - rawText: The raw open-URL text from the runtime.
     ///   - cwd: The surface's working directory.
     /// - Returns: The first existing standardized path, or `nil`.
     public func resolveOpenURLFilePath(_ rawText: String, cwd: String?) -> String? {
-        let trimmed = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        guard URL(string: trimmed)?.scheme == nil else { return nil }
-        return resolveQuicklookPath(trimmed, cwd: cwd)
+        resolveOpenURLFileReference(rawText, cwd: cwd)?.path
+    }
+
+    /// Converts a token into a local path while rejecting non-file URL schemes.
+    private func localFilePath(for token: String) -> String? {
+        guard let url = URL(string: token), let scheme = url.scheme else {
+            return token
+        }
+
+        guard scheme.caseInsensitiveCompare("file") == .orderedSame else {
+            return nil
+        }
+        guard url.host == nil || url.host?.isEmpty == true || url.host == "localhost" else {
+            return nil
+        }
+        return url.path
+    }
+
+    /// Returns whether `token` is an explicit local `file` URL.
+    private func isExplicitFileURL(_ token: String) -> Bool {
+        URL(string: token)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
+    }
+
+    /// Parses a positive `:line` or `:line:column` suffix from a token.
+    private func parseLocationSuffix(
+        in token: String
+    ) -> (path: String, line: Int, column: Int?)? {
+        guard let lastColon = token.lastIndex(of: ":") else { return nil }
+        let lastComponent = String(token[token.index(after: lastColon)...])
+        guard let lastNumber = positiveInteger(lastComponent) else { return nil }
+
+        let pathEnd = lastColon
+        let pathWithLine = String(token[..<pathEnd])
+        guard let lineColon = pathWithLine.lastIndex(of: ":") else {
+            return (pathWithLine, lastNumber, nil)
+        }
+
+        let lineComponent = String(pathWithLine[pathWithLine.index(after: lineColon)...])
+        guard let lineNumber = positiveInteger(lineComponent) else {
+            return (pathWithLine, lastNumber, nil)
+        }
+
+        let path = String(pathWithLine[..<lineColon])
+        guard !path.isEmpty else { return nil }
+        return (path, lineNumber, lastNumber)
+    }
+
+    /// Returns a positive integer for a valid source location component.
+    private func positiveInteger(_ rawValue: String) -> Int? {
+        guard let value = Int(rawValue), value > 0 else { return nil }
+        return value
     }
 }

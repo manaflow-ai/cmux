@@ -20,6 +20,10 @@ struct TerminalLinkOpenCoordinator {
     private let fileOpen: any FileOpening
     private let deferOperation: @MainActor (@escaping @MainActor @Sendable () -> Void) -> Void
 
+    /// Creates a coordinator using the supplied routing collaborators.
+    ///
+    /// The production preferred-editor service is created at the point of
+    /// opening so it always reads the current editor setting.
     init(
         defaults: UserDefaults = .standard,
         containerResolver: (@MainActor (UUID?, UUID?) -> (any TerminalLinkOpenContainer)?)? = nil,
@@ -40,6 +44,7 @@ struct TerminalLinkOpenCoordinator {
         self.deferOperation = deferOperation
     }
 
+    /// Opens a terminal link according to the source terminal and URL policy.
     @discardableResult
     func open(_ request: TerminalLinkOpenRequest) -> Bool {
         log("link.openURL raw=\(request.rawValue)")
@@ -56,16 +61,31 @@ struct TerminalLinkOpenCoordinator {
         }
         if !trimmed.isEmpty,
            canResolveLocalFilePath,
-           let resolvedPath = TerminalPathResolver().resolveOpenURLFilePath(
+           let reference = TerminalPathResolver().resolveOpenURLFileReference(
                trimmed,
                cwd: resolvedWorkingDirectory(request: request, container: container)
            ) {
-            let fileURL = URL(fileURLWithPath: resolvedPath)
-            if CommandClickFileOpenRouter.shouldRouteInCmux(
-                path: resolvedPath,
-                defaults: defaults
-            ) {
-                log("link.openURL resolvedAsFilePath=\(resolvedPath)")
+            if let line = reference.line {
+                log(
+                    "link.openURL resolvedAsFileLocation=\(reference.path):\(line)" +
+                    (reference.column.map { ":\($0)" } ?? "")
+                )
+                PreferredEditorService(defaults: defaults).open(
+                    URL(fileURLWithPath: reference.path),
+                    line: reference.line,
+                    column: reference.column
+                )
+                return true
+            }
+
+            let isExplicitLocalFileURL = isExplicitFileURL(trimmed)
+            if !isExplicitLocalFileURL,
+               CommandClickFileOpenRouter.shouldRouteInCmux(
+                   path: reference.path,
+                   defaults: defaults
+               ) {
+                let fileURL = URL(fileURLWithPath: reference.path)
+                log("link.openURL resolvedAsFilePath=\(reference.path)")
                 return routeLocalFile(
                     fileURL,
                     request: request,
@@ -73,7 +93,9 @@ struct TerminalLinkOpenCoordinator {
                     unavailableReason: "file route unavailable"
                 )
             }
-            normalizedOpenURLString = resolvedPath
+            if !isExplicitLocalFileURL {
+                normalizedOpenURLString = reference.path
+            }
         }
 
         guard let target = resolveTerminalOpenURLTarget(normalizedOpenURLString) else {
@@ -287,6 +309,11 @@ struct TerminalLinkOpenCoordinator {
         }
         log("link.openURL opening externally reason=\(reason) url=\(url)")
         return externalOpen(url)
+    }
+
+    /// Returns whether a raw link is an explicit local `file` URL.
+    private func isExplicitFileURL(_ rawValue: String) -> Bool {
+        URL(string: rawValue)?.scheme?.caseInsensitiveCompare("file") == .orderedSame
     }
 
     private static func resolveContainer(

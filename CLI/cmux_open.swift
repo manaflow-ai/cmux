@@ -1,4 +1,5 @@
 import CryptoKit
+import CmuxTerminalCore
 import Darwin
 import Foundation
 
@@ -1470,7 +1471,18 @@ extension CMUXCLI {
             return .url(url.absoluteString, defaultFocus: true)
         }
 
-        let resolved = resolvePath(raw)
+        let resolved: String
+        if let reference = TerminalPathResolver().resolveOpenURLFileReference(
+            raw,
+            cwd: FileManager.default.currentDirectoryPath
+        ) {
+            // The socket file.open contract is path-only. Normalize the
+            // location suffix here so `cmux open path:line` opens the file;
+            // terminal Cmd-click retains the location for the editor path.
+            resolved = reference.path
+        } else {
+            resolved = resolvePath(raw)
+        }
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: resolved, isDirectory: &isDir) else {
             throw CLIError(message: "Path does not exist: \(resolved)")
