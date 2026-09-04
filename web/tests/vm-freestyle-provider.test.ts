@@ -416,7 +416,10 @@ describe("Freestyle attach route source", () => {
       },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
-    const provider = new FreestyleProvider({ client: () => client });
+    const provider = new FreestyleProvider({
+      client: () => client,
+      resolveDaemonSource: async () => { throw new Error("unused"); },
+    });
     const endpoint = await provider.openCmuxRemote(VM_ID, {
       providerMetadata: { networkIpv4: "10.0.0.5" },
     });

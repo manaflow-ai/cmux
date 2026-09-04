@@ -2064,18 +2064,14 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
-    const providerEndpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "attach",
-      providers.openCmuxRemote(vm.provider, input.providerVmId, {
-        deviceFingerprint: input.deviceFingerprint,
-        clientCapabilities: input.clientCapabilities,
-        providerMetadata: vm.providerMetadata,
-      }),
-    );
+    // The endpoint is a persisted VPC route. Do not probe or wake Freestyle
+    // here. The client dials the daemon directly; a dial failure calls the
+    // recovery endpoint, which is the only path allowed to resume a VM.
+    const providerEndpoint = yield* providers.openCmuxRemote(vm.provider, input.providerVmId, {
+      deviceFingerprint: input.deviceFingerprint,
+      clientCapabilities: input.clientCapabilities,
+      providerMetadata: vm.providerMetadata,
+    });
     const endpoint = yield* Effect.try({
       try: () => {
         if (!providerEndpoint.networkAddresses) return providerEndpoint;
@@ -2134,6 +2130,29 @@ export function openVmCmuxRemote(input: {
       }
     }
     return endpoint;
+  });
+}
+
+/**
+ * Recovery-only wake for a direct private attach. Initial attach never calls
+ * this function. The client uses it once after a dial failure, so Freestyle's
+ * pause/resume behavior stays transparent without adding a status probe to
+ * every healthy attach.
+ */
+export function resumeVmForAttach(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "attach", {
+      forceProviderProbe: true,
+    });
+    return vmEntryFromRow(vm);
   });
 }
 

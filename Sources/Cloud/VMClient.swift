@@ -1636,6 +1636,19 @@ actor VMClient {
         )
     }
 
+    /// Wakes a Freestyle VM after a private direct route fails to dial. This
+    /// endpoint is recovery-only; healthy attaches never call it.
+    func resumeForAttach(id: String) async throws {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/resume",
+            jsonBody: [:],
+            timeoutSeconds: 180
+        )
+        try ensureOK(http, data: data)
+    }
+
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request(

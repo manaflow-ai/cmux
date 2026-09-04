@@ -92,16 +92,17 @@ import {
 // loopback nor the public NIC.
 //
 // Creates take NO ports field, NO create-time env, and NO systemd injection;
-// `firewall` is mandatory. Model-plane env is delivered by writing the
-// persisted /root/.config/cmux/model-plane.env file (0600) that
-// /etc/cmux/agent-config.sh already sources when the boot env is absent.
+// `firewall` is mandatory. The model-plane env is static in the snapshot. The
+// only per-machine model-plane material is the inline TLS edge rule returned
+// by the control plane.
 //
 // Create runs no guest bootstrap. The devbox snapshot carries the pinned
 // cmux-tui build and the cmux-tui-daemon systemd unit, and its supervisor
 // (services/vms/images/devbox/cmux-devbox-boot) starts the daemon with a
 // fresh identity as soon as the machine resumes, keyed on the platform
-// instance id. Create is therefore `vms.create`, the grow-only resize, and one
-// file write; attach heals a daemon that is not yet, or no longer, listening.
+// instance id. Create is therefore `vms.create` and, only for legacy
+// size-less images, a grow-only resize. Private attach reads the persisted
+// VPC route and does not heal or execute in the guest.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform adds
@@ -109,11 +110,8 @@ import {
 // makes there. The platform steers the host to its edge (/etc/hosts) and
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The env file holds only base URLs and
-// placeholder keys: no token is ever written into the guest. Injection
-// becomes active 20-30 s after boot, so create ends with a guest-side probe
-// of https://<host>/api/coderouter/vm-usage/self (a 200 proves the injected
-// token is bound to this machine) and rolls the machine back if it never
-// succeeds.
+// placeholder keys: no token is ever written into the guest. Edge readiness
+// is provider-owned and is not part of initial attach.
 //
 // The desktop and forwarded ports (`openPort`) travel the same private path
 // as the daemon: the URL is the machine's VPC address, reachable only through
@@ -149,7 +147,6 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
-/** Guest-side edge probe: 30 attempts x (5 s curl + 2 s sleep) worst case, under the 300 s exec cap. */
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
 const ROUTE_TOKEN_GRAMMAR = /\bcrt_[A-Za-z0-9._-]+/;
 
@@ -458,12 +455,8 @@ export function assertNoRouteTokenInGuestPayload(values: Iterable<string>, what:
 }
 
 /**
- * The persisted model-plane env file, byte-compatible with what
- * /etc/cmux/agent-config.sh itself writes from a boot env: shells that see no
- * boot env source this copy and then materialize the codex/pi/opencode
- * configs. Freestyle has no create-time env, so the driver writes the file.
- * Every key is rendered; OPENAI_BASE_URL is the anchor the generator keys on,
- * so its absence means "no model plane" and nothing is written.
+ * Validate guest payloads before a provider write. The model-plane env is
+ * baked into the image, so normal create and attach paths write no env file.
  */
 export function normalizeFreestyleExecTimeout(timeoutMs: number | undefined): number {
   if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) {
@@ -848,8 +841,8 @@ export class FreestyleProvider implements VMProvider {
               // daemon comes up on is the one that was sold.
               await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
             }
-            // The baked supervisor is already bringing the daemon up; the only
-            // per-machine input it needs is the model-plane env file.
+            // The baked supervisor is already bringing the daemon up. No
+            // guest bootstrap or per-machine env write is needed here.
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
@@ -868,8 +861,8 @@ export class FreestyleProvider implements VMProvider {
             // The network id and addresses are persisted so listings can show a
             // machine's private IP (and an operator can trace it to its owner's
             // VPC) without a provider round trip. Attach still reads the live
-            // address from vm.data(): this records where the machine was
-            // placed, never where to dial it.
+            // address from the create response. Attach uses these persisted
+            // addresses and does not read provider state for private machines.
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
               ...(networkId ? { networkId } : {}),
