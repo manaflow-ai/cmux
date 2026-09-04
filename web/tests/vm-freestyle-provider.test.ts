@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, setSystemTime, test } from "bun:test";
-import type { Freestyle } from "freestyle";
+import { FreestyleApiError, type Freestyle } from "freestyle";
 import {
   FREESTYLE_NETWORK_FIREWALL_RULES,
   FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
@@ -31,6 +31,7 @@ import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
+const TUNNEL_CLIENT_KEY = Buffer.alloc(32, 1).toString("base64");
 const EDGE_RULE: VmEdgeRule = {
   domain: "coderouter.dev",
   headers: { "x-coderouter-route-token": "crt_secret-token", "x-cmux-vm-id": CLOUD_VM_ID },
@@ -258,6 +259,78 @@ describe("Freestyle platform contract", () => {
     expect(mapFreestyleState("pausing")).toBe("paused");
     expect(mapFreestyleState("paused")).toBe("paused");
     expect(mapFreestyleState("stopped")).toBe("paused");
+  });
+
+  test("recovers an existing provider tunnel when local bookkeeping is missing", async () => {
+    // A fresh local/dev database can lose its tunnel row while the provider
+    // resource survives. Re-enrollment must reconcile by the deterministic
+    // device slug instead of trying to create a duplicate and returning 502.
+    const calls = { create: 0, list: 0, attach: 0 };
+    const existing = {
+      id: "tun-existing",
+      tunnelId: "tun-existing",
+      slug: "cmux-wg-recover",
+      displayName: "cmux computer",
+      clientConfig: "[Interface]\nPrivateKey =\n[Peer]\n",
+      endpointHost: "tun-existing.beta-vpn.freestyle.sh",
+      endpointPort: 51820,
+      clientPublicKey: TUNNEL_CLIENT_KEY,
+      serverPublicKey: "server-key",
+      clientAddressV4: "100.64.0.2",
+      clientAddressV6: "fd00::2",
+      routes: ["10.0.0.0/8", "fd00::/8"],
+      attachments: [{
+        vpcId: "vpc-1",
+        ipv4: "10.40.0.2",
+        ipv6: "fd00:40::2",
+        address: "10.40.0.2",
+        vpcCidr: "10.40.0.0/24",
+        allowedIps: ["10.40.0.0/24", "fd00:40::/64"],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      }],
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const client = {
+      tunnels: {
+        create: async () => {
+          calls.create += 1;
+          throw new FreestyleApiError(409, { code: "CONFLICT", message: "slug already exists" });
+        },
+        list: async () => {
+          calls.list += 1;
+          return { tunnels: [existing], totalCount: 1 };
+        },
+        attachVpc: async () => {
+          calls.attach += 1;
+          return existing;
+        },
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({
+      client: () => client,
+      resolveDaemonSource: async () => ({
+        url: "https://files.cmux.com/cmux-tui/abc/cmux-tui-linux-x64",
+        sha256: "0".repeat(64),
+        commit: "abc",
+        builtAt: null,
+      }),
+    });
+
+    const recovered = await provider.privateNetworking!.createTunnel({
+      slug: "cmux-wg-recover",
+      displayName: "cmux computer",
+      clientPublicKey: TUNNEL_CLIENT_KEY,
+      networkId: "vpc-1",
+    });
+
+    expect(recovered).toMatchObject({
+      id: "tun-existing",
+      clientPublicKey: TUNNEL_CLIENT_KEY,
+      addressV4: "10.40.0.2",
+      addressV6: "fd00:40::2",
+    });
+    expect(calls).toEqual({ create: 1, list: 1, attach: 0 });
   });
 });
 
