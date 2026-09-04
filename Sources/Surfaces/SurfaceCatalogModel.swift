@@ -249,6 +249,28 @@ struct CloudVMTabState: Hashable, Codable, Sendable {
     var contentID: String
 }
 
+/// The two valid remote tab-label states. The daemon uses an empty string to
+/// clear its optional label, so keep that state explicit at the app boundary
+/// instead of making every caller rediscover the trim-and-clear rule.
+enum CloudRemoteRenameName: Hashable, Sendable {
+    case named(String)
+    case cleared
+
+    init(rawValue: String) {
+        let normalized = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        self = normalized.isEmpty ? .cleared : .named(normalized)
+    }
+
+    /// The exact value passed to `tab … rename --name`.
+    var wireValue: String {
+        switch self {
+        case .named(let value): return value
+        case .cleared: return ""
+        }
+    }
+
+}
+
 struct CloudVMTerminalState: Hashable, Codable, Sendable {
     var id: String
     var tabIDs: [String]

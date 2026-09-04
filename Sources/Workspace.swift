@@ -5374,11 +5374,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 workspaceId: id, panelId: panelId, title: trimmed
             )
         }
-        // A pane projecting a cloud terminal writes a USER rename through to the
-        // machine's daemon tab name (`tab rename`): persisted there, broadcast, and
-        // shown by every attached client (tree rows, other Macs, TUI tab bars).
-        // Clearing only reverts the local override; the daemon name stays.
-        if propagateToCloud, source == .user, !trimmed.isEmpty,
+        // A pane projecting a cloud terminal writes a USER rename or clear through
+        // to the machine's daemon tab name (`tab rename`): persisted there,
+        // broadcast, and shown by every attached client (tree rows, other Macs,
+        // TUI tab bars).
+        if propagateToCloud, source == .user,
            let resource = cloudProjectedResource(forPanel: panelId), resource.kind == .terminal {
             CloudWorkspaceRenameWriteThrough.propagateTerminalRename(
                 workspace: self,

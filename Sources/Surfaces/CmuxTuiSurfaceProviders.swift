@@ -1223,12 +1223,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// cloud-tree workspace row and by a local pane that remembers its remote tab id.
     func renameRemoteTab(id: String, name: String) async throws {
         try Task.checkCancellation()
-        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedName.isEmpty else {
-            throw SurfaceCatalogError.unsupported(
-                String(localized: "cloudTree.error.renameTerminalEmptyName", defaultValue: "A terminal name cannot be empty.")
-            )
-        }
+        let normalizedName = CloudRemoteRenameName(rawValue: name).wireValue
 
         // Creation and rename can arrive back-to-back. Refresh before validating the
         // target, but use the creation receipt when the accepted snapshot still
@@ -1287,12 +1282,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// can never silently rename an arbitrary placement.
     func renameTerminal(_ id: SurfaceResourceID, name: String) async throws {
         try Task.checkCancellation()
-        let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedName.isEmpty else {
-            throw SurfaceCatalogError.unsupported(
-                String(localized: "cloudTree.error.renameTerminalEmptyName", defaultValue: "A terminal name cannot be empty.")
-            )
-        }
+        let normalizedName = CloudRemoteRenameName(rawValue: name).wireValue
         // The daemon's tab name is placement-local. Keep one target per exact
         // tab id, and use the fresh typed state for the old value. A creation
         // receipt supplies the one exact tab while the first snapshot catches

@@ -461,7 +461,11 @@ extension TerminalController {
               let remoteWorkspaceID = Self.surfaceString(params["workspace_id"]), !remoteWorkspaceID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires `id` and `workspace_id`.")
         }
-        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+        guard let rawName = Self.surfaceString(params["name"]) else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires `name`.")
+        }
+        let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.workspace_rename requires a non-empty `name`.")
         }
         return v2VmCall(id: id, timeoutSeconds: 120) {
@@ -479,9 +483,10 @@ extension TerminalController {
               let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `id` and `terminal_id`.")
         }
-        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires a non-empty `name`.")
+        guard let rawName = Self.surfaceString(params["name"]) else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `name`.")
         }
+        let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
@@ -505,9 +510,10 @@ extension TerminalController {
               let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `id` and `terminal_id`.")
         }
-        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires a non-empty `name`.")
+        guard let rawName = Self.surfaceString(params["name"]) else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `name`.")
         }
+        let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         do {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = SurfaceCatalog.shared
@@ -535,9 +541,10 @@ extension TerminalController {
               let tabID = Self.surfaceString(params["tab_id"]), !tabID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `id` and `tab_id`.")
         }
-        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-            return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires a non-empty `name`.")
+        guard let rawName = Self.surfaceString(params["name"]) else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `name`.")
         }
+        let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         return v2VmCall(id: id, timeoutSeconds: 120) {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = await SurfaceCatalog.shared
@@ -554,9 +561,10 @@ extension TerminalController {
               let tabID = Self.surfaceString(params["tab_id"]), !tabID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `id` and `tab_id`.")
         }
-        guard let name = Self.surfaceString(params["name"])?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-            return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires a non-empty `name`.")
+        guard let rawName = Self.surfaceString(params["name"]) else {
+            return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `name`.")
         }
+        let name = CloudRemoteRenameName(rawValue: rawName).wireValue
         do {
             let machine = SurfaceMachineID.cloud(vmId)
             let catalog = SurfaceCatalog.shared

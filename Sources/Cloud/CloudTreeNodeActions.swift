@@ -323,9 +323,12 @@ struct CloudTreeNodeActions {
                 let current = view?.name ?? (resource.title.isEmpty ? resource.id.key : resource.title)
                 guard let name = promptForName(
                     title: String(format: String(localized: "cloudTree.renameTerminal.title", defaultValue: "Rename \u{201C}%@\u{201D}"), current),
-                    current: current
+                    current: current,
+                    allowsClear: true
                 ), name != current else { return }
-                run(String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)) { catalog in
+                let operationKey = name.isEmpty ? "cloudTree.operation.clearTerminal" : "cloudTree.operation.renameTerminal"
+                let operationDefault = name.isEmpty ? "Clearing %@\u{2026}" : "Renaming %@\u{2026}"
+                run(String(format: String(localized: operationKey, defaultValue: operationDefault), current)) { catalog in
                     if let view {
                         try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                     } else {
@@ -456,19 +459,28 @@ struct CloudTreeNodeActions {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// A one-field rename prompt. Returns the trimmed name, or nil on cancel/empty.
+    /// A one-field rename prompt. A terminal may explicitly clear its custom
+    /// name; a workspace must keep a non-empty name because it is also its
+    /// stable local identity label.
     @MainActor
-    private static func promptForName(title: String, current: String) -> String? {
+    private static func promptForName(title: String, current: String, allowsClear: Bool = false) -> String? {
         let alert = NSAlert()
         alert.messageText = title
         alert.alertStyle = .informational
         alert.addButton(withTitle: String(localized: "cloudTree.rename.confirm", defaultValue: "Rename"))
+        if allowsClear {
+            alert.addButton(withTitle: String(localized: "cloudTree.rename.clear", defaultValue: "Clear"))
+        }
         alert.addButton(withTitle: String(localized: "cloudTree.confirm.cancel", defaultValue: "Cancel"))
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
         field.stringValue = current
         alert.accessoryView = field
         alert.window.initialFirstResponder = field
-        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let response = alert.runModal()
+        if allowsClear && response == .alertSecondButtonReturn {
+            return ""
+        }
+        guard response == .alertFirstButtonReturn else { return nil }
         let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         return name.isEmpty ? nil : name
     }

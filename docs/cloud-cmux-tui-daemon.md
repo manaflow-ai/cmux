@@ -215,6 +215,13 @@ client changed the completed tabs. A transport failure can still leave a
 partial fan-out, so the operation returns an explicit partial-operation error
 instead of silently claiming success.
 
+Names have an explicit clear value. A non-empty name is a custom label, and an
+empty string clears the custom label so the daemon can publish its generated
+title again. `nil` means that a caller did not provide a name and is not a
+clear request. Workspace names remain non-empty at the app boundary because
+the workspace row and local binding use that label as a required identity
+display value.
+
 The socket rename handlers use one 120-second operation deadline for refresh,
 compare-and-set, retry, compensation, and final reconciliation. Each individual
 cmux-tui command remains bounded at 30 seconds. A deadline response is therefore
@@ -439,8 +446,8 @@ Socket methods (the CLI, the sidebar tree, and agents all go through them):
 | `vm.desktop_open` | `{id, workspace_id?, focus?}` | `{surface_id, url}` |
 | `vm.port_open` | `{id, port, workspace_id?}` | `{surface_id, url}` |
 | `vm.link_socket` | `{id}` | `{socket_path, session}` — the headless link's local mux socket |
-| `vm.tab_rename` | `{id, tab_id, name}` | Renames one exact remote tab placement and publishes the resulting daemon event |
-| `vm.terminal_rename` | `{id, terminal_id, name}` | Explicit compatibility fan-out that renames every tab view of one terminal |
+| `vm.tab_rename` | `{id, tab_id, name}` | Renames one exact remote tab placement and publishes the resulting daemon event. `name: ""` clears its custom label. |
+| `vm.terminal_rename` | `{id, terminal_id, name}` | Explicit compatibility fan-out that renames every tab view of one terminal. `name: ""` clears the custom label on every view. |
 
 CLI addresses are the tree's lines: `cmux vm tree`, then
 `cmux vm open <machine>[/<ws>[/<term>]]`, `cmux vm open <machine>:desktop`,

@@ -69,8 +69,10 @@ browsers, and agents. The macOS app must not create a second remote graph.
   name only when it is unique. Ambiguous or stale placement fails closed.
 - A tab rename changes one exact tab placement. A terminal rename is an
   explicit compatibility operation that changes every placement of that
-  terminal. Workspace rename uses revision compare-and-set and retries once
-  only when no other client changed the old name.
+  terminal. For both operations, a non-empty name sets a custom label and
+  `""` clears it so the daemon can regenerate its title. A missing name is
+  not a clear request. Workspace rename uses revision compare-and-set and
+  retains its non-empty-name invariant.
 - Remote events reconcile every local projection that stores the exact remote
   workspace and tab IDs. Local write-through uses the same mutation path and
   never echoes a daemon-originated update back to the daemon.

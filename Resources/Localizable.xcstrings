@@ -62248,6 +62248,23 @@
         }
       }
     },
+    "cloudTree.operation.clearTerminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clearing %@…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のカスタム名をクリアしています…"
+          }
+        }
+      }
+    },
     "cloudTree.operation.renameWorkspace": {
       "extractionState": "manual",
       "localizations": {
@@ -62295,23 +62312,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "このターミナルはリモートワークスペースで開かれていません。"
-          }
-        }
-      }
-    },
-    "cloudTree.error.renameTerminalEmptyName": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "A terminal name cannot be empty."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ターミナル名を空にすることはできません。"
           }
         }
       }
@@ -62448,6 +62448,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称変更"
+          }
+        }
+      }
+    },
+    "cloudTree.rename.clear": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリア"
           }
         }
       }

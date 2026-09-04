@@ -134,19 +134,19 @@ struct CloudTuiCommandLine: Sendable {
         return arguments
     }
 
-    /// `tab <tab_id> rename --name <name>`: set the user label on one view of a
-    /// terminal (spec `tab.rename`). The daemon persists it in its registry and
-    /// broadcasts `tab-renamed`, so every attached client sees it. An empty string
-    /// clears the optional label, which is used when compensating a partial rename.
+    /// `tab <tab_id> rename --name <name>`: set or clear the user label on one
+    /// view of a terminal (spec `tab.rename`). The daemon persists it in its
+    /// registry and broadcasts `tab-renamed`, so every attached client sees it.
+    /// The empty string is the protocol's explicit clear value.
     static func renameTabArguments(
         socketPath: String,
         tabID: String,
-        name: String?,
+        name: String,
         expectedRevision: UInt64? = nil
     ) -> [String] {
         var arguments = ["--socket", socketPath, "--json"]
         if let expectedRevision { arguments += ["--expected-revision", String(expectedRevision)] }
-        arguments += ["tab", tabID, "rename", "--name", name ?? ""]
+        arguments += ["tab", tabID, "rename", "--name", name]
         return arguments
     }
 

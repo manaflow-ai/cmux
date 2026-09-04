@@ -359,8 +359,9 @@ enum CloudWorkspaceRenameWriteThrough {
         return previousTitle.trimmingCharacters(in: .whitespacesAndNewlines) == generated
     }
 
-    /// Enqueues a local pane rename to the daemon tab behind it. A failed request
-    /// restores the prior local override when the user has not edited the pane again.
+    /// Enqueues a local pane rename or clear to the daemon tab behind it. A
+    /// failed request restores the prior local override when the user has not
+    /// edited the pane again.
     @MainActor
     static func propagateTerminalRename(
         workspace: Workspace,
@@ -369,8 +370,7 @@ enum CloudWorkspaceRenameWriteThrough {
         name: String,
         previousCustomTitle: String?
     ) {
-        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
+        let name = CloudRemoteRenameName(rawValue: name).wireValue
         let expectedTitle = workspace.panelCustomTitles[panelID]
         let catalog = SurfaceCatalog.shared
         let projection = catalog.projection(forPanel: panelID)

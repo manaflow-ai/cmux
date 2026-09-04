@@ -1281,7 +1281,7 @@ extension CMUXCLI {
           cmux vm terminal wait <machine> <terminal-id> --pattern <regex> [--timeout <seconds>]
                                                               Block until the screen matches (default 30 s); exit 1 on timeout.
           cmux vm terminal close <machine> <terminal-id>      End a terminal on the machine (the process and its tab).
-          cmux vm terminal rename <machine> <terminal-id> <name>   Rename a terminal (its daemon tab label), for every client.
+          cmux vm terminal rename <machine> <terminal-id> <name>   Set or clear a terminal label for every client (use "" to clear).
 
         Terminal ids come from `cmux vm tree`. Add --json for the raw result.
         A typical headless loop: `send … 'bun test' --keys enter`, `wait … --pattern 'pass|fail'`, `read …`.
@@ -1290,7 +1290,7 @@ extension CMUXCLI {
     static let vmTabUsage = """
         Usage:
           cmux vm tab rename <machine> <tab-id> <name>
-                                                              Rename exactly one daemon tab placement.
+                                                              Set or clear exactly one daemon tab placement (use "" to clear).
                                                               Use the tab id from `cmux vm tree --json`.
 
         Tab names are local to a placement. Use `vm terminal rename` only when you
@@ -1539,15 +1539,16 @@ extension CMUXCLI {
             // accidental unquoted words from being silently reassembled into a different
             // name and keeps the command grammar positional and unambiguous.
             guard args.count == 3, literal.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
-            let name = args[2].trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty else { throw CLIError(message: Self.vmTerminalUsage) }
+            let name = CloudRemoteRenameName(rawValue: args[2]).wireValue
             let response = try client.sendV2(
                 method: "vm.terminal_rename",
                 params: ["id": machine, "terminal_id": terminalID, "name": name],
                 responseTimeout: 120
             )
             if jsonOutput { print(jsonString(response)); return }
-            print("OK renamed terminal \(terminalID) to \"\(name)\" on \(machine)")
+            print(name.isEmpty
+                ? "OK cleared terminal \(terminalID) label on \(machine)"
+                : "OK renamed terminal \(terminalID) to \"\(name)\" on \(machine)")
         default:
             throw CLIError(message: "vm terminal: unknown verb '\(verb)'\n\n\(Self.vmTerminalUsage)")
         }
@@ -1569,8 +1570,8 @@ extension CMUXCLI {
         }
         let machine = args[1]
         let tabID = args[2]
-        let name = args[3].trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !machine.isEmpty, !tabID.isEmpty, !name.isEmpty else {
+        let name = CloudRemoteRenameName(rawValue: args[3]).wireValue
+        guard !machine.isEmpty, !tabID.isEmpty else {
             throw CLIError(message: Self.vmTabUsage)
         }
         let response = try client.sendV2(
@@ -1581,7 +1582,9 @@ extension CMUXCLI {
         if jsonOutput {
             print(jsonString(response))
         } else {
-            print("OK renamed tab \(tabID) to \"\(name)\" on \(machine)")
+            print(name.isEmpty
+                ? "OK cleared tab \(tabID) label on \(machine)"
+                : "OK renamed tab \(tabID) to \"\(name)\" on \(machine)")
         }
     }
 
