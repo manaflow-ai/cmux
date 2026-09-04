@@ -21,6 +21,23 @@ import Foundation
 ///   response advertises `network_extension_available` so this command steers
 ///   without a new CLI release.
 extension CMUXCLI {
+    /// Absolute paths to the system tools `cmux vpn` shells out to.
+    ///
+    /// Named rather than inlined so a test can assert each one exists on the
+    /// machine. sudo resolves these literally, so a wrong directory is not
+    /// caught until runtime — and `hosts` runs only *after* the tunnel is up,
+    /// where a failure reads as "the VPN is broken" when the tunnel is fine
+    /// and only the `.internal` names are missing.
+    enum VPNTool {
+        /// macOS ships install(1) in /usr/bin; /usr/sbin/install does not exist.
+        static let install = "/usr/bin/install"
+        static let sudo = "/usr/bin/sudo"
+        static let dscacheutil = "/usr/bin/dscacheutil"
+        static let killall = "/usr/bin/killall"
+
+        static let all: [String] = [install, sudo, dscacheutil, killall]
+    }
+
     private static let wgQuickCandidates = [
         "/opt/homebrew/bin/wg-quick",
         "/usr/local/bin/wg-quick",
@@ -96,7 +113,7 @@ extension CMUXCLI {
         }
         if interfaceUp {
             let downStatus = runInteractiveProcess(
-                executablePath: "/usr/bin/sudo",
+                executablePath: VPNTool.sudo,
                 arguments: [wgQuick, "down", configPath]
             )
             guard downStatus == 0 else {
@@ -107,7 +124,7 @@ extension CMUXCLI {
             }
         }
         let status = runInteractiveProcess(
-            executablePath: "/usr/bin/sudo",
+            executablePath: VPNTool.sudo,
             arguments: [wgQuick, "up", configPath]
         )
         guard status == 0 else {
@@ -156,7 +173,7 @@ extension CMUXCLI {
             throw CLIError(message: "wg-quick is not installed. Install with: brew install wireguard-tools")
         }
         let status = runInteractiveProcess(
-            executablePath: "/usr/bin/sudo",
+            executablePath: VPNTool.sudo,
             arguments: [wgQuick, "down", configPath]
         )
         guard status == 0 else {
@@ -232,9 +249,9 @@ extension CMUXCLI {
         // instead of prompting a second time. Cache invalidation does not
         // require privilege and runs as separate argv-based commands below.
         let status = runInteractiveProcess(
-            executablePath: "/usr/bin/sudo",
+            executablePath: VPNTool.sudo,
             arguments: [
-                "/usr/sbin/install",
+                VPNTool.install,
                 "-o", "root",
                 "-g", "wheel",
                 "-m", "644",
@@ -245,8 +262,8 @@ extension CMUXCLI {
         guard status == 0 else {
             throw CLIError(message: "Updating /etc/hosts failed (exit \(status)). Check the output above.")
         }
-        _ = runInteractiveProcess(executablePath: "/usr/bin/dscacheutil", arguments: ["-flushcache"])
-        _ = runInteractiveProcess(executablePath: "/usr/bin/killall", arguments: ["-HUP", "mDNSResponder"])
+        _ = runInteractiveProcess(executablePath: VPNTool.dscacheutil, arguments: ["-flushcache"])
+        _ = runInteractiveProcess(executablePath: VPNTool.killall, arguments: ["-HUP", "mDNSResponder"])
         if jsonOutput {
             print(jsonString(["hosts_changed": true, "machine_count": entries.count]))
         } else if !quiet {
@@ -304,7 +321,7 @@ extension CMUXCLI {
            let configPath = status?["config_path"] as? String,
            let wgQuick = Self.firstExecutable(Self.wgQuickCandidates) {
             _ = runInteractiveProcess(
-                executablePath: "/usr/bin/sudo",
+                executablePath: VPNTool.sudo,
                 arguments: [wgQuick, "down", configPath]
             )
         }
