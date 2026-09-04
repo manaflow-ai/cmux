@@ -309,6 +309,9 @@ jobs:
       - name: Validate Python R2 appcast upload guard
         run: ./tests/test_ci_r2_upload_python.sh
 
+      - name: Validate cmux-tui client download retry guard
+        run: ./tests/test_ci_cmux_tui_client_download.sh
+
       - name: Validate release-build timeout guard
         run: ./tests/test_ci_release_build_timeout.sh
 
