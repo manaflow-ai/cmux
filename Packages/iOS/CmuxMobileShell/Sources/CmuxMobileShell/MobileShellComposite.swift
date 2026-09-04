@@ -1067,7 +1067,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Device ids whose last authenticated attempt was refused because the Mac
     /// is below this iOS build's minimum. The warning remains until that Mac
     /// successfully authenticates again or the account boundary clears it.
-    private var macVersionUpdateRequiredDeviceIDs: Set<String> = []
+    public private(set) var macVersionUpdateRequiredDeviceIDs: Set<String> = []
     /// Whether any known Mac needs a cmux update before it can connect.
     public var hasMacVersionUpdateRequired: Bool {
         !macVersionUpdateRequiredDeviceIDs.isEmpty
@@ -11568,6 +11568,11 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// off the connection startup path.
     public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
         macCompatPolicy = policy
+        let requiredMacVersion = policy
+            .tier(forIOSVersion: versionGateIOSAppVersion)?
+            .stableMinVersion
+            .description
+        MobileMacListAuthState.shared.applyPolicyMinimumSupportedMacVersion(requiredMacVersion)
     }
 
     func noteMacVersionUpdateRequired(for macDeviceID: String) {
