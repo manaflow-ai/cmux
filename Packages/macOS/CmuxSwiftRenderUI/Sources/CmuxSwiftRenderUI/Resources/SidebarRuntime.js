@@ -444,7 +444,10 @@
 
   g.cmux = (method, params) => {
     const p = {};
-    for (const k of Object.keys(params || {})) p[k] = String(params[k]);
+    for (const k of Object.keys(params || {})) {
+      const value = params[k];
+      p[k] = value !== null && typeof value === "object" ? JSON.stringify(value) : String(value);
+    }
     __host_action(JSON.stringify({ kind: "cmux", method, params: p }));
   };
   g.openURL = (url) => __host_action(JSON.stringify({ kind: "openURL", url: String(url) }));

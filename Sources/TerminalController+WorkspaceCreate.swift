@@ -29,9 +29,20 @@ extension TerminalController {
         taskCreateCandidates: [TaskCreateWorkspaceCandidate]? = nil,
         idempotencyCache: WorkspaceCreateIdempotencyCache? = nil
     ) -> V2CallResult {
+        let candidateTabManager = resolvedTabManager ?? v2ResolveTabManager(params: params)
+        guard let candidateTabManager else {
+            return .err(code: "unavailable", message: Self.workspaceCreateTabManagerUnavailableMessage, data: nil)
+        }
+        var normalizedParams = params
+        if let parameterError = v2NormalizeWorkspaceCreateParams(
+            &normalizedParams,
+            relativeTo: candidateTabManager.selectedWorkspace?.currentDirectory
+        ) {
+            return parameterError
+        }
         let outcome = v2PrepareWorkspaceCreate(
-            params: params,
-            tabManager: resolvedTabManager,
+            params: normalizedParams,
+            tabManager: candidateTabManager,
             taskCreateCandidates: taskCreateCandidates,
             idempotencyCache: idempotencyCache
         )
@@ -54,11 +65,11 @@ extension TerminalController {
             preparation = ready
         }
         let workingDirectory = Self.v2ExpandedWorkingDirectory(
-            v2RawString(params, "working_directory")
+            v2RawString(normalizedParams, "working_directory")
         )
         let execution: WorkspaceCreateExecutionPreparation
         switch v2PrepareWorkspaceCreateExecution(
-            params: params,
+            params: normalizedParams,
             preparation: preparation,
             workingDirectory: workingDirectory
         ) {
@@ -83,6 +94,7 @@ extension TerminalController {
 
         guard let result = tabManager.acquireWorkspaceIfActive({ () -> V2CallResult in
             var newWorkspace: Workspace?
+            var commandError: V2CallResult?
             if let operationID, !operationAlreadyAccepted {
                 // Acceptance must be durable before addWorkspace constructs a
                 // terminal and can execute the task command. A crash in between
@@ -128,6 +140,13 @@ extension TerminalController {
                     )
                 }
                 newWorkspace = ws
+                if let command = execution.command {
+                    commandError = sendWorkspaceCreateCommand(
+                        command,
+                        to: ws,
+                        in: tabManager
+                    )
+                }
             }
 
             guard let newWorkspace else {
@@ -136,9 +155,20 @@ extension TerminalController {
             if let operationID {
                 preparation.idempotencyCache.associate(operationID: operationID, workspaceID: newWorkspace.id)
             }
+            let windowID = v2ResolveWindowId(tabManager: tabManager)
+            if let commandError {
+                publishWorkspaceCreateCommandFailure(
+                    commandError,
+                    workspaceID: newWorkspace.id,
+                    surfaceID: newWorkspace.focusedPanelId,
+                    windowID: windowID
+                )
+            }
             return workspaceCreateResult(
                 workspace: newWorkspace,
-                windowID: v2ResolveWindowId(tabManager: tabManager)
+                windowID: windowID,
+                commandRequested: execution.command != nil,
+                commandError: commandError
             )
         }) else {
             return .err(code: "internal_error", message: "Failed to create workspace", data: nil)
@@ -148,12 +178,14 @@ extension TerminalController {
 
     private func workspaceCreateResult(
         workspace: Workspace,
-        windowID: UUID?
+        windowID: UUID?,
+        commandRequested: Bool = false,
+        commandError: V2CallResult? = nil
     ) -> V2CallResult {
         let workspaceID = workspace.id
         let groupID = workspace.groupId
         let surfaceID = workspace.focusedPanelId
-        return .ok([
+        var payload: [String: Any] = [
             "window_id": v2OrNull(windowID?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowID),
             "workspace_id": workspaceID.uuidString,
@@ -162,7 +194,14 @@ extension TerminalController {
             "group_ref": v2Ref(kind: .workspaceGroup, uuid: groupID),
             "surface_id": v2OrNull(surfaceID?.uuidString),
             "surface_ref": v2Ref(kind: .surface, uuid: surfaceID)
-        ])
+        ]
+        if let delivery = workspaceCreateCommandDeliveryMetadata(
+            requested: commandRequested,
+            error: commandError
+        ) {
+            payload["command_delivery"] = delivery
+        }
+        return .ok(payload)
     }
 
     func v2WorkspaceCloudVMOpen(params: [String: Any]) -> V2CallResult {
@@ -275,12 +314,23 @@ extension TerminalController {
         idempotencyCache: WorkspaceCreateIdempotencyCache? = nil
     ) async -> V2CallResult {
         var createParams = params
+        let candidateTabManager = resolvedTabManager ?? v2ResolveTabManager(params: params)
+        guard let candidateTabManager else {
+            return .err(code: "unavailable", message: Self.workspaceCreateTabManagerUnavailableMessage, data: nil)
+        }
+        if let parameterError = v2NormalizeWorkspaceCreateParams(
+            &createParams,
+            relativeTo: candidateTabManager.selectedWorkspace?.currentDirectory,
+            resolveWorkingDirectory: false
+        ) {
+            return parameterError
+        }
         createParams["focus"] = false
         createParams["eager_load_terminal"] = false
         createParams["auto_refresh_metadata"] = false
         let outcome = v2PrepareWorkspaceCreate(
             params: createParams,
-            tabManager: resolvedTabManager,
+            tabManager: candidateTabManager,
             taskCreateCandidates: nil,
             idempotencyCache: idempotencyCache
         )

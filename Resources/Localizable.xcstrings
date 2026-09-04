@@ -273507,6 +273507,159 @@
         }
       }
     },
+    "socket.workspace.create.tabManagerUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TabManager not available"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TabManager を利用できません"
+          }
+        }
+      }
+    },
+    "socket.workspace.create.invalidParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parameter `%@` must be %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パラメータ `%@` は %@ である必要があります。"
+          }
+        }
+      }
+    },
+    "socket.workspace.create.conflictingParameters": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parameters `%@` and `%@` cannot be used together."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パラメータ `%@` と `%@` は同時に使用できません。"
+          }
+        }
+      }
+    },
+    "socket.workspace.create.expected.jsonObject": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a JSON object"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON オブジェクト"
+          }
+        }
+      }
+    },
+    "socket.workspace.create.expected.pathWithoutNUL": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a path without NUL bytes"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "NUL バイトを含まないパス"
+          }
+        }
+      }
+    },
+    "socket.workspace.create.expected.string": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "a string"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字列"
+          }
+        }
+      }
+    },
+    "socket.workspace.create.expected.stringMap": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "an object of string values"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字列値のオブジェクト"
+          }
+        }
+      }
+    },
+    "socket.workspace.create.unsupportedParameter": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unsupported workspace.create parameter `%@`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workspace.create のパラメータ `%@` はサポートされていません。"
+          }
+        }
+      }
+    },
+    "socket.terminal.unknownKey": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown key"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なキー"
+          }
+        }
+      }
+    },
     "machines.new.create": {
       "extractionState": "manual",
       "localizations": {

@@ -256,13 +256,29 @@ extension TerminalController {
         return .surface(focused)
     }
 
+    /// Protocol witness for the shared surface-send path; pre-resolved callers use the overload below.
     func controlSurfaceSendText(
         routing: ControlRoutingSelectors,
         surfaceID: UUID?,
         hasSurfaceIDParam: Bool,
         text: String
     ) -> ControlSurfaceSendResolution {
-        guard let tabManager = resolveTabManager(routing: routing) else {
+        controlSurfaceSendText(
+            routing: routing,
+            surfaceID: surfaceID,
+            hasSurfaceIDParam: hasSurfaceIDParam,
+            text: text,
+            resolvedTabManager: nil
+        )
+    }
+    func controlSurfaceSendText(
+        routing: ControlRoutingSelectors,
+        surfaceID: UUID?,
+        hasSurfaceIDParam: Bool,
+        text: String,
+        resolvedTabManager: TabManager? = nil
+    ) -> ControlSurfaceSendResolution {
+        guard let tabManager = resolvedTabManager ?? resolveTabManager(routing: routing) else {
             return .tabManagerUnavailable
         }
         if let dock = windowDockForRouting(routing, tabManager: tabManager) {

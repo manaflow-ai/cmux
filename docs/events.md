@@ -229,6 +229,7 @@ Workspace:
 | Name | Trigger |
 | --- | --- |
 | `workspace.created` | Workspace model created through UI, CLI, socket, startup, or restore. |
+| `workspace.command_delivery_failed` | A workspace was created, but its requested follow-up command could not be accepted by the terminal surface. The payload contains the error code/message without command text. |
 | `workspace.selected` | Selected workspace changed in a window. Fires for sidebar clicks, shortcuts, command palette actions, tmux-compatible `next-window`/`previous-window`/`last-window`, CLI, and socket commands. |
 | `workspace.closed` | Workspace closed. |
 | `workspace.renamed` | Workspace renamed. |
@@ -300,6 +301,7 @@ Sidebar metadata:
 
 | Name | Trigger |
 | --- | --- |
+| `sidebar.action.failed` | A custom-sidebar action was rejected or failed; includes the method, error code, and diagnostic message when available. |
 | `sidebar.metadata.updated` | Status pill, metadata entry, or metadata block updated. |
 | `sidebar.metadata.cleared` | Status pill, metadata entry, or metadata block cleared. |
 | `sidebar.progress.updated` | Sidebar progress set or updated. |

@@ -27,7 +27,8 @@ import SwiftSyntax
 /// """, state: ["count": .int(2)])
 /// ```
 public struct SwiftViewInterpreter: Sendable {
-    private let expressions = ExpressionEvaluator()
+    // Shared by the view walker and the action-parsing extension.
+    let expressions = ExpressionEvaluator()
 
     public init() {}
 
@@ -469,54 +470,6 @@ public struct SwiftViewInterpreter: Sendable {
             out += evalItems(closure.statements, scope)
         }
         return out
-    }
-
-    private func closureParameterNames(_ closure: ClosureExprSyntax) -> [String] {
-        guard let parameterClause = closure.signature?.parameterClause else { return [] }
-        if case let .simpleInput(list) = parameterClause {
-            return list.map { $0.name.text }
-        }
-        if case let .parameterClause(clause) = parameterClause {
-            return clause.parameters.map { $0.firstName.text }
-        }
-        return []
-    }
-
-    /// Captures the commands in a `Button` action closure (currently
-    /// `cmux("method", args…)` calls), evaluating argument expressions
-    /// against `env` so loop-captured values are baked in.
-    private func parseAction(_ closure: ClosureExprSyntax, _ env: EvalEnvironment) -> ButtonAction {
-        var commands: [ActionCommand] = []
-        for item in closure.statements {
-            guard let call = item.item.as(ExprSyntax.self)?.as(FunctionCallExprSyntax.self),
-                  let name = call.calledExpression.as(DeclReferenceExprSyntax.self)?.baseName.text
-            else { continue }
-            func value(_ arg: LabeledExprSyntax) -> String {
-                expressions.eval(arg.expression, env)?.displayString ?? arg.expression.trimmedDescription
-            }
-            switch name {
-            case "cmux":
-                var method: String?
-                var params: [String: String] = [:]
-                for arg in call.arguments {
-                    if let label = arg.label?.text {
-                        params[label] = value(arg)
-                    } else if method == nil {
-                        method = value(arg)
-                    }
-                }
-                if let method {
-                    commands.append(.cmux(method: method, params: params))
-                }
-            case "log" where !call.arguments.isEmpty:
-                commands.append(.log(value(call.arguments.first!)))
-            case "openURL" where !call.arguments.isEmpty:
-                commands.append(.openURL(value(call.arguments.first!)))
-            default:
-                continue
-            }
-        }
-        return ButtonAction(commands: commands)
     }
 
     /// Extracts a `switch` from a code-block item (bare or wrapped in an

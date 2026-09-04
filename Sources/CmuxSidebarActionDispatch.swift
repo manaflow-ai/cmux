@@ -39,6 +39,18 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
         let controller = TerminalController.shared
         let commands = action.commands
         let selectGeneration = sidebarSelectCoalescer.generation(for: commands)
+        let jsonParameterNames: Set<String> = [
+            "layout", "workspace_env", "initial_env", "env", "workspace_ids",
+            "child_workspace_ids", "surface_ids", "ids",
+        ]
+        let booleanParameterNames: Set<String> = [
+            "focus", "select", "open", "enabled", "clear", "dry_run", "base",
+            "eager_load_terminal", "auto_refresh_metadata",
+        ]
+        let integerParameterNames: Set<String> = [
+            "index", "to_index", "priority", "port", "amount", "count", "limit",
+            "offset", "row", "column", "width", "height",
+        ]
         cmuxSidebarWorkerQueue.async {
             // A newer select is already queued behind this one: skip the heavy
             // switch, the burst's final click defines the end state.
@@ -55,15 +67,21 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                         // like v2Int decode them.
                         var typed: [String: Any] = [:]
                         for (key, value) in params {
-                            if let intValue = Int(value) {
+                            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                            if (jsonParameterNames.contains(key) || trimmed.hasPrefix("[")),
+                               let data = trimmed.data(using: .utf8),
+                               let json = try? JSONSerialization.jsonObject(with: data) {
+                                // Structured values (layout, environment maps,
+                                // and id arrays) travel through the interpreter's
+                                // string-only action IR as JSON and are restored
+                                // before entering the shared socket path.
+                                typed[key] = json
+                            } else if booleanParameterNames.contains(key),
+                                      let boolValue = Bool(trimmed.lowercased()) {
+                                typed[key] = boolValue
+                            } else if integerParameterNames.contains(key),
+                                      let intValue = Int(trimmed) {
                                 typed[key] = intValue
-                            } else if value.hasPrefix("["),
-                                      let data = value.data(using: .utf8),
-                                      let array = (try? JSONSerialization.jsonObject(with: data)) as? [Any] {
-                                // Array-typed v2 params (e.g. child_workspace_ids)
-                                // travel as JSON strings through the string-only
-                                // action pipe; inflate them here.
-                                typed[key] = array
                             } else {
                                 typed[key] = value
                             }
@@ -72,7 +90,44 @@ func makeCmuxSidebarActionDispatch() -> SidebarActionDispatch {
                     }
                     guard let data = try? JSONSerialization.data(withJSONObject: payload),
                           let line = String(data: data, encoding: .utf8) else { continue }
-                    _ = controller.handleSocketLine(line)
+                    let response = controller.handleSocketLine(line)
+                    guard let responseData = response.data(using: .utf8),
+                          let envelope = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+                        continue
+                    }
+                    let error: [String: Any]
+                    if (envelope["ok"] as? Bool) == false {
+                        error = envelope["error"] as? [String: Any] ?? [:]
+                    } else if method == "workspace.create",
+                              let result = envelope["result"] as? [String: Any],
+                              let delivery = result["command_delivery"] as? [String: Any],
+                              (delivery["accepted"] as? Bool) == false {
+                        // workspace.create commits the workspace even when its
+                        // secondary terminal-input delivery fails. Surface that
+                        // nested failure through the same sidebar diagnostic
+                        // channel as an ordinary rejected command.
+                        error = delivery["error"] as? [String: Any]
+                            ?? ["code": "command_delivery_failed"]
+                    } else {
+                        continue
+                    }
+                    var diagnostic: [String: Any] = [
+                        "method": method,
+                        "code": error["code"] as? String ?? "command_failed",
+                    ]
+                    if let message = error["message"] as? String {
+                        diagnostic["message"] = message
+                    }
+                    if let errorData = error["data"] as? [String: Any],
+                       let unsupported = errorData["unsupported_param"] as? String {
+                        diagnostic["unsupported_param"] = unsupported
+                    }
+                    CmuxEventBus.shared.publish(
+                        name: "sidebar.action.failed",
+                        category: "sidebar",
+                        source: "custom-sidebar",
+                        payload: diagnostic
+                    )
                 case let .openURL(urlString):
                     // NSWorkspace.open is main-only; run it synchronously to keep the
                     // command's position in the sequence.
