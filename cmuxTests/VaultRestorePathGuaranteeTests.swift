@@ -74,12 +74,12 @@ struct VaultRestorePathGuaranteeTests {
         let snapshot = try #require(launch.startupRestoreAgent)
         let tabManager = TabManager(autoWelcomeIfNeeded: false)
         defer { tabManager.tabs.forEach { $0.teardownAllPanels() } }
-        let workspace = tabManager.addWorkspace(
+        let workspace = try #require(tabManager.addWorkspaceIfActive(
             workingDirectory: launch.workingDirectory,
             initialTerminalInput: launch.initialInput,
             initialTerminalStartupRestoreAgent: snapshot,
             autoWelcomeIfNeeded: false
-        )
+        ))
         let panelID = try #require(workspace.focusedPanelId)
         let target = ControlSurfaceResumeTarget.workspace(
             tabManager: tabManager,
