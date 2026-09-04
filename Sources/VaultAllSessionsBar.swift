@@ -34,7 +34,7 @@ struct VaultAllSessionsBar: View {
     }
 
     var body: some View {
-        HStack(spacing: RightSidebarChromeMetrics.headerControlSpacing) {
+        HStack(spacing: 4) {
             searchField
             overflowMenu
         }
@@ -43,7 +43,7 @@ struct VaultAllSessionsBar: View {
         // second separator line. The field itself is two points taller than
         // the compact icon controls, so use three-point vertical insets here.
         .padding(.leading, 4)
-        .padding(.trailing, 6)
+        .padding(.trailing, 2)
         .padding(.vertical, 3)
         .frame(height: searchBarHeight)
     }
@@ -181,8 +181,8 @@ struct VaultAllSessionsBar: View {
         } label: {
             Text("⋮")
                 .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.primary.opacity(0.92))
-                .frame(width: 28, height: 28)
+                .foregroundStyle(Color.secondary.opacity(0.72))
+                .frame(width: 24, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 6, style: .continuous)
                         .fill(Color.primary.opacity(0.10))
@@ -198,7 +198,7 @@ struct VaultAllSessionsBar: View {
         .accessibilityHint(Text(String(localized: "sessionIndex.view.tooltip", defaultValue: "Choose session view")))
         .accessibilityValue(viewSelectionLabel)
         .accessibilityIdentifier("VaultSessionOptionsMenu")
-        .frame(width: 28, height: 28)
+        .frame(width: 24, height: 28)
         .layoutPriority(2)
         .titlebarInteractiveControl()
     }
