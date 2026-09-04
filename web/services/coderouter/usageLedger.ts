@@ -44,6 +44,8 @@ export type RouteEventInput = {
   readonly requestId: string;
   /** Absent before authentication succeeds. */
   readonly teamId?: string;
+  /** Absent before route-token authentication succeeds. */
+  readonly stackUserId?: string;
   readonly vmId?: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -83,6 +85,7 @@ export type UsageEventRow = {
 export type RouteEventRow = {
   readonly event_time: string;
   readonly team_id: string;
+  readonly stack_user_id: string | null;
   readonly vm_id: string | null;
   readonly provider: string;
   readonly agent: string;
@@ -185,6 +188,7 @@ export function routeEventRow(input: RouteEventInput, now: Date): RouteEventRow 
   return {
     event_time: clickHouseDateTime(now),
     team_id: boundedText(input.teamId, 128),
+    stack_user_id: ledgerUserId(input.stackUserId),
     vm_id: ledgerVmId(input.vmId ?? null),
     provider: boundedText(input.provider, 64) || "unknown",
     agent: boundedText(input.agent, 64) || "unknown",
@@ -236,6 +240,10 @@ function ledgerVmId(value: string | null | undefined): string | null {
 /** Empty when the provider has no per-account attribution (codex today). */
 function ledgerAccountId(value: string | undefined): string {
   return typeof value === "string" && ID_PATTERN.test(value) ? value : "";
+}
+
+function ledgerUserId(value: string | undefined): string | null {
+  return typeof value === "string" && ID_PATTERN.test(value) ? value : null;
 }
 
 function boundedText(value: string | undefined, max: number): string {

@@ -7,12 +7,14 @@
         "snapshot": "Diese Cloud-VM unterstützt keinen gespeicherten VM-Zustand.",
         "restore": "Dieser Cloud-VM-Typ unterstützt das Wiederherstellen eines gespeicherten VM-Zustands nicht.",
         "fork": "Diese Cloud-VM unterstützt das Kopieren auf eine neue VM nicht.",
+        "openPort": "Der Anbieter dieser Cloud-VM kann die Maschinenports nicht als Vorschau-URLs bereitstellen.",
         "default": "Diese Cloud-VM unterstützt den angeforderten Vorgang nicht."
       },
       "action": {
         "snapshot": "Nicht erneut versuchen. Die Arbeit auf diesem Maschinentyp bleibt auf dem dauerhaften Home-Volume erhalten.",
         "restore": "Nicht erneut versuchen. Die Arbeit auf diesem Maschinentyp bleibt auf dem dauerhaften Home-Volume erhalten.",
         "fork": "Nicht erneut versuchen. Erstellen Sie mit `cmux vm new` eine neue VM.",
+        "openPort": "Nicht erneut versuchen. Greifen Sie innerhalb der Maschine mit `cmux vm exec` auf den Dienst zu oder verwenden Sie einen Maschinentyp, der Ports öffnen kann.",
         "default": "Nicht erneut versuchen. Führen Sie `cmux vm ls` aus oder wenden Sie sich an den Support, wenn dies nicht stimmt."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro erforderlich",
       "message": "Cloud-VMs erfordern einen cmux Pro-Plan.",
       "action": "Führen Sie unter {upgradeUrl} ein Upgrade auf cmux Pro durch, um Cloud-VMs zu erstellen."
+    },
+    "sharedResource": {
+      "message": "Der gemeinsame {resource}-Ressourcenpool für Cloud-VMs ist voll.",
+      "action": "Löschen Sie eine ungenutzte Cloud-VM und versuchen Sie es erneut.",
+      "oversizedAction": "Fordern Sie eine kleinere {resource}-Größe für die Cloud-VM an, die in den gemeinsamen Pool passt."
     }
   },
   "billingRecovery": {

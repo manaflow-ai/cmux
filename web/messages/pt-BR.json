@@ -7,12 +7,14 @@
         "snapshot": "Esta Cloud VM não é compatível com o estado salvo da VM.",
         "restore": "Este tipo de Cloud VM não é compatível com a restauração do estado salvo da VM.",
         "fork": "Esta Cloud VM não é compatível com a cópia para uma nova VM.",
+        "openPort": "O provedor desta Cloud VM não pode expor as portas da máquina como URLs de pré-visualização.",
         "default": "Esta Cloud VM não é compatível com a operação solicitada."
       },
       "action": {
         "snapshot": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "restore": "Não tente novamente. O trabalho neste tipo de máquina é mantido no volume inicial persistente.",
         "fork": "Não tente novamente. Crie uma nova VM com `cmux vm new`.",
+        "openPort": "Não tente novamente. Acesse o serviço de dentro da máquina com `cmux vm exec` ou use um tipo de máquina que possa abrir portas.",
         "default": "Não tente novamente. Execute `cmux vm ls` ou entre em contato com o suporte se achar que isso está errado."
       }
     },
@@ -20,6 +22,11 @@
       "title": "cmux Pro necessário",
       "message": "As Cloud VMs exigem um plano cmux Pro.",
       "action": "Faça upgrade para o cmux Pro em {upgradeUrl} para criar Cloud VMs."
+    },
+    "sharedResource": {
+      "message": "O pool compartilhado de recursos {resource} da Cloud VM está cheio.",
+      "action": "Exclua uma Cloud VM sem uso e tente novamente.",
+      "oversizedAction": "Solicite um tamanho {resource} menor para a Cloud VM que caiba no pool compartilhado."
     }
   },
   "billingRecovery": {

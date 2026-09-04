@@ -7,6 +7,7 @@ import Foundation
 /// coordinator.
 struct MachineCreateRowActions {
     let retry: @MainActor (UUID) -> Void
+    let cancel: @MainActor (UUID) -> Void
     let dismiss: @MainActor (UUID) -> Void
     let showFailure: @MainActor (UUID) -> Void
     let copyFailure: @MainActor (UUID) -> Void
@@ -14,6 +15,7 @@ struct MachineCreateRowActions {
     /// Rows with nothing behind them (previews, tests).
     static let inert = MachineCreateRowActions(
         retry: { _ in },
+        cancel: { _ in },
         dismiss: { _ in },
         showFailure: { _ in },
         copyFailure: { _ in }
@@ -24,6 +26,9 @@ struct MachineCreateRowActions {
         MachineCreateRowActions(
             retry: { [weak coordinator] id in
                 coordinator?.retry(id)
+            },
+            cancel: { [weak coordinator] id in
+                coordinator?.cancel(id)
             },
             dismiss: { [weak coordinator] id in
                 coordinator?.dismiss(id)
@@ -55,7 +60,11 @@ struct MachineCreateRowActions {
             operation.request.displayName
         )
         let content = CmuxAlertContent(flattenedText: "\(lead)\n\n\(output)", separatingScrollableDetails: output)
-        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        let window = CloudVMActionLauncher.presentationWindow(
+            preferred: nil,
+            key: NSApp.keyWindow,
+            main: NSApp.mainWindow
+        )
         content.apply(to: alert, presentingWindow: window)
         if let window {
             alert.beginSheetModal(for: window, completionHandler: nil)

@@ -21,6 +21,7 @@ extension TerminalController {
                         "freeAccessWindowDays": limits.freeAccessWindowDays,
                         "freeAccessExpiresAt": limits.freeAccessExpiresAt.map { $0 as Any } ?? NSNull(),
                         "imageKinds": limits.imageKinds.map { ["kind": $0.kind.rawValue, "image": $0.image] },
+                        "memoryOptionsMb": limits.memoryOptionsMb,
                     ]
                 }
                 return payload
@@ -233,6 +234,24 @@ extension TerminalController {
                 payload["disk_used_mb"] = stats.diskUsedMb
                 return payload.compactMapValues { $0 }
             }
+        case "vm.resize":
+            guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.resize requires `id`. Run `cmux vm ls` to find one.")
+            }
+            guard let diskMb = Self.socketWorkerInt(params["storage_mb"]) ?? Self.socketWorkerInt(params["disk_mb"]), diskMb > 0 else {
+                return v2Error(id: id, code: "invalid_params", message: "vm.resize requires a positive `storage_mb` value.")
+            }
+            return v2VmCall(id: id) {
+                let stats = try await VMClient.shared.resizeDisk(id: vmId, diskMb: diskMb)
+                var payload: [String: Any] = [
+                    "id": vmId,
+                    "state": stats.state.rawValue,
+                    "sampled_at_unix": Int(stats.sampledAt.timeIntervalSince1970),
+                ]
+                if let diskTotalMb = stats.diskTotalMb { payload["disk_total_mb"] = diskTotalMb }
+                if let diskUsedMb = stats.diskUsedMb { payload["disk_used_mb"] = diskUsedMb }
+                return payload
+            }
         case "vm.rename":
             guard let vmId = Self.socketWorkerString(params["id"]), !vmId.isEmpty else {
                 return v2Error(id: id, code: "invalid_params", message: "vm.rename requires `id`. Run `cmux vm ls` to find one.")
@@ -289,7 +308,22 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: "vm.destroy requires `id`. Run `cmux vm ls` to find one, then `cmux vm rm <id>`.")
             }
             return v2VmCall(id: id) {
-                try await VMClient.shared.destroy(id: vmId)
+                do {
+                    try await VMClient.shared.destroy(id: vmId)
+                } catch let error as VMClientError {
+                    // Delete is idempotent from the person's perspective. A
+                    // stale sidebar row can point at a machine the backend has
+                    // already forgotten; treat that 404 as success so the
+                    // normal CLI completion path dismisses the operation and
+                    // never traps the person in an error sheet.
+                    if case .httpStatus(404, _) = error {
+                        await MainActor.run {
+                            AppDelegate.shared?.closeWorkspaces(forManagedCloudVMID: vmId)
+                        }
+                        return ["ok": true, "already_gone": true]
+                    }
+                    throw error
+                }
                 // Same cleanup as the Machines panel's delete confirm. Every
                 // entrypoint (panel, tree, CLI, socket) funnels through this
                 // handler, so this is the one place the app learns a machine
@@ -477,6 +511,12 @@ extension TerminalController {
                         "expires_at_unix": invitation.expiresAtUnix,
                     ]
                 }
+                if let addresses = endpoint.networkAddresses {
+                    payload["network_addresses"] = [
+                        "ipv4": addresses.ipv4.map { $0 as Any } ?? NSNull(),
+                        "ipv6": addresses.ipv6.map { $0 as Any } ?? NSNull(),
+                    ]
+                }
                 return payload
             }
         case "vm.cmux_remote_approve":
@@ -553,6 +593,10 @@ extension TerminalController {
             return socketWorkerVMTerminalReadResponse(id: id, params: params)
         case "vm.terminal_wait":
             return socketWorkerVMTerminalWaitResponse(id: id, params: params)
+        case "vm.terminal_rename":
+            return socketWorkerVMTerminalRenameResponse(id: id, params: params)
+        case "vm.tab_rename":
+            return socketWorkerVMTabRenameResponse(id: id, params: params)
         default:
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
@@ -625,13 +669,22 @@ extension TerminalController {
             "provider": vm.provider,
             "image": vm.image,
             "kind": vm.resolvedKind.rawValue,
-            // What the provider can honor; agents skip Checkpoint/Fork the way the menus do.
-            "capabilities": ["snapshot": vm.capabilities.snapshot, "restore": vm.capabilities.restore, "fork": vm.capabilities.fork],
+            // What the provider can honor; the list response is authoritative and
+            // older action responses retain the model's compatibility defaults.
+            "capabilities": [
+                "snapshot": vm.capabilities.snapshot,
+                "restore": vm.capabilities.restore,
+                "fork": vm.capabilities.fork,
+                "ports": vm.capabilities.ports,
+            ],
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]
         if let displayName = vm.displayName, !displayName.isEmpty {
             payload["displayName"] = displayName
+        }
+        if let slug = vm.slug, !slug.isEmpty {
+            payload["slug"] = slug
         }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
