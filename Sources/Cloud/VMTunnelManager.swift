@@ -228,9 +228,9 @@ struct VMTunnelManager: Sendable {
     var configURL: URL { stateDir.appendingPathComponent("\(interfaceName).conf", isDirectory: false) }
 
     /// wg-quick(8) records the created utun's name here. On macOS the file is
-    /// root-only (0400), so its contents are out of reach, but its EXISTENCE is
-    /// visible — and that is what tells this tunnel apart from another
-    /// environment's in `wgQuickInterfaceUp()`.
+    /// root-only (0400), so its contents are out of reach. Older configs use its
+    /// existence plus the socket timestamp/size as a fallback identity signal;
+    /// new configs also write the exact companion marker below.
     var runtimeNameFileURL: URL {
         URL(fileURLWithPath: "/var/run/wireguard/\(interfaceName).name", isDirectory: false)
     }
