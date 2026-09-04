@@ -54,17 +54,9 @@ fn registry_opens_and_persists_under_a_long_windows_state_root() {
     let fixture_root = platform::normalize_filesystem_path(root.clone());
     fs::create_dir_all(&fixture_root).unwrap();
     let machine_id = MachinePublicId::random().unwrap();
-    fs::write(
-        fixture_root.join(MACHINE_ID_FILE),
-        format!("{}\n", machine_id.as_str()),
-    )
-    .unwrap();
+    fs::write(fixture_root.join(MACHINE_ID_FILE), format!("{}\n", machine_id.as_str())).unwrap();
     let pepper = ResourceEffectPepper::random().unwrap();
-    fs::write(
-        fixture_root.join(RESOURCE_EFFECT_PEPPER_FILE),
-        pepper.0.as_ref(),
-    )
-    .unwrap();
+    fs::write(fixture_root.join(RESOURCE_EFFECT_PEPPER_FILE), pepper.0.as_ref()).unwrap();
 
     let mut registry = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
     seed_workspace(&mut registry, "persisted");
