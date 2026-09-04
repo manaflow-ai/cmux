@@ -18,6 +18,15 @@ extension CmuxTuiSnapshotParser {
                 .map(String.init)
                 .map { $0.lowercased() } ?? ""
             if normalized == "localhost" || normalized == "::1" { return true }
+            // Linux may print an IPv4 loopback listener as an IPv4-mapped IPv6
+            // address (`::ffff:127.0.0.1`). Treat every mapped 127/8 address
+            // as loopback before deciding that a private-address preview is
+            // reachable.
+            if let mappedIPv4 = normalized.split(separator: ":").last,
+               mappedIPv4.split(separator: ".").count == 4 {
+                let octets = mappedIPv4.split(separator: ".")
+                if octets.first == "127" { return true }
+            }
             let octets = normalized.split(separator: ".")
             return octets.count == 4 && octets[0] == "127"
         }

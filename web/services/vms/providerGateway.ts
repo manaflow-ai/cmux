@@ -210,14 +210,15 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
   openPort: (provider, vmId, port) => {
     const impl = getProvider(provider);
-    const openPort = impl.openPort;
-    if (!openPort) {
+    if (!impl.openPort) {
       // Keep the capability failure outside `providerEffect`: that adapter
       // intentionally wraps provider failures as retryable service errors,
       // while an absent method must reach the 501 non-retryable response.
       return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "openPort" }));
     }
-    return providerEffect(provider, "openPort", () => openPort(vmId, port));
+    // Keep the method receiver intact: Freestyle's implementation reads its
+    // injected client/exec helpers through `this`.
+    return providerEffect(provider, "openPort", () => impl.openPort!(vmId, port));
   },
   getStats: (provider, vmId) =>
     providerEffect(provider, "getStats", () => {

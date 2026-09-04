@@ -263,6 +263,14 @@ struct CloudPortOpenRegressionTests {
             from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
             privateAddress: "10.0.0.7"
         ) == [9000])
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: VMExecResult(
+                exitCode: 0,
+                stdout: "State Recv-Q Send-Q Local Address:Port Peer Address:Port\nLISTEN 0 128 [::ffff:127.0.0.1]:9200 [::]:*\n",
+                stderr: ""
+            ),
+            privateAddress: "10.0.0.7"
+        ) == [], "IPv4-mapped loopback must not be advertised through the private address")
         let previous = [discoveredPort(8000, in: workspace)]
         let retained = CmuxTuiSurfaceProvider.portResources(
             machine: machine,
