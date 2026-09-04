@@ -64,6 +64,12 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
     private var deferredNativeActionReloadIDs: Set<String> = []
     private var isDragSessionActive = false
     private var deferredConfigurationDuringDrag: WorkspaceListTable?
+    /// UIKit owns the main-thread frame budget while a user pans or the table
+    /// decelerates. Keep the newest workspace snapshot out of the cell/layout
+    /// path until that interaction settles, so agent responses cannot interrupt
+    /// gesture tracking or drop frames.
+    private var isScrollInteractionActive = false
+    private var deferredConfigurationDuringScroll: WorkspaceListTable?
     private var dropIntoTarget: (
         sessionIdentifier: ObjectIdentifier,
         headerIndexPath: IndexPath,
@@ -96,6 +102,8 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         tableViewController = viewController
         editedItemID = nil
         deferredNativeActionReloadIDs.removeAll(keepingCapacity: true)
+        isScrollInteractionActive = false
+        deferredConfigurationDuringScroll = nil
         tableView.delegate = self
         tableView.dragDelegate = self
         tableView.dropDelegate = self
@@ -130,6 +138,9 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
 
     func detach() {
         pendingContextMenuWorkspaceClose = nil
+        deferredConfigurationDuringDrag = nil
+        deferredConfigurationDuringScroll = nil
+        isScrollInteractionActive = false
         tableViewController = nil
     }
 
@@ -143,7 +154,49 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
             deferredConfigurationDuringDrag = next
             return
         }
+        guard !isScrollInteractionActive,
+              !tableView.isDragging,
+              !tableView.isDecelerating else {
+            // Visible-cell reconfiguration can synchronously invalidate
+            // self-sizing layout. Defer the newest payload while UIKit is
+            // tracking or decelerating the user's scroll and apply it once,
+            // after the interaction ends.
+            deferredConfigurationDuringScroll = next
+            return
+        }
         apply(configuration: next, in: tableView)
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        isScrollInteractionActive = true
+    }
+
+    func scrollViewDidEndDragging(
+        _ scrollView: UIScrollView,
+        willDecelerate decelerate: Bool
+    ) {
+        guard !decelerate else { return }
+        isScrollInteractionActive = false
+        applyDeferredConfigurationIfPossible(in: scrollView)
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isScrollInteractionActive = false
+        applyDeferredConfigurationIfPossible(in: scrollView)
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        isScrollInteractionActive = false
+        applyDeferredConfigurationIfPossible(in: scrollView)
+    }
+
+    private func applyDeferredConfigurationIfPossible(in scrollView: UIScrollView) {
+        guard !isDragSessionActive,
+              !isScrollInteractionActive,
+              let tableView = scrollView as? UITableView,
+              let deferredConfigurationDuringScroll else { return }
+        self.deferredConfigurationDuringScroll = nil
+        apply(configuration: deferredConfigurationDuringScroll, in: tableView)
     }
 
     private func apply(
@@ -334,8 +387,13 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         setDragSessionActive(false, in: tableView)
         if let deferredConfigurationDuringDrag {
             self.deferredConfigurationDuringDrag = nil
-            apply(configuration: deferredConfigurationDuringDrag, in: tableView)
+            if isScrollInteractionActive || tableView.isDragging || tableView.isDecelerating {
+                deferredConfigurationDuringScroll = deferredConfigurationDuringDrag
+            } else {
+                apply(configuration: deferredConfigurationDuringDrag, in: tableView)
+            }
         }
+        applyDeferredConfigurationIfPossible(in: tableView)
     }
 
     func tableView(
