@@ -13,7 +13,7 @@ request:
 ```text
 cmux [START OPTIONS]
 cmux server start [START OPTIONS]
-cmux attach [START OPTIONS] [--terminal <terminal-id>]
+cmux attach [START OPTIONS] [--terminal <terminal-id>] [--pipe-io [--cols <n> --rows <n>]]
 cmux relay [ROUTING OPTIONS]
 cmux machine-agent [OPTIONS]
 ```
@@ -24,6 +24,36 @@ complete session TUI. `attach --terminal <terminal-id>` resolves an exact ID
 from `cmux terminal list` and renders only that terminal, without session
 chrome or unrelated event traffic. Startup attach does not accept internal
 runtime identifiers, abbreviated identifiers, names, or `current`.
+
+`attach --terminal <terminal-id> --pipe-io` is the same scoped attach without
+a renderer, for an embedder that parses terminal bytes itself. stdout carries
+raw bytes: the daemon replay first, then live output, with a full reset
+(`ESC c` plus erase-scrollback) before any replay that is not the relay's
+first output, because a replay replaces state while a byte stream appends.
+The relay applies the attach stream's coupled `colors` metadata as ordered VT
+sidecar bytes after the replay or live output it describes. This uses OSC
+10/11/12, OSC 4/104, and DECSCUSR, so a raw embedder receives the same default,
+cursor, and sparse palette state as a byte-mode attach client. A live palette
+snapshot resets entries removed from the prior authored snapshot before applying
+its sparse entries;
+omitted live color fields remain unchanged.
+stdin takes one JSON object per line: `{"input":"<base64>"}` forwards bytes to
+the terminal, `{"resize":{"cols":N,"rows":N}}` drives the attached viewer
+size, and `{"claim":{"geometry":true}}` re-asserts this relay's geometry
+authority (authority is last-claim-wins across a terminal's attachments; an
+embedder sends it when its pane receives user input, so the typed-in pane
+owns the PTY size). Each resize result is reported as one
+`{"diag":{"resize":{"cols":N,"rows":N,"accepted":true|false}}}` line, or
+as `{"diag":{"resize":{"cols":N,"rows":N,"error":"resize-failed"}}}` when the
+request fails. Each claim is reported as
+`{"diag":{"claim":{"accepted":true}}}` or
+`{"diag":{"claim":{"error":"claim-failed"}}}`. Unknown keys are ignored. stderr
+ends with one JSON line
+`{"exit":{"reason":"terminal-ended"|"daemon-lost"|"parent-closed"|"setup-failed"}}`.
+Exit code 0 means the terminal ended, the embedder closed stdin, or setup
+failed (do not respawn); exit code 2 means the daemon connection was lost and
+a respawn reattaches and resyncs from a fresh replay. `--cols` and `--rows` set the
+initial viewer size (default 80x24). `--pipe-io` requires `--terminal`.
 
 Interactive and headless ownership are intentionally separate:
 

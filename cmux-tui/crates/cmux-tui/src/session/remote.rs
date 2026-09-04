@@ -7,10 +7,13 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+#[cfg(test)]
+use std::sync::mpsc::sync_channel;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
 use base64::Engine;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::{
@@ -27,11 +30,13 @@ use cmux_tui_core::{
     },
 };
 use cmux_tui_machine_protocol::BearerToken;
+use crossbeam_channel::Sender as EventSender;
 use ghostty_vt::{
     Callbacks, CursorShape, KeyInput, KittyGraphicsLimits, KittyImageIdCursors, KittyReplayState,
     MouseEncoders, MouseInput, RenderState, Terminal, TerminalColorOverrides,
     TerminalPointerSemanticSnapshot, parse_color,
 };
+use parking_lot::{Condvar as ParkingCondvar, Mutex as ParkingMutex};
 use serde_json::{Value, json};
 use zeroize::{Zeroize, Zeroizing};
 
@@ -50,6 +55,7 @@ const MAX_SURFACE_OVERFLOW_RECOVERIES: usize = 256;
 const INTERACTIVE_WRITE_QUEUE_CAPACITY: usize = 512;
 const INTERACTIVE_WRITE_QUEUE_BYTES: usize = 8 * 1024 * 1024;
 pub(crate) const REMOTE_CONTROL_MESSAGE_MAX_BYTES: usize = REMOTE_SESSION_MESSAGE_MAX_BYTES;
+const PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES: usize = REMOTE_CONTROL_MESSAGE_MAX_BYTES;
 const REMOTE_FRAME_LOG_MAX_ENTRIES: usize = 16 * 1024;
 const REMOTE_FRAME_LOG_MAX_BYTES: usize = 2 * 1024 * 1024;
 const REMOTE_TERMINAL_DIMENSION_MAX: u64 = 10_000;
@@ -202,8 +208,19 @@ pub(crate) enum RemoteRequestError {
     Encode(serde_json::Error),
     Transport(io::Error),
     Timeout,
-    Rejected { error: String, code: Option<String>, delivery: Option<ClearHistoryDelivery> },
+    /// The request may have reached the peer, but its acknowledgement was
+    /// not observed. Retrying on the same session could execute a mutation
+    /// twice, so callers must reconnect or otherwise reconcile first.
+    Ambiguous,
+    Rejected {
+        error: String,
+        code: Option<String>,
+        delivery: Option<ClearHistoryDelivery>,
+    },
     Shutdown,
+    /// The peer closed the transport. This is retryable for pipe-IO startup,
+    /// unlike a local shutdown initiated by this process.
+    RemoteShutdown,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -218,7 +235,7 @@ impl RemoteRequestError {
     }
 
     pub(crate) fn is_timeout(&self) -> bool {
-        matches!(self, Self::Timeout)
+        matches!(self, Self::Timeout | Self::Ambiguous)
     }
 
     pub(crate) fn rejection_code(&self) -> Option<&str> {
@@ -236,14 +253,44 @@ impl RemoteRequestError {
     }
 }
 
+pub(crate) fn is_pipe_io_retryable_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(remote_error) = cause.downcast_ref::<RemoteRequestError>() {
+            return remote_error.is_transport_failure()
+                || remote_error.is_timeout()
+                || matches!(remote_error, RemoteRequestError::RemoteShutdown);
+        }
+        cause.downcast_ref::<io::Error>().is_some_and(|io_error| {
+            matches!(
+                io_error.kind(),
+                io::ErrorKind::ConnectionRefused
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::UnexpectedEof
+                    | io::ErrorKind::TimedOut
+                    | io::ErrorKind::NotConnected
+                    | io::ErrorKind::WouldBlock
+                    | io::ErrorKind::Interrupted
+                    | io::ErrorKind::NotFound
+            )
+        })
+    })
+}
+
 impl std::fmt::Display for RemoteRequestError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Encode(error) => write!(formatter, "could not encode remote request: {error}"),
             Self::Transport(error) => write!(formatter, "remote transport write failed: {error}"),
             Self::Timeout => write!(formatter, "remote session did not respond"),
+            Self::Ambiguous => {
+                write!(formatter, "remote request delivery is ambiguous; reconnect before retrying")
+            }
             Self::Rejected { error, .. } => write!(formatter, "remote command rejected: {error}"),
             Self::Shutdown => write!(formatter, "remote response wait canceled for shutdown"),
+            Self::RemoteShutdown => {
+                write!(formatter, "remote response wait canceled after peer disconnect")
+            }
         }
     }
 }
@@ -459,6 +506,77 @@ struct RemoteTerminalColors {
     cursor_style: Option<CursorShape>,
     cursor_blink: Option<bool>,
     palette: [Option<Rgb>; 256],
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct PipeIoColorPresence {
+    fg: bool,
+    bg: bool,
+    cursor: bool,
+    cursor_visual: bool,
+    palette: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct PipeIoColorState {
+    colors: RemoteTerminalColors,
+    presence: PipeIoColorPresence,
+}
+
+#[derive(Default)]
+struct PipeIoCachedColor {
+    known: bool,
+    value: Option<Rgb>,
+    bytes: Vec<u8>,
+}
+
+#[derive(Default)]
+struct PipeIoCachedCursorVisual {
+    known: bool,
+    value: Option<(CursorShape, bool)>,
+}
+
+#[derive(Default)]
+struct PipeIoCachedPaletteSet {
+    color: Rgb,
+    bytes: Vec<u8>,
+}
+
+struct PipeIoColorCache {
+    fg: PipeIoCachedColor,
+    bg: PipeIoCachedColor,
+    cursor: PipeIoCachedColor,
+    cursor_visual: PipeIoCachedCursorVisual,
+    palette: [Option<Rgb>; 256],
+    palette_known: bool,
+    palette_set_bytes: [Option<PipeIoCachedPaletteSet>; 256],
+    palette_reset_bytes: [Option<Vec<u8>>; 256],
+}
+
+impl Default for PipeIoColorCache {
+    fn default() -> Self {
+        Self {
+            fg: PipeIoCachedColor::default(),
+            bg: PipeIoCachedColor::default(),
+            cursor: PipeIoCachedColor::default(),
+            cursor_visual: PipeIoCachedCursorVisual::default(),
+            palette: [None; 256],
+            palette_known: false,
+            palette_set_bytes: std::array::from_fn(|_| None),
+            palette_reset_bytes: std::array::from_fn(|_| None),
+        }
+    }
+}
+
+impl PipeIoColorCache {
+    fn reset_for_replay(&mut self) {
+        self.fg.known = false;
+        self.bg.known = false;
+        self.cursor.known = false;
+        self.cursor_visual.known = false;
+        self.palette = [None; 256];
+        self.palette_known = false;
+    }
 }
 
 impl RemoteSurface {
@@ -981,6 +1099,87 @@ enum RequestDeadline {
     Standard,
     Attach,
     Fixed(Duration),
+    /// A deadline shared by a sequence of requests, such as reconnect
+    /// classification. Each phase consumes only the time that remains.
+    Until(Instant),
+}
+
+impl RequestDeadline {
+    fn resolve(self) -> Result<ResolvedRequestDeadline, RemoteRequestError> {
+        self.resolve_at(Instant::now())
+    }
+
+    fn resolve_at(self, started: Instant) -> Result<ResolvedRequestDeadline, RemoteRequestError> {
+        match self {
+            Self::Standard => Ok(ResolvedRequestDeadline::Absolute {
+                deadline: checked_request_deadline(started, REMOTE_REQUEST_TIMEOUT)?,
+            }),
+            Self::Attach => Ok(ResolvedRequestDeadline::Attach {
+                write_deadline: checked_request_deadline(started, remote_write_timeout())?,
+                response_deadline: checked_request_deadline(started, REMOTE_ATTACH_MAX_TIMEOUT)?,
+            }),
+            Self::Fixed(timeout) => Ok(ResolvedRequestDeadline::Absolute {
+                deadline: checked_request_deadline(started, timeout)?,
+            }),
+            Self::Until(deadline) if deadline > started => {
+                Ok(ResolvedRequestDeadline::Absolute { deadline })
+            }
+            Self::Until(_) => Err(RemoteRequestError::Timeout),
+        }
+    }
+}
+
+fn checked_request_deadline(
+    started: Instant,
+    timeout: Duration,
+) -> Result<Instant, RemoteRequestError> {
+    started
+        .checked_add(timeout)
+        .filter(|deadline| *deadline > started)
+        .ok_or(RemoteRequestError::Timeout)
+}
+
+#[derive(Clone, Copy)]
+enum ResolvedRequestDeadline {
+    /// Standard, fixed, and shared probe requests use one absolute deadline
+    /// for queue admission, ordered writing, and response delivery.
+    Absolute { deadline: Instant },
+    /// Attach keeps a short write budget and a longer progress-aware response
+    /// budget, both anchored at the request start. The response idle window
+    /// begins only after the ordered attach write completes.
+    Attach { write_deadline: Instant, response_deadline: Instant },
+}
+
+impl ResolvedRequestDeadline {
+    fn is_attach(self) -> bool {
+        matches!(self, Self::Attach { .. })
+    }
+
+    fn write_deadline(self) -> Instant {
+        match self {
+            Self::Absolute { deadline } | Self::Attach { write_deadline: deadline, .. } => deadline,
+        }
+    }
+
+    fn response_deadline(self) -> Instant {
+        match self {
+            Self::Absolute { deadline } => deadline,
+            Self::Attach { response_deadline, .. } => response_deadline,
+        }
+    }
+
+    fn write_remaining(self) -> Result<Duration, RemoteRequestError> {
+        remaining_until(self.write_deadline())
+    }
+
+    fn response_remaining(self) -> Result<Duration, RemoteRequestError> {
+        remaining_until(self.response_deadline())
+    }
+}
+
+fn remaining_until(deadline: Instant) -> Result<Duration, RemoteRequestError> {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    if remaining.is_zero() { Err(RemoteRequestError::Timeout) } else { Ok(remaining) }
 }
 
 struct AttachResponseDeadline {
@@ -992,6 +1191,7 @@ struct AttachResponseDeadline {
 }
 
 impl AttachResponseDeadline {
+    #[cfg(test)]
     fn new(
         started: Instant,
         request_progress: u64,
@@ -999,10 +1199,26 @@ impl AttachResponseDeadline {
         idle_timeout: Duration,
         maximum_timeout: Duration,
     ) -> Self {
+        Self::new_with_maximum_deadline(
+            started,
+            request_progress,
+            attach_progress,
+            idle_timeout,
+            started + maximum_timeout,
+        )
+    }
+
+    fn new_with_maximum_deadline(
+        started: Instant,
+        request_progress: u64,
+        attach_progress: u64,
+        idle_timeout: Duration,
+        maximum_deadline: Instant,
+    ) -> Self {
         Self {
             idle_timeout,
             idle_deadline: started + idle_timeout,
-            maximum_deadline: started + maximum_timeout,
+            maximum_deadline,
             observed_request_progress: request_progress,
             observed_attach_progress: attach_progress,
         }
@@ -1040,6 +1256,42 @@ struct PendingRemoteRequest {
     response: Sender<Value>,
     progress: Arc<AtomicU64>,
     attach_surface: Option<SurfaceId>,
+}
+
+/// A request whose command has been admitted to the ordered writer but whose
+/// response can be awaited by another owner. Pipe-IO uses this split to keep
+/// its stdin reader nonblocking while retaining one deadline and one FIFO
+/// sequence for the claim command.
+pub(crate) struct RemoteRequestTicket {
+    id: u64,
+    sequence: u64,
+    response: Receiver<Value>,
+    deadline: ResolvedRequestDeadline,
+    progress: Arc<AtomicU64>,
+    attach_progress: Option<u64>,
+    remote: Weak<RemoteSession>,
+    cleanup_on_drop: bool,
+}
+
+impl RemoteRequestTicket {
+    fn disarm_cleanup(&mut self) {
+        self.cleanup_on_drop = false;
+    }
+}
+
+impl Drop for RemoteRequestTicket {
+    fn drop(&mut self) {
+        if !self.cleanup_on_drop {
+            return;
+        }
+        let Some(remote) = self.remote.upgrade() else { return };
+        remote.pending.lock().unwrap().remove(&self.id);
+        match remote.interactive_writer.cancel_sequence(self.sequence) {
+            InteractiveWriteCancellation::Canceled => {}
+            InteractiveWriteCancellation::AlreadyWritten
+            | InteractiveWriteCancellation::InFlight => remote.reconcile_ambiguous_request(),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1123,6 +1375,19 @@ struct InteractiveWrite {
     enqueued_at: Instant,
     sequence: u64,
     measure_latency: bool,
+    canceled: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InteractiveWriteCancellation {
+    /// The worker has not taken the command. Its FIFO tombstone guarantees
+    /// that it will never reach the transport.
+    Canceled,
+    /// The worker recorded a completed transport write for this sequence.
+    AlreadyWritten,
+    /// The worker took the command, or state contention prevented us from
+    /// proving that it remains queued. Delivery is therefore uncertain.
+    InFlight,
 }
 
 impl Drop for InteractiveWrite {
@@ -1240,16 +1505,24 @@ fn latency_percentile(
 }
 
 struct InteractiveWriterShared {
-    state: Mutex<InteractiveWriteQueueState>,
-    changed: Condvar,
+    state: ParkingMutex<InteractiveWriteQueueState>,
+    changed: ParkingCondvar,
     metrics: InteractiveWriteMetrics,
     #[cfg(test)]
     wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
+    #[cfg(test)]
+    enqueue_until_gate: Mutex<Option<InteractiveEnqueueUntilGate>>,
 }
 
 #[cfg(test)]
 struct InteractiveWaitUntilWrittenGate {
     entered: Sender<u64>,
+    resume: Receiver<()>,
+}
+
+#[cfg(test)]
+struct InteractiveEnqueueUntilGate {
+    entered: Sender<()>,
     resume: Receiver<()>,
 }
 
@@ -1266,11 +1539,13 @@ impl InteractiveWriter {
         abort: Arc<dyn RemoteTransportAbort>,
     ) -> io::Result<Self> {
         let shared = Arc::new(InteractiveWriterShared {
-            state: Mutex::new(InteractiveWriteQueueState::default()),
-            changed: Condvar::new(),
+            state: ParkingMutex::new(InteractiveWriteQueueState::default()),
+            changed: ParkingCondvar::new(),
             metrics: InteractiveWriteMetrics::default(),
             #[cfg(test)]
             wait_until_written_gate: Mutex::new(None),
+            #[cfg(test)]
+            enqueue_until_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
         std::thread::Builder::new()
@@ -1280,14 +1555,59 @@ impl InteractiveWriter {
     }
 
     fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
-        let mut write =
-            InteractiveWrite { message, enqueued_at: Instant::now(), sequence: 0, measure_latency };
+        self.enqueue_inner(message, measure_latency)
+    }
+
+    /// Admit a command only when the queue mutex and capacity are immediately
+    /// available. This is used by the pipe-IO claim owner, which must preserve
+    /// FIFO ordering without waiting for a daemon acknowledgement (or for a
+    /// contended PTY-input queue) on its stdin reader thread.
+    fn enqueue_nowait(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+        let mut write = InteractiveWrite {
+            message,
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+            canceled: false,
+        };
         let message_bytes = write.message.len();
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        let Some(mut state) = self.shared.state.try_lock() else {
+            return self.queue_admission_timeout(measure_latency);
+        };
+        if let Some(failure) = &state.failure {
+            return Err(failure.to_error());
+        }
+        if state.closed {
+            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "interactive writer is closed"));
+        }
+        if state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
+            || message_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes)
+        {
+            return self.queue_admission_timeout(measure_latency);
+        }
+        let sequence = state
+            .last_enqueued_sequence
+            .checked_add(1)
+            .ok_or_else(|| io::Error::other("interactive writer sequence space is exhausted"))?;
+        state.last_enqueued_sequence = sequence;
+        state.queued_bytes += message_bytes;
+        write.sequence = sequence;
+        state.writes.push_back(write);
+        drop(state);
+        self.shared.changed.notify_one();
+        Ok(sequence)
+    }
+
+    fn enqueue_inner(&self, message: String, measure_latency: bool) -> io::Result<u64> {
+        let mut write = InteractiveWrite {
+            message,
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+            canceled: false,
+        };
+        let message_bytes = write.message.len();
+        let mut state = self.shared.state.lock();
         if let Some(failure) = &state.failure {
             return Err(failure.to_error());
         }
@@ -1318,24 +1638,141 @@ impl InteractiveWriter {
         Ok(sequence)
     }
 
+    /// Admit a deadline-bound control request without allowing either the
+    /// queue mutex or a full queue to consume time beyond its request budget.
+    /// Normal PTY input continues to use `enqueue`, which preserves its
+    /// blocking FIFO behavior during brief mutex contention.
+    fn enqueue_until(
+        &self,
+        message: String,
+        measure_latency: bool,
+        deadline: Instant,
+    ) -> io::Result<u64> {
+        let mut write = InteractiveWrite {
+            message,
+            enqueued_at: Instant::now(),
+            sequence: 0,
+            measure_latency,
+            canceled: false,
+        };
+        let message_bytes = write.message.len();
+        loop {
+            let Some(mut state) = self.shared.state.try_lock_until(deadline) else {
+                return self.queue_admission_timeout(measure_latency);
+            };
+
+            // `try_lock_until` may acquire an uncontended mutex even when the
+            // deadline has just elapsed. Keep the deadline authoritative for
+            // queue admission, including this final lock/check boundary.
+            if Instant::now() >= deadline {
+                return self.queue_admission_timeout(measure_latency);
+            }
+
+            if let Some(failure) = &state.failure {
+                return Err(failure.to_error());
+            }
+            if state.closed {
+                return Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "interactive writer is closed",
+                ));
+            }
+            let queue_full = state.writes.len() >= INTERACTIVE_WRITE_QUEUE_CAPACITY
+                || message_bytes > INTERACTIVE_WRITE_QUEUE_BYTES.saturating_sub(state.queued_bytes);
+            if queue_full {
+                if self.shared.changed.wait_until(&mut state, deadline).timed_out() {
+                    return self.queue_admission_timeout(measure_latency);
+                }
+                continue;
+            }
+
+            if Instant::now() >= deadline {
+                return self.queue_admission_timeout(measure_latency);
+            }
+            let sequence = state.last_enqueued_sequence.checked_add(1).ok_or_else(|| {
+                io::Error::other("interactive writer sequence space is exhausted")
+            })?;
+            state.last_enqueued_sequence = sequence;
+            state.queued_bytes += message_bytes;
+            write.sequence = sequence;
+            state.writes.push_back(write);
+            #[cfg(test)]
+            self.await_enqueue_until_gate();
+            drop(state);
+            self.shared.changed.notify_one();
+            return Ok(sequence);
+        }
+    }
+
+    fn queue_admission_timeout(&self, measure_latency: bool) -> io::Result<u64> {
+        if measure_latency {
+            self.shared.metrics.backpressure_rejections.fetch_add(1, Ordering::Relaxed);
+        }
+        Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "interactive writer queue admission deadline expired",
+        ))
+    }
+
     fn last_enqueued_sequence(&self) -> io::Result<Option<u64>> {
-        let state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        let state = self.shared.state.lock();
         Ok((state.last_enqueued_sequence != 0).then_some(state.last_enqueued_sequence))
     }
 
+    /// Mark a queued sequence as canceled without removing its FIFO position.
+    /// The writer worker consumes the tombstone in order and never sends it.
+    /// If the worker already took the sequence, report an ambiguous outcome so
+    /// the caller can abort the transport rather than report an unsent command.
+    fn cancel_sequence(&self, sequence: u64) -> InteractiveWriteCancellation {
+        let Some(mut state) = self.shared.state.try_lock() else {
+            return InteractiveWriteCancellation::InFlight;
+        };
+        if state.last_written_sequence >= sequence {
+            return InteractiveWriteCancellation::AlreadyWritten;
+        }
+        let Some(index) = state.writes.iter().position(|write| write.sequence == sequence) else {
+            return InteractiveWriteCancellation::InFlight;
+        };
+        let message_bytes = state.writes[index].message.len();
+        {
+            let write = &mut state.writes[index];
+            zeroize_string(&mut write.message);
+            write.message.clear();
+            write.measure_latency = false;
+            write.canceled = true;
+        }
+        state.queued_bytes = state.queued_bytes.saturating_sub(message_bytes);
+        drop(state);
+        self.shared.changed.notify_one();
+        InteractiveWriteCancellation::Canceled
+    }
+
+    #[cfg(test)]
     fn wait_until_written(&self, sequence: u64, timeout: Duration) -> io::Result<()> {
+        self.wait_until_written_until(sequence, Instant::now() + timeout)
+    }
+
+    fn wait_until_written_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "ordered remote write did not complete before its deadline",
+            ));
+        }
         #[cfg(test)]
         self.await_wait_until_written_gate(sequence);
-        let deadline = Instant::now() + timeout;
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| io::Error::other("interactive writer queue is poisoned"))?;
+        let Some(mut state) = self.shared.state.try_lock_until(deadline) else {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "ordered remote write did not complete before its deadline",
+            ));
+        };
+        if Instant::now() >= deadline {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "ordered remote write did not complete before its deadline",
+            ));
+        }
         loop {
             if state.last_written_sequence >= sequence {
                 return Ok(());
@@ -1350,13 +1787,7 @@ impl InteractiveWriter {
                     "ordered remote write did not complete before its deadline",
                 ));
             }
-            let (next, timeout) = self
-                .shared
-                .changed
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(|poison| poison.into_inner());
-            state = next;
-            if timeout.timed_out()
+            if self.shared.changed.wait_until(&mut state, deadline).timed_out()
                 && state.last_written_sequence < sequence
                 && state.failure.is_none()
             {
@@ -1389,12 +1820,35 @@ impl InteractiveWriter {
         }
     }
 
+    #[cfg(test)]
+    fn gate_next_enqueue_until(&self) -> (Receiver<()>, Sender<()>) {
+        let (entered_tx, entered_rx) = channel();
+        let (resume_tx, resume_rx) = channel();
+        let previous = self
+            .shared
+            .enqueue_until_gate
+            .lock()
+            .unwrap()
+            .replace(InteractiveEnqueueUntilGate { entered: entered_tx, resume: resume_rx });
+        assert!(previous.is_none(), "interactive enqueue gate was already installed");
+        (entered_rx, resume_tx)
+    }
+
+    #[cfg(test)]
+    fn await_enqueue_until_gate(&self) {
+        let gate = self.shared.enqueue_until_gate.lock().unwrap().take();
+        if let Some(gate) = gate {
+            gate.entered.send(()).unwrap();
+            gate.resume.recv().unwrap();
+        }
+    }
+
     fn metrics(&self) -> InteractiveWriteMetricsSnapshot {
         self.shared.metrics.snapshot()
     }
 
     fn request_close(&self) {
-        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut state = self.shared.state.lock();
         state.closed = true;
         drop(state);
         self.shared.changed.notify_one();
@@ -1402,7 +1856,7 @@ impl InteractiveWriter {
 
     fn abort(&self, error: &io::Error) {
         {
-            let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            let mut state = self.shared.state.lock();
             state.closed = true;
             state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
             state.writes.clear();
@@ -1415,19 +1869,13 @@ impl InteractiveWriter {
     fn close(&self) {
         self.request_close();
         let deadline = Instant::now() + remote_write_timeout();
-        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let mut state = self.shared.state.lock();
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            let (next, timeout) = self
-                .shared
-                .changed
-                .wait_timeout(state, remaining)
-                .unwrap_or_else(|poison| poison.into_inner());
-            state = next;
-            if timeout.timed_out() {
+            if self.shared.changed.wait_until(&mut state, deadline).timed_out() {
                 break;
             }
         }
@@ -1445,8 +1893,7 @@ impl InteractiveWriter {
 impl Drop for InteractiveWriter {
     fn drop(&mut self) {
         self.request_close();
-        let writer_closed =
-            self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner()).writer_closed;
+        let writer_closed = self.shared.state.lock().writer_closed;
         if !writer_closed {
             self.abort(&io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -1462,14 +1909,14 @@ fn interactive_writer_worker(
 ) {
     loop {
         let write = {
-            let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+            let mut state = shared.state.lock();
             while state.writes.is_empty() && !state.closed && state.failure.is_none() {
-                state = shared.changed.wait(state).unwrap_or_else(|poison| poison.into_inner());
+                shared.changed.wait(&mut state);
             }
             let Some(write) = state.writes.pop_front() else {
                 drop(state);
                 let _ = writer.close();
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                let mut state = shared.state.lock();
                 state.writer_closed = true;
                 drop(state);
                 shared.changed.notify_all();
@@ -1479,13 +1926,23 @@ fn interactive_writer_worker(
             write
         };
 
+        if write.canceled {
+            // Preserve the sequence barrier for later writes while keeping a
+            // timed-out command out of the transport entirely.
+            let mut state = shared.state.lock();
+            state.last_written_sequence = write.sequence;
+            drop(state);
+            shared.changed.notify_all();
+            continue;
+        }
+
         let result = writer.send(&write.message);
         match result {
             Ok(()) => {
                 if write.measure_latency {
                     shared.metrics.record_latency(write.enqueued_at.elapsed());
                 }
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                let mut state = shared.state.lock();
                 state.last_written_sequence = write.sequence;
                 drop(state);
                 shared.changed.notify_all();
@@ -1495,7 +1952,7 @@ fn interactive_writer_worker(
                     shared.metrics.write_failures.fetch_add(1, Ordering::Relaxed);
                 }
                 let _ = writer.close();
-                let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+                let mut state = shared.state.lock();
                 state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(&error));
                 state.writes.clear();
                 state.queued_bytes = 0;
@@ -1586,7 +2043,7 @@ pub struct RemoteSession {
     retire_surface_test_marker: Mutex<Option<Sender<SurfaceId>>>,
     tree: Mutex<RemoteTreeCache>,
     browser_sources: Mutex<HashMap<SurfaceId, BrowserSource>>,
-    tree_refresh: Mutex<()>,
+    tree_refresh: ParkingMutex<()>,
     tree_stale: AtomicBool,
     subscription_started: AtomicBool,
     event_surface_filter: AtomicU64,
@@ -1602,12 +2059,193 @@ pub struct RemoteSession {
     capabilities: Mutex<HashSet<String>>,
     provider_workspace_authority: Option<BearerToken>,
     provider_workspaces_guarded: AtomicBool,
+    pipe_io_tap: Mutex<Option<PipeIoTap>>,
+}
+
+/// One event on the raw byte stream a `--pipe-io` relay serves to its
+/// embedder. `Replay` REPLACES all prior terminal state (the relay must
+/// emit a full reset before any replay that is not its first output);
+/// `Output` appends live PTY bytes.
+#[derive(Debug)]
+pub enum PipeIoEvent {
+    Replay { bytes: Vec<u8>, reservation_id: Option<u64> },
+    Output(Vec<u8>),
+    SurfaceExited,
+    TransportLost,
+    StdinClosed,
+    StdinError,
+}
+
+impl PartialEq for PipeIoEvent {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Replay { bytes: left, .. }, Self::Replay { bytes: right, .. }) => left == right,
+            (Self::Output(left), Self::Output(right)) => left == right,
+            (Self::SurfaceExited, Self::SurfaceExited)
+            | (Self::TransportLost, Self::TransportLost)
+            | (Self::StdinClosed, Self::StdinClosed)
+            | (Self::StdinError, Self::StdinError) => true,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for PipeIoEvent {}
+
+impl PipeIoEvent {
+    pub(crate) fn replay(bytes: Vec<u8>) -> Self {
+        Self::Replay { bytes, reservation_id: None }
+    }
+
+    /// Bytes retained by the relay's bounded data queue. Lifecycle signals
+    /// have a separate one-slot channel and carry no retained payload.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Replay { bytes, .. } | Self::Output(bytes) => bytes.len(),
+            Self::SurfaceExited | Self::TransportLost | Self::StdinClosed | Self::StdinError => 0,
+        }
+    }
+}
+
+/// Shared byte budget for one pipe-IO relay. A count-only bounded channel can
+/// retain megabytes per event when a replay is large; this budget makes the
+/// memory bound explicit and turns an overrun into the same transport-loss
+/// path as a full channel. One replay may use a single additional allowance
+/// bounded by the remote message limit, so a valid replay is not rejected only
+/// because it is larger than the normal live-output budget.
+struct PipeIoBudgetState {
+    retained: usize,
+    live_retained: usize,
+    oversized_replay: Option<u64>,
+    next_oversized_replay_id: u64,
+}
+
+pub(crate) struct PipeIoByteBudget {
+    state: Mutex<PipeIoBudgetState>,
+    limit: usize,
+}
+
+impl PipeIoByteBudget {
+    pub(crate) fn new(limit: usize) -> Self {
+        Self {
+            state: Mutex::new(PipeIoBudgetState {
+                retained: 0,
+                live_retained: 0,
+                oversized_replay: None,
+                next_oversized_replay_id: 1,
+            }),
+            limit: limit.max(1),
+        }
+    }
+
+    pub(crate) fn try_reserve(&self, bytes: usize) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let Some(next_total) = state.retained.checked_add(bytes) else { return false };
+        let Some(next_live) = state.live_retained.checked_add(bytes) else { return false };
+        let max_total = self.limit.saturating_add(PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES);
+        if next_live > self.limit || next_total > max_total {
+            return false;
+        }
+        state.retained = next_total;
+        state.live_retained = next_live;
+        true
+    }
+
+    fn try_reserve_replay(&self, bytes: usize, reservation_id: &mut Option<u64>) -> bool {
+        if bytes == 0 {
+            return true;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        let Some(next) = state.retained.checked_add(bytes) else { return false };
+        if next <= self.limit {
+            state.retained = next;
+            return true;
+        }
+        let max_total = self.limit.saturating_add(PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES);
+        if bytes > PIPE_IO_REPLAY_SINGLE_FRAME_MAX_BYTES
+            || state.oversized_replay.is_some()
+            || next > max_total
+        {
+            return false;
+        }
+        state.retained = next;
+        let id = state.next_oversized_replay_id;
+        state.next_oversized_replay_id = state.next_oversized_replay_id.checked_add(1).unwrap_or(1);
+        state.oversized_replay = Some(id);
+        *reservation_id = Some(id);
+        true
+    }
+
+    pub(crate) fn try_reserve_event(&self, event: &mut PipeIoEvent) -> bool {
+        match event {
+            PipeIoEvent::Replay { bytes, reservation_id } => {
+                *reservation_id = None;
+                self.try_reserve_replay(bytes.len(), reservation_id)
+            }
+            _ => self.try_reserve(event.retained_bytes()),
+        }
+    }
+
+    pub(crate) fn release_event(&self, event: &PipeIoEvent) {
+        let bytes = event.retained_bytes();
+        if bytes == 0 {
+            return;
+        }
+        let mut state = self.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.retained = state.retained.saturating_sub(bytes);
+        if matches!(event, PipeIoEvent::Output(_)) {
+            state.live_retained = state.live_retained.saturating_sub(bytes);
+        }
+        if let PipeIoEvent::Replay { reservation_id: Some(id), .. } = event
+            && state.oversized_replay == Some(*id)
+        {
+            state.oversized_replay = None;
+        }
+    }
+}
+
+struct PipeIoTap {
+    surface: SurfaceId,
+    sender: EventSender<PipeIoEvent>,
+    lifecycle_sender: EventSender<PipeIoEvent>,
+    byte_budget: Arc<PipeIoByteBudget>,
+    token: Arc<u8>,
+    // A pipe receives color state as VT sidecars. Cache the encoded fields and
+    // last sparse authored palette so unchanged live events do not allocate or
+    // append duplicate escape sequences.
+    color_cache: PipeIoColorCache,
 }
 
 pub(super) enum RemoteSurfaceAttach {
     Attached(Arc<RemoteSurface>),
     Retired,
     Deferred,
+}
+
+/// Result of registering a renderer-less pipe-IO attachment. Unlike
+/// `RemoteSurfaceAttach`, this path deliberately does not allocate a local VT
+/// parser. The relay receives the server's raw byte stream and owns parsing.
+pub(crate) enum PipeIoSurfaceAttach {
+    Attached,
+    Retired,
+    /// The server accepted the stream, but a surface-exit event retired it
+    /// before the attach response completed. The tap may contain committed
+    /// replay or output that the relay must drain before exiting.
+    RetiredAfterAttach,
+    Deferred,
+}
+
+fn parse_pipe_io_resize_response(response: &Value) -> anyhow::Result<bool> {
+    match response.get("outcome").and_then(Value::as_str) {
+        Some("superseded") | Some("passive") => Ok(false),
+        Some("applied") | None => {
+            Ok(response.get("accepted").and_then(Value::as_bool).unwrap_or(true))
+        }
+        Some(other) => anyhow::bail!("unknown pipe-IO resize outcome {other}"),
+    }
 }
 
 /// Receive complete JSON protocol messages from one transport.
@@ -1684,6 +2322,19 @@ impl RemoteTransport {
 
     pub fn json_lines(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
         stream.set_write_timeout(Some(remote_write_timeout()))?;
+        Self::json_lines_parts(stream)
+    }
+
+    fn json_lines_with_timeout(
+        stream: Box<dyn transport::Stream>,
+        timeout: Duration,
+    ) -> io::Result<Self> {
+        stream.set_read_timeout(Some(timeout))?;
+        stream.set_write_timeout(Some(timeout))?;
+        Self::json_lines_parts(stream)
+    }
+
+    fn json_lines_parts(stream: Box<dyn transport::Stream>) -> io::Result<Self> {
         let read_half = stream.try_clone_box()?;
         let abort_stream = stream.try_clone_box()?;
         Ok(Self {
@@ -1872,14 +2523,54 @@ impl RemoteSession {
         Self::connect_path(path, false)
     }
 
+    pub(crate) fn connect_for_terminal_attach_until(
+        path: &Path,
+        deadline: Instant,
+    ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_path_until(path, false, deadline)
+    }
+
     fn connect_path(path: &Path, subscribe: bool) -> anyhow::Result<Arc<Self>> {
-        let stream = transport::connect(path).map_err(|e| {
-            anyhow::anyhow!("cannot connect to session socket {}: {e}", path.display())
-        })?;
-        if subscribe {
-            Self::connect_stream(stream)
-        } else {
-            Self::connect_stream_with_subscription(stream, false)
+        let stream = transport::connect(path)
+            .with_context(|| format!("cannot connect to session socket {}", path.display()))?;
+        Self::connect_stream_with_subscription(stream, subscribe)
+    }
+
+    fn connect_path_until(
+        path: &Path,
+        subscribe: bool,
+        deadline: Instant,
+    ) -> anyhow::Result<Arc<Self>> {
+        #[cfg(unix)]
+        {
+            let timeout = deadline.saturating_duration_since(Instant::now());
+            if timeout.is_zero() {
+                anyhow::bail!(RemoteRequestError::Timeout);
+            }
+            let address = socket2::SockAddr::unix(path)?;
+            let socket = socket2::Socket::new(socket2::Domain::UNIX, socket2::Type::STREAM, None)?;
+            socket.connect_timeout(&address, timeout)?;
+            let stream: std::os::unix::net::UnixStream = socket.into();
+            Self::connect_stream_with_subscription_until(Box::new(stream), subscribe, deadline)
+        }
+
+        #[cfg(windows)]
+        {
+            // The Windows UDS adapter does not expose a cancellable connect
+            // primitive. Its local probe failures return promptly, while the
+            // Unix implementation above has an OS-level deadline.
+            let stream = transport::connect(path).map_err(|error| {
+                anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+            })?;
+            Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
+        }
+
+        #[cfg(not(any(unix, windows)))]
+        {
+            let stream = transport::connect(path).map_err(|error| {
+                anyhow::anyhow!("cannot connect to session socket {}: {error}", path.display())
+            })?;
+            Self::connect_stream_with_subscription_until(stream, subscribe, deadline)
         }
     }
 
@@ -1889,6 +2580,7 @@ impl RemoteSession {
     /// establishment outside `RemoteSession` lets clients use a local socket,
     /// an SSH relay, or another authenticated tunnel without teaching the
     /// session and rendering layers about those transports.
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn connect_stream(stream: Box<dyn transport::Stream>) -> anyhow::Result<Arc<Self>> {
         Self::connect_stream_with_subscription(stream, true)
     }
@@ -1901,6 +2593,27 @@ impl RemoteSession {
             anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
         })?;
         Self::connect_transport_with_initial_subscription(transport, subscribe)
+    }
+
+    fn connect_stream_with_subscription_until(
+        stream: Box<dyn transport::Stream>,
+        subscribe: bool,
+        deadline: Instant,
+    ) -> anyhow::Result<Arc<Self>> {
+        let timeout = deadline.saturating_duration_since(Instant::now());
+        if timeout.is_zero() {
+            anyhow::bail!(RemoteRequestError::Timeout);
+        }
+        let transport =
+            RemoteTransport::json_lines_with_timeout(stream, timeout).map_err(|error| {
+                anyhow::anyhow!("cannot configure JSON-lines session transport: {error}")
+            })?;
+        Self::connect_transport_with_provider_authority_until(
+            transport,
+            None,
+            subscribe,
+            Some(deadline),
+        )
     }
 
     pub fn connect_transport(transport: RemoteTransport) -> anyhow::Result<Arc<Self>> {
@@ -1926,6 +2639,20 @@ impl RemoteSession {
         provider_workspace_authority: Option<BearerToken>,
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
+        Self::connect_transport_with_provider_authority_until(
+            transport,
+            provider_workspace_authority,
+            subscribe,
+            None,
+        )
+    }
+
+    fn connect_transport_with_provider_authority_until(
+        transport: RemoteTransport,
+        provider_workspace_authority: Option<BearerToken>,
+        subscribe: bool,
+        deadline: Option<Instant>,
+    ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer, abort } = transport;
         let interactive_writer = InteractiveWriter::spawn(writer, abort)
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
@@ -1944,7 +2671,7 @@ impl RemoteSession {
             retire_surface_test_marker: Mutex::new(None),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
-            tree_refresh: Mutex::new(()),
+            tree_refresh: ParkingMutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
             event_surface_filter: AtomicU64::new(0),
@@ -1960,6 +2687,7 @@ impl RemoteSession {
             capabilities: Mutex::new(HashSet::new()),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
+            pipe_io_tap: Mutex::new(None),
         });
 
         let reader_session = Arc::downgrade(&session);
@@ -1997,7 +2725,11 @@ impl RemoteSession {
             }
         })?;
 
-        if let Err(error) = session.initialize(subscribe) {
+        let initialization = deadline.map_or_else(
+            || session.initialize(subscribe),
+            |deadline| session.initialize_until(subscribe, deadline),
+        );
+        if let Err(error) = initialization {
             session.disconnect_transport();
             return Err(error);
         }
@@ -2005,8 +2737,20 @@ impl RemoteSession {
     }
 
     fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
+        self.initialize_with_deadline(subscribe, RequestDeadline::Standard)
+    }
+
+    fn initialize_until(&self, subscribe: bool, deadline: Instant) -> anyhow::Result<()> {
+        self.initialize_with_deadline(subscribe, RequestDeadline::Until(deadline))
+    }
+
+    fn initialize_with_deadline(
+        &self,
+        subscribe: bool,
+        deadline: RequestDeadline,
+    ) -> anyhow::Result<()> {
         // Identify the endpoint and register this connection before any optional subscription.
-        let ident = self.request(json!({"cmd": "identify"}))?;
+        let ident = self.request_with_deadline(json!({"cmd": "identify"}), deadline)?;
         validate_remote_identity(&ident)?;
         *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});
@@ -2032,10 +2776,10 @@ impl RemoteSession {
         if !negotiated.is_empty() {
             client_info["capabilities"] = json!(negotiated);
         }
-        self.request(client_info)?;
+        self.request_with_deadline(client_info, deadline)?;
         if subscribe {
             self.prime_local_subscription();
-            if let Err(error) = self.request(self.subscription_request()) {
+            if let Err(error) = self.request_with_deadline(self.subscription_request(), deadline) {
                 self.primed_subscription.lock().unwrap().take();
                 return Err(error);
             }
@@ -2046,6 +2790,12 @@ impl RemoteSession {
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
         self.capabilities.lock().unwrap().contains(capability)
+    }
+
+    /// Pipe-IO requires the daemon's attach-time geometry handshake so the
+    /// initial replay is rendered for the embedder's requested dimensions.
+    pub(crate) fn supports_pipe_io_initial_size(&self) -> bool {
+        self.supports_capability(cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY)
     }
 
     pub fn supports_surface_subscription_filter(&self) -> bool {
@@ -2188,6 +2938,12 @@ impl RemoteSession {
     }
 
     fn handle_line(self: &Arc<Self>, value: Value) {
+        // The reader can have one buffered JSON line after the transport has
+        // been closed. Do not let that late event mutate a replacement relay
+        // or resurrect a mirror during local shutdown.
+        if self.shutdown.load(Ordering::Acquire) {
+            return;
+        }
         let surface_id = || value.get("surface").and_then(|v| v.as_u64());
         let event = value.get("event").and_then(Value::as_str);
         if event.is_some_and(|event| !self.accepts_event_in_surface_scope(event, &value)) {
@@ -2208,11 +2964,26 @@ impl RemoteSession {
                 let Ok(replay) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(
                     id,
                     format_args!("vt-state cols={cols} rows={rows} bytes={}", replay.len()),
                 );
+                let colors_value = value.get("colors");
+                let colors = colors_value.and_then(parse_terminal_colors);
+                let pipe_colors = colors_value.and_then(parse_pipe_io_colors);
+                // A pipe-IO relay consumes the authoritative VT byte stream
+                // itself. Do not also parse the same replay into a local
+                // `RemoteSurface`: that duplicate parser can fail or mutate
+                // state even though the embedder never reads it.
+                let replay = match self.pipe_io_forward_owned_with_colors(
+                    id,
+                    PipeIoEvent::replay(replay),
+                    pipe_colors.as_ref(),
+                ) {
+                    Ok(()) => return,
+                    Err(PipeIoEvent::Replay { bytes, .. }) => bytes,
+                    Err(_) => return,
+                };
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
                     return;
@@ -2275,8 +3046,19 @@ impl RemoteSession {
                 let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
                     return;
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
                 self.log_frame(id, format_args!("output bytes={}", bytes.len()));
+                let colors_value = value.get("colors");
+                let colors = colors_value.and_then(parse_terminal_colors);
+                let pipe_colors = colors_value.and_then(parse_pipe_io_colors);
+                let bytes = match self.pipe_io_forward_owned_with_colors(
+                    id,
+                    PipeIoEvent::Output(bytes),
+                    pipe_colors.as_ref(),
+                ) {
+                    Ok(()) => return,
+                    Err(PipeIoEvent::Output(bytes)) => bytes,
+                    Err(_) => return,
+                };
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     surface.scan_cursor_provenance(&bytes);
                     let mut term = surface.term.lock().unwrap();
@@ -2295,6 +3077,9 @@ impl RemoteSession {
             Some("resized") => {
                 let Some(id) = surface_id() else { return };
                 let Some((cols, rows)) = remote_terminal_size(&value) else { return };
+                let colors_value = value.get("colors");
+                let colors = colors_value.and_then(parse_terminal_colors);
+                let pipe_colors = colors_value.and_then(parse_pipe_io_colors);
                 let replay = match value.get("replay").or_else(|| value.get("data")) {
                     Some(data) => {
                         let Some(data) = data.as_str() else {
@@ -2310,6 +3095,42 @@ impl RemoteSession {
                     }
                     None => None,
                 };
+                self.log_frame(
+                    id,
+                    format_args!(
+                        "resized cols={cols} rows={rows} bytes={}",
+                        replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
+                    ),
+                );
+                let replay = match replay {
+                    Some(replay) => {
+                        match self.pipe_io_forward_owned_with_colors(
+                            id,
+                            PipeIoEvent::replay(replay),
+                            pipe_colors.as_ref(),
+                        ) {
+                            Ok(()) => return,
+                            Err(PipeIoEvent::Replay { bytes, .. }) => Some(bytes),
+                            Err(_) => return,
+                        }
+                    }
+                    None => {
+                        if pipe_colors.is_some() {
+                            match self.pipe_io_forward_owned_with_colors(
+                                id,
+                                PipeIoEvent::Output(Vec::new()),
+                                pipe_colors.as_ref(),
+                            ) {
+                                Ok(()) => return,
+                                Err(PipeIoEvent::Output(bytes)) if bytes.is_empty() => {}
+                                Err(_) => return,
+                            }
+                        } else if self.pipe_io_owns_surface(id) {
+                            return;
+                        }
+                        None
+                    }
+                };
                 let Ok(kitty_image_aliases) = parse_kitty_image_aliases(&value) else {
                     self.disconnect_transport();
                     return;
@@ -2318,14 +3139,6 @@ impl RemoteSession {
                     self.disconnect_transport();
                     return;
                 };
-                let colors = value.get("colors").and_then(parse_terminal_colors);
-                self.log_frame(
-                    id,
-                    format_args!(
-                        "resized cols={cols} rows={rows} bytes={}",
-                        replay.as_ref().map(|bytes| bytes.len()).unwrap_or(0)
-                    ),
-                );
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     if surface
                         .apply_stream_resize_with_colors(
@@ -2354,6 +3167,16 @@ impl RemoteSession {
             Some("colors-changed") => {
                 let Some(id) = surface_id() else { return };
                 let Some(colors) = parse_terminal_colors(&value) else { return };
+                let pipe_colors = parse_pipe_io_colors(&value);
+                match self.pipe_io_forward_owned_with_colors(
+                    id,
+                    PipeIoEvent::Output(Vec::new()),
+                    pipe_colors.as_ref(),
+                ) {
+                    Ok(()) => return,
+                    Err(PipeIoEvent::Output(bytes)) if bytes.is_empty() => {}
+                    Err(_) => return,
+                }
                 if let Some(surface) = self.surfaces.lock().unwrap().get(&id).cloned() {
                     let mut term = surface.term.lock().unwrap();
                     apply_terminal_colors(&mut term, &colors);
@@ -2395,6 +3218,11 @@ impl RemoteSession {
             }
             Some("detached") => {
                 if let Some(id) = surface_id() {
+                    // A server-side stream detach (e.g. backpressure
+                    // overflow) ends the byte feed without ending the
+                    // terminal. The relay reports a lost connection so its
+                    // embedder respawns and resyncs from a fresh replay.
+                    self.signal_pipe_io_event(Some(id), None, PipeIoEvent::TransportLost);
                     self.surfaces.lock().unwrap().remove(&id);
                     self.emit(MuxEvent::SurfaceOutput(id));
                 }
@@ -2444,6 +3272,7 @@ impl RemoteSession {
             }
             Some("surface-exited") => {
                 if let Some(id) = surface_id() {
+                    self.signal_pipe_io_event(Some(id), None, PipeIoEvent::SurfaceExited);
                     // Retire the mirror immediately. The authoritative tree
                     // refresh may lag this event, but input and reattach must
                     // already fail closed for a known-exited surface.
@@ -2685,6 +3514,14 @@ impl RemoteSession {
         self.request_with_deadline(cmd, RequestDeadline::Standard)
     }
 
+    fn shutdown_request_error(&self) -> RemoteRequestError {
+        if matches!(&*self.disconnect_state.lock().unwrap(), DisconnectState::Remote(_)) {
+            RemoteRequestError::RemoteShutdown
+        } else {
+            RemoteRequestError::Shutdown
+        }
+    }
+
     /// Fire-and-forget command: enqueued in order with interactive traffic,
     /// never awaited. Used for best-effort reporting such as client focus.
     pub(crate) fn notify(&self, cmd: Value) -> anyhow::Result<()> {
@@ -2696,13 +3533,21 @@ impl RemoteSession {
         mut cmd: Value,
         deadline: RequestDeadline,
     ) -> anyhow::Result<Value> {
+        let deadline = deadline.resolve()?;
+        // Resolve the request budget before enqueueing. Standard, fixed, and
+        // shared-probe requests use one absolute deadline for every phase;
+        // attach requests use two absolute caps anchored at this same start.
+        // Check the write cap before creating a pending request so an expired
+        // probe cannot add work to the relay.
+        if let Err(error) = deadline.write_remaining() {
+            return Err(error.into());
+        }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let progress = Arc::new(AtomicU64::new(0));
-        let attach_progress = matches!(deadline, RequestDeadline::Attach)
-            .then(|| self.attach_progress.load(Ordering::Acquire));
-        let attach_surface = matches!(deadline, RequestDeadline::Attach)
-            .then(|| cmd.get("surface").and_then(Value::as_u64))
-            .flatten();
+        let attach_progress =
+            deadline.is_attach().then(|| self.attach_progress.load(Ordering::Acquire));
+        let attach_surface =
+            deadline.is_attach().then(|| cmd.get("surface").and_then(Value::as_u64)).flatten();
         cmd["id"] = json!(id);
         let message = serde_json::to_string(&cmd)
             .map_err(RemoteRequestError::Encode)
@@ -2711,35 +3556,83 @@ impl RemoteSession {
             zeroize_string(authority);
         }
 
+        // Serialization and request construction can consume a shared probe
+        // deadline. Do not add a pending request or queue work after it has
+        // expired.
+        if let Err(error) = deadline.write_remaining() {
+            return Err(error.into());
+        }
+
         let (tx, rx) = channel();
         self.pending.lock().unwrap().insert(
             id,
             PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface },
         );
-        let sequence = match self.interactive_writer.enqueue(message, false) {
+        // Control requests have a bounded admission budget for both the queue
+        // mutex and queue capacity. Normal PTY input uses `request_no_wait`
+        // and keeps its blocking FIFO behavior during brief contention.
+        let enqueue_result =
+            self.interactive_writer.enqueue_until(message, false, deadline.write_deadline());
+        let sequence = match enqueue_result {
             Ok(sequence) => sequence,
             Err(error) => {
                 self.pending.lock().unwrap().remove(&id);
                 return Err(RemoteRequestError::Transport(error).into());
             }
         };
-        if let Err(error) = self.wait_for_ordered_write(sequence) {
+        if let Err(error) = deadline.write_remaining() {
             self.pending.lock().unwrap().remove(&id);
+            match self.interactive_writer.cancel_sequence(sequence) {
+                InteractiveWriteCancellation::Canceled => {}
+                InteractiveWriteCancellation::AlreadyWritten
+                | InteractiveWriteCancellation::InFlight => {
+                    // The worker may already have completed, or may be inside
+                    // `send`. Closing the transport is the only safe way to
+                    // prevent a caller from retrying an accepted mutation.
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
+            }
+            return Err(error.into());
+        }
+        if let Err(error) =
+            self.interactive_writer.wait_until_written_until(sequence, deadline.write_deadline())
+        {
+            self.pending.lock().unwrap().remove(&id);
+            if error.kind() == io::ErrorKind::TimedOut {
+                match self.interactive_writer.cancel_sequence(sequence) {
+                    InteractiveWriteCancellation::Canceled => {
+                        return Err(RemoteRequestError::Timeout.into());
+                    }
+                    InteractiveWriteCancellation::AlreadyWritten
+                    | InteractiveWriteCancellation::InFlight => {
+                        self.reconcile_ambiguous_request();
+                        return Err(RemoteRequestError::Ambiguous.into());
+                    }
+                }
+            }
             return Err(RemoteRequestError::Transport(error).into());
         }
 
         if self.shutdown.load(Ordering::Acquire) {
             self.pending.lock().unwrap().remove(&id);
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_request_error().into());
         }
 
-        let response = match self.wait_for_response(rx, deadline, progress, attach_progress) {
+        let response = match self.wait_for_response(&rx, deadline, progress, attach_progress) {
             Ok(response) => response,
             Err(error) => {
                 // Drop the pending entry so a half-open session does not
                 // accumulate abandoned senders (and a late response is
                 // not delivered to a receiver nobody holds).
                 self.pending.lock().unwrap().remove(&id);
+                if matches!(&error, RemoteRequestError::Timeout) {
+                    // The ordered write completed, so a response deadline is
+                    // an ambiguous delivery outcome. Reconcile by closing
+                    // this transport before any retry can reuse the command.
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
                 return Err(error.into());
             }
         };
@@ -2762,34 +3655,33 @@ impl RemoteSession {
 
     fn wait_for_response(
         &self,
-        rx: Receiver<Value>,
-        deadline: RequestDeadline,
+        rx: &Receiver<Value>,
+        deadline: ResolvedRequestDeadline,
         progress: Arc<AtomicU64>,
         attach_progress: Option<u64>,
     ) -> Result<Value, RemoteRequestError> {
-        if let RequestDeadline::Standard | RequestDeadline::Fixed(_) = deadline {
-            let timeout = match deadline {
-                RequestDeadline::Standard => REMOTE_REQUEST_TIMEOUT,
-                RequestDeadline::Fixed(timeout) => timeout,
-                RequestDeadline::Attach => unreachable!(),
-            };
+        if !deadline.is_attach() {
+            let timeout = deadline.response_remaining()?;
             return match rx.recv_timeout(timeout) {
                 Ok(response) => Ok(response),
                 Err(RecvTimeoutError::Timeout) => Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    Err(RemoteRequestError::Shutdown)
+                    Err(self.shutdown_request_error())
                 }
                 Err(RecvTimeoutError::Disconnected) => Err(RemoteRequestError::Timeout),
             };
         }
 
-        let started = Instant::now();
-        let mut deadline = AttachResponseDeadline::new(
-            started,
+        let response_deadline = match deadline {
+            ResolvedRequestDeadline::Attach { response_deadline, .. } => response_deadline,
+            ResolvedRequestDeadline::Absolute { .. } => unreachable!("non-attach deadline branch"),
+        };
+        let mut deadline = AttachResponseDeadline::new_with_maximum_deadline(
+            Instant::now(),
             progress.load(Ordering::Acquire),
             attach_progress.expect("attach response wait requires an attach progress epoch"),
             REMOTE_ATTACH_IDLE_TIMEOUT,
-            REMOTE_ATTACH_MAX_TIMEOUT,
+            response_deadline,
         );
         loop {
             let request_progress = progress.load(Ordering::Acquire);
@@ -2803,13 +3695,13 @@ impl RemoteSession {
             match rx.recv_timeout(wait) {
                 Ok(response) => return Ok(response),
                 Err(RecvTimeoutError::Disconnected) if self.shutdown.load(Ordering::Acquire) => {
-                    return Err(RemoteRequestError::Shutdown);
+                    return Err(self.shutdown_request_error());
                 }
                 Err(RecvTimeoutError::Disconnected) => return Err(RemoteRequestError::Timeout),
                 Err(RecvTimeoutError::Timeout) => {}
             }
             if self.shutdown.load(Ordering::Acquire) {
-                return Err(RemoteRequestError::Shutdown);
+                return Err(self.shutdown_request_error());
             }
         }
     }
@@ -2834,7 +3726,7 @@ impl RemoteSession {
             .map_err(RemoteRequestError::Transport)?;
         if self.shutdown.load(Ordering::Acquire) {
             self.wait_for_ordered_write(sequence).map_err(RemoteRequestError::Transport)?;
-            return Err(RemoteRequestError::Shutdown.into());
+            return Err(self.shutdown_request_error().into());
         }
         Ok(())
     }
@@ -2864,6 +3756,149 @@ impl RemoteSession {
     pub fn send_bytes(&self, surface: SurfaceId, bytes: &[u8]) -> anyhow::Result<()> {
         let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
         self.request_no_wait(json!({"cmd": "send", "surface": surface, "bytes": encoded}))
+    }
+
+    /// Enqueue a geometry claim in FIFO order without waiting for its daemon
+    /// response. The returned ticket owns the response receiver; a caller can
+    /// hand it to a bounded worker and surface the result later.
+    pub(crate) fn enqueue_claim_terminal_geometry(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+    ) -> anyhow::Result<RemoteRequestTicket> {
+        if self.shutdown.load(Ordering::Acquire) {
+            return Err(self.shutdown_request_error().into());
+        }
+        let deadline = RequestDeadline::Standard.resolve()?;
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let progress = Arc::new(AtomicU64::new(0));
+        let mut command = json!({
+            "cmd": "set-client-sizing",
+            "surface": surface,
+            "enabled": true,
+            "exclusive": true,
+        });
+        command["id"] = json!(id);
+        let message = serde_json::to_string(&command)
+            .map_err(RemoteRequestError::Encode)
+            .map_err(anyhow::Error::new)?;
+        if let Err(error) = deadline.write_remaining() {
+            return Err(error.into());
+        }
+        let (tx, rx) = channel();
+        self.pending.lock().unwrap().insert(
+            id,
+            PendingRemoteRequest { response: tx, progress: progress.clone(), attach_surface: None },
+        );
+        let sequence = match self.interactive_writer.enqueue_nowait(message, false) {
+            Ok(sequence) => sequence,
+            Err(error) => {
+                self.pending.lock().unwrap().remove(&id);
+                return Err(RemoteRequestError::Transport(error).into());
+            }
+        };
+        if deadline.write_remaining().is_err() {
+            self.pending.lock().unwrap().remove(&id);
+            match self.interactive_writer.cancel_sequence(sequence) {
+                InteractiveWriteCancellation::Canceled => {
+                    return Err(RemoteRequestError::Timeout.into());
+                }
+                InteractiveWriteCancellation::AlreadyWritten
+                | InteractiveWriteCancellation::InFlight => {
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
+            }
+        }
+        Ok(RemoteRequestTicket {
+            id,
+            sequence,
+            response: rx,
+            deadline,
+            progress,
+            attach_progress: None,
+            remote: Arc::downgrade(self),
+            cleanup_on_drop: true,
+        })
+    }
+
+    /// Complete a previously admitted claim. A response timeout is an
+    /// ambiguous delivery, so the transport is reconciled before returning.
+    pub(crate) fn await_claim_terminal_geometry(
+        &self,
+        mut ticket: RemoteRequestTicket,
+    ) -> anyhow::Result<()> {
+        if let Err(error) = self
+            .interactive_writer
+            .wait_until_written_until(ticket.sequence, ticket.deadline.write_deadline())
+        {
+            self.pending.lock().unwrap().remove(&ticket.id);
+            if error.kind() == io::ErrorKind::TimedOut {
+                match self.interactive_writer.cancel_sequence(ticket.sequence) {
+                    InteractiveWriteCancellation::Canceled => {
+                        ticket.disarm_cleanup();
+                        return Err(RemoteRequestError::Timeout.into());
+                    }
+                    InteractiveWriteCancellation::AlreadyWritten
+                    | InteractiveWriteCancellation::InFlight => {
+                        ticket.disarm_cleanup();
+                        self.reconcile_ambiguous_request();
+                        return Err(RemoteRequestError::Ambiguous.into());
+                    }
+                }
+            }
+            ticket.disarm_cleanup();
+            return Err(RemoteRequestError::Transport(error).into());
+        }
+        if self.shutdown.load(Ordering::Acquire) {
+            self.pending.lock().unwrap().remove(&ticket.id);
+            ticket.disarm_cleanup();
+            return Err(self.shutdown_request_error().into());
+        }
+        let response = match self.wait_for_response(
+            &ticket.response,
+            ticket.deadline,
+            ticket.progress.clone(),
+            ticket.attach_progress,
+        ) {
+            Ok(response) => response,
+            Err(error) => {
+                self.pending.lock().unwrap().remove(&ticket.id);
+                if matches!(&error, RemoteRequestError::Timeout) {
+                    ticket.disarm_cleanup();
+                    self.reconcile_ambiguous_request();
+                    return Err(RemoteRequestError::Ambiguous.into());
+                }
+                ticket.disarm_cleanup();
+                return Err(error.into());
+            }
+        };
+        self.pending.lock().unwrap().remove(&ticket.id);
+        ticket.disarm_cleanup();
+        if response.get("shutdown").and_then(Value::as_bool) == Some(true) {
+            return Err(RemoteRequestError::Shutdown.into());
+        }
+        if response.get("ok").and_then(Value::as_bool) == Some(true) {
+            return Ok(());
+        }
+        let error = response.get("error").and_then(Value::as_str).unwrap_or("unknown error");
+        let code = response.get("error_code").and_then(Value::as_str).map(ToString::to_string);
+        let delivery = match response.get("error_delivery").and_then(Value::as_str) {
+            Some("known-not-delivered") => Some(ClearHistoryDelivery::KnownNotDelivered),
+            Some("ambiguous") => Some(ClearHistoryDelivery::Ambiguous),
+            _ => None,
+        };
+        Err(RemoteRequestError::Rejected { error: error.to_string(), code, delivery }.into())
+    }
+
+    /// Claims exclusive terminal geometry for a renderer-less pipe-IO
+    /// attachment. This mirrors `Session::claim_terminal_geometry` without
+    /// requiring a local `RemoteSurface` mirror.
+    pub(crate) fn claim_terminal_geometry(
+        self: &Arc<Self>,
+        surface: SurfaceId,
+    ) -> anyhow::Result<()> {
+        let ticket = self.enqueue_claim_terminal_geometry(surface)?;
+        self.await_claim_terminal_geometry(ticket)
     }
 
     #[cfg_attr(not(test), allow(dead_code))]
@@ -2962,7 +3997,19 @@ impl RemoteSession {
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
+        self.wait_for_ordered_write_with_timeout(sequence, remote_write_timeout())
+    }
+
+    fn wait_for_ordered_write_with_timeout(
+        &self,
+        sequence: u64,
+        timeout: Duration,
+    ) -> io::Result<()> {
+        self.wait_for_ordered_write_until(sequence, Instant::now() + timeout)
+    }
+
+    fn wait_for_ordered_write_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
+        match self.interactive_writer.wait_until_written_until(sequence, deadline) {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -2977,6 +4024,18 @@ impl RemoteSession {
         self.disconnect_transport_with_reason(None);
     }
 
+    /// A request that was written but did not receive a response cannot be
+    /// retried safely on this connection. Abort the independent writer first,
+    /// then run the normal disconnect path so pending requests and pipe-IO
+    /// lifecycle observers receive one consistent shutdown signal.
+    fn reconcile_ambiguous_request(&self) {
+        self.interactive_writer.abort(&io::Error::new(
+            io::ErrorKind::TimedOut,
+            "remote request delivery became ambiguous",
+        ));
+        self.disconnect_transport();
+    }
+
     pub(super) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
         let mut state = self.disconnect_state.lock().unwrap();
         if matches!(&*state, DisconnectState::Active) {
@@ -2986,8 +4045,222 @@ impl RemoteSession {
             };
         }
         drop(state);
+        // Signal the pipe-io relay before shutdown waits on any in-flight
+        // writer. The lifecycle channel is separate from the bounded byte
+        // queue, so this wake cannot be dropped behind queued output.
+        self.signal_pipe_io_event(None, None, PipeIoEvent::TransportLost);
         self.begin_shutdown();
         self.interactive_writer.close();
+    }
+
+    /// Routes one scoped surface's raw byte stream to a `--pipe-io` relay.
+    /// Install before `attach-surface` so the initial replay is not missed.
+    pub(crate) fn install_pipe_io_tap(
+        &self,
+        surface: SurfaceId,
+        sender: EventSender<PipeIoEvent>,
+        lifecycle_sender: EventSender<PipeIoEvent>,
+        byte_budget: Arc<PipeIoByteBudget>,
+    ) -> Arc<u8> {
+        // A non-zero-sized allocation gives each tap a stable identity. A
+        // zero-sized Arc token could share the allocator's dangling pointer.
+        let token = Arc::new(0u8);
+        *self.pipe_io_tap.lock().unwrap() = Some(PipeIoTap {
+            surface,
+            sender,
+            lifecycle_sender,
+            byte_budget,
+            token: token.clone(),
+            color_cache: PipeIoColorCache::default(),
+        });
+        token
+    }
+
+    pub(crate) fn clear_pipe_io_tap(&self, token: &Arc<u8>) {
+        let mut slot = self.pipe_io_tap.lock().unwrap();
+        if slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token)) {
+            slot.take();
+        }
+    }
+
+    fn signal_pipe_io_event(
+        &self,
+        surface: Option<SurfaceId>,
+        token: Option<&Arc<u8>>,
+        event: PipeIoEvent,
+    ) -> bool {
+        let mut slot = self.pipe_io_tap.lock().unwrap();
+        let matches = (surface.is_none()
+            || slot.as_ref().is_some_and(|tap| Some(tap.surface) == surface))
+            && token.is_none_or(|token| {
+                slot.as_ref().is_some_and(|tap| Arc::ptr_eq(&tap.token, token))
+            });
+        let Some(tap) = slot.as_ref() else { return false };
+        if !matches {
+            return false;
+        }
+
+        // Publish the lifecycle reason while the tap still owns the byte
+        // sender. The receiver can then observe the structured event before
+        // the byte channel closes when this slot is released.
+        let _ = tap.lifecycle_sender.try_send(event);
+        // A second lifecycle event is redundant. If the one-slot signal
+        // channel is already occupied, the first event remains authoritative.
+        slot.take();
+        true
+    }
+
+    /// Returns true while this connection has a raw pipe-IO tap for
+    /// `surface`. The event reader uses this fence to avoid feeding the same
+    /// bytes into the normal local mirror parser as well as the relay.
+    fn pipe_io_owns_surface(&self, surface: SurfaceId) -> bool {
+        self.pipe_io_tap.lock().unwrap().as_ref().is_some_and(|tap| tap.surface == surface)
+    }
+
+    /// Forwards one tap event, treating a full or dropped queue as a lost
+    /// transport: the relay's reader stalled, and silently dropping bytes
+    /// would corrupt the embedder's terminal state (bounded-backpressure
+    /// policy; never wedge the session reader thread).
+    #[cfg(test)]
+    fn pipe_io_forward(&self, surface: SurfaceId, event: impl FnOnce() -> PipeIoEvent) -> bool {
+        use crossbeam_channel::TrySendError;
+        let stalled_token = {
+            let tap = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap.as_ref() else { return false };
+            if tap.surface != surface {
+                return false;
+            }
+            let mut event = event();
+            if !tap.byte_budget.try_reserve_event(&mut event) {
+                Some(tap.token.clone())
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(event) | TrySendError::Disconnected(event)) => {
+                        tap.byte_budget.release_event(&event);
+                        Some(tap.token.clone())
+                    }
+                }
+            }
+        };
+        if let Some(token) = stalled_token
+            && self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost)
+        {
+            self.disconnect_transport();
+        }
+        true
+    }
+
+    /// Forwards an already-owned event without cloning its payload. If no
+    /// matching tap exists, the event is returned to the caller for normal
+    /// terminal parsing. Once a tap owns the event, queue overflow consumes it
+    /// and tears down that relay, so the caller must not parse it locally.
+    #[cfg(test)]
+    fn pipe_io_forward_owned(
+        &self,
+        surface: SurfaceId,
+        mut event: PipeIoEvent,
+    ) -> Result<(), PipeIoEvent> {
+        use crossbeam_channel::TrySendError;
+        let stalled_token = {
+            let mut tap_slot = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap_slot.as_mut() else { return Err(event) };
+            if tap.surface != surface {
+                return Err(event);
+            }
+            if !tap.byte_budget.try_reserve_event(&mut event) {
+                Some(tap.token.clone())
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(event) | TrySendError::Disconnected(event)) => {
+                        tap.byte_budget.release_event(&event);
+                        Some(tap.token.clone())
+                    }
+                }
+            }
+        };
+        if let Some(token) = stalled_token {
+            // Signal only the tap that observed the stall. A replacement tap
+            // may have been installed while this reader thread released the
+            // mutex; it must not be torn down by an older relay.
+            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
+                self.disconnect_transport();
+            }
+        }
+        Ok(())
+    }
+
+    /// Forwards an owned byte event and appends its coupled color sidecar only
+    /// after a matching tap has been found. Keeping the ownership check and
+    /// append under one tap lock lets a missing tap return the original bytes
+    /// to the local mirror without leaking synthetic state into its parser.
+    fn pipe_io_forward_owned_with_colors(
+        &self,
+        surface: SurfaceId,
+        mut event: PipeIoEvent,
+        colors: Option<&PipeIoColorState>,
+    ) -> Result<(), PipeIoEvent> {
+        use crossbeam_channel::TrySendError;
+        let stalled_token = {
+            let mut tap_slot = self.pipe_io_tap.lock().unwrap();
+            let Some(tap) = tap_slot.as_mut() else { return Err(event) };
+            if tap.surface != surface {
+                return Err(event);
+            }
+            if let Some(colors) = colors {
+                match &mut event {
+                    PipeIoEvent::Replay { bytes, .. } => {
+                        // The relay writer emits a reset before every replay
+                        // after the first one. The reset clears authored
+                        // palette state, so replay the complete sparse set
+                        // rather than diffing against the prior live state.
+                        append_pipe_io_colors(bytes, colors, &mut tap.color_cache, true);
+                    }
+                    PipeIoEvent::Output(bytes) => {
+                        append_pipe_io_colors(bytes, colors, &mut tap.color_cache, false);
+                    }
+                    _ => {}
+                }
+            } else if matches!(&event, PipeIoEvent::Replay { .. }) {
+                // A replay replaces the terminal. Without a colors field the
+                // server gave us no authoritative state, so do not compare a
+                // later sparse update with stale values.
+                tap.color_cache.reset_for_replay();
+            }
+            if !tap.byte_budget.try_reserve_event(&mut event) {
+                Some(tap.token.clone())
+            } else {
+                match tap.sender.try_send(event) {
+                    Ok(()) => None,
+                    Err(TrySendError::Full(event) | TrySendError::Disconnected(event)) => {
+                        tap.byte_budget.release_event(&event);
+                        Some(tap.token.clone())
+                    }
+                }
+            }
+        };
+        if let Some(token) = stalled_token {
+            // Signal only the tap that observed the stall. A replacement tap
+            // may have been installed while this reader thread released the
+            // mutex; it must not be torn down by an older relay.
+            if self.signal_pipe_io_event(Some(surface), Some(&token), PipeIoEvent::TransportLost) {
+                self.disconnect_transport();
+            }
+        }
+        Ok(())
+    }
+
+    /// Forwards a replay while retaining ownership for the local mirror when
+    /// no matching pipe-IO tap exists. The relay path consumes the vector, so
+    /// this avoids cloning large replay frames on the session reader thread.
+    #[cfg(test)]
+    fn pipe_io_forward_replay(&self, surface: SurfaceId, replay: Vec<u8>) -> Option<Vec<u8>> {
+        match self.pipe_io_forward_owned(surface, PipeIoEvent::replay(replay)) {
+            Ok(()) => None,
+            Err(PipeIoEvent::Replay { bytes, .. }) => Some(bytes),
+            Err(_) => None,
+        }
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -3223,6 +4496,137 @@ impl RemoteSession {
         })
     }
 
+    /// Registers one renderer-less attachment for a pipe-IO relay. The
+    /// normal `try_ensure_surface` path creates a local `RemoteSurface` and
+    /// parses every VT event. A raw relay must only register the server stream
+    /// and preserve those bytes for the embedder's parser.
+    pub(crate) fn try_attach_pipe_io(
+        &self,
+        id: SurfaceId,
+        size: Option<(u16, u16)>,
+    ) -> anyhow::Result<PipeIoSurfaceAttach> {
+        if self.retired_surfaces.lock().unwrap().contains(&id) {
+            return Ok(PipeIoSurfaceAttach::Retired);
+        }
+        if !self.can_attach_after_overflow(id) {
+            return Ok(PipeIoSurfaceAttach::Deferred);
+        }
+        let requested_size = size.map(|(cols, rows)| (cols.max(1), rows.max(1)));
+        let initial_size = requested_size.filter(|_| self.supports_pipe_io_initial_size());
+        if initial_size.is_none()
+            && let Some((cols, rows)) = requested_size
+        {
+            // Older daemons cannot size the PTY as part of attach. A generic
+            // resize is valid before the stream is opened and establishes the
+            // requested geometry before the daemon publishes its first replay.
+            self.resize_pipe_io_before_attach(id, cols, rows)?;
+        }
+        let mut request = json!({"cmd": "attach-surface", "surface": id, "mode": "bytes"});
+        if let Some((cols, rows)) = initial_size {
+            request["cols"] = json!(cols);
+            request["rows"] = json!(rows);
+        }
+        let response = match self.request_with_deadline(request, RequestDeadline::Attach) {
+            Ok(response) => response,
+            Err(error) => {
+                if error
+                    .downcast_ref::<RemoteRequestError>()
+                    .is_some_and(RemoteRequestError::is_timeout)
+                {
+                    // The server registers the stream before it queues the
+                    // attach response. Closing the connection is the only
+                    // protocol cancellation that guarantees cleanup.
+                    self.disconnect_transport();
+                }
+                return Err(error);
+            }
+        };
+        let attachment_lease = if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+            let Some(lease) = response.get("lease").and_then(Value::as_str) else {
+                self.disconnect_transport();
+                anyhow::bail!(
+                    "server advertised {VIEW_ATTACHMENT_LEASE_CAPABILITY} but pipe-IO attach returned no lease"
+                );
+            };
+            Some(lease.to_string())
+        } else {
+            None
+        };
+        // Retirement can race the attach response. Do not start a relay for
+        // a terminal that already emitted `surface-exited`; closing this
+        // connection releases the server-side pending stream.
+        if self.retired_surfaces.lock().unwrap().contains(&id) {
+            // A direct retirement can race this response without the normal
+            // event reader having signalled the tap yet. Publish the terminal
+            // lifecycle event before closing the transport so the relay's
+            // startup drain has a bounded completion signal.
+            self.signal_pipe_io_event(Some(id), None, PipeIoEvent::SurfaceExited);
+            self.disconnect_transport();
+            return Ok(PipeIoSurfaceAttach::RetiredAfterAttach);
+        }
+        if let Some(lease) = attachment_lease {
+            self.surface_leases.lock().unwrap().insert(id, lease);
+        }
+        // Mark a successful raw attachment as stable for the same overflow
+        // recovery budget used by the normal mirror path. Without this
+        // commit, every reconnect would remain in the pre-stability window
+        // and consume another backoff slot forever.
+        if let Some(recovery) = self.surface_overflow_recovery.lock().unwrap().get_mut(&id) {
+            recovery.attached_at = Some(Instant::now());
+            recovery.retry_after = None;
+        }
+        Ok(PipeIoSurfaceAttach::Attached)
+    }
+
+    /// Sends a resize for a renderer-less attachment. There is no local
+    /// `RemoteSurface` to hold a reported size, so every accepted sample is
+    /// sent; the Swift pump already coalesces samples and bounds traffic.
+    pub(crate) fn resize_pipe_io(
+        &self,
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<bool> {
+        let desired = (cols.max(1), rows.max(1));
+        let mut request = json!({
+            "cmd": "resize-surface",
+            "surface": surface,
+            "cols": desired.0,
+            "rows": desired.1,
+        });
+        if self.supports_capability(VIEW_ATTACHMENT_LEASE_CAPABILITY) {
+            let Some(lease) = self.attachment_lease(surface) else {
+                anyhow::bail!("pipe-IO attachment lease is no longer active");
+            };
+            request = json!({
+                "cmd": "resize-attached-view",
+                "surface": surface,
+                "lease": lease,
+                "cols": desired.0,
+                "rows": desired.1,
+            });
+        }
+        parse_pipe_io_resize_response(&self.request(request)?)
+    }
+
+    /// Size a legacy attachment before opening its byte stream. This must use
+    /// the unleased command because the attachment lease does not exist yet.
+    pub(crate) fn resize_pipe_io_before_attach(
+        &self,
+        surface: SurfaceId,
+        cols: u16,
+        rows: u16,
+    ) -> anyhow::Result<bool> {
+        let desired = (cols.max(1), rows.max(1));
+        let response = self.request(json!({
+            "cmd": "resize-surface",
+            "surface": surface,
+            "cols": desired.0,
+            "rows": desired.1,
+        }))?;
+        parse_pipe_io_resize_response(&response)
+    }
+
     /// Mirror for a surface, attaching on first use. Servers advertising
     /// initial attach sizing receive the first viewer claim atomically with
     /// the attach, so the initial replay already has its final geometry.
@@ -3433,6 +4837,12 @@ impl RemoteSession {
         self.exited_surfaces.lock().unwrap().ids.contains(&id)
     }
 
+    /// Reports explicit retirement captured at the surface-exit boundary.
+    /// Pipe-IO uses this fence when a claim response races terminal exit.
+    pub(crate) fn surface_is_retired(&self, id: SurfaceId) -> bool {
+        self.retired_surfaces.lock().unwrap().contains(&id)
+    }
+
     pub fn surface_kind(&self, id: SurfaceId) -> SurfaceKind {
         self.tree.lock().unwrap().view.surface_kind(id)
     }
@@ -3449,12 +4859,38 @@ impl RemoteSession {
         self.refresh_tree_inner(true)
     }
 
+    /// Refresh the workspace tree with a bounded request deadline. Used by
+    /// reconnect classification, where a stale daemon must not hold the relay.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn refresh_tree_with_timeout(&self, timeout: Duration) -> anyhow::Result<TreeView> {
+        self.refresh_tree_until(Instant::now() + timeout)
+    }
+
+    pub(crate) fn refresh_tree_until(&self, deadline: Instant) -> anyhow::Result<TreeView> {
+        self.refresh_tree_inner_with_deadline(true, RequestDeadline::Until(deadline))
+    }
+
     pub fn refresh_tree_background(&self) -> anyhow::Result<TreeView> {
         self.refresh_tree_inner(false)
     }
 
     fn refresh_tree_inner(&self, identity_refresh: bool) -> anyhow::Result<TreeView> {
-        let _refresh = self.tree_refresh.lock().unwrap();
+        self.refresh_tree_inner_with_deadline(identity_refresh, RequestDeadline::Standard)
+    }
+
+    fn refresh_tree_inner_with_deadline(
+        &self,
+        identity_refresh: bool,
+        deadline: RequestDeadline,
+    ) -> anyhow::Result<TreeView> {
+        let refresh_timeout = match deadline {
+            RequestDeadline::Standard => REMOTE_REQUEST_TIMEOUT,
+            RequestDeadline::Attach => remote_write_timeout(),
+            RequestDeadline::Fixed(timeout) => timeout,
+            RequestDeadline::Until(deadline) => deadline.saturating_duration_since(Instant::now()),
+        };
+        let _refresh =
+            self.tree_refresh.try_lock_for(refresh_timeout).ok_or(RemoteRequestError::Timeout)?;
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
@@ -3462,7 +4898,7 @@ impl RemoteSession {
             let cache = self.tree.lock().unwrap();
             (cache.title_generation(), cache.agent_generation())
         };
-        let data = match self.request(json!({"cmd": "list-workspaces"})) {
+        let data = match self.request_with_deadline(json!({"cmd": "list-workspaces"}), deadline) {
             Ok(data) => data,
             Err(e) => {
                 if identity_refresh {
@@ -3473,7 +4909,7 @@ impl RemoteSession {
             }
         };
         let agents = self
-            .request(json!({"cmd": "list-agents"}))
+            .request_with_deadline(json!({"cmd": "list-agents"}), deadline)
             .ok()
             .and_then(|data| {
                 data.get("agents")
@@ -3779,6 +5215,253 @@ fn parse_terminal_colors(value: &Value) -> Option<RemoteTerminalColors> {
     })
 }
 
+fn parse_pipe_io_colors(value: &Value) -> Option<PipeIoColorState> {
+    let colors = parse_terminal_colors(value)?;
+    let presence = PipeIoColorPresence {
+        fg: value.get("fg").is_some(),
+        bg: value.get("bg").is_some(),
+        cursor: value.get("cursor").is_some(),
+        cursor_visual: value.get("cursor_style").is_some() && value.get("cursor_blink").is_some(),
+        palette: value.get("palette").is_some(),
+    };
+    Some(PipeIoColorState { colors, presence })
+}
+
+/// Append the VT sidecar needed by a raw pipe to adopt one protocol color
+/// transition. The JSON attach stream carries this state beside replay/output
+/// bytes, but a pipe embedder only receives bytes. Dynamic fields are cached
+/// per tap and emitted only when present and changed. A present sparse palette
+/// is a complete authored-override snapshot. On a live transition, reset only
+/// entries removed from the previous snapshot so omitted entries retain the
+/// embedder's theme. A replay has already reset the terminal, so it emits all
+/// current authored entries without a broad palette reset.
+fn append_pipe_io_colors(
+    bytes: &mut Vec<u8>,
+    state: &PipeIoColorState,
+    cache: &mut PipeIoColorCache,
+    replay_reset: bool,
+) {
+    if replay_reset {
+        cache.reset_for_replay();
+    }
+
+    let colors = &state.colors;
+    let presence = state.presence;
+    append_cached_pipe_io_color(
+        bytes,
+        &mut cache.fg,
+        presence.fg,
+        10,
+        110,
+        colors.fg,
+        replay_reset,
+    );
+    append_cached_pipe_io_color(
+        bytes,
+        &mut cache.bg,
+        presence.bg,
+        11,
+        111,
+        colors.bg,
+        replay_reset,
+    );
+    append_cached_pipe_io_color(
+        bytes,
+        &mut cache.cursor,
+        presence.cursor,
+        12,
+        112,
+        colors.cursor,
+        replay_reset,
+    );
+
+    let cursor_visual =
+        presence.cursor_visual.then(|| colors.cursor_style.zip(colors.cursor_blink));
+    append_cached_pipe_io_cursor_visual(
+        bytes,
+        &mut cache.cursor_visual,
+        cursor_visual.flatten(),
+        replay_reset,
+    );
+
+    if presence.palette {
+        let previous_known = cache.palette_known;
+        for index in 0..256 {
+            let current = colors.palette[index];
+            let previous = previous_known.then_some(cache.palette[index]);
+            if !replay_reset && previous == Some(current) {
+                continue;
+            }
+            match current {
+                Some(color) => {
+                    append_cached_pipe_io_palette_set(
+                        bytes,
+                        &mut cache.palette_set_bytes[index],
+                        index,
+                        color,
+                    );
+                }
+                None if previous.is_some_and(|color| color.is_some()) => {
+                    append_cached_pipe_io_palette_reset(
+                        bytes,
+                        &mut cache.palette_reset_bytes[index],
+                        index,
+                    );
+                }
+                None => {}
+            }
+        }
+        cache.palette = colors.palette;
+        cache.palette_known = true;
+    }
+}
+
+fn append_cached_pipe_io_color(
+    bytes: &mut Vec<u8>,
+    cache: &mut PipeIoCachedColor,
+    present: bool,
+    set_code: u16,
+    reset_code: u16,
+    value: Option<Rgb>,
+    replay_reset: bool,
+) {
+    if replay_reset {
+        cache.known = false;
+    }
+    if !present {
+        return;
+    }
+    if !replay_reset && cache.known && cache.value == value {
+        return;
+    }
+    if cache.value != value || cache.bytes.is_empty() {
+        cache.value = value;
+        cache.bytes = pipe_io_dynamic_color_bytes(set_code, reset_code, value);
+    }
+    bytes.extend_from_slice(&cache.bytes);
+    cache.known = true;
+}
+
+fn append_cached_pipe_io_cursor_visual(
+    bytes: &mut Vec<u8>,
+    cache: &mut PipeIoCachedCursorVisual,
+    value: Option<(CursorShape, bool)>,
+    replay_reset: bool,
+) {
+    if replay_reset {
+        cache.known = false;
+    }
+    let Some(value) = value else { return };
+    if !replay_reset && cache.known && cache.value == Some(value) {
+        return;
+    }
+    // Reset any application-authored DECSCUSR before applying the resolved
+    // pair, matching apply_terminal_colors on local mirrors.
+    bytes.extend_from_slice(pipe_io_cursor_visual_bytes(value));
+    cache.value = Some(value);
+    cache.known = true;
+}
+
+fn append_cached_pipe_io_palette_set(
+    bytes: &mut Vec<u8>,
+    cache: &mut Option<PipeIoCachedPaletteSet>,
+    index: usize,
+    color: Rgb,
+) {
+    let needs_build = !cache.as_ref().is_some_and(|cached| cached.color == color);
+    if needs_build {
+        *cache =
+            Some(PipeIoCachedPaletteSet { color, bytes: pipe_io_palette_set_bytes(index, color) });
+    }
+    if let Some(cached) = cache.as_ref() {
+        bytes.extend_from_slice(&cached.bytes);
+    }
+}
+
+fn append_cached_pipe_io_palette_reset(
+    bytes: &mut Vec<u8>,
+    cache: &mut Option<Vec<u8>>,
+    index: usize,
+) {
+    if cache.is_none() {
+        *cache = Some(pipe_io_palette_reset_bytes(index));
+    }
+    if let Some(cached) = cache.as_ref() {
+        bytes.extend_from_slice(cached);
+    }
+}
+
+fn pipe_io_dynamic_color_bytes(set_code: u16, reset_code: u16, color: Option<Rgb>) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(24);
+    bytes.extend_from_slice(b"\x1b]");
+    if let Some(color) = color {
+        push_pipe_io_decimal(&mut bytes, set_code as usize);
+        bytes.extend_from_slice(b";rgb:");
+        push_pipe_io_hex_byte(&mut bytes, color.r);
+        bytes.push(b'/');
+        push_pipe_io_hex_byte(&mut bytes, color.g);
+        bytes.push(b'/');
+        push_pipe_io_hex_byte(&mut bytes, color.b);
+    } else {
+        push_pipe_io_decimal(&mut bytes, reset_code as usize);
+    }
+    bytes.extend_from_slice(b"\x1b\\");
+    bytes
+}
+
+fn pipe_io_palette_set_bytes(index: usize, color: Rgb) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(30);
+    bytes.extend_from_slice(b"\x1b]4;");
+    push_pipe_io_decimal(&mut bytes, index);
+    bytes.extend_from_slice(b";rgb:");
+    push_pipe_io_hex_byte(&mut bytes, color.r);
+    bytes.push(b'/');
+    push_pipe_io_hex_byte(&mut bytes, color.g);
+    bytes.push(b'/');
+    push_pipe_io_hex_byte(&mut bytes, color.b);
+    bytes.extend_from_slice(b"\x1b\\");
+    bytes
+}
+
+fn pipe_io_palette_reset_bytes(index: usize) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(12);
+    bytes.extend_from_slice(b"\x1b]104;");
+    push_pipe_io_decimal(&mut bytes, index);
+    bytes.extend_from_slice(b"\x1b\\");
+    bytes
+}
+
+fn pipe_io_cursor_visual_bytes(value: (CursorShape, bool)) -> &'static [u8] {
+    match value {
+        (CursorShape::Block | CursorShape::BlockHollow, true) => b"\x1b[0 q\x1b[1 q",
+        (CursorShape::Block | CursorShape::BlockHollow, false) => b"\x1b[0 q\x1b[2 q",
+        (CursorShape::Underline, true) => b"\x1b[0 q\x1b[3 q",
+        (CursorShape::Underline, false) => b"\x1b[0 q\x1b[4 q",
+        (CursorShape::Bar, true) => b"\x1b[0 q\x1b[5 q",
+        (CursorShape::Bar, false) => b"\x1b[0 q\x1b[6 q",
+    }
+}
+
+fn push_pipe_io_hex_byte(bytes: &mut Vec<u8>, value: u8) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    bytes.push(HEX[(value >> 4) as usize]);
+    bytes.push(HEX[(value & 0x0f) as usize]);
+}
+
+fn push_pipe_io_decimal(bytes: &mut Vec<u8>, mut value: usize) {
+    let mut digits = [0u8; 5];
+    let mut cursor = digits.len();
+    loop {
+        cursor -= 1;
+        digits[cursor] = b'0' + (value % 10) as u8;
+        value /= 10;
+        if value == 0 {
+            break;
+        }
+    }
+    bytes.extend_from_slice(&digits[cursor..]);
+}
+
 fn apply_terminal_colors(terminal: &mut Terminal, colors: &RemoteTerminalColors) {
     // Colors and vt-state carry the complete resolved special-color tuple.
     // Replace (rather than sparsely merge) it so a later null clears an
@@ -3913,7 +5596,7 @@ fn test_session_with_writer(
         retire_surface_test_marker: Mutex::new(None),
         tree: Mutex::new(RemoteTreeCache::default()),
         browser_sources: Mutex::new(HashMap::new()),
-        tree_refresh: Mutex::new(()),
+        tree_refresh: ParkingMutex::new(()),
         tree_stale: AtomicBool::new(true),
         subscription_started: AtomicBool::new(false),
         event_surface_filter: AtomicU64::new(0),
@@ -3929,6 +5612,7 @@ fn test_session_with_writer(
         capabilities: Mutex::new(capabilities),
         provider_workspace_authority,
         provider_workspaces_guarded: AtomicBool::new(false),
+        pipe_io_tap: Mutex::new(None),
     })
 }
 
@@ -4093,7 +5777,7 @@ fn test_session_with_deferred_attach_control(
     capabilities: HashSet<String>,
 ) -> (Arc<RemoteSession>, Receiver<()>, Sender<()>) {
     let session_slot = Arc::new(Mutex::new(None));
-    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (attach_started_tx, attach_started_rx) = sync_channel(1);
     let (release_attach_tx, release_attach_rx) = channel();
     let session = test_session_with_writer(
         Box::new(DeferredAttachTestWriter {
@@ -4118,7 +5802,7 @@ fn test_session_with_deferred_attach_control(
 fn test_session_with_deferred_leased_attach()
 -> (Arc<RemoteSession>, Receiver<()>, Sender<()>, Receiver<Value>) {
     let session_slot = Arc::new(Mutex::new(None));
-    let (attach_started_tx, attach_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (attach_started_tx, attach_started_rx) = sync_channel(1);
     let (release_attach_tx, release_attach_rx) = channel();
     let (request_tx, request_rx) = channel();
     let session = test_session_with_writer(
@@ -4153,7 +5837,7 @@ pub(super) struct DeferredAttachResizeFailureFixture {
 #[cfg(test)]
 pub(super) fn test_session_with_deferred_attach_and_first_resize_failure()
 -> DeferredAttachResizeFailureFixture {
-    let (resize_started_tx, resize_started_rx) = std::sync::mpsc::sync_channel(1);
+    let (resize_started_tx, resize_started_rx) = sync_channel(1);
     let (release_resize_tx, release_resize_rx) = channel();
     let (session, attach_started, release_attach) = test_session_with_deferred_attach_control(
         Some((resize_started_tx, release_resize_rx)),
@@ -4351,7 +6035,7 @@ mod tests {
     #[cfg(unix)]
     use std::io::{BufRead, Read, Write};
     #[cfg(unix)]
-    use std::os::unix::net::UnixStream;
+    use std::os::unix::net::{UnixListener, UnixStream};
     use std::sync::atomic::{AtomicBool, AtomicU64};
     use std::sync::mpsc::{Receiver, Sender};
     use std::sync::{Condvar, Mutex, Weak};
@@ -4435,6 +6119,148 @@ mod tests {
         }));
         require_capability(&with_key_fallback, CLEAR_HISTORY_KEY_CAPABILITY, "clear-history")
             .unwrap();
+    }
+
+    #[test]
+    fn pipe_io_initial_size_requires_atomic_attach_capability() {
+        let without = super::test_session_with_provider_context(None, HashSet::new());
+        assert!(!without.supports_pipe_io_initial_size());
+
+        let with = super::test_session_with_provider_context(
+            None,
+            HashSet::from([cmux_tui_core::server::ATTACH_INITIAL_SIZE_CAPABILITY.to_string()]),
+        );
+        assert!(with.supports_pipe_io_initial_size());
+    }
+
+    #[test]
+    fn pipe_io_attach_reports_retirement_after_stream_open() {
+        let (session, attach_started_rx, release_attach_tx) = test_session_with_deferred_attach();
+        let (sender, receiver) = crossbeam_channel::bounded(8);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let attaching = session.clone();
+        let worker = std::thread::spawn(move || attaching.try_attach_pipe_io(7, Some((80, 24))));
+        attach_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        session.pipe_io_forward_owned(7, PipeIoEvent::Output(b"last".to_vec())).unwrap();
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        release_attach_tx.send(()).unwrap();
+
+        let result = worker.join().unwrap().unwrap();
+        assert!(matches!(result, PipeIoSurfaceAttach::RetiredAfterAttach));
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::Output(b"last".to_vec()));
+        assert_eq!(lifecycle_receiver.try_recv().unwrap(), PipeIoEvent::SurfaceExited);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legacy_pipe_io_sizes_before_attach() {
+        struct OrderedPipeIoAttachWriter {
+            session: Arc<Mutex<Option<Weak<RemoteSession>>>>,
+            requests: Sender<Value>,
+            release_attach: Option<Receiver<()>>,
+        }
+
+        impl RemoteMessageWriter for OrderedPipeIoAttachWriter {
+            fn send(&mut self, message: &str) -> io::Result<()> {
+                let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+                let id = request
+                    .get("id")
+                    .and_then(Value::as_u64)
+                    .ok_or_else(|| io::Error::other("remote request omitted its id"))?;
+                self.requests.send(request.clone()).map_err(io::Error::other)?;
+                let session = self
+                    .session
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .cloned()
+                    .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+                if request.get("cmd").and_then(Value::as_str) == Some("attach-surface") {
+                    let release = self
+                        .release_attach
+                        .take()
+                        .ok_or_else(|| io::Error::other("attach release already consumed"))?;
+                    std::thread::spawn(move || {
+                        let _ = release.recv();
+                        let Some(session) = session.upgrade() else { return };
+                        let Some(response) = session.pending.lock().unwrap().remove(&id) else {
+                            return;
+                        };
+                        let _ = response.response.send(json!({
+                            "id": id,
+                            "ok": true,
+                            "data": null,
+                        }));
+                    });
+                    return Ok(());
+                }
+                let session = session
+                    .upgrade()
+                    .ok_or_else(|| io::Error::other("test remote session was dropped"))?;
+                let response = session
+                    .pending
+                    .lock()
+                    .unwrap()
+                    .remove(&id)
+                    .ok_or_else(|| io::Error::other("remote request was not pending"))?;
+                response
+                    .response
+                    .send(json!({"id": id, "ok": true, "data": null}))
+                    .map_err(|_| io::Error::other("remote response receiver was dropped"))
+            }
+
+            fn close(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let session_slot = Arc::new(Mutex::new(None));
+        let (requests_tx, requests_rx) = channel();
+        let (release_attach_tx, release_attach_rx) = channel();
+        let session = test_session_with_writer(
+            Box::new(OrderedPipeIoAttachWriter {
+                session: session_slot.clone(),
+                requests: requests_tx,
+                release_attach: Some(release_attach_rx),
+            }),
+            None,
+            HashSet::new(),
+        );
+        *session_slot.lock().unwrap() = Some(Arc::downgrade(&session));
+
+        let worker = std::thread::spawn(move || session.try_attach_pipe_io(7, Some((100, 30))));
+        let first = requests_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("pipe-IO attach did not issue its first request");
+        let second = if first["cmd"] == "attach-surface" {
+            // The pre-fix ordering sends attach first and waits for its
+            // response. Release it now so the test can report the ordering
+            // failure instead of hitting the attach deadline.
+            let _ = release_attach_tx.send(());
+            requests_rx.recv_timeout(Duration::from_secs(1))
+        } else {
+            let second = requests_rx.recv_timeout(Duration::from_secs(1));
+            let _ = release_attach_tx.send(());
+            second
+        };
+        let result = worker.join().unwrap().expect("pipe-IO attach failed");
+
+        assert_eq!(first["cmd"], "resize-surface");
+        assert_eq!(first["surface"], 7);
+        assert_eq!(first["cols"], 100);
+        assert_eq!(first["rows"], 30);
+        let second = second.expect("legacy attach request was not sent");
+        assert_eq!(second["cmd"], "attach-surface");
+        assert!(second.get("cols").is_none());
+        assert!(second.get("rows").is_none());
+        assert!(matches!(result, PipeIoSurfaceAttach::Attached));
     }
 
     #[test]
@@ -5155,7 +6981,7 @@ mod tests {
             retire_surface_test_marker: Mutex::new(None),
             tree: Mutex::new(RemoteTreeCache::default()),
             browser_sources: Mutex::new(HashMap::new()),
-            tree_refresh: Mutex::new(()),
+            tree_refresh: ParkingMutex::new(()),
             tree_stale: AtomicBool::new(true),
             subscription_started: AtomicBool::new(false),
             event_surface_filter: AtomicU64::new(0),
@@ -5171,6 +6997,7 @@ mod tests {
             capabilities: Mutex::new(capabilities),
             provider_workspace_authority,
             provider_workspaces_guarded: AtomicBool::new(false),
+            pipe_io_tap: Mutex::new(None),
         })
     }
 
@@ -5180,6 +7007,8 @@ mod tests {
         entered: bool,
         aborted: bool,
         fail_on_release: bool,
+        completed_writes: usize,
+        reblock_after_send: bool,
     }
 
     #[derive(Clone)]
@@ -5201,10 +7030,40 @@ mod tests {
             }
         }
 
+        fn wait_until_completed(&self, count: usize) {
+            let deadline = Instant::now() + Duration::from_secs(1);
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            while state.completed_writes < count {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                assert!(
+                    !remaining.is_zero(),
+                    "interactive writer did not complete the test stream write"
+                );
+                let (next, timeout) = changed.wait_timeout(state, remaining).unwrap();
+                state = next;
+                assert!(!timeout.timed_out() || state.completed_writes >= count);
+            }
+        }
+
+        fn completed_writes(&self) -> usize {
+            self.state.0.lock().unwrap().completed_writes
+        }
+
+        fn release_one(&self) {
+            let (state, changed) = &*self.state;
+            let mut state = state.lock().unwrap();
+            state.blocked = false;
+            state.reblock_after_send = true;
+            drop(state);
+            changed.notify_all();
+        }
+
         fn release(&self) {
             let (state, changed) = &*self.state;
             let mut state = state.lock().unwrap();
             state.blocked = false;
+            state.reblock_after_send = false;
             drop(state);
             changed.notify_all();
         }
@@ -5234,6 +7093,8 @@ mod tests {
                         entered: false,
                         aborted: false,
                         fail_on_release: false,
+                        completed_writes: 0,
+                        reblock_after_send: false,
                     }),
                     Condvar::new(),
                 )),
@@ -5257,10 +7118,19 @@ mod tests {
             if state.fail_on_release {
                 return Err(io::Error::new(io::ErrorKind::BrokenPipe, "scripted write failure"));
             }
+            if state.reblock_after_send {
+                state.blocked = true;
+                state.reblock_after_send = false;
+            }
             drop(state);
             let mut output = self.output.lock().unwrap();
             output.extend_from_slice(message.as_bytes());
             output.push(b'\n');
+            let (state, changed) = &*self.control.state;
+            let mut state = state.lock().unwrap();
+            state.completed_writes += 1;
+            drop(state);
+            changed.notify_all();
             Ok(())
         }
 
@@ -6250,6 +8120,25 @@ mod tests {
     }
 
     #[test]
+    fn json_line_reader_preserves_utf8_across_buffer_boundaries() {
+        let input = b"{\"text\":\"\xC3\xA9\"}\n".to_vec();
+        let mut reader = BufReader::with_capacity(1, io::Cursor::new(input));
+        let mut progress = Vec::new();
+
+        let line = read_json_line_with_progress_bounded(
+            &mut reader,
+            &mut |partial| progress.push(partial.to_vec()),
+            64,
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(line.as_bytes(), b"{\"text\":\"\xC3\xA9\"}");
+        assert!(progress.iter().any(|partial| partial.ends_with(&[0xC3])));
+        assert_eq!(progress.last().unwrap(), b"{\"text\":\"\xC3\xA9\"}");
+    }
+
+    #[test]
     fn remote_reader_end_reason_distinguishes_eof_from_read_failure() {
         let eof: io::Result<Option<String>> = Ok(None);
         assert_eq!(
@@ -6328,6 +8217,546 @@ mod tests {
 
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn full_pipe_io_queue_signals_loss_on_the_reserved_lifecycle_channel() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"first".to_vec()));
+        // The byte queue is full. The second event must force a transport
+        // loss, and that lifecycle signal must remain observable even though
+        // no byte-queue slot is available.
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"second".to_vec()));
+
+        assert_eq!(
+            lifecycle_receiver.recv_timeout(Duration::from_secs(1)).unwrap(),
+            PipeIoEvent::TransportLost
+        );
+        assert!(session.pipe_io_tap.lock().unwrap().is_none());
+        assert!(session.shutdown.load(Ordering::Acquire));
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::Output(b"first".to_vec()));
+    }
+
+    #[test]
+    fn pipe_io_forward_accepts_replay_when_queued_budget_remainder_is_small() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let budget = Arc::new(PipeIoByteBudget::new(8));
+        let _token =
+            session.install_pipe_io_tap(7, sender.clone(), lifecycle_sender, budget.clone());
+
+        let mut queued = PipeIoEvent::Output(vec![0; 7]);
+        assert!(budget.try_reserve_event(&mut queued));
+        sender.send(queued).unwrap();
+
+        let replay_bytes = vec![b'R'; 16];
+        assert!(session.pipe_io_forward(7, || PipeIoEvent::replay(replay_bytes.clone())));
+        assert!(lifecycle_receiver.try_recv().is_err());
+
+        let queued = receiver.try_recv().unwrap();
+        let replay = receiver.try_recv().unwrap();
+        assert_eq!(queued, PipeIoEvent::Output(vec![0; 7]));
+        assert_eq!(replay, PipeIoEvent::replay(replay_bytes));
+        let mut second_replay = PipeIoEvent::replay(vec![b'S'; 16]);
+        assert!(!budget.try_reserve_event(&mut second_replay));
+        budget.release_event(&queued);
+        budget.release_event(&replay);
+        assert!(budget.try_reserve_event(&mut second_replay));
+        budget.release_event(&second_replay);
+    }
+
+    #[test]
+    fn pipe_io_replay_forward_returns_the_owned_payload_without_a_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let replay = vec![b'R'; 64];
+
+        assert_eq!(session.pipe_io_forward_replay(7, replay.clone()), Some(replay));
+    }
+
+    #[test]
+    fn pipe_io_replay_forward_consumes_the_owned_payload_for_a_matching_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let replay = vec![b'R'; 64];
+
+        assert_eq!(session.pipe_io_forward_replay(7, replay.clone()), None);
+        assert_eq!(receiver.try_recv().unwrap(), PipeIoEvent::replay(replay));
+    }
+
+    #[test]
+    fn pipe_io_replay_forwards_the_coupled_color_state() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "vt-state",
+            "surface": 7,
+            "cols": 80,
+            "rows": 24,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"prompt"),
+            "colors": {
+                "fg": "#112233",
+                "bg": "#445566",
+                "cursor": "#778899",
+                "cursor_style": "bar",
+                "cursor_blink": false,
+                "palette": {"1": "#aabbcc"},
+            },
+        }));
+
+        let PipeIoEvent::Replay { bytes, .. } =
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("vt-state did not forward a replay event");
+        };
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0x11, g: 0x22, b: 0x33 }),
+                Some(Rgb { r: 0x44, g: 0x55, b: 0x66 }),
+                Some(Rgb { r: 0x77, g: 0x88, b: 0x99 }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[1], Some(Rgb { r: 0xaa, g: 0xbb, b: 0xcc }));
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Bar, false));
+    }
+
+    #[test]
+    fn pipe_io_output_keeps_color_state_after_live_bytes() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"live"),
+            "colors": {
+                "fg": "#102030",
+                "bg": "#405060",
+                "cursor": "#708090",
+                "cursor_style": "underline",
+                "cursor_blink": true,
+                "palette": {"196": "#010203"},
+            },
+        }));
+
+        let PipeIoEvent::Output(bytes) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("output did not forward an output event");
+        };
+        assert!(bytes.starts_with(b"live"), "color restoration must follow live bytes");
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+                Some(Rgb { r: 0x40, g: 0x50, b: 0x60 }),
+                Some(Rgb { r: 0x70, g: 0x80, b: 0x90 }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[196], Some(Rgb { r: 1, g: 2, b: 3 }));
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Underline, true));
+    }
+
+    #[test]
+    fn pipe_io_repeated_output_color_state_emits_only_changed_sidecar() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+        let colors = || {
+            json!({
+                "fg": "#102030",
+                "bg": "#405060",
+                "cursor": "#708090",
+                "cursor_style": "underline",
+                "cursor_blink": true,
+                "palette": {"196": "#010203"},
+            })
+        };
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"first"),
+            "colors": colors(),
+        }));
+        let PipeIoEvent::Output(first) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("first output did not forward");
+        };
+        assert!(first.starts_with(b"first"));
+
+        session.handle_line(json!({
+            "event": "output",
+            "surface": 7,
+            "data": base64::engine::general_purpose::STANDARD.encode(b"second"),
+            "colors": colors(),
+        }));
+        let PipeIoEvent::Output(second) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("second output did not forward");
+        };
+        assert_eq!(second, b"second");
+    }
+
+    #[test]
+    fn pipe_io_colors_changed_is_forwarded_to_an_owned_surface() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": "#fedcba",
+            "cursor_style": "block",
+            "cursor_blink": true,
+            "palette": {"2": "#0a0b0c"},
+        }));
+
+        let PipeIoEvent::Output(bytes) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("colors-changed did not forward an output event");
+        };
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0xab, g: 0xcd, b: 0xef }),
+                Some(Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+                Some(Rgb { r: 0xfe, g: 0xdc, b: 0xba }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[2], Some(Rgb { r: 0x0a, g: 0x0b, b: 0x0c }));
+    }
+
+    #[test]
+    fn pipe_io_sparse_colors_changed_preserves_omitted_defaults_and_clears_old_palette() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": "#fedcba",
+            "cursor_style": "bar",
+            "cursor_blink": true,
+            "palette": {"2": "#0a0b0c"},
+        }));
+        let first = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+        let PipeIoEvent::Output(first_bytes) = first else {
+            panic!("initial colors-changed did not forward output");
+        };
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "palette": {},
+        }));
+        let PipeIoEvent::Output(second_bytes) =
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("sparse colors-changed did not forward output");
+        };
+
+        let mut terminal = Terminal::new(80, 24, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&first_bytes);
+        assert_eq!(terminal.effective_cursor_visual().unwrap(), (CursorShape::Bar, true));
+        terminal.vt_write(&second_bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0xab, g: 0xcd, b: 0xef }),
+                Some(Rgb { r: 0x10, g: 0x20, b: 0x30 }),
+                Some(Rgb { r: 0xfe, g: 0xdc, b: 0xba }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[2], None);
+        assert!(
+            !second_bytes.windows(b"\x1b[0 q".len()).any(|window| window == b"\x1b[0 q"),
+            "palette-only update must preserve the current cursor visual"
+        );
+    }
+
+    #[test]
+    fn pipe_io_palette_replacement_resets_only_removed_entries() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": null,
+            "palette": {"2": "#0a0b0c"},
+        }));
+        let _ = receiver.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        session.handle_line(json!({
+            "event": "colors-changed",
+            "surface": 7,
+            "fg": "#abcdef",
+            "bg": "#102030",
+            "cursor": null,
+            "palette": {"3": "#0d0e0f"},
+        }));
+        let PipeIoEvent::Output(bytes) = receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("palette replacement did not forward output");
+        };
+
+        assert!(
+            bytes
+                .windows(b"\x1b]104;2\x1b\\".len())
+                .any(|window| { window == b"\x1b]104;2\x1b\\" })
+        );
+        assert!(
+            !bytes.windows(b"\x1b]104\x1b\\".len()).any(|window| { window == b"\x1b]104\x1b\\" })
+        );
+        assert!(
+            bytes
+                .windows(b"\x1b]4;3;rgb:0d/0e/0f\x1b\\".len())
+                .any(|window| { window == b"\x1b]4;3;rgb:0d/0e/0f\x1b\\" })
+        );
+    }
+
+    #[test]
+    fn pipe_io_resized_replay_restores_the_coupled_color_state() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(4);
+        let (lifecycle_sender, _lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let _token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.handle_line(json!({
+            "event": "resized",
+            "surface": 7,
+            "cols": 100,
+            "rows": 30,
+            "replay": base64::engine::general_purpose::STANDARD.encode(b"resized"),
+            "colors": {
+                "fg": "#203040",
+                "bg": "#506070",
+                "cursor": "#8090a0",
+                "cursor_style": "block",
+                "cursor_blink": false,
+                "palette": {"3": "#0d0e0f"},
+            },
+        }));
+
+        let PipeIoEvent::Replay { bytes, .. } =
+            receiver.recv_timeout(Duration::from_secs(1)).unwrap()
+        else {
+            panic!("resized did not forward a replay event");
+        };
+        let mut terminal = Terminal::new(100, 30, 100, Callbacks::default()).unwrap();
+        terminal.vt_write(&bytes);
+        assert_eq!(
+            terminal.effective_colors(),
+            (
+                Some(Rgb { r: 0x20, g: 0x30, b: 0x40 }),
+                Some(Rgb { r: 0x50, g: 0x60, b: 0x70 }),
+                Some(Rgb { r: 0x80, g: 0x90, b: 0xa0 }),
+            )
+        );
+        assert_eq!(terminal.color_overrides().palette[3], Some(Rgb { r: 0x0d, g: 0x0e, b: 0x0f }));
+    }
+
+    #[test]
+    fn pipe_io_budget_keeps_same_length_oversized_replay_reserved() {
+        let budget = PipeIoByteBudget::new(16);
+        let mut first = PipeIoEvent::replay(vec![b'A'; 16]);
+        let mut second = PipeIoEvent::replay(vec![b'B'; 16]);
+        let mut third = PipeIoEvent::replay(vec![b'C'; 16]);
+
+        assert!(budget.try_reserve_event(&mut first));
+        assert!(budget.try_reserve_event(&mut second));
+        budget.release_event(&first);
+        assert!(!budget.try_reserve_event(&mut third));
+        budget.release_event(&second);
+        assert!(budget.try_reserve_event(&mut third));
+        budget.release_event(&third);
+    }
+
+    #[test]
+    fn pipe_io_budget_allows_live_output_alongside_oversized_replay() {
+        let budget = PipeIoByteBudget::new(8);
+        let mut replay = PipeIoEvent::replay(vec![b'R'; 16]);
+        let mut output = PipeIoEvent::Output(vec![b'O'; 8]);
+        let mut overflow = PipeIoEvent::Output(vec![b'X']);
+
+        assert!(budget.try_reserve_event(&mut replay));
+        assert!(budget.try_reserve_event(&mut output));
+        assert!(!budget.try_reserve_event(&mut overflow));
+
+        budget.release_event(&replay);
+        budget.release_event(&output);
+    }
+
+    #[test]
+    fn surface_exit_signal_survives_byte_sender_shutdown() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (sender, receiver) = crossbeam_channel::bounded(1);
+        let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let token = session.install_pipe_io_tap(
+            7,
+            sender,
+            lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        assert!(session.signal_pipe_io_event(Some(7), Some(&token), PipeIoEvent::SurfaceExited));
+        drop(token);
+        assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::SurfaceExited);
+        assert!(receiver.try_recv().is_err());
+        assert!(session.pipe_io_tap.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn pipe_io_forward_does_not_build_payload_without_matching_tap() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let built = Arc::new(AtomicBool::new(false));
+        let built_by_event = built.clone();
+
+        assert!(!session.pipe_io_forward(7, || {
+            built_by_event.store(true, Ordering::Release);
+            PipeIoEvent::Output(vec![0; 1024])
+        }));
+        assert!(!built.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn stale_pipe_io_tap_cleanup_cannot_remove_a_replacement() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let (first_sender, _first_receiver) = crossbeam_channel::bounded(1);
+        let (first_lifecycle_sender, _first_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let first_token = session.install_pipe_io_tap(
+            7,
+            first_sender,
+            first_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        let (second_sender, second_receiver) = crossbeam_channel::bounded(1);
+        let (second_lifecycle_sender, _second_lifecycle_receiver) = crossbeam_channel::bounded(1);
+        let second_token = session.install_pipe_io_tap(
+            7,
+            second_sender,
+            second_lifecycle_sender,
+            Arc::new(PipeIoByteBudget::new(1024)),
+        );
+
+        session.clear_pipe_io_tap(&first_token);
+        session.pipe_io_forward(7, || PipeIoEvent::Output(b"replacement".to_vec()));
+
+        assert!(Arc::ptr_eq(
+            &session.pipe_io_tap.lock().unwrap().as_ref().unwrap().token,
+            &second_token
+        ));
+        assert_eq!(
+            second_receiver.try_recv().unwrap(),
+            PipeIoEvent::Output(b"replacement".to_vec())
+        );
     }
 
     #[test]
@@ -6576,6 +9005,32 @@ mod tests {
             Some(Duration::from_millis(7))
         );
         assert_eq!(deadline.next_wait(started + maximum, 3, 3), None);
+    }
+
+    #[test]
+    fn request_deadline_modes_anchor_all_phase_budgets_at_request_start() {
+        let started = Instant::now();
+        let standard = RequestDeadline::Standard.resolve_at(started).unwrap();
+        assert_eq!(
+            standard.write_deadline(),
+            started + REMOTE_REQUEST_TIMEOUT,
+            "standard admission and write budget moved after request construction"
+        );
+        assert_eq!(standard.response_deadline(), started + REMOTE_REQUEST_TIMEOUT);
+
+        let fixed_timeout = Duration::from_millis(123);
+        let fixed = RequestDeadline::Fixed(fixed_timeout).resolve_at(started).unwrap();
+        assert_eq!(fixed.write_deadline(), started + fixed_timeout);
+        assert_eq!(fixed.response_deadline(), started + fixed_timeout);
+
+        let attach = RequestDeadline::Attach.resolve_at(started).unwrap();
+        assert_eq!(attach.write_deadline(), started + remote_write_timeout());
+        assert_eq!(attach.response_deadline(), started + REMOTE_ATTACH_MAX_TIMEOUT);
+
+        let shared_deadline = started + Duration::from_secs(1);
+        let shared = RequestDeadline::Until(shared_deadline).resolve_at(started).unwrap();
+        assert_eq!(shared.write_deadline(), shared_deadline);
+        assert_eq!(shared.response_deadline(), shared_deadline);
     }
 
     #[test]
@@ -6866,7 +9321,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert!(
             started.elapsed() < REMOTE_ATTACH_IDLE_TIMEOUT * 3,
@@ -6888,12 +9343,109 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert!(!session.has_surface(7));
         assert!(session.pending.lock().unwrap().is_empty());
         assert!(session.shutdown.load(Ordering::Acquire));
         assert!(closed.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn bounded_tree_refresh_times_out_and_clears_pending_probe() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let started = Instant::now();
+        let error = match session.refresh_tree_with_timeout(Duration::from_millis(5)) {
+            Err(error) => error,
+            Ok(_) => panic!("a silent probe unexpectedly completed"),
+        };
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Ambiguous)
+        ));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "5ms probe deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bounded_tree_refresh_does_not_wait_for_another_refresh_lock() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let _refresh = session.tree_refresh.lock();
+        let started = Instant::now();
+        let error = match session.refresh_tree_with_timeout(Duration::from_millis(5)) {
+            Err(error) => error,
+            Ok(_) => panic!("a contended refresh lock unexpectedly completed"),
+        };
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "5ms lock deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn standard_tree_refresh_does_not_wait_indefinitely_for_another_refresh_lock() {
+        let session = test_session(Box::new(CloseTrackingWriter {
+            closed: Arc::new(AtomicBool::new(false)),
+        }));
+        let _refresh = session.tree_refresh.lock();
+        let started = Instant::now();
+        let error = match session.refresh_tree() {
+            Err(error) => error,
+            Ok(_) => panic!("a contended refresh lock unexpectedly completed"),
+        };
+
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < REMOTE_REQUEST_TIMEOUT + Duration::from_millis(100),
+            "refresh lock deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bounded_tree_refresh_aborts_a_blocked_ordered_write() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        let started = Instant::now();
+        let error = match session.refresh_tree_with_timeout(Duration::from_millis(5)) {
+            Err(error) => error,
+            Ok(_) => panic!("a blocked probe write unexpectedly completed"),
+        };
+
+        assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == io::ErrorKind::TimedOut)
+        }));
+        assert!(
+            started.elapsed() < Duration::from_millis(100),
+            "5ms write deadline was exceeded by {:?}",
+            started.elapsed()
+        );
+        assert!(control.state.0.lock().unwrap().aborted);
+        assert!(session.pending.lock().unwrap().is_empty());
     }
 
     #[cfg(unix)]
@@ -6953,7 +9505,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
+                Some(RemoteRequestError::RemoteShutdown)
             ),
             "expected shutdown after EOF canceled the request, got {error:?}"
         );
@@ -7023,7 +9575,7 @@ mod tests {
         assert!(
             matches!(
                 error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
+                Some(RemoteRequestError::RemoteShutdown)
             ),
             "expected shutdown after malformed JSON canceled the request, got {error:?}"
         );
@@ -7099,7 +9651,7 @@ mod tests {
             "expected shutdown after the ordered write completed, got {error:?}"
         );
         release.join().unwrap();
-        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock();
         assert!(writer_state.last_written_sequence >= sequence);
         drop(writer_state);
         assert!(!output.lock().unwrap().is_empty());
@@ -7133,7 +9685,7 @@ mod tests {
         resume_wait_tx.send(()).unwrap();
         finished_rx.recv_timeout(remote_write_timeout() * 2).unwrap();
         shutdown.join().unwrap();
-        let writer_state = session.interactive_writer.shared.state.lock().unwrap();
+        let writer_state = session.interactive_writer.shared.state.lock();
         assert!(writer_state.last_written_sequence >= sequence);
         drop(writer_state);
         assert!(!output.lock().unwrap().is_empty());
@@ -7155,7 +9707,7 @@ mod tests {
         assert!(started.elapsed() < remote_write_timeout() * 5);
         let deadline = Instant::now() + remote_write_timeout();
         loop {
-            let state = session.interactive_writer.shared.state.lock().unwrap();
+            let state = session.interactive_writer.shared.state.lock();
             if state.writer_closed {
                 assert!(state.writes.is_empty());
                 assert_eq!(state.queued_bytes, 0);
@@ -7209,7 +9761,7 @@ mod tests {
         let state = control.state.0.lock().unwrap();
         assert!(state.aborted);
         drop(state);
-        let state = session.interactive_writer.shared.state.lock().unwrap();
+        let state = session.interactive_writer.shared.state.lock();
         assert!(state.writer_closed);
         assert!(matches!(
             state.failure,
@@ -7252,7 +9804,7 @@ mod tests {
         for waiter in waiters {
             waiter.join().unwrap();
         }
-        let state = session.interactive_writer.shared.state.lock().unwrap();
+        let state = session.interactive_writer.shared.state.lock();
         assert!(state.writes.is_empty());
         assert_eq!(state.queued_bytes, 0);
         assert!(state.writer_closed);
@@ -7283,6 +9835,68 @@ mod tests {
         assert!(finished_rx.recv_timeout(Duration::from_millis(100)).unwrap().is_ok());
         sender.join().unwrap();
         assert_eq!(Arc::strong_count(&session), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn geometry_claim_waits_for_daemon_acknowledgement() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let (finished_tx, finished_rx) = channel();
+        let sender_session = session.clone();
+        let sender = std::thread::spawn(move || {
+            finished_tx.send(sender_session.claim_terminal_geometry(9)).unwrap();
+        });
+
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(command["cmd"], "set-client-sizing");
+        assert_eq!(command["surface"], 9);
+        assert_eq!(command["enabled"], true);
+        assert_eq!(command["exclusive"], true);
+        assert!(command.get("no_reply").is_none());
+        assert!(finished_rx.try_recv().is_err());
+
+        session.handle_line(json!({"id": command["id"], "ok": true, "data": null}));
+        assert!(finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().is_ok());
+        sender.join().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn geometry_claim_rejection_after_surface_exit_is_terminal_ended() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let session = socket_test_session(client);
+        let (finished_tx, finished_rx) = channel();
+        let sender_session = session.clone();
+        let sender = std::thread::spawn(move || {
+            finished_tx.send(sender_session.claim_terminal_geometry(7)).unwrap();
+        });
+
+        let mut peer = BufReader::new(server);
+        let mut line = String::new();
+        peer.read_line(&mut line).unwrap();
+        let command: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(command["cmd"], "set-client-sizing");
+
+        // This is the attach/claim race: the daemon reports the terminal exit
+        // while the claim request is still waiting for its rejection.
+        session.handle_line(json!({"event": "surface-exited", "surface": 7}));
+        assert!(session.surface_is_exited(7));
+        session.handle_line(json!({
+            "id": command["id"],
+            "ok": false,
+            "error": "unknown surface 7",
+        }));
+
+        let error = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap_err();
+        assert_eq!(
+            crate::pipe_io::classify_claim_failure(&session, 7, &error),
+            crate::pipe_io::PipeIoExitReason::TerminalEnded
+        );
+        sender.join().unwrap();
     }
 
     #[cfg(unix)]
@@ -7372,6 +9986,346 @@ mod tests {
         assert_eq!(metrics.backpressure_rejections, 1);
         control.release();
         overflow.join().unwrap();
+    }
+
+    #[test]
+    fn bounded_request_rejects_a_contended_writer_queue_without_waiting() {
+        let session = test_session(Box::new(SilentWriter));
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let request_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let deadline = Instant::now() + Duration::from_millis(20);
+        let request = std::thread::spawn(move || {
+            finished_tx
+                .send(request_session.request_with_deadline(
+                    json!({"cmd": "bounded-probe"}),
+                    RequestDeadline::Until(deadline),
+                ))
+                .unwrap();
+        });
+
+        let result_while_contended = finished_rx.recv_timeout(Duration::from_millis(50));
+        drop(queue_guard);
+        request.join().unwrap();
+        let result = result_while_contended
+            .expect("deadline-bounded request waited for the interactive queue mutex");
+        assert!(result.is_err(), "contended request unexpectedly received a response");
+        let error = result.unwrap_err();
+        assert!(error.downcast_ref::<RemoteRequestError>().is_some_and(|error| {
+            matches!(error, RemoteRequestError::Transport(io_error)
+                if io_error.kind() == io::ErrorKind::WouldBlock)
+        }));
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bounded_ordered_wait_does_not_block_on_contended_state_mutex() {
+        let session = test_session(Box::new(SilentWriter));
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let (wait_started_rx, resume_wait_tx) =
+            session.interactive_writer.gate_next_wait_until_written();
+        let waiting_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let deadline = Instant::now() + Duration::from_millis(50);
+        let waiter = std::thread::spawn(move || {
+            finished_tx
+                .send(waiting_session.interactive_writer.wait_until_written_until(1, deadline))
+                .unwrap();
+        });
+
+        wait_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        resume_wait_tx.send(()).unwrap();
+        let result = finished_rx.recv_timeout(Duration::from_millis(200));
+        drop(queue_guard);
+        waiter.join().unwrap();
+
+        let error = result
+            .expect("deadline-bounded ordered wait blocked on the state mutex")
+            .expect_err("an unwritten sequence unexpectedly completed");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn timed_out_control_request_is_not_sent_after_queue_release() {
+        let (stream, control) = BlockingWriteStream::new();
+        let output = stream.output.clone();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"first").unwrap();
+        control.wait_until_entered();
+
+        // Pause immediately after enqueue so the request's write deadline
+        // expires while its sequence is still queued behind the blocked input.
+        let (enqueue_started_rx, resume_enqueue_tx) =
+            session.interactive_writer.gate_next_enqueue_until();
+        let request_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let timeout = Duration::from_millis(50);
+        let request = std::thread::spawn(move || {
+            finished_tx
+                .send(request_session.request_with_deadline(
+                    json!({"cmd": "stale-control"}),
+                    RequestDeadline::Fixed(timeout),
+                ))
+                .unwrap();
+        });
+
+        enqueue_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        std::thread::sleep(timeout + Duration::from_millis(20));
+        resume_enqueue_tx.send(()).unwrap();
+
+        let result = finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        assert!(matches!(
+            result.as_ref().err().and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+            Some(RemoteRequestError::Timeout)
+        ));
+        request.join().unwrap();
+
+        // Release only the already accepted input. The test writer re-blocks
+        // before a second send, which makes a stale queued control observable
+        // without racing the first write's completion.
+        control.release_one();
+        control.wait_until_completed(1);
+        control.release();
+        let settle_deadline = Instant::now() + Duration::from_millis(200);
+        while control.completed_writes() < 2 && Instant::now() < settle_deadline {
+            std::thread::yield_now();
+        }
+        assert_eq!(
+            control.completed_writes(),
+            1,
+            "timed-out control request was sent after the queue was released"
+        );
+        let output = String::from_utf8(output.lock().unwrap().clone()).unwrap();
+        assert!(output.contains("\"bytes\":\"Zmlyc3Q=\""));
+        assert!(!output.contains("stale-control"));
+        drop(session);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn expired_probe_does_not_start_a_socket_connector() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("probe.sock");
+        let listener = UnixListener::bind(&path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let error = match RemoteSession::connect_for_terminal_attach_until(
+            &path,
+            Instant::now() - Duration::from_millis(1),
+        ) {
+            Ok(_) => panic!("an expired probe unexpectedly connected"),
+            Err(error) => error,
+        };
+        assert!(matches!(
+            error.downcast_ref::<RemoteRequestError>(),
+            Some(RemoteRequestError::Timeout)
+        ));
+
+        let settle_deadline = Instant::now() + Duration::from_millis(100);
+        loop {
+            match listener.accept() {
+                Ok(_) => panic!("expired probe started a connector after returning"),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= settle_deadline {
+                        break;
+                    }
+                    std::thread::yield_now();
+                }
+                Err(error) => panic!("probe listener failed: {error}"),
+            }
+        }
+    }
+
+    #[test]
+    fn fixed_request_deadline_caps_queue_write_and_response_wait() {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        // Hold admission long enough to consume part of the request budget,
+        // then hold the ordered writer for another phase. The writer never
+        // sends a response, so a request that recreates a relative timeout
+        // for each phase runs well past its fixed budget.
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let timeout = Duration::from_millis(180);
+        let request_session = session.clone();
+        let (started_tx, started_rx) = channel();
+        let (finished_tx, finished_rx) = channel();
+        let request = std::thread::spawn(move || {
+            let started = Instant::now();
+            started_tx.send(started).unwrap();
+            let result = request_session.request_with_deadline(
+                json!({"cmd": "fixed-deadline-probe"}),
+                RequestDeadline::Fixed(timeout),
+            );
+            finished_tx.send((started.elapsed(), result)).unwrap();
+        });
+
+        let started = started_rx.recv().unwrap();
+        let pending_deadline = Instant::now() + Duration::from_secs(1);
+        while session.pending.lock().unwrap().is_empty() {
+            assert!(Instant::now() < pending_deadline, "request did not reach pending state");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(Duration::from_millis(60));
+        drop(queue_guard);
+        std::thread::sleep(Duration::from_millis(60));
+        control.release();
+
+        let (elapsed, result) = finished_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("fixed-deadline request did not finish");
+        request.join().unwrap();
+        assert!(matches!(
+            result.as_ref().err().and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+            Some(RemoteRequestError::Ambiguous)
+        ));
+        assert!(
+            elapsed < timeout + Duration::from_millis(70),
+            "fixed request deadline was reset between phases: started at {started:?}, elapsed {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn sent_request_timeout_reconciles_transport_before_returning() {
+        struct RecordingAbort(AtomicBool);
+
+        impl RemoteTransportAbort for RecordingAbort {
+            fn abort(&self) -> io::Result<()> {
+                self.0.store(true, Ordering::Release);
+                Ok(())
+            }
+        }
+
+        let abort = Arc::new(RecordingAbort(AtomicBool::new(false)));
+        let session = test_session_with_abort_and_context(
+            Box::new(SilentWriter),
+            abort.clone(),
+            HashSet::new(),
+            None,
+        );
+        let result = session.request_with_deadline(
+            json!({"cmd": "sent-timeout"}),
+            RequestDeadline::Fixed(Duration::from_millis(20)),
+        );
+
+        assert!(matches!(
+            result.as_ref().err().and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+            Some(RemoteRequestError::Ambiguous)
+        ));
+        assert!(
+            abort.0.load(Ordering::Acquire),
+            "a request that was already written did not reconcile the transport"
+        );
+    }
+
+    fn blocked_request_write_timeout(
+        deadline: RequestDeadline,
+        command: Value,
+        contention: Duration,
+    ) -> (Duration, anyhow::Result<Value>) {
+        let (stream, control) = BlockingWriteStream::new();
+        let session = blocking_test_session(stream);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let request_session = session.clone();
+        let (started_tx, started_rx) = channel();
+        let (finished_tx, finished_rx) = channel();
+        let request = std::thread::spawn(move || {
+            let started = Instant::now();
+            started_tx.send(started).unwrap();
+            let result = request_session.request_with_deadline(command, deadline);
+            finished_tx.send((started.elapsed(), result)).unwrap();
+        });
+
+        let started = started_rx.recv().unwrap();
+        let pending_deadline = Instant::now() + Duration::from_secs(1);
+        while session.pending.lock().unwrap().is_empty() {
+            assert!(Instant::now() < pending_deadline, "request did not reach pending state");
+            std::thread::yield_now();
+        }
+        std::thread::sleep(contention);
+        drop(queue_guard);
+
+        let result = finished_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("blocked request did not finish");
+        request.join().unwrap();
+        // The timeout path aborts the writer, releasing the test stream even
+        // though this helper deliberately never releases it itself.
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "blocked request helper exceeded its cleanup bound"
+        );
+        result
+    }
+
+    #[test]
+    fn request_deadline_modes_cap_ordered_write_after_queue_contention() {
+        let contention = Duration::from_millis(70);
+        let timeout = remote_write_timeout();
+        let cases = [
+            ("standard", RequestDeadline::Standard, json!({"cmd": "standard-deadline"})),
+            ("attach", RequestDeadline::Attach, json!({"cmd": "attach-surface", "surface": 7})),
+            ("fixed", RequestDeadline::Fixed(timeout), json!({"cmd": "fixed-deadline"})),
+        ];
+
+        for (name, deadline, command) in cases {
+            let (elapsed, result) = blocked_request_write_timeout(deadline, command, contention);
+            assert!(matches!(
+                result
+                    .as_ref()
+                    .err()
+                    .and_then(|error| error.downcast_ref::<RemoteRequestError>()),
+                Some(RemoteRequestError::Transport(error))
+                    if error.kind() == io::ErrorKind::TimedOut
+            ));
+            assert!(
+                elapsed < timeout + Duration::from_millis(45),
+                "{name} request reset its ordered-write deadline after queue contention: {elapsed:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn bounded_admission_rejects_an_expired_deadline_after_lock_acquisition() {
+        let session = test_session(Box::new(SilentWriter));
+        let deadline = Instant::now() - Duration::from_millis(1);
+        let error = session
+            .interactive_writer
+            .enqueue_until(json!({"cmd": "expired-probe"}).to_string(), false, deadline)
+            .expect_err("expired admission unexpectedly entered the writer queue");
+
+        assert_eq!(error.kind(), io::ErrorKind::WouldBlock);
+        assert_eq!(session.interactive_writer.last_enqueued_sequence().unwrap(), None);
+    }
+
+    #[test]
+    fn normal_input_waits_through_brief_writer_queue_contention() {
+        let session = test_session(Box::new(SilentWriter));
+        let queue_guard = session.interactive_writer.shared.state.lock();
+        let input_session = session.clone();
+        let (finished_tx, finished_rx) = channel();
+        let input = std::thread::spawn(move || {
+            finished_tx.send(input_session.send_bytes(7, b"input")).unwrap();
+        });
+
+        let early_result = finished_rx.recv_timeout(Duration::from_millis(50));
+        let stayed_blocked = early_result.is_err();
+        drop(queue_guard);
+        let result = match early_result {
+            Ok(result) => result,
+            Err(_) => finished_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("normal input did not resume after queue contention"),
+        };
+        input.join().unwrap();
+
+        assert!(stayed_blocked, "normal input was rejected during brief queue contention");
+        assert!(result.is_ok(), "normal input failed after queue contention: {result:?}");
     }
 
     #[test]
@@ -8672,7 +11626,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert_eq!(*session.cell_pixels.lock().unwrap(), (9, 18));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (9, 18));
@@ -8689,7 +11643,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert_eq!(
             *session.cell_pixels.lock().unwrap(),
@@ -8716,7 +11670,7 @@ mod tests {
 
         assert!(matches!(
             error.downcast_ref::<RemoteRequestError>(),
-            Some(RemoteRequestError::Timeout)
+            Some(RemoteRequestError::Ambiguous)
         ));
         assert_eq!(*session.cell_pixels.lock().unwrap(), (10, 20));
         assert_eq!(*surface.cell_pixels.lock().unwrap(), (11, 22));
