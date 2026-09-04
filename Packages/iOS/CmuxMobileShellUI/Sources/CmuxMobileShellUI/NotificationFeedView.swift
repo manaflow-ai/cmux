@@ -153,12 +153,27 @@ private struct NotificationFeedList: View {
             } else {
                 ForEach(sections) { section in
                     Section {
-                        ForEach(section.items) { model in
-                            NotificationFeedRow(model: model, actions: actions)
-                                .equatable()
-                                .disabled(hasStaleSourceSections)
-                                .allowsHitTesting(!hasStaleSourceSections)
+                        ForEach(notificationGroups(section.items)) { group in
+                            if group.items.count == 1, let model = group.items.first {
+                                NotificationFeedRow(model: model, actions: actions)
+                            } else {
+                                DisclosureGroup {
+                                    ForEach(group.items) { model in
+                                        NotificationFeedRow(model: model, actions: actions)
+                                    }
+                                } label: {
+                                    NotificationFeedRow(model: group.items[0], actions: actions)
+                                        .overlay(alignment: .topTrailing) {
+                                            Text("\(group.items.count) " + L10n.string("mobile.notificationFeed.updates", defaultValue: "updates"))
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(.secondary)
+                                                .padding(.top, 4)
+                                        }
+                                }
+                            }
                         }
+                        .disabled(hasStaleSourceSections)
+                        .allowsHitTesting(!hasStaleSourceSections)
                     } header: {
                         NotificationFeedDayHeader(section: section)
                     }
@@ -184,6 +199,28 @@ private struct NotificationFeedList: View {
             status: status
         )
     }
+
+    private func notificationGroups(_ items: [NotificationFeedRowModel]) -> [NotificationFeedGroup] {
+        var groups: [NotificationFeedGroup] = []
+        for item in items {
+            if let last = groups.last,
+               last.items[0].item.macDeviceID == item.item.macDeviceID,
+               last.items[0].item.macInstanceTag == item.item.macInstanceTag,
+               last.items[0].item.remoteWorkspaceID == item.item.remoteWorkspaceID,
+               last.items[0].item.remoteSurfaceID == item.item.remoteSurfaceID,
+               last.items[0].item.createdAt.timeIntervalSince(item.item.createdAt) <= 2 * 60 * 60 {
+                groups[groups.count - 1].items.append(item)
+            } else {
+                groups.append(NotificationFeedGroup(items: [item]))
+            }
+        }
+        return groups
+    }
+}
+
+private struct NotificationFeedGroup: Identifiable {
+    var items: [NotificationFeedRowModel]
+    var id: MobileNotificationFeedItemID { items[0].id }
 }
 
 private struct NotificationFeedDayHeader: View {
