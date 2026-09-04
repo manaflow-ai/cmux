@@ -1,4 +1,25 @@
+require "json"
+
 default_platform(:ios)
+
+# Fastlane reuses the same named simulator across language runs. The app's
+# snapshot harness writes launch-time locale and preview state into simulator
+# preferences, so a later locale can inherit a poisoned process/data state and
+# never reach the first screenshot. Erase only the simulator instances that
+# this lane selected before each language, keeping each locale independent.
+def reset_screenshot_simulators(device_names)
+  data = JSON.parse(
+    sh("xcrun", "simctl", "list", "devices", "available", "-j", log: false)
+  )
+  udids = data.fetch("devices", {}).values.flatten.filter_map do |device|
+    device["udid"] if device["isAvailable"] != false && device_names.include?(device["name"])
+  end.uniq
+  udids.each do |udid|
+    sh("xcrun", "simctl", "shutdown", udid, log: false)
+    sh("xcrun", "simctl", "erase", udid, log: false)
+  end
+  UI.message("Reset #{udids.length} screenshot simulator(s) for a clean locale run")
+end
 
 # cmux iOS fastlane lanes. Scope is App Store screenshots for now; build/upload
 # of the binary lives in ios/scripts/upload-testflight.sh (--lane appstore).
@@ -19,20 +40,23 @@ platform :ios do
     languages = (ENV["SNAPSHOT_LANGUAGES"] ||
                  "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja")
                 .split(",").map(&:strip).reject(&:empty?)
-    capture_screenshots(
-      scheme: "cmux-ios",
-      # NOTE: do not pass `testplan:` here. With -testPlan, the UI test runs
-      # and passes but fastlane collects zero screenshots (verified on CI runs
-      # 33479247651 vs the green 32219546960); the known-good path is the plain
-      # scheme invocation, which requires every test target in the scheme's
-      # default plan to at least compile.
-      devices: devices,
-      languages: languages,
-      # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
-      override_status_bar: true,
-      # Capture in dark mode.
-      dark_mode: true
-    )
+    languages.each do |language|
+      reset_screenshot_simulators(devices)
+      capture_screenshots(
+        scheme: "cmux-ios",
+        # NOTE: do not pass `testplan:` here. With -testPlan, the UI test runs
+        # and passes but fastlane collects zero screenshots (verified on CI runs
+        # 33479247651 vs the green 32219546960); the known-good path is the plain
+        # scheme invocation, which requires every test target in the scheme's
+        # default plan to at least compile.
+        devices: devices,
+        languages: [language],
+        # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
+        override_status_bar: true,
+        # Capture in dark mode.
+        dark_mode: true
+      )
+    end
     UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
     frame unless ENV["SNAPSHOT_SKIP_FRAME"] == "1"
   end
