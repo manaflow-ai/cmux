@@ -2381,7 +2381,7 @@ mod tests {
         let remote = RemoteSession::connect_stream(Box::new(client)).unwrap();
         let (lifecycle_sender, lifecycle_receiver) = crossbeam_channel::bounded(1);
         let stderr_gate = Arc::new(StderrGate::default());
-        let input = b"{\"claim\":{\"geometry\":true}}\n{\"input\":\"aGk=\"}\n".to_vec();
+        let input = b"{\"claim\":{\"geometry\":true}}\n{\"claim\":{\"geometry\":true}}\n{\"input\":\"aGk=\"}\n".to_vec();
         let pump_remote = Arc::downgrade(&remote);
         let pump_stderr = stderr_gate.clone();
         let pump = std::thread::spawn(move || {
@@ -2389,15 +2389,14 @@ mod tests {
             run_stdin_pump(&mut input, &pump_remote, 9, &lifecycle_sender, pump_stderr);
         });
 
-        assert!(
-            input_before_ack_receiver
-                .recv_timeout(Duration::from_secs(1))
-                .expect("server did not inspect the input command")
-        );
+        let input_before_ack = input_before_ack_receiver
+            .recv_timeout(Duration::from_secs(1))
+            .expect("server did not inspect the input command");
         pump.join().unwrap();
         assert_eq!(lifecycle_receiver.recv().unwrap(), PipeIoEvent::StdinClosed);
         server_done_sender.send(()).unwrap();
         peer.join().unwrap();
+        assert!(input_before_ack, "stdin input waited for the geometry claim response");
     }
 
     #[test]
