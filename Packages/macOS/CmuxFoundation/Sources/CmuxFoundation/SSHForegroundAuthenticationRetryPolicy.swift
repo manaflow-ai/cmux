@@ -2118,6 +2118,20 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
             exit 0
           fi
+          # Once the shared deadline has elapsed, do not start another
+          # process-table scan for the graceful TERM phase. On a saturated
+          # runner that scan can receive a group HUP/TERM and abort before the
+          # force pass; the retained tree is already the bounded ownership
+          # snapshot needed for cleanup.
+          if [ "$cmux_ssh_auth_deadline_expired" = 1 ]; then
+            cmux_ssh_auth_debug "deadline expired after freeze; emergency pass"
+            if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
+            exit 0
+          fi
 
           # Signal leaves first. This preserves TERM handlers that restore the
           # terminal or launch a short-lived replacement process.
