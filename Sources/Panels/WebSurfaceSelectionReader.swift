@@ -6,7 +6,7 @@ import WebKit
 final class WebSurfaceSelectionReader {
     private let evaluationOwner = WebSurfaceSelectionEvaluationOwner()
 
-    private nonisolated struct Payload: Decodable {
+    private struct Payload: Decodable {
         let hasSelection: Bool
         let text: String
         let blocksFallback: Bool

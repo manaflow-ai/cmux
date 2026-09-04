@@ -111,10 +111,10 @@ public actor IrxControlPlaneClient {
 
     private static func makeDecoder() -> JSONDecoder {
         let decoder = JSONDecoder()
-        let iso = ISO8601DateFormatter()
-        let fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         decoder.dateDecodingStrategy = .custom { decoder in
+            let iso = ISO8601DateFormatter()
+            let fractional = ISO8601DateFormatter()
+            fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
             let raw = try decoder.singleValueContainer().decode(String.self)
             if let date = iso.date(from: raw) ?? fractional.date(from: raw) {
                 return date

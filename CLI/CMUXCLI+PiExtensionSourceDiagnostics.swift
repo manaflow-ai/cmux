@@ -16,7 +16,7 @@ const maximumPiFeedCommandTimeoutMilliseconds = 4_500;
 const piHookDiagnosticWriteDeadlineMilliseconds = 100;
 
 function piHookTimeoutMilliseconds(
-  rawValue: string | undefined = process.env.CMUX_PI_HOOK_TIMEOUT_MS,
+  rawValue: string | undefined = process.env.CMUX_PI_HOOK_TIMEOUT_MS
 ): number {
   const normalized = rawValue?.trim();
   if (!normalized || !/^\d+$/.test(normalized)) return defaultPiHookTimeoutMilliseconds;
@@ -27,7 +27,7 @@ function piHookTimeoutMilliseconds(
 
 function piCommandTimeoutMilliseconds(
   args: string[],
-  rawValue: string | undefined = process.env.CMUX_PI_HOOK_TIMEOUT_MS,
+  rawValue: string | undefined = process.env.CMUX_PI_HOOK_TIMEOUT_MS
 ): number {
   const configured = piHookTimeoutMilliseconds(rawValue);
   return args[0] === "hooks" && args[1] === "feed"
@@ -38,7 +38,7 @@ function piCommandTimeoutMilliseconds(
 function commandFailureReason(
   status: number | null,
   error: unknown,
-  terminationReason?: CommandTerminationReason,
+  terminationReason?: CommandTerminationReason
 ): CommandFailureReason | undefined {
   if (terminationReason) return terminationReason;
   if (status === 0) return undefined;
@@ -110,7 +110,7 @@ async function runPiHookDiagnosticWrite(operation: () => Promise<void>): Promise
 function piHookDiagnosticPath(
   environment: Record<string, string | undefined> = process.env,
   lastDebugLogPathFile = "/tmp/cmux-last-debug-log-path",
-  fallbackLogPath = "/tmp/cmux-debug.log",
+  fallbackLogPath = "/tmp/cmux-debug.log"
 ): string {
   const explicit = firstString(environment.CMUX_DEBUG_LOG);
   if (explicit) return expandedPiHookLogPath(explicit, environment.HOME);
@@ -129,7 +129,7 @@ function piHookDiagnosticPath(
     // bound the read so a special or oversized file cannot stall Pi.
     pointerDescriptor = fs.openSync(
       lastDebugLogPathFile,
-      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW,
+      fs.constants.O_RDONLY | fs.constants.O_NONBLOCK | fs.constants.O_NOFOLLOW
     );
     if (isOwnedRegularPiHookFile(fs.fstatSync(pointerDescriptor))) {
       const pointerContents = Buffer.alloc(4096);
@@ -138,7 +138,7 @@ function piHookDiagnosticPath(
         pointerContents,
         0,
         pointerContents.byteLength,
-        0,
+        0
       );
       const lastPath = firstString(pointerContents.subarray(0, bytesRead).toString("utf8"));
       if (lastPath) return expandedPiHookLogPath(lastPath, environment.HOME);
@@ -156,7 +156,7 @@ async function appendPiHookDiagnostic(
   payload: Record<string, unknown>,
   environment: Record<string, string | undefined> = process.env,
   lastDebugLogPathFile = "/tmp/cmux-last-debug-log-path",
-  fallbackLogPath = "/tmp/cmux-debug.log",
+  fallbackLogPath = "/tmp/cmux-debug.log"
 ): Promise<void> {
   let line: string;
   try {
@@ -184,7 +184,7 @@ async function appendPiHookDiagnostic(
     const handle = await fs.promises.open(
       piHookDiagnosticPath(environment, lastDebugLogPathFile, fallbackLogPath),
       flags,
-      0o600,
+      0o600
     );
     try {
       const metadata = await handle.stat();
@@ -205,7 +205,7 @@ async function appendPiHookDiagnostic(
 
 function commandFailureDetails(
   args: string[],
-  result: CommandResult,
+  result: CommandResult
 ): Record<string, unknown> {
   return {
     hook_name: piHookName(args),

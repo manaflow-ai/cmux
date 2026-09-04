@@ -116,7 +116,7 @@ function projectPiFeedValue(value: unknown, state: PiFeedProjectionState, depth 
             (value as Record<string, unknown>)[key],
             state,
             depth + 1,
-            preserveText,
+            preserveText
           );
         } catch (_) {
           out[projectedKey] = { kind: "unavailable" };
@@ -526,7 +526,7 @@ function settleTurn(sessionStates: Map<string, SessionState>, sessionId: string)
 async function warn(
   _ctx: PiExtensionContextSnapshot | null,
   message: string,
-  details: Record<string, unknown> = {},
+  details: Record<string, unknown> = {}
 ): Promise<void> {
   const payload = {
     source: "cmux-pi-extension",

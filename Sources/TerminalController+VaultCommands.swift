@@ -229,7 +229,7 @@ extension TerminalController {
 
     // MARK: Shared helpers
 
-    private nonisolated enum VaultEntryResolution {
+    private enum VaultEntryResolution {
         case success(SessionEntry)
         case failure(V2CallResult)
     }

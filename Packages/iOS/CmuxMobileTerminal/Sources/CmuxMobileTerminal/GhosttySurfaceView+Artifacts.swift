@@ -256,7 +256,7 @@ extension GhosttySurfaceView {
 }
 
 /// One surface's request for the bounded visible-terminal snapshot.
-nonisolated struct VisibleSnapshotRequest {
+struct VisibleSnapshotRequest {
     let view: GhosttySurfaceView
     let grid: String
     let font: Int
@@ -268,7 +268,7 @@ nonisolated struct VisibleSnapshotRequest {
 ///
 /// The C surface pointer is dereferenced only on `GhosttySurfaceWorkQueue`,
 /// which is the same FIFO queue that owns `process_output` and surface free.
-nonisolated struct VisibleSnapshotRead: @unchecked Sendable {
+struct VisibleSnapshotRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
     let grid: String
@@ -276,7 +276,7 @@ nonisolated struct VisibleSnapshotRead: @unchecked Sendable {
 }
 
 /// Raw visible-text read payload captured by the off-main output queue.
-nonisolated struct VisibleTextRead: @unchecked Sendable {
+struct VisibleTextRead: @unchecked Sendable {
     let surface: ghostty_surface_t
     let generation: UInt64
 }

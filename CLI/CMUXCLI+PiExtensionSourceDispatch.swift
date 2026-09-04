@@ -54,7 +54,7 @@ class PiCmuxCommandDispatcher {
     args: string[],
     cwd: string,
     input: string | undefined,
-    context: PiExtensionContextSnapshot,
+    context: PiExtensionContextSnapshot
   ): Promise<CommandResult> {
     const sessionId = context.sessionId;
     const previous = this.controlQueues.get(sessionId) || Promise.resolve();
@@ -359,7 +359,7 @@ class PiCmuxCommandDispatcher {
     cwd: string,
     input: string | undefined,
     context: PiExtensionContextSnapshot,
-    cancellation?: PiCommandCancellation,
+    cancellation?: PiCommandCancellation
   ): Promise<CommandResult> {
     const sessionId = context.sessionId;
     if (!this.canDispatch(sessionId)) {
@@ -390,7 +390,7 @@ class PiCmuxCommandDispatcher {
     args: string[],
     cwd: string,
     input?: string,
-    cancellation?: PiCommandCancellation,
+    cancellation?: PiCommandCancellation
   ): Promise<CommandResult> {
     return new Promise<CommandResult>((resolve) => {
       const startedAt = performance.now();

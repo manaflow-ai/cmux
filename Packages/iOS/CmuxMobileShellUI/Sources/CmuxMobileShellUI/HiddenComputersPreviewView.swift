@@ -23,7 +23,7 @@ struct HiddenComputersPreviewView: View {
                         visibleComputers: visibleComputers,
                         hiddenComputers: hiddenComputers,
                         hide: { computer in setVisible(false, id: computer.id) },
-                        unhide: { computer in setVisible(true, id: computer.id) },
+                        unhide: { computer in setVisible(true, id: computer.id) }
                     )
                 } footer: {
                     Text(L10n.string(
