@@ -1452,6 +1452,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Composition root for surfaces: this Mac's panes and every cloud machine's
         // cmux-tui session feed one catalog, and the sidebar, drag/drop, socket and CLI all
         // open through `SurfaceCatalog.project`.
+        // Inject the live workspace registry into the catalog-owned rename service before
+        // any restore or provider callbacks can reconcile a cloud binding.
+        let cloudRenameEnvironment = CloudWorkspaceRenameEnvironment(
+            workspace: { [weak self] workspaceID in
+                self?.workspaceFor(tabId: workspaceID)
+            },
+            tabManager: { [weak self] workspaceID in
+                self?.tabManagerFor(tabId: workspaceID)
+            },
+            workspaces: { [weak self] in
+                self?.surfaceCatalogWorkspaces() ?? []
+            }
+        )
+        SurfaceCatalog.shared.installCloudWorkspaceRenameService(
+            CloudWorkspaceRenameService(environment: cloudRenameEnvironment)
+        )
         SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
         SurfaceCatalog.shared.focusProjection = { projection in
             SurfacePaneFactory.focus(panelID: projection.panelID, in: projection.workspaceID)
