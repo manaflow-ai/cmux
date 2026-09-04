@@ -91,12 +91,27 @@ cmd_capture() {
     echo "--ref must be a branch (run resolution matches by branch name, not SHA)" >&2
     exit 1
   fi
-  echo "dispatching $WORKFLOW on $REPO ref=$ref languages=$languages"
-  gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$ref" -f languages="$languages"
-  sleep 10
-  local run_id
-  run_id="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$ref" \
-    --limit 1 --json databaseId --jq '.[0].databaseId')"
+  local request_id="cmux-shots-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  echo "dispatching $WORKFLOW on $REPO ref=$ref languages=$languages request=$request_id"
+  gh workflow run "$WORKFLOW" --repo "$REPO" --ref "$ref" \
+    -f languages="$languages" -f request_id="$request_id"
+  # `gh workflow run` returns before GitHub registers the run. Poll for the
+  # uniquely named run instead of sleeping and taking whichever branch run is
+  # newest, which can select another concurrent dispatch.
+  local run_id="" waited=0
+  while [ "$waited" -lt 60 ]; do
+    run_id="$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --branch "$ref" \
+      --event workflow_dispatch --limit 20 --json databaseId,displayTitle,createdAt \
+      | REQUEST_ID="$request_id" python3 -c '
+import json, os, sys
+runs = [r for r in json.load(sys.stdin)
+        if os.environ["REQUEST_ID"] in (r.get("displayTitle") or "")]
+print(max(runs, key=lambda r: r.get("createdAt", ""))["databaseId"] if runs else "")
+')"
+    [ -n "$run_id" ] && break
+    sleep 2
+    waited=$((waited + 2))
+  done
   [ -n "$run_id" ] || { echo "could not resolve dispatched run" >&2; exit 1; }
   echo "watching run $run_id (https://github.com/$REPO/actions/runs/$run_id)"
   gh run watch --repo "$REPO" "$run_id" --exit-status || {

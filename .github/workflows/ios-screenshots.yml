@@ -1,4 +1,5 @@
 name: iOS App Store screenshots
+run-name: iOS App Store screenshots (${{ inputs.request_id || github.run_id }})
 
 # Captures fastlane screenshots for the public App Store listing (com.cmux.app)
 # on the required device classes — 6.9" iPhone + 13" iPad — in every language
@@ -18,6 +19,11 @@ on:
         required: false
         type: string
         default: ""
+      request_id:
+        description: Correlation identifier for CLI-dispatched capture runs
+        required: false
+        type: string
+        default: ""
       languages:
         description: "Comma-separated App Store locale identifiers for localized app captures"
         required: false
@@ -32,6 +38,10 @@ on:
     inputs:
       ref:
         description: Branch or SHA to capture from
+        required: false
+        default: ""
+      request_id:
+        description: Correlation identifier for CLI-dispatched capture runs
         required: false
         default: ""
       languages:
