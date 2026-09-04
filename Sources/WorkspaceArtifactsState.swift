@@ -174,6 +174,10 @@ final class WorkspaceArtifactsState {
             return nil
         }
 
+        if retentionLimit != configuration.retentionLimit {
+            applyRetentionLimit(configuration.retentionLimit)
+        }
+
         let canonical = isFile ? trimmed : (identity.canonicalURL(trimmed) ?? trimmed)
         var metadata: [String: String] = [:]
         if let sourcePanelId { metadata[Self.sourcePanelMetadataKey] = sourcePanelId.uuidString }
