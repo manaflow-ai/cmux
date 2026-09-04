@@ -984,11 +984,11 @@ mod tests {
         let mut all_spec = spec(vec![SidebarResourceKind::Agents]);
         all_spec.scope = SidebarViewScope::All;
         // The selected workspace must not scope the sweep.
-        let rows =
+        let active_rows =
             rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
 
-        assert_eq!(rows.len(), 2, "active agents from every workspace appear");
-        let order: Vec<u64> = rows
+        assert_eq!(active_rows.len(), 2, "active agents from every workspace appear");
+        let order: Vec<u64> = active_rows
             .iter()
             .map(|row| match row.target {
                 ProjectionTarget::Surface { surface, .. } => surface,
@@ -996,10 +996,10 @@ mod tests {
             })
             .collect();
         assert_eq!(order, vec![11, 22], "unseen idle > working");
-        assert_eq!(rows[0].agent_state.as_deref(), Some("idle"));
-        assert_eq!(rows[1].agent_state.as_deref(), Some("working"));
+        assert_eq!(active_rows[0].agent_state.as_deref(), Some("idle"));
+        assert_eq!(active_rows[1].agent_state.as_deref(), Some("working"));
         assert_eq!(
-            rows[1].subtitle, "beta",
+            active_rows[1].subtitle, "beta",
             "a session-less agent names its workspace in an all sweep"
         );
 

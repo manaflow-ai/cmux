@@ -33,10 +33,9 @@ fn projection_empty_label(app: &App, spec: &crate::config::SidebarViewSpec) -> &
         SidebarResourceKind::Panes => messages.no_panes,
         SidebarResourceKind::Tabs => messages.no_tabs,
         SidebarResourceKind::Agents => {
-            let agents = app.session.agents();
             if spec.filter.is_active() {
                 messages.no_matching_agents
-            } else if agents.is_empty() {
+            } else if !app.has_agent_records() {
                 messages.no_agents
             } else {
                 messages.no_active_agents
@@ -134,7 +133,7 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
     let active_name_width = labels
         .iter()
         .find(|(index, _)| *index == active_index)
-        .map_or(1, |(_, name)| UnicodeWidthStr::width(name.as_str()).max(1).min(6));
+        .map_or(1, |(_, name)| UnicodeWidthStr::width(name.as_str()).clamp(1, 6));
     let mut tail_parts = Vec::new();
     if let Some(hidden) = hidden.as_deref() {
         tail_parts.push(hidden.to_string());
@@ -1008,10 +1007,11 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let focused = app.workspace_sidebar_focused();
     let actions = app.workspace_sidebar_action_rows();
     let actions_position = app.workspace_actions_position();
-    let body = app.files_body_rect(area);
+    let geometry = app.files_layout_geometry(area);
+    let body = geometry.body;
     let body_height = usize::from(body.height);
-    let top_action_rows = usize::from(body.y.saturating_sub(area.y + 1));
-    let bottom_action_rows = actions.len().saturating_sub(top_action_rows);
+    let top_action_rows = geometry.top_action_rows;
+    let bottom_action_rows = geometry.bottom_action_rows;
     app.sidebar_files.set_viewport_height(body_height);
     let border = base
         .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
@@ -1076,7 +1076,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     }
 
     let body_start = body.y;
-    let status_y = area.y.saturating_add(height.saturating_sub(1 + bottom_action_rows as u16));
+    let status_y = geometry.footer_y;
     let scroll_offset = app.sidebar_files.scroll_offset();
     let mut hits = Vec::new();
     // Files is the workspace host in the native profile layout. Its header
@@ -1149,8 +1149,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     }
 
     let mut input_cursor = None;
-    if height > 1 {
-        let footer_y = status_y;
+    if let Some(footer_y) = status_y {
         if let Some((shown, cursor_col)) = filter_input {
             let input_width = content_width.saturating_sub(1);
             buf.set_stringn(area.x, footer_y, "/", 1, dim);
@@ -1181,10 +1180,17 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             Hit::RailPad(RailKind::Workspace),
         ));
     }
-    for (row, action) in actions.iter().enumerate() {
+    let visible_action_rows = match actions_position {
+        crate::config::ActionsPosition::Top => top_action_rows,
+        crate::config::ActionsPosition::Bottom => bottom_action_rows,
+    };
+    for (row, action) in actions.iter().take(visible_action_rows).enumerate() {
         let y = match actions_position {
             crate::config::ActionsPosition::Top => area.y + 1 + row as u16,
-            crate::config::ActionsPosition::Bottom => status_y + 1 + row as u16,
+            crate::config::ActionsPosition::Bottom => {
+                let Some(status_y) = status_y else { continue };
+                status_y + 1 + row as u16
+            }
         };
         if y >= area.y.saturating_add(height) {
             continue;

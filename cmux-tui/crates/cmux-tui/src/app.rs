@@ -4531,6 +4531,14 @@ pub struct SidebarLayout {
     pub content: Rect,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct FilesLayoutGeometry {
+    pub body: Rect,
+    pub footer_y: Option<u16>,
+    pub top_action_rows: usize,
+    pub bottom_action_rows: usize,
+}
+
 impl SidebarLayout {
     pub fn total_width(&self) -> u16 {
         self.content.x
@@ -11202,6 +11210,12 @@ impl App {
             .unwrap_or(spec.sort)
     }
 
+    /// Whether the canonical session has any agent records. The renderer uses
+    /// this only to distinguish an empty queue from a history-only queue.
+    pub(crate) fn has_agent_records(&self) -> bool {
+        !self.session.agents().is_empty()
+    }
+
     pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
             return Arc::<[ProjectionRow]>::from(Vec::new());
@@ -11616,22 +11630,43 @@ impl App {
             .unwrap_or_default()
     }
 
+    /// Compute the Files host's header, body, footer, and action geometry.
+    /// The footer and action rows are clipped as a unit on short frames, so
+    /// they never overwrite the header or each other.
+    pub(crate) fn files_layout_geometry(&self, area: Rect) -> FilesLayoutGeometry {
+        let actions = self.workspace_sidebar_action_rows();
+        let footer_y = (area.height > 1).then(|| area.y.saturating_add(area.height - 1));
+        let content_rows =
+            usize::from(area.height.saturating_sub(if footer_y.is_some() { 2 } else { 1 }));
+        let (top_action_rows, bottom_action_rows) = match self.workspace_actions_position() {
+            crate::config::ActionsPosition::Top => (actions.len().min(content_rows), 0),
+            crate::config::ActionsPosition::Bottom => (0, actions.len().min(content_rows)),
+        };
+        let body_height = content_rows.saturating_sub(top_action_rows + bottom_action_rows);
+        let body_y = area
+            .y
+            .saturating_add(1)
+            .saturating_add(u16::try_from(top_action_rows).unwrap_or(u16::MAX));
+        let footer_y = footer_y
+            .map(|y| y.saturating_sub(u16::try_from(bottom_action_rows).unwrap_or(u16::MAX)));
+        FilesLayoutGeometry {
+            body: Rect {
+                x: area.x,
+                y: body_y,
+                width: area.width.saturating_sub(1),
+                height: u16::try_from(body_height).unwrap_or(u16::MAX),
+            },
+            footer_y,
+            top_action_rows,
+            bottom_action_rows,
+        }
+    }
+
     /// Body rectangle shared by Files rendering and wheel admission. The
     /// header, configured action rows, and footer are outside this rectangle
     /// and therefore never consume file viewport input.
     pub(crate) fn files_body_rect(&self, area: Rect) -> Rect {
-        let actions = self.workspace_sidebar_action_rows();
-        let top_action_rows =
-            matches!(self.workspace_actions_position(), crate::config::ActionsPosition::Top)
-                .then_some(actions.len())
-                .unwrap_or(0);
-        let body_height = area.height.saturating_sub(2 + actions.len() as u16);
-        Rect {
-            x: area.x,
-            y: area.y.saturating_add(1 + top_action_rows as u16),
-            width: area.width.saturating_sub(1),
-            height: body_height,
-        }
+        self.files_layout_geometry(area).body
     }
 
     /// Expand the configured workspace row label template. The default
@@ -25727,8 +25762,8 @@ impl App {
                         .views
                         .iter()
                         .filter(|view| {
-                            !hidden.contains(&view.id)
-                                && !(view.includes(SidebarResourceKind::Machines)
+                            !(hidden.contains(&view.id)
+                                || view.includes(SidebarResourceKind::Machines)
                                     && self.machine_ui.is_none())
                         })
                         .collect::<Vec<_>>();
@@ -26235,7 +26270,7 @@ impl App {
                 }
                 self.sidebar_files.set_viewport_height(usize::from(body.height));
                 let changed = self.sidebar_files.scroll_viewport(if down { 3 } else { -3 });
-                return Ok(changed.then_some(RenderAction::Draw).unwrap_or(RenderAction::None));
+                return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
             }
             let footer_rows = self.workspace_sidebar_action_rows().len();
             let footer_is_clipped = footer_rows > usize::from(area.height.saturating_sub(2));
@@ -27101,7 +27136,7 @@ mod tests {
         rebuild_pane_areas, record_surface_resize_dispatch_result, report_after_unwind,
         reset_pane_area_projection_work, run_status_command, send_bounded_cancelable,
         should_claim_clear_history_shortcut, sidebar_layout_for, sidebar_layout_for_state,
-        sidebar_plugin_status_settles_passive_claim, start_ordered_session,
+        sidebar_plugin_status_settles_passive_claim, sidebar_profile_token, start_ordered_session,
         swept_viewport_size_leases, thumb_geometry, with_panic_stdout_lock,
         workspace_creation_selection,
     };
@@ -30092,15 +30127,14 @@ mod tests {
         // file viewport rows. Wheel input on each boundary is consumed as a
         // no-op and cannot alter the independent Files offset.
         let offset = app.sidebar_files.scroll_offset();
-        let actions = app.workspace_sidebar_action_rows();
-        let (footer_y, action_y) = match app.workspace_actions_position() {
-            crate::config::ActionsPosition::Top => {
-                (area.y + area.height.saturating_sub(1), actions.first().map(|_| area.y + 1))
+        let geometry = app.files_layout_geometry(area);
+        let footer_y = geometry.footer_y.unwrap_or(area.y);
+        let action_y = match app.workspace_actions_position() {
+            crate::config::ActionsPosition::Top if geometry.top_action_rows > 0 => Some(area.y + 1),
+            crate::config::ActionsPosition::Bottom if geometry.bottom_action_rows > 0 => {
+                geometry.footer_y.map(|y| y + 1)
             }
-            crate::config::ActionsPosition::Bottom => (
-                area.y + area.height.saturating_sub(1 + actions.len() as u16),
-                actions.first().map(|_| area.y + area.height.saturating_sub(actions.len() as u16)),
-            ),
+            _ => None,
         };
         assert_eq!(
             app.handle_scroll(area.x, footer_y, true, KeyModifiers::NONE).unwrap(),
@@ -30119,6 +30153,9 @@ mod tests {
         app.sync_layout((100, 3));
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let tiny = app.workspace_sidebar_area(3).unwrap();
+        let tiny_geometry = app.files_layout_geometry(tiny);
+        assert!(tiny_geometry.body.height == 0);
+        assert!(tiny_geometry.footer_y.is_none_or(|footer| footer != tiny.y));
         let selected = app.sidebar_files.selected();
         let offset = app.sidebar_files.scroll_offset();
         assert_eq!(
