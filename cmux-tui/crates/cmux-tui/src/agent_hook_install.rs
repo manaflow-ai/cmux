@@ -2262,12 +2262,11 @@ mod tests {
     fn hermes_command_reaps_child_when_reaper_spawn_fails() {
         let root = tempfile::tempdir().unwrap();
         let pid_path = root.path().join("hermes.pid");
+        let continue_path = root.path().join("hermes.continue");
         let script = format!(
-            // `exec` keeps the long-running process at the shell's PID and
-            // avoids a second fork. Hosted macOS runners may deny that fork
-            // while still allowing the process under test to run.
-            "printf '%s' $$ > {}; exec /bin/sleep 30",
+            "printf '%s' $$ > {}; while [ ! -f {} ]; do sleep 0.01; done; sleep 30",
             shell_quote(pid_path.to_string_lossy().as_ref()),
+            shell_quote(continue_path.to_string_lossy().as_ref())
         );
 
         let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
@@ -2292,6 +2291,7 @@ mod tests {
             assert!(Instant::now() < startup_deadline, "Hermes child did not complete startup");
             std::thread::sleep(Duration::from_millis(5));
         };
+        fs::write(&continue_path, b"continue\n").unwrap();
         let error = result_receiver
             .recv_timeout(Duration::from_secs(4))
             .expect("Hermes timeout worker did not return")
