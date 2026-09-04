@@ -76,6 +76,15 @@ jobs:
         if: steps.scope.outputs.run == 'true'
         working-directory: web
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
           HEAD_SHA: ${{ github.sha }}
-        run: bun run lint:complexity -- --base "$BASE_SHA" --head "$HEAD_SHA"
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base_sha="$PR_BASE_SHA"
+          else
+            base_sha="$PUSH_BASE_SHA"
+          fi
+          bun run lint:complexity -- --base "$base_sha" --head "$HEAD_SHA"

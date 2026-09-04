@@ -107,29 +107,36 @@ function sourceFiles(repoRoot, explicitFiles) {
 }
 
 function baselineEntries(text) {
-  return new Set(
-    text
-      .split("\n")
-      .map((line) => line.trimEnd())
-      .filter((line) => line && !line.startsWith("#")),
-  );
+  const entries = new Map();
+  for (const line of text.split("\n").map((line) => line.trimEnd())) {
+    if (!line || line.startsWith("#")) continue;
+    entries.set(line, (entries.get(line) ?? 0) + 1);
+  }
+  return entries;
 }
 
 function readBaseline(repoRoot) {
   const file = path.join(repoRoot, BASELINE_FILE);
-  return existsSync(file) ? baselineEntries(readFileSync(file, "utf8")) : new Set();
+  return existsSync(file) ? baselineEntries(readFileSync(file, "utf8")) : new Map();
 }
 
 function baselineAt(repoRoot, revision) {
   const result = git(["show", `${revision}:${BASELINE_FILE}`], repoRoot, true);
-  return result.status === 0 ? baselineEntries(result.stdout) : new Set();
+  return result.status === 0
+    ? { exists: true, entries: baselineEntries(result.stdout) }
+    : { exists: false, entries: new Map() };
 }
 
 function assertBaselineOnlyShrinks(repoRoot, base, baseline) {
   if (!base) return;
   const previous = baselineAt(repoRoot, base);
-  if (previous.size === 0) return;
-  const additions = [...baseline].filter((entry) => !previous.has(entry)).sort();
+  if (!previous.exists) return;
+  const additions = [];
+  for (const [entry, count] of baseline) {
+    const previousCount = previous.entries.get(entry) ?? 0;
+    for (let index = previousCount; index < count; index += 1) additions.push(entry);
+  }
+  additions.sort();
   if (additions.length === 0) return;
   console.error("complexity gate: the baseline may only shrink; fix the finding instead of adding it:");
   for (const entry of additions) console.error(`  ${entry}`);
@@ -191,7 +198,9 @@ function runOxlint(repoRoot, files) {
 
 function diagnosticKey(diagnostic) {
   const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
-  return `${filename}\t${String(diagnostic.message ?? "")}`;
+  const spanLength = diagnostic.labels?.[0]?.span?.length;
+  const fingerprint = Number.isInteger(spanLength) ? spanLength : "unknown";
+  return `${filename}\t${fingerprint}\t${String(diagnostic.message ?? "")}`;
 }
 
 const { base, head, files: explicitFiles } = parseArgs();
@@ -214,13 +223,25 @@ if (unexpected.length > 0 || (status !== 0 && diagnostics.length === 0)) {
   process.exit(1);
 }
 
-const newFindings = diagnostics.filter((diagnostic) => !baseline.has(diagnosticKey(diagnostic)));
+const matchedCounts = new Map();
+const newFindings = [];
+for (const diagnostic of diagnostics) {
+  const key = diagnosticKey(diagnostic);
+  const matched = matchedCounts.get(key) ?? 0;
+  if (matched < (baseline.get(key) ?? 0)) matchedCounts.set(key, matched + 1);
+  else newFindings.push(diagnostic);
+}
 if (newFindings.length === 0) {
-  const currentKeys = new Set(diagnostics.map(diagnosticKey));
-  const stale = [...baseline].filter((entry) => !currentKeys.has(entry));
+  const currentCounts = new Map();
+  for (const diagnostic of diagnostics) {
+    const key = diagnosticKey(diagnostic);
+    currentCounts.set(key, (currentCounts.get(key) ?? 0) + 1);
+  }
+  let stale = 0;
+  for (const [entry, count] of baseline) stale += Math.max(0, count - (currentCounts.get(entry) ?? 0));
   console.log(
     `complexity gate: ${diagnostics.length} finding${diagnostics.length === 1 ? "" : "s"} matched the grandfathered baseline` +
-      (stale.length > 0 ? `; ${stale.length} stale entr${stale.length === 1 ? "y" : "ies"} can be removed` : ""),
+      (stale > 0 ? `; ${stale} stale entr${stale === 1 ? "y" : "ies"} can be removed` : ""),
   );
   process.exit(0);
 }
