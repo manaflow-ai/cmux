@@ -355,32 +355,22 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let directURL = privateAddress.map { Self.privateDesktopURL(privateAddress: $0) }
             resources.append(CmuxTuiSnapshotParser.display(machine: machine, directURL: directURL))
         }
-        // Port discovery is independent of the cmux-tui session link. Run it
-        // before the link attempt so a transient daemon failure cannot erase a
-        // listening-port row, and keep the last known entries when the machine
-        // is asleep or the control-plane client is not ready yet.
+        // Keep the last private-link scan while this refresh reconnects. A new
+        // scan runs through cmux-tui after the link is ready. Routine catalog
+        // refresh must never use provider exec or the web control plane.
         let scannedPorts: [Int]?
         if !supportsPortPreviews {
             // Capability removal is authoritative: stale port rows must not
             // survive a provider update that can no longer open them.
             scannedPorts = []
-        } else if isAwake, let client = VMClient.shared {
-            scannedPorts = await ports(
-                client: client,
-                force: force,
-                generation: generation,
-                privateAddress: summary.preferredPrivateAddress
-            )
         } else {
-            // A cached scan is still useful while a sleeping machine wakes;
-            // nil means there has never been a trustworthy scan.
             scannedPorts = portsCache?.ports
         }
         guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
         // A failed/incomplete port probe preserves the prior port rows; a
         // successful empty scan is authoritative and must not be repopulated
         // by the later link-failure fallback.
-        let resourcesToPreserveAfterPortScan = scannedPorts == nil ? previousResources : preservedNonPortResources
+        var resourcesToPreserveAfterPortScan = scannedPorts == nil ? previousResources : preservedNonPortResources
         resources.append(contentsOf: Self.portResources(
             machine: machine,
             scannedPorts: scannedPorts,
@@ -420,6 +410,23 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
+            if let refreshedPorts = await ports(
+                link: link,
+                socketPath: connected.socketPath,
+                force: force,
+                generation: generation,
+                privateAddress: privateAddress
+            ) {
+                guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
+                resources.removeAll { $0.id.isForwardedPort }
+                resources.append(contentsOf: Self.portResources(
+                    machine: machine,
+                    scannedPorts: refreshedPorts,
+                    previousResources: previousResources,
+                    privateAddress: privateAddress
+                ))
+                resourcesToPreserveAfterPortScan = preservedNonPortResources
+            }
             watchChanges(link: link, generation: lifecycle)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
@@ -854,7 +861,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// caller can preserve the last complete catalog rather than treating a
     /// transient transport failure as an authoritative empty result.
     private func ports(
-        client: VMClient,
+        link: CloudMachineLink,
+        socketPath: String,
         force: Bool,
         generation: UInt64,
         privateAddress: String?
@@ -862,10 +870,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
             return cached.ports
         }
-        let command = "if command -v ss >/dev/null 2>&1; then ss -ltn; elif command -v netstat >/dev/null 2>&1; then netstat -ltn; else exit 127; fi"
-        guard let result = try? await client.exec(id: machineID, command: command, timeoutMs: 10_000), result.exitCode == 0 else {
+        guard let arguments = CloudTuiCommandLine.listeningPortsArguments(socketPath: socketPath),
+              let data = try? await link.run(arguments: arguments),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let stdout = object["stdout"] as? String else {
             return nil
         }
+        let result = VMExecResult(exitCode: 0, stdout: stdout, stderr: "")
         guard let ports = Self.ports(from: result, privateAddress: privateAddress) else { return nil }
         guard generation == refreshGeneration else { return nil }
         portsCache = (ports, Date.now)

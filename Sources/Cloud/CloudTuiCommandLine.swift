@@ -194,6 +194,17 @@ struct CloudTuiCommandLine: Sendable {
         )
     }
 
+    /// Lists the VM host's listening TCP sockets through the authenticated
+    /// cmux-tui link. This is part of the private data path, not VM provider
+    /// exec or the web control plane.
+    static func listeningPortsArguments(socketPath: String) -> [String]? {
+        [
+            "--socket", socketPath,
+            "--json", "raw", "command",
+            "--request-json", #"{"cmd":"machine-listening-tcp","id":1}"#,
+        ]
+    }
+
     /// Encodes one private JSON command through the CLI's raw command bridge.
     private static func rawCommandArguments(
         socketPath: String,

@@ -162,6 +162,7 @@
       "list-clients",
       "list-terminals",
       "list-workspaces",
+      "machine-listening-tcp",
       "machine-usage",
       "move-tab",
       "move-terminal",
