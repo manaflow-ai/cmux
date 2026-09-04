@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 struct CmuxAgentChatConfigDefinition: Codable, Sendable, Hashable {
@@ -9,6 +10,7 @@ struct CmuxAgentChatConfigDefinition: Codable, Sendable, Hashable {
         case startCommand
     }
 
+    /// Creates an optional agent-chat URL and start-command definition.
     init(url: String? = nil, startCommand: String? = nil) {
         self.url = url
         self.startCommand = startCommand
@@ -18,6 +20,7 @@ struct CmuxAgentChatConfigDefinition: Codable, Sendable, Hashable {
         url != nil || startCommand != nil
     }
 
+    /// Decodes and validates an agent-chat configuration block.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         if let decodedURL = try Self.trimmedString(forKey: .url, in: container) {
@@ -126,6 +129,7 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
         return components?.url ?? url.appendingPathComponent("healthz")
     }
 
+    /// Resolves local and global definitions using the normal precedence rules.
     static func resolved(
         local: CmuxAgentChatConfigDefinition?,
         global: CmuxAgentChatConfigDefinition?
@@ -138,6 +142,7 @@ struct CmuxAgentChatConfiguration: Sendable, Hashable {
         )
     }
 
+    /// Resolves definitions while retaining their source paths for trust checks.
     static func resolved(
         local: CmuxAgentChatConfigDefinition?,
         global: CmuxAgentChatConfigDefinition?,
@@ -170,6 +175,33 @@ struct AgentChatOwnedServerSession: Sendable, Hashable {
     var port: Int
     var pid: Int
     var token: String
+    /// The launch ID is written by the sidecar and matched before discovery.
+    /// It is optional for backwards-compatible in-memory/test fixtures; live
+    /// app-owned sessions always carry it.
+    var launchId: String?
+    /// Kernel process birth time captured by cmux after reading the state file.
+    /// A PID without this token is never considered safe to terminate.
+    var processIdentity: AgentPIDProcessIdentity?
+    /// Child-led process group created for this app-owned launch.  Signals are
+    /// sent to this group only after `processIdentity` is revalidated.
+    var processGroupID: pid_t?
+
+    /// Creates a session snapshot, optionally carrying launch identity data.
+    init(
+        port: Int,
+        pid: Int,
+        token: String,
+        launchId: String? = nil,
+        processIdentity: AgentPIDProcessIdentity? = nil,
+        processGroupID: pid_t? = nil
+    ) {
+        self.port = port
+        self.pid = pid
+        self.token = token
+        self.launchId = launchId
+        self.processIdentity = processIdentity
+        self.processGroupID = processGroupID
+    }
 
     var baseURL: URL {
         URL(string: "http://127.0.0.1:\(port)")!
@@ -190,6 +222,7 @@ struct AgentChatOwnedServerSession: Sendable, Hashable {
             .appendingPathComponent("theme")
     }
 
+    /// Builds the token-scoped browser URL for a sidecar session.
     static func browserURL(port: Int, token: String) -> URL {
         URL(string: "http://127.0.0.1:\(port)/\(token)/")!
     }
@@ -200,12 +233,20 @@ struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
     var pid: Int
     var launchId: String?
 
+    /// Converts matching state-file metadata into an unverified session.
     func session(token: String, launchId expectedLaunchId: String) -> AgentChatOwnedServerSession? {
         guard launchId == expectedLaunchId else { return nil }
-        guard (1...65_535).contains(port), pid > 0 else { return nil }
-        return AgentChatOwnedServerSession(port: port, pid: pid, token: token)
+        guard (1...65_535).contains(port),
+              (1...Int(Int32.max)).contains(pid) else { return nil }
+        return AgentChatOwnedServerSession(
+            port: port,
+            pid: pid,
+            token: token,
+            launchId: expectedLaunchId
+        )
     }
 
+    /// Decodes and validates state-file metadata for one launch token.
     static func parse(
         _ data: Data,
         token: String,
@@ -220,6 +261,7 @@ struct AgentChatSidecarStateFile: Decodable, Sendable, Hashable {
 final class AgentChatSidecarFileSystem: @unchecked Sendable {
     let fileManager: FileManager
 
+    /// Creates a file-system wrapper used by detached state-file operations.
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
     }
@@ -229,6 +271,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
     var directoryURL: URL
     var fileSystem: AgentChatSidecarFileSystem
 
+    /// Returns the application-support state store when its directory is available.
     static func live() -> AgentChatSidecarStateFileStore? {
         guard let appSupport = FileManager.default.urls(
             for: .applicationSupportDirectory,
@@ -245,10 +288,12 @@ struct AgentChatSidecarStateFileStore: Sendable {
         )
     }
 
+    /// Returns the state-file path for one launch generation.
     func stateFileURL(launchId: String) -> URL {
         directoryURL.appendingPathComponent("state-\(launchId).json")
     }
 
+    /// Creates a fresh state file after removing older launch artifacts.
     func prepareStateFileURL(launchId: String, launchDate: Date) async -> URL? {
         let stateFileURL = stateFileURL(launchId: launchId)
         let fileSystem = fileSystem
@@ -274,6 +319,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
         }.value
     }
 
+    /// Removes one launch state file or all state files when no ID is supplied.
     func removeStateFile(launchId: String? = nil) async {
         let stateFileURL = launchId.map { self.stateFileURL(launchId: $0) }
         let directoryURL = directoryURL
@@ -292,6 +338,7 @@ struct AgentChatSidecarStateFileStore: Sendable {
         }.value
     }
 
+    /// Waits for and decodes the matching sidecar state-file publication.
     func waitForSession(
         token: String,
         launchId: String,

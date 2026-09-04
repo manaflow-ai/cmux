@@ -36,6 +36,7 @@ struct AgentChatThemePayload: Codable, Equatable {
         case source
     }
 
+    /// Builds the web theme payload from the resolved terminal configuration.
     init(config: GhosttyConfig) {
         let terminalTheme = TerminalTheme(ghosttyConfig: config)
         let webTheme = AgentSessionWebTheme.resolve(appearance: .fromConfig(config))
@@ -54,6 +55,7 @@ struct AgentChatThemePayload: Codable, Equatable {
         source = "cmux"
     }
 
+    /// Encodes nullable optional fields explicitly for the web client.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(background, forKey: .background)
@@ -70,49 +72,61 @@ struct AgentChatThemePayload: Codable, Equatable {
     }
 }
 
-private struct AgentChatThemeSyncState {
-    var observersInstalled = false
-    var debouncedTask: Task<Void, Never>?
-}
-
-private nonisolated let agentChatThemeSyncState = OSAllocatedUnfairLock(
-    initialState: AgentChatThemeSyncState()
-)
-
-enum AgentChatThemeSync {
+/// Pushes the terminal theme to one app-owned agent-chat server.
+///
+/// The synchronizer is a composition-root object rather than a static service:
+/// its lifecycle and ownership gate are supplied by `AppDelegate`, which keeps
+/// tests and multiple app instances from sharing mutable process state.
+@MainActor
+final class AgentChatThemeSync {
     private static let requestTimeout: TimeInterval = 1.5
+    private let gate: AgentChatActionInFlightGate
+    private var observersInstalled = false
+    private var observerTokens: [NSObjectProtocol] = []
+    private var debouncedTask: Task<Void, Never>?
 
-    @MainActor
-    static var isEnabled: Bool {
+    /// Creates a synchronizer bound to one app-owned sidecar lifecycle.
+    init(gate: AgentChatActionInFlightGate) {
+        self.gate = gate
+    }
+
+    deinit {
+        debouncedTask?.cancel()
+        for token in observerTokens {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    var isEnabled: Bool {
         CmuxFeatureFlags.shared.isAgentChatUIEnabled
     }
 
-    @MainActor
-    static func start() {
+    /// Installs lifecycle observers and schedules the initial theme push.
+    func start() {
         // Observers install unconditionally (they're nearly free) so a
         // runtime flag flip starts syncing without a relaunch; the actual
         // pushes gate on the flag inside syncNow/scheduleDebouncedSync.
-        let shouldInstall = agentChatThemeSyncState.withLock { state in
-            guard !state.observersInstalled else { return false }
-            state.observersInstalled = true
-            return true
-        }
-        guard shouldInstall else { return }
+        guard !observersInstalled else { return }
+        observersInstalled = true
 
-        _ = NotificationCenter.default.addObserver(
+        observerTokens.append(NotificationCenter.default.addObserver(
             forName: .ghosttyDefaultBackgroundDidChange,
             object: nil,
             queue: nil
-        ) { _ in
-            scheduleDebouncedSync()
-        }
-        _ = NotificationCenter.default.addObserver(
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleDebouncedSync()
+            }
+        })
+        observerTokens.append(NotificationCenter.default.addObserver(
             forName: .ghosttyConfigDidReload,
             object: nil,
             queue: nil
-        ) { _ in
-            scheduleDebouncedSync()
-        }
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.scheduleDebouncedSync()
+            }
+        })
         // Push once at launch: after a relaunch with an unchanged config the
         // observers above never fire, so an already-running sidecar would keep
         // its file-derived theme. start() runs in AppDelegate.init, which is
@@ -122,46 +136,48 @@ enum AgentChatThemeSync {
         } else {
             // didFinishLaunching posts once per process, so the registration
             // can stay put like the two permanent observers above.
-            _ = NotificationCenter.default.addObserver(
+            observerTokens.append(NotificationCenter.default.addObserver(
                 forName: NSApplication.didFinishLaunchingNotification,
                 object: nil,
                 queue: nil
-            ) { _ in
-                scheduleDebouncedSync()
-            }
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.scheduleDebouncedSync()
+                }
+            })
         }
     }
 
-    @MainActor
-    static func syncNow(agentChat: CmuxAgentChatConfiguration) {
+    /// Schedules an immediate theme push for the supplied configuration.
+    func syncNow(agentChat: CmuxAgentChatConfiguration) {
         guard isEnabled else { return }
         let url = themeURL(for: agentChat)
-        Task { @MainActor in
-            await postResolvedTheme(to: url)
+        Task { @MainActor [weak self] in
+            await self?.postResolvedTheme(to: url)
         }
     }
 
-    static func scheduleDebouncedSync() {
-        agentChatThemeSyncState.withLock { state in
-            state.debouncedTask?.cancel()
-            state.debouncedTask = Task { @MainActor in
-                // The flag is MainActor state and this is called from
-                // nonisolated notification closures, so gate inside the hop.
-                guard isEnabled else { return }
-                let clock = ContinuousClock()
-                do {
-                    try await clock.sleep(for: .milliseconds(300))
-                } catch {
-                    return
-                }
-                // Re-check: the flag can flip off during the debounce window.
-                guard isEnabled else { return }
-                await postResolvedTheme(to: currentThemeURL())
+    /// Coalesces configuration notifications into one cancellable theme push.
+    func scheduleDebouncedSync() {
+        debouncedTask?.cancel()
+        debouncedTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            // The flag is MainActor state and this is called from
+            // nonisolated notification closures, so gate inside the hop.
+            guard isEnabled else { return }
+            let clock = ContinuousClock()
+            do {
+                try await clock.sleep(for: .milliseconds(300))
+            } catch {
+                return
             }
+            // Re-check: the flag can flip off during the debounce window.
+            guard isEnabled else { return }
+            await postResolvedTheme(to: currentThemeURL())
         }
     }
 
-    @MainActor
+    /// Resolves the current Ghostty appearance into a sidecar payload.
     static func resolvedPayload() -> AgentChatThemePayload {
         var config = WorkspaceContentView.resolveGhosttyAppearanceConfig(
             reason: "agentChatThemeSync",
@@ -173,7 +189,8 @@ enum AgentChatThemeSync {
         return AgentChatThemePayload(config: config)
     }
 
-    static func themeURL(for baseURL: URL) -> URL {
+    /// Returns the root-anchored theme endpoint for an arbitrary server URL.
+    nonisolated static func themeURL(for baseURL: URL) -> URL {
         // Root-anchored like CmuxAgentChatConfiguration.healthURL: the sidecar
         // serves /api/theme at the origin root, so any path in agentChat.url
         // must not prefix the endpoint or every push 404s.
@@ -184,36 +201,37 @@ enum AgentChatThemeSync {
         return components?.url ?? baseURL.appendingPathComponent("api/theme")
     }
 
-    @MainActor
-    static func themeURL(for agentChat: CmuxAgentChatConfiguration) -> URL {
+    /// Resolves a tokened owned endpoint or the configured public endpoint.
+    func themeURL(for agentChat: CmuxAgentChatConfiguration) -> URL {
         if !agentChat.hasExplicitURL,
            agentChat.startCommand != nil,
-           let session = AgentChatActionInFlightGate.ownedServerSession() {
+           let session = gate.ownedServerSession() {
             return session.themeURL
         }
-        return themeURL(for: agentChat.url)
+        return Self.themeURL(for: agentChat.url)
     }
 
-    @MainActor
-    private static func currentThemeURL() -> URL {
+    /// Reads the current window configuration to choose the push destination.
+    private func currentThemeURL() -> URL {
         if let store = AppDelegate.shared?.mainWindowContexts.values.compactMap(\.cmuxConfigStore).first {
             return themeURL(for: store.agentChat)
         }
         return themeURL(for: CmuxAgentChatConfiguration.default.url)
     }
 
-    @MainActor
-    private static func postResolvedTheme(to url: URL) async {
-        let payload = resolvedPayload()
+    /// Resolves and posts one current theme payload.
+    private func postResolvedTheme(to url: URL) async {
+        let payload = Self.resolvedPayload()
         await postTheme(payload, to: url)
     }
 
-    private static func postTheme(_ payload: AgentChatThemePayload, to url: URL) async {
+    /// Performs one HTTP theme request and routes failures to lifecycle cleanup.
+    private func postTheme(_ payload: AgentChatThemePayload, to url: URL) async {
         do {
             var request = URLRequest(
                 url: url,
                 cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
-                timeoutInterval: requestTimeout
+                timeoutInterval: Self.requestTimeout
             )
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -230,19 +248,29 @@ enum AgentChatThemeSync {
         }
     }
 
-    static func handleThemePostFailure(_ error: Error, url: URL) async {
+    /// Cleans up the matching owned sidecar after a liveness-related failure.
+    func handleThemePostFailure(_ error: Error, url: URL) async {
         agentChatThemeSyncLogger.error(
             "failed to sync theme: \(String(describing: error), privacy: .public)"
         )
-        guard shouldClearOwnedSessionAfterThemePostFailure(error) else { return }
-        await MainActor.run {
-            guard let session = AgentChatActionInFlightGate.ownedServerSession(),
-                  session.themeURL == url else { return }
-            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
+        guard Self.shouldClearOwnedSessionAfterThemePostFailure(error) else { return }
+        guard let session = gate.ownedServerSession(), session.themeURL == url else {
+            return
+        }
+        // A failed theme POST is one of the sidecar liveness signals.  Do the
+        // same identity-safe bounded termination as launch recovery; merely
+        // dropping the in-memory PID would orphan the process.  The wait runs
+        // off MainActor so a slow sidecar cannot hitch terminal UI updates.
+        let didTerminate = await gate.terminateOwnedServerAsync(matching: session)
+        if didTerminate, let launchId = session.launchId {
+            await gate.sidecarStateFileStore()?.removeStateFile(
+                launchId: launchId
+            )
         }
     }
 
-    static func shouldClearOwnedSessionAfterThemePostFailure(_ error: Error) -> Bool {
+    /// Identifies URL failures that indicate the owned server is unavailable.
+    nonisolated static func shouldClearOwnedSessionAfterThemePostFailure(_ error: Error) -> Bool {
         guard let urlError = error as? URLError else { return false }
         switch urlError.code {
         case .cannotConnectToHost,

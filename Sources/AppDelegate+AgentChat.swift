@@ -4,54 +4,7 @@ import Foundation
 import os
 import Security
 
-struct AgentChatActionInFlightGate {
-    private struct State {
-        var isRunning = false
-        var ownedServerSession: AgentChatOwnedServerSession?
-        var sidecarStateFileStore = AgentChatSidecarStateFileStore.live()
-    }
-
-    private nonisolated static let lock = OSAllocatedUnfairLock(initialState: State())
-
-    static func begin() -> Bool {
-        lock.withLock { state in
-            guard !state.isRunning else { return false }
-            state.isRunning = true
-            return true
-        }
-    }
-
-    static func end() {
-        lock.withLock { state in
-            state.isRunning = false
-        }
-    }
-
-    static func ownedServerSession() -> AgentChatOwnedServerSession? {
-        lock.withLock { state in
-            state.ownedServerSession
-        }
-    }
-
-    static func updateOwnedServerSession(_ session: AgentChatOwnedServerSession) {
-        lock.withLock { state in
-            state.ownedServerSession = session
-        }
-    }
-
-    static func clearOwnedServerSession(matching candidate: AgentChatOwnedServerSession? = nil) {
-        lock.withLock { state in
-            if let candidate, state.ownedServerSession != candidate { return }
-            state.ownedServerSession = nil
-        }
-    }
-
-    static func sidecarStateFileStore() -> AgentChatSidecarStateFileStore? {
-        lock.withLock { state in
-            state.sidecarStateFileStore
-        }
-    }
-}
+private nonisolated let agentChatActionLogger = Logger(subsystem: "com.cmuxterm.app", category: "AgentChatAction")
 
 struct AgentChatServerAvailability: Sendable {
     var isReachable: Bool
@@ -123,20 +76,22 @@ extension AppDelegate {
             NSSound.beep()
             return false
         }
-        AgentChatThemeSync.start()
-        guard AgentChatActionInFlightGate.begin() else {
+        agentChatThemeSync.start()
+        let gate = agentChatActionInFlightGate
+        guard gate.begin() else {
             NSSound.beep()
             return false
         }
-        Task { @MainActor [weak self, weak tabManager] in
-            defer { AgentChatActionInFlightGate.end() }
+        let themeSync = agentChatThemeSync
+        Task { @MainActor [weak self, weak tabManager, gate, themeSync] in
+            defer { gate.end() }
             guard let self else { return }
             let availability = await self.ensureAgentChatServerAvailable(
                 agentChat,
                 globalConfigPath: globalConfigPath,
                 preferredWindow: preferredWindow
             )
-            AgentChatThemeSync.syncNow(agentChat: agentChat)
+            themeSync.syncNow(agentChat: agentChat)
             guard let tabManager else { return }
             guard let browserURL = availability.browserURL else {
                 NSSound.beep()
@@ -204,7 +159,6 @@ extension AppDelegate {
         }
         return tabManager.tabs.first { !beforeIds.contains($0.id) } ?? tabManager.selectedWorkspace
     }
-
 
     private func ensureAgentChatServerAvailable(
         _ agentChat: CmuxAgentChatConfiguration,
@@ -283,17 +237,43 @@ extension AppDelegate {
         globalConfigPath: String?,
         preferredWindow: NSWindow?
     ) async -> AgentChatServerAvailability {
-        if let session = AgentChatActionInFlightGate.ownedServerSession() {
+        let gate = agentChatActionInFlightGate
+        await gate.waitForTermination()
+        if let process = gate.ownedServerProcess(),
+           gate.ownedServerSession() == nil {
+            // A prior state-discovery timeout may have failed closed because
+            // the PID changed. Do not launch beside that still-owned handle;
+            // retry its identity-safe termination on the next action.
+            guard await gate.terminateOwnedServerAsync(
+                matchingLaunchID: process.launchId
+            ) else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
+        }
+        if let session = gate.ownedServerSession() {
             if await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5) {
                 return AgentChatServerAvailability(isReachable: true, browserURL: session.browserURL)
             }
-            AgentChatActionInFlightGate.clearOwnedServerSession(matching: session)
-            await AgentChatActionInFlightGate.sidecarStateFileStore()?.removeStateFile()
+            // Recovery must terminate the unhealthy launch before replacing
+            // it.  The gate removes the snapshot atomically; its process
+            // handle validates PID birth time and process-group identity on
+            // every signal, so a reused PID is left untouched.
+            guard await gate.terminateOwnedServerAsync(matching: session) else {
+                // A changed or unreadable process identity is a hard stop:
+                // launching another sidecar would hide the old process and
+                // recreate the orphan leak this path is meant to prevent.
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
+            if let launchId = session.launchId {
+                await gate.sidecarStateFileStore()?.removeStateFile(
+                    launchId: launchId
+                )
+            }
         }
 
         let launchId = UUID().uuidString
         guard let token = Self.generateAgentChatToken(),
-              let stateFileStore = AgentChatActionInFlightGate.sidecarStateFileStore() else {
+              let stateFileStore = gate.sidecarStateFileStore() else {
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
         let launchDate = Date()
@@ -310,10 +290,12 @@ extension AppDelegate {
             globalConfigPath: globalConfigPath,
             preferredWindow: preferredWindow
         ) else {
+            await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        guard Self.launchDetachedAgentChatStartCommand(
+        guard let process = await Self.launchOwnedAgentChatStartCommand(
             startCommand,
+            launchId: launchId,
             currentDirectoryURL: Self.agentChatStartCommandDirectoryURL(for: agentChat),
             environmentOverrides: [
                 "CMUX_AGENT_CHAT_TOKEN": token,
@@ -322,19 +304,53 @@ extension AppDelegate {
                 "CMUX_AGENT_CHAT_LAUNCH_ID": launchId,
             ]
         ) else {
+            await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
+        // Keep the handle until state discovery so timeout cleanup owns the launched process.
+        guard await gate.updateOwnedServerProcess(process) else {
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
 
-        guard let session = await stateFileStore.waitForSession(
+        guard let discoveredSession = await stateFileStore.waitForSession(
             token: token,
             launchId: launchId,
             launchDate: launchDate
         ) else {
+            guard await gate.terminateOwnedServerAsync(matchingLaunchID: launchId) else {
+                await stateFileStore.removeStateFile(launchId: launchId)
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
+            await stateFileStore.removeStateFile(launchId: launchId)
             return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
         }
-        AgentChatActionInFlightGate.updateOwnedServerSession(session)
+        guard let session = process.verifiedSession(from: discoveredSession) else {
+            // A state file with the right token/launch ID is still not enough:
+            // reject a PID that is not the process generation and group cmux
+            // actually spawned.
+            guard await gate.terminateOwnedServerAsync(matchingLaunchID: launchId) else {
+                await stateFileStore.removeStateFile(launchId: launchId)
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+        guard await gate.updateOwnedServer(session: session, process: process) else {
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+        }
         let isHealthy = await Self.agentChatServerIsHealthy(healthURL: session.healthURL, timeout: 1.5)
-        return AgentChatServerAvailability(isReachable: isHealthy, browserURL: session.browserURL)
+        guard isHealthy else {
+            // A launch that reported a port but failed health still owns a
+            // process; dispose that generation before returning unavailable.
+            guard await gate.terminateOwnedServerAsync(matching: session) else {
+                return AgentChatServerAvailability(isReachable: false, browserURL: nil)
+            }
+            await stateFileStore.removeStateFile(launchId: launchId)
+            return AgentChatServerAvailability(isReachable: false, browserURL: agentChat.url)
+        }
+        return AgentChatServerAvailability(isReachable: true, browserURL: session.browserURL)
     }
 
     private func authorizeAgentChatStartCommandIfNeeded(
@@ -428,7 +444,7 @@ extension AppDelegate {
         let environment = ProcessInfo.processInfo.environment
         guard let shellPath = environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines),
               !shellPath.isEmpty else {
-            NSLog("[AgentChat] SHELL is not set; cannot launch startCommand")
+            agentChatActionLogger.error("SHELL is not set; cannot launch startCommand")
             return false
         }
         let process = Process()
@@ -443,9 +459,25 @@ extension AppDelegate {
             try process.run()
             return true
         } catch {
-            NSLog("[AgentChat] failed to launch startCommand: %@", String(describing: error))
+            agentChatActionLogger.error(
+                "failed to launch startCommand: \(String(describing: error), privacy: .public)"
+            )
             return false
         }
+    }
+
+    nonisolated private static func launchOwnedAgentChatStartCommand(
+        _ command: String,
+        launchId: String,
+        currentDirectoryURL: URL,
+        environmentOverrides: [String: String]
+    ) async -> AgentChatSidecarProcessHandle? {
+        await AgentChatSidecarProcessController().launch(
+            command: command,
+            launchId: launchId,
+            currentDirectoryURL: currentDirectoryURL,
+            environmentOverrides: environmentOverrides
+        )
     }
 
     nonisolated private static func canonicalAgentChatPath(_ path: String) -> String {
