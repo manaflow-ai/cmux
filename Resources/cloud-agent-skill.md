@@ -11,7 +11,7 @@ the source skill until the installed CLI advertises them.
 
 - A machine is a persistent cloud VM owned by the signed-in cmux user. Its generated name (like `brave-otter`) is its address everywhere; `cmux vm rename` sets a display label only. The machine outlives panes, closed laptops, and reconnects.
 - Every machine runs a cmux session daemon (cmux-tui on current images, cmuxd-remote on older ones) that owns terminal sessions and scrollback. Clients attach through short-lived leases minted by the backend; the transport depends on what the provider and image support. SSH is a fallback some providers and images cannot mint, and its absence is not an error.
-- A bare `cmux vm new` makes a shell-only machine with a persistent per-machine home; `--desktop` makes one with a screen (TigerVNC + noVNC on 6901, `DISPLAY=:1` in its shells) that `cmux vm open <m>:desktop` shows as a pane.
+- A bare `cmux vm new` makes a shell-only machine with a persistent per-machine home; `--desktop` requests one with a screen (TigerVNC + noVNC on 6901, `DISPLAY=:1` in its shells) and fails clearly when the deployment has no desktop image.
 - Base is a separate single per-user persistent slot, pinned to the top of the sidebar. `cmux vm new` mints fresh machines; `cmux vm base` always reopens the same one.
 - Terminals on a machine live in its cmux-tui session (workspaces `ws_…`, terminals `term_…`). They keep running detached. `cmux vm tree` catalogs every surface in this order — Workspaces, Ports, VNC Displays, then the machine's Terminals index — and every line is an address `cmux vm open` (machine targets) or `cmux surface open` (any entry, including This Mac) accepts: `brave-otter/main/term_2f9c…`, `brave-otter:desktop`, `brave-otter:port/3000`.
 - One machine hosts many workspaces. Make a workspace per task *inside* the machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) rather than a machine per task; the Cloud sidebar groups them under the machine's Workspaces group. `cmux vm open <machine>/<ws>` takes the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id), and starts a shell in an empty one.
@@ -43,12 +43,14 @@ cmux vm tree [<machine>|local] [--refresh]
 Create and name:
 
 ```
-cmux vm new [--desktop|--base] [--size <20g|MB>] [--name <label>] [--detach|-d]
+cmux vm new [--desktop|--base] [--size <4g|8g|16g|24g|32g|64g|MB>] [--name <label>] [--detach|-d]
 cmux vm wait <id> [--timeout <seconds>] [--wake]   # block until ready; --wake also wakes a sleeper
 cmux vm rename <id> <new-label>      # label only; the id stays the address
 ```
 
 `vm new` takes no positional arguments (rejected so a typo cannot provision a paid machine). A bare `vm new` creates a persistent machine with its own durable home, up to the plan limit. The backend picks the provider.
+
+The named memory sizes are `4g`, `8g`, `16g`, `24g`, `32g`, and `64g`; a raw MB value also parses. Read `cmux vm ls --json` → `limits.memoryOptionsMb` before choosing because the server advertises the sizes available to the current plan and may resolve an unsupported request to its default. The selected image determines the matching CPU and initial disk; verify the result in `vm ls` / `vm stats`.
 
 Resize a machine's persistent disk without replacing it:
 
