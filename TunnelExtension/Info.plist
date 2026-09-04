@@ -24,6 +24,8 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 Manaflow, Inc. WireGuard engine © WireGuard LLC (MIT).</string>
+	<key>NSSystemExtensionUsageDescription</key>
+	<string>cmux installs a network extension so this Mac can reach your Cloud machines on their private network. It runs only while you use cmux Cloud.</string>
 	<key>NetworkExtension</key>
 	<dict>
 		<key>NEMachServiceName</key>
