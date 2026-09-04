@@ -14269,6 +14269,12 @@ impl App {
         // value arrives from its background refresh.
         self.machine_usage = None;
         self.invalidate_projection_rows_cache();
+        // Surface IDs are only unique within one attached session. Do not
+        // carry client-local seen stamps or the profile-strip receipt into a
+        // replacement machine where the same numeric IDs may be reused.
+        self.agent_focus_stamps.clear();
+        self.rendered_agent_attention = None;
+        self.agent_attention_paint_pending = false;
         self.tab_locations.clear();
         self.rebuild_tab_locations();
         self.render_states.clear();
@@ -14343,7 +14349,6 @@ impl App {
         self.drag = None;
         self.active_pointer_buttons.clear();
         self.ignored_pointer_buttons.clear();
-        self.canceled_pointer_buttons.clear();
         self.encode_buf.clear();
     }
 
@@ -18321,7 +18326,11 @@ impl App {
                     || self.pairing_queue.iter().any(|queued| queued.id == challenge.id);
                 if !duplicate {
                     if self.pairing_dialog.is_none() {
-                        self.cancel_pointer_interaction();
+                        // Pairing is a higher-priority modal. Keep the
+                        // underlay available for restoration, but retire its
+                        // pointer route and any queued mouse samples before
+                        // the trusted dialog becomes visible.
+                        self.advance_pointer_focus_generation();
                         self.pairing_dialog = Some(PairingDialog::new(challenge));
                     } else {
                         self.pairing_queue.push_back(challenge);
@@ -18333,7 +18342,10 @@ impl App {
                 self.pairing_queue.retain(|challenge| challenge.id != request);
                 if self.pairing_dialog.as_ref().is_some_and(|dialog| dialog.challenge.id == request)
                 {
-                    self.cancel_pointer_interaction();
+                    // Fence releases and retained samples from the dialog
+                    // that just disappeared before exposing the next modal
+                    // (or the preserved underlay).
+                    self.advance_pointer_focus_generation();
                     self.pairing_dialog = self.pairing_queue.pop_front().map(PairingDialog::new);
                 }
                 Ok(RenderAction::Draw)
@@ -22555,7 +22567,10 @@ impl App {
     }
 
     fn resolve_pairing(&mut self, approve: bool) {
-        self.cancel_pointer_interaction();
+        // The decision itself is a modal transition. Advance the pointer
+        // epoch so the button that approved the dialog cannot activate the
+        // restored underlay on release.
+        self.advance_pointer_focus_generation();
         let Some(dialog) = self.pairing_dialog.take() else { return };
         if let Err(error) = self.session.respond_pairing(dialog.challenge.id, approve) {
             self.status_message = Some(
@@ -22611,6 +22626,7 @@ impl App {
     }
 
     fn handle_shortcut_help_mouse(&mut self, mouse: MouseEvent) -> RenderAction {
+        let pointer_capture_live = self.drag.is_some() || !self.active_pointer_buttons.is_empty();
         let Some(help) = self.shortcut_help.as_mut() else { return RenderAction::None };
         let total_rows = help.rows.len();
         let mut changed = false;
@@ -22618,9 +22634,9 @@ impl App {
         match mouse.kind {
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
                 // A thumb drag owns the pointer until its release. Swallow a
-                // wheel sample during that gesture instead of changing the
-                // offset behind the drag anchor.
-                if help.scrollbar_dragging() {
+                // wheel sample during any pointer gesture instead of
+                // changing the offset behind its anchor.
+                if pointer_capture_live || help.scrollbar_dragging() {
                     return RenderAction::None;
                 }
                 let previous_offset = help.scroll_offset;
@@ -24401,6 +24417,9 @@ impl App {
             }
             _ => {}
         }
+        if !self.admit_pointer_event(mouse.kind) {
+            return Ok(RenderAction::None);
+        }
         if self.pairing_dialog.is_none() && self.shortcut_help.is_some() {
             return Ok(self.handle_shortcut_help_mouse(mouse));
         }
@@ -24428,48 +24447,6 @@ impl App {
                 }
                 return Ok(RenderAction::None);
             }
-        }
-        // This TUI tracks one active pointer button. Ignore additional
-        // presses until their release so a second button cannot orphan the
-        // current native or inner-app gesture. Native sidebar drags have no
-        // button field, because they are all left-button gestures.
-        if let MouseEventKind::Drag(button) | MouseEventKind::Up(button) = mouse.kind
-            && self.ignored_pointer_buttons.contains(&button)
-        {
-            if matches!(mouse.kind, MouseEventKind::Up(_)) {
-                self.ignored_pointer_buttons.remove(&button);
-            }
-            return Ok(RenderAction::None);
-        }
-        if let MouseEventKind::Down(button) = mouse.kind {
-            // A lost secondary release must not poison a later gesture. Once
-            // no button owns the pointer, the next physical press starts a
-            // new admission epoch and retires any unreleased ignored marks.
-            if self.active_pointer_buttons.is_empty() && self.drag.is_none() {
-                self.ignored_pointer_buttons.clear();
-            }
-            let another_button_active =
-                self.active_pointer_buttons.iter().any(|active| *active != button)
-                    || self.drag.as_ref().is_some_and(|drag| {
-                        let active = match drag {
-                            Drag::PtyMouse { button, .. } => *button,
-                            _ => MouseButton::Left,
-                        };
-                        active != button
-                    });
-            if another_button_active {
-                self.ignored_pointer_buttons.insert(button);
-                return Ok(RenderAction::None);
-            }
-        }
-        match mouse.kind {
-            MouseEventKind::Down(button) => {
-                self.active_pointer_buttons.insert(button);
-            }
-            MouseEventKind::Up(button) => {
-                self.active_pointer_buttons.remove(&button);
-            }
-            _ => {}
         }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => self.handle_left_down_with_admission(
@@ -24520,10 +24497,13 @@ impl App {
                     return Ok(RenderAction::Draw);
                 }
                 self.open_context_menu(mouse.column, mouse.row);
-                // This press opened the menu, so its matching release is the
-                // menu gesture rather than a stale release from a canceled
-                // pre-modal owner.
-                self.canceled_pointer_buttons.remove(&MouseButton::Right);
+                if self.menu.is_some() {
+                    // Keep the physical opener as the menu owner. This
+                    // blocks a second button until release and prevents a
+                    // later menu from treating the opener's release as a
+                    // fresh selection.
+                    self.retain_pointer_button_for_open_menu(MouseButton::Right);
+                }
                 Ok(RenderAction::Draw)
             }
             MouseEventKind::Drag(MouseButton::Right) => {
@@ -24961,6 +24941,65 @@ impl App {
         self.active_pointer_buttons.remove(&button);
         self.ignored_pointer_buttons.remove(&button);
         self.canceled_pointer_buttons.insert(button);
+    }
+
+    /// Admit one physical pointer sample through the shared one-button
+    /// ownership policy. Modal surfaces use the same admission path as the
+    /// normal hit-test surface, so a scrollbar or dialog cannot create a
+    /// private second gesture.
+    fn admit_pointer_event(&mut self, kind: MouseEventKind) -> bool {
+        // This TUI tracks one active pointer button. Ignore additional
+        // presses until their release so a second button cannot orphan the
+        // current native or inner-app gesture. Native sidebar drags have no
+        // button field, because they are all left-button gestures.
+        if let MouseEventKind::Drag(button) | MouseEventKind::Up(button) = kind
+            && self.ignored_pointer_buttons.contains(&button)
+        {
+            if matches!(kind, MouseEventKind::Up(_)) {
+                self.ignored_pointer_buttons.remove(&button);
+            }
+            return false;
+        }
+        if let MouseEventKind::Down(button) = kind {
+            // A lost secondary release must not poison a later gesture. Once
+            // no button owns the pointer, the next physical press starts a
+            // new admission epoch and retires any unreleased ignored marks.
+            if self.active_pointer_buttons.is_empty() && self.drag.is_none() {
+                self.ignored_pointer_buttons.clear();
+            }
+            let another_button_active =
+                self.active_pointer_buttons.iter().any(|active| *active != button)
+                    || self.drag.as_ref().is_some_and(|drag| {
+                        let active = match drag {
+                            Drag::PtyMouse { button, .. } => *button,
+                            _ => MouseButton::Left,
+                        };
+                        active != button
+                    });
+            if another_button_active {
+                self.ignored_pointer_buttons.insert(button);
+                return false;
+            }
+        }
+        match kind {
+            MouseEventKind::Down(button) => {
+                self.active_pointer_buttons.insert(button);
+            }
+            MouseEventKind::Up(button) => {
+                self.active_pointer_buttons.remove(&button);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    /// Keep a physical opener attached to a menu that was created by that
+    /// press. Menus opened by keyboard actions do not call this method and
+    /// therefore remain ownerless.
+    fn retain_pointer_button_for_open_menu(&mut self, button: MouseButton) {
+        self.canceled_pointer_buttons.remove(&button);
+        self.ignored_pointer_buttons.remove(&button);
+        self.active_pointer_buttons.insert(button);
     }
 
     /// Entering a modal command surface retires every pointer owner from the
@@ -25963,6 +26002,9 @@ impl App {
                 }
                 Hit::SidebarPresentationMenu => {
                     self.open_context_menu(x, y);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
                 }
                 Hit::Machine { index: _, key } => {
                     let Some(current_index) = self.machine_ui.as_ref().and_then(|ui| {
@@ -25984,6 +26026,9 @@ impl App {
                         machine.rail_selection = MachineRailSelection::NewVm;
                     }
                     self.open_machine_creation_menu(x, y);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
                 }
                 Hit::ConnectMachine => {
                     self.machine_rail_follow_selection = true;
@@ -25991,6 +26036,9 @@ impl App {
                         machine.rail_selection = MachineRailSelection::ConnectMachine;
                     }
                     self.open_machine_connection_menu(x, y);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
                 }
                 Hit::Workspace { index: _, id } => {
                     // The rendered row stores both a position and its stable
@@ -26223,7 +26271,12 @@ impl App {
                             .new_tab(Some(pane), self.terminal_tab_size_hint(Some(pane)))?;
                     }
                 }
-                Hit::Clients { surface } => self.open_clients_menu(x, y, surface),
+                Hit::Clients { surface } => {
+                    self.open_clients_menu(x, y, surface);
+                    if self.menu.is_some() {
+                        self.retain_pointer_button_for_open_menu(MouseButton::Left);
+                    }
+                }
                 Hit::Scrollbar { surface, track, scrollbar } => {
                     self.start_scrollbar_drag(surface, track, scrollbar, y);
                 }
@@ -31429,6 +31482,62 @@ mod tests {
             offset_after_key,
             "a drag after a keyboard boundary must not reuse the old help scrollbar owner"
         );
+    }
+
+    #[test]
+    fn shortcut_help_scrollbar_uses_shared_pointer_admission() {
+        let mux = Mux::new("shortcut-help-shared-pointer-owner-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.run_action(Action::ShowShortcuts).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let track = app.shortcut_help.as_ref().unwrap().scrollbar_track;
+        assert!(track.height > 0);
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: track.x,
+            row: track.y + track.height - 1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: track.x,
+                row: track.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.ignored_pointer_buttons.contains(&MouseButton::Right));
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: track.x,
+                row: track.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: track.x,
+            row: track.y,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(!app.shortcut_help.as_ref().unwrap().scrollbar_dragging());
+        assert!(app.active_pointer_buttons.is_empty());
     }
 
     #[test]
@@ -44669,6 +44778,26 @@ mod tests {
     }
 
     #[test]
+    fn session_presentation_reset_restarts_agent_attention_identity_without_losing_release_fence() {
+        let mux = Mux::new("reset-agent-attention-identity-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.agent_focus_stamps.insert(77, 123);
+        app.rendered_agent_attention = Some(AgentAttentionReceipt { attention: 2, working: 1 });
+        app.agent_attention_paint_pending = true;
+        app.canceled_pointer_buttons.insert(MouseButton::Right);
+
+        app.reset_session_presentation(TreeView::default());
+
+        assert!(app.agent_focus_stamps.is_empty());
+        assert!(app.rendered_agent_attention.is_none());
+        assert!(!app.agent_attention_paint_pending);
+        assert!(
+            app.canceled_pointer_buttons.contains(&MouseButton::Right),
+            "a release from the previous session must remain fenced until it arrives"
+        );
+    }
+
+    #[test]
     fn session_presentation_reset_clears_rendered_terminal_caches() {
         let mux = Mux::new("reset-rendered-terminal-state-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -46165,6 +46294,52 @@ mod tests {
     }
 
     #[test]
+    fn pairing_modal_fences_underlay_pointer_and_restores_it_after_resolution() {
+        let mux = Mux::new("pairing-underlay-pointer-boundary-test", SurfaceOptions::default());
+        let (challenge, decision) = mux.begin_pairing("127.0.0.1".parse().unwrap()).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.menu = Some(ContextMenu::at(10, 5, vec![vec![MenuAction::ShowShortcuts]]));
+        app.active_pointer_buttons.insert(MouseButton::Right);
+        app.defer_input(TerminalInput::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        }));
+        app.retain_pointer_motion(MouseEvent {
+            kind: MouseEventKind::Moved,
+            column: 12,
+            row: 6,
+            modifiers: KeyModifiers::NONE,
+        });
+        let generation = app.pointer_focus_generation;
+
+        app.handle(AppEvent::Mux(MuxEvent::PairingRequested(challenge.clone()))).unwrap();
+
+        assert!(app.pairing_dialog.is_some());
+        assert!(app.menu.is_some(), "the previous menu remains available below the pairing modal");
+        assert!(app.deferred_input.is_empty());
+        assert!(app.pending_pointer_motion.is_none());
+        assert_ne!(app.pointer_focus_generation, generation);
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Right));
+
+        assert!(mux.respond_pairing(challenge.id, false));
+        assert!(decision.recv_timeout(Duration::from_secs(1)).is_ok());
+        app.handle(AppEvent::Mux(MuxEvent::PairingResolved { request: challenge.id })).unwrap();
+        assert!(app.pairing_dialog.is_none());
+        assert!(app.menu.is_some());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Right),
+            column: 10,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some(), "the fenced opener release must not act on the restored menu");
+    }
+
+    #[test]
     fn pairing_dialog_captures_live_non_left_pointer_input() {
         let mux = Mux::new("pairing-live-pointer-capture-test", SurfaceOptions::default());
         mux.new_workspace(None, Some((80, 24))).unwrap();
@@ -46383,6 +46558,53 @@ mod tests {
             "the accepted right press must keep ownership through menu render, drag, and release"
         );
         assert!(app.menu.is_none());
+    }
+
+    #[test]
+    fn left_menu_opener_keeps_ownership_until_release() {
+        let mux = Mux::new("left-menu-owner-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sidebar_visible = true;
+        app.sidebar_width = 20;
+        let point = (4, 1);
+        app.hits.push((
+            Rect { x: point.0, y: point.1, width: 1, height: 1 },
+            super::Hit::SidebarPresentationMenu,
+        ));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: point.0,
+            row: point.1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.menu.is_some());
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+        assert!(!app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Right),
+                column: point.0,
+                row: point.1,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert!(app.ignored_pointer_buttons.contains(&MouseButton::Right));
+        assert!(app.menu.is_some());
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: point.0,
+            row: point.1,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.menu.is_some(), "the opener release must not dismiss or activate the menu");
     }
 
     #[test]
