@@ -369,7 +369,7 @@ pub fn file_url(path: &Path) -> Result<String, FileUrlError> {
     if let Some(authority) = prefix {
         url.push_str(&encode_uri_component(authority));
         url.push('/');
-    } else {
+    } else if !path.starts_with('/') {
         url.push('/');
     }
     url.push_str(&encode_uri_path(&path));
