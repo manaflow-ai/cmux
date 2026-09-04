@@ -112,7 +112,7 @@ struct MachinesPanelView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "exclamationmark.triangle")
                             .font(.system(size: 10, weight: .semibold))
-                        Text(String(localized: "machines.unavailable.stale", defaultValue: "Cloud unreachable \u{2014} showing last known"))
+                        Text(staleListLabel)
                             .cmuxFont(size: 11)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -160,6 +160,34 @@ struct MachinesPanelView: View {
         }
         .rightSidebarChromeBar()
         .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
+    }
+
+    /// Short status copy for a stale fleet while the latest list request is
+    /// failing. Keep the banner aligned with the structured list problem so a
+    /// loaded machine list cannot regress to the transport-only wording.
+    private var staleListLabel: String {
+        switch viewModel.listProblem ?? .serverError {
+        case .sessionRejected:
+            return String(
+                localized: "machines.sessionRejected.stale",
+                defaultValue: "Cloud session rejected \u{2014} showing last known"
+            )
+        case .requiresPro:
+            return String(
+                localized: "machines.requiresPro.stale",
+                defaultValue: "Cloud plan required \u{2014} showing last known"
+            )
+        case .serverError:
+            return String(
+                localized: "machines.serverError.stale",
+                defaultValue: "Cloud load failed \u{2014} showing last known"
+            )
+        case .unreachable:
+            return String(
+                localized: "machines.unavailable.stale",
+                defaultValue: "Cloud unreachable \u{2014} showing last known"
+            )
+        }
     }
 
     @ViewBuilder
@@ -277,6 +305,36 @@ struct MachinesPanelView: View {
             viewModel.refresh()
         } label: {
             Text(String(localized: "machines.unavailable.retry", defaultValue: "Retry"))
+                .cmuxFont(size: 12)
+        }
+        .padding(.top, 2)
+    }
+
+    /// A non-transport failure stopped the machine list from loading. Keep this
+    /// copy neutral because a malformed request or unknown client error does
+    /// not prove that the Cloud service answered. Conflating this state with
+    /// transport failures is what made #11597's real HTTP 500 read as "Cloud
+    /// is unreachable — it retries on its own".
+    @ViewBuilder
+    private var serverErrorState: some View {
+        Image(systemName: "exclamationmark.icloud")
+            .font(.system(size: 26, weight: .light))
+            .foregroundColor(.secondary.opacity(0.55))
+        Text(String(localized: "machines.serverError.title", defaultValue: "Cloud couldn\u{2019}t load machines"))
+            .cmuxFont(size: 13)
+            .foregroundColor(.primary.opacity(0.85))
+        Text(String(
+            localized: "machines.serverError.subtitle",
+            defaultValue: "Your machines are still there. cmux couldn\u{2019}t load them just now. Retry in a moment."
+        ))
+        .cmuxFont(size: 12)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .padding(.horizontal, 24)
+        Button {
+            viewModel.refresh()
+        } label: {
+            Text(String(localized: "machines.serverError.retry", defaultValue: "Retry"))
                 .cmuxFont(size: 12)
         }
         .padding(.top, 2)
@@ -461,11 +519,15 @@ struct MachinesPanelView: View {
                 // pretending the fleet is empty. A server-rejected session and
                 // a plan gate each get their real fix; only transient-shaped
                 // failures keep the retry-first "unreachable" copy.
-                switch viewModel.listProblem ?? .unreachable {
+                // A missing classification must not claim the network is down;
+                // the conservative fallback is a non-transport load error.
+                switch viewModel.listProblem ?? .serverError {
                 case .sessionRejected:
                     sessionRejectedState
                 case .requiresPro:
                     requiresProState
+                case .serverError:
+                    serverErrorState
                 case .unreachable:
                     unreachableState
                 }

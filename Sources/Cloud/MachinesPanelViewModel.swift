@@ -381,21 +381,55 @@ final class MachinesPanelViewModel: ObservableObject {
         case sessionRejected
         /// HTTP 402: the plan gates Cloud access.
         case requiresPro
-        /// Everything else — retrying may help.
+        /// A non-transport failure prevented the list from loading (for
+        /// example, a service response, malformed response, or client error).
+        /// It must never wear the "Cloud is unreachable" copy because the
+        /// failure does not prove that the network is down.
+        case serverError
+        /// No usable response came back: a transport failure, or a transient
+        /// session-refresh failure. This is the only truly "unreachable" case.
         case unreachable
     }
 
     /// Classify a list failure for ``listProblem``. Pure so tests can pin the
     /// mapping without a live client.
+    ///
+    /// The split is by what actually happened, so the empty state can tell the
+    /// truth (#11597): a rejected session needs a fresh sign-in, a plan gate
+    /// needs an upgrade, a server error is the Cloud service failing, and only a
+    /// genuinely absent response is "unreachable". Mapping a real HTTP 500 to
+    /// `.unreachable` is what made a signed-in nightly show "Cloud is
+    /// unreachable — it retries on its own" for a persistent server-side error.
     nonisolated static func classifyListFailure(_ error: VMClientError) -> CloudListProblem {
         switch error {
         case .httpStatus(401, _):
             return .sessionRejected
         case .httpStatus(402, _):
             return .requiresPro
-        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable, .httpStatus, .malformedResponse:
+        case .httpStatus, .malformedResponse:
+            // The service responded (or responded unreadably): a server-side
+            // failure, not a network one.
+            return .serverError
+        case .notSignedIn, .sessionRefreshFailed, .backendUnreachable:
+            // No usable response reached us. `.notSignedIn` is handled before
+            // this classifier runs; it is grouped here only for exhaustiveness.
             return .unreachable
         }
+    }
+
+    /// Classify an error that escaped the typed Cloud client boundary. URLSession
+    /// can surface a transport failure directly on some OS releases, so keep
+    /// those failures in the retry-first state instead of calling them a server
+    /// error. Unknown errors remain conservative: they are not evidence of an
+    /// unreachable service or of a response from the Cloud backend.
+    nonisolated static func classifyListFailure(_ error: Error) -> CloudListProblem {
+        if let error = error as? VMClientError {
+            return classifyListFailure(error)
+        }
+        if let error = error as? URLError, error.code.isCloudBackendTransportFailure {
+            return .unreachable
+        }
+        return .serverError
     }
     /// Human-readable label of the Cloud VM action currently running from this
     /// panel ("Checkpointing noble-wren…"). Replaces the plan meter in the
@@ -777,9 +811,20 @@ final class MachinesPanelViewModel: ObservableObject {
             }
             lastErrorDescription = String(describing: error)
             listProblem = Self.classifyListFailure(error)
+        } catch is CancellationError {
+            // URLSession cancellation is a normal lifecycle transition (for
+            // example, sign-out cancels an in-flight refresh). Do not publish
+            // a new error state after the owner has already reset its state.
+            isLoading = false
+            return
+        } catch let error as URLError where error.code == .cancelled {
+            // Foundation commonly surfaces Task cancellation as URLError
+            // .cancelled rather than CancellationError.
+            isLoading = false
+            return
         } catch {
             lastErrorDescription = String(describing: error)
-            listProblem = .unreachable
+            listProblem = Self.classifyListFailure(error)
         }
         isLoading = false
         hasLoadedOnce = true

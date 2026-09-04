@@ -1105,22 +1105,53 @@ struct MachinesPanelListProblemTests {
         )
     }
 
-    @Test("Transient-shaped failures keep the retry-first unreachable state")
-    func transientFailuresStayUnreachable() {
-        #expect(
-            MachinesPanelViewModel.classifyListFailure(.httpStatus(503, "{}")) == .unreachable
-        )
+    @Test("Transport failures keep the retry-first unreachable state")
+    func transportFailuresStayUnreachable() {
         #expect(
             MachinesPanelViewModel.classifyListFailure(
                 .backendUnreachable(url: "https://cmux.com", detail: "offline")
             ) == .unreachable
         )
+        #expect(MachinesPanelViewModel.classifyListFailure(.sessionRefreshFailed) == .unreachable)
+    }
+
+    @Test("Service responses use the server-error state")
+    func serviceResponsesStayOutOfUnreachableState() {
+        for status in [400, 404, 409, 429, 500, 503] {
+            #expect(
+                MachinesPanelViewModel.classifyListFailure(.httpStatus(status, "{}")) == .serverError,
+                "HTTP \(status) is a response from the Cloud service"
+            )
+        }
         #expect(
-            MachinesPanelViewModel.classifyListFailure(.sessionRefreshFailed) == .unreachable
+            MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .serverError
         )
+    }
+
+    @Test("Raw transport failures stay in the unreachable state")
+    func rawTransportFailuresStayUnreachable() {
+        for code in [
+            URLError.Code.secureConnectionFailed,
+            .appTransportSecurityRequiresSecureConnection,
+            .serverCertificateUntrusted,
+            .dnsLookupFailed,
+            .timedOut,
+        ] {
+            #expect(
+                MachinesPanelViewModel.classifyListFailure(URLError(code)) == .unreachable,
+                "\(code) is a transport failure without a usable Cloud response"
+            )
+        }
         #expect(
-            MachinesPanelViewModel.classifyListFailure(.malformedResponse("bad")) == .unreachable
+            MachinesPanelViewModel.classifyListFailure(URLError(.badURL)) == .serverError,
+            "A malformed client URL is not evidence that Cloud is unreachable"
         )
+        for code in [URLError.Code.cannotLoadFromNetwork, .resourceUnavailable] {
+            #expect(
+                MachinesPanelViewModel.classifyListFailure(URLError(code)) == .serverError,
+                "\(code) describes a local resource/cache failure, not transport"
+            )
+        }
     }
 
     /// No "detached" pill anywhere (austin, 2026-08-31): a pool terminal with no

@@ -129137,6 +129137,23 @@
         }
       }
     },
+    "machines.requiresPro.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud plan required — showing last known"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloudプランが必要です — 既知の状態を表示中"
+          }
+        }
+      }
+    },
     "machines.requiresPro.title": {
       "extractionState": "manual",
       "localizations": {
@@ -129205,6 +129222,23 @@
         }
       }
     },
+    "machines.sessionRejected.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud session rejected — showing last known"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラウドセッションが拒否されました — 既知の状態を表示中"
+          }
+        }
+      }
+    },
     "machines.sessionRejected.title": {
       "extractionState": "manual",
       "localizations": {
@@ -129218,6 +129252,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "再サインインが必要です"
+          }
+        }
+      }
+    },
+    "machines.serverError.retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行"
+          }
+        }
+      }
+    },
+    "machines.serverError.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your machines are still there. cmux couldn’t load them just now. Retry in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシンはそのまま残っています。cmux は今すぐ読み込めませんでした。しばらくしてから再試行してください。"
+          }
+        }
+      }
+    },
+    "machines.serverError.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud load failed — showing last known"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud の読み込みに失敗 — 最後に確認した状態を表示中"
+          }
+        }
+      }
+    },
+    "machines.serverError.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud couldn’t load machines"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cloud のマシンを読み込めません"
           }
         }
       }
