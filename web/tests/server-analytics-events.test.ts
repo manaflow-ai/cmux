@@ -233,6 +233,7 @@ describe("server event delivery", () => {
 
   test("allows HTTP only for the explicit loopback smoke harness", () => {
     expect(isAllowedPosthogHost("http://127.0.0.1:4318", { CMUX_SERVER_ANALYTICS_SMOKE: "1" })).toBe(true);
+    expect(isAllowedPosthogHost("http://[::1]:4318", { CMUX_SERVER_ANALYTICS_SMOKE: "1" })).toBe(true);
     expect(isAllowedPosthogHost("http://127.0.0.1:4318", {})).toBe(false);
     expect(isAllowedPosthogHost("http://posthog.example", { CMUX_SERVER_ANALYTICS_SMOKE: "1" })).toBe(false);
   });

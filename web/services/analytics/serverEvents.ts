@@ -196,7 +196,7 @@ export function isAllowedPosthogHost(
   try {
     const url = new URL(host);
     return url.protocol === "http:" &&
-      (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1") &&
+      (url.hostname === "127.0.0.1" || url.hostname === "localhost" || url.hostname === "::1" || url.hostname === "[::1]") &&
       !url.username && !url.password;
   } catch {
     return false;

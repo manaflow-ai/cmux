@@ -3,9 +3,10 @@
 CodeRouter usage is a ClickHouse concern. Do not build PostHog tiles from
 `$ai_generation`, `$ai_trace`, `$ai_span`, token properties, or cost fields.
 The ClickHouse tables are `coderouter.usage_events` (one row per completion)
-and `coderouter.route_events` (one row per routed request). Both tables carry
-the Stack user id when authentication succeeds, the billing team, provider,
-agent, model, status, latency, and Cloud VM id when bound.
+and `coderouter.route_events` (one row per routed request). `usage_events`
+carries token, pricing, model, and provider fields. `route_events` carries
+status, outcome, failure stage, duration, and provider fields. Both tables
+carry team, Stack user, agent, and optional Cloud VM attribution fields.
 
 PostHog remains useful for low-volume product lifecycle events:
 `coderouter_account_added`, `coderouter_account_removed`,
@@ -23,7 +24,7 @@ Example queries:
 
 ```sql
 SELECT toStartOfDay(event_time) AS day,
-       uniqExactIf(stack_user_id, stack_user_id IS NOT NULL) AS users,
+       uniqExactIf(stack_user_id, stack_user_id != '') AS users,
        count() AS completions,
        sum(total_tokens) AS tokens,
        sum(api_equivalent_usd) AS api_equivalent_usd
