@@ -459,6 +459,30 @@ struct SidebarAppKitRowCellTests {
     }
 
     @Test
+    func metadataEmojiReconfigurationResetsColor() throws {
+        let model = Self.makeModel()
+        let row = SidebarRowIconTextLine()
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: "text", value: "working", icon: "text:AI"),
+            model: model,
+            color: .systemRed,
+            onOpenURL: { _ in }
+        )
+
+        row.configureMetadataEntry(
+            SidebarStatusEntry(key: "emoji", value: "ready", icon: "emoji:🚀"),
+            model: model,
+            color: .systemBlue,
+            onOpenURL: { _ in }
+        )
+
+        let emojiLabel = try #require(
+            row.subviews.compactMap { $0 as? NSTextField }.first { $0.stringValue == "🚀" }
+        )
+        #expect(emojiLabel.textColor?.isEqual(NSColor.systemBlue) == true)
+    }
+
+    @Test
     func metadataStatusURLRendersAnActionBoundToItsDestination() throws {
         let url = try #require(URL(string: "https://example.com/issues/8520"))
         let model = Self.makeModel(
