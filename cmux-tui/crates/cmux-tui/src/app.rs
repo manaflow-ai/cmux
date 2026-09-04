@@ -15673,6 +15673,13 @@ impl App {
     }
 
     fn retire_surface_state(&mut self, surface: SurfaceId) {
+        // Surface removal is a pointer-topology boundary for any gesture
+        // whose target was this surface. Cancel it before clearing selection
+        // metadata or the surface handle, so browser/PTY releases can still
+        // be attempted and the physical button release remains fenced.
+        if self.surface_owns_pointer_interaction(surface) {
+            self.cancel_pointer_interaction();
+        }
         if self
             .selection_click_sequence
             .as_ref()
@@ -15717,6 +15724,38 @@ impl App {
             self.last_browser_hover = None;
         }
         self.browser_input.forget_surface(surface);
+    }
+
+    /// Return whether the current pointer capture or selection state names a
+    /// surface that is about to leave the cached tree. Most native drags keep
+    /// their target explicitly; selection keeps it in the click sequence or
+    /// mode state, so include those fields as well.
+    fn surface_owns_pointer_interaction(&self, surface: SurfaceId) -> bool {
+        let drag_owns_surface = match self.drag.as_ref() {
+            Some(
+                Drag::TabArm { surface: active, .. }
+                | Drag::Tab { surface: active, .. }
+                | Drag::Browser { surface: active, .. }
+                | Drag::PtyMouse { surface: active, .. }
+                | Drag::Scrollbar { surface: active, .. },
+            ) => *active == surface,
+            Some(Drag::Select { .. }) => {
+                self.selection_mode_surface == Some(surface)
+                    || self
+                        .selection_click_sequence
+                        .as_ref()
+                        .is_some_and(|sequence| sequence.surface == surface)
+                    || self.selection.as_ref().is_some_and(|selection| selection.surface == surface)
+            }
+            _ => false,
+        };
+        drag_owns_surface
+            || self
+                .selection_click_sequence
+                .as_ref()
+                .is_some_and(|sequence| sequence.surface == surface)
+            || self.selection_mode_surface == Some(surface)
+            || self.selection.as_ref().is_some_and(|selection| selection.surface == surface)
     }
 
     fn rebuild_tab_locations(&mut self) {
@@ -29251,7 +29290,7 @@ mod tests {
     use ghostty_vt::{
         CursorShape, KeyEncoder, KeyInput, KittyGraphicsSnapshot, KittyImage, KittyImageFormat,
         KittyPlacement, KittyPlacementKey, Mods, MouseAction, MouseButton as GhosttyMouseButton,
-        MouseInput, RenderState, Rgb, Screen,
+        MouseInput, RenderState, Rgb, Screen, Scrollbar,
     };
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -53383,6 +53422,100 @@ mod tests {
             .accepted
         );
         assert!(app.pty_input.shutdown(Duration::from_secs(1)));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_cancels_selection_and_scrollbar_pointer_captures() {
+        let mux = Mux::new("retired-surface-pointer-capture-test", SurfaceOptions::default());
+        let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+
+        app.selection_mode_surface = Some(surface.id);
+        app.selection = Some(Selection { surface: surface.id, anchor: (2, 3), head: (5, 3) });
+        app.drag = Some(Drag::Select {
+            content: Rect { x: 2, y: 2, width: 40, height: 12 },
+            source_x: 0,
+            auto_scroll: Some(1),
+            col: 5,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.drag.is_none(), "selection capture must end with its surface");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        // A terminal scrollbar is a separate surface-owned native capture.
+        // Exercise it after restoring a minimal surface-local setup so this
+        // test protects both variants of the same retirement invariant.
+        app.drag = Some(Drag::Scrollbar {
+            surface: surface.id,
+            track: Rect { x: 40, y: 2, width: 1, height: 10 },
+            anchor_y: 4,
+            anchor_offset: 2,
+            position_y: 4,
+            scrollbar: Scrollbar { total: 100, offset: 2, len: 10 },
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        app.retire_surface_state(surface.id);
+
+        assert!(app.drag.is_none(), "terminal scrollbar capture must end with its surface");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn retiring_surface_releases_browser_pointer_capture_before_forgetting_it() {
+        let mux = Mux::new("retired-browser-pointer-capture-test", SurfaceOptions::default());
+        let surface = mux.new_browser_tab("about:blank".to_string(), None, Some((20, 8))).unwrap();
+        let (dispatcher, received) = BrowserInputDispatcher::blocked(1);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.browser_input = dispatcher;
+        assert!(app.browser_input.enqueue(BrowserInputEvent {
+            surface_id: surface.id,
+            surface: app.session.surface(surface.id).unwrap(),
+            kind: BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x: 3.0,
+                y: 2.0,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: 1,
+            },
+        }));
+        assert!(matches!(
+            received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
+            Ok(BrowserInputKind::Mouse {
+                event_type: "mousePressed",
+                x,
+                y,
+                button: Some("left"),
+                click_count: Some(1),
+                frame_seq: 1,
+            }) if x == 3.0 && y == 2.0
+        ));
+        app.drag = Some(Drag::Browser {
+            surface: surface.id,
+            content: Rect { x: 2, y: 2, width: 20, height: 8 },
+            position: (5, 5),
+            frame_seq: 1,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.retire_surface_state(surface.id);
+
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
+        assert!(matches!(
+            received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
+            Ok(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+        ));
+
         mux.close_surface(surface.id).unwrap();
     }
 
