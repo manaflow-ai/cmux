@@ -327,14 +327,14 @@ extension MobileHostIrxRuntime {
     ) -> CmxIrohSettingsSnapshot.RuntimeStatus {
         switch phase {
         case .idle:
-            .inactive
+            return .inactive
         case .activating:
-            .starting
+            return .starting
         case .failed:
-            .degraded
+            return .degraded
         case .active:
             guard endpointOnline else { return .starting }
-            CmxIrohSettingsSnapshot.RuntimeStatus(activePath: selectedPath)
+            return CmxIrohSettingsSnapshot.RuntimeStatus(activePath: selectedPath)
         }
     }
 
