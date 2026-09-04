@@ -195,6 +195,15 @@ jobs:
         run: |
           ./scripts/install-rust-ci.sh
 
+      - name: Install fish for remote initial-command tests
+        if: ${{ steps.filter.outputs.target == 'cmuxTests' && startsWith(steps.filter.outputs.filter, 'RemoteInitialCommandBootstrapFailureTests') }}
+        run: |
+          set -euo pipefail
+          if ! command -v fish >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install fish
+          fi
+          command -v fish
+
       - name: Create virtual display
         if: ${{ steps.filter.outputs.target == 'cmuxUITests' && steps.filter.outputs.filter != 'DisplayResolutionRegressionUITests' }}
         run: |
