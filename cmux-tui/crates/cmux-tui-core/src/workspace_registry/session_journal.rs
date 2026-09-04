@@ -1449,7 +1449,9 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         expected_bytes <= MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES,
         "journal segment {segment_id} exceeds the uncompressed size limit"
     );
-    let decoder = GzDecoder::new(BufReader::new(compressed.as_slice()));
+    // Feed the in-memory slice directly to the buffered decoder so its
+    // returned reader is the exact unread compressed suffix.
+    let decoder = GzDecoder::new(compressed.as_slice());
     // Decode directly from the bounded gzip stream. This avoids allocating a
     // second buffer the size of the complete segment before JSON parsing.
     let mut reader = BufReader::new(DigestReader::new(
