@@ -64,6 +64,8 @@ The auth regression tests live in `web/tests/vm-route-auth.test.ts`. They verify
   fingerprint, the client's **public** key, and its address inside the network. No private
   key is ever sent to or stored by the backend.
 
+Every create row gets a `slug`, a generated `adjective-color-animal` name (`sleepy-teal-otter`, `services/vms/vmNaming.ts`) picked inside the create transaction and never changed afterwards. It is unique among the team's live rows (`provisioning`, `running`, `paused`) via a partial unique index, so a destroyed or failed machine releases its name. Clients show it when no `display_name` is set; the provider VM id stays the machine's address. The same name is sent to the provider as its console label.
+
 Create idempotency is enforced by the partial unique index on `(user_id, idempotency_key)`. A retry with the same key returns the existing VM after provisioning succeeds. A concurrent retry while the first create is still provisioning returns `409` instead of starting a second paid provider VM.
 
 Active VM limits are enforced inside the same Postgres transaction that inserts the create row. The transaction takes a billing-team advisory lock before counting active VMs, so two concurrent creates for the same team cannot both pass the free-plan limit.
