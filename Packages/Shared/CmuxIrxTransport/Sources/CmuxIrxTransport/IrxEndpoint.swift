@@ -277,7 +277,9 @@ public actor IrxEndpointSupervisor {
         // old stack's launch race; callers await readiness instead. Bounded:
         // a relay that never admits us (e.g. a silently refused wrong-key
         // token) must fail the bind loudly, not hang activation forever.
-        let cameOnline = try await withIrxDeadline(.seconds(20)) {
+        let cameOnline = try await withIrxDeadline(.seconds(20), onTimeout: {
+            try? await bound.close()
+        }) {
             await bound.online()
             return true
         }

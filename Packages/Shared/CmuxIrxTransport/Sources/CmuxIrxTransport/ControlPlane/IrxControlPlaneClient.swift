@@ -304,7 +304,7 @@ public actor IrxControlPlaneClient {
         let task = URLSession.shared.webSocketTask(with: request)
         socket = task
         lastAckedRev = nil
-        lastActivityAt = .now
+        lastActivityAt = nil
         task.resume()
         defer {
             if socket === task {

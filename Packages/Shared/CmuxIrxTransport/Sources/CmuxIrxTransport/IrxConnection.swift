@@ -259,7 +259,9 @@ public actor IrxConnection {
                 let sentAt = DispatchTime.now()
                 do {
                     try await lane.writer.writeControlFrame(IrxPing(seq: seq, pong: false))
-                    let pong = try await withIrxDeadline(deadline) {
+                    let pong = try await withIrxDeadline(deadline, onTimeout: {
+                        await lane.reader.stop()
+                    }) {
                         () -> IrxPing? in
                         while true {
                             guard
@@ -400,55 +402,5 @@ public actor IrxConnection {
             return IrxTermination(origin: .remote, code: code.rawValue)
         }
         return IrxTermination(origin: .transport, code: "connection-lost(\(rendered.prefix(80)))")
-    }
-}
-
-private enum IrxDeadlineOutcome<Value: Sendable>: Sendable {
-    case operation(Value?)
-    case timeout
-}
-
-/// Bounded deadline for one async operation. The result race owns the deadline
-/// independently from the operation, so a lower-level read that ignores task
-/// cancellation cannot strand its caller past the deadline. The losing task
-/// is cancelled when the stream terminates; its resource owner remains
-/// responsible for closing any underlying transport.
-public func withIrxDeadline<T: Sendable>(
-    _ limit: Duration,
-    operation: @escaping @Sendable () async throws -> T?
-) async throws -> T? {
-    let outcomes = AsyncThrowingStream<IrxDeadlineOutcome<T>, any Error> { continuation in
-        let operationTask = Task {
-            do {
-                continuation.yield(.operation(try await operation()))
-                continuation.finish()
-            } catch {
-                continuation.finish(throwing: error)
-            }
-        }
-        let timeoutTask = Task {
-            do {
-                try await Task.sleep(for: limit)
-                continuation.yield(.timeout)
-                continuation.finish()
-            } catch {
-                // Cancellation means the operation won the race.
-            }
-        }
-        continuation.onTermination = { _ in
-            operationTask.cancel()
-            timeoutTask.cancel()
-        }
-    }
-
-    var iterator = outcomes.makeAsyncIterator()
-    guard let outcome = try await iterator.next() else {
-        return nil
-    }
-    switch outcome {
-    case .operation(let value):
-        return value
-    case .timeout:
-        return nil
     }
 }

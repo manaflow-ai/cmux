@@ -8,21 +8,20 @@ struct IrxProtocolTests {
     @Test("deadline returns when the operation ignores cancellation")
     func deadlineReturnsWhenOperationIgnoresCancellation() async throws {
         let gate = IrxDeadlineGate()
-        let release = Task {
-            try? await Task.sleep(for: .milliseconds(150))
-            await gate.open()
-        }
         let startedAt = DispatchTime.now().uptimeNanoseconds
 
-        let result = try await withIrxDeadline(.milliseconds(20)) {
+        let result = try await withIrxDeadline(.milliseconds(20), onTimeout: {
+            await gate.open()
+        }) {
             await gate.wait()
+            await gate.markFinished()
             return "late"
         }
 
         let elapsed = DispatchTime.now().uptimeNanoseconds - startedAt
         #expect(result == nil)
         #expect(elapsed < 100_000_000)
-        await release.value
+        await gate.waitUntilFinished()
     }
 
     @Test("control frames round-trip through the codec")
@@ -77,20 +76,6 @@ struct IrxProtocolTests {
             IrxLaneDescriptor.self, from: encoded.dropFirst(4))
         #expect(decoded == descriptor)
         #expect(decoded.cursor == 42)
-    }
-}
-
-private actor IrxDeadlineGate {
-    private var isOpen = false
-
-    func wait() async {
-        while !isOpen {
-            await Task.yield()
-        }
-    }
-
-    func open() {
-        isOpen = true
     }
 }
 
