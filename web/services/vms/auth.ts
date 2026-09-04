@@ -34,6 +34,7 @@ import {
 
 export type AuthedUser = {
   id: string;
+  isAnonymous?: boolean;
   displayName: string | null;
   primaryEmail: string | null;
   billingCustomerType: "team" | "user";
@@ -770,6 +771,7 @@ async function authedUserFromStackUser(
   return {
     user: {
       id: user.id,
+      isAnonymous: user.isAnonymous === true,
       displayName: user.displayName,
       primaryEmail: user.primaryEmail,
       billingCustomerType: billingTeam ? "team" : "user",

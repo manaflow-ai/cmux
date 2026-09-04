@@ -39,13 +39,15 @@ export const DEVELOPMENT_STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd989
 
 /**
  * Local development accounts are Pro by default. This is intentionally tied
- * to both Next's development runtime and the non-production Stack project so
- * a misconfigured preview or production process cannot grant access.
+ * to the local launcher, Next's development runtime, and the non-production
+ * Stack project so a misconfigured preview or production process cannot grant
+ * access.
  */
 export function isDevelopmentProAccessEnabled(
   env: Record<string, string | undefined> = process.env,
 ): boolean {
   return env.NODE_ENV === "development" &&
+    env.CMUX_LOCAL_DEV_PRO === "1" &&
     !env.VERCEL_ENV &&
     env.NEXT_PUBLIC_STACK_PROJECT_ID === DEVELOPMENT_STACK_PROJECT_ID;
 }

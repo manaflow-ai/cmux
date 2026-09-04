@@ -55,7 +55,7 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
-  if (isDevelopmentProAccessEnabled(env)) {
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(env)) {
     return {
       planId: PRO_PLAN_ID,
       billingCustomerType: billing.billingCustomerType,

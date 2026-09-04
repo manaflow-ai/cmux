@@ -29,6 +29,7 @@ describe("Cloud VM Pro gate", () => {
       billingSeats: null,
     }, {
       NODE_ENV: "development",
+      CMUX_LOCAL_DEV_PRO: "1",
       NEXT_PUBLIC_STACK_PROJECT_ID: "454ecd03-1db2-4050-845e-4ce5b0cd9895",
     });
     expect(entitlements.planId).toBe(PRO_PLAN_ID);
