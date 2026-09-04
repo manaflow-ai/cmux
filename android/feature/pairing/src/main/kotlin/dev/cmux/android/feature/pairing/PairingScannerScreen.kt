@@ -19,7 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
-import dev.cmux.android.BuildConfig
+import dev.cmux.android.feature.pairing.BuildConfig
 
 @Composable
 fun PairingScannerScreen(
