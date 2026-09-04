@@ -603,6 +603,7 @@ struct CMUXMobileRootView: View {
                 if result == .connected {
                     dismissAddDeviceSheet()
                 }
+                return result
             },
             connectManualHost: { name, host, port in
                 await store.connectManualHost(name: name, host: host, port: port)

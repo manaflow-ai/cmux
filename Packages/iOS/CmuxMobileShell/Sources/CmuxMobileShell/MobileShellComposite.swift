@@ -2610,18 +2610,18 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     }
 
     /// Connect using the current pairing input, accepting either a code or pairing URL.
-    public func connectPairingInput() async {
+    public func connectPairingInput() async -> MobilePairingURLConnectionResult {
         let trimmedCode = pairingCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCode.isEmpty else {
-            return
+            return .failed
         }
         if CmxPairingURLScheme(urlString: trimmedCode) != nil {
             // The pairing input field is an explicit in-app code entry (scan
             // or paste), the act that authorizes a compatibility Tailscale dial.
-            await connectPairingURLResult(trimmedCode, userEnteredPairingCode: true)
-            return
+            return await connectPairingURLResult(trimmedCode, userEnteredPairingCode: true)
         }
         connectPreviewHost()
+        return .connected
     }
 
     /// Connect to a manually-entered Mac host and optionally associate the
