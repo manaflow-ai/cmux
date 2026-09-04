@@ -218,15 +218,19 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
     private static func drain(storage: Storage, sink: MobileDebugLogSink) async {
         while let batch = await storage.nextBatch() {
             for entry in batch {
-                switch entry {
-                case .line(let message):
-                    await sink.append(message)
-                case .batch(let messages):
-                    await sink.appendBatch(messages)
-                case .barrier(let acknowledgement):
-                    acknowledgement.signal()
+                await drain(entry, to: sink)
             }
         }
     }
-}
+
+    private static func drain(_ entry: Entry, to sink: MobileDebugLogSink) async {
+        switch entry {
+        case .line(let message):
+            await sink.append(message)
+        case .batch(let messages):
+            await sink.appendBatch(messages)
+        case .barrier(let acknowledgement):
+            acknowledgement.signal()
+        }
+    }
 }
