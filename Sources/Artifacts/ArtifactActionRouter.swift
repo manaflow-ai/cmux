@@ -72,7 +72,10 @@ struct ArtifactActionRouter {
         if let descriptorData = try? JSONEncoder().encode(descriptor) {
             provider.registerDataRepresentation(
                 forTypeIdentifier: artifactPasteboardType.rawValue,
-                visibility: .all
+                // The private descriptor is an in-process hint only. External
+                // consumers receive the validated URL/file/text fallbacks
+                // below, never a catalog identity they could replay later.
+                visibility: .ownProcess
             ) { completion in
                 completion(descriptorData, nil)
                 return nil
@@ -144,7 +147,7 @@ struct ArtifactActionRouter {
             artifactID: record.id,
             suggestedFileName: suggestedName(for: record),
             urlString: urlString,
-            plainText: record.copyValue,
+            plainText: String(decoding: Array(record.copyValue.utf8.prefix(4_096)), as: UTF8.self),
             contentTypeIdentifier: record.kind.rawValue
         )
     }
