@@ -1,3 +1,5 @@
+import { AuthThemeScript } from "./theme-script";
+
 export const instant = false;
 
 /**
@@ -10,5 +12,10 @@ export default function HandlerLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  return (
+    <>
+      <AuthThemeScript />
+      {children}
+    </>
+  );
 }

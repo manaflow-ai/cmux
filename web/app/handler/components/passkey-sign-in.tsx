@@ -26,7 +26,7 @@ export function PasskeySignIn({
   const [state, setState] = useState<"idle" | "working" | "unsupported">("idle");
 
   if (state === "unsupported") {
-    return <p className="text-[13px] text-muted">{intl.unsupported}</p>;
+    return <span className="text-muted">{intl.unsupported}</span>;
   }
 
   return (
@@ -41,7 +41,7 @@ export function PasskeySignIn({
         setState("working");
         void runPasskeySignIn(returnTo).catch(() => setState("idle"));
       }}
-      className="flex min-h-10 w-full items-center justify-center border border-border px-4 text-sm font-medium text-foreground hover:bg-code-bg disabled:opacity-60"
+      className="underline decoration-link-underline underline-offset-2 hover:text-foreground disabled:no-underline disabled:opacity-60"
     >
       {state === "working" ? intl.working : intl.label}
     </button>

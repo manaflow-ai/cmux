@@ -115,9 +115,9 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
       </form>
 
       {emailOnly ? null : (
-        <div className="mt-3 flex flex-col gap-2">
+        <div className="mt-4 flex items-center justify-center gap-3 text-[13px] text-muted">
           <Link
-            className="flex min-h-10 w-full items-center justify-center border border-border px-4 text-sm font-medium text-foreground no-underline hover:bg-code-bg"
+            className="underline decoration-link-underline underline-offset-2 hover:text-foreground"
             href={authPageHref("/handler/sign-in", {
               returnTo: safeReturnTo,
               email: email || null,
@@ -126,6 +126,7 @@ export default async function SignInPage({ searchParams }: SignInPageProps) {
           >
             {usePassword ? intl.t("useEmailCode") : intl.t("usePassword")}
           </Link>
+          <span aria-hidden>·</span>
           <PasskeySignIn
             intl={{
               label: intl.t("passkeySubmit"),
