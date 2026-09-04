@@ -339,11 +339,8 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     let selectable_rows = rows.len().saturating_add(actions.len());
     let (selected, viewport) = {
         let state = app.projection_rail_state_mut(view_index);
-        state.selected = state.selected.min(rows.len().saturating_sub(1));
-        state.selected_action = state
-            .selected_action
-            .map(|index| index.min(actions.len().saturating_sub(1)))
-            .filter(|_| !actions.is_empty());
+        state.reconcile_action_selection(actions.len());
+        state.reconcile_selection(&rows);
         let selected = state
             .selected_action
             .map(|index| rows.len().saturating_add(index))
