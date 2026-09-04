@@ -57,6 +57,13 @@ if ! grep -q '^STACK_SUPER_SECRET_ADMIN_KEY=' "$cmux_secret_file"; then
   unset STACK_SUPER_SECRET_ADMIN_KEY
 fi
 
+# Local and remote development backends are test environments. Give their
+# authenticated users the Pro VM entitlement so the desktop dev build can
+# exercise Cloud flows without a billing prompt. Production and Vercel
+# processes do not source this file, and the explicit 0 override remains
+# available for plan-gating tests.
+export CMUX_LOCAL_DEV_PRO="${CMUX_LOCAL_DEV_PRO:-1}"
+
 # Vercel intentionally redacts sensitive values when an environment is pulled.
 # Recover the staging relay signer from a chmod-600 local file so downloaded
 # environments cannot silently start a web server that never publishes Iroh.
