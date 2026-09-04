@@ -713,6 +713,26 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
             }
+            if machine.freeAccess != .expired {
+                let diskMenu = NSMenu()
+                diskMenu.autoenablesItems = false
+                for gib in [64, 128, 256] {
+                    let diskItem = item(String(format: String(localized: "machines.menu.increaseDiskTo", defaultValue: "Increase to %d GiB"), gib)) {
+                        actions.resizeDisk(id, gib)
+                    }
+                    if let current = machine.stats?.diskTotalMb, current >= gib * 1024 {
+                        diskItem.isEnabled = false
+                    }
+                    diskMenu.addItem(diskItem)
+                }
+                let diskRoot = NSMenuItem(
+                    title: String(localized: "machines.menu.increaseDisk", defaultValue: "Increase Disk"),
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                diskRoot.submenu = diskMenu
+                items.append(diskRoot)
+            }
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
