@@ -3,7 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import enMessages from "../messages/en.json";
 
 const authorizationFailure = new Error("Stack authorization deadline exceeded");
+const pendingAuthorization = new Promise<never>(() => {});
 let authorizationAvailable = false;
+let authorizationPending = false;
 let authJsonAvailable = true;
 let cutoverReady = true;
 let hostedControlConfigured = true;
@@ -13,6 +15,7 @@ let coderouterAccounts: unknown[] = [];
 const renderedCoderouterAccounts: { count: number; loadFailed: boolean }[] = [];
 let selectedTeamId: string | null = "team-1";
 let scopedTeamId: string | null = null;
+let authorizationCalls = 0;
 let authorizedTeams: Array<{
   teamId: string;
   teamName: string;
@@ -26,7 +29,6 @@ let authorizedTeams: Array<{
   manageAccounts: true,
 }];
 const metricsTeamIds: string[] = [];
-const requestBoundaryEvents: string[] = [];
 
 mock.module("next-intl/server", () => ({
   getTranslations: async (input?: string | { namespace?: string }) =>
@@ -35,9 +37,6 @@ mock.module("next-intl/server", () => ({
 }));
 
 mock.module("next/server", () => ({
-  connection: async () => {
-    requestBoundaryEvents.push("connection");
-  },
   // The usage ledger defers its ClickHouse insert past the response with
   // `after`; the render under test only needs the callback to be accepted.
   after: (task: () => unknown) => {
@@ -47,7 +46,6 @@ mock.module("next/server", () => ({
 
 mock.module("next/headers", () => ({
   headers: async () => {
-    requestBoundaryEvents.push("headers");
     return new Headers(
       scopedTeamId
         ? {
@@ -58,6 +56,10 @@ mock.module("next/headers", () => ({
         : undefined,
     );
   },
+}));
+
+mock.module("next/cache", () => ({
+  cacheLife: () => undefined,
 }));
 
 mock.module("next/navigation", () => ({
@@ -85,12 +87,20 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   getStackServerApp: () => ({
     getAuthJson: async () => {
-      requestBoundaryEvents.push("stack");
       if (!authJsonAvailable) throw new Error("Stack refresh unavailable");
       return { accessToken: "test-access-token" };
     },
   }),
 }));
+
+mock.module(
+  "../app/[locale]/dashboard/components/dashboard-page-headers",
+  () => ({
+    CoderouterPageHeader: () => (
+      <h1 data-testid="coderouter-page-header">coderouter</h1>
+    ),
+  }),
+);
 
 class TestSubrouterAuthorizationUnavailableError extends Error {}
 
@@ -101,11 +111,12 @@ mock.module("../services/vms/auth", () => ({
   withSubrouterAuthorizationDeadline: async (
     operation: (signal: AbortSignal) => Promise<unknown>,
   ) => {
+    if (authorizationPending) return pendingAuthorization;
     if (!authorizationAvailable) throw authorizationFailure;
     return await operation(new AbortController().signal);
   },
   verifySubrouterRequest: async () => {
-    requestBoundaryEvents.push("verify");
+    authorizationCalls += 1;
     return { id: "user-1", selectedTeamId };
   },
   SubrouterAuthorizationUnavailableError:
@@ -258,13 +269,14 @@ mock.module("../app/[locale]/dashboard/components/claude-upstream-forms", () => 
   ClaudeUpstreamSection: () => null,
 }));
 
-const { default: CoderouterOverviewPage } = await import(
+const { default: CoderouterOverviewPage, CoderouterOverviewContent } = await import(
   "../app/[locale]/dashboard/coderouter/page"
 );
 
 describe("coderouter dashboard", () => {
   beforeEach(() => {
     authorizationAvailable = false;
+    authorizationPending = false;
     authJsonAvailable = true;
     cutoverReady = true;
     hostedControlConfigured = true;
@@ -275,9 +287,9 @@ describe("coderouter dashboard", () => {
     metricsTeamIds.length = 0;
     machineMetricsCalls.length = 0;
     machineMetricsKind = "ready";
-    requestBoundaryEvents.length = 0;
     selectedTeamId = "team-1";
     scopedTeamId = null;
+    authorizationCalls = 0;
     authorizedTeams = [{
       teamId: "team-1",
       teamName: "Team One",
@@ -286,32 +298,27 @@ describe("coderouter dashboard", () => {
     }];
   });
 
-  test("opts out of prerendering before reading request headers or Stack session state", async () => {
-    // With cacheComponents, Next runs this page during a prerender and a
-    // runtime prefetch, where headers() resolves but sync randomness (the
-    // Stack SDK's UUID generator) aborts with "blocking-prerender-crypto".
-    // connection() must be awaited before any of that work starts.
-    authorizationAvailable = true;
+  test("keeps the page header hidden until the private page content is ready", () => {
+    authorizationPending = true;
 
-    await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
-    });
-
-    expect(requestBoundaryEvents[0]).toBe("connection");
-    expect(requestBoundaryEvents).toEqual(
-      ["connection", "headers", "verify", "stack"],
+    const html = renderToStaticMarkup(
+      <CoderouterOverviewPage
+        params={Promise.resolve({ locale: "en" })}
+        searchParams={Promise.resolve({})}
+      />,
     );
+
+    expect(html).not.toContain('data-testid="coderouter-page-header"');
   });
 
   test("renders recovery UI when Stack authorization is unavailable", async () => {
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
     expect(html).toContain("Accounts could not load");
+    expect(html).toContain('data-testid="coderouter-page-header"');
     expect(html).toContain(
       "The account service could not be reached. Try again shortly.",
     );
@@ -322,9 +329,8 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     cutoverReady = false;
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
@@ -339,9 +345,8 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     authJsonAvailable = false;
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
@@ -356,9 +361,8 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     hostedControlConfigured = false;
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
     });
     const html = renderToStaticMarkup(page);
 
@@ -369,9 +373,9 @@ describe("coderouter dashboard", () => {
   test("renders aggregate metrics only for the authorized selected team", async () => {
     authorizationAvailable = true;
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({ team: "team-1" }),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
     });
     const html = renderToStaticMarkup(page);
 
@@ -389,9 +393,9 @@ describe("coderouter dashboard", () => {
       { id: "acct-2", provider: "codex", providerAccountId: "u2", label: "b@x.dev", state: "active", credentialExpiresAt: null, lastFailureCode: null, cooldownUntil: null, activeSessions: 0 },
     ];
     authorizationAvailable = true;
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({ team: "team-1" }),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
     });
     renderToStaticMarkup(page);
     expect(coderouterAccountCalls).toEqual(["team-1"]);
@@ -401,9 +405,9 @@ describe("coderouter dashboard", () => {
   test("renders the Machines card for owned machines only", async () => {
     authorizationAvailable = true;
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({ team: "team-1" }),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
     });
     const html = renderToStaticMarkup(page);
 
@@ -420,9 +424,9 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     machineMetricsKind = "unavailable";
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({ team: "team-1" }),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
     });
     const html = renderToStaticMarkup(page);
 
@@ -448,9 +452,8 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    await CoderouterOverviewContent({
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["team-2"]);
@@ -475,9 +478,8 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    await CoderouterOverviewContent({
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["team-2"]);
@@ -503,9 +505,8 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    await CoderouterOverviewContent({
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["user-1"]);
@@ -531,12 +532,29 @@ describe("coderouter dashboard", () => {
       },
     ];
 
-    await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({}),
+    await CoderouterOverviewContent({
+      locale: "en",
     });
 
     expect(metricsTeamIds).toEqual(["user-1"]);
+  });
+
+  test("rechecks live team grants before rendering the page", async () => {
+    authorizationAvailable = true;
+
+    await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
+    });
+    expect(authorizationCalls).toBe(1);
+
+    authorizedTeams = [];
+    await expect(
+      CoderouterOverviewContent({ locale: "en", team: "team-1" }),
+    ).rejects.toThrow("unexpected redirect to /dashboard");
+
+    expect(authorizationCalls).toBe(2);
+    expect(metricsTeamIds).toEqual(["team-1"]);
   });
 });
 
