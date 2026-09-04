@@ -93,11 +93,7 @@ const WRITER_DATA_BYTE_CAP: u64 = (MAX_TUNNEL_FRAME_BYTES as u64 + HEADER_BYTES 
 const WRITER_QUEUE_BYTE_CAP: u64 = WRITER_DATA_BYTE_CAP + WRITER_CONTROL_BYTE_RESERVE;
 
 fn writer_queue_byte_limit(control: bool) -> u64 {
-    if control {
-        WRITER_QUEUE_BYTE_CAP
-    } else {
-        WRITER_DATA_BYTE_CAP
-    }
+    if control { WRITER_QUEUE_BYTE_CAP } else { WRITER_DATA_BYTE_CAP }
 }
 
 fn is_encoded_control_frame(frame: &[u8]) -> bool {
