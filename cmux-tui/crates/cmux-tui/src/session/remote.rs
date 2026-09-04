@@ -4152,11 +4152,12 @@ fn reject_extended_acl(directory: &fs::File) -> io::Result<()> {
     let mut entry_id = 0;
     loop {
         let status = unsafe { acl_get_entry(acl.0, entry_id, &mut entry) };
-        if status == 0 {
-            return Ok(());
-        }
-        if status < 0 {
-            return Err(io::Error::last_os_error());
+        if status != 0 {
+            let error = io::Error::last_os_error();
+            if error.raw_os_error() == Some(libc::EINVAL) {
+                return Ok(());
+            }
+            return Err(error);
         }
         let mut tag = 0;
         if unsafe { acl_get_tag_type(entry, &mut tag) } != 0 {
@@ -5400,7 +5401,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let dump_path = root.path().join("dumps");
         let directory = private_dump_directory(&dump_path).unwrap();
-        let final_path = dump_path.join("mirror.txt");
+        let final_path = dump_path.join(".cmux-dump-files/mirror.txt");
         fs::create_dir(&final_path).unwrap();
 
         let error =
