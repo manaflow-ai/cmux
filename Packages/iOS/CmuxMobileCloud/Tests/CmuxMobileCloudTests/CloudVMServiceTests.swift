@@ -19,6 +19,27 @@ struct CloudVMServiceTests {
         #expect(machines.isEmpty)
         #expect(TeamHeaderURLProtocol.capturedRequest()?.value(forHTTPHeaderField: "X-Cmux-Team-Id") == "team-123")
     }
+
+    @Test func prefersOneCoherentTokenPair() async throws {
+        TeamHeaderURLProtocol.reset()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TeamHeaderURLProtocol.self]
+        let service = CloudVMService(
+            baseURL: "https://cmux.example",
+            tokens: CloudAPITokenSource(
+                accessToken: { nil },
+                refreshToken: { nil },
+                coherentTokenPair: { (accessToken: "coherent-access", refreshToken: "coherent-refresh") }
+            ),
+            sessionConfiguration: configuration
+        )
+
+        _ = try await service.listMachines()
+
+        let request = try #require(TeamHeaderURLProtocol.capturedRequest())
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer coherent-access")
+        #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "coherent-refresh")
+    }
 }
 
 private final class TeamHeaderURLProtocol: URLProtocol, @unchecked Sendable {
