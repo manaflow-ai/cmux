@@ -102,6 +102,18 @@ import Testing
         for second in stride(from: UInt64(10), through: 200, by: 30) {
             #expect(policy.decide(dialFailed(at: second, failure: .policyUnavailable)) == nil)
         }
+
+        _ = policy.decide(DiagnosticEvent(
+            code: .reachabilityChanged,
+            tNanos: 201 * Self.second,
+            a: 1
+        ))
+        let firstOnlineFailure = policy.decide(dialFailed(
+            at: 202,
+            failure: .policyUnavailable
+        ))
+        #expect(firstOnlineFailure?.kind == .failure)
+        #expect(firstOnlineFailure?.consecutiveFailures == 1)
     }
 
     @Test func macHostConfigurationUsesSamplingAndLongerGates() {
@@ -171,6 +183,44 @@ import Testing
         // or unbounded sampler.
         #expect(firstCapturedPositions.count > 10)
         #expect(firstCapturedPositions.count < 120)
+    }
+
+    @Test func fractionalOutageSamplingIsDeterministicAndBounded() {
+        let configuration = TransportIncidentPolicy.Configuration(
+            signatureCooldown: 0,
+            hourlyCaptureLimit: 2_000,
+            outageFailureThreshold: 1,
+            outageMinimumDuration: 0,
+            outageRearmInterval: 0,
+            failureSampleRate: 0.05,
+            outageSampleRate: 0.25
+        )
+        var firstPolicy = TransportIncidentPolicy(
+            configuration: configuration,
+            locale: englishLocale
+        )
+        var secondPolicy = TransportIncidentPolicy(
+            configuration: configuration,
+            locale: englishLocale
+        )
+        var firstCapturedPositions: [Int] = []
+        var secondCapturedPositions: [Int] = []
+        for index in 0 ..< 1_000 {
+            let event = dialFailed(
+                at: UInt64(index + 1),
+                attempt: index
+            )
+            if firstPolicy.decide(event)?.kind == .outage {
+                firstCapturedPositions.append(index)
+            }
+            if secondPolicy.decide(event)?.kind == .outage {
+                secondCapturedPositions.append(index)
+            }
+        }
+
+        #expect(firstCapturedPositions == secondCapturedPositions)
+        #expect(firstCapturedPositions.count > 120)
+        #expect(firstCapturedPositions.count < 380)
     }
 
     @Test func idleTimeoutSuppressedInBackground() {
