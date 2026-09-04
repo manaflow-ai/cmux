@@ -485,9 +485,21 @@ struct VMTunnelManager: Sendable {
             matches.append(interface)
         }
 
-        if matches.count == 1 { return matches[0] }
-        let sizedMatches = matches.filter {
-            Int64($0.utf8.count + 1) == markerByteCount
+        return Self.selectRuntimeInterface(
+            markerByteCount: markerByteCount,
+            candidates: matches
+        )
+    }
+
+    /// Selects one timestamp-matched `utunN` only when its marker-size invariant
+    /// also agrees. A stale marker must never borrow a newly-created socket just
+    /// because its own socket disappeared during the two-second timestamp window.
+    static func selectRuntimeInterface(markerByteCount: Int64, candidates: [String]) -> String? {
+        let sizedMatches = candidates.filter { interface in
+            // wireguard-go writes the interface name followed by a newline;
+            // require that exact size so a stale marker cannot match a
+            // different interface whose name happens to have the same length.
+            markerByteCount == Int64(interface.utf8.count + 1)
         }
         return sizedMatches.count == 1 ? sizedMatches[0] : nil
     }

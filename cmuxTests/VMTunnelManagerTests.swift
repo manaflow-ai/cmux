@@ -181,6 +181,25 @@ struct VMTunnelManagerTests {
     }
 
     @Test
+    func runtimeMarkerSelectionRejectsAStaleSingleTimestampMatch() {
+        // `utun10` is the only timestamp match, but a stale marker containing
+        // `utun9` has six bytes (including its newline), so it cannot claim it.
+        #expect(VMTunnelManager.selectRuntimeInterface(
+            markerByteCount: 6,
+            candidates: ["utun10"]
+        ) == nil)
+        #expect(VMTunnelManager.selectRuntimeInterface(
+            markerByteCount: 7,
+            candidates: ["utun10"]
+        ) == "utun10")
+        // Two same-length candidates remain ambiguous and fail closed.
+        #expect(VMTunnelManager.selectRuntimeInterface(
+            markerByteCount: 6,
+            candidates: ["utun1", "utun2"]
+        ) == nil)
+    }
+
+    @Test
     func buildScopesDoNotShareCredentialsOrConfigFiles() throws {
         let home = try temporaryHome()
         defer { try? FileManager.default.removeItem(at: home) }
