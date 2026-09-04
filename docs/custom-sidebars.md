@@ -270,15 +270,18 @@ with:
   the same shape with every pull request cmux knows for the workspace),
   `progress` (`{ value: 0..1, label }`), `latestMessage` (last agent message),
   `latestPrompt` (last submitted prompt), `latestAt` (epoch), `remote`
-  (`{ target, state, connected }`), `agents` (coding-agent sessions hosted by
-  the workspace's terminals, most recent first; omitted when none). Each
-  `agents[j]` always has `id`, `kind` (`claude`/`codex`/raw source), `name`
-  (display name), `status` (`idle`|`working`|`needs_input`|`ended`), and
-  `lastActivityAt` (epoch); when available it adds `sinceEpoch` (when the
-  current working/needs-input state began), `title` (first user prompt),
-  `panelId` (the hosting terminal's `tabs[k].id`), `surfaceId` (the hosting
-  tab's `tabs[k].surfaceId`, accepted by `surface.focus`), `directory`,
-  `transcriptPath`, and `pid`.
+  (`{ target, state, connected }`), `ref` (the stable `workspace:N` control
+  handle the `cmux` CLI accepts, e.g. `workspace:16`; omitted until the app has
+  resolved a handle, so guard it — `if let r = w.ref { … }` — and read the
+  trailing ordinal from `r` with `r.split(separator: ":").last`), and `agents`
+  (coding-agent sessions hosted by the workspace's terminals, most recent first;
+  omitted when none). Each `agents[j]` always has `id`, `kind`
+  (`claude`/`codex`/raw source), `name` (display name), `status`
+  (`idle`|`working`|`needs_input`|`ended`), and `lastActivityAt` (epoch); when
+  available it adds `sinceEpoch` (when the current working/needs-input state
+  began), `title` (first user prompt), `panelId` (the hosting terminal's
+  `tabs[k].id`), `surfaceId` (the hosting tab's `tabs[k].surfaceId`, accepted by
+  `surface.focus`), `directory`, `transcriptPath`, and `pid`.
 - `tabs` (per workspace) — array of surfaces. Always: `id`, `title`,
   `focused` (Bool), `pinned` (Bool). When available: `directory`, `branch` +
   `dirty`, `ports` (array of Int).

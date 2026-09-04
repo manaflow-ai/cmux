@@ -7,7 +7,8 @@ extension Workspace {
     func customSidebarWorkspaceSnapshot(
         index: Int,
         selectedId: UUID?,
-        unreadCount: Int
+        unreadCount: Int,
+        ref: String?
     ) -> CustomSidebarWorkspaceSnapshot {
         let focusedPanelId = focusedPanelId
         let firstBranch = sidebarGitBranchesInDisplayOrder().first
@@ -23,6 +24,7 @@ extension Workspace {
         }
         return CustomSidebarWorkspaceSnapshot(
             id: id,
+            ref: ref,
             title: customTitle ?? title,
             isSelected: id == selectedId,
             isPinned: isPinned,
