@@ -4145,8 +4145,10 @@ fn delete_dump_file(directory: &fs::File, name: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-// These values come from Darwin's sys/acl.h. The acl_tag_t values (1 and 2)
-// are separate from the ACL type value (0x100) and the entry selectors (0/-1).
+// These values come from Darwin's sys/acl.h. `acl_get_tag_type` returns an
+// `acl_tag_t`, whose extended allow and deny values are 1 and 2. They are
+// separate from the ACL type value (0x100) and the entry selectors (0/-1).
+// Darwin exposes this tag accessor, rather than a separate entry-type API.
 #[cfg(target_os = "macos")]
 const MACOS_ACL_TYPE_EXTENDED: libc::c_int = 0x0000_0100;
 

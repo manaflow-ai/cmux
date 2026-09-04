@@ -167,4 +167,9 @@ API.
 TUI retains frame logs and writes terminal mirror contents on drop to the named
 directory. Those files can contain terminal secrets. Tooling must treat the
 directory as sensitive, opt-in storage and must not enable it for ordinary
-sessions.
+sessions. The named directory is the private storage root. The TUI writes
+recognized dumps below its `.cmux-dump-files/` child and uses a separate
+`.cmux-dump-tmp/` child for in-progress files. Files left directly in the
+named directory are not managed by dump retention. This layout isolates the
+retention set from unrelated user files and is part of the diagnostic switch's
+migration contract.
