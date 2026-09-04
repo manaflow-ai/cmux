@@ -159,14 +159,24 @@ describe("server event delivery", () => {
 
   test("does not follow an HTTP redirect from the PostHog host", async () => {
     let calls = 0;
+    let redirectTargetCalls = 0;
     const deferred: Array<() => Promise<void>> = [];
-    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const origin = "https://posthog.example/capture/";
+    const redirectTarget = "http://posthog.invalid/capture/";
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       calls += 1;
+      if (String(input) === redirectTarget) {
+        redirectTargetCalls += 1;
+        return new Response(null, { status: 200 });
+      }
+      expect(String(input)).toBe(origin);
       expect(init?.redirect).toBe("error");
-      return new Response(null, {
+      const redirect = new Response(null, {
         status: 307,
-        headers: { location: "http://posthog.invalid/capture/" },
+        headers: { location: redirectTarget },
       });
+      if (init?.redirect === "error") throw new TypeError("redirect rejected");
+      return fetchImpl(redirect.headers.get("location")!, init);
     }) as unknown as typeof fetch;
     const delivery = captureServerEvent(
       { event: "x", distinctId: "user-1" },
@@ -180,7 +190,10 @@ describe("server event delivery", () => {
 
     await deferred[0]!();
     await delivery;
-    expect(calls).toBe(1);
+    // `deliver` retries transport failures, but both attempts stay on the
+    // validated origin. The redirect target must never receive a request.
+    expect(calls).toBe(2);
+    expect(redirectTargetCalls).toBe(0);
   });
 
   test("a failing defer hook cannot reject the best-effort sender", async () => {
