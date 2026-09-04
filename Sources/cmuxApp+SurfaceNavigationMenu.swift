@@ -1,4 +1,5 @@
 import AppKit
+import CmuxPanes
 import SwiftUI
 
 extension cmuxApp {
@@ -73,6 +74,20 @@ extension cmuxApp {
                 if AppDelegate.shared?.performSurfacePaneMovement(
                     movement,
                     tabManager: manager,
+                    preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
+                ) != true {
+                    NSSound.beep()
+                }
+            }
+        }
+        ForEach(PaneOuterSplitMovement.allCases, id: \.self) { movement in
+            splitCommandButton(
+                title: movement.title,
+                shortcut: menuShortcut(for: movement.shortcutAction)
+            ) {
+                if AppDelegate.shared?.performPaneOuterSplitMovement(
+                    movement,
+                    tabManager: activeTabManager,
                     preferredWindow: NSApp.keyWindow ?? NSApp.mainWindow
                 ) != true {
                     NSSound.beep()

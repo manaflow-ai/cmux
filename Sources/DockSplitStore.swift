@@ -7,6 +7,7 @@ import CmuxBrowser
 import CmuxCore
 import CmuxFoundation
 import CmuxNotifications
+import CmuxPanes
 import CmuxSettings
 import CmuxTerminal
 import CmuxTerminalCore
@@ -31,6 +32,8 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
 
     let workspaceId: UUID
     let bonsplitController: BonsplitController
+    /// Stateless outer-pane promotion service owned by this Dock.
+    @ObservationIgnored let paneOuterSplitLayoutMutation: any PaneOuterSplitLayoutMutating
     /// Pane ownership updated synchronously from Bonsplit lifecycle callbacks.
     @ObservationIgnored var ownedPaneIds: Set<UUID> = []
 
@@ -313,11 +316,13 @@ final class DockSplitStore: BonsplitDelegate, FilePreviewTabMetadataHost {
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         terminalWorkingDirectoryResolver: TerminalWorkingDirectoryResolver = TerminalWorkingDirectoryResolver(),
         closedItemHistoryStore: ClosedItemHistoryStore? = nil,
-        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
+        paneOuterSplitLayoutMutation: any PaneOuterSplitLayoutMutating = PaneOuterSplitLayoutMutation()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         self.workspaceId = workspaceId
         self.scope = scope
+        self.paneOuterSplitLayoutMutation = paneOuterSplitLayoutMutation
         self.baseDirectoryProvider = baseDirectoryProvider
         self.remoteBrowserSettingsProvider = remoteBrowserSettingsProvider
         self.browserAvailabilityProvider = browserAvailabilityProvider

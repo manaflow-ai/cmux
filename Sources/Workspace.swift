@@ -2600,6 +2600,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
     /// The bonsplit controller managing the split panes for this workspace
     let bonsplitController: BonsplitController
+    /// Stateless outer-pane promotion service owned by this workspace.
+    let paneOuterSplitLayoutMutation: any PaneOuterSplitLayoutMutating
     /// Process/window composition capability registry shared with every pane target.
     let tabDragTransferRegistry: TabDragTransferRegistry
 
@@ -2628,6 +2630,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 )
             },
             tabDragTransferRegistry: tabDragTransferRegistry,
+            paneOuterSplitLayoutMutation: paneOuterSplitLayoutMutation,
             settings: settings,
             agentSessionAutoResumeDefaults: agentSessionAutoResumeDefaults,
             agentChatResumeIntentRecorder: agentChatResumeIntentRecorder,
@@ -3802,7 +3805,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
+        paneOuterSplitLayoutMutation: any PaneOuterSplitLayoutMutating = PaneOuterSplitLayoutMutation()
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         let resolvedID = id ?? UUID()
@@ -3820,6 +3824,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
         self.restorableAgentIndexProvider = resolvedRestorableAgentIndexProvider
+        self.paneOuterSplitLayoutMutation = paneOuterSplitLayoutMutation
         self.tabDragTransferRegistry = tabDragTransferRegistry
         self.terminalStartupRestoreCoordinator = TerminalStartupRestoreCoordinator(
             workspaceID: resolvedID,
