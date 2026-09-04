@@ -5,7 +5,7 @@ import Foundation
 import OSLog
 import SwiftUI
 
-private let workspaceActionFailureLog = Logger(subsystem: "dev.cmux.ios", category: "workspace-action")
+nonisolated private let workspaceActionFailureLog = Logger(subsystem: "dev.cmux.ios", category: "workspace-action")
 
 enum WorkspaceActionToastAction: Equatable {
     case createWorkspace
@@ -35,7 +35,7 @@ extension WorkspaceShellView {
         guard case let .failure(failure) = result else { return }
         // Workspace mutations are best-effort from mobile. Keep failures in
         // diagnostics without interrupting the workspace UI.
-        workspaceActionFailureLog.debug("Ignoring action failure: \(String(describing: action), privacy: .public), \(String(describing: failure), privacy: .public)")
+        workspaceActionFailureLog.debug("Ignoring action failure: \(String(describing: action), privacy: .public), \(String(describing: failure), privacy: .private)")
     }
 
     func dismissWorkspaceActionToast() {
