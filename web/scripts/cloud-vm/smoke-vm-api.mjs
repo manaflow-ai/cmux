@@ -214,6 +214,7 @@ try {
       }),
     });
     const createDurationMs = Math.round(performance.now() - createStartedAt);
+    const createServerTiming = create.headers.get("server-timing");
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
@@ -227,6 +228,7 @@ try {
     let attachDurationMs;
     let attachAttempts;
     let attachStatuses;
+    let attachServerTiming;
     if (!skipAttach) {
       // Every cmux Cloud machine runs only the cmux-tui remote daemon.
       const expectedTransport = "cmux-remote";
@@ -253,6 +255,7 @@ try {
         });
         attachText = await attach.text();
         statuses.push(attach.status);
+        if (attach.status === 200) attachServerTiming = attach.headers.get("server-timing");
         if (attach.status !== 502) break;
         const elapsed = performance.now() - attachStartedAt;
         if (elapsed >= attachBudgetMs) break;
@@ -361,7 +364,8 @@ try {
       createDurationMs,
       ...(skipAttach
         ? { attachSkipped: true }
-        : { attachTransport, attachDurationMs, attachAttempts, attachStatuses }),
+        : { attachTransport, attachDurationMs, attachAttempts, attachStatuses, ...(attachServerTiming ? { attachServerTiming } : {}) }),
+      ...(createServerTiming ? { createServerTiming } : {}),
       ...(edge ? { edge } : {}),
       destroyed: true,
       destroyDurationMs,
