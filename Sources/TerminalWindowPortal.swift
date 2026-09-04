@@ -746,6 +746,10 @@ final class WindowTerminalPortal: NSObject {
         self.window = window
         super.init()
         hostView.wantsLayer = true
+        // The portal is a sibling of the SwiftUI content tree. Keep a
+        // view-level boundary while AppKit and layer-backed terminal views
+        // change frames during a live resize.
+        hostView.clipsToBounds = true
         hostView.layer?.masksToBounds = true
         hostView.postsFrameChangedNotifications = true
         hostView.postsBoundsChangedNotifications = true
@@ -1240,6 +1244,11 @@ final class WindowTerminalPortal: NSObject {
     @discardableResult
     private func ensureInstalled(syncLayout: Bool = true) -> Bool {
         guard let window else { return false }
+        // AppKit can re-materialize a layer-backed host during a resize.
+        // Reassert the cheap view and layer clips at this installation choke
+        // point before any child frame is written.
+        hostView.clipsToBounds = true
+        hostView.layer?.masksToBounds = true
         guard let (container, reference) = installedTargetIfStillValid(for: window) ?? installationTarget(for: window)
         else { return false }
         let browserHost = preferredBrowserHost(in: container)
