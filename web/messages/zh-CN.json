@@ -7,12 +7,14 @@
         "snapshot": "此云端虚拟机不支持保存的虚拟机状态。",
         "restore": "此云端虚拟机类型不支持恢复保存的虚拟机状态。",
         "fork": "此云端虚拟机不支持复制到新的虚拟机。",
+        "openPort": "此 Cloud VM 的提供商无法将机器端口公开为预览 URL。",
         "default": "此云端虚拟机不支持请求的操作。"
       },
       "action": {
         "snapshot": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
         "restore": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
         "fork": "请勿重试。请使用 `cmux vm new` 创建新的虚拟机。",
+        "openPort": "请勿重试。请在机器内部使用 `cmux vm exec` 访问服务，或使用支持开放端口的机器类型。",
         "default": "请勿重试。使用 `cmux vm ls` 查看虚拟机；如果你认为这是错误，请联系支持团队。"
       }
     },
@@ -61,11 +63,10 @@
     "backToSignIn": "返回登录"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux 云",
     "title": "你没有访问权限",
-    "signedOutBody": "登录 cmux 以查看此网站。",
     "signIn": "登录 cmux",
     "signedInAs": "已以 {identity} 的身份登录",
+    "switchAccount": "切换账号",
     "invalidTitle": "此访问链接无效",
     "invalidBody": "返回网站，然后重试。",
     "footer": "访问权限由 cmux 管理。"
@@ -1875,8 +1876,6 @@
     "metaDescription": "下载 cmux NIGHTLY，从最新 main 提交自动构建的独立应用。与稳定版并行运行，拥有独立的自动更新。",
     "description": "cmux NIGHTLY 从 main 的最新提交自动构建。它拥有独立的 Bundle ID，因此可以与稳定版并行运行，互不冲突。用它来测试尚未发布的新功能。",
     "download": "下载 Mac 版 NIGHTLY",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "每夜构建可能包含错误或不完整的功能。如果遇到问题，请在 <githubLink>GitHub</githubLink> 或 <discordLink>Discord 的 #nightly-bugs</discordLink> 上报告，并切换回稳定版。"
   },
   "languageSwitcher": {

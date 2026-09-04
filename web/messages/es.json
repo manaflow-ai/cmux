@@ -7,12 +7,14 @@
         "snapshot": "Esta Cloud VM no admite el estado guardado de la VM.",
         "restore": "Este tipo de Cloud VM no admite restaurar el estado guardado de la VM.",
         "fork": "Esta Cloud VM no admite copiar a una nueva VM.",
+        "openPort": "El proveedor de esta Cloud VM no puede exponer los puertos de la máquina como URL de vista previa.",
         "default": "Esta Cloud VM no admite la operación solicitada."
       },
       "action": {
         "snapshot": "No vuelvas a intentarlo. El trabajo de este tipo de máquina se conserva en su volumen de inicio persistente.",
         "restore": "No vuelvas a intentarlo. El trabajo de este tipo de máquina se conserva en su volumen de inicio persistente.",
         "fork": "No vuelvas a intentarlo. Crea una nueva VM con `cmux vm new`.",
+        "openPort": "No vuelvas a intentarlo. Accede al servicio desde la máquina con `cmux vm exec` o usa un tipo de máquina que pueda abrir puertos.",
         "default": "No vuelvas a intentarlo. Ejecuta `cmux vm ls` o contacta con soporte si crees que esto es un error."
       }
     },
@@ -61,11 +63,10 @@
     "backToSignIn": "Volver a iniciar sesión"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "nube de cmux",
     "title": "No tienes acceso",
-    "signedOutBody": "Inicia sesión en cmux para ver este sitio.",
     "signIn": "Iniciar sesión en cmux",
     "signedInAs": "Sesión iniciada como {identity}",
+    "switchAccount": "Cambiar de cuenta",
     "invalidTitle": "Este enlace de acceso no es válido",
     "invalidBody": "Vuelve al sitio e inténtalo de nuevo.",
     "footer": "cmux administra el acceso."
@@ -1874,8 +1875,6 @@
     "metaDescription": "Descarga cmux NIGHTLY, una app independiente compilada automáticamente desde el último commit en main. Funciona junto a la versión estable con sus propias actualizaciones automáticas.",
     "description": "cmux NIGHTLY se compila automáticamente desde el último commit en main. Tiene su propio bundle ID, así que funciona junto a la versión estable sin conflictos. Úsala para probar nuevas funciones antes de su lanzamiento.",
     "download": "Descargar NIGHTLY para Mac",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "Las compilaciones nightly pueden contener errores o funciones incompletas. Si algo falla, repórtalo en <githubLink>GitHub</githubLink> o en <discordLink>#nightly-bugs en Discord</discordLink> y cambia a la versión estable."
   },
   "languageSwitcher": {

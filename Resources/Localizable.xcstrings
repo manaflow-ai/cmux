@@ -58501,6 +58501,23 @@
         }
       }
     },
+    "cli.surface.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers\non This Mac and on every cloud machine are resources (`<machine>/<kind>/<key>`,\ne.g. local/terminal/<uuid>, vivid-newt/terminal/term_2f9c…, vivid-newt/display/display:1,\nvivid-newt/browser/port:3000); panes project them. `open` reuses the pane already\nshowing a resource unless --new; --pane with a side splits that pane on that side,\n--tab adds a tab to it. A local terminal moves to the destination (it is shown once).\n`new-terminal` creates a terminal on the machine (cloud: in its cmux-tui session).\n`cmux vm tree` prints the same catalog.\n\nresume: attach restart command metadata to a terminal surface.\nPublic CLI bindings are stored for inspection and manual restore.\n\nFlags:\n  --workspace <id|ref|index>   Workspace context (default: $CMUX_WORKSPACE_ID)\n  --surface <id|ref|index>     Surface context (default: $CMUX_SURFACE_ID)\n  --window <id|ref|index>      Window context for workspace and surface refs/indexes\n  --cwd <path>             Working directory for restore (default: $PWD)\n  --name <name>            Display name for the binding\n  --kind <kind>            Binding kind, for example agent or tmux\n  --checkpoint <id>        Provider checkpoint or session id\n  --checkpoint-id <id>     Same as --checkpoint and takes precedence\n  --source <source>        Binding source label\n\nExamples:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux surface ls [<machine>|local] [--refresh] [--json]\n       cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]\n       cmux surface new-terminal --machine <id|local> [--cwd <dir>] [--name <name>] [--remote-workspace <ws_…>] [--workspace <id|ref|index>] [--no-open] [-- <command...>]\n       cmux surface resume set [flags] -- <argv...>\n       cmux surface resume set [flags] --shell <command>\n       cmux surface resume show [--json] [flags]\n       cmux surface resume get [--json] [flags]\n       cmux surface resume clear [flags]\n\nls / open / new-terminal: サーフェスカタログを操作します。この Mac と各クラウドマシンの\nターミナル、VNC 画面、ブラウザはリソースです（`<machine>/<kind>/<key>`。例:\nlocal/terminal/<uuid>、vivid-newt/terminal/term_2f9c…、vivid-newt/display/display:1、\nvivid-newt/browser/port:3000）。ペインはこれらを表示します。`open` は --new を指定しない限り\n同じリソースを表示中のペインを再利用します。--pane と方向を指定するとその方向に分割し、\n--tab はタブを追加します。ローカルターミナルは移動先へ移され、同時に 1 か所だけで表示されます。\n`new-terminal` はマシン上にターミナルを作成します（クラウドでは cmux-tui セッション内）。\n`cmux vm tree` も同じカタログを表示します。\n\nresume: ターミナルサーフェスに再起動コマンドのメタデータを関連付けます。\n公開 CLI バインディングは確認と手動復元のために保存されます。\n\nフラグ:\n  --workspace <id|ref|index>   ワークスペースのコンテキスト（既定: $CMUX_WORKSPACE_ID）\n  --surface <id|ref|index>     サーフェスのコンテキスト（既定: $CMUX_SURFACE_ID）\n  --window <id|ref|index>      ワークスペースとサーフェスの参照・番号に使うウィンドウ\n  --cwd <path>             復元時の作業ディレクトリ（既定: $PWD）\n  --name <name>            バインディングの表示名\n  --kind <kind>            バインディング種別（例: agent、tmux）\n  --checkpoint <id>        プロバイダのチェックポイントまたはセッション ID\n  --checkpoint-id <id>     --checkpoint と同じ（こちらを優先）\n  --source <source>        バインディングのソースラベル\n\n例:\n  cmux surface resume set --kind tmux --shell \"tmux attach -t work\"\n  cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123\n  cmux surface resume show --json"
+          }
+        }
+      }
+    },
     "cli.surfaceResume.set.error.unknownFlag": {
       "extractionState": "manual",
       "localizations": {
@@ -60320,6 +60337,23 @@
         }
       }
     },
+    "cli.vm.tree.displays": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC Displays/"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VNC ディスプレイ/"
+          }
+        }
+      }
+    },
     "cli.vm.tree.ports": {
       "extractionState": "manual",
       "localizations": {
@@ -60333,6 +60367,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ポート/"
+          }
+        }
+      }
+    },
+    "cli.vm.tree.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nThe Finder-style view of every surface: This Mac first (its terminals grouped by\nworkspace, and its browsers), then each cloud machine — Workspaces, Ports, VNC\nDisplays (one row per screen), and a final Terminals section containing every\nmachine-owned terminal. Every line carries an address `cmux vm open` or\n`cmux surface open` accepts.\n\nOptions:\n  <machine>   Only this machine (`local` for This Mac).\n  --refresh   Re-read every provider (machine list, links, local panes) first.\n  --json      Print the catalog payload ({machines, resources, projections})."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用法: cmux vm tree [<machine>|local] [--refresh] [--json]\n       cmux surface ls [<machine>|local] [--refresh] [--json]\n\nすべてのサーフェスを Finder 風に表示します。最初にこの Mac（ワークスペース別の\nターミナルとブラウザ）、続いて各クラウドマシンの Workspaces、Ports、VNC Displays\n（画面ごとに 1 行）、最後にマシンが所有するすべてのターミナルを含む Terminals\nセクションを表示します。各行には `cmux vm open` または `cmux surface open` が\n受け付けるアドレスが含まれます。\n\nオプション:\n  <machine>   このマシンだけを表示します（この Mac は `local`）。\n  --refresh   最初に全プロバイダ（マシン一覧、リンク、ローカルペイン）を再読み込みします。\n  --json      カタログのペイロード（{machines, resources, projections}）を表示します。"
           }
         }
       }
@@ -61072,6 +61123,23 @@
         }
       }
     },
+    "cli.workspaceGroup.help.anchorCleanup": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use --remove-generated-anchor only for an anchor-only group whose anchor was created by cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "--remove-generated-anchor は、cmux が作成したアンカーだけのグループに対してのみ使用してください。"
+          }
+        }
+      }
+    },
     "cli.workspaceGroup.help.deleteSafety": {
       "extractionState": "manual",
       "localizations": {
@@ -61102,6 +61170,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "グループを削除し、すべてのメンバーワークスペースを閉じます。明示的な破壊操作です。"
+          }
+        }
+      }
+    },
+    "cli.workspaceGroup.help.identitySafety": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pass --idempotency-key (or --external-id) to make retries and concurrent creates return one group."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行や同時作成で同じグループを返すには、--idempotency-key（または --external-id）を渡してください。"
           }
         }
       }
@@ -61335,13 +61420,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Displays"
+            "value": "VNC Displays"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ディスプレイ"
+            "value": "VNC ディスプレイ"
           }
         }
       }
@@ -62111,6 +62196,23 @@
         }
       }
     },
+    "cloudTree.node.desktop.detail.screen": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        }
+      }
+    },
     "cloudTree.pane.connecting": {
       "extractionState": "manual",
       "localizations": {
@@ -62158,6 +62260,74 @@
           "stringUnit": {
             "state": "translated",
             "value": "このペインを閉じて、サイドバーからもう一度開いてください。"
+          }
+        }
+      }
+    },
+    "cloudTree.pane.unsupportedHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This provider cannot open port previews. Do not retry; use `cmux vm exec` inside the machine or choose another machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このプロバイダーはポートのプレビューを開けません。再試行せず、マシン内で `cmux vm exec` を使うか、別のマシンを選択してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@’s provider cannot open machine ports as previews; reach the service from inside the machine with `cmux vm exec %@ -- …`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のプロバイダーはマシンポートをプレビューとして開けません。`cmux vm exec %@ -- …` でマシン内からアクセスしてください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.noLocalWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No local workspace is showing %@; select a workspace and retry."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を表示しているローカルワークスペースがありません。ワークスペースを選択して再試行してください。"
+          }
+        }
+      }
+    },
+    "cloudTree.port.invalidMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ports can only be opened on a cloud machine."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートを開けるのは Cloud マシンのみです。"
           }
         }
       }
@@ -62294,6 +62464,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "開いているターミナルはありません"
+          }
+        }
+      }
+    },
+    "cloudTree.placeholder.noTerminals": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No terminals yet"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナルはまだありません"
           }
         }
       }
@@ -62464,6 +62651,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "×%d"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "detached"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "デタッチ済み"
+          }
+        }
+      }
+    },
+    "cloudTree.terminal.detached.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still running on the machine, but no tab shows it. Click to open it in a pane; right-click to kill it."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン上でまだ実行中ですが、表示しているタブはありません。クリックでペインに開き、右クリックで強制終了できます。"
           }
         }
       }
@@ -67111,19 +67332,70 @@
         }
       }
     },
+    "command.cloudVM.failed.action.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh the Machines list and retry. A machine that no longer exists is removed from the list automatically. To see the full output, run `cmux vm rm <id>` in a terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マシン一覧を更新して再試行してください。存在しないマシンは一覧から自動的に削除されます。完全な出力はターミナルで `cmux vm rm <id>` を実行して確認できます。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retry, or run the Cloud VM command in a terminal to see the full output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再試行するか、ターミナルで Cloud VM コマンドを実行して完全な出力を確認してください。"
+          }
+        }
+      }
+    },
+    "command.cloudVM.failed.action.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A label is printable text of at most 64 characters. Retry, or run `cmux vm rename <id> <label>` in a terminal to see the full output."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラベルは 64 文字以内の印刷可能なテキストにしてください。再試行するか、ターミナルで `cmux vm rename <id> <label>` を実行して完全な出力を確認してください。"
+          }
+        }
+      }
+    },
     "command.cloudVM.failed.action.launch": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reload cmux so the bundled CLI is available, then try again. If it still fails, run `cmux vm base open` in a terminal and send us the output."
+            "value": "Reload cmux so its command-line tools are available, then retry. If it still fails, run the Cloud VM command in a terminal and send us the output."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "バンドルされた CLI を使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで `cmux vm base open` を実行して出力を送ってください。"
+            "value": "コマンドラインツールを使えるように cmux を再読み込みしてから再試行してください。それでも失敗する場合は、ターミナルで Cloud VM コマンドを実行して出力を送ってください。"
           }
         }
       }
@@ -67134,13 +67406,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install or reload a fresh cmux build, then try Start Cloud VM again. You can also run `cmux vm base open` in a terminal to see the full error."
+            "value": "Install or reload a fresh cmux build, then retry. You can also run the Cloud VM command in a terminal to see the full error."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから、Start Cloud VM をもう一度試してください。ターミナルで `cmux vm base open` を実行すると完全なエラーも確認できます。"
+            "value": "新しい cmux ビルドをインストールまたは再読み込みしてから再試行してください。ターミナルで Cloud VM コマンドを実行すると完全なエラーも確認できます。"
           }
         }
       }
@@ -67185,13 +67457,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open exited with status %d."
+            "value": "The Cloud VM command exited with status %d."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open がステータス %d で終了しました。"
+            "value": "Cloud VM コマンドがステータス %d で終了しました。"
           }
         }
       }
@@ -67202,13 +67474,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open could not be launched."
+            "value": "The Cloud VM command could not be launched."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux vm base open を起動できませんでした。"
+            "value": "Cloud VM コマンドを起動できませんでした。"
           }
         }
       }
@@ -67245,6 +67517,62 @@
             "value": "Cloud VMを開始できませんでした"
           }
         }
+      }
+    },
+    "command.cloudVM.failed.title.checkpoint": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Checkpoint Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンをチェックポイントできませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Delete Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンを削除できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.fork": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Fork Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンをフォークできませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Cloud VM Command Failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "Cloud VM コマンドに失敗しました" } }
+      }
+    },
+    "command.cloudVM.failed.title.open": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Open Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンを開けませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Rename Machine" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの名前を変更できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.restore": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Restore Checkpoint" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "チェックポイントを復元できませんでした" } }
+      }
+    },
+    "command.cloudVM.failed.title.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Couldn't Read Machine Status" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "マシンの状態を読み取れませんでした" } }
       }
     },
     "command.cloudVM.failed.whatToTry": {
@@ -244188,6 +244516,23 @@
     "socket.cloudVM.publication.invalidAccess": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `accessMode` to be personal, team, or public."}},"ja":{"stringUnit":{"state":"translated","value":"%@ の `accessMode` は personal、team、または public で指定してください。"}}}},
     "socket.cloudVM.publication.teamOnly": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ accepts `teamId` only when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `teamId` を指定できるのは、`accessMode` が team の場合のみです。"}}}},
     "socket.cloudVM.publication.teamRequired": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"%@ requires `teamId` when `accessMode` is team."}},"ja":{"stringUnit":{"state":"translated","value":"%@ で `accessMode` が team の場合は `teamId` が必要です。"}}}},
+    "socket.vm.portOpen.invalidTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.port_open: invalid explicit target `%@`."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vm.port_open: 明示的なターゲット `%@` が無効です。"
+          }
+        }
+      }
+    },
     "socket.cloudVM.sessionRejected": {
       "extractionState": "manual",
       "localizations": {
@@ -270102,6 +270447,48 @@
         }
       }
     },
+    "workspaceGroup.error.generatedAnchorNotOwned": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The group anchor was not generated by cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グループのアンカーは cmux が生成したものではありません" } }
+      }
+    },
+    "workspaceGroup.error.generatedAnchorRemovalFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The generated group anchor could not be removed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "生成されたグループアンカーを削除できませんでした" } }
+      }
+    },
+    "workspaceGroup.error.generatedAnchorRequiresAnchorOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Generated-anchor cleanup requires an anchor-only group" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "生成アンカーのクリーンアップにはアンカーのみのグループが必要です" } }
+      }
+    },
+    "workspaceGroup.error.idempotencyKeyMustBeString": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "external_id and idempotency_key must be strings" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "external_id と idempotency_key は文字列である必要があります" } }
+      }
+    },
+    "workspaceGroup.error.idempotencyKeyMustNotBeEmpty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The group identity must not be empty" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "グループ識別子を空にすることはできません" } }
+      }
+    },
+    "workspaceGroup.error.idempotencyKeysMustMatch": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "external_id and idempotency_key must match" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "external_id と idempotency_key は一致する必要があります" } }
+      }
+    },
     "workspaceGroup.error.noWorkspacesToClose": {
       "extractionState": "manual",
       "localizations": {
@@ -270117,6 +270504,13 @@
             "value": "グループに閉じるワークスペースがありません"
           }
         }
+      }
+    },
+    "workspaceGroup.error.removeGeneratedAnchorMustBeBoolean": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "remove_generated_anchor must be a boolean" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "remove_generated_anchor はブール値である必要があります" } }
       }
     },
     "workspaceGroup.error.invalidReferenceWorkspace": {
@@ -272972,6 +273366,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Base を設定できませんでした"
+          }
+        }
+      }
+    },
+    "machines.pending.cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel Create"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成をキャンセル"
           }
         }
       }

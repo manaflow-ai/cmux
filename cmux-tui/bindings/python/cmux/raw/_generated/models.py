@@ -96,6 +96,11 @@ class RenderUnderline(str, Enum):
     DOTTED = 'dotted'
     DASHED = 'dashed'
 
+class ServerStatsWriterPhase(str, Enum):
+    IDLE = 'idle'
+    WAITING_LOCK = 'waiting_lock'
+    COMMITTING = 'committing'
+
 class SplitDirection(str, Enum):
     RIGHT = 'right'
     DOWN = 'down'
@@ -886,6 +891,91 @@ class Screen:
     panes: List[Pane]
     zoomed_pane: Union[Id, None]
     short_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsConnections:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsConnections'
+    accepted: int
+    active: int
+    limit: int
+    peak: int
+    refused: int
+
+
+@dataclass(frozen=True)
+class ServerStatsHistogram:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsHistogram'
+    count: int
+    max: int
+    mean: int
+    p50: int
+    p90: int
+    p99: int
+
+
+@dataclass(frozen=True)
+class ServerStatsJournalWriter:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsJournalWriter'
+    batch_size: ServerStatsHistogram
+    batches: int
+    commit_failures: int
+    commit_lock_wait_us: ServerStatsHistogram
+    commit_us: ServerStatsHistogram
+    deadline_expiries: int
+    durable_events: int
+    durable_queued: int
+    phase: ServerStatsWriterPhase
+    phase_for_us: int
+    receipt_wait_us: ServerStatsHistogram
+    terminal_events: int
+    terminal_queued: int
+
+
+@dataclass(frozen=True)
+class ServerStatsLockHolder:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockHolder'
+    held_for_us: int
+    site: str
+
+
+@dataclass(frozen=True)
+class ServerStatsLockSite:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockSite'
+    acquisitions: int
+    hold_max_us: int
+    hold_total_us: int
+    site: str
+
+
+@dataclass(frozen=True)
+class ServerStatsLockStall:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsLockStall'
+    blocker: Union[str, None]
+    waited_us: int
+    waiter: str
+
+
+@dataclass(frozen=True)
+class ServerStatsRegistryLock:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryLock'
+    contended_acquisitions: int
+    hold_us: ServerStatsHistogram
+    holder: Union[ServerStatsLockHolder, None]
+    last_stall: Union[ServerStatsLockStall, None]
+    stalls: int
+    top_sites: List[ServerStatsLockSite]
+    wait_us: ServerStatsHistogram
+
+
+@dataclass(frozen=True)
+class ServerStatsResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResult'
+    connections: ServerStatsConnections
+    journal_writer: Union[ServerStatsJournalWriter, None]
+    registry_lock: ServerStatsRegistryLock
+    schema: int
+    uptime_ms: int
 
 
 @dataclass(frozen=True)
@@ -1839,6 +1929,12 @@ class SendKeyRequest:
 
 
 @dataclass(frozen=True)
+class ServerStatsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
+    pass
+
+
+@dataclass(frozen=True)
 class SetCellPixelsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-cell-pixels/request'
     width_px: int
@@ -2545,6 +2641,7 @@ __all__ = [
     'PaneDirection',
     'RenderGraphicFormat',
     'RenderUnderline',
+    'ServerStatsWriterPhase',
     'SplitDirection',
     'TerminalKey',
     'TerminalKeyAction',
@@ -2617,6 +2714,14 @@ __all__ = [
     'ResourceSelectors',
     'RunResult',
     'Screen',
+    'ServerStatsConnections',
+    'ServerStatsHistogram',
+    'ServerStatsJournalWriter',
+    'ServerStatsLockHolder',
+    'ServerStatsLockSite',
+    'ServerStatsLockStall',
+    'ServerStatsRegistryLock',
+    'ServerStatsResult',
     'SetCellPixelsResult',
     'ShutdownDaemonResult',
     'SidebarPluginResult',
@@ -2728,6 +2833,7 @@ __all__ = [
     'SelectWorkspaceRequest',
     'SendRequest',
     'SendKeyRequest',
+    'ServerStatsRequest',
     'SetCellPixelsRequest',
     'SetClientInfoRequest',
     'SetClientSizingRequest',

@@ -86,7 +86,10 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
   const BOUND_TOKEN = "crt_bound-to-vm-1";
   const CLI_TOKEN = "crt_cli-token";
 
-  function dependencies(authenticated: string[] = []) {
+  function dependencies(
+    authenticated: string[] = [],
+    overrides: { fetch?: typeof fetch } = {},
+  ) {
     return {
       authenticate: async (token: string) => {
         authenticated.push(token);
@@ -119,6 +122,7 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
           models: { "model-1": { name: "Model One" } },
         },
       }),
+      ...overrides,
     };
   }
 
@@ -203,5 +207,102 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     );
     expect(response.status).toBe(401);
     expect(authenticated).toEqual([]);
+  });
+
+  test("propagates caller cancellation to the OpenCode upstream", async () => {
+    const controller = new AbortController();
+    let upstreamSignal: AbortSignal | null | undefined;
+    let resolveFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      resolveFetchStarted = resolve;
+    });
+    const pending = proxyOpenCodeRequest(
+      new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          authorization: `Bearer ${CLI_TOKEN}`,
+          "x-coderouter-route-token": CLI_TOKEN,
+        },
+        body: "{}",
+      }),
+      "go",
+      ["chat"],
+      dependencies([], {
+        fetch: async (_input, init) => {
+          upstreamSignal = init?.signal;
+          resolveFetchStarted();
+          return await new Promise<Response>((_resolve, reject) => {
+            if (init?.signal?.aborted) {
+              reject(init.signal.reason);
+              return;
+            }
+            init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+          });
+        },
+      }),
+    );
+    await fetchStarted;
+    controller.abort(new DOMException("client disconnected", "AbortError"));
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
+  test("bounds OpenCode account selection to the request failover deadline and aborts it", async () => {
+    let selectionSignal: AbortSignal | undefined;
+    const stalledSelect: ReturnType<typeof dependencies>["select"] = async (...args) => {
+      selectionSignal = (args as readonly unknown[])[3] as AbortSignal | undefined;
+      return await new Promise<never>(() => undefined);
+    };
+    const response = await proxyOpenCodeRequest(
+      new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLI_TOKEN}`,
+          "x-coderouter-route-token": CLI_TOKEN,
+        },
+        body: "{}",
+      }),
+      "go",
+      ["chat"],
+      { ...dependencies(), select: stalledSelect },
+      {
+        now: () => 0,
+        upstreamHeadersBudgetMs: 30,
+        upstreamHeadersTimeoutMs: 10,
+      },
+    );
+    expect(response.status).toBe(503);
+    expect(selectionSignal).toBeDefined();
+    expect(selectionSignal?.aborted).toBe(true);
+  });
+
+  test("bounds OpenCode remote configuration to the request failover deadline", async () => {
+    let configSignal: AbortSignal | undefined;
+    const stalledRemoteConfig: ReturnType<typeof dependencies>["remoteConfig"] = async (...args) => {
+      configSignal = (args as readonly unknown[])[1] as AbortSignal | undefined;
+      return await new Promise<never>(() => undefined);
+    };
+    const response = await proxyOpenCodeRequest(
+      new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLI_TOKEN}`,
+          "x-coderouter-route-token": CLI_TOKEN,
+        },
+        body: "{}",
+      }),
+      "go",
+      ["chat"],
+      { ...dependencies(), remoteConfig: stalledRemoteConfig },
+      {
+        now: () => 0,
+        upstreamHeadersBudgetMs: 30,
+        upstreamHeadersTimeoutMs: 10,
+      },
+    );
+    expect(response.status).toBe(502);
+    expect(configSignal).toBeDefined();
+    expect(configSignal?.aborted).toBe(true);
   });
 });

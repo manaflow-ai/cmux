@@ -112,18 +112,56 @@ const CROSSTERM_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn read_crossterm_event(
     timeout: Option<Duration>,
+    poll: impl FnMut(Duration) -> std::io::Result<bool>,
+    read: impl FnMut() -> std::io::Result<Event>,
+) -> std::io::Result<Option<Event>> {
+    read_crossterm_event_with_clock(timeout, poll, read, Instant::now)
+}
+
+fn read_crossterm_event_with_clock(
+    timeout: Option<Duration>,
     mut poll: impl FnMut(Duration) -> std::io::Result<bool>,
     mut read: impl FnMut() -> std::io::Result<Event>,
+    mut now: impl FnMut() -> Instant,
 ) -> std::io::Result<Option<Event>> {
     // Keep the input thread interruptible even when no graphics response is
     // pending. A single normalized poll avoids separate timed and untimed
     // branches drifting apart as the reader evolves.
+    const MAX_INTERRUPTED_RETRIES: u8 = 8;
     let poll_timeout =
         timeout.map_or(CROSSTERM_POLL_INTERVAL, |timeout| timeout.min(CROSSTERM_POLL_INTERVAL));
-    if !poll(poll_timeout)? {
-        return Ok(None);
+    let deadline = now() + poll_timeout;
+    let mut interrupted: u8 = 0;
+    loop {
+        let remaining = deadline.saturating_duration_since(now());
+        match poll(remaining) {
+            Ok(false) => return Ok(None),
+            Ok(true) => break,
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                if remaining.is_zero() {
+                    return Ok(None);
+                }
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
     }
-    read().map(Some)
+    interrupted = 0;
+    loop {
+        match read() {
+            Ok(event) => return Ok(Some(event)),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {
+                interrupted = interrupted.saturating_add(1);
+                if interrupted >= MAX_INTERRUPTED_RETRIES {
+                    return Err(error);
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 const DEFERRED_INPUT_FIXED_BYTES: usize = 64;
@@ -151,6 +189,38 @@ enum TerminalInput {
     Resize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputClass {
+    Keyboard,
+    FrontendAction,
+    ClearHistoryKey,
+    Mouse,
+    Paste,
+    Focus,
+    Resize,
+}
+
+impl InputClass {
+    const fn is_routable(self) -> bool {
+        matches!(
+            self,
+            Self::Keyboard
+                | Self::FrontendAction
+                | Self::ClearHistoryKey
+                | Self::Mouse
+                | Self::Paste
+        )
+    }
+
+    const fn is_keyboard_or_paste(self) -> bool {
+        matches!(self, Self::Keyboard | Self::FrontendAction | Self::ClearHistoryKey | Self::Paste)
+    }
+
+    const fn is_keyboard_command(self) -> bool {
+        matches!(self, Self::Keyboard | Self::FrontendAction | Self::ClearHistoryKey)
+    }
+}
+
 enum KeyboardIngress {
     Routed(TerminalInput),
     Handled(RenderAction),
@@ -176,25 +246,28 @@ impl TerminalInput {
         }
     }
 
+    const fn class(&self) -> InputClass {
+        match self {
+            Self::Keyboard(_) => InputClass::Keyboard,
+            Self::FrontendAction { .. } => InputClass::FrontendAction,
+            Self::ClearHistoryKey(_) => InputClass::ClearHistoryKey,
+            Self::Mouse(_) => InputClass::Mouse,
+            Self::Paste(_) => InputClass::Paste,
+            Self::FocusGained | Self::FocusLost => InputClass::Focus,
+            Self::Resize => InputClass::Resize,
+        }
+    }
+
     fn is_routable(&self) -> bool {
-        matches!(
-            self,
-            Self::Keyboard(_)
-                | Self::FrontendAction { .. }
-                | Self::ClearHistoryKey(_)
-                | Self::Mouse(_)
-                | Self::Paste(_)
-        )
+        self.class().is_routable()
     }
 
     fn is_keyboard_or_paste(&self) -> bool {
-        matches!(
-            self,
-            Self::Keyboard(_)
-                | Self::FrontendAction { .. }
-                | Self::ClearHistoryKey(_)
-                | Self::Paste(_)
-        )
+        self.class().is_keyboard_or_paste()
+    }
+
+    fn is_keyboard_command(&self) -> bool {
+        self.class().is_keyboard_command()
     }
 
     fn retained_bytes(&self) -> usize {
@@ -4123,6 +4196,18 @@ pub enum FocusTarget {
     WorkspaceRail,
     TabsRail,
     ProjectionRail(usize),
+}
+
+impl FocusTarget {
+    fn frontend_journal_target(self) -> FrontendFocusTarget {
+        match self {
+            Self::Pane => FrontendFocusTarget::Pane,
+            Self::MachineRail => FrontendFocusTarget::MachineRail,
+            Self::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
+            Self::TabsRail => FrontendFocusTarget::TabsRail,
+            Self::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -10432,7 +10517,15 @@ impl App {
 
     fn activate_projection_target(&mut self, target: ProjectionTarget) -> anyhow::Result<()> {
         match target {
-            ProjectionTarget::Workspace { index, .. } => {
+            ProjectionTarget::Workspace { id, .. } => {
+                // The hit map can outlive a tree snapshot while a remote
+                // reorder is queued. Resolve the stable workspace identity
+                // again instead of applying a stale row index.
+                let Some(index) =
+                    self.tree.workspaces().iter().position(|workspace| workspace.id == id)
+                else {
+                    return Ok(());
+                };
                 self.activate_workspace(index);
             }
             ProjectionTarget::Pane { workspace, screen, pane } => {
@@ -12065,13 +12158,7 @@ impl App {
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
         let focus = FrontendFocusSnapshot {
-            target: match self.focus {
-                FocusTarget::Pane => FrontendFocusTarget::Pane,
-                FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-                FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-                FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-                FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-            },
+            target: self.focus.frontend_journal_target(),
             workspace_id: workspace.and_then(|workspace| workspace.resource_id.clone()),
             screen_id: screen.and_then(|screen| screen.resource_id.clone()),
             pane_id: pane.and_then(|pane| pane.resource_id.clone()),
@@ -12104,13 +12191,7 @@ impl App {
         let screen = workspace.and_then(|workspace| workspace.active_screen_ref());
         let pane = screen.and_then(|screen| screen.pane(screen.active_pane));
         let tab = pane.and_then(|pane| pane.tabs.get(pane.active_tab));
-        let target = match self.focus {
-            FocusTarget::Pane => FrontendFocusTarget::Pane,
-            FocusTarget::MachineRail => FrontendFocusTarget::MachineRail,
-            FocusTarget::WorkspaceRail => FrontendFocusTarget::WorkspaceRail,
-            FocusTarget::TabsRail => FrontendFocusTarget::TabsRail,
-            FocusTarget::ProjectionRail(_) => FrontendFocusTarget::ProjectionRail,
-        };
+        let target = self.focus.frontend_journal_target();
         if previous.focus.target != target
             || previous.focus.workspace_id.as_ref()
                 != workspace.and_then(|workspace| workspace.resource_id.as_ref())
@@ -14952,15 +15033,9 @@ impl App {
             }
             event => event,
         };
-        if matches!(
-            &event,
-            AppEvent::NormalizedInput(
-                TerminalInput::Keyboard(_)
-                    | TerminalInput::FrontendAction { .. }
-                    | TerminalInput::ClearHistoryKey(_)
-                    | TerminalInput::Paste(_)
-            )
-        ) {
+        if let AppEvent::NormalizedInput(input) = &event
+            && input.is_keyboard_or_paste()
+        {
             let current_pairing = self.pairing_dialog.as_ref().map(|dialog| dialog.challenge.id);
             let replayed_pairing_changed = replay_context
                 .as_ref()
@@ -15026,14 +15101,10 @@ impl App {
             event => event,
         };
         let event = match event {
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if self.fresh_input_must_follow_deferred(&input, input_sequence)
-                && !self.input_can_overtake_deferred(&input) =>
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && self.fresh_input_must_follow_deferred(&input, input_sequence)
+                    && !self.input_can_overtake_deferred(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
                     input,
@@ -15142,14 +15213,8 @@ impl App {
                 replay_context.as_ref().and_then(|context| context.admission.as_ref())
                 && !pointer_has_capture
             {
-                let follows_pending_route =
-                    matches!(
-                        input,
-                        TerminalInput::Keyboard(_)
-                            | TerminalInput::FrontendAction { .. }
-                            | TerminalInput::ClearHistoryKey(_)
-                            | TerminalInput::Paste(_)
-                    ) && admission.destination_intent.is_some_and(|intent| {
+                let follows_pending_route = input.is_keyboard_or_paste()
+                    && admission.destination_intent.is_some_and(|intent| {
                         self.session.destination_mutation_committed() >= intent
                             && self.session.destination_mutation_started() == intent
                     });
@@ -15208,13 +15273,11 @@ impl App {
             return Ok(RenderAction::None);
         }
         let event = match event {
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if missing_surface.is_some() && !self.input_can_update_pending_mutation(&input) => {
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && missing_surface.is_some()
+                    && !self.input_can_update_pending_mutation(&input) =>
+            {
                 let surface = missing_surface.unwrap();
                 self.queue_surface_attach(surface);
                 return Ok(self.defer_input_with_sequence(
@@ -15224,20 +15287,17 @@ impl App {
                     replay_context.as_ref().and_then(|context| context.admission.clone()),
                 ));
             }
-            AppEvent::NormalizedInput(
-                input @ (TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Mouse(_)
-                | TerminalInput::Paste(_)),
-            ) if !matches!(
-                &input,
-                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
-            ) && (self.session.has_pending_mutations()
-                || self.session.remote_tree_is_stale()
-                || self.mux_recovery_generation.load(Ordering::Acquire) != 0
-                || matches!(&input, TerminalInput::Mouse(mouse) if self.pointer_route_is_stale_for_mouse(mouse)))
-                && !self.input_can_update_pending_mutation(&input) =>
+            AppEvent::NormalizedInput(input)
+                if input.is_routable()
+                    && !matches!(
+                        &input,
+                        TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. })
+                    )
+                    && (self.session.has_pending_mutations()
+                        || self.session.remote_tree_is_stale()
+                        || self.mux_recovery_generation.load(Ordering::Acquire) != 0
+                        || matches!(&input, TerminalInput::Mouse(mouse) if self.pointer_route_is_stale_for_mouse(mouse)))
+                    && !self.input_can_update_pending_mutation(&input) =>
             {
                 return Ok(self.defer_input_with_sequence(
                     input,
@@ -16069,18 +16129,14 @@ impl App {
     }
 
     fn input_can_update_pending_mutation(&self, input: &TerminalInput) -> bool {
-        if matches!(
-            input,
-            TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-        ) && (self.pairing_dialog.is_some()
-            || self.shortcut_help.is_some()
-            || self.prompt.is_some()
-            || self.menu.is_some()
-            || self.omnibar.is_some()
-            || self.machine_sidebar_focused()
-            || self.workspace_sidebar_focused() && self.config.sidebar.plugin.is_none())
+        if input.is_keyboard_command()
+            && (self.pairing_dialog.is_some()
+                || self.shortcut_help.is_some()
+                || self.prompt.is_some()
+                || self.menu.is_some()
+                || self.omnibar.is_some()
+                || self.machine_sidebar_focused()
+                || self.workspace_sidebar_focused() && self.config.sidebar.plugin.is_none())
         {
             return true;
         }
@@ -16193,13 +16249,7 @@ impl App {
     }
 
     fn input_accepts_semantic_destination(input: &TerminalInput) -> bool {
-        matches!(
-            input,
-            TerminalInput::Keyboard(_)
-                | TerminalInput::FrontendAction { .. }
-                | TerminalInput::ClearHistoryKey(_)
-                | TerminalInput::Paste(_)
-        )
+        input.is_keyboard_or_paste()
     }
 
     fn semantic_destination_for_input(
@@ -16513,14 +16563,14 @@ impl App {
         {
             return false;
         }
-        match input {
-            TerminalInput::Keyboard(_)
-            | TerminalInput::FrontendAction { .. }
-            | TerminalInput::ClearHistoryKey(_)
-            | TerminalInput::Paste(_) => true,
-            TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
-            TerminalInput::Mouse(_) => self.active_pointer_buttons.is_empty(),
-            _ => false,
+        if input.is_keyboard_or_paste() {
+            true
+        } else {
+            match input {
+                TerminalInput::Mouse(MouseEvent { kind: MouseEventKind::Moved, .. }) => false,
+                TerminalInput::Mouse(_) => self.active_pointer_buttons.is_empty(),
+                _ => false,
+            }
         }
     }
 
@@ -24707,13 +24757,33 @@ fn browser_character_code(character: char) -> (&'static str, u32) {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn input_class_groups_routing_semantics() {
+        let cases = [
+            (super::InputClass::Keyboard, true, true, true),
+            (super::InputClass::FrontendAction, true, true, true),
+            (super::InputClass::ClearHistoryKey, true, true, true),
+            (super::InputClass::Paste, true, true, false),
+            (super::InputClass::Mouse, true, false, false),
+            (super::InputClass::Focus, false, false, false),
+            (super::InputClass::Resize, false, false, false),
+        ];
+
+        for (class, routable, keyboard_or_paste, keyboard_command) in cases {
+            assert_eq!(class.is_routable(), routable, "{class:?}");
+            assert_eq!(class.is_keyboard_or_paste(), keyboard_or_paste, "{class:?}");
+            assert_eq!(class.is_keyboard_command(), keyboard_command, "{class:?}");
+        }
+    }
+
+    #[test]
     fn crossterm_reader_uses_bounded_polls_for_all_reads() {
         let event = Event::Resize(80, 24);
         let mut poll_calls = 0;
         let mut read_calls = 0;
         let mut poll_durations = Vec::new();
 
-        let blocking = super::read_crossterm_event(
+        let fixed_now = Instant::now();
+        let blocking = super::read_crossterm_event_with_clock(
             None,
             |timeout| {
                 poll_calls += 1;
@@ -24724,12 +24794,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(blocking, Some(event.clone()));
         assert_eq!((poll_calls, read_calls), (1, 1));
 
-        let timed_out = super::read_crossterm_event(
+        let timed_out = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24740,12 +24811,13 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(timed_out, None);
         assert_eq!((poll_calls, read_calls), (2, 1));
 
-        let ready = super::read_crossterm_event(
+        let ready = super::read_crossterm_event_with_clock(
             Some(Duration::from_millis(10)),
             |timeout| {
                 poll_calls += 1;
@@ -24756,6 +24828,7 @@ mod tests {
                 read_calls += 1;
                 Ok(event.clone())
             },
+            || fixed_now,
         )
         .unwrap();
         assert_eq!(ready, Some(event));
@@ -24769,19 +24842,110 @@ mod tests {
     #[test]
     fn crossterm_reader_propagates_poll_errors_without_reading() {
         let mut read_calls = 0;
-        let error = std::io::Error::new(std::io::ErrorKind::Interrupted, "poll interrupted");
+        let error = std::io::Error::other("poll failed");
+        let mut poll_calls = 0;
 
         let result = super::read_crossterm_event(
             None,
-            |_| Err(std::io::Error::new(error.kind(), error.to_string())),
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Err(std::io::Error::new(error.kind(), error.to_string()))
+                }
+            },
             || {
                 read_calls += 1;
                 Ok(Event::Resize(80, 24))
             },
         );
 
-        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::Other);
         assert_eq!(read_calls, 0);
+        assert!(poll_calls >= 1);
+    }
+
+    #[test]
+    fn crossterm_reader_retries_interrupted_poll_and_read() {
+        let mut poll_calls = 0;
+        let mut read_calls = 0;
+        let event = Event::Resize(80, 24);
+        let result = super::read_crossterm_event(
+            None,
+            |_| {
+                poll_calls += 1;
+                if poll_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(true)
+                }
+            },
+            || {
+                read_calls += 1;
+                if read_calls == 1 {
+                    Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+                } else {
+                    Ok(event.clone())
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(result, Some(event));
+        assert_eq!((poll_calls, read_calls), (2, 2));
+    }
+
+    #[test]
+    fn crossterm_reader_limits_consecutive_interrupted_poll_and_read() {
+        let fixed_now = Instant::now();
+        let mut poll_calls = 0;
+        let poll_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| {
+                poll_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || fixed_now,
+        );
+        assert_eq!(poll_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(poll_calls, 8);
+
+        let mut read_calls = 0;
+        let read_result = super::read_crossterm_event_with_clock(
+            None,
+            |_| Ok(true),
+            || {
+                read_calls += 1;
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || fixed_now,
+        );
+        assert_eq!(read_result.unwrap_err().kind(), std::io::ErrorKind::Interrupted);
+        assert_eq!(read_calls, 8);
+    }
+
+    #[test]
+    fn crossterm_reader_returns_timeout_when_interrupted_after_deadline() {
+        let start = Instant::now();
+        let mut clock_calls = 0;
+        let mut poll_calls = 0;
+        let result = super::read_crossterm_event_with_clock(
+            Some(Duration::from_millis(10)),
+            |timeout| {
+                poll_calls += 1;
+                assert!(timeout.is_zero());
+                Err(std::io::Error::from(std::io::ErrorKind::Interrupted))
+            },
+            || Ok(Event::Resize(80, 24)),
+            || {
+                let call = clock_calls;
+                clock_calls += 1;
+                if call == 0 { start } else { start + Duration::from_millis(11) }
+            },
+        );
+        assert_eq!(result.unwrap(), None);
+        assert_eq!(poll_calls, 1);
     }
 
     use super::{
@@ -43629,6 +43793,41 @@ mod tests {
 
         for surface in [first.id, second.id] {
             mux.close_surface(surface).unwrap();
+        }
+    }
+
+    #[test]
+    fn projection_workspace_target_follows_id_after_tree_reorder() {
+        let mux = Mux::new("projection-workspace-target-reorder-test", SurfaceOptions::default());
+        let first = mux.new_workspace(Some("Alpha".into()), Some((80, 24))).unwrap();
+        let second = mux.new_workspace(Some("Beta".into()), Some((80, 24))).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+
+        let target = crate::sidebar_projection::ProjectionTarget::Workspace {
+            index: 0,
+            id: app.tree.workspaces()[0].id,
+        };
+        app.tree.workspaces_mut().swap(0, 1);
+        app.activate_projection_target(target).unwrap();
+
+        assert_eq!(app.tree.active_workspace, 1);
+        assert_eq!(
+            app.tree.active_workspace().map(|workspace| workspace.id),
+            Some(target_id(target))
+        );
+
+        for surface in [first.id, second.id] {
+            mux.close_surface(surface).unwrap();
+        }
+    }
+
+    fn target_id(
+        target: crate::sidebar_projection::ProjectionTarget,
+    ) -> cmux_tui_core::WorkspaceId {
+        match target {
+            crate::sidebar_projection::ProjectionTarget::Workspace { id, .. } => id,
+            _ => unreachable!("workspace target expected"),
         }
     }
 

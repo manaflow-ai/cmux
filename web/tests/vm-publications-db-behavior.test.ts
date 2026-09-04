@@ -294,7 +294,6 @@ describe("Cloud VM publication persistence", () => {
 
       const resolved = await runRepository(
         repo.findActivePublicationForRequest({
-          hostname: "OWNERSHIP.PREVIEW.EXAMPLE.TEST",
           providerTlsRuleId: "tls-rule-ownership",
         }),
       );
@@ -302,7 +301,6 @@ describe("Cloud VM publication persistence", () => {
       expect(
         await runRepository(
           repo.findActivePublicationForRequest({
-            hostname: target.publication.hostname,
             providerTlsRuleId: "tls-rule-not-this-publication",
           }),
         ),

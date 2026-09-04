@@ -41,8 +41,7 @@ export function defaultProviderId(): ProviderId {
   return "freestyle";
 }
 
-/** The provider's capability set with defaults applied: an absent flag means supported,
- *  and `fork` follows the method's existence unless declared. */
+/** The provider's capability set with defaults applied. */
 export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
   const provider = getProvider(id);
   const declared = provider.capabilities ?? {};
@@ -50,5 +49,6 @@ export function vmCapabilitiesFor(id: ProviderId): VmCapabilities {
     snapshot: declared.snapshot ?? true,
     restore: declared.restore ?? true,
     fork: declared.fork ?? typeof provider.fork === "function",
+    ports: declared.ports ?? typeof provider.openPort === "function",
   };
 }

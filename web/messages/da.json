@@ -7,12 +7,14 @@
         "snapshot": "Denne Cloud VM understøtter ikke gemt VM-tilstand.",
         "restore": "Denne Cloud VM-type understøtter ikke gendannelse af gemt VM-tilstand.",
         "fork": "Denne Cloud VM understøtter ikke kopiering til en ny VM.",
+        "openPort": "Denne Cloud VM's udbyder kan ikke eksponere maskinens porte som forhåndsvisnings-URL'er.",
         "default": "Denne Cloud VM understøtter ikke den ønskede handling."
       },
       "action": {
         "snapshot": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "restore": "Prøv ikke igen. Arbejde på denne maskintype gemmes på dens vedvarende hjem-diskenhed.",
         "fork": "Prøv ikke igen. Opret en ny VM med `cmux vm new`.",
+        "openPort": "Prøv ikke igen. Få adgang til tjenesten fra maskinen med `cmux vm exec`, eller brug en maskintype, der kan åbne porte.",
         "default": "Prøv ikke igen. Kør `cmux vm ls`, eller kontakt support, hvis du mener, at dette er forkert."
       }
     },
@@ -61,11 +63,10 @@
     "backToSignIn": "Tilbage til login"
   },
   "cloudPublicationAccess": {
-    "eyebrow": "cmux cloud",
     "title": "Du har ikke adgang",
-    "signedOutBody": "Log ind på cmux for at se dette websted.",
     "signIn": "Log ind på cmux",
     "signedInAs": "Logget ind som {identity}",
+    "switchAccount": "Skift konto",
     "invalidTitle": "Dette adgangslink er ugyldigt",
     "invalidBody": "Gå tilbage til webstedet, og prøv igen.",
     "footer": "Adgang administreres af cmux."
@@ -1872,8 +1873,6 @@
     "metaDescription": "Download cmux NIGHTLY, en separat app bygget automatisk fra det seneste main-commit. Kører ved siden af den stabile version med egne automatiske opdateringer.",
     "description": "cmux NIGHTLY bygges automatisk fra det seneste commit på main. Den har sit eget bundle-ID, så den kører ved siden af den stabile version uden konflikter. Brug den til at teste nye funktioner før de udkommer.",
     "download": "Download NIGHTLY til Mac",
-    "appleSilicon": "Apple silicon",
-    "intel": "Intel",
     "warning": "Nightly builds kan indeholde fejl eller ufærdige funktioner. Hvis noget går galt, rapportér det på <githubLink>GitHub</githubLink> eller i <discordLink>#nightly-bugs på Discord</discordLink> og skift tilbage til den stabile version."
   },
   "languageSwitcher": {

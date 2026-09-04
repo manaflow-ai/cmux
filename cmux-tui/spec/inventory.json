@@ -237,6 +237,7 @@
       "detach-attached-view"
     ],
     "local-admin": [
+      "server-stats",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",
