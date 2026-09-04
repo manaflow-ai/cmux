@@ -84,7 +84,7 @@ class PairingViewModel @Inject constructor(
             val macDeviceId = result?.get("mac_device_id")?.jsonPrimitive?.content ?: ""
             val displayName = result?.get("mac_display_name")?.jsonPrimitive?.content
 
-            pairedMacStore.save(ticket, macDeviceId, displayName)
+            pairedMacStore.save(ticket, macDeviceId, displayName, host, port)
 
             session.disconnect()
             _state.value = PairingState.Success(displayName)

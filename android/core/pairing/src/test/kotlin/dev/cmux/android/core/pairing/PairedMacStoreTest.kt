@@ -28,7 +28,7 @@ class PairedMacStoreTest {
             macUserId = "user-abc",
             compatibilityVersion = 1,
         )
-        store.save(ticket, macDeviceId = "device-xyz", displayName = "My Mac")
+        store.save(ticket, macDeviceId = "device-xyz", displayName = "My Mac", resolvedHost = "100.64.1.2", resolvedPort = 58465)
 
         coVerify { dao.upsert(any()) }
         assertEquals("device-xyz", slot.captured.macDeviceId)
@@ -86,7 +86,7 @@ class PairedMacStoreTest {
             routes = listOf(AttachRoute(AttachRoute.RouteKind.TAILSCALE, "100.64.1.2", 58465)),
             macUserId = null,
         )
-        store.save(ticket, macDeviceId = "", displayName = null)
+        store.save(ticket, macDeviceId = "", displayName = null, resolvedHost = "100.64.1.2", resolvedPort = 58465)
 
         assertTrue(slot.captured.macDeviceId.startsWith("unknown-"))
     }

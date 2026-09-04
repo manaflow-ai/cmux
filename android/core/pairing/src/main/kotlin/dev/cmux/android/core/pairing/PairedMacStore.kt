@@ -12,16 +12,21 @@ class PairedMacStore @Inject constructor(
 
     suspend fun getLatest(): PairedMacEntity? = dao.getLatest()
 
-    suspend fun save(ticket: AttachTicket, macDeviceId: String, displayName: String?) {
+    suspend fun save(
+        ticket: AttachTicket,
+        macDeviceId: String,
+        displayName: String?,
+        resolvedHost: String,
+        resolvedPort: Int,
+    ) {
         val primary = ticket.routes.firstOrNull()
-            ?: return
         dao.upsert(
             PairedMacEntity(
                 macDeviceId = macDeviceId.ifBlank { "unknown-${System.currentTimeMillis()}" },
                 displayName = displayName,
-                primaryHost = primary.host,
-                primaryPort = primary.port,
-                routeKind = primary.kind.name,
+                primaryHost = resolvedHost,
+                primaryPort = resolvedPort,
+                routeKind = primary?.kind?.name ?: "UNKNOWN",
                 macUserId = ticket.macUserId,
             )
         )
