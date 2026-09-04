@@ -4417,6 +4417,12 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
                 "An explicit logical Cmd+, Close Tab binding must still beat Settings"
             )
         }
+        withTemporaryShortcut(action: .openSettings, shortcut: .unbound) {
+            XCTAssertTrue(
+                appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
+                "Clearing Settings must also suppress an already-installed stale menu equivalent"
+            )
+        }
 #else
         XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
 #endif

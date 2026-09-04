@@ -1,13 +1,13 @@
 import AppKit
 
 extension AppDelegate {
-    /// Whether a physical fallback for Close Tab must outrank the default
-    /// Settings menu equivalent for this event.
+    /// Whether a Close Tab match must outrank a Settings menu equivalent.
     ///
     /// Character matching remains available for explicit punctuation bindings;
-    /// the default binding is elevated only for its lower-confidence physical
+    /// The default binding is elevated only for its lower-confidence physical
     /// fallback, while an explicit Close Tab or Settings override remains
-    /// authoritative.
+    /// authoritative. Stale menu equivalents are considered even when the
+    /// current Settings binding was cleared or changed.
     func shouldPreferPhysicalCloseTabFallbackOverSettings(event: NSEvent) -> Bool {
         guard event.type == .keyDown,
               !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .openSettings),
@@ -18,21 +18,35 @@ extension AppDelegate {
 
         let closeTab = KeyboardShortcutSettings.shortcut(for: .closeTab)
         let openSettings = KeyboardShortcutSettings.shortcut(for: .openSettings)
+        let openSettingsIsExplicit = KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .openSettings)
         guard !closeTab.isUnbound,
-              !closeTab.hasChord,
-              !openSettings.isUnbound,
-              !openSettings.hasChord else {
+              !closeTab.hasChord else {
             return false
         }
 
         guard let closeTabSource = closeTab.firstStroke.matchingSource(
             event: event,
             layoutCharacterProvider: shortcutLayoutCharacterProvider
-        ),
-        openSettings.firstStroke.matchingSource(
-            event: event,
-            layoutCharacterProvider: shortcutLayoutCharacterProvider
-        ) != nil else {
+        ) else {
+            return false
+        }
+
+        let currentSettingsMatches = !openSettings.hasChord &&
+            openSettings.firstStroke.matchingSource(
+                event: event,
+                layoutCharacterProvider: shortcutLayoutCharacterProvider
+            ) != nil
+        if openSettingsIsExplicit && currentSettingsMatches {
+            return false
+        }
+
+        let staleSettingsMatches = KeyboardShortcutSettings.Action.openSettings.defaultShortcut
+            .firstStroke
+            .matchingSource(
+                event: event,
+                layoutCharacterProvider: shortcutLayoutCharacterProvider
+            ) != nil
+        guard currentSettingsMatches || staleSettingsMatches else {
             return false
         }
 
