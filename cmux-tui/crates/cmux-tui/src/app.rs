@@ -28156,9 +28156,9 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        if let Some(menu) = self.menu.as_mut() {
+        if self.menu.is_some() {
             self.reset_selection_click_sequence();
-            return Ok(if menu.scroll_at(x, y, down) {
+            return Ok(if self.menu.as_mut().is_some_and(|menu| menu.scroll_at(x, y, down)) {
                 RenderAction::Draw
             } else {
                 RenderAction::None
@@ -29190,33 +29190,33 @@ mod tests {
     }
 
     use super::{
-        App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
-        DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
-        DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
-        HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
-        MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
-        OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
-        PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip, PendingSessionMutation,
-        PendingSessionMutationState, PointerHitIdentity, PointerRouteIdentity, PointerRoutePhase,
-        Prompt, PromptTarget, PtyFailureIngress, PtyMousePressResult, RailKind, RenderAction,
-        RenderedMenuLevel, RenderedPaneRoute, RenderedPointerFrame, Selection, SelectionMode,
-        SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
-        SidebarActionTarget, SidebarHiddenReason, SidebarHiddenView, SidebarLayout,
-        SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarRailScrollState,
-        SidebarSplitGroupPlacement, SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop,
-        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
-        TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
-        TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
-        VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
-        WorkspaceRailSelection, action_available_in_mode, browser_content_size_for_rect,
-        browser_frame_source_crop, browser_hover_forward_allowed, browser_source_crop,
-        canonical_terminal_content, catch_renderer_panic, clamp_split_ratio_for_tab_bars,
-        client_menu_item, clip_horizontal_rect, content_size_for_rect,
-        disable_host_keyboard_protocol, enable_host_keyboard_protocol, expand_status_tokens,
-        first_pane_by_id, forward_host_input, forward_mux_event, forward_mux_events,
-        host_mouse_capture_escape_if_changed, host_startup_input_modes,
+        AgentAttentionReceipt, App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure,
+        ContextMenu, DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission,
+        DeferredInputQueue, DeferredReplayDisposition, Drag, EventCancellation, FocusTarget,
+        ForwardMuxOutcome, FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity,
+        GraphicPlacement, GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode,
+        HostInputIngress, HostInputMessage, HostInputRuntime, MachineActionWorker,
+        MachineConnectRoute, MenuAction, MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit,
+        OmnibarState, OrderedSession, OuterCursorSpec, PairingDialog, PaneArea, PaneAreaProjection,
+        PaneContentGeneration, PaneEdge, PaneFocusHistory, PaneResizeDragTarget, PaneViewportClip,
+        PendingSessionMutation, PendingSessionMutationState, PointerHitIdentity,
+        PointerRouteIdentity, PointerRoutePhase, Prompt, PromptTarget, PtyFailureIngress,
+        PtyMousePressResult, RailKind, RenderAction, RenderedMenuLevel, RenderedPaneRoute,
+        RenderedPointerFrame, Selection, SelectionMode, SessionCompletion, SessionCompletionAction,
+        SessionEventSender, ShortcutHelp, SidebarActionTarget, SidebarHiddenReason,
+        SidebarHiddenView, SidebarLayout, SidebarPluginSyncClaim, SidebarPluginSyncState,
+        SidebarRailScrollState, SidebarSplitGroupPlacement, SidebarWidthOverrides,
+        StatusTemplateValues, StatusWorkerStop, StdoutLock, SurfaceAttachClaimState,
+        SurfaceResizeDecision, SurfaceResizeOwnership, TERMINAL_PAINT_CADENCE, TerminalInput,
+        TerminalPaintPacer, TerminalPointerAdmission, TerminalPointerAdmissionResult,
+        TerminalPointerEncoding, TextInput, Toast, VIEWPORT_ANIMATION_DURATION, ViewportMotion,
+        ViewportPaneAreaProjection, WorkspaceRailSelection, action_available_in_mode,
+        browser_content_size_for_rect, browser_frame_source_crop, browser_hover_forward_allowed,
+        browser_source_crop, canonical_terminal_content, catch_renderer_panic,
+        clamp_split_ratio_for_tab_bars, client_menu_item, clip_horizontal_rect,
+        content_size_for_rect, disable_host_keyboard_protocol, enable_host_keyboard_protocol,
+        expand_status_tokens, first_pane_by_id, forward_host_input, forward_mux_event,
+        forward_mux_events, host_mouse_capture_escape_if_changed, host_startup_input_modes,
         initial_applied_outer_cursor, initial_host_mouse_capture, keyboard_protocol_accepts,
         layout_undo_error_completion, negotiate_host_keyboard_protocol_with, outer_cursor_escape,
         outer_cursor_escape_if_changed, pane_area_projection_work, pane_context_menu_groups,
