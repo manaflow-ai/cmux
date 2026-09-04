@@ -65,10 +65,11 @@ export function annotateVmRequestBilling(billing: {
 }): void {
   const context = storage.getStore();
   if (!context) return;
-  if (billing.billingTeamId) context.billingTeamId = billing.billingTeamId;
-  if (billing.billingCustomerType) context.billingCustomerType = billing.billingCustomerType;
+  const billingTeamId = billing.billingTeamId?.trim();
+  context.billingTeamId = billingTeamId || undefined;
+  context.billingCustomerType = billing.billingCustomerType ?? undefined;
   const planId = billing.planId?.trim().toLowerCase();
-  if (planId) context.planId = planId;
+  context.planId = planId || undefined;
 }
 
 /**
