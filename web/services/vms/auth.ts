@@ -7,6 +7,7 @@ import {
   type StackAccessTokenIdentity,
 } from "../auth/stackAccessToken";
 import { recordAuthResolution } from "../auth/authTelemetry";
+import { withStackAuthSpan } from "../auth/stackTelemetry";
 import {
   deleteIdentitySnapshot,
   identitySnapshotTtlMs,
@@ -303,6 +304,7 @@ export async function verifyBrowserSessionRequest(
       },
     }),
     signal,
+    "get_user",
   );
   return user && !user.isAnonymous ? user : null;
 }
@@ -341,12 +343,16 @@ function subrouterStackAuthorizationTimeoutMs(
 async function stackAuthorizationCall<T>(
   operation: () => Promise<T>,
   signal: AbortSignal | undefined,
+  operationName = "request",
 ): Promise<T> {
-  if (!signal) return operation();
+  const timedOperation = () => withStackAuthSpan(operationName, operation, {
+    "cmux.auth.deadline_gated": signal !== undefined,
+  });
+  if (!signal) return timedOperation();
   const release = await acquireStackAuthorizationSlot(signal);
   let pending: Promise<T>;
   try {
-    pending = Promise.resolve().then(operation);
+    pending = Promise.resolve().then(timedOperation);
   } catch (error) {
     release();
     throw new SubrouterAuthorizationUnavailableError(
@@ -520,6 +526,7 @@ export async function verifyRequest(
           return stackServerApp.getUser({ tokenStore: tokens });
         },
         options.subrouterAuthorizationSignal,
+        "get_user",
       );
     } catch (error) {
       // The circuit's own fast-fail must not count as a new upstream throttle,
@@ -559,6 +566,7 @@ export async function verifyRequest(
       },
     }),
     options.subrouterAuthorizationSignal,
+    "get_user",
   );
   if (user) {
     const resolved = await authedUserFromStackUser(user, options);
@@ -829,6 +837,7 @@ async function listAllStackTeams(
         limit: STACK_TEAM_PAGE_SIZE,
       }),
       signal,
+      "list_teams",
     );
     teams.push(...page);
     const nextCursor = normalizedOptionalString(page.nextCursor);
@@ -854,6 +863,7 @@ async function findStackTeam(
       limit: STACK_TEAM_PAGE_SIZE,
     }),
     signal,
+    "list_teams",
   );
   const match = page.find(
     (candidate) => billingTeamFromUnknown(candidate)?.id === teamId,

@@ -12,6 +12,7 @@ import { and, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { adminPlanGrants, stripeCustomers, stripeSubscriptions } from "../../db/schema";
 import { getStackServerApp } from "../../app/lib/stack";
+import { withStackAuthSpan } from "../auth/stackTelemetry";
 import {
   ACTIVE_STRIPE_PRO_STATUSES,
   PRO_PLAN_ID,
@@ -320,9 +321,15 @@ export function isValidScanCursor(value: string): boolean {
 function defaultProListStackApp(): ProListStackApp {
   const app = getStackServerApp();
   return {
-    getTeam: (teamId) => app.getTeam(teamId),
-    listUsers: (options) => app.listUsers(options),
-    listTeams: (options) => app.listTeams(options),
+    getTeam: (teamId) => withStackAuthSpan("get_team", () => app.getTeam(teamId), {
+      "cmux.auth.flow": "admin_pro_list",
+    }),
+    listUsers: (options) => withStackAuthSpan("list_users", () => app.listUsers(options), {
+      "cmux.auth.flow": "admin_pro_list",
+    }),
+    listTeams: (options) => withStackAuthSpan("list_teams", () => app.listTeams(options), {
+      "cmux.auth.flow": "admin_pro_list",
+    }),
   };
 }
 
