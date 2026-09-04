@@ -201,20 +201,64 @@ describe("withApiRouteSpan re-rooting under head sampling", () => {
     expect(exporter.getFinishedSpans()[0]?.attributes["cmux.priority"]).toBe(true);
   });
 
-  test("span exception payloads redact sensitive error text", () => {
+  test("every span error sink redacts sensitive Error metadata", () => {
     let recorded: unknown;
+    let status: unknown;
+    const attributes: Record<string, unknown> = {};
     const span = {
       recordException(exception: unknown) {
         recorded = exception;
       },
-      setStatus() {},
-      setAttributes() {},
+      setStatus(value: unknown) {
+        status = value;
+      },
+      setAttributes(value: Record<string, unknown>) {
+        Object.assign(attributes, value);
+      },
     } as unknown as Span;
-    recordSpanError(span, new Error("request failed Bearer super-secret-token"));
+    const cause = Object.assign(new Error("cause Bearer cause-secret-token"), {
+      name: "Cause Bearer cause-name-secret",
+      code: "crt_0123456789abcdef0123456789abcdef",
+    });
+    const error = new Error("request failed Bearer super-secret-token", { cause });
+    error.name = "Top Bearer top-name-secret";
+    recordSpanError(span, error);
     expect(recorded).toEqual({
-      name: "Error",
+      name: "Top [redacted]",
       message: "request failed [redacted]",
       stack: expect.stringContaining("request failed [redacted]"),
+    });
+    expect(status).toEqual({ code: 2, message: "request failed [redacted]" });
+    expect(attributes).toMatchObject({
+      "cmux.error_name": "Top [redacted]",
+      "cmux.error_message": "request failed [redacted]",
+      "cmux.error_cause_chain": "Cause [redacted]: cause [redacted]",
+      "cmux.error_cause_code": "[redacted]",
+    });
+    expect(JSON.stringify({ recorded, status, attributes })).not.toContain("secret");
+  });
+
+  test("non-Error inputs are redacted in every span sink", () => {
+    let recorded: unknown;
+    let status: unknown;
+    const attributes: Record<string, unknown> = {};
+    const span = {
+      recordException(exception: unknown) {
+        recorded = exception;
+      },
+      setStatus(value: unknown) {
+        status = value;
+      },
+      setAttributes(value: Record<string, unknown>) {
+        Object.assign(attributes, value);
+      },
+    } as unknown as Span;
+    recordSpanError(span, "request failed Bearer primitive-secret-token");
+    expect(recorded).toBe("request failed [redacted]");
+    expect(status).toEqual({ code: 2, message: "request failed [redacted]" });
+    expect(attributes).toEqual({
+      "cmux.error_name": "NonError",
+      "cmux.error_message": "request failed [redacted]",
     });
   });
 

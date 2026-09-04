@@ -134,16 +134,17 @@ export function setSpanAttributes(span: Span, attributes: MaybeAttributes): void
 
 export function recordSpanError(span: Span, err: unknown): void {
   if (err instanceof Error) {
+    const name = scrubText(err.name).slice(0, 80);
     const message = scrubText(err.message).slice(0, ERROR_CAUSE_MESSAGE_MAX);
     const stack = err.stack ? scrubText(err.stack).slice(0, 4_000) : undefined;
     span.recordException({
-      name: err.name,
+      name,
       message,
       ...(stack ? { stack } : {}),
     });
     span.setStatus({ code: SpanStatusCode.ERROR, message });
     span.setAttributes({
-      "cmux.error_name": err.name,
+      "cmux.error_name": name,
       "cmux.error_message": message,
     });
     const causes = summarizeErrorCauses(err);
@@ -271,7 +272,9 @@ export function summarizeErrorCauses(err: unknown): ErrorCauseSummary | undefine
       body?: { code?: unknown };
       cause?: unknown;
     };
-    const name = typeof record.name === "string" ? record.name : typeof current;
+    const name = scrubText(
+      typeof record.name === "string" ? record.name : typeof current,
+    ).slice(0, 80);
     const message = typeof record.message === "string" ? record.message : String(current);
     parts.push(`${name}: ${scrubText(message).slice(0, ERROR_CAUSE_MESSAGE_MAX)}`);
     const status = [record.status, record.statusCode, record.response?.status].find(
@@ -281,7 +284,9 @@ export function summarizeErrorCauses(err: unknown): ErrorCauseSummary | undefine
     const causeCode = [record.body?.code, record.code].find(
       (value) => typeof value === "string" && value.length > 0,
     );
-    if (code === undefined && typeof causeCode === "string") code = causeCode.slice(0, 80);
+    if (code === undefined && typeof causeCode === "string") {
+      code = scrubText(causeCode).slice(0, 80);
+    }
     current = record.cause;
   }
   if (depth === 0) return undefined;
