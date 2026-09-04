@@ -31,45 +31,38 @@ extension AgentJournalLifecycleCenter {
 
     @MainActor
     static func notificationTargetIsCurrent(_ draft: AgentJournalEventDraft) -> Bool {
+        notificationTarget(draft) != nil
+    }
+
+    @MainActor
+    private static func notificationTarget(_ draft: AgentJournalEventDraft) -> (tabId: UUID, surfaceId: UUID)? {
         guard let workspaceID = draft.workspaceId.flatMap(UUID.init(uuidString:)),
               let surfaceID = draft.surfaceId.flatMap(UUID.init(uuidString:)),
               let live = AppDelegate.shared?.agentNotificationDeliveryTarget(
                 claimedTabId: workspaceID, surfaceId: surfaceID),
               let panelID = live.surfaceId else {
             notificationDiagnostic(draft, reason: "route-unavailable")
-            return false
+            return nil
         }
-        if let workspace = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: panelID, preferredWorkspaceId: live.tabId)?.workspace,
-           let binding = workspace.surfaceResumeBindingsByPanelId[panelID],
-           binding.isAgentHookBinding, let sessionID = binding.checkpointId,
-           sessionID != draft.sessionId {
+        let binding = DockSplitStore.liveStores.first { $0.containsPanel(panelID) }?
+            .surfaceResumeBindingsByPanelId[panelID]
+            ?? AppDelegate.shared?.workspaceContainingPanel(panelId: panelID,
+                preferredWorkspaceId: live.tabId)?.workspace.surfaceResumeBindingsByPanelId[panelID]
+        if let binding, binding.isAgentHookBinding,
+           binding.checkpointId != draft.sessionId
+            || (binding.kind != nil && binding.kind?.lowercased() != draft.source.lowercased()) {
             notificationDiagnostic(draft, reason: "session-superseded")
-            return false
+            return nil
         }
-        return true
+        return (live.tabId, panelID)
     }
 
     @MainActor
     static func deliverNotification(_ event: AgentJournalEvent, identity: String) {
         let draft = event.draft
         guard let notification = draft.attention?.notification,
-              let workspaceID = draft.workspaceId.flatMap(UUID.init(uuidString:)),
-              let surfaceID = draft.surfaceId.flatMap(UUID.init(uuidString:)),
-              let live = AppDelegate.shared?.agentNotificationDeliveryTarget(
-                claimedTabId: workspaceID, surfaceId: surfaceID),
-              let liveSurfaceID = live.surfaceId else {
-            notificationDiagnostic(draft, reason: "route-unavailable", identity: identity)
-            return
-        }
-        if let workspace = AppDelegate.shared?.workspaceContainingPanel(
-            panelId: liveSurfaceID, preferredWorkspaceId: live.tabId)?.workspace,
-           let binding = workspace.surfaceResumeBindingsByPanelId[liveSurfaceID],
-           binding.isAgentHookBinding,
-           let sessionID = binding.checkpointId, sessionID != draft.sessionId {
-            notificationDiagnostic(draft, reason: "session-superseded", identity: identity)
-            return
-        }
+              let live = notificationTarget(draft) else { return }
+        let liveSurfaceID = live.surfaceId
         let category = AgentNotifyCategory(rawValue: notification.category)
         let alert: NotificationSoundAlertType? = draft.kind == .errorReported ? .errorStalled : category?.soundAlertType
         let sound = alert.flatMap { NotificationSoundOverrideContext(agentID: draft.source, alertType: $0) }

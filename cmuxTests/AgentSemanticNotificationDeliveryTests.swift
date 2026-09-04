@@ -109,6 +109,9 @@ extension AgentNotificationRegressionTests {
         #expect(AgentJournalLifecycleCenter.notificationRequestIsCurrent(request))
         fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId]?.checkpointId = "replacement"
         #expect(!AgentJournalLifecycleCenter.notificationRequestIsCurrent(request))
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId]?.checkpointId = "session"
+        fixture.source.surfaceResumeBindingsByPanelId[fixture.panelId]?.kind = source == "claude" ? "codex" : "claude"
+        #expect(!AgentJournalLifecycleCenter.notificationRequestIsCurrent(request))
     }
 
     @MainActor private final class FeedEffectRecorder {
