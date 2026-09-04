@@ -869,7 +869,6 @@ private struct MobileSettingsDiagnosticsSection: View {
     @Environment(\.irohSettingsController) private var irohSettingsController
     @Environment(\.mobileDiagnosticLog) private var diagnosticLog
     @Environment(\.mobileAppLog) private var appLog
-    @State private var logShareItem: MobileDiagnosticsShareItem?
     @State private var isPreparingExport = false
     /// Owns the verbose-log toggle and the privacy-scrubbed connection report
     /// that used to live on the Networking screen. `nil` without a controller
@@ -951,11 +950,6 @@ private struct MobileSettingsDiagnosticsSection: View {
                 defaultValue: "This permanently removes the app, networking, verbose, and connection logs stored on this device."
             ))
         }
-        .sheet(item: $logShareItem) { item in
-            MobileDiagnosticsActivityView(fileURL: item.url) {
-                finishLogExport(item)
-            }
-        }
         .task {
             guard !Task.isCancelled else { return }
             guard let irohSettingsController else { return }
@@ -977,48 +971,59 @@ private struct MobileSettingsDiagnosticsSection: View {
         isPreparingExport = true
         defer { isPreparingExport = false }
         guard let url = await appLog.exportLogs() else { return }
-        logShareItem = MobileDiagnosticsShareItem(url: url)
+        presentLogExport(url)
     }
 
     @MainActor
-    private func finishLogExport(_ item: MobileDiagnosticsShareItem) {
-        logShareItem = nil
-        try? FileManager.default.removeItem(at: item.url)
-    }
-}
-
-private struct MobileDiagnosticsShareItem: Identifiable {
-    let url: URL
-
-    var id: String { url.path }
-}
-
-private struct MobileDiagnosticsActivityView: UIViewControllerRepresentable {
-    let fileURL: URL
-    let onFinish: () -> Void
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
+    private func presentLogExport(_ url: URL) {
         let controller = UIActivityViewController(
-            activityItems: [fileURL],
+            activityItems: [url],
             applicationActivities: nil
         )
-        controller.loadViewIfNeeded()
-        controller.popoverPresentationController?.sourceView = controller.view
+        controller.completionWithItemsHandler = { _, _, _, _ in
+            try? FileManager.default.removeItem(at: url)
+        }
+        guard let presenter = Self.activeViewController() else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        controller.popoverPresentationController?.sourceView = presenter.view
         controller.popoverPresentationController?.sourceRect = CGRect(
-            x: controller.view.bounds.midX,
-            y: controller.view.bounds.midY,
+            x: presenter.view.bounds.midX,
+            y: presenter.view.bounds.midY,
             width: 1,
             height: 1
         )
-        controller.completionWithItemsHandler = { _, _, _, _ in
-            onFinish()
+        presenter.present(controller, animated: true)
+    }
+
+    @MainActor
+    private static func activeViewController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .filter { $0.activationState == .foregroundActive }
+        guard let window = scenes
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow),
+              let root = window.rootViewController else {
+            return nil
+        }
+        return topViewController(from: root)
+    }
+
+    private static func topViewController(from controller: UIViewController) -> UIViewController {
+        if let presented = controller.presentedViewController {
+            return topViewController(from: presented)
+        }
+        if let navigation = controller as? UINavigationController,
+           let visible = navigation.visibleViewController {
+            return topViewController(from: visible)
+        }
+        if let tab = controller as? UITabBarController,
+           let selected = tab.selectedViewController {
+            return topViewController(from: selected)
         }
         return controller
     }
-
-    func updateUIViewController(
-        _ controller: UIActivityViewController,
-        context: Context
-    ) {}
 }
 #endif
