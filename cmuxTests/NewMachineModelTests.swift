@@ -58,6 +58,12 @@ struct NewMachineModelTests {
         #expect(model.memoryMb == 8192)
     }
 
+    @Test func emptyServerOptionsKeepOnlyTheKnownDefault() {
+        let (model, _) = makeModel(memoryOptionsMb: [])
+        #expect(model.memoryOptions == [8192])
+        #expect(model.memoryMb == 8192)
+    }
+
     @Test func selectedSizeTravelsAsBaseSizeFlagOnly() {
         let (model, recorder) = makeModel()
         model.memoryMb = 65536

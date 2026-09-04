@@ -111,13 +111,17 @@ final class NewMachineModel {
         self.mode = mode
         self.plan = plan
         let serverOptions = memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }
-        self.availableMemoryOptionsMb = serverOptions.isEmpty ? Self.memoryOptionsMb : serverOptions
+        // An empty list means an older control plane did not advertise the
+        // ladder. Keep the compatibility surface to the known 8 GiB default
+        // instead of offering requests that server may reject.
+        self.availableMemoryOptionsMb = serverOptions.isEmpty ? [Self.planMachineMemoryMb] : serverOptions
         self.submit = submit
         self.memoryMb = Self.defaultMemoryMb(planId: plan?.planId, options: self.availableMemoryOptionsMb)
     }
 
     static func defaultMemoryMb(planId: String?, options: [Int] = memoryOptionsMb) -> Int {
         let allowed = options.filter { $0 <= maxMemoryMb(planId: planId) }.sorted()
+        if allowed.contains(planMachineMemoryMb) { return planMachineMemoryMb }
         return allowed.first ?? planMachineMemoryMb
     }
 
