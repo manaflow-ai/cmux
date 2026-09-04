@@ -89,6 +89,12 @@ A desktop image is a superset of a base one, so one Freestyle snapshot is
 registered under both kinds (`desktop` and `base`). `--no-desktop` bakes a
 shell-only snapshot.
 
+The Freestyle base slug is only the input to the cmux bake. The ids recorded in
+`manifest.json` are cmux-derived snapshots, created by baking cmux-tui and its
+contract first, then resizing and re-booting each shape. Never point a machine
+at a raw `freestyle/*` base, because it has no cmux-tui state or startup
+contract.
+
 Reaching it: the Freestyle driver's `openPort(vmId, 6901)` (the app's
 Displays row, `cmux vm open <m>:desktop`) returns
 `http://<private VPC IPv4>:6901/vnc.html?path=websockify`, reachable only
@@ -137,15 +143,32 @@ bills and caps:
 | `sm` | 2 | 4 GiB | 16 GB | `freestyle/ubuntu-sm` |
 | `md` | 4 | 8 GiB | 32 GB | `freestyle/ubuntu` |
 | `lg` | 8 | 16 GiB | 64 GB | `freestyle/ubuntu-lg` |
+| `lgx` | 12 | 24 GiB | 96 GB | derived snapshot |
 | `xl` | 16 | 32 GiB | 128 GB | `freestyle/ubuntu-xl` |
 | `2xl` | 32 | 64 GiB | 128 GB | `freestyle/ubuntu-2xl` |
 
 The manifest records one entry per kind and size (`size: { name, cpu,
 memoryMb, storageMb }`), each the default for its kind+size. The resolver
 picks the smallest size whose memory covers the plan's `memoryMb`
-(`defaultMemoryMbForPlan`; today's paid default of 24 GiB lands on `xl`), so
+(`defaultMemoryMbForPlan`; today's default of 8 GiB lands on `md`), so
 the driver never resizes at create and nothing has to grow at boot. Snapshot
 slugs are `cmux-devbox-<size>` (`cmux-devbox` for `md`).
+
+### BusyBox probe
+
+`freestyle/busybox` is not a supported machine image. It has only BusyBox
+utilities and no systemd or cmux devbox contract. To measure whether a future
+shell-only image can run cmux-tui, use the disposable probe:
+
+```bash
+FREESTYLE_API_KEY=... bun run devbox:probe:busybox --fx
+```
+
+The probe installs the pinned static cmux-tui build, starts the daemon, runs the
+small `fx` binary, records RSS, and deletes the VM. It never writes the image
+manifest. A BusyBox result becomes a product option only after a separate
+cmux-derived bake passes the same daemon, persistence, and attach checks as the
+Ubuntu ladder.
 
 ## Promote: bake, verify, derive sizes, record (one command)
 
@@ -157,7 +180,7 @@ it. `promote-devbox-image.ts` is the only sanctioned writer:
 
 ```bash
 # from web/, with the Freestyle key in env
-FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,xl,2xl -> manifest
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,lgx,xl,2xl -> manifest
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes lg,xl       # a subset of the ladder
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes none        # one size-less entry (pre-ladder behaviour)
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…        # verify + derive + record an existing bake
