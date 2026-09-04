@@ -2943,24 +2943,37 @@ fn plain_launch_attaches_to_existing_local_session() {
 
 #[cfg(unix)]
 #[test]
-fn session_shutdown_exits_an_interactive_local_owner() {
+fn session_shutdown_exits_an_interactive_detached_owner_client() {
     let dir = TestTempDir::create("interactive-session-shutdown");
     let socket = dir.path().join("mux.sock");
     let socket_arg = socket.to_str().unwrap();
-    let mut owner =
-        PtyChild::start(&["--session", "interactive-session-shutdown", "--socket", socket_arg]);
+    let state = dir.path().join("state");
+    let state_arg = state.to_str().unwrap();
+    let config = dir.path().join("config.json");
+    fs::write(&config, r#"{"server":{"detached_owner":true}}"#).unwrap();
+    let mut client = PtyChild::start_with_env(
+        &[
+            "--session",
+            "interactive-session-shutdown",
+            "--socket",
+            socket_arg,
+            "--state",
+            state_arg,
+        ],
+        &[("CMUX_TUI_CONFIG", config.as_os_str())],
+    );
     wait_for_socket_path(&socket);
-    wait_for_owner_server_ready(&socket, &mut owner);
+    wait_for_owner_server_ready(&socket, &mut client);
 
     let shutdown =
         lifecycle_cli(&["--json", "--socket", socket_arg, "session", "current", "shutdown"]);
     assert_success(&shutdown);
     assert_eq!(json_output(&shutdown)["value"]["accepted"], true);
 
-    let status = owner
+    let status = client
         .wait_for_exit(Duration::from_secs(5))
-        .expect("interactive owner remained alive after session shutdown");
-    assert!(status.success(), "interactive owner exited unsuccessfully: {status}");
+        .expect("interactive client remained alive after detached owner shutdown");
+    assert!(status.success(), "interactive client exited unsuccessfully: {status}");
 }
 
 #[cfg(unix)]
@@ -3079,7 +3092,7 @@ fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
     let first_marker = "scoped_attach_lifecycle_marker";
     let write = json_cli(
         &server,
-        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\\n")],
+        &["terminal", &terminal, "write", "--text", &format!("printf '{first_marker}\\n'\n")],
     );
     assert_success(&write);
     assert!(
@@ -3136,7 +3149,7 @@ fn scoped_terminal_attach_streams_pty_and_detaches_without_killing_terminal() {
     let second_marker = "scoped_attach_after_detach_marker";
     let write = json_cli(
         &server,
-        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\\n")],
+        &["terminal", &terminal, "write", "--text", &format!("printf '{second_marker}\\n'\n")],
     );
     assert_success(&write);
     assert!(
