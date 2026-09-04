@@ -52,7 +52,7 @@ fun PairingScannerScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     if (BuildConfig.DEBUG) {
-                        DebugUrlInput(onSubmit = { viewModel.onQrCodeScanned(it) })
+                        DebugUrlInput(onSubmit = { url, port -> viewModel.onQrCodeScanned(url, port) })
                     }
                 }
                 if (state is PairingState.Idle) {
@@ -91,23 +91,44 @@ fun PairingScannerScreen(
 }
 
 @Composable
-private fun DebugUrlInput(onSubmit: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        OutlinedTextField(
-            value = text,
-            onValueChange = { text = it },
-            modifier = Modifier.weight(1f),
-            label = { Text("[DEBUG] Paste QR URL") },
-            singleLine = true,
-        )
-        Button(
-            onClick = { if (text.isNotBlank()) onSubmit(text.trim()) },
-            enabled = text.isNotBlank(),
-        ) { Text("Go") }
+private fun DebugUrlInput(onSubmit: (String, Int?) -> Unit) {
+    var url by remember { mutableStateOf("") }
+    var portText by remember { mutableStateOf("") }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                modifier = Modifier.weight(1f),
+                label = { Text("[DEBUG] Paste QR URL") },
+                singleLine = true,
+            )
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = portText,
+                onValueChange = { portText = it.filter { c -> c.isDigit() } },
+                modifier = Modifier.weight(1f),
+                label = { Text("[DEBUG] Port override (emulator)") },
+                singleLine = true,
+                placeholder = { Text("e.g. 61654") },
+            )
+            Button(
+                onClick = {
+                    if (url.isNotBlank()) {
+                        val port = portText.toIntOrNull()
+                        onSubmit(url.trim(), port)
+                    }
+                },
+                enabled = url.isNotBlank(),
+            ) { Text("Connect") }
+        }
     }
 }
 

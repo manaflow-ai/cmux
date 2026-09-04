@@ -42,20 +42,20 @@ class PairingViewModel @Inject constructor(
         _state.value = PairingState.Scanning
     }
 
-    fun onQrCodeScanned(rawUrl: String) {
+    fun onQrCodeScanned(rawUrl: String, debugPortOverride: Int? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             when (val decoded = AttachTicketDecoder.decode(rawUrl)) {
                 is AttachTicketDecoder.Result.Error -> {
                     _state.value = PairingState.Error("Invalid QR: ${decoded.reason}")
                 }
                 is AttachTicketDecoder.Result.Success -> {
-                    connectAndPair(decoded.ticket)
+                    connectAndPair(decoded.ticket, debugPortOverride)
                 }
             }
         }
     }
 
-    private suspend fun connectAndPair(ticket: AttachTicket) {
+    private suspend fun connectAndPair(ticket: AttachTicket, debugPortOverride: Int? = null) {
         val route = ticket.routes.firstOrNull { it.kind == AttachRoute.RouteKind.TAILSCALE }
             ?: ticket.routes.firstOrNull()
             ?: run {
@@ -63,10 +63,13 @@ class PairingViewModel @Inject constructor(
                 return
             }
 
-        // In emulator: always connect to 10.0.2.2:58465 regardless of route kind
-        // (covers both v2 Tailscale and v3 Iroh QR codes).
+        // In emulator: always connect to 10.0.2.2 regardless of route kind.
+        // The Mac debug build's TCP mobile server uses an ephemeral port when
+        // Iroh already occupies 58465/UDP, so debugPortOverride lets the user
+        // specify the actual port shown by `lsof -i TCP -a -p $(pgrep cmux) | grep LISTEN`.
         val host = if (isEmulator()) EMULATOR_HOST else route.host
-        val port = if (isEmulator() || route.port <= 0) DEFAULT_PORT else route.port
+        val port = debugPortOverride?.takeIf { isEmulator() && it > 0 }
+            ?: if (isEmulator() || route.port <= 0) DEFAULT_PORT else route.port
 
         _state.value = PairingState.Connecting(host, port)
 
