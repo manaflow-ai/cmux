@@ -106,6 +106,10 @@ final class MachineCreateCoordinator {
     /// callbacks. The full callback is parsed before any transcript bound is
     /// applied, so a marker at the start of a large callback is not lost.
     private static let markerCarryLimit = 512
+    /// A process that never reports termination must not retain cancellation
+    /// state forever. This cap keeps enough tombstones for late callbacks while
+    /// bounding memory during a broken sign-out/CLI transport.
+    private static let maximumCancelledCreates = 64
 
     init(
         notifier: @escaping @MainActor (MachineCreateNotice) -> Void,
@@ -249,7 +253,7 @@ final class MachineCreateCoordinator {
         if !operation.request.isBaseSetup, let machineID = operation.createdMachineID {
             cancelled.cleanedMachineID = machineID
         }
-        cancelledCreates[id] = cancelled
+        retainCancelledCreate(cancelled, for: id)
         // Install the tombstone before terminating: Process may invoke its
         // termination handler synchronously on a test double.
         cancellation?.cancel()
@@ -269,8 +273,13 @@ final class MachineCreateCoordinator {
         cancellationHandles.removeAll()
         progressOutput.removeAll()
         progressMarkerCarry.removeAll()
-        cancelledCreates.removeAll()
-        cleanupIssuedMachineIDs.removeAll()
+        // Keep new-machine tombstones until their process callbacks arrive so
+        // a machine announced after sign-out still receives best-effort cleanup.
+        // Base setup has no newly allocated machine to destroy and can be
+        // discarded immediately.
+        for (id, cancelled) in cancelledCreates where cancelled.isBaseSetup {
+            cancelledCreates[id] = nil
+        }
         postDidChange(finished: nil)
     }
 
@@ -440,6 +449,18 @@ final class MachineCreateCoordinator {
         let normalized = machineID.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, cleanupIssuedMachineIDs.insert(normalized).inserted else { return }
         cancelCreatedMachine(normalized)
+    }
+
+    /// Retains a bounded cancellation tombstone. The process completion normally
+    /// removes it; if a child disappears without a callback, the oldest entry is
+    /// evicted rather than allowing repeated failed launches to grow without
+    /// bound.
+    private func retainCancelledCreate(_ cancelled: CancelledCreate, for id: UUID) {
+        if cancelledCreates.count >= Self.maximumCancelledCreates,
+           let oldest = cancelledCreates.keys.first {
+            cancelledCreates.removeValue(forKey: oldest)
+        }
+        cancelledCreates[id] = cancelled
     }
 
     private func postDidChange(finished: Finished?) {
