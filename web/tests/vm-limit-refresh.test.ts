@@ -40,6 +40,75 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
 // status read. The lazy refresh on limit-exceeded must reconcile every
 // provider the gateway can report on, exactly like the cron path.
 describe("lazy active-limit provider refresh", () => {
+  test("backfills a legacy disk claim before the shared create check", async () => {
+    const requested = row({ status: "provisioning", providerVmId: null });
+    const legacy = row({
+      id: "00000000-0000-4000-8000-000000000105",
+      status: "running",
+      providerVmId: "provider-vm-legacy-disk",
+      providerMetadata: {},
+    });
+    const reservations: Array<{ id: string; reservation: { vcpus: number; memoryMb: number; diskMb: number } }> = [];
+    const running = row({ status: "running", providerVmId: "provider-vm-new" });
+    const repo = {
+      beginCreate: () => {
+        expect(reservations).toEqual([{
+          id: legacy.id,
+          reservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 65536 },
+        }]);
+        return Effect.succeed({ inserted: true, vm: requested });
+      },
+      legacyResourceReservationCandidates: () => Effect.succeed([legacy]),
+      setResourceReservation: (input: typeof reservations[number]) =>
+        Effect.sync(() => {
+          reservations.push(input);
+          return true;
+        }),
+      claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" as const }),
+      markBillingGrantApplied: () => Effect.void,
+      deleteBillingGrant: () => Effect.void,
+      markCreateRunning: () => Effect.succeed(running),
+      markCreateFailed: () => Effect.void,
+      recordUsageEvent: () => Effect.void,
+      recordUsageEvents: () => Effect.void,
+    } as unknown as VmRepositoryShape;
+    const providers = {
+      create: () => Effect.succeed({
+        provider: "freestyle" as const,
+        providerVmId: "provider-vm-new",
+        status: "running" as const,
+        image: "snapshot-test",
+        createdAt: FIXTURE_NOW.getTime(),
+      }),
+      destroy: () => Effect.void,
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: FIXTURE_NOW.getTime(),
+        diskTotalMb: 65536,
+      }),
+      exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
+      openAttach: () => Effect.fail(new Error("unused") as never),
+      openSSH: () => Effect.fail(new Error("unused") as never),
+    } as unknown as VmProviderGatewayShape;
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, providers),
+      Layer.succeed(VmBillingGateway, noOpVmBillingGateway()),
+    );
+
+    await Effect.runPromise(
+      createVm({
+        userId: requested.userId,
+        billingCustomerType: "team",
+        billingTeamId: requested.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: "snapshot-test",
+      }).pipe(Effect.provide(layer)),
+    );
+  });
+
   test("refreshes stale rows for every provider with a status read, not just freestyle", async () => {
     const requested = row({ status: "provisioning", providerVmId: null });
     const running = row({
