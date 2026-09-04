@@ -9,9 +9,8 @@
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" rx="224" fill="#FFFFFF" fill-opacity="0.14"/>
-  <!-- The Sky silhouette's area centroid is 42.6px above and left of its
-       bounding-box center, so offset it down/right for optical centering. -->
-  <g transform="translate(293.4 293.4) scale(44.8)">
+  <!-- Center the kite's tight visible bounds, not its asymmetric ink centroid. -->
+  <g transform="translate(251.0085 251.0085) scale(44.8)">
     <path
       d="M0.68 1.83 L3.63 9.78 Q4.67 12.59 5.3 9.66 L5.44 9.01 Q6.08 6.08 9.01 5.44 L9.66 5.3 Q12.59 4.67 9.78 3.63 L1.83 0.68 Q0 0 0.68 1.83 Z"
       fill="url(#cur)"/>

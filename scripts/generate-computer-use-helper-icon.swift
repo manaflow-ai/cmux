@@ -14,8 +14,6 @@
 
 import AppKit
 
-let plateCornerRadius: CGFloat = 224
-let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
 let cursorScale: CGFloat = 44.8
 let rimWidth: CGFloat = 14
 let canvas = CGRect(x: 0, y: 0, width: 1_024, height: 1_024)
@@ -53,6 +51,17 @@ func render() -> CGImage? {
     // direction, exactly like the runtime renderer.
     context.translateBy(x: 0, y: canvas.height)
     context.scaleBy(x: 1, y: -1)
+
+    // Keep the static asset aligned with the runtime renderer: use the tight
+    // path bounds, excluding control-point padding and the ink centroid.
+    let cursorPathBounds = cursorPath().boundingBoxOfPath
+    let plateCornerRadius = canvas.width * (7.0 / 32.0)
+    let cursorTranslation = CGPoint(
+        x: (canvas.width - cursorPathBounds.width * cursorScale) / 2
+            - cursorPathBounds.minX * cursorScale,
+        y: (canvas.height - cursorPathBounds.height * cursorScale) / 2
+            - cursorPathBounds.minY * cursorScale
+    )
 
     let plate = CGPath(
         roundedRect: canvas,
