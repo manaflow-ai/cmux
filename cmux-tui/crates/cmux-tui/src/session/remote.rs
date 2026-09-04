@@ -6,9 +6,9 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, RecvError, RecvTimeoutError, Sender, channel};
+use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
@@ -81,7 +81,7 @@ fn remote_write_timeout() -> Duration {
 
 #[cfg(test)]
 fn remote_write_timeout() -> Duration {
-    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    static TIMEOUT: OnceLock<Duration> = OnceLock::new();
     *TIMEOUT.get_or_init(|| {
         let scale = std::env::var("CMUX_TEST_TIMEOUT_SCALE")
             .ok()
@@ -1245,8 +1245,446 @@ struct InteractiveWriterShared {
     state: Mutex<InteractiveWriteQueueState>,
     changed: Condvar,
     metrics: InteractiveWriteMetrics,
+    worker_completion: Arc<WorkerCompletion>,
     #[cfg(test)]
     wait_until_written_gate: Mutex<Option<InteractiveWaitUntilWrittenGate>>,
+}
+
+struct WorkerCompletion {
+    done: Mutex<bool>,
+    changed: Condvar,
+    admission: Mutex<Option<WorkerSlot>>,
+    handle: Mutex<Option<std::thread::JoinHandle<()>>>,
+    thread_id: Mutex<Option<std::thread::ThreadId>>,
+    runtime: Arc<WorkerRuntime>,
+    wake_reaper: bool,
+    #[cfg(test)]
+    joined: AtomicBool,
+}
+
+impl WorkerCompletion {
+    #[cfg(test)]
+    fn new() -> Self {
+        Self::with_runtime(test_worker_runtime(), None, false)
+    }
+
+    #[cfg(test)]
+    fn completed() -> Self {
+        let completion = Self::new();
+        *completion.done.lock().unwrap() = true;
+        completion
+    }
+
+    fn with_runtime(
+        runtime: Arc<WorkerRuntime>,
+        slot: Option<WorkerSlot>,
+        wake_reaper: bool,
+    ) -> Self {
+        Self {
+            done: Mutex::new(false),
+            changed: Condvar::new(),
+            admission: Mutex::new(slot),
+            handle: Mutex::new(None),
+            thread_id: Mutex::new(None),
+            runtime,
+            wake_reaper,
+            #[cfg(test)]
+            joined: AtomicBool::new(false),
+        }
+    }
+
+    fn with_slot(runtime: Arc<WorkerRuntime>, slot: Option<WorkerSlot>) -> Self {
+        Self::with_runtime(runtime, slot, true)
+    }
+
+    fn mark_done(self: &Arc<Self>) {
+        *self.done.lock().unwrap_or_else(|poison| poison.into_inner()) = true;
+        self.changed.notify_all();
+        if self.wake_reaper {
+            self.runtime.wake_reaper();
+        }
+        self.reap_owned_handle();
+    }
+
+    fn install_handle(self: &Arc<Self>, handle: std::thread::JoinHandle<()>) {
+        let current = handle.thread().id() == std::thread::current().id();
+        *self.handle.lock().unwrap_or_else(|poison| poison.into_inner()) = Some(handle);
+        if self.is_done() && !current {
+            self.reap_owned_handle();
+        }
+    }
+
+    fn take_handle(&self) -> Option<std::thread::JoinHandle<()>> {
+        self.handle.lock().unwrap_or_else(|poison| poison.into_inner()).take()
+    }
+
+    fn set_thread_id(&self) {
+        *self.thread_id.lock().unwrap_or_else(|poison| poison.into_inner()) =
+            Some(std::thread::current().id());
+    }
+
+    fn is_current_thread(&self) -> bool {
+        self.thread_id
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .is_some_and(|id| id == std::thread::current().id())
+    }
+
+    fn reap_owned_handle(self: &Arc<Self>) {
+        if let Some(handle) = self.take_handle() {
+            self.runtime.enqueue(handle, self.clone());
+        }
+    }
+
+    fn wait(&self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        let mut done = self.done.lock().unwrap_or_else(|poison| poison.into_inner());
+        while !*done {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                break;
+            }
+            let (next, timeout) = self
+                .changed
+                .wait_timeout(done, remaining)
+                .unwrap_or_else(|poison| poison.into_inner());
+            done = next;
+            if timeout.timed_out() {
+                break;
+            }
+        }
+        *done
+    }
+
+    fn is_done(&self) -> bool {
+        *self.done.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    #[cfg(test)]
+    fn was_joined(&self) -> bool {
+        self.joined.load(Ordering::Acquire)
+    }
+
+    fn mark_joined(&self) {
+        self.release_slot();
+        #[cfg(test)]
+        self.joined.store(true, Ordering::Release);
+    }
+
+    fn release_slot(&self) {
+        let _ = self.admission.lock().unwrap_or_else(|poison| poison.into_inner()).take();
+    }
+}
+
+const REMOTE_WORKER_SLOT_FLOOR: usize = 256;
+
+fn remote_worker_slot_limit_for_warm_connections(warm_connections: usize) -> usize {
+    warm_connections.saturating_mul(2).max(REMOTE_WORKER_SLOT_FLOOR)
+}
+
+fn remote_worker_slot_limit() -> usize {
+    let warm_connections = std::env::var("CMUX_TUI_WARM_MACHINES")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .filter(|limit| *limit >= 2)
+        .unwrap_or(5);
+    remote_worker_slot_limit_for_warm_connections(warm_connections)
+}
+
+struct WorkerAdmission {
+    available: AtomicUsize,
+}
+
+struct WorkerSlot(Arc<WorkerAdmission>);
+
+impl WorkerAdmission {
+    fn try_reserve(self: &Arc<Self>) -> Option<WorkerSlot> {
+        let mut available = self.available.load(Ordering::Acquire);
+        loop {
+            if available == 0 {
+                return None;
+            }
+            match self.available.compare_exchange_weak(
+                available,
+                available - 1,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Some(WorkerSlot(self.clone())),
+                Err(next) => available = next,
+            }
+        }
+    }
+}
+
+impl Drop for WorkerSlot {
+    fn drop(&mut self) {
+        self.0.available.fetch_add(1, Ordering::Release);
+    }
+}
+
+type ReapRequest = (std::thread::JoinHandle<()>, Arc<WorkerCompletion>);
+
+struct ReaperState {
+    sender: Option<std::sync::mpsc::SyncSender<()>>,
+    worker: Option<std::thread::JoinHandle<()>>,
+    pending: Vec<ReapRequest>,
+    #[cfg(test)]
+    fail_spawns_remaining: usize,
+}
+
+// A wake token only prompts the reaper to inspect its pending list. Keep a
+// finite reserve for bursts while never allowing teardown to block on notify.
+const REMOTE_REAPER_WAKE_CAPACITY: usize = 1024;
+
+struct WorkerRuntime {
+    admission: Arc<WorkerAdmission>,
+    reaper: Arc<Mutex<ReaperState>>,
+}
+
+static PROCESS_WORKER_ADMISSION: OnceLock<Arc<WorkerAdmission>> = OnceLock::new();
+static PROCESS_REAPER: OnceLock<Arc<Mutex<ReaperState>>> = OnceLock::new();
+
+fn new_reaper_state() -> Arc<Mutex<ReaperState>> {
+    Arc::new(Mutex::new(ReaperState {
+        sender: None,
+        worker: None,
+        pending: Vec::new(),
+        #[cfg(test)]
+        fail_spawns_remaining: 0,
+    }))
+}
+
+fn process_reaper_state() -> Arc<Mutex<ReaperState>> {
+    PROCESS_REAPER.get_or_init(new_reaper_state).clone()
+}
+
+fn process_worker_admission() -> Arc<WorkerAdmission> {
+    PROCESS_WORKER_ADMISSION
+        .get_or_init(|| {
+            Arc::new(WorkerAdmission { available: AtomicUsize::new(remote_worker_slot_limit()) })
+        })
+        .clone()
+}
+
+impl WorkerRuntime {
+    fn new() -> Arc<Self> {
+        Arc::new(Self { admission: process_worker_admission(), reaper: process_reaper_state() })
+    }
+
+    fn reserve_slot(&self) -> Option<WorkerSlot> {
+        if let Some(slot) = self.admission.try_reserve() {
+            return Some(slot);
+        }
+        // A failed reaper startup leaves completed handles owned by the
+        // runtime. Drain finished handles before rejecting new work, then
+        // give the reaper another chance for handles that are still running.
+        reap_completed_workers(&self.reaper);
+        let has_pending_without_reaper = {
+            let state = self.reaper.lock().unwrap_or_else(|poison| poison.into_inner());
+            state.sender.is_none() && !state.pending.is_empty()
+        };
+        if has_pending_without_reaper {
+            try_start_reaper(&self.reaper);
+        }
+        self.admission.try_reserve()
+    }
+
+    fn enqueue(
+        self: &Arc<Self>,
+        handle: std::thread::JoinHandle<()>,
+        completion: Arc<WorkerCompletion>,
+    ) {
+        enqueue_worker_reap_in_state(&self.reaper, handle, completion);
+    }
+
+    fn wake_reaper(&self) {
+        wake_reaper_after_completion(&self.reaper);
+    }
+}
+
+#[cfg(test)]
+fn test_worker_runtime() -> Arc<WorkerRuntime> {
+    static RUNTIME: OnceLock<Arc<WorkerRuntime>> = OnceLock::new();
+    RUNTIME
+        .get_or_init(|| {
+            Arc::new(WorkerRuntime {
+                admission: process_worker_admission(),
+                reaper: new_reaper_state(),
+            })
+        })
+        .clone()
+}
+
+#[cfg(test)]
+fn reaper_state() -> Arc<Mutex<ReaperState>> {
+    test_worker_runtime().reaper.clone()
+}
+
+fn try_start_reaper(state: &Arc<Mutex<ReaperState>>) {
+    // Serialize startup while holding the state lock. Two callers must not
+    // spawn competing workers, because the loser cannot safely join a worker
+    // whose receiver still has an owning sender on its stack.
+    let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+    if current.sender.is_some() {
+        return;
+    }
+    let (sender, receiver) = std::sync::mpsc::sync_channel::<()>(REMOTE_REAPER_WAKE_CAPACITY);
+    let worker_state = state.clone();
+    #[cfg(test)]
+    if current.fail_spawns_remaining > 0 {
+        current.fail_spawns_remaining -= 1;
+        drop(current);
+        reap_completed_workers(state);
+        return;
+    }
+    let Ok(reaper_worker) =
+        std::thread::Builder::new().name("remote-worker-reaper".into()).spawn(move || {
+            let mut pending = Vec::new();
+            loop {
+                {
+                    let mut state =
+                        worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
+                    pending.append(&mut state.pending);
+                }
+                let mut index = pending.len();
+                while index > 0 {
+                    index -= 1;
+                    if pending[index].1.is_done() {
+                        let (handle, completion) = pending.swap_remove(index);
+                        let _ = handle.join();
+                        completion.mark_joined();
+                    }
+                }
+                let has_pending = !pending.is_empty();
+                {
+                    let mut state =
+                        worker_state.lock().unwrap_or_else(|poison| poison.into_inner());
+                    state.pending.append(&mut pending);
+                }
+                if has_pending {
+                    match receiver.recv_timeout(Duration::from_millis(50)) {
+                        Ok(()) | Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match receiver.recv() {
+                        Ok(()) => {}
+                        Err(RecvError) => break,
+                    }
+                }
+            }
+        })
+    else {
+        drop(current);
+        reap_completed_workers(state);
+        return;
+    };
+    let old_worker = current.worker.take();
+    current.sender = Some(sender);
+    current.worker = Some(reaper_worker);
+    drop(current);
+    if let Some(old_worker) = old_worker {
+        let _ = old_worker.join();
+    }
+}
+
+fn reap_completed_workers(state: &Arc<Mutex<ReaperState>>) {
+    let mut pending = {
+        let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+        std::mem::take(&mut current.pending)
+    };
+    let mut index = pending.len();
+    let current = std::thread::current().id();
+    while index > 0 {
+        index -= 1;
+        if pending[index].0.thread().id() == current {
+            // A worker cannot join its own handle. Keep it in the runtime's
+            // pending queue so a later admission or reaper wake retries it.
+            continue;
+        }
+        if pending[index].1.is_done() {
+            let (handle, completion) = pending.swap_remove(index);
+            let _ = handle.join();
+            completion.mark_joined();
+        }
+    }
+    if !pending.is_empty() {
+        let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+        current.pending.append(&mut pending);
+    }
+}
+
+fn enqueue_worker_reap_in_state(
+    state: &Arc<Mutex<ReaperState>>,
+    handle: std::thread::JoinHandle<()>,
+    completion: Arc<WorkerCompletion>,
+) {
+    {
+        let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+        current.pending.push((handle, completion));
+        if let Some(sender) = current.sender.as_ref() {
+            match sender.try_send(()) {
+                Ok(()) | Err(std::sync::mpsc::TrySendError::Full(())) => {}
+                Err(std::sync::mpsc::TrySendError::Disconnected(())) => current.sender = None,
+            }
+        }
+    }
+    let needs_start = state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none();
+    if needs_start {
+        try_start_reaper(state);
+        if state.lock().unwrap_or_else(|poison| poison.into_inner()).sender.is_none() {
+            reap_completed_workers(state);
+        }
+    }
+}
+
+#[cfg(test)]
+fn enqueue_worker_reap(handle: std::thread::JoinHandle<()>, completion: Arc<WorkerCompletion>) {
+    test_worker_runtime().enqueue(handle, completion);
+}
+
+fn wake_reaper_after_completion(state: &Arc<Mutex<ReaperState>>) {
+    let needs_start = {
+        let mut current = state.lock().unwrap_or_else(|poison| poison.into_inner());
+        match current.sender.as_ref() {
+            // A wake token is only a hint. If the finite queue is full, the
+            // reaper will observe this completed worker on its next scan. Do
+            // not block the worker while it is publishing completion, since
+            // the reaper may be joining that same worker before receiving.
+            Some(sender) => match sender.try_send(()) {
+                Ok(()) | Err(std::sync::mpsc::TrySendError::Full(())) => false,
+                Err(std::sync::mpsc::TrySendError::Disconnected(())) => {
+                    current.sender = None;
+                    true
+                }
+            },
+            None => true,
+        }
+    };
+    if needs_start {
+        try_start_reaper(state);
+    }
+}
+
+#[cfg(test)]
+fn try_enqueue_worker_reap(
+    sender: &std::sync::mpsc::SyncSender<(std::thread::JoinHandle<()>, Arc<WorkerCompletion>)>,
+    handle: std::thread::JoinHandle<()>,
+    completion: Arc<WorkerCompletion>,
+) -> Result<(), std::thread::JoinHandle<()>> {
+    sender.try_send((handle, completion)).map_err(|error| match error {
+        std::sync::mpsc::TrySendError::Full((handle, _))
+        | std::sync::mpsc::TrySendError::Disconnected((handle, _)) => handle,
+    })
+}
+
+struct WorkerCompletionGuard(Arc<WorkerCompletion>);
+
+impl Drop for WorkerCompletionGuard {
+    fn drop(&mut self) {
+        self.0.mark_done();
+    }
 }
 
 #[cfg(test)]
@@ -1258,6 +1696,8 @@ struct InteractiveWaitUntilWrittenGate {
 struct InteractiveWriter {
     shared: Arc<InteractiveWriterShared>,
     abort: Arc<dyn RemoteTransportAbort>,
+    transport_abort_lock: Mutex<()>,
+    transport_aborted: AtomicBool,
 }
 
 impl InteractiveWriter {
@@ -1266,19 +1706,34 @@ impl InteractiveWriter {
     fn spawn(
         writer: Box<dyn RemoteMessageWriter>,
         abort: Arc<dyn RemoteTransportAbort>,
+        runtime: Arc<WorkerRuntime>,
     ) -> io::Result<Self> {
+        let slot = runtime.reserve_slot().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::WouldBlock, "remote worker slots exhausted")
+        })?;
+        let worker_completion = Arc::new(WorkerCompletion::with_slot(runtime, Some(slot)));
         let shared = Arc::new(InteractiveWriterShared {
             state: Mutex::new(InteractiveWriteQueueState::default()),
             changed: Condvar::new(),
             metrics: InteractiveWriteMetrics::default(),
+            worker_completion: worker_completion.clone(),
             #[cfg(test)]
             wait_until_written_gate: Mutex::new(None),
         });
         let worker_shared = shared.clone();
-        std::thread::Builder::new()
+        let worker = std::thread::Builder::new()
             .name("remote-input-writer".into())
-            .spawn(move || interactive_writer_worker(worker_shared, writer))?;
-        Ok(Self { shared, abort })
+            .spawn(move || interactive_writer_worker(worker_shared, writer, worker_completion))
+            .inspect_err(|_| {
+                shared.worker_completion.release_slot();
+            })?;
+        shared.worker_completion.install_handle(worker);
+        Ok(Self {
+            shared,
+            abort,
+            transport_abort_lock: Mutex::new(()),
+            transport_aborted: AtomicBool::new(false),
+        })
     }
 
     fn enqueue(&self, message: String, measure_latency: bool) -> io::Result<u64> {
@@ -1409,14 +1864,85 @@ impl InteractiveWriter {
             state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
             state.writes.clear();
             state.queued_bytes = 0;
+            // Aborting closes the logical writer immediately. The worker may
+            // still be unwinding in the background and remains owned by its
+            // completion/reaper until it joins.
+            state.writer_closed = true;
         }
         self.shared.changed.notify_all();
-        let _ = self.abort.abort();
+        let abort_result = self.abort_transport();
+        if let Err(abort_error) = abort_result {
+            self.record_abort_failure(&abort_error);
+        }
     }
 
-    fn close(&self) {
+    fn abort_transport(&self) -> io::Result<()> {
+        let _abort_guard =
+            self.transport_abort_lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        if self.transport_aborted.load(Ordering::Acquire) {
+            return Ok(());
+        }
+        let result = self.abort.abort();
+        if result.is_ok() {
+            self.transport_aborted.store(true, Ordering::Release);
+        }
+        result
+    }
+
+    fn record_abort_failure(&self, error: &io::Error) {
+        let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
+        state.failure.get_or_insert_with(|| InteractiveWriteFailure::from_error(error));
+        self.shared.changed.notify_all();
+    }
+
+    fn join_worker_until(&self, deadline: Instant) {
+        let current = std::thread::current().id();
+        let Some(handle) = self.shared.worker_completion.take_handle() else {
+            if self.shared.worker_completion.is_current_thread() {
+                return;
+            }
+            let _ = self
+                .shared
+                .worker_completion
+                .wait(deadline.saturating_duration_since(Instant::now()));
+            return;
+        };
+        if handle.thread().id() == current {
+            self.shared.worker_completion.install_handle(handle);
+            return;
+        }
+        if self.shared.worker_completion.wait(deadline.saturating_duration_since(Instant::now())) {
+            let _ = handle.join();
+            self.shared.worker_completion.release_slot();
+        } else {
+            self.shared
+                .worker_completion
+                .runtime
+                .enqueue(handle, self.shared.worker_completion.clone());
+        }
+    }
+
+    fn join_worker_if_done(&self) {
+        let Some(handle) = self.shared.worker_completion.take_handle() else {
+            return;
+        };
+        if handle.thread().id() == std::thread::current().id() {
+            self.shared.worker_completion.install_handle(handle);
+            return;
+        }
+        if !self.shared.worker_completion.is_done() {
+            self.shared
+                .worker_completion
+                .runtime
+                .enqueue(handle, self.shared.worker_completion.clone());
+            return;
+        }
+        let _ = handle.join();
+        self.shared.worker_completion.release_slot();
+    }
+
+    fn close_until(&self, deadline: Instant) {
         self.request_close();
-        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
         while !state.writer_closed {
             let remaining = deadline.saturating_duration_since(Instant::now());
@@ -1455,13 +1981,17 @@ impl Drop for InteractiveWriter {
                 "remote writer owner was dropped",
             ));
         }
+        self.join_worker_if_done();
     }
 }
 
 fn interactive_writer_worker(
     shared: Arc<InteractiveWriterShared>,
     mut writer: Box<dyn RemoteMessageWriter>,
+    worker_completion: Arc<WorkerCompletion>,
 ) {
+    worker_completion.set_thread_id();
+    let _completion = WorkerCompletionGuard(worker_completion);
     loop {
         let write = {
             let mut state = shared.state.lock().unwrap_or_else(|poison| poison.into_inner());
@@ -1573,6 +2103,7 @@ enum DisconnectState {
 
 pub struct RemoteSession {
     interactive_writer: InteractiveWriter,
+    reader_completion: Arc<WorkerCompletion>,
     /// The first terminal state wins. Local shutdown is kept separate from a
     /// reader failure so closing our own transport does not report a fake
     /// remote diagnostic.
@@ -1930,10 +2461,17 @@ impl RemoteSession {
         subscribe: bool,
     ) -> anyhow::Result<Arc<Self>> {
         let RemoteTransport { mut reader, writer, abort } = transport;
-        let interactive_writer = InteractiveWriter::spawn(writer, abort)
+        let worker_runtime = WorkerRuntime::new();
+        let interactive_writer = InteractiveWriter::spawn(writer, abort, worker_runtime.clone())
             .map_err(|error| anyhow::anyhow!("cannot start remote interactive writer: {error}"))?;
+        let reader_slot = worker_runtime
+            .reserve_slot()
+            .ok_or_else(|| anyhow::anyhow!("remote worker slots exhausted"))?;
+        let reader_completion =
+            Arc::new(WorkerCompletion::with_slot(worker_runtime, Some(reader_slot)));
         let session = Arc::new(RemoteSession {
             interactive_writer,
+            reader_completion: reader_completion.clone(),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -1966,39 +2504,50 @@ impl RemoteSession {
         });
 
         let reader_session = Arc::downgrade(&session);
-        std::thread::Builder::new().name("remote-reader".into()).spawn(move || {
-            let mut report_progress = |partial: &[u8]| {
-                if let Some(session) = reader_session.upgrade() {
-                    session.report_read_progress(partial);
-                }
-            };
-            let reason = loop {
-                let received = reader.receive_with_progress(&mut report_progress);
-                if let Some(reason) = remote_reader_end_reason(&received) {
-                    break Some(reason);
-                }
-                let Ok(Some(mut message)) = received else { unreachable!("end reason handled") };
-                if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
-                    break Some(remote_reader_message_too_large(&mut message));
-                }
-                let value = match serde_json::from_str::<Value>(&message) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        let reason = format!("remote JSON decode failed: {error}");
-                        zeroize_string(&mut message);
-                        break Some(reason);
+        let reader_completion_for_worker = reader_completion.clone();
+        let reader_worker = std::thread::Builder::new()
+            .name("remote-reader".into())
+            .spawn(move || {
+                reader_completion_for_worker.set_thread_id();
+                let _completion = WorkerCompletionGuard(reader_completion_for_worker);
+                let mut report_progress = |partial: &[u8]| {
+                    if let Some(session) = reader_session.upgrade() {
+                        session.report_read_progress(partial);
                     }
                 };
-                zeroize_string(&mut message);
-                let Some(session) = reader_session.upgrade() else { break None };
-                session.handle_line(value);
-            };
-            // Connection lost: retain the reason before telling the app to quit.
-            if let Some(session) = reader_session.upgrade() {
-                session.disconnect_transport_with_reason(reason);
-                session.emit(MuxEvent::Empty);
-            }
-        })?;
+                let reason = loop {
+                    let received = reader.receive_with_progress(&mut report_progress);
+                    if let Some(reason) = remote_reader_end_reason(&received) {
+                        break Some(reason);
+                    }
+                    let Ok(Some(mut message)) = received else {
+                        unreachable!("end reason handled")
+                    };
+                    if message.len() > REMOTE_SESSION_MESSAGE_MAX_BYTES {
+                        break Some(remote_reader_message_too_large(&mut message));
+                    }
+                    let value = match serde_json::from_str::<Value>(&message) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            let reason = format!("remote JSON decode failed: {error}");
+                            zeroize_string(&mut message);
+                            break Some(reason);
+                        }
+                    };
+                    zeroize_string(&mut message);
+                    let Some(session) = reader_session.upgrade() else { break None };
+                    session.handle_line(value);
+                };
+                // Connection lost: retain the reason before telling the app to quit.
+                if let Some(session) = reader_session.upgrade() {
+                    session.disconnect_transport_with_reason(reason);
+                    session.emit(MuxEvent::Empty);
+                }
+            })
+            .inspect_err(|_| {
+                reader_completion.release_slot();
+            })?;
+        reader_completion.install_handle(reader_worker);
 
         if let Err(error) = session.initialize(subscribe) {
             session.disconnect_transport();
@@ -2993,6 +3542,10 @@ impl RemoteSession {
     }
 
     pub fn begin_shutdown(&self) {
+        self.begin_shutdown_until(Instant::now() + remote_write_timeout());
+    }
+
+    fn begin_shutdown_until(&self, deadline: Instant) {
         self.shutdown.store(true, Ordering::Release);
         self.provider_workspaces_guarded.store(false, Ordering::Release);
         let pending = std::mem::take(&mut *self.pending.lock().unwrap());
@@ -3000,12 +3553,19 @@ impl RemoteSession {
             let _ = request.response.send(json!({"shutdown": true}));
         }
         if let Ok(Some(sequence)) = self.interactive_writer.last_enqueued_sequence() {
-            let _ = self.wait_for_ordered_write(sequence);
+            let _ = self.wait_for_ordered_write_until(sequence, deadline);
         }
     }
 
     fn wait_for_ordered_write(&self, sequence: u64) -> io::Result<()> {
-        match self.interactive_writer.wait_until_written(sequence, remote_write_timeout()) {
+        self.wait_for_ordered_write_until(sequence, Instant::now() + remote_write_timeout())
+    }
+
+    fn wait_for_ordered_write_until(&self, sequence: u64, deadline: Instant) -> io::Result<()> {
+        match self
+            .interactive_writer
+            .wait_until_written(sequence, deadline.saturating_duration_since(Instant::now()))
+        {
             Ok(()) => Ok(()),
             Err(error) => {
                 if error.kind() == io::ErrorKind::TimedOut {
@@ -3021,6 +3581,7 @@ impl RemoteSession {
     }
 
     pub(super) fn disconnect_transport_with_reason(&self, reason: Option<String>) {
+        let deadline = Instant::now() + remote_write_timeout();
         let mut state = self.disconnect_state.lock().unwrap();
         if matches!(&*state, DisconnectState::Active) {
             *state = match reason {
@@ -3029,8 +3590,54 @@ impl RemoteSession {
             };
         }
         drop(state);
-        self.begin_shutdown();
-        self.interactive_writer.close();
+        self.begin_shutdown_until(deadline);
+        self.interactive_writer.close_until(deadline);
+        if let Err(error) = self.interactive_writer.abort_transport() {
+            self.interactive_writer.record_abort_failure(&error);
+        }
+        self.interactive_writer.join_worker_until(deadline);
+        self.join_reader_worker_until(deadline);
+    }
+
+    fn reap_reader_worker(&self) {
+        let current = std::thread::current().id();
+        let Some(handle) = self.reader_completion.take_handle() else {
+            // The reader may still be in startup. Its startup path installs
+            // the handle into the completion, which then enqueues it when
+            // teardown has already marked it done.
+            return;
+        };
+        if handle.thread().id() == current {
+            self.reader_completion.install_handle(handle);
+            return;
+        }
+        if self.reader_completion.is_done() {
+            let _ = handle.join();
+            self.reader_completion.release_slot();
+        } else {
+            self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
+        }
+    }
+
+    fn join_reader_worker_until(&self, deadline: Instant) {
+        let current = std::thread::current().id();
+        let Some(handle) = self.reader_completion.take_handle() else {
+            if self.reader_completion.is_current_thread() {
+                return;
+            }
+            let _ = self.reader_completion.wait(deadline.saturating_duration_since(Instant::now()));
+            return;
+        };
+        if handle.thread().id() == current {
+            self.reader_completion.install_handle(handle);
+            return;
+        }
+        if self.reader_completion.wait(deadline.saturating_duration_since(Instant::now())) {
+            let _ = handle.join();
+            self.reader_completion.release_slot();
+        } else {
+            self.reader_completion.runtime.enqueue(handle, self.reader_completion.clone());
+        }
     }
 
     /// Returns the first reason recorded when the remote reader stopped.
@@ -3640,6 +4247,12 @@ fn local_hostname() -> Option<String> {
 
 impl Drop for RemoteSession {
     fn drop(&mut self) {
+        self.interactive_writer.request_close();
+        if let Err(error) = self.interactive_writer.abort_transport() {
+            self.interactive_writer.record_abort_failure(&error);
+        }
+        self.reap_reader_worker();
+        self.interactive_writer.join_worker_if_done();
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
@@ -3944,8 +4557,15 @@ fn test_session_with_writer(
     provider_workspace_authority: Option<BearerToken>,
     capabilities: HashSet<String>,
 ) -> Arc<RemoteSession> {
+    let worker_runtime = test_worker_runtime();
     Arc::new(RemoteSession {
-        interactive_writer: InteractiveWriter::spawn(writer, Arc::new(NoopTransportAbort)).unwrap(),
+        interactive_writer: InteractiveWriter::spawn(
+            writer,
+            Arc::new(NoopTransportAbort),
+            worker_runtime,
+        )
+        .unwrap(),
+        reader_completion: Arc::new(WorkerCompletion::completed()),
         disconnect_state: Mutex::new(DisconnectState::default()),
         pending: Mutex::new(PendingRemoteRequests::default()),
         next_id: AtomicU64::new(1),
@@ -4405,6 +5025,12 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    static REAPER_TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn reaper_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        REAPER_TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    }
 
     fn attached_surface(outcome: RemoteSurfaceAttach) -> Arc<RemoteSurface> {
         let RemoteSurfaceAttach::Attached(surface) = outcome else {
@@ -5186,8 +5812,10 @@ mod tests {
         capabilities: HashSet<String>,
         provider_workspace_authority: Option<BearerToken>,
     ) -> Arc<RemoteSession> {
+        let worker_runtime = test_worker_runtime();
         Arc::new(RemoteSession {
-            interactive_writer: InteractiveWriter::spawn(writer, abort).unwrap(),
+            interactive_writer: InteractiveWriter::spawn(writer, abort, worker_runtime).unwrap(),
+            reader_completion: Arc::new(WorkerCompletion::completed()),
             disconnect_state: Mutex::new(DisconnectState::default()),
             pending: Mutex::new(PendingRemoteRequests::default()),
             next_id: AtomicU64::new(1),
@@ -6375,6 +7003,501 @@ mod tests {
         assert!(closed.load(Ordering::Acquire));
     }
 
+    struct LifecycleReader {
+        responses: Receiver<String>,
+        remaining_responses: usize,
+        release: Arc<(Mutex<bool>, Condvar)>,
+        exited: Sender<()>,
+        entered: Option<Sender<()>>,
+        exit_delay: Duration,
+    }
+
+    impl RemoteMessageReader for LifecycleReader {
+        fn receive(&mut self) -> io::Result<Option<String>> {
+            if self.remaining_responses > 0 {
+                self.remaining_responses -= 1;
+                return self.responses.recv().map(Some).map_err(|_| {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle response channel closed")
+                });
+            }
+
+            let (released, changed) = &*self.release;
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            if !self.exit_delay.is_zero() {
+                std::thread::sleep(self.exit_delay);
+            }
+            self.exited.send(()).unwrap();
+            Ok(None)
+        }
+    }
+
+    struct LifecycleWriter {
+        responses: Sender<String>,
+        closed: Arc<AtomicBool>,
+        exited: Sender<()>,
+    }
+
+    impl RemoteMessageWriter for LifecycleWriter {
+        fn send(&mut self, message: &str) -> io::Result<()> {
+            let request: Value = serde_json::from_str(message).map_err(io::Error::other)?;
+            let id = request
+                .get("id")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| io::Error::other("lifecycle request omitted its id"))?;
+            let data = if request.get("cmd").and_then(Value::as_str) == Some("identify") {
+                json!({"app": "cmux-tui", "protocol": SUPPORTED_PROTOCOL_VERSION})
+            } else {
+                Value::Null
+            };
+            self.responses
+                .send(json!({"id": id, "ok": true, "data": data}).to_string())
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "lifecycle reader exited"))
+        }
+
+        fn close(&mut self) -> io::Result<()> {
+            self.closed.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    impl Drop for LifecycleWriter {
+        fn drop(&mut self) {
+            let _ = self.exited.send(());
+        }
+    }
+
+    struct LifecycleAbort {
+        release: Arc<(Mutex<bool>, Condvar)>,
+    }
+
+    impl RemoteTransportAbort for LifecycleAbort {
+        fn abort(&self) -> io::Result<()> {
+            let (released, changed) = &*self.release;
+            *released.lock().unwrap() = true;
+            changed.notify_all();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn transport_disconnect_cancels_and_joins_reader_and_writer_workers() {
+        let _reaper_guard = reaper_test_guard();
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: None,
+                exit_delay: Duration::ZERO,
+            }),
+            Box::new(LifecycleWriter { responses, closed: closed.clone(), exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+
+        session.disconnect_transport();
+
+        assert!(closed.load(Ordering::Acquire));
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must cancel the blocked reader");
+        writer_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("transport shutdown must join the writer");
+    }
+
+    #[test]
+    fn dropping_session_reaps_blocked_reader_worker_without_waiting() {
+        let _reaper_guard = reaper_test_guard();
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_entered, reader_entered_rx) = channel();
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, _writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: Some(reader_entered),
+                exit_delay: Duration::from_millis(50),
+            }),
+            Box::new(LifecycleWriter { responses, closed, exited: writer_exited }),
+            Arc::new(LifecycleAbort { release }),
+        ))
+        .unwrap();
+        reader_entered_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader did not reach its blocked receive");
+
+        let started = Instant::now();
+        drop(session);
+        assert!(
+            started.elapsed() < Duration::from_millis(40),
+            "dropping the session waited for the reader worker"
+        );
+        reader_exited_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("reader worker did not exit after session drop returned");
+    }
+
+    fn wait_for_worker_join(completion: &WorkerCompletion) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while !completion.was_joined() {
+            assert!(Instant::now() < deadline, "worker reaper did not join the worker");
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn reader_self_disconnect_keeps_its_join_handle_owned() {
+        let _reaper_guard = reaper_test_guard();
+        let (responses, response_rx) = channel();
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let (reader_exited, reader_exited_rx) = channel();
+        let (writer_exited, _writer_exited_rx) = channel();
+        let closed = Arc::new(AtomicBool::new(false));
+        let session = RemoteSession::connect_transport(RemoteTransport::new(
+            Box::new(LifecycleReader {
+                responses: response_rx,
+                remaining_responses: 3,
+                release: release.clone(),
+                exited: reader_exited,
+                entered: None,
+                exit_delay: Duration::ZERO,
+            }),
+            Box::new(LifecycleWriter { responses, closed, exited: writer_exited }),
+            Arc::new(LifecycleAbort { release: release.clone() }),
+        ))
+        .unwrap();
+
+        let completion = session.reader_completion.clone();
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        reader_exited_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("reader did not self-disconnect");
+        wait_for_worker_join(&completion);
+        assert!(completion.was_joined());
+    }
+
+    #[test]
+    fn reaper_does_not_block_completed_workers_behind_a_stalled_worker() {
+        let _reaper_guard = reaper_test_guard();
+        let first_release = Arc::new((Mutex::new(false), Condvar::new()));
+        let first_completion = Arc::new(WorkerCompletion::new());
+        let second_completion = Arc::new(WorkerCompletion::new());
+        let first_release_thread = first_release.clone();
+        let first_completion_thread = first_completion.clone();
+        let first = std::thread::spawn(move || {
+            let (released, changed) = &*first_release_thread;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            first_completion_thread.mark_done();
+        });
+        let second_completion_thread = second_completion.clone();
+        let second = std::thread::spawn(move || {
+            second_completion_thread.mark_done();
+        });
+        enqueue_worker_reap(first, first_completion.clone());
+        enqueue_worker_reap(second, second_completion.clone());
+
+        wait_for_worker_join(&second_completion);
+        assert!(!first_completion.was_joined());
+
+        let (released, changed) = &*first_release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        wait_for_worker_join(&first_completion);
+    }
+
+    #[test]
+    fn reaper_restarts_after_sender_disconnect_and_drains_pending_workers() {
+        let _reaper_guard = reaper_test_guard();
+        let state = reaper_state();
+        state.lock().unwrap().sender = None;
+        let completion = Arc::new(WorkerCompletion::new());
+        let worker_completion = completion.clone();
+        let handle = std::thread::spawn(move || worker_completion.mark_done());
+        enqueue_worker_reap(handle, completion.clone());
+        assert!(state.lock().unwrap().worker.is_some());
+        wait_for_worker_join(&completion);
+        assert!(completion.was_joined());
+    }
+
+    #[test]
+    fn completed_worker_retries_reaper_after_spawn_failure() {
+        let _reaper_guard = reaper_test_guard();
+        let runtime = Arc::new(WorkerRuntime {
+            admission: process_worker_admission(),
+            reaper: new_reaper_state(),
+        });
+        let state = runtime.reaper.clone();
+        state.lock().unwrap().sender = None;
+
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let completion = Arc::new(WorkerCompletion::with_runtime(runtime, None, true));
+        let worker_release = release.clone();
+        let worker_completion = completion.clone();
+        let handle = std::thread::spawn(move || {
+            let (released, changed) = &*worker_release;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            worker_completion.mark_done();
+        });
+
+        state.lock().unwrap().fail_spawns_remaining = 1;
+        enqueue_worker_reap_in_state(&state, handle, completion.clone());
+        assert!(!completion.was_joined(), "failed reaper spawn must retain the handle");
+
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        wait_for_worker_join(&completion);
+        assert!(completion.was_joined());
+    }
+
+    #[test]
+    fn completed_worker_does_not_block_when_reaper_wake_queue_is_full() {
+        let runtime = Arc::new(WorkerRuntime {
+            admission: process_worker_admission(),
+            reaper: new_reaper_state(),
+        });
+        let state = runtime.reaper.clone();
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        sender.try_send(()).expect("the wake queue should be full");
+        state.lock().unwrap().sender = Some(sender);
+
+        let completion = Arc::new(WorkerCompletion::with_runtime(runtime, None, true));
+        let (finished_tx, finished_rx) = channel();
+        let worker_completion = completion;
+        let worker = std::thread::spawn(move || {
+            worker_completion.mark_done();
+            finished_tx.send(()).unwrap();
+        });
+
+        finished_rx
+            .recv_timeout(Duration::from_millis(100))
+            .expect("worker completion must not block on a full wake queue");
+        worker.join().unwrap();
+        drop(receiver);
+    }
+
+    #[test]
+    fn repeated_reaper_spawn_failure_retains_handle_and_recovers_worker_slot() {
+        let _reaper_guard = reaper_test_guard();
+        let runtime = Arc::new(WorkerRuntime {
+            admission: Arc::new(WorkerAdmission { available: AtomicUsize::new(1) }),
+            reaper: new_reaper_state(),
+        });
+        let state = runtime.reaper.clone();
+        let slot = runtime.reserve_slot().expect("the worker slot should be available");
+        let completion = Arc::new(WorkerCompletion::with_slot(runtime.clone(), Some(slot)));
+        let release = Arc::new((Mutex::new(false), Condvar::new()));
+        let worker_release = release.clone();
+        let worker_completion = completion.clone();
+        let (finished_tx, finished_rx) = channel();
+        let handle = std::thread::spawn(move || {
+            let (released, changed) = &*worker_release;
+            let mut released = released.lock().unwrap();
+            while !*released {
+                released = changed.wait(released).unwrap();
+            }
+            drop(released);
+            worker_completion.mark_done();
+            finished_tx.send(()).unwrap();
+        });
+        completion.install_handle(handle);
+        state.lock().unwrap().fail_spawns_remaining = 2;
+
+        let (released, changed) = &*release;
+        *released.lock().unwrap() = true;
+        changed.notify_all();
+        finished_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("worker completion should return after reaper spawn failure");
+
+        assert_eq!(
+            state.lock().unwrap().pending.len(),
+            1,
+            "failed reaper startup must retain the handle in the retry queue"
+        );
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let recovered_slot = loop {
+            if let Some(slot) = runtime.reserve_slot() {
+                break slot;
+            }
+            assert!(Instant::now() < deadline, "worker slot did not recover after retry");
+            std::thread::yield_now();
+        };
+        wait_for_worker_join(&completion);
+        drop(recovered_slot);
+    }
+
+    #[test]
+    fn concurrent_reaper_enqueue_starts_one_owned_worker() {
+        let _reaper_guard = reaper_test_guard();
+        let state = reaper_state();
+        state.lock().unwrap().sender = None;
+
+        let worker_count = 16;
+        let barrier = Arc::new(std::sync::Barrier::new(worker_count));
+        let completions =
+            (0..worker_count).map(|_| Arc::new(WorkerCompletion::new())).collect::<Vec<_>>();
+        let mut callers = Vec::with_capacity(worker_count);
+        for completion in &completions {
+            let barrier = barrier.clone();
+            let completion = completion.clone();
+            callers.push(std::thread::spawn(move || {
+                barrier.wait();
+                let worker_completion = completion.clone();
+                enqueue_worker_reap(
+                    std::thread::spawn(move || worker_completion.mark_done()),
+                    completion,
+                );
+            }));
+        }
+        for caller in callers {
+            caller.join().expect("reaper enqueue caller should finish");
+        }
+
+        for completion in &completions {
+            wait_for_worker_join(completion);
+        }
+        assert!(state.lock().unwrap().worker.is_some());
+    }
+
+    #[test]
+    fn worker_admission_rejects_saturation_and_recovers_after_release() {
+        let admission = Arc::new(WorkerAdmission { available: AtomicUsize::new(1) });
+        let slot = admission.try_reserve().expect("first worker slot should be available");
+        assert!(admission.try_reserve().is_none());
+        drop(slot);
+        assert!(admission.try_reserve().is_some());
+    }
+
+    #[test]
+    fn worker_admission_scales_with_warm_connection_limit() {
+        assert_eq!(remote_worker_slot_limit_for_warm_connections(5), REMOTE_WORKER_SLOT_FLOOR);
+        assert_eq!(remote_worker_slot_limit_for_warm_connections(200), 400);
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_saturated() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(0);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a zero-capacity queue must return the handle");
+        drop(receiver);
+        returned.join().expect("returned worker handle remains joinable");
+    }
+
+    #[test]
+    fn worker_reaper_returns_ownership_when_queue_is_disconnected() {
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        drop(receiver);
+        let completion = Arc::new(WorkerCompletion::new());
+        let handle = std::thread::spawn(|| {});
+        let returned = try_enqueue_worker_reap(&sender, handle, completion)
+            .expect_err("a disconnected queue must return the handle");
+        returned.join().expect("returned worker handle remains joinable");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
+        let (client, server) = UnixStream::pair().unwrap();
+        let (release_tx, release_rx) = channel();
+        let peer = std::thread::spawn(move || {
+            let mut peer = BufReader::new(server);
+            for expected_command in ["identify", "set-client-info", "subscribe"] {
+                let mut line = String::new();
+                peer.read_line(&mut line).unwrap();
+                let request: Value = serde_json::from_str(&line).unwrap();
+                assert_eq!(request["cmd"], expected_command);
+                let data = if expected_command == "identify" {
+                    json!({
+                        "app": "cmux-tui",
+                        "protocol": SUPPORTED_PROTOCOL_VERSION,
+                        "capabilities": ["browser-pointer-frame-guard-v1"],
+                    })
+                } else {
+                    Value::Null
+                };
+                writeln!(
+                    peer.get_mut(),
+                    "{}",
+                    json!({"id": request["id"], "ok": true, "data": data})
+                )
+                .unwrap();
+            }
+
+            let mut line = String::new();
+            peer.read_line(&mut line).unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["cmd"], "wait-for-malformed");
+            peer.get_mut().write_all(b"not-json\n").unwrap();
+            release_rx.recv().unwrap();
+        });
+        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
+        let request_session = session.clone();
+        let (done_tx, done_rx) = channel();
+        let request = std::thread::spawn(move || {
+            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
+        });
+
+        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
+            Ok(result) => result,
+            Err(error) => {
+                session.begin_shutdown();
+                request.join().unwrap();
+                release_tx.send(()).unwrap();
+                peer.join().unwrap();
+                panic!("malformed JSON did not cancel the request promptly: {error}");
+            }
+        };
+        request.join().unwrap();
+        release_tx.send(()).unwrap();
+        peer.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(
+            matches!(
+                error.downcast_ref::<RemoteRequestError>(),
+                Some(RemoteRequestError::Shutdown)
+            ),
+            "expected shutdown after malformed JSON canceled the request, got {error:?}"
+        );
+        assert!(
+            session
+                .transport_disconnect_reason()
+                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
+            "malformed JSON decode reason was not preserved: {:?}",
+            session.transport_disconnect_reason()
+        );
+        assert!(session.pending.lock().unwrap().is_empty());
+    }
+
     #[test]
     fn transport_disconnect_reason_is_first_writer_wins() {
         let session = test_session(Box::new(CloseTrackingWriter {
@@ -7063,81 +8186,6 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn malformed_json_cancels_a_pending_request_and_preserves_decode_reason() {
-        let (client, server) = UnixStream::pair().unwrap();
-        let (release_tx, release_rx) = channel();
-        let peer = std::thread::spawn(move || {
-            let mut peer = BufReader::new(server);
-            for expected_command in ["identify", "set-client-info", "subscribe"] {
-                let mut line = String::new();
-                peer.read_line(&mut line).unwrap();
-                let request: Value = serde_json::from_str(&line).unwrap();
-                assert_eq!(request["cmd"], expected_command);
-                let data = if expected_command == "identify" {
-                    json!({
-                        "app": "cmux-tui",
-                        "protocol": SUPPORTED_PROTOCOL_VERSION,
-                        "capabilities": ["browser-pointer-frame-guard-v1"],
-                    })
-                } else {
-                    Value::Null
-                };
-                writeln!(
-                    peer.get_mut(),
-                    "{}",
-                    json!({"id": request["id"], "ok": true, "data": data})
-                )
-                .unwrap();
-            }
-
-            let mut line = String::new();
-            peer.read_line(&mut line).unwrap();
-            let request: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["cmd"], "wait-for-malformed");
-            peer.get_mut().write_all(b"not-json\n").unwrap();
-            release_rx.recv().unwrap();
-        });
-        let session = RemoteSession::connect_stream(Box::new(client)).unwrap();
-        let request_session = session.clone();
-        let (done_tx, done_rx) = channel();
-        let request = std::thread::spawn(move || {
-            done_tx.send(request_session.request(json!({"cmd": "wait-for-malformed"}))).unwrap();
-        });
-
-        let result = match done_rx.recv_timeout(Duration::from_secs(2)) {
-            Ok(result) => result,
-            Err(error) => {
-                session.begin_shutdown();
-                request.join().unwrap();
-                release_tx.send(()).unwrap();
-                peer.join().unwrap();
-                panic!("malformed JSON did not cancel the request promptly: {error}");
-            }
-        };
-        request.join().unwrap();
-        release_tx.send(()).unwrap();
-        peer.join().unwrap();
-
-        let error = result.unwrap_err();
-        assert!(
-            matches!(
-                error.downcast_ref::<RemoteRequestError>(),
-                Some(RemoteRequestError::Shutdown)
-            ),
-            "expected shutdown after malformed JSON canceled the request, got {error:?}"
-        );
-        assert!(
-            session
-                .transport_disconnect_reason()
-                .is_some_and(|reason| reason.starts_with("remote JSON decode failed:")),
-            "malformed JSON decode reason was not preserved: {:?}",
-            session.transport_disconnect_reason()
-        );
-        assert!(session.pending.lock().unwrap().is_empty());
-    }
-
-    #[cfg(unix)]
-    #[test]
     fn shutdown_cancels_response_wait_before_ordered_release_write() {
         let (client, server) = UnixStream::pair().unwrap();
         let session = socket_test_session(client);
@@ -7240,6 +8288,7 @@ mod tests {
 
     #[test]
     fn write_timeout_aborts_the_blocked_writer_and_discards_queued_mutations() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let output = stream.output.clone();
         let session = blocking_test_session(stream);
@@ -7275,6 +8324,7 @@ mod tests {
 
     #[test]
     fn dropping_a_session_aborts_a_blocked_writer() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let session = blocking_test_session(stream);
         session.send_bytes(7, b"blocked").unwrap();
@@ -7296,6 +8346,7 @@ mod tests {
 
     #[test]
     fn closing_a_session_aborts_a_writer_that_cannot_drain() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let session = blocking_test_session(stream);
         session.send_bytes(7, b"blocked").unwrap();
@@ -7317,7 +8368,28 @@ mod tests {
     }
 
     #[test]
+    fn disconnect_uses_one_total_shutdown_deadline() {
+        let _reaper_guard = reaper_test_guard();
+        let (writer, control) = BlockingWriteStream::new();
+        let session = test_session_with_provider_context(Box::new(writer), HashSet::new(), None);
+        session.send_bytes(7, b"blocked").unwrap();
+        control.wait_until_entered();
+
+        let started = Instant::now();
+        session.disconnect_transport();
+        assert!(
+            started.elapsed() < remote_write_timeout() * 2,
+            "shutdown exceeded its total deadline: {:?}",
+            started.elapsed()
+        );
+
+        control.release();
+        drop(session);
+    }
+
+    #[test]
     fn send_failure_wakes_every_waiter_and_discards_the_queue() {
+        let _reaper_guard = reaper_test_guard();
         let (stream, control) = BlockingWriteStream::new();
         let output = stream.output.clone();
         let session = blocking_test_session(stream);
@@ -7358,6 +8430,7 @@ mod tests {
         drop(state);
         assert!(output.lock().unwrap().is_empty());
         assert_eq!(session.interactive_write_metrics().write_failures, 1);
+        wait_for_worker_join(&session.interactive_writer.shared.worker_completion);
     }
 
     #[cfg(unix)]
