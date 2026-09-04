@@ -429,11 +429,25 @@ struct VMTunnelManager: Sendable {
     /// through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        let runtimeInterfaceName = Self.readRuntimeInterfaceName(
-            from: runtimeInterfaceMetadataURL,
-            markerURL: runtimeNameFileURL
-        )
-            ?? Self.runtimeInterfaceName(for: runtimeNameFileURL)
+        var metadataProbe = stat()
+        let metadataResult = lstat(runtimeInterfaceMetadataURL.path, &metadataProbe)
+        let metadataErrno = errno
+        let runtimeInterfaceName: String?
+        if metadataResult == 0 {
+            // A present-but-invalid companion is evidence of a stale or
+            // interrupted scoped bring-up. Do not fall back to lossy inference
+            // and risk borrowing another scope's reused utun number.
+            runtimeInterfaceName = Self.readRuntimeInterfaceName(
+                from: runtimeInterfaceMetadataURL,
+                markerURL: runtimeNameFileURL
+            )
+        } else if metadataErrno == ENOENT {
+            // Configs written before the companion marker was introduced use
+            // the stock wg-quick timestamp/size inference instead.
+            runtimeInterfaceName = Self.runtimeInterfaceName(for: runtimeNameFileURL)
+        } else {
+            runtimeInterfaceName = nil
+        }
         guard let runtimeInterfaceName else { return false }
         return Self.interfaceIsUp(
             runtimeNamePresent: true,
