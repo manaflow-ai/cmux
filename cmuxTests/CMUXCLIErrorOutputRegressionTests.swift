@@ -2306,6 +2306,32 @@ import Testing
         #expect(responder.receivedRequests.isEmpty)
     }
 
+    @Test func testVPNImplicitDiscoveryNeverFallsBackToAnotherVariant() throws {
+        let home = try makeTemporaryHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let stableSocketPath = try stableSocketURL(home: home).path
+        let resolver = CLISocketPathResolver(
+            environment: [:],
+            bundleIdentifier: SocketPathMarkerFiles.nightlyBundleIdentifier,
+            currentUserID: getuid(),
+            inspectSocketPathEntry: { path in
+                path == stableSocketPath ? .socket(ownerUserID: getuid()) : .missing
+            },
+            socketAcceptsConnections: { $0 == stableSocketPath },
+            stateDirectory: CmuxStateDirectory.url(homeDirectory: home)
+        )
+
+        let resolution = resolver.resolve(
+            requestedPath: "/tmp/cmux-nightly.sock",
+            source: .implicitDefault,
+            allowCrossVariantFallback: false
+        )
+
+        #expect(resolution.candidatePaths == ["/tmp/cmux-nightly.sock"])
+        #expect(resolution.selectedPath == nil)
+        #expect(!resolution.hasLiveSocket)
+    }
+
     @Test func testExplicitStableSocketEnvironmentIsNeverReroutedByTaggedCLI() throws {
         let cliPath = try bundledCLIPath()
         let tagSlug = "cli-explicit-stable-\(UUID().uuidString.lowercased())"

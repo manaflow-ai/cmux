@@ -5243,7 +5243,11 @@ struct CMUXCLI {
         )
         let socketResolution = socketResolver.resolve(
             requestedPath: socketPath,
-            source: socketPathSource
+            source: socketPathSource,
+            // `vpn` mutates privileged networking state. If its own app/build
+            // listener is down, failing with that exact socket is safer than
+            // enrolling or tearing down another running build's tunnel.
+            allowCrossVariantFallback: command != "vpn"
         )
         if !socketResolution.hasLiveSocket,
            socketPathSource == .implicitDefault,

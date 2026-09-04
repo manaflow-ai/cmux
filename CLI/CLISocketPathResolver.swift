@@ -232,7 +232,8 @@ struct CLISocketPathResolver {
     /// non-blocking connect succeeds; a stale socket file is never handed to the client.
     func resolve(
         requestedPath: String,
-        source: CLISocketPathSource
+        source: CLISocketPathSource,
+        allowCrossVariantFallback: Bool = true
     ) -> CLISocketPathResolution {
         guard source == .implicitDefault else {
             return CLISocketPathResolution(
@@ -243,7 +244,10 @@ struct CLISocketPathResolver {
             )
         }
 
-        let candidates = Self.dedupe(candidatePaths(requestedPath: requestedPath))
+        let candidates = Self.dedupe(candidatePaths(
+            requestedPath: requestedPath,
+            allowCrossVariantFallback: allowCrossVariantFallback
+        ))
         let selectedPath = candidates.first { path in
             canConnect(to: path)
         }
@@ -255,7 +259,10 @@ struct CLISocketPathResolver {
         )
     }
 
-    private func candidatePaths(requestedPath: String) -> [String] {
+    private func candidatePaths(
+        requestedPath: String,
+        allowCrossVariantFallback: Bool
+    ) -> [String] {
         var candidates: [String] = []
         let variant = SocketPathMarkerFiles.variant(bundleIdentifier: bundleIdentifier, environment: environment)
         let ownDefaultPath = resolvedDefaultSocketPath()
@@ -263,6 +270,15 @@ struct CLISocketPathResolver {
         // Keep the current variant first. For a tagged debug CLI this is the
         // tag-specific socket; for the stable CLI it is the primary stable socket.
         candidates.append(ownDefaultPath)
+
+        // Side-effecting build-scoped commands must never silently cross into
+        // another app when their own listener is unavailable. Explicit socket
+        // paths remain pinned by `resolve` above; this branch governs only
+        // implicit discovery. The caller can still opt into the historical
+        // cross-variant fallback for read-only/general CLI commands.
+        guard allowCrossVariantFallback else {
+            return candidates
+        }
 
         // A dead dev socket must not strand ambient commands. The stable primary
         // socket is the deterministic machine-wide fallback before any marker.
