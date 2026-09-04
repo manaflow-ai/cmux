@@ -651,6 +651,30 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(try statusText(surfaceID: sid), "PASS")
     }
 
+    /// Browser keyboard automation must enter WebKit through its native input
+    /// path. A synthetic DOM KeyboardEvent reaches the page listener but does
+    /// not run the contenteditable's vertical-caret default action.
+    func testContenteditableArrowDownUsesTrustedNativeInput() throws {
+        try launchApp()
+        let sid = try openFixture("contenteditable-arrow")
+
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#editor"])
+        let before = try XCTUnwrap(
+            try evalValue("window.__cmuxArrowState()", surfaceID: sid) as? [String: Any],
+            "Expected the contenteditable fixture to expose caret state"
+        )
+        XCTAssertEqual(before["line"] as? Int, 0, "Focus should place the caret on the first line")
+
+        try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "ArrowDown"])
+        let after = try XCTUnwrap(
+            try evalValue("window.__cmuxArrowState()", surfaceID: sid) as? [String: Any],
+            "Expected caret state after ArrowDown"
+        )
+        XCTAssertEqual(after["line"] as? Int, 1, "ArrowDown should move the caret to the second line")
+        XCTAssertEqual(after["lastArrowTrusted"] as? Bool, true, "WebKit must receive a trusted ArrowDown")
+        XCTAssertEqual(after["arrowKeydownCount"] as? Int, 1)
+    }
+
     func testKeyboardWidget() throws {
         try launchApp()
         let sid = try openFixture("keyboard-widget")
