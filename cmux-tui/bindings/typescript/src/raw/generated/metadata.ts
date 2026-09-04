@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8. */
+/* cmux-tui mux protocol 12, IR 3081404cdf961727b704a56041bf714f07cdaf815429b37e305ad54a08a29b04. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8" as const;
+export const SDK_IR_SHA256 = "3081404cdf961727b704a56041bf714f07cdaf815429b37e305ad54a08a29b04" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1348,6 +1348,14 @@ export const EVENT_METADATA = {
     "capability": null,
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "daemon-shutdown": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -11544,6 +11552,20 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "literal",
           "value": "config-reload-requested"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "daemon-shutdown": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "daemon-shutdown"
         }
       }
     },

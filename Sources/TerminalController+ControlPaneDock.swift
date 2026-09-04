@@ -52,7 +52,6 @@ extension TerminalController {
             initialDividerPosition: initialDividerPosition,
             preferredProfileID: preferredProfileID,
             preloadInitialNavigationInBackground: kind == .browser,
-            engine: inputs.engine,
             focus: focus
         )
         guard let newPanelId else {

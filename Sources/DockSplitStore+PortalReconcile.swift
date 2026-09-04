@@ -63,7 +63,6 @@ extension DockSplitStore {
                 observe(.terminalSurfaceHostedViewDidMoveToWindow, object: terminal.surface)
                 observe(.terminalPortalVisibilityDidChange, object: terminal.hostedView)
             } else if let browser = panel as? BrowserPanel {
-                if browser.isChromiumBacked { continue }
                 observe(.browserPortalRegistryDidChange, object: browser.webView)
             }
         }
@@ -106,7 +105,6 @@ extension DockSplitStore {
             if let terminal = panel as? TerminalPanel {
                 append(terminal.hostedView.window)
             } else if let browser = panel as? BrowserPanel {
-                if browser.isChromiumBacked { continue }
                 append(browser.portalAnchorView.window)
                 append(browser.webView.window)
             }
@@ -210,7 +208,6 @@ extension DockSplitStore {
             return reconcileVisibleDockTerminalPortal(terminal, isActive: isActive)
         }
         if let browser = panel as? BrowserPanel {
-            if browser.isChromiumBacked { return false }
             return reconcileVisibleDockBrowserPortal(browser, reason: reason)
         }
         return false
@@ -308,15 +305,13 @@ extension DockSplitStore {
     }
 
     func dockBrowserPortalReady(_ browser: BrowserPanel) -> Bool {
-        if browser.isChromiumBacked { return true }
-        return dockBrowserPortalAnchorReady(browser.portalAnchorView) &&
+        dockBrowserPortalAnchorReady(browser.portalAnchorView) &&
             browser.webView.window != nil &&
             browser.webView.cmuxBrowserViewportAttachmentSuperview != nil &&
             BrowserWindowPortalRegistry.isWebView(browser.webView, boundTo: browser.portalAnchorView)
     }
 
     func dockBrowserPortalNeedsReconcile(_ browser: BrowserPanel) -> Bool {
-        if browser.isChromiumBacked { return false }
         let snapshot = BrowserWindowPortalRegistry.debugSnapshot(for: browser.webView)
         return snapshot == nil ||
             snapshot?.visibleInUI == false ||

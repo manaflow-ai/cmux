@@ -22,6 +22,11 @@
       "title": "cmux Pro erforderlich",
       "message": "Cloud-VMs erfordern einen cmux Pro-Plan.",
       "action": "Führen Sie unter {upgradeUrl} ein Upgrade auf cmux Pro durch, um Cloud-VMs zu erstellen."
+    },
+    "sharedResource": {
+      "message": "Der gemeinsame {resource}-Ressourcenpool für Cloud-VMs ist voll.",
+      "action": "Löschen Sie eine ungenutzte Cloud-VM und versuchen Sie es erneut.",
+      "oversizedAction": "Fordern Sie eine kleinere {resource}-Größe für die Cloud-VM an, die in den gemeinsamen Pool passt."
     }
   },
   "billingRecovery": {
@@ -1183,6 +1188,14 @@
         "shortcuts": {
           "when": "Optionale Kontextprädikate pro Aktion (VS-Code-artige `when`-Klauseln), nach cmux-Aktions-ID indiziert. Jeder Wert ist ein boolescher Ausdruck über Kontextschlüssel, kombiniert mit !, &&, || und Klammern. Boolesche Schlüssel: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Typisierte Schlüssel unterstützen Vergleiche: die Zeichenkette sidebarMode (files, find, sessions, feed oder dock) sowie die Ganzzahlen paneCount und workspaceCount. Vergleichsoperatoren sind ==, !=, =~ (regulärer Ausdruck), <, <=, >, >= und `in [a, b]`; ein unbekannter oder fehlender Schlüssel gilt als false. Die booleschen Literale true und false werden ebenfalls akzeptiert; `key == false` entspricht `!key`. Der Kurzbefehl der Aktion wird nur ausgelöst (und kollidiert nur mit anderen Kurzbefehlen), wenn die Klausel erfüllt ist. Beispiele: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } wählt Workspaces mit Ctrl+1–9 überall aus, außer wenn die rechte Seitenleiste fokussiert ist; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } beschränkt eine Belegung auf die Suchen-Seitenleiste, wenn der Workspace mehrere Panes hat.",
           "showModifierHoldHints": "Zeigt Kurzbefehl-Hinweis-Chips an, während Cmd oder Control gedrückt gehalten wird."
+        },
+        "fileEditor": {
+          "wordWrap": "Bricht lange Zeilen am rechten Rand des Editors um, statt horizontal zu scrollen.",
+          "syntaxHighlighting": "Färbt Quellcode-Token im integrierten Dateieditor ein.",
+          "lineNumbers": "Zeigt eine Zeilennummernleiste im integrierten Dateieditor.",
+          "indentGuides": "Zeichnet vertikale Einzugshilfslinien im integrierten Dateieditor.",
+          "currentLineHighlight": "Hebt die Zeile der Einfügemarke hervor, wenn nichts ausgewählt ist.",
+          "tabWidth": "Breite eines Tabstopps in Spalten für Einzüge und Einzugshilfslinien."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

@@ -34,6 +34,16 @@ import Testing
         #expect(workspace.effectiveCustomTitleSource == .user)
     }
 
+    @Test func remoteObservationConvergesAfterAnotherClientRenames() {
+        let workspace = Workspace(title: "Terminal")
+        workspace.setCustomTitle("Local edit")
+        #expect(workspace.setCustomTitle("Remote edit", source: .remote))
+        #expect(workspace.customTitle == "Remote edit")
+        #expect(workspace.effectiveCustomTitleSource == .remote)
+        // Automatic naming still cannot displace the daemon-owned value.
+        #expect(!workspace.setCustomTitle("Generated", source: .auto))
+    }
+
     @Test func userWriteOverAutoTitleLandsAndClaimsOwnership() {
         let workspace = Workspace(title: "Terminal")
         workspace.setCustomTitle("Fix auth bug", source: .auto)
@@ -121,6 +131,52 @@ import Testing
         workspace.panelCustomTitles[panelId] = "Carried Tab"
         #expect(!workspace.setPanelCustomTitle(panelId: panelId, title: "Other", source: .auto))
         #expect(workspace.panelCustomTitles[panelId] == "Carried Tab")
+    }
+
+    @Test func cloudTerminalClearWithoutLocalOverrideIsAcceptedForWriteThrough() throws {
+        let manager = TabManager()
+        let workspace = try #require(manager.selectedWorkspace)
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let panelId = try #require(workspace.newTerminalSurface(inPane: pane, focus: true)?.id)
+        let machine = SurfaceMachineID.cloud("title-clear-\(UUID().uuidString)")
+        let remoteWorkspace = SurfaceRemoteWorkspace(
+            id: "ws_cloud",
+            name: "cloud",
+            index: 0,
+            focused: true
+        )
+        let remote = SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .terminal, key: "term_cloud"),
+            title: "daemon title",
+            detail: "/root",
+            lifecycle: .running,
+            agent: nil,
+            remoteWorkspace: remoteWorkspace,
+            remoteViews: [SurfaceRemoteView(
+                tabID: "tab_cloud",
+                workspace: remoteWorkspace,
+                name: "daemon title"
+            )],
+            port: nil,
+            url: nil
+        )
+        let catalog = SurfaceCatalog.shared
+        catalog.upsert(remote)
+        catalog.record(SurfaceProjection(
+            resource: remote.id,
+            workspaceID: workspace.id,
+            panelID: panelId,
+            remoteWorkspaceID: remoteWorkspace.id,
+            remoteTabID: "tab_cloud"
+        ))
+        defer {
+            catalog.endProjections(panelID: panelId)
+            catalog.remove(remote.id)
+        }
+
+        #expect(workspace.panelCustomTitles[panelId] == nil)
+        #expect(workspace.setPanelCustomTitle(panelId: panelId, title: nil))
+        #expect(workspace.panelCustomTitles[panelId] == nil)
     }
 
     // MARK: - Snapshot round-trip

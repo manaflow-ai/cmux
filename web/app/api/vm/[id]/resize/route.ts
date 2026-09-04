@@ -49,9 +49,11 @@ export async function POST(
         const stats = await runVmWorkflow(resizeVm({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
+          billingPlanId: account.entitlements.planId,
           teamIds: user.teamIds,
           providerVmId: id,
           storageMb,
+          maxActiveVms: account.entitlements.maxActiveVms,
         }));
         return jsonResponse({
           id,

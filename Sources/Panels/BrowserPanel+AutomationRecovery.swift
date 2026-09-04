@@ -1,6 +1,5 @@
 import AppKit
 import CmuxBrowser
-import CmuxSettings
 import WebKit
 
 extension BrowserPanel {
@@ -34,103 +33,10 @@ extension BrowserPanel {
         )
     }
 
-    private func startChromiumAutomationNavigation(
-        _ ticket: BrowserAutomationNavigationTicket,
-        targetURL: URL?,
-        reload: Bool = false,
-        recordTypedNavigation: Bool = false
-    ) {
-        automationNavigationCoordinator.startExternalNavigation(ticket) { [weak self] in
-            guard let self else { throw CancellationError() }
-            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-            self.shouldRenderWebView = true
-            self.startChromiumIfNeeded()
-            if recordTypedNavigation, let targetURL {
-                self.historyStore.recordTypedNavigation(url: targetURL)
-            }
-            if let cef = self.browserEngineController.adapter as? CEFBrowserPaneEngineAdapter {
-                await cef.startupReadinessTask?.value
-                try Task.checkCancellation()
-                guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-                let revision = cef.currentNavigationRevision()
-                if reload {
-                    try await cef.reload()
-                } else if let targetURL {
-                    try await cef.navigate(to: targetURL)
-                }
-                guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-                try await cef.waitForNavigation(to: reload ? nil : targetURL, after: revision)
-                guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-                return
-            }
-            guard let session = self.chromiumSessionForAutomation else {
-                throw CDPError.notConnected
-            }
-            let revision = await session.currentNavigationRevision()
-            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-            if reload {
-                try await self.browserEngineController.adapter.reload()
-            } else if let targetURL {
-                try await self.browserEngineController.adapter.navigate(to: targetURL)
-            }
-            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-            try await session.waitForNavigation(to: nil, after: revision)
-            guard !self.chromiumIsolationPending else { throw CDPError.notConnected }
-        }
-    }
-
     func beginAutomationNavigation(
         to targetURL: URL,
         recordTypedNavigation: Bool
     ) -> BrowserAutomationNavigationTicket {
-        if chromiumIsolationPending {
-            let ticket = automationNavigationCoordinator.begin(
-                instanceID: webViewInstanceID,
-                targetURL: targetURL,
-                allowsSameDocumentCompletion: false
-            )
-            automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
-            return ticket
-        }
-        if isChromiumBacked, !chromiumIsolationPending {
-            let ticket = automationNavigationCoordinator.begin(
-                instanceID: webViewInstanceID,
-                targetURL: targetURL,
-                allowsSameDocumentCompletion: true
-            )
-            guard BrowserURLAllowlistPolicy(defaults: .standard).allows(targetURL) else {
-                navigationDelegate?.blockURLAllowlistNavigation(targetURL, in: webView)
-                automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
-                return ticket
-            }
-            if shouldBlockInsecureHTTPNavigation(to: targetURL) {
-                presentInsecureHTTPAlert(
-                    for: URLRequest(url: targetURL),
-                    intent: .currentTab,
-                    recordTypedNavigation: recordTypedNavigation,
-                    onResolution: { [weak self] resolution in
-                        guard let self else { return }
-                        if case .proceededInCurrentTab = resolution {
-                            self.startChromiumAutomationNavigation(
-                                ticket,
-                                targetURL: targetURL,
-                                recordTypedNavigation: recordTypedNavigation
-                            )
-                        } else {
-                            self.automationNavigationCoordinator.finishExternally(ticket, with: .cancelled)
-                        }
-                    },
-                    deferNavigation: true
-                )
-            } else {
-                startChromiumAutomationNavigation(
-                    ticket,
-                    targetURL: targetURL,
-                    recordTypedNavigation: recordTypedNavigation
-                )
-            }
-            return ticket
-        }
         let ticket = automationNavigationCoordinator.begin(
             instanceID: webViewInstanceID,
             targetURL: targetURL,
@@ -155,15 +61,6 @@ extension BrowserPanel {
         targetURL: URL
     )? {
         guard let targetURL = automationReloadTargetURL() else { return nil }
-        guard !chromiumIsolationPending else { return nil }
-        if isChromiumBacked, !chromiumIsolationPending {
-            let ticket = automationNavigationCoordinator.begin(
-                instanceID: webViewInstanceID,
-                targetURL: targetURL
-            )
-            startChromiumAutomationNavigation(ticket, targetURL: targetURL, reload: true)
-            return (ticket, targetURL)
-        }
         let ticket = automationNavigationCoordinator.begin(
             instanceID: webViewInstanceID,
             targetURL: targetURL
@@ -231,11 +128,6 @@ extension BrowserPanel {
         browserAutomationUserScripts.removeAll()
         browserAutomationInitScriptCount = 0
         browserAutomationStyleScriptCount = 0
-        if isChromiumBacked,
-           !chromiumIsolationPending,
-           let chromium = browserEngineController.adapter as? (any ChromiumEngineAdapting) {
-            chromium.clearDocumentScripts()
-        }
     }
 
     func makeReplacementWebView(
@@ -269,31 +161,6 @@ extension BrowserPanel {
         expectedWebViewIdentifier: ObjectIdentifier,
         channel: BrowserAutomationProbeChannel
     ) async -> BrowserAutomationRecoveryOutcome {
-        if isChromiumBacked, !chromiumIsolationPending {
-            guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
-            do {
-                // A bounded Runtime.evaluate is the Chromium liveness probe;
-                // an unverified target must never be reported as healthy.
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    group.addTask { @MainActor [weak self] in
-                        guard let self else { throw CancellationError() }
-                        _ = try await self.browserEngineController.adapter.evaluateJavaScript(
-                            "true",
-                            awaitPromise: false
-                        )
-                    }
-                    group.addTask {
-                        try await ContinuousClock().sleep(for: .seconds(2))
-                        throw ChromiumBrowserDiagnostic.commandTimedOut
-                    }
-                    defer { group.cancelAll() }
-                    _ = try await group.next()
-                }
-                return .responsive
-            } catch {
-                return .cancelled
-            }
-        }
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier else { return .superseded }
         guard canRecoverFromAutomationTimeout else { return .responsive }
         let observedWebViewInstanceID = webViewInstanceID
@@ -358,7 +225,6 @@ extension BrowserPanel {
         expectedWebViewIdentifier: ObjectIdentifier,
         reason: String
     ) -> Bool {
-        guard !isChromiumBacked else { return false }
         guard ObjectIdentifier(webView) == expectedWebViewIdentifier, canRecoverFromAutomationTimeout else { return false }
         replaceWebViewPreservingState(
             from: webView,

@@ -8,7 +8,6 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
     case sourceProfileNotFound(String)
     case destinationProfileNotFound(String)
     case destinationProfileCreationFailed(String)
-    case chromiumCookiesUnsupported
 
     var errorDescription: String? {
         switch self {
@@ -56,11 +55,6 @@ enum BrowserImportAutomationError: LocalizedError, CustomStringConvertible {
                     defaultValue: "Failed to create cmux browser profile '%@'"
                 ),
                 name
-            )
-        case .chromiumCookiesUnsupported:
-            return String(
-                localized: "browser.import.automation.error.chromiumCookiesUnsupported",
-                defaultValue: "Cookie import into Chromium is not available yet. Open a WebKit browser pane or set WebKit as the default engine and try again."
             )
         }
     }
@@ -269,18 +263,23 @@ enum BrowserProfileAutomation {
     @MainActor
     static func clear(params: [String: Any]) async throws -> [String: Any] {
         let targets = try targetProfiles(params: params, allowAll: true)
-        // Chromium profile directories are shared with live CEF/child
-        // processes. Even an explicit `force` request must fail closed until
-        // every pane has stopped, otherwise deleting files under an active
-        // request context can corrupt the renderer.
-        for profile in targets {
-            let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
-            guard livePanelCount == 0 else {
-                throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
+        let force = browserAutomationBoolParam(params, keys: ["force"])
+        if !force {
+            for profile in targets {
+                let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
+                guard livePanelCount == 0 else {
+                    throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
+                }
             }
         }
         var clearedProfiles: [[String: Any]] = []
         for profile in targets {
+            if !force {
+                let livePanelCount = liveBrowserPanelCount(profileID: profile.id)
+                guard livePanelCount == 0 else {
+                    throw BrowserProfileAutomationError.profileInUse(profile.displayName, livePanelCount)
+                }
+            }
             guard let outcome = await BrowserProfileStore.shared.clearProfileData(id: profile.id) else {
                 throw BrowserProfileAutomationError.profileClearFailed(profile.displayName)
             }
@@ -419,14 +418,6 @@ enum BrowserImportAutomation {
         let browser = try selectedBrowser(from: browsers, params: params)
         let sourceProfiles = try selectedSourceProfiles(from: browser, params: params)
         let domainFilters = BrowserDataImporter.parseDomainFilters(domainFilterText(from: params))
-        let destinationEngine = await MainActor.run {
-            BrowserEngineSettingsStore(defaults: .standard).defaultEngineValue(
-                systemDefaultBrowserIsChromium: SystemDefaultBrowserDetector.isChromiumFamily()
-            )
-        }
-        guard destinationEngine != .chromium else {
-            throw BrowserImportAutomationError.chromiumCookiesUnsupported
-        }
 
         let realizedPlan: RealizedBrowserImportExecutionPlan = try await MainActor.run {
             let destinationProfiles = BrowserProfileStore.shared.profiles
@@ -462,8 +453,7 @@ enum BrowserImportAutomation {
             from: browser,
             plan: realizedPlan,
             scope: .cookiesOnly,
-            domainFilters: domainFilters,
-            destinationEngine: destinationEngine
+            domainFilters: domainFilters
         )
     }
 

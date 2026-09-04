@@ -322,8 +322,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Which image each kind provisions on the caller's provider, for the New
-    /// Machine sheet's summary line. Empty on control planes that predate it.
+    /// Memory sizes the server accepts for new base machines, in MB.
+    var memoryOptionsMb: [Int] = []
+    /// Legacy compatibility data for older clients. The current New Machine
+    /// sheet always creates one base kind and does not display this field.
     var imageKinds: [VMImageKindOption] = []
 }
 
@@ -608,6 +610,15 @@ struct VMCmuxRemoteEndpoint {
     let expiresAtUnix: Int64
     let session: String
     let invitation: Invitation?
+    /// The machine's private addresses, when the provider returned them. Keep
+    /// this metadata on the client boundary so agents and diagnostics can see
+    /// the same route state the backend used, without reconstructing it.
+    struct NetworkAddresses {
+        let ipv4: String?
+        let ipv6: String?
+    }
+
+    let networkAddresses: NetworkAddresses?
     /// The machine daemon's build identity, for naming a protocol mismatch.
     struct DaemonBuild {
         let commit: String?
@@ -721,6 +732,7 @@ actor VMClient {
                 planId: planId,
                 freeAccessWindowDays: freeAccessWindowDays,
                 freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
                 imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
             )
         }
@@ -1042,6 +1054,20 @@ actor VMClient {
             guard let kind = decodeKind(item["kind"]),
                   let image = item["image"] as? String, !image.isEmpty else { return nil }
             return VMImageKindOption(kind: kind, image: image)
+        }
+    }
+
+    /// `limits.memoryOptionsMb: [number]`; malformed or non-positive entries are skipped.
+    private static func decodeIntArray(_ raw: Any?) -> [Int] {
+        guard let items = raw as? [Any] else { return [] }
+        return items.compactMap { item in
+            let value: Int?
+            if let item = item as? Int { value = item }
+            else if let item = item as? NSNumber, item.doubleValue.isFinite { value = Int(exactly: item.doubleValue) }
+            else if let item = item as? Double, item.isFinite { value = Int(exactly: item) }
+            else { value = nil }
+            guard let value, value > 0 else { return nil }
+            return value
         }
     }
 
@@ -1379,12 +1405,24 @@ actor VMClient {
                 version: raw["version"] as? String
             )
         }
+        var networkAddresses: VMCmuxRemoteEndpoint.NetworkAddresses?
+        // The HTTP API uses camelCase. The local control socket uses the
+        // snake_case wire contract. Accept both at this boundary so a proxy
+        // or an older app cannot silently drop the address metadata.
+        if let raw = (obj["network_addresses"] ?? obj["networkAddresses"]) as? [String: Any] {
+            let ipv4 = raw["ipv4"] as? String
+            let ipv6 = raw["ipv6"] as? String
+            if ipv4 != nil || ipv6 != nil {
+                networkAddresses = .init(ipv4: ipv4, ipv6: ipv6)
+            }
+        }
         return VMCmuxRemoteEndpoint(
             route: route,
             token: token,
             expiresAtUnix: expiresAtUnix,
             session: session,
             invitation: invitation,
+            networkAddresses: networkAddresses,
             daemonBuild: daemonBuild
         )
     }
@@ -2231,23 +2269,21 @@ actor MachineUsageClient {
         return nil
     }
 
-    private nonisolated static let iso8601WithFractions: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private nonisolated static let iso8601: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
     /// `null`/absent is nil; an unparseable string is nil too, since the date
     /// only labels the readout and must never fail the whole payload.
     private nonisolated static func dateValue(_ raw: Any?) -> Date? {
         guard let text = raw as? String, !text.isEmpty else { return nil }
-        return iso8601WithFractions.date(from: text) ?? iso8601.date(from: text)
+        // ISO8601DateFormatter is mutable and not Sendable. Keep each
+        // formatter local to this pure decoder instead of sharing it across
+        // calls from different actor contexts.
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalFormatter.date(from: text) {
+            return date
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter.date(from: text)
     }
 
     private func request(

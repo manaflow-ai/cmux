@@ -47,7 +47,37 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "preferred-editor", title: "Open Files With", synonyms: "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: "Open Supported Files in cmux", synonyms: "app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
             .init(section: .app, id: "markdown-viewer", title: "Open Markdown in cmux Viewer", synonyms: "app.openMarkdownInCmuxViewer md markdown mdx viewer preview readme"),
-            .init(section: .app, id: "file-editor-word-wrap", title: "File Editor Word Wrap", synonyms: "fileEditor.wordWrap file editor word wrap soft wrap reflow lines text horizontal scroll preview"),
+            .init(section: .app, id: "file-editor-word-wrap", title: String(localized: "settings.app.fileEditorWordWrap", defaultValue: "File Editor Word Wrap"), synonyms: "fileEditor.wordWrap " + String(localized: "settings.search.fileEditor.wordWrap", defaultValue: "file editor word wrap soft wrap reflow lines text horizontal scroll preview")),
+            .init(
+                section: .app,
+                id: "file-editor-syntax-highlighting",
+                title: String(localized: "settings.app.fileEditorSyntaxHighlighting", defaultValue: "File Editor Syntax Highlighting"),
+                synonyms: "fileEditor.syntaxHighlighting " + String(localized: "settings.search.fileEditor.syntaxHighlighting", defaultValue: "syntax highlight colors tokens code")
+            ),
+            .init(
+                section: .app,
+                id: "file-editor-line-numbers",
+                title: String(localized: "settings.app.fileEditorLineNumbers", defaultValue: "File Editor Line Numbers"),
+                synonyms: "fileEditor.lineNumbers " + String(localized: "settings.search.fileEditor.lineNumbers", defaultValue: "gutter line numbers")
+            ),
+            .init(
+                section: .app,
+                id: "file-editor-indent-guides",
+                title: String(localized: "settings.app.fileEditorIndentGuides", defaultValue: "File Editor Indent Guides"),
+                synonyms: "fileEditor.indentGuides " + String(localized: "settings.search.fileEditor.indentGuides", defaultValue: "indent guides columns")
+            ),
+            .init(
+                section: .app,
+                id: "file-editor-current-line-highlight",
+                title: String(localized: "settings.app.fileEditorCurrentLineHighlight", defaultValue: "File Editor Current Line Highlight"),
+                synonyms: "fileEditor.currentLineHighlight " + String(localized: "settings.search.fileEditor.currentLineHighlight", defaultValue: "current line caret highlight")
+            ),
+            .init(
+                section: .app,
+                id: "file-editor-tab-width",
+                title: String(localized: "settings.app.fileEditorTabWidth", defaultValue: "File Editor Tab Width"),
+                synonyms: "fileEditor.tabWidth " + String(localized: "settings.search.fileEditor.tabWidth", defaultValue: "tab width indent columns")
+            ),
             .init(section: .app, id: "terminal-config", title: "Terminal Config", synonyms: "ghostty config merged generated preview terminal configuration window open config macos-option-as-alt option as alt left option right option alt key meta"),
             .init(section: .app, id: "global-font-magnification", title: String(localized: "settings.app.globalFontMagnification", defaultValue: "Global Font Magnification"), synonyms: "app.globalFontMagnification global font magnification scale text zoom terminals tabs chrome bigger smaller accessibility"),
             .init(section: .app, id: "imessage-mode", title: "iMessage Mode", synonyms: "app.iMessageMode imessage message messages chat prompt prompts submitted texting reorder move workspace top agent send"),
@@ -389,9 +419,6 @@ extension Array where Element == CuratedSettingEntry {
             ),
             // Browser
             .init(section: .browser, id: "enable-browser", title: "Enable cmux Browser", synonyms: "browser.disabled enable disable webview embedded browser tabs links"),
-            .init(section: .browser, id: "default-engine", title: String(localized: "settings.browser.engine", defaultValue: "Default Browser Engine"), synonyms: "browser.defaultEngine auto match default browser webkit chromium chrome rendering engine out of process", anchorPath: "browser.defaultEngine"),
-            .init(section: .browser, id: "chromium-extensions", title: String(localized: "settings.browser.chromiumExtensions", defaultValue: "Chromium Extensions"), synonyms: "browser.chromiumExtensionDirectories chrome extension unpacked load-extension addon plugin", anchorPath: "browser.chromiumExtensionDirectories"),
-            .init(section: .browser, id: "remote-debugging-port", title: String(localized: "settings.browser.remoteDebuggingPort", defaultValue: "Chromium Remote Debugging Port"), synonyms: "browser.remoteDebuggingPort cdp devtools protocol playwright puppeteer loopback localhost attach"),
             .init(section: .browser, id: "search-engine", title: "Default Search Engine", synonyms: "browser.defaultSearchEngine omnibar address bar google duckduckgo bing kagi brave startpage perplexity exa yahoo ecosia qwant mojeek wikipedia github baidu yandex custom search provider engine name url template"),
             .init(section: .browser, id: "search-suggestions", title: "Show Search Suggestions", synonyms: "browser.showSearchSuggestions suggest autocomplete address bar search suggestions"),
             .init(section: .browser, id: "theme", title: "Browser Theme", synonyms: "browser.theme web page theme color scheme light dark system"),
