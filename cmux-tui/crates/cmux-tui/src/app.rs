@@ -19040,6 +19040,7 @@ impl App {
                 // Keep this arm explicit so a future projection drag cannot
                 // accidentally inherit another rail's invalidation policy.
                 (SidebarPointerDomain::Projection, _) => false,
+                _ => false,
             })
         });
         if should_cancel {
