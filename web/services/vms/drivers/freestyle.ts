@@ -105,8 +105,9 @@ import {
 // cmux-tui build and the cmux-tui-daemon systemd unit, and its supervisor
 // (services/vms/images/devbox/cmux-devbox-boot) starts the daemon with a
 // fresh identity as soon as the machine resumes, keyed on the platform
-// instance id. Create is therefore `vms.create`, the grow-only resize, and one
-// file write; attach heals a daemon that is not yet, or no longer, listening.
+// instance id. Create is therefore `vms.create` and the grow-only resize; the
+// image-bake step owns the static model-plane file. Attach heals a daemon that
+// is not yet, or no longer, listening.
 //
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform adds
@@ -1251,13 +1252,6 @@ export class FreestyleProvider implements VMProvider {
           // are mandatory: a snapshot never carries a token, so the restored
           // machine is unusable until its own injection is live.
           await this.ensureCmuxTuiRunning(vm, vmId).catch(() => undefined);
-          try {
-          } catch (err) {
-            await vm.delete().catch((cleanupErr) => {
-              console.error(`[freestyle] restore rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
-            });
-            throw err;
-          }
           return {
             provider: "freestyle" as const,
             providerVmId: vmId,
