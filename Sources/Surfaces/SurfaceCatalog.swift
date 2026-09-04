@@ -512,6 +512,26 @@ final class SurfaceCatalog {
             // the catalog; callers will receive the next authoritative refresh.
             return false
         }
+        if let cursor, cloudCursorFingerprints[machine] == nil {
+            let receiptIntents = cloudWorkspaceRenameIntents.filter {
+                $0.key.machine == machine && $0.value.receiptCursor == cursor
+            }
+            if !receiptIntents.isEmpty {
+                // A mutation receipt advances the cursor before the daemon's full
+                // snapshot necessarily arrives. At that cursor, a graph that still
+                // carries the predecessor name is provably stale; reject it rather
+                // than publishing it or letting it poison the next equal-cursor read.
+                for (key, intent) in receiptIntents {
+                    guard Self.remoteWorkspaceName(
+                        workspaceID: key.workspaceID,
+                        info: info,
+                        resources: list
+                    ) == intent.name else {
+                        return false
+                    }
+                }
+            }
+        }
         reconcilePendingCloudWorkspaceRenames(
             machine: machine,
             cursor: cursor,

@@ -899,16 +899,18 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
 
     /// Resolves a workspace by its stable daemon id from the catalog's current projection.
     private func remoteWorkspace(id: String) -> SurfaceRemoteWorkspace? {
-        if let workspace = catalog.snapshot.machines.first(where: { $0.id == machine })?.remoteWorkspaces?
-            .first(where: { $0.id == id }) {
-            return workspace
+        var matches = Set<SurfaceRemoteWorkspace>()
+        if let workspaces = catalog.snapshot.machines.first(where: { $0.id == machine })?.remoteWorkspaces {
+            matches.formUnion(workspaces.filter { $0.id == id })
         }
-        var matches: [SurfaceRemoteWorkspace] = []
         for resource in catalog.snapshot.resources(on: machine) {
-            matches.append(contentsOf: resource.remoteWorkspaces.filter { $0.id == id })
+            matches.formUnion(resource.remoteWorkspaces.filter { $0.id == id })
         }
-        let names = Dictionary(matches.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
-        return names[id]
+        // Multiple resources legitimately repeat the same workspace view. More
+        // than one distinct value for the stable id, however, is malformed and
+        // must fail closed instead of choosing whichever row happens to sort first.
+        guard matches.count == 1 else { return nil }
+        return matches.first
     }
 
     /// The terminal lives in the machine's session; only the local pane went away.
