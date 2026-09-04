@@ -666,6 +666,7 @@ dependencies = [
  "cmux-tui-core",
  "cmux-tui-source-watch",
  "diffy",
+ "ed25519-dalek",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
