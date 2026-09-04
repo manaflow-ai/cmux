@@ -402,6 +402,10 @@ extension GhosttySurfaceRepresentable.Coordinator {
             guard self.surfaceView === surfaceView else { return }
             updateArtifactChip(count: 0)
             guard previousCount != 0 else { return }
+            // Dismantle reaches here synchronously while SwiftUI is tearing
+            // down the view graph these callbacks write into; a transient
+            // window detach must still propagate the reset.
+            guard !isTearingDown else { return }
             onVisibleArtifactCountChanged(0)
             onArtifactGalleryRefreshSignal(TerminalArtifactGalleryRefreshSignal(
                 count: 0,
@@ -416,6 +420,7 @@ extension GhosttySurfaceRepresentable.Coordinator {
             artifactCountNeedsRefresh = false
             guard artifactChipGate.isEnabled, count != visibleArtifactCount else { return }
             visibleArtifactCount = count
+            guard !isTearingDown else { return }
             onVisibleArtifactCountChanged(count)
         }
 
