@@ -59708,6 +59708,23 @@
         }
       }
     },
+    "cli.vpn.runAsUser": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run `cmux vpn` without `sudo`; cmux asks for sudo only when it changes the tunnel or /etc/hosts."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`sudo` を付けずに `cmux vpn` を実行してください。トンネルまたは /etc/hosts を変更するときだけ cmux が sudo を求めます。"
+          }
+        }
+      }
+    },
     "cli.vpn.down": {
       "extractionState": "manual",
       "localizations": {

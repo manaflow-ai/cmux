@@ -5194,6 +5194,19 @@ struct CMUXCLI {
             return
         }
 
+        // `cmux vpn` performs its own narrowly-scoped sudo calls for
+        // wg-quick and `/etc/hosts`.  Running the CLI itself through sudo
+        // changes HOME/UID, hides the user's cmux socket, and can never pass
+        // the socket's same-user/ancestry policy. Fail before socket discovery
+        // with an actionable instruction instead of the misleading "no live
+        // socket" diagnostic.
+        if command == "vpn", geteuid() == 0 {
+            throw CLIError(message: String(
+                localized: "cli.vpn.runAsUser",
+                defaultValue: "Run `cmux vpn` without `sudo`; cmux asks for sudo only when it changes the tunnel or /etc/hosts."
+            ))
+        }
+
         // If the argument is a path (not a known command), open a workspace there.
         if shouldOpenAsPathArgument(command), explicitSocketPath == nil {
             try openPath(command)
