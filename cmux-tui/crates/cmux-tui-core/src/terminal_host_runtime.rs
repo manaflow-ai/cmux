@@ -3548,7 +3548,11 @@ mod unix {
 
     impl HostShared {
         fn mark_launch_owner_stream_ready(&self) {
-            let _gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            let _gate = self
+                .launch_owner_stream_gate
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if !self.launch_owner_stream_ready.swap(true, Ordering::AcqRel) {
                 self.launch_owner_stream_gate.1.notify_all();
             }
@@ -3559,9 +3563,17 @@ mod unix {
             if self.launch_owner_stream_ready.load(Ordering::Acquire) {
                 return;
             }
-            let mut gate = self.launch_owner_stream_gate.0.lock().unwrap();
+            let mut gate = self
+                .launch_owner_stream_gate
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             while !self.launch_owner_stream_ready.load(Ordering::Acquire) {
-                gate = self.launch_owner_stream_gate.1.wait(gate).unwrap();
+                gate = self
+                    .launch_owner_stream_gate
+                    .1
+                    .wait(gate)
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
             }
         }
 
@@ -4330,11 +4342,12 @@ mod unix {
         }
 
         fn child_exited(&self) -> bool {
-            self.child_exit.0.lock().unwrap().is_some()
+            self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).is_some()
         }
 
         fn wait_for_child_exit(&self, timeout: Duration) -> bool {
-            let exited = self.child_exit.0.lock().unwrap();
+            let exited =
+                self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if exited.is_some() {
                 return true;
             }
@@ -4342,7 +4355,7 @@ mod unix {
                 .child_exit
                 .1
                 .wait_timeout_while(exited, timeout, |value| value.is_none())
-                .unwrap();
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             exited.is_some()
         }
 
@@ -4350,14 +4363,14 @@ mod unix {
             if self.child_waitable.load(Ordering::Acquire) {
                 return true;
             }
-            let state = self.child_exit.0.lock().unwrap();
+            let state = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let (_state, _) = self
                 .child_exit
                 .1
                 .wait_timeout_while(state, timeout, |_| {
                     !self.child_waitable.load(Ordering::Acquire)
                 })
-                .unwrap();
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.child_waitable.load(Ordering::Acquire)
         }
 
@@ -4368,12 +4381,12 @@ mod unix {
             // The child-exit mutex is only a rendezvous guard here; the PTY
             // reader notifies the same condition variable after publishing
             // its final bytes and setting pty_drained.
-            let state = self.child_exit.0.lock().unwrap();
+            let state = self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let (_state, _) = self
                 .child_exit
                 .1
                 .wait_timeout_while(state, timeout, |_| !self.pty_drained.load(Ordering::Acquire))
-                .unwrap();
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             self.pty_drained.load(Ordering::Acquire)
         }
 
@@ -4382,7 +4395,8 @@ mod unix {
             // holding this mutex. Otherwise a notifier can run after a waiter
             // checks the atomic but before Condvar::wait arms, losing the only
             // wake that allows the terminal exit to be published.
-            let _state = self.child_exit.0.lock().unwrap();
+            let _state =
+                self.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             predicate.store(true, Ordering::Release);
             self.child_exit.1.notify_all();
         }
@@ -4401,7 +4415,8 @@ mod unix {
             // before reaping. While we hold it, `!child_reaped` means the
             // original PID/PGID is still kernel-reserved and cannot have been
             // reused between validation and killpg.
-            let _signal = self.child_signal_lock.lock().unwrap();
+            let _signal =
+                self.child_signal_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let child_reserved = !self.child_reaped.load(Ordering::Acquire);
             if child_reserved
                 && let Some(pid) = self.pid.and_then(|pid| libc::pid_t::try_from(pid).ok())
@@ -4412,7 +4427,11 @@ mod unix {
             // a foreground job or retained descendant may own a different
             // group by the time explicit Terminate escalates.
             if child_reserved
-                && let Some(foreground) = self.master.lock().unwrap().process_group_leader()
+                && let Some(foreground) = self
+                    .master
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .process_group_leader()
             {
                 groups.push(foreground);
             }
@@ -4434,7 +4453,11 @@ mod unix {
             self.force_pty_drain.store(true, Ordering::Release);
             // Wake the otherwise blocking poll in the sole PTY reader. The
             // byte has no protocol meaning; it only makes the wake fd ready.
-            let _ = self.pty_drain_waker.lock().unwrap().write_all(&[1]);
+            let _ = self
+                .pty_drain_waker
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .write_all(&[1]);
         }
 
         fn request_termination(self: &Arc<Self>) {
@@ -4442,7 +4465,10 @@ mod unix {
                 // Serialize the ownership transition with WNOWAIT's final
                 // reap decision so an explicit Terminate cannot lose the
                 // original reserved PID/PGID in between.
-                let _signal = self.child_signal_lock.lock().unwrap();
+                let _signal = self
+                    .child_signal_lock
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 self.termination_started.swap(true, Ordering::AcqRel)
             };
             if already_started {
@@ -4549,12 +4575,15 @@ mod unix {
                 },
             )?;
             if let Some(exit) = exit {
-                let _source_order = self.source_order_lock.lock().unwrap();
+                let _source_order = self
+                    .source_order_lock
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 // Snapshot capture keeps `term` held from the dead check
                 // through smart subscription. Publish Exit under that same
                 // lock so an attach either joins before Exit or observes dead.
                 {
-                    let _term = self.term.lock().unwrap();
+                    let _term = self.term.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                     self.dead.store(true, Ordering::Release);
                     let payload = encode_terminal_exit(&exit);
                     let cursor = self.smart.publish(Frame::new(MessageKind::Exit, payload.clone()));
@@ -4568,7 +4597,10 @@ mod unix {
 
         fn terminate_and_wait(&self) {
             {
-                let _signal = self.child_signal_lock.lock().unwrap();
+                let _signal = self
+                    .child_signal_lock
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 self.termination_started.store(true, Ordering::Release);
             }
             // ProcessSignaller only targets the direct child. Start with a
@@ -4576,7 +4608,8 @@ mod unix {
             // can clean up too, then escalate after a strict bound.
             self.signal_terminal_process_groups(libc::SIGHUP);
             if !self.child_waitable.load(Ordering::Acquire) {
-                let _ = self.killer.lock().unwrap().kill();
+                let _ =
+                    self.killer.lock().unwrap_or_else(std::sync::PoisonError::into_inner).kill();
             }
             let _ = self.wait_for_child_waitable(HOST_TERMINATE_GRACE);
             let _ = self.wait_for_pty_drain(HOST_PTY_DRAIN_GRACE);
@@ -4614,7 +4647,9 @@ mod unix {
         if !pty_drained.load(Ordering::Acquire) {
             return Ok(None);
         }
-        let Some(exit) = child_exited.lock().unwrap().clone() else {
+        let Some(exit) =
+            child_exited.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        else {
             return Ok(None);
         };
         if exit_published.load(Ordering::Acquire) {
@@ -9013,6 +9048,46 @@ mod unix {
                 0,
                 "parser shutdown must discard reservations owned by the failed worker"
             );
+        }
+
+        fn poison_mutex<T>(mutex: &Mutex<T>) {
+            let _ = std::thread::scope(|scope| {
+                scope
+                    .spawn(|| {
+                        let _guard = mutex.lock().unwrap();
+                        panic!("poison test lock");
+                    })
+                    .join()
+            });
+        }
+
+        #[test]
+        fn parser_failure_cleanup_recovers_poisoned_shutdown_locks() {
+            let host = test_host_shared();
+            host.launch_owner_stream_ready.store(false, Ordering::Release);
+            poison_mutex(&host.launch_owner_stream_gate.0);
+            poison_mutex(&host.pty_drain_waker);
+            poison_mutex(&host.child_signal_lock);
+            poison_mutex(&host.child_exit.0);
+
+            let waiter_host = host.clone();
+            let waiter = thread::spawn(move || waiter_host.wait_for_launch_owner_stream_ready());
+            host.parser_failed();
+            waiter.join().unwrap();
+
+            let state = host.child_exit.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let (_state, _) = host
+                .child_exit
+                .1
+                .wait_timeout_while(state, Duration::from_secs(1), |_| {
+                    !host.group_escalation_complete.load(Ordering::Acquire)
+                })
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            assert!(host.dead.load(Ordering::Acquire));
+            assert!(host.force_pty_drain.load(Ordering::Acquire));
+            assert!(host.termination_started.load(Ordering::Acquire));
+            assert!(host.group_escalation_complete.load(Ordering::Acquire));
         }
 
         #[test]
