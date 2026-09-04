@@ -133,6 +133,16 @@ def test_valgrind_build_selects_only_startup_cargo_targets() -> None:
 def test_valgrind_runner_keeps_binary_and_test_safety_guards() -> None:
     job = workflow_job(workflow("cmux-tui.yml"), "valgrind-leak-check-shard")
 
+    assert "matrix.shard" not in job
+    assert "VALGRIND_SHARD: startup" in job
+    assert "name: Verify baseline terminal replay behavior" in job
+    baseline_step = job.split(
+        "      - name: Verify baseline terminal replay behavior", 1
+    )[1].split("      - name: Run test binaries under valgrind", 1)[0]
+    assert "if: matrix.shard == 'startup'" not in baseline_step
+    assert "pending_wrap_replay_preserves_cursor_with_origin_mode: test" in job
+    assert '"$bin" pending_wrap_replay_preserves_cursor_with_origin_mode \\\n' in job
+    assert job.count("pending_wrap_replay_preserves_cursor_with_origin_mode") == 4
     assert 're.fullmatch(r"(?:cmux_tui|terminal)-[0-9a-f]+", name)' in job
     assert 'if not seen:\n              raise SystemExit("cargo did not report any test binaries")' in job
     assert 'if not selected:\n              raise SystemExit(f"Valgrind shard {shard} selected no test binaries")' in job

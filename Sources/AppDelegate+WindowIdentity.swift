@@ -19,7 +19,7 @@ extension AppDelegate {
     }
 
     func windowForMainWindowId(_ windowId: UUID) -> NSWindow? {
-        if let context = mainWindowContexts.values.first(where: { $0.windowId == windowId }) {
+        if let context = mainWindowLifecycleCoordinator.registeredContext(windowId: windowId) {
             guard let window = context.window,
                   !hasCommittedMainWindowClose(window) else {
                 return nil
@@ -46,8 +46,9 @@ extension AppDelegate {
 
     func availableWindowIdForNewMainWindow(preferredWindowId: UUID?) -> UUID? {
         guard let preferredWindowId else { return nil }
-        guard !mainWindowContexts.values.contains(where: { $0.windowId == preferredWindowId }) else { return nil }
-        guard recoverableMainWindowRoute(windowId: preferredWindowId) == nil else { return nil }
+        guard !mainWindowLifecycleCoordinator.contains(windowId: preferredWindowId) else {
+            return nil
+        }
         return preferredWindowId
     }
 

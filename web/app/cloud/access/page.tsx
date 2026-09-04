@@ -40,11 +40,12 @@ export default async function CloudPublicationAccessPage({
   if (demo) {
     return (
       <PublicationAccessCard
-        hostname="preview.example.com"
+        hostname="prickly-lavender-minnow.cmux.sh"
         identity={demo === "signed-in" ? "viewer@example.com" : null}
         locale={localized.locale}
         messages={localized.messages}
         signInHref="#"
+        switchAccountHref="#"
         view={demo}
       />
     );
@@ -109,9 +110,23 @@ export default async function CloudPublicationAccessPage({
       identity={resolution.user.identity}
       locale={localized.locale}
       messages={localized.messages}
+      switchAccountHref={publicationSwitchAccountHref(transaction, state)}
       view="signed-in"
     />
   );
+}
+
+/**
+ * Sign out, then straight into sign-in, and back to this same transaction.
+ * The sign-out route only honours this exact same-origin shape.
+ */
+function publicationSwitchAccountHref(transaction: string, state: string): string {
+  const switchAccount = new URL("/handler/sign-out-and-sign-in", "https://cmux.com");
+  switchAccount.searchParams.set(
+    "after_auth_return_to",
+    publicationSignInHref(transaction, state),
+  );
+  return `${switchAccount.pathname}${switchAccount.search}`;
 }
 
 function publicationSignInHref(transaction: string, state: string): string {

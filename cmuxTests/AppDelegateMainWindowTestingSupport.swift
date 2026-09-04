@@ -121,8 +121,9 @@ final class HeadlessMainWindowInterceptor: NSObject {
 /// Test-only main-window context seams, kept in the test target per the
 /// debug-seam policy and reaching internal AppDelegate state via
 /// `@testable import`. Tests register a windowless context and tear it down
-/// through the recoverable removal path used while SwiftUI replaces a context.
-/// Tests that model an authoritative close also forget the resulting route.
+/// through the same recoverable path used while SwiftUI replaces a context.
+/// Tests that model an authoritative close explicitly forget the resulting
+/// route after they finish exercising its recovery behavior.
 extension AppDelegate {
     @discardableResult
     func registerMainWindowContextForTesting(
@@ -132,7 +133,7 @@ extension AppDelegate {
         fileExplorerState: FileExplorerState? = nil
     ) -> UUID {
         tabManager.windowId = windowId
-        mainWindowContexts[ObjectIdentifier(tabManager)] = MainWindowContext(
+        let context = MainWindowContext(
             windowId: windowId,
             tabManager: tabManager,
             sidebarState: SidebarState(),
@@ -142,6 +143,10 @@ extension AppDelegate {
             window: nil,
             workspaceTerminalFontSizeArbiter:
                 workspaceTerminalFontSizeArbiter
+        )
+        mainWindowLifecycleCoordinator.register(
+            context,
+            lookupKey: ObjectIdentifier(tabManager)
         )
         // Context-based tests exercise observer pipelines without a live phone
         // subscriber; force presence on so the graph attaches (pre-gate
@@ -166,7 +171,17 @@ extension AppDelegate {
         let previousActiveBelongsToRemovedWindow = previousActive.map { active in
             mainWindowContexts.values.contains { $0.windowId == windowId && $0.tabManager === active }
         } ?? false
-        mainWindowContexts.values.filter { $0.windowId == windowId }.forEach { discardOrphanedMainWindowContext($0, allowWindowlessFallback: true) }
+        let contexts = mainWindowContexts.values.filter { $0.windowId == windowId }
+        guard !contexts.isEmpty else {
+            forgetRecoverableMainWindowRoute(windowId: windowId)
+            if !previousActiveBelongsToRemovedWindow {
+                TerminalController.shared.setActiveTabManager(previousActive)
+            }
+            return
+        }
+        contexts.forEach {
+            discardOrphanedMainWindowContext($0, allowWindowlessFallback: true)
+        }
         if !previousActiveBelongsToRemovedWindow {
             TerminalController.shared.setActiveTabManager(previousActive)
         }

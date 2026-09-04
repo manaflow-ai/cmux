@@ -22,12 +22,20 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
+import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
   CMUX_TUI_SESSION,
   resolveCmuxTuiSource,
 } from "../services/vms/drivers/cmuxTuiDaemon";
-import { DEVBOX_DESKTOP_INSTALLS, DEVBOX_INSTANCE_ID_COMMAND, devboxAgentPins, devboxDir, sha256File } from "./devbox-image-common";
+import {
+  DEVBOX_DESKTOP_INSTALLS,
+  DEVBOX_INSTANCE_ID_COMMAND,
+  devboxAgentPins,
+  devboxDir,
+  devboxTerminfoCheckCommand,
+  sha256File,
+} from "./devbox-image-common";
 import {
   DEVBOX_DESKTOP_DISPLAY,
   DEVBOX_DESKTOP_ENV_FILE,
@@ -89,7 +97,7 @@ const CHECKS: readonly string[] = [
   // header: the edge injects it) and persists every var 0600; the
   // unreachable config endpoint writes no opencode config; the image ships
   // no pre-generated config for root.
-  "rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = \"cmux\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = \"responses\"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q \"export OPENAI_API_KEY='cmux-vm-edge-placeholder'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q \"export CMUX_VM_ID='vm-check'\" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ \"$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)\" = \"600\" ] && grep -qF '\"apiKey\": \"e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && test ! -e /root/.codex/config.toml && test ! -e /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok",
+  `rm -rf /tmp/cmux-agent-config-verify && env HOME=/tmp/cmux-agent-config-verify OPENAI_BASE_URL=https://example.invalid/v1 OPENAI_API_KEY=cmux-vm-edge-placeholder CMUX_CODEROUTER_URL=https://example.invalid ANTHROPIC_BASE_URL=https://example.invalid ANTHROPIC_API_KEY=cmux-vm-edge-placeholder CMUX_VM_ID=vm-check bash -lc 'true' && grep -q 'model_provider = "cmux"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q 'wire_api = "responses"' /tmp/cmux-agent-config-verify/.codex/config.toml && grep -q "export OPENAI_API_KEY='cmux-vm-edge-placeholder'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && grep -q "export CMUX_VM_ID='vm-check'" /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env && [ "$(stat -c %a /tmp/cmux-agent-config-verify/.config/cmux/model-plane.env)" = "600" ] && grep -qF '"apiKey": "e30.' /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q x-coderouter-route-token /tmp/cmux-agent-config-verify/.pi/agent/models.json && ! grep -q crt_ /tmp/cmux-agent-config-verify/.pi/agent/models.json && test ! -e /tmp/cmux-agent-config-verify/.config/opencode/opencode.json && rm -rf /tmp/cmux-agent-config-verify && grep -q 'base_url = "https://' /root/.codex/config.toml && grep -qF "${DEFAULT_VM_EDGE_ALIAS_DOMAIN}/v1" /root/.codex/config.toml && ! grep -q crt_ /root/.codex/config.toml && ! grep -q crt_ /root/.pi/agent/models.json && test ! -e /root/.config/opencode/opencode.json && echo agent-config-ok`,
   "grep -q cleanupPeriodDays /etc/claude-code/managed-settings.json && echo claude-retention-ok",
   "whoami; nproc; free -m | sed -n 2p; df -h / | tail -1",
 ];
@@ -112,7 +120,8 @@ const DAEMON_CHECKS: readonly string[] = [
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
   `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
-  "test -d /root/.config/cmux && echo model-plane-env-dir-baked",
+  // The static model-plane env is baked; a shell with no boot env sources it.
+  `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
 ];
 
@@ -188,6 +197,10 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   // would itself leave root-owned state dirs behind.
   ...pins.map((pin) => `sudo -n -u ubuntu env -i HOME=/home/ubuntu USER=ubuntu TERM=xterm PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin ${pin.binary} --version | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-nonlogin-pin-ok`),
   "systemctl show cmux-tui-daemon -p Environment | grep -q 'PATH=/usr/local/sbin:/usr/local/bin:' && echo daemon-env-path-ok",
+  devboxTerminfoCheckCommand,
+  "sudo -n -u ubuntu env -i HOME=/home/ubuntu TERM=xterm-256color PATH=/usr/bin:/bin sh -c 'tput setaf 8 | od -An -tx1 | tr -d \" \\n\"' | grep -qx 1b5b33383b353b386d && echo ubuntu-terminfo-ok",
+  "grep -qx 'unset TERMINFO' /etc/profile.d/cmux-terminfo.sh && grep -qx 'export TERMINFO_DIRS=/etc/terminfo:' /etc/profile.d/cmux-terminfo.sh && echo terminfo-search-path-ok",
+  "shadow=$(mktemp -d) && mkdir -p \"$shadow/.terminfo\" && tic -x -o \"$shadow/.terminfo\" /etc/cmux/terminfo.src && sudo -n -u ubuntu env -i HOME=\"$shadow\" USER=ubuntu TERM=xterm-256color PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin bash -lc 'test -z \"$TERMINFO\" && test \"$TERMINFO_DIRS\" = /etc/terminfo: && test \"$(tput setaf 8 | od -An -tx1 | tr -d \" \\n\")\" = 1b5b33383b353b386d && infocmp -x xterm-256color | head -1 | grep -q /etc/terminfo/ && tput -T screen-256color colors | grep -qx 256' && rm -rf \"$shadow\" && echo terminfo-shadow-resistant",
   "docker --version && sudo -n -u ubuntu docker ps >/dev/null && echo docker-ok",
   // Home hygiene: nothing root-owned in the work user's home, ble.sh's
   // fallback state dir writable, the legal-notice marker present, and two

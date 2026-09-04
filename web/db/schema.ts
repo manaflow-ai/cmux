@@ -61,6 +61,11 @@ export const cloudVms = pgTable(
     // User-chosen label shown in machine lists. The provider VM id stays the
     // machine's address (URLs, CLI verbs); this is display-only.
     displayName: text("display_name"),
+    // Generated three-word name (`sleepy-teal-otter`, services/vms/vmNaming.ts).
+    // Assigned once at create, never renamed, unique among the owner's live
+    // machines. The provider VM id remains the machine address. Rows created
+    // before the column existed have none and show the provider id instead.
+    slug: text("slug"),
     imageId: text("image_id").notNull(),
     imageVersion: text("image_version"),
     status: vmStatus("status").notNull().default("provisioning"),
@@ -81,6 +86,10 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_provider_vm_id_unique")
       .on(table.provider, table.providerVmId)
       .where(sql`${table.providerVmId} is not null`),
+    // Live rows only: a destroyed or failed machine releases its name.
+    uniqueIndex("cloud_vms_billing_team_slug_live_unique")
+      .on(table.billingTeamId, table.slug)
+      .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
   ],
 );
 
@@ -685,6 +694,33 @@ export const cloudVmPublicationSessions = pgTable(
       "cloud_vm_pub_sessions_expiry_check",
       sql`${table.expiresAt} > ${table.createdAt}`,
     ),
+  ],
+);
+
+/**
+ * A short-lived cross-instance lease for provider-side tunnel enrollment.
+ *
+ * Freestyle tunnel creation is keyed by a deterministic slug, but the provider
+ * call and the control-plane insert are separate operations. This lease makes
+ * that boundary single-owner across Vercel instances, while expiry recovers a
+ * request whose process died before it could release the lease.
+ */
+export const cloudVmTunnelEnrollmentLocks = pgTable(
+  "cloud_vm_tunnel_enrollment_locks",
+  {
+    userId: text("user_id").notNull(),
+    deviceFingerprint: text("device_fingerprint").notNull(),
+    ownerToken: text("owner_token").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "cloud_vm_tunnel_enrollment_locks_pkey",
+      columns: [table.userId, table.deviceFingerprint],
+    }),
+    index("cloud_vm_tunnel_enrollment_locks_expiry_idx").on(table.expiresAt),
   ],
 );
 
@@ -1865,3 +1901,9 @@ export const stackIdentitySnapshots = pgTable(
     index("stack_identity_snapshots_refreshed_idx").on(table.refreshedAt),
   ],
 );
+
+/** Fleet-wide dedupe ledger for operator alerts on missing rate limits. */
+export const rateLimitAlertReports = pgTable("rate_limit_alert_reports", {
+  alertKey: text("alert_key").primaryKey(),
+  reportedAt: timestamp("reported_at", { withTimezone: true }).notNull().defaultNow(),
+});

@@ -9,7 +9,7 @@ import {
   type Span,
 } from "@opentelemetry/api";
 
-import { isVmPriorityPath } from "./observability/sampler";
+import { isPriorityPath } from "./observability/sampler";
 
 /**
  * Response headers that hand the caller its Axiom lookup keys. A user who
@@ -21,6 +21,10 @@ export const SPAN_ID_RESPONSE_HEADER = "x-cmux-span-id";
 type AttributeValue = string | number | boolean;
 export type MaybeAttributes = Record<string, AttributeValue | null | undefined>;
 export type SpanCallback<T> = (span: Span) => T | Promise<T>;
+export type ApiRouteSpanOptions = {
+  /** Override the path-based priority decision for high-volume endpoints. */
+  readonly priority?: boolean;
+};
 
 export async function withSpan<T>(
   tracerName: string,
@@ -49,20 +53,51 @@ export async function withSpan<T>(
   );
 }
 
+/**
+ * Keep a small, explicitly named operation even when its surrounding request
+ * was dropped by head sampling. The parent remains linked for correlation,
+ * while the operation becomes the root of a sampled trace.
+ */
+export async function withPrioritySpan<T>(
+  tracerName: string,
+  name: string,
+  attributes: MaybeAttributes,
+  fn: SpanCallback<T>,
+): Promise<T> {
+  const parent = trace.getSpanContext(otelContext.active());
+  const reRoot =
+    parent !== undefined &&
+    trace.isSpanContextValid(parent) &&
+    (parent.traceFlags & TraceFlags.SAMPLED) === 0;
+  const links = reRoot ? [{ context: parent }] : undefined;
+  return withSpan(
+    tracerName,
+    name,
+    { ...attributes, "cmux.priority": true },
+    fn,
+    {
+      context: reRoot ? trace.deleteSpan(otelContext.active()) : undefined,
+      links,
+    },
+  );
+}
+
 export async function withApiRouteSpan<T extends Response>(
   request: Request,
   route: string,
   attributes: MaybeAttributes,
   fn: SpanCallback<T>,
+  options: ApiRouteSpanOptions = {},
 ): Promise<T> {
   const path = requestPath(request);
-  // Cloud VM API spans must survive head sampling even when the surrounding
-  // Next.js request trace was dropped: re-root them into their own trace
-  // (linked back to the dropped one) so the priority sampler sees the
-  // vm-cloud attributes on a root span and keeps the whole VM subtree.
+  // Cloud VM and coderouter API spans must survive head sampling even when
+  // the surrounding Next.js request trace was dropped: re-root them into
+  // their own trace (linked back to the dropped one) so the priority sampler
+  // sees the subsystem attributes on a root span and keeps the whole subtree.
   const parent = trace.getSpanContext(otelContext.active());
+  const priority = options.priority ?? isPriorityPath(route);
   const reRoot =
-    isVmPriorityPath(route) &&
+    priority &&
     parent !== undefined &&
     (parent.traceFlags & TraceFlags.SAMPLED) === 0;
   const links = reRoot && trace.isSpanContextValid(parent) ? [{ context: parent }] : undefined;
@@ -76,6 +111,7 @@ export async function withApiRouteSpan<T extends Response>(
       "http.route": route,
       "url.path": path,
       ...attributes,
+      ...(options.priority === undefined ? {} : { "cmux.priority": options.priority }),
     },
     async (span) => {
       const response = await fn(span);
@@ -98,11 +134,18 @@ export function setSpanAttributes(span: Span, attributes: MaybeAttributes): void
 
 export function recordSpanError(span: Span, err: unknown): void {
   if (err instanceof Error) {
-    span.recordException(err);
-    span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+    const name = scrubText(err.name).slice(0, 80);
+    const message = scrubText(err.message).slice(0, ERROR_CAUSE_MESSAGE_MAX);
+    const stack = err.stack ? scrubText(err.stack).slice(0, 4_000) : undefined;
+    span.recordException({
+      name,
+      message,
+      ...(stack ? { stack } : {}),
+    });
+    span.setStatus({ code: SpanStatusCode.ERROR, message });
     span.setAttributes({
-      "cmux.error_name": err.name,
-      "cmux.error_message": scrubText(err.message),
+      "cmux.error_name": name,
+      "cmux.error_message": message,
     });
     const causes = summarizeErrorCauses(err);
     if (causes) {
@@ -115,7 +158,7 @@ export function recordSpanError(span: Span, err: unknown): void {
     }
     return;
   }
-  const message = String(err);
+  const message = scrubText(String(err)).slice(0, ERROR_CAUSE_MESSAGE_MAX);
   span.recordException(message);
   span.setStatus({ code: SpanStatusCode.ERROR, message });
   span.setAttributes({
@@ -229,7 +272,9 @@ export function summarizeErrorCauses(err: unknown): ErrorCauseSummary | undefine
       body?: { code?: unknown };
       cause?: unknown;
     };
-    const name = typeof record.name === "string" ? record.name : typeof current;
+    const name = scrubText(
+      typeof record.name === "string" ? record.name : typeof current,
+    ).slice(0, 80);
     const message = typeof record.message === "string" ? record.message : String(current);
     parts.push(`${name}: ${scrubText(message).slice(0, ERROR_CAUSE_MESSAGE_MAX)}`);
     const status = [record.status, record.statusCode, record.response?.status].find(
@@ -239,7 +284,9 @@ export function summarizeErrorCauses(err: unknown): ErrorCauseSummary | undefine
     const causeCode = [record.body?.code, record.code].find(
       (value) => typeof value === "string" && value.length > 0,
     );
-    if (code === undefined && typeof causeCode === "string") code = causeCode.slice(0, 80);
+    if (code === undefined && typeof causeCode === "string") {
+      code = scrubText(causeCode).slice(0, 80);
+    }
     current = record.cause;
   }
   if (depth === 0) return undefined;

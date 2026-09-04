@@ -166,6 +166,21 @@ const stackEnv = (
   if (trimmed) return trimmed;
   return allowPreviewStackPlaceholders ? fallback : undefined;
 };
+const positiveSafeIntegerEnv = (name: string) =>
+  z.string()
+    .regex(/^\d+$/)
+    .refine((value) => {
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed > 0;
+    }, { message: `${name} must be a positive safe integer` });
+const coderouterHeadersTimeoutEnv = z.string()
+  .regex(/^\d+$/)
+  .refine((value) => {
+    const parsed = Number(value);
+    return Number.isSafeInteger(parsed) && parsed >= 1_000 && parsed <= 30 * 60_000;
+  }, {
+    message: "CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS must be between 1000 and 1800000",
+  });
 
 export const env = createEnv({
   server: {
@@ -282,8 +297,17 @@ export const env = createEnv({
     // allow-list gate: team membership is the only access requirement.
     CRON_SECRET: z.string().min(1).optional(),
     CMUX_ALERTS_SLACK_WEBHOOK_URL: z.string().url().optional(),
+    // Preserve the legacy VM alert range. The VM consumers already apply
+    // their compatibility fallback for zero and unsafe values.
     CMUX_VM_ALERT_CREATE_FAILURES_15M: z.string().regex(/^\d+$/).optional(),
     CMUX_VM_ALERT_EXPIRED_LEASES: z.string().regex(/^\d+$/).optional(),
+    // Coderouter alert thresholds (per five-minute window) and the bound on
+    // time-to-headers for upstream model calls. Defaults live next to the code.
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M").optional(),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M").optional(),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: positiveSafeIntegerEnv("CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M").optional(),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: coderouterHeadersTimeoutEnv.optional(),
     // Slack Incoming Webhook for the #website-waitlist channel. Optional: the
     // /api/waitlist route silently skips the Slack ping when it is unset.
     SLACK_WAITLIST_WEBHOOK_URL: z.string().url().optional(),
@@ -458,6 +482,11 @@ export const env = createEnv({
     CMUX_ALERTS_SLACK_WEBHOOK_URL: trimEnv(process.env.CMUX_ALERTS_SLACK_WEBHOOK_URL),
     CMUX_VM_ALERT_CREATE_FAILURES_15M: trimEnv(process.env.CMUX_VM_ALERT_CREATE_FAILURES_15M),
     CMUX_VM_ALERT_EXPIRED_LEASES: trimEnv(process.env.CMUX_VM_ALERT_EXPIRED_LEASES),
+    CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_OPERATOR_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_UPSTREAM_FAILURES_5M),
+    CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_NO_ACCOUNT_5M),
+    CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M: trimEnv(process.env.CMUX_CODEROUTER_ALERT_AUTH_REJECTED_5M),
+    CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS: trimEnv(process.env.CODEROUTER_UPSTREAM_HEADERS_TIMEOUT_MS),
     SLACK_WAITLIST_WEBHOOK_URL: trimEnv(process.env.SLACK_WAITLIST_WEBHOOK_URL),
     SLACK_ENTERPRISE_WEBHOOK_URL: trimEnv(process.env.SLACK_ENTERPRISE_WEBHOOK_URL),
     SLACK_SUPPORT_WEBHOOK_URL: trimEnv(process.env.SLACK_SUPPORT_WEBHOOK_URL),

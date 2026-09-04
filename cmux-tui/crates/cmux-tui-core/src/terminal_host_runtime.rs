@@ -175,7 +175,7 @@ impl std::fmt::Debug for TerminalHostRecord {
 
 impl TerminalHostRecord {
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.json", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.json", self.terminal_id)))
     }
 }
 
@@ -204,7 +204,7 @@ impl TerminalHostExitRecord {
     }
 
     pub fn record_path(&self, root: &Path) -> PathBuf {
-        root.join(format!("{}.exit", self.terminal_id))
+        crate::platform::normalize_filesystem_path(root.join(format!("{}.exit", self.terminal_id)))
     }
 }
 
@@ -1780,7 +1780,9 @@ mod unix {
     }
 
     pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-        state_root.join(format!("terminal-hosts-{}", stable_token(session)))
+        crate::platform::normalize_filesystem_path(
+            state_root.join(format!("terminal-hosts-{}", stable_token(session))),
+        )
     }
 
     /// Strip every descriptor except the private bootstrap stdio before the
@@ -1870,7 +1872,8 @@ mod unix {
         let endpoint_root = PathBuf::from("/tmp").join(format!("cmux-th-{uid}"));
         prepare_private_dir(&endpoint_root)?;
         let endpoint = endpoint_root.join(format!("{terminal_hex}.sock"));
-        let record_path = root.join(format!("{terminal_hex}.json"));
+        let record_path =
+            crate::platform::normalize_filesystem_path(root.join(format!("{terminal_hex}.json")));
         if record_path.exists() || endpoint.exists() {
             anyhow::bail!("terminal host identity already exists");
         }
@@ -3444,8 +3447,31 @@ mod unix {
         frames
     }
 
-    fn snapshot_cwd(term: &Terminal, spawn_cwd: Option<&str>) -> Option<String> {
-        term.pwd().or_else(|| spawn_cwd.map(str::to_owned))
+    /// Persist a local spawn path with host-authenticated provenance. A host
+    /// can outlive its daemon, so a raw OSC 7 URL here would become the next
+    /// surface's inherited spawn directory after reattachment.
+    fn snapshot_cwd(
+        term: &Terminal,
+        spawn_cwd: Option<&str>,
+        owner_token: &CapabilityToken,
+        protocol_version: u16,
+    ) -> Option<String> {
+        // OSC 7 is terminal-controlled metadata and cannot prove that a path
+        // belongs to this host. Use only the authenticated spawn fallback.
+        let _ = term;
+        let path = spawn_cwd.and_then(crate::platform::spawn_cwd_to_local_path)?;
+        // Only the negotiated current protocol understands authenticated
+        // provenance markers. Treat legacy and unknown values as legacy wire
+        // format so peers never receive a marker they cannot decode.
+        if protocol_version != PROTOCOL_VERSION {
+            return Some(path.to_string_lossy().into_owned());
+        }
+        Some(format!(
+            "{}{}:{}",
+            crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+            encode_hex(owner_token.as_bytes()),
+            path.to_string_lossy()
+        ))
     }
 
     impl HostShared {
@@ -4660,7 +4686,7 @@ mod unix {
     }
 
     fn terminal_host_publication_lock_path(root: &Path) -> PathBuf {
-        root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE)
+        crate::platform::normalize_filesystem_path(root.join(TERMINAL_HOST_PUBLICATION_LOCK_FILE))
     }
 
     fn validate_terminal_host_publication_lock(
@@ -5447,7 +5473,12 @@ mod unix {
                     colors: colors.clone(),
                     pid: host.pid,
                     command: host.command.clone(),
-                    cwd: snapshot_cwd(&term, host.cwd.as_deref()),
+                    cwd: snapshot_cwd(
+                        &term,
+                        host.cwd.as_deref(),
+                        &host.owner_token,
+                        selected_version,
+                    ),
                 },
                 colors,
                 snapshot_sequence,
@@ -9243,13 +9274,48 @@ mod unix {
         #[test]
         fn late_snapshot_prefers_current_terminal_pwd_then_spawn_fallback() {
             let mut term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            let marker = format!(
+                "{}{}:/spawn",
+                crate::platform::SNAPSHOT_SPAWN_CWD_PREFIX,
+                encode_hex(owner_token.as_bytes())
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;file:///live\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("file:///live".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker.clone())
+            );
 
             term.vt_write(b"\x1b]7;\x1b\\");
-            assert_eq!(snapshot_cwd(&term, Some("/spawn")), Some("/spawn".into()));
+            assert_eq!(
+                snapshot_cwd(&term, Some("/spawn"), &owner_token, PROTOCOL_VERSION),
+                Some(marker)
+            );
+            assert_eq!(
+                snapshot_cwd(&term, Some("file:///spawn"), &owner_token, PROTOCOL_VERSION),
+                None
+            );
+        }
+
+        #[test]
+        fn snapshot_cwd_uses_legacy_path_for_old_and_unknown_protocols() {
+            let term = Terminal::new(80, 24, 0, Callbacks::default()).unwrap();
+            let owner_token =
+                CapabilityToken::from_bytes([7; crate::terminal_host::CAPABILITY_TOKEN_LEN]);
+            for protocol_version in [LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION + 1] {
+                let snapshot = snapshot_cwd(&term, Some("/spawn"), &owner_token, protocol_version);
+                assert_eq!(snapshot, Some("/spawn".into()));
+                assert_eq!(
+                    crate::platform::snapshot_cwd_to_local_path(snapshot.as_deref().unwrap(), None),
+                    Some(PathBuf::from("/spawn"))
+                );
+            }
         }
 
         #[test]
@@ -9324,7 +9390,7 @@ pub(crate) use unix::{
 
 #[cfg(not(unix))]
 pub fn terminal_host_root(state_root: &Path, session: &str) -> PathBuf {
-    state_root.join(format!("{session}.terminal-hosts"))
+    crate::platform::normalize_filesystem_path(state_root.join(format!("{session}.terminal-hosts")))
 }
 
 #[cfg(not(unix))]
