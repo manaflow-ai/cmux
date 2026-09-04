@@ -239,7 +239,10 @@ function privateAccessRepo(repo: VmRepositoryShape): PrivateAccessRepo | null {
   };
 }
 
-const ACCESS_GRANT_MUTATION_LEASE_MS = 60_000;
+// One mutation can read and then rotate or replace a peer. Each Freestyle API
+// call has a 60-second deadline, so the fence must cover two serial calls plus
+// database work. A crashed request becomes retryable after this bound.
+const ACCESS_GRANT_MUTATION_LEASE_MS = 3 * 60_000;
 
 /**
  * Serializes provider peer mutations for one physical Mac across serverless
