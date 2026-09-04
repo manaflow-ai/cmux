@@ -42,18 +42,20 @@ or permissions are not a reason to begin setup automatically.
   `/tmp/cmux-cua-<uid>/<scope>/cmux-cua.sock`; the Codex compatibility daemon uses
   `cmux-cua-codex.sock` beside it. Both fit Darwin's Unix-socket path limit and share
   the tag-scoped cmux Application Support state directory.
-- The wrappers use a session-scoped skill by default: Codex receives a
-  path-scoped `skills.config` entry and Claude receives a single-token
-  `--add-dir=<path>` projection. Starting an agent therefore does not create
-  or repair a user-global picker link. Set
+- The wrappers keep launches session-safe by default: Claude receives a
+  single-token `--add-dir=<path>` projection. Codex CLI consumes
+  `skills.config` only as enable/disable rules and does not discover a new
+  session path, so Codex has no picker row until durable installation is
+  explicitly requested. Starting an agent therefore does not create or repair
+  a user-global picker link. Set
   `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` only when a durable global entry is
   desired; it links the app-bundled document into the provider's own root
   (`~/.agents/skills/cmux-cua` for Codex or `~/.claude/skills/cmux-cua` for
   Claude). Launch-time migration removes or retargets only links proven to be
   cmux-managed, including the legacy `cmux-computer-use` and `codex-cua`
   aliases. User-owned directories, unrelated symlinks, and project skills are
-  preserved. A project or user-owned same-name skill keeps precedence, and the
-  session fallback is suppressed when it would add a duplicate picker row;
+  preserved. A project or user-owned same-name skill keeps precedence, and
+  Claude's session fallback is suppressed when it would add a duplicate picker row;
   project mirrors that resolve to the bundled document remain one canonical
   identity. There is deliberately no plugin fallback or plugin manifest in
   this directory, because a manifest namespaces Codex's skill
