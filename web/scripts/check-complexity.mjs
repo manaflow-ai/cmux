@@ -1,14 +1,18 @@
 #!/usr/bin/env bun
 
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import * as ts from "typescript";
 
 const COMPLEXITY_CODE = "eslint(complexity)";
 const COMPLEXITY_LIMIT = 20;
 const COMPLEXITY_VARIANT = "classic";
 const BASELINE_FILE = "web/oxlint-complexity-baseline.txt";
 const SOURCE_EXTENSIONS = /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/;
+const FINGERPRINT_LENGTH = 64;
+const FINGERPRINT_PATTERN = new RegExp(`^[0-9a-f]{${FINGERPRINT_LENGTH}}$`);
 const EXCLUDED_PREFIXES = [
   ".next/",
   "coverage/",
@@ -108,13 +112,116 @@ function sourceFiles(repoRoot, explicitFiles) {
     .sort();
 }
 
+function scriptKindFor(filename) {
+  if (/\.tsx?$/.test(filename)) return ts.ScriptKind.TSX;
+  if (/\.jsx?$/.test(filename)) return ts.ScriptKind.JSX;
+  return ts.ScriptKind.JS;
+}
+
+function normalizedSyntax(text) {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function byteOffsetToCharacterOffset(source, byteOffset) {
+  if (!Number.isInteger(byteOffset) || byteOffset < 0) return -1;
+  let low = 0;
+  let high = source.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (Buffer.byteLength(source.slice(0, middle), "utf8") < byteOffset) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
+function containsNode(parent, child) {
+  return child.pos >= parent.pos && child.end <= parent.end;
+}
+
+function nodeName(node, sourceFile) {
+  return node.name ? normalizedSyntax(node.name.getText(sourceFile)) : "";
+}
+
+function functionHeader(node, sourceFile) {
+  const bodyStart = node.body?.getStart(sourceFile) ?? node.end;
+  return normalizedSyntax(sourceFile.text.slice(node.getStart(sourceFile), bodyStart));
+}
+
+function functionNodeAt(sourceFile, characterOffset) {
+  let match;
+  function visit(node) {
+    if (
+      ts.isFunctionLike(node) &&
+      node.body &&
+      characterOffset >= node.getStart(sourceFile) &&
+      characterOffset < node.end &&
+      (!match || node.end - node.getStart(sourceFile) < match.end - match.getStart(sourceFile))
+    ) {
+      match = node;
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return match;
+}
+
+function functionIdentity(sourceFile, node) {
+  const parts = [`self:${nodeName(node, sourceFile) || "anonymous"}`, `header:${functionHeader(node, sourceFile)}`];
+  let child = node;
+  for (let parent = node.parent; parent && !ts.isSourceFile(parent); parent = parent.parent) {
+    if (ts.isCallExpression(parent)) {
+      const argumentIndex = parent.arguments.findIndex((argument) => containsNode(argument, child));
+      parts.push(`call:${normalizedSyntax(parent.expression.getText(sourceFile))}#${argumentIndex}`);
+    } else if (ts.isVariableDeclaration(parent) && parent.initializer && containsNode(parent.initializer, child)) {
+      parts.push(`var:${nodeName(parent, sourceFile)}`);
+    } else if (
+      (ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent)) &&
+      parent.initializer &&
+      containsNode(parent.initializer, child)
+    ) {
+      parts.push(`prop:${nodeName(parent, sourceFile)}`);
+    } else if (ts.isClassDeclaration(parent) && parent.name) {
+      parts.push(`class:${nodeName(parent, sourceFile)}`);
+    } else if (ts.isFunctionLike(parent)) {
+      parts.push(`parent:${nodeName(parent, sourceFile) || functionHeader(parent, sourceFile)}`);
+    } else if (ts.isPropertyAccessExpression(parent)) {
+      parts.push(`access:${normalizedSyntax(parent.name.getText(sourceFile))}`);
+    } else if (ts.isElementAccessExpression(parent) && parent.argumentExpression) {
+      parts.push(`element:${normalizedSyntax(parent.argumentExpression.getText(sourceFile))}`);
+    }
+    child = parent;
+  }
+  return parts.reverse().join("/");
+}
+
+const sourceFileCache = new Map();
+
+function sourceFileFor(repoRoot, filename) {
+  const cached = sourceFileCache.get(filename);
+  if (cached) return cached;
+  const source = readFileSync(path.join(repoRoot, "web", filename), "utf8");
+  const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true, scriptKindFor(filename));
+  sourceFileCache.set(filename, sourceFile);
+  return sourceFile;
+}
+
+function diagnosticFingerprint(repoRoot, diagnostic) {
+  const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
+  const sourceFile = sourceFileFor(repoRoot, filename);
+  const spanOffset = diagnostic.labels?.[0]?.span?.offset;
+  const characterOffset = byteOffsetToCharacterOffset(sourceFile.text, spanOffset);
+  const node = functionNodeAt(sourceFile, characterOffset);
+  if (!node) fail(`could not identify the function for ${filename} at byte offset ${spanOffset}`);
+  return createHash("sha256").update(functionIdentity(sourceFile, node)).digest("hex");
+}
+
 function baselineEntries(text) {
   const entries = new Map();
   for (const line of text.split("\n").map((line) => line.trimEnd())) {
     if (!line || line.startsWith("#")) continue;
     const fields = line.split("\t");
-    if (fields.length < 3 || !fields[0] || !/^\d+$/.test(fields[1])) {
-      fail(`invalid baseline entry (expected path, numeric offset, message): ${line}`);
+    if (fields.length < 3 || !fields[0] || !FINGERPRINT_PATTERN.test(fields[1])) {
+      fail(`invalid baseline entry (expected path, fingerprint, message): ${line}`);
     }
     const key = `${fields[0]}\t${fields[1]}\t${fields.slice(2).join("\t")}`;
     entries.set(key, (entries.get(key) ?? 0) + 1);
@@ -204,11 +311,9 @@ function runOxlint(repoRoot, files) {
   };
 }
 
-function diagnosticKey(diagnostic) {
+function diagnosticKey(repoRoot, diagnostic) {
   const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
-  const offset = diagnostic.labels?.[0]?.span?.offset;
-  const location = Number.isInteger(offset) ? offset : "unknown";
-  return `${filename}\t${location}\t${String(diagnostic.message ?? "")}`;
+  return `${filename}\t${diagnosticFingerprint(repoRoot, diagnostic)}\t${String(diagnostic.message ?? "")}`;
 }
 
 const { base, head, files: explicitFiles } = parseArgs();
@@ -238,7 +343,7 @@ if (unexpected.length > 0 || (status !== 0 && diagnostics.length === 0)) {
 const matchedCounts = new Map();
 const newFindings = [];
 for (const diagnostic of diagnostics) {
-  const key = diagnosticKey(diagnostic);
+  const key = diagnosticKey(repoRoot, diagnostic);
   const matched = matchedCounts.get(key) ?? 0;
   if (matched < (baseline.get(key) ?? 0)) matchedCounts.set(key, matched + 1);
   else newFindings.push(diagnostic);
@@ -246,7 +351,7 @@ for (const diagnostic of diagnostics) {
 if (newFindings.length === 0) {
   const currentCounts = new Map();
   for (const diagnostic of diagnostics) {
-    const key = diagnosticKey(diagnostic);
+    const key = diagnosticKey(repoRoot, diagnostic);
     currentCounts.set(key, (currentCounts.get(key) ?? 0) + 1);
   }
   let stale = 0;
