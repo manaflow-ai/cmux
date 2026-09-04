@@ -758,7 +758,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         defer { try? FileManager.default.removeItem(at: emptyPath) }
 
         let (result, state) = try runCoderouterCLI(
-            ["coderouter", "accounts"],
+            ["coderouter", "login"],
             socketName: "coderouter-passthrough",
             extraEnvironment: ["PATH": emptyPath.path],
             waitForSocket: false
