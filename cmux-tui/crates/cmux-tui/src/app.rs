@@ -297,6 +297,42 @@ impl SidebarProjectionSpec {
     }
 }
 
+/// Inputs that determine whether the previous packed layout is a valid
+/// hysteresis baseline. Presentation mutations must not inherit a baseline
+/// built from a different set of visible or pinned rails.
+#[derive(Clone, PartialEq, Eq)]
+struct SidebarLayoutReuseSpec {
+    projection: SidebarProjectionSpec,
+    hidden_views: Vec<String>,
+    pinned_views: Vec<String>,
+    required_views: Vec<String>,
+    machine_visible: bool,
+}
+
+impl SidebarLayoutReuseSpec {
+    fn new(
+        projection: SidebarProjectionSpec,
+        hidden_views: &HashSet<String>,
+        pinned_views: &HashSet<String>,
+        required_views: &HashSet<String>,
+        machine_visible: bool,
+    ) -> Self {
+        fn sorted_ids(ids: &HashSet<String>) -> Vec<String> {
+            let mut ids = ids.iter().cloned().collect::<Vec<_>>();
+            ids.sort_unstable();
+            ids
+        }
+
+        Self {
+            projection,
+            hidden_views: sorted_ids(hidden_views),
+            pinned_views: sorted_ids(pinned_views),
+            required_views: sorted_ids(required_views),
+            machine_visible,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct ProjectionRowsCache {
     view_id: String,
@@ -6776,8 +6812,7 @@ impl RenderedPointerFrame {
             .iter()
             .rev()
             .find(|route| {
-                matches!(route.hit, Hit::SidebarSplitDivider { .. })
-                    && route.rect.contains(x, y)
+                matches!(route.hit, Hit::SidebarSplitDivider { .. }) && route.rect.contains(x, y)
             })
             .or_else(|| self.hits.iter().find(|route| route.rect.contains(x, y)));
         if let Some(route) = hit_route {
@@ -7856,7 +7891,7 @@ pub struct App {
     /// Projection identity that produced the committed sidebar layout. The
     /// hysteresis solver may reuse a prior layout only for the same profile
     /// and view topology; a profile switch must pack its new rails afresh.
-    sidebar_layout_projection: Option<SidebarProjectionSpec>,
+    sidebar_layout_reuse_spec: Option<SidebarLayoutReuseSpec>,
     pub sidebar_plugin_surface: Option<SurfaceId>,
     pub sidebar_plugin_error: Option<String>,
     pub sidebar_plugin_retry_after_ms: Option<u64>,
@@ -10638,7 +10673,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         machine_sidebar_width: 0,
         tabs_sidebar_width: 0,
         sidebar_layout: SidebarLayout::default(),
-        sidebar_layout_projection: None,
+        sidebar_layout_reuse_spec: None,
         sidebar_plugin_surface: None,
         sidebar_plugin_error: None,
         sidebar_plugin_retry_after_ms: None,
@@ -15824,7 +15859,7 @@ impl App {
 
     fn clear_empty_frame_geometry(&mut self) {
         self.sidebar_layout = SidebarLayout::default();
-        self.sidebar_layout_projection = None;
+        self.sidebar_layout_reuse_spec = None;
         self.sidebar_width = 0;
         self.machine_sidebar_width = 0;
         self.tabs_sidebar_width = 0;
@@ -16896,6 +16931,7 @@ impl App {
         self.outer_size = size;
         self.ensure_files_mode_supported();
         let current_sidebar_projection = SidebarProjectionSpec::from_config(&self.config);
+        let mut next_sidebar_layout_reuse_spec = None;
         let sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
@@ -16917,8 +16953,17 @@ impl App {
             {
                 required_views.insert(host_id);
             }
+            let current_sidebar_layout_reuse_spec = SidebarLayoutReuseSpec::new(
+                current_sidebar_projection,
+                &presentation.hidden_views,
+                &pinned_views,
+                &required_views,
+                self.machine_ui.is_some(),
+            );
+            next_sidebar_layout_reuse_spec = Some(current_sidebar_layout_reuse_spec.clone());
             let previous = if !self.sidebar_layout.ordered.is_empty()
-                && self.sidebar_layout_projection.as_ref() == Some(&current_sidebar_projection)
+                && self.sidebar_layout_reuse_spec.as_ref()
+                    == Some(&current_sidebar_layout_reuse_spec)
             {
                 Some(&self.sidebar_layout)
             } else {
@@ -17007,6 +17052,7 @@ impl App {
                 state.files_restore_pending = false;
                 state.files_restore_host = None;
                 self.remember_active_sidebar_content_mode();
+                next_sidebar_layout_reuse_spec = None;
             } else if self.sidebar_visible
                 && self.sidebar_view == SidebarView::Files
                 && !required_views.is_empty()
@@ -17025,14 +17071,12 @@ impl App {
                 self.status_message = Some(
                     localization::catalog().sidebar.files_requires_workspace_profile.to_string(),
                 );
+                next_sidebar_layout_reuse_spec = None;
             }
             layout
         };
         self.sidebar_layout = sidebar_layout;
-        self.sidebar_layout_projection = self
-            .surface_only
-            .is_none()
-            .then_some(current_sidebar_projection);
+        self.sidebar_layout_reuse_spec = next_sidebar_layout_reuse_spec;
         // The solver is the authority for mounted views. Rebuild wake
         // dependencies at the same boundary, so a rail hidden by a resize or
         // sidebar toggle cannot keep AgentChanged/TitleChanged repainting it.
@@ -21161,8 +21205,7 @@ impl App {
                 continue_past_boundary = true;
                 None
             } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
-                continue_past_boundary = next == current
-                    && is_vertical_rail_navigation_key(key);
+                continue_past_boundary = next == current && is_vertical_rail_navigation_key(key);
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
@@ -23402,18 +23445,15 @@ impl App {
         let requested = self.config.sidebar.plugin.is_some() && self.sync_sidebar_plugin(true);
         if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
             let order = self.focusable_rail_order();
-            let remembered_focus = self
-                .active_sidebar_profile_state()
-                .and_then(|state| state.focused_view.clone());
+            let remembered_focus =
+                self.active_sidebar_profile_state().and_then(|state| state.focused_view.clone());
             let preferred = remembered_focus
                 .as_ref()
                 .and_then(|identity| {
                     order.iter().copied().find(|kind| {
                         self.view_index_for_rail(*kind)
                             .and_then(|index| self.config.sidebar.views.get(index))
-                            .is_some_and(|view| {
-                                identity == &SidebarViewIdentity::from_spec(view)
-                            })
+                            .is_some_and(|view| identity == &SidebarViewIdentity::from_spec(view))
                     })
                 })
                 .or_else(|| {
@@ -28592,8 +28632,8 @@ mod tests {
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
         DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement, Hit,
-        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
+        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
+        GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, Hit, HostInputIngress,
         HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
         MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
         OuterCursorSpec, PaneArea, PaneAreaProjection, PaneContentGeneration, PaneEdge,
@@ -28661,8 +28701,7 @@ mod tests {
     use crate::config::{
         Action, AgentRowFilter, AgentSortMode, ChromeTheme, Config, ScrollbarPosition,
         SidebarColumnKind, SidebarLayoutNode, SidebarProfileSpec, SidebarResourceKind,
-        SidebarSplitDir, SidebarView,
-        SidebarViewScope, SidebarViewSpec, action_definitions,
+        SidebarSplitDir, SidebarView, SidebarViewScope, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
     use crate::machine::{
@@ -32378,6 +32417,51 @@ mod tests {
     }
 
     #[test]
+    fn restoring_width_hidden_view_bypasses_stale_reveal_hysteresis() {
+        let mux = Mux::new("sidebar-width-restore-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 10, 0);
+        let agents = SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 10,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let views = vec![workspace, agents];
+        let profile = SidebarProfileSpec {
+            id: "work".into(),
+            name: "Work".into(),
+            layout: crate::config::sidebar_layout_of_columns(&views),
+            views: views.clone(),
+        };
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views;
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+
+        // The second rail is width-hidden at 50 columns. Its frame becomes
+        // the previous layout used by the reveal hysteresis solver.
+        app.sync_layout((50, 20));
+        assert_eq!(app.sidebar_layout.hidden_views[0].id, "agents");
+        assert_eq!(app.sidebar_layout.hidden_views[0].reason, SidebarHiddenReason::Width);
+
+        // Restore at the exact two-rail minimum. The changed presentation
+        // state must invalidate the old one-rail hysteresis baseline.
+        app.activate_menu(MenuAction::SetSidebarViewVisible { view: 1, visible: true }).unwrap();
+        app.sync_layout((60, 20));
+        assert!(app.sidebar_layout.rail(RailKind::Projection(1)).is_some());
+        assert!(app.sidebar_layout.hidden_views.is_empty());
+    }
+
+    #[test]
     fn profile_switch_rebuilds_projection_when_view_id_is_reused() {
         let (mux, surface) = test_mux("sidebar-profile-projection-cache-test", None);
         mux.report_agent(
@@ -32993,9 +33077,7 @@ mod tests {
     #[test]
     fn split_fraction_overrides_follow_child_ids_after_reordering() {
         let mut config = split_sidebar_config();
-        if let Some(SidebarLayoutNode::Split(split)) =
-            config.sidebar.layout.first_mut()
-        {
+        if let Some(SidebarLayoutNode::Split(split)) = config.sidebar.layout.first_mut() {
             split.children.reverse();
             split.weights.reverse();
         }
@@ -52657,7 +52739,7 @@ mod tests {
             machine_sidebar_width: 0,
             tabs_sidebar_width: 0,
             sidebar_layout: SidebarLayout::default(),
-            sidebar_layout_projection: None,
+            sidebar_layout_reuse_spec: None,
             sidebar_plugin_surface: None,
             sidebar_plugin_error: None,
             sidebar_plugin_retry_after_ms: None,
