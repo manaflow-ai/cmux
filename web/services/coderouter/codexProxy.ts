@@ -760,7 +760,7 @@ function jsonError(
 
 function captureRouteHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
   readonly request: Request;
   readonly startedAt: number;
   readonly status: number;
@@ -814,6 +814,7 @@ function captureRouteHealth(input: {
   recordRouteEvent({
     requestId: input.requestId,
     teamId: input.identity?.teamId,
+    stackUserId: input.identity?.stackUserId,
     vmId: input.identity?.vmId ?? null,
     provider: "codex",
     agent,
@@ -839,24 +840,6 @@ function captureModelUsage(
   },
 ): void {
   if (!usage || usage.totalTokens === 0) return;
-  captureCoderouterEvent({
-    event: "coderouter_model_request_completed",
-    userId: identity.stackUserId,
-    teamId: identity.teamId,
-    properties: {
-      provider: "codex",
-      model: usage.model ?? "unknown",
-      input_tokens: usage.inputTokens,
-      cached_input_tokens: usage.cachedInputTokens,
-      output_tokens: usage.outputTokens,
-      total_tokens: usage.totalTokens,
-      request_id: ledger.requestId,
-      duration_ms: ledger.durationMs,
-      status: ledger.status,
-      response_streamed: ledger.streamed,
-      ...vmIdProperty(identity.vmId),
-    },
-  });
   recordUsageEvent({
     requestId: ledger.requestId,
     teamId: identity.teamId,
