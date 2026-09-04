@@ -36498,6 +36498,23 @@
         }
       }
     },
+    "cli.browser.error.missingResponseField": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser response is missing required field: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザの応答に必須フィールド %@ がありません"
+          }
+        }
+      }
+    },
     "cli.browser.cookies.clearRequiresScope": {
       "extractionState": "manual",
       "localizations": {
