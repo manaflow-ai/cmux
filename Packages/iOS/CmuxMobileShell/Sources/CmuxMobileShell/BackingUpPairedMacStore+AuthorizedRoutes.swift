@@ -19,23 +19,43 @@ extension BackingUpPairedMacStore {
         case .matchingInstanceTag(let tag): instanceTag = tag
         case .unclaimed: instanceTag = nil
         }
+        let visible = try? await macFor(
+            macDeviceID,
+            instanceTag: instanceTag,
+            stackUserID: stackUserID,
+            teamID: team,
+            requiresExactInstanceTag: true
+        )
+        let mutationTeam = visible?.teamID ?? team
         let wrote = try await inner.removeRouteIfAuthorized(
             macDeviceID: macDeviceID,
             route: route,
             condition: condition,
             stackUserID: stackUserID,
-            teamID: team,
+            teamID: mutationTeam,
             now: now
         )
         guard wrote, let account = stackUserID, !account.isEmpty else { return wrote }
         lastSignedInAccount = account
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let verifiedDestination = await backupTeamStore.load(
+            key: backupTeamKey(
+                account: account,
+                rowTeamID: visible?.teamID,
+                pairingID: pairingID
+            )
+        )
         await uploadCurrentRecord(
             macDeviceID: macDeviceID,
             instanceTag: instanceTag,
             account: account,
-            teamID: team,
+            teamID: verifiedDestination ?? visible?.teamID,
             includesCustomizations: false,
-            instanceAuthority: .compareAndSet
+            instanceAuthority: .compareAndSet,
+            resolvesNilTeam: false
         )
         return true
     }

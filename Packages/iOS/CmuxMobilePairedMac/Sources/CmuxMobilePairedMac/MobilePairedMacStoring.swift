@@ -269,7 +269,10 @@ extension MobilePairedMacStoring {
                     ).id
             }
         guard let current else { return false }
-        let remaining = current.routes.filter { $0.id != route.id }
+        guard let removed = current.routes.first(where: {
+            $0.kind == route.kind && $0.endpoint == route.endpoint
+        }) else { return false }
+        let remaining = current.routes.filter { $0.id != removed.id }
         guard remaining.count < current.routes.count, !remaining.isEmpty else { return false }
         return try await upsertRoutesIfAuthorized(
             macDeviceID: macDeviceID,
