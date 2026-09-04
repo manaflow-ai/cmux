@@ -105,6 +105,8 @@ export function suffixVmSlug(slug: string, random: VmSlugRandom = randomInt): st
 
 /** How many plain candidates to try before falling back to a suffixed one. */
 export const VM_SLUG_PLAIN_ATTEMPTS = 8;
+/** Maximum suffixed candidates to probe before failing the transaction. */
+export const VM_SLUG_SUFFIX_ATTEMPTS = 64;
 
 /**
  * Picks a slug no live machine in the scope already uses. `isTaken` answers
@@ -122,8 +124,9 @@ export async function allocateVmSlug(
     plain = generateVmSlug(random);
     if (!(await isTaken(plain))) return plain;
   }
-  for (;;) {
+  for (let attempt = 0; attempt < VM_SLUG_SUFFIX_ATTEMPTS; attempt += 1) {
     const candidate = suffixVmSlug(plain, random);
     if (!(await isTaken(candidate))) return candidate;
   }
+  throw new Error("Unable to allocate a unique VM slug");
 }

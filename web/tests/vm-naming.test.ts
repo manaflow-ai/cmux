@@ -10,6 +10,7 @@ import {
   VM_SLUG_COLORS,
   VM_SLUG_PATTERN,
   VM_SLUG_PLAIN_ATTEMPTS,
+  VM_SLUG_SUFFIX_ATTEMPTS,
 } from "../services/vms/vmNaming";
 
 const WORD = /^[a-z]{2,12}$/;
@@ -86,5 +87,14 @@ describe("allocateVmSlug", () => {
     expect(asked).toHaveLength(VM_SLUG_PLAIN_ATTEMPTS + 1);
     expect(slug).toMatch(VM_SLUG_PATTERN);
     expect(slug.startsWith(asked[VM_SLUG_PLAIN_ATTEMPTS - 1]!)).toBe(true);
+  });
+
+  test("fails after a bounded suffix search", async () => {
+    const asked: string[] = [];
+    await expect(allocateVmSlug(async (candidate) => {
+      asked.push(candidate);
+      return true;
+    })).rejects.toThrow("Unable to allocate a unique VM slug");
+    expect(asked).toHaveLength(VM_SLUG_PLAIN_ATTEMPTS + VM_SLUG_SUFFIX_ATTEMPTS);
   });
 });
