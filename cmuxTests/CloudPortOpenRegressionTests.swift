@@ -21,6 +21,8 @@ struct CloudPortOpenRegressionTests {
         var info: SurfaceMachineInfo
         let supportsPortPreviews: Bool
         var materialized: [(resource: SurfaceResourceID, destination: SurfaceDestination)] = []
+        var refreshCalls = 0
+        var forcedRefreshCalls = 0
 
         init(machine: SurfaceMachineID, supportsPortPreviews: Bool) {
             self.machine = machine
@@ -43,7 +45,14 @@ struct CloudPortOpenRegressionTests {
             )
         }
 
-        func refresh() async {}
+        func refresh() async {
+            refreshCalls += 1
+        }
+
+        func refresh(force: Bool) async {
+            refreshCalls += 1
+            if force { forcedRefreshCalls += 1 }
+        }
 
         func materialize(
             _ resource: SurfaceResource,
@@ -430,6 +439,21 @@ struct CloudPortOpenRegressionTests {
         }
         #expect(provider.materialized.isEmpty)
         #expect(catalog.snapshot.resources.isEmpty)
+    }
+
+    @Test("Machine-scoped refresh does not wait on another cloud provider")
+    func scopedRefreshOnlyTouchesRequestedMachine() async {
+        let catalog = SurfaceCatalog()
+        let otherMachine = SurfaceMachineID.cloud("other-port-vm")
+        let target = FakeProvider(machine: machine, supportsPortPreviews: true)
+        let other = FakeProvider(machine: otherMachine, supportsPortPreviews: true)
+        catalog.register(target)
+        catalog.register(other)
+
+        await catalog.refresh(machine: machine, force: true)
+
+        #expect(target.forcedRefreshCalls == 1)
+        #expect(other.refreshCalls == 0)
     }
 
     @Test("Unsupported endpoint placeholders do not instruct a permanent retry")

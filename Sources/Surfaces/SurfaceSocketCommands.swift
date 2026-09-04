@@ -20,7 +20,11 @@ extension TerminalController {
             let refresh = Self.surfaceBool(params["refresh"]) ?? false
             return v2VmCall(id: id, timeoutSeconds: 120) {
                 if refresh {
-                    await SurfaceCatalog.shared.refreshAll()
+                    if let machine {
+                        await SurfaceCatalog.shared.refresh(machine: machine, force: true)
+                    } else {
+                        await SurfaceCatalog.shared.refreshAll(force: true)
+                    }
                 }
                 let snapshot = await SurfaceCatalog.shared.snapshot
                 return Self.surfaceCatalogPayload(snapshot, machine: machine)
@@ -82,7 +86,13 @@ extension TerminalController {
         let refresh = Self.surfaceBool(params["refresh"]) ?? false
         return v2VmCall(id: id, timeoutSeconds: 120) {
             if refresh {
-                await SurfaceCatalog.shared.refreshAll()
+                if let vmId {
+                    let machine = SurfaceMachineID.cloud(vmId)
+                    _ = await CmuxTuiSurfaceProviderRegistry.shared.providerRefreshingIfMissing(machineID: vmId)
+                    await SurfaceCatalog.shared.refresh(machine: machine, force: true)
+                } else {
+                    await SurfaceCatalog.shared.refreshAll(force: true)
+                }
             }
             let snapshot = await SurfaceCatalog.shared.snapshot
             return Self.surfaceCatalogPayload(snapshot, machine: vmId.map { .cloud($0) }, cloudOnly: true)
