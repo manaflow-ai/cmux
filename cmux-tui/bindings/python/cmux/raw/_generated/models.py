@@ -2179,6 +2179,13 @@ class ConfigReloadRequestedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class DaemonShutdownEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/daemon-shutdown/payload'
+    event: Literal['daemon-shutdown']
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class DetachedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/detached/payload'
     surface: Id
@@ -2620,7 +2627,7 @@ LayoutUndoResult = Union[LayoutUndoUndone, LayoutUndoConfirmationRequired]
 Pane = Union[LivePane, DeadPane]
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 
-KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[AgentChangedEvent, BellEvent, BrowserStateEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, DaemonShutdownEvent, DetachedEvent, EmptyEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenClosedEvent, ScreenRenamedEvent, ScrollChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabClosedEvent, TabRenamedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -2862,6 +2869,7 @@ __all__ = [
     'ClientListInvalidatedEvent',
     'ColorsChangedEvent',
     'ConfigReloadRequestedEvent',
+    'DaemonShutdownEvent',
     'DetachedEvent',
     'EmptyEvent',
     'FrameEvent',

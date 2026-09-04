@@ -388,6 +388,8 @@ def _render_encoded_constraint_validation(
 def _render_object_json(
     name: str,
     expr: Mapping[str, Any],
+    *,
+    event_wire_name: str | None = None,
 ) -> list[str]:
     nullable = _nullable_fields(expr)
     constrained = [
@@ -530,6 +532,8 @@ def _render_object_json(
             "\tvar fields struct {",
         ]
     )
+    if event_wire_name is not None:
+        lines.append('\t\tEvent *string `json:"event"`')
     for wire_name, field in expr["fields"].items():
         go_name = _go_name(wire_name)
         if field["nullable"]:
@@ -575,6 +579,21 @@ def _render_object_json(
             "\tif err := json.Unmarshal(data, &fields); err != nil {",
             f'\t\treturn fmt.Errorf("decode {name}: %w", err)',
             "\t}",
+        ]
+    )
+    if event_wire_name is not None:
+        lines.extend(
+            [
+                "\tif fields.Event == nil {",
+                f'\t\treturn fmt.Errorf("decode {name}: required field event is missing or null")',
+                "\t}",
+                f'\tif *fields.Event != {_go_string(event_wire_name)} {{',
+                f'\t\treturn fmt.Errorf("decode {name}.event: invalid value %q", *fields.Event)',
+                "\t}",
+            ]
+        )
+    lines.extend(
+        [
             f"\ttype wire {name}",
             "\tvar decoded wire",
         ]
@@ -669,7 +688,12 @@ def _render_object_json(
     return lines
 
 
-def _render_object(name: str, expr: Mapping[str, Any]) -> list[str]:
+def _render_object(
+    name: str,
+    expr: Mapping[str, Any],
+    *,
+    event_wire_name: str | None = None,
+) -> list[str]:
     lines: list[str] = []
     for wire_name, field in expr["fields"].items():
         declarations = _render_inline_constrained_type(
@@ -691,7 +715,11 @@ def _render_object(name: str, expr: Mapping[str, Any]) -> list[str]:
     if expr["additional_properties"]:
         lines.append('\tAdditional map[string]json.RawMessage `json:"-"`')
     lines.append("}")
-    json_methods = _render_object_json(name, expr)
+    json_methods = _render_object_json(
+        name,
+        expr,
+        event_wire_name=event_wire_name,
+    )
     if json_methods:
         lines.append("")
         lines.extend(json_methods)
@@ -1471,9 +1499,13 @@ def _render_event_type(
         name: field for name, field in payload["fields"].items() if name != "event"
     }
     name = _event_name(wire_name)
+    # Legacy event structs intentionally decode payload-only JSON. The
+    # control stream is the lifecycle envelope, so validate its discriminator
+    # while preserving the payload compatibility contract for other streams.
+    event_wire_name = wire_name if "control" in event["streams"] else None
     lines = [
         f"// {name} is emitted by protocol v{event['since']}.",
-        *_render_object(name, payload),
+        *_render_object(name, payload, event_wire_name=event_wire_name),
         "",
         f"func ({name}) EventName() string {{ return {_go_string(wire_name)} }}",
     ]

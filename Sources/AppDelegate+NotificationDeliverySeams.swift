@@ -90,7 +90,7 @@ extension AppDelegate {
         guard let surfaceId else { return false }
         // A reply follows the surface to its CURRENT workspace exactly like
         // banner-open delivery does: a moved pane keeps its surface identity
-        // but may live under another window's tab manager, and send_text
+        // but may live under another window's tab manager, and terminal.paste
         // routing needs the live workspace to select that manager. A gone
         // target fails closed instead of typing into a stale claim.
         let target: (tabId: UUID, surfaceId: UUID?)
@@ -103,21 +103,26 @@ extension AppDelegate {
         } else {
             target = (tabId, surfaceId)
         }
-        let payload: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "surface.send_text",
-            "params": [
-                "workspace_id": target.tabId.uuidString,
-                "surface_id": surfaceId.uuidString,
-                "text": text + "\r",
-            ],
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
-              let line = String(data: data, encoding: .utf8),
-              let responseData = TerminalController.shared.handleSocketLine(line).data(using: .utf8),
-              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        else { return false }
-        return response["ok"] as? Bool == true
+        // Use the dedicated paste path so the reply text and its submit key
+        // remain separate. `surface.send_text` plus a trailing carriage return
+        // writes a raw byte, which full-screen agent editors render as a
+        // newline instead of treating it as Return.
+        switch TerminalController.shared.v2MobileTerminalPaste(params: [
+            "workspace_id": target.tabId.uuidString,
+            "surface_id": surfaceId.uuidString,
+            "text": text,
+            "submit_key": "return",
+        ]) {
+        case .ok:
+            // The text is applied before the named key. A false `submitted`
+            // flag is still a successful paste, and returning false here would
+            // reopen the notification with text already sitting in the prompt.
+            // Treat a missing field as success for older hosts that only
+            // acknowledged the paste.
+            return true
+        case .err:
+            return false
+        }
     }
 
     private static func workstreamDecision(from decision: NotificationFeedDecision) -> WorkstreamDecision {
