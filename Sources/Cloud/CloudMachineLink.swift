@@ -65,7 +65,9 @@ actor CloudMachineLink {
     // Foundation `Process` and its pipes are actor-isolated state; every callback hops
     // back into the actor through a Task, so nothing else touches them.
     private var process: Process?
+    private var processExit: CloudLinkFirstValue<Int32>?
     private var eventsProcess: Process?
+    private var eventsProcessExit: CloudLinkFirstValue<Int32>?
     private var inviteFileURL: URL?
     private var stderrTail: [String] = []
     /// Releases this link's claim on the app's WireGuard hub; runs once when the link ends.
@@ -130,9 +132,11 @@ actor CloudMachineLink {
         process.standardOutput = stdout
         process.standardError = stderr
         process.standardInput = FileHandle.nullDevice
+        let processExit = CloudLinkFirstValue<Int32>()
         process.terminationHandler = { [weak self] terminated in
             let status = terminated.terminationStatus
-            Task { await self?.linkProcessDidExit(status: status) }
+            processExit.resolve(status)
+            Task { await self?.linkProcessDidExit(terminated, status: status) }
         }
         state = .connecting
         lastError = nil
@@ -146,6 +150,7 @@ actor CloudMachineLink {
             throw LinkError.spawnFailed(error.localizedDescription)
         }
         self.process = process
+        self.processExit = processExit
         drainStderr(stderr.fileHandleForReading)
 
         // The first connection-snapshot line names the socket; later lines only update
@@ -179,31 +184,44 @@ actor CloudMachineLink {
                 throw LinkError.exited(status: process.terminationStatus, output: stderrTail.joined(separator: "\n"))
             }
         } catch {
-            process.terminate()
-            self.process = nil
             state = .error
             lastError = Self.errorText(error)
             removeInviteFile()
+            await Self.terminateAndWait(process, exit: processExit)
+            if self.process === process {
+                self.process = nil
+                self.processExit = nil
+            }
             await releaseHubLeaseOnce()
             throw error
         }
         let connected = Connected(socketPath: socketPath, session: session)
         self.connected = connected
         state = .connected
-        startEventsSubscription(socketPath: socketPath)
+        await startEventsSubscription(socketPath: socketPath)
         changesContinuation.yield()
         return connected
     }
 
     func disconnect() async {
-        eventsProcess?.terminate()
-        eventsProcess = nil
-        process?.terminate()
-        process = nil
-        connected = nil
         state = .unavailable
+        connected = nil
         removeInviteFile()
         changesContinuation.finish()
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
+        if let process, let processExit {
+            await Self.terminateAndWait(process, exit: processExit)
+            if self.process === process {
+                self.process = nil
+                self.processExit = nil
+            }
+        }
         await releaseHubLeaseOnce()
     }
 
@@ -274,7 +292,14 @@ actor CloudMachineLink {
 
     // MARK: - internals
 
-    private func startEventsSubscription(socketPath: String) {
+    private func startEventsSubscription(socketPath: String) async {
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
         let process = Process()
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.eventsArguments(socketPath: socketPath)
@@ -282,12 +307,18 @@ actor CloudMachineLink {
         process.standardError = FileHandle.nullDevice
         let stdout = Pipe()
         process.standardOutput = stdout
+        let exit = CloudLinkFirstValue<Int32>()
+        process.terminationHandler = { [weak self] terminated in
+            exit.resolve(terminated.terminationStatus)
+            Task { await self?.eventsProcessDidExit(terminated) }
+        }
         do {
             try process.run()
         } catch {
             return
         }
         eventsProcess = process
+        eventsProcessExit = exit
         let continuation = changesContinuation
         let lines = CloudLinkPipe.lines(from: stdout.fileHandleForReading)
         Task.detached {
@@ -312,10 +343,17 @@ actor CloudMachineLink {
         if stderrTail.count > 20 { stderrTail.removeFirst(stderrTail.count - 20) }
     }
 
-    private func linkProcessDidExit(status: Int32) async {
-        eventsProcess?.terminate()
-        eventsProcess = nil
+    private func linkProcessDidExit(_ exitedProcess: Process, status: Int32) async {
+        guard process === exitedProcess else { return }
+        if let eventsProcess, let eventsProcessExit {
+            await Self.terminateAndWait(eventsProcess, exit: eventsProcessExit)
+            if self.eventsProcess === eventsProcess {
+                self.eventsProcess = nil
+                self.eventsProcessExit = nil
+            }
+        }
         process = nil
+        processExit = nil
         connected = nil
         removeInviteFile()
         if state != .unavailable {
@@ -325,6 +363,23 @@ actor CloudMachineLink {
         changesContinuation.yield()
         changesContinuation.finish()
         await releaseHubLeaseOnce()
+    }
+
+    private func eventsProcessDidExit(_ exitedProcess: Process) {
+        guard eventsProcess === exitedProcess else { return }
+        eventsProcess = nil
+        eventsProcessExit = nil
+    }
+
+    /// Foundation aborts if a running `Process` is released. Keep a detached exit
+    /// waiter alive because the caller can already be cancelled when cleanup starts.
+    private nonisolated static func terminateAndWait(
+        _ process: Process,
+        exit: CloudLinkFirstValue<Int32>
+    ) async {
+        let exitTask = Task.detached { await exit.result }
+        if process.isRunning { process.terminate() }
+        _ = await exitTask.value
     }
 
     private func releaseHubLeaseOnce() async {
