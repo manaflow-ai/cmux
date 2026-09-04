@@ -3,19 +3,19 @@ import Foundation
 import Testing
 @testable import CmuxGit
 
-private nonisolated struct UserPathGitProbe: GitExecutableFileProbing {
+private struct UserPathGitProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
         path == "/Users/cmux-tests/.local/bin/git"
     }
 }
 
-private nonisolated struct SystemGitOnlyProbe: GitExecutableFileProbing {
+private struct SystemGitOnlyProbe: GitExecutableFileProbing {
     func isExecutableFile(atPath path: String) -> Bool {
         path == "/usr/bin/git" || path == "/Library/Developer/CommandLineTools/usr/bin/git"
     }
 }
 
-private nonisolated struct NeverDirectoryProbe: GitReferenceStorageProbing {
+private struct NeverDirectoryProbe: GitReferenceStorageProbing {
     func isDirectory(atPath _: String) -> Bool { false }
 }
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Source identity persisted beside a staged custom notification sound.
-nonisolated struct NotificationSoundSourceMetadata: Codable, Equatable, Sendable {
+struct NotificationSoundSourceMetadata: Codable, Equatable, Sendable {
     /// Marker used to distinguish cmux-managed artifacts from user files in
     /// the shared `~/Library/Sounds` directory.
     static let ownerMarker = "cmux.notification-sound.v1"

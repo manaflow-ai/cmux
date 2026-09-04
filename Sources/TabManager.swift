@@ -1268,7 +1268,7 @@ class TabManager: ObservableObject {
             titleSource: titleSource,
             workingDirectory: workingDirectory,
             initialTerminalInput: initialTerminalInput,
-            autoWelcomeIfNeeded: autoWelcomeIfNeeded,
+            autoWelcomeIfNeeded: autoWelcomeIfNeeded
         ) != nil else {
             preconditionFailure("Initial workspace creation failed for an active window manager")
         }

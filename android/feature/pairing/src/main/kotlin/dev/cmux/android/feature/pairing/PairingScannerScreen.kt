@@ -1,0 +1,237 @@
+package dev.cmux.android.feature.pairing
+
+import android.util.Size
+import androidx.camera.core.*
+import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.ContextCompat
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.common.InputImage
+import dev.cmux.android.feature.pairing.BuildConfig
+
+@Composable
+fun PairingScannerScreen(
+    onPaired: () -> Unit,
+    viewModel: PairingViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    LaunchedEffect(state) {
+        if (state is PairingState.Success) onPaired()
+    }
+
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        when (val s = state) {
+            is PairingState.Idle, is PairingState.Scanning -> {
+                if (BuildConfig.DEBUG) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            CircularProgressIndicator()
+                            DebugUrlInput(
+                                accessToken = viewModel.debugAccessToken,
+                                onSubmit = { url, port -> viewModel.onQrCodeScanned(url, port) },
+                                onDirectConnect = { port -> viewModel.connectDirect(port) },
+                            )
+                        }
+                    }
+                } else {
+                    CameraQrScanner(
+                        onQrDetected = { viewModel.onQrCodeScanned(it) },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            "Scan the QR code in cmux Pairing settings",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                    if (state is PairingState.Idle) {
+                        LaunchedEffect(Unit) { viewModel.startScanning() }
+                    }
+                }
+            }
+            is PairingState.Connecting -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        CircularProgressIndicator()
+                        Text("Connecting to ${s.host}:${s.port}…")
+                    }
+                }
+            }
+            is PairingState.Success -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Paired with ${s.displayName ?: "Mac"}")
+                }
+            }
+            is PairingState.Error -> {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Text("Error: ${s.message}")
+                        Button(onClick = { viewModel.reset() }) { Text("Try Again") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DebugUrlInput(
+    accessToken: String?,
+    onSubmit: (String, Int?) -> Unit,
+    onDirectConnect: (Int) -> Unit,
+) {
+    var url by remember { mutableStateOf("") }
+    var portText by remember { mutableStateOf("") }
+    val clipboardManager = LocalClipboardManager.current
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Token display — copy this then run: CMUX_TAG=<tag> ./scripts/mobile-dev-auth.sh <token>
+        if (accessToken != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "[DEBUG] Token: ${accessToken.take(12)}…",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = { clipboardManager.setText(AnnotatedString(accessToken)) }) {
+                    Text("Copy")
+                }
+            }
+        }
+        // Direct connect — skips QR, connects to 10.0.2.2 on the given port
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = portText,
+                onValueChange = { portText = it.filter { c -> c.isDigit() } },
+                modifier = Modifier.weight(1f),
+                label = { Text("[DEBUG] Port (emulator)") },
+                singleLine = true,
+                placeholder = { Text("58465") },
+            )
+            Button(onClick = {
+                onDirectConnect(portText.toIntOrNull() ?: 58465)
+            }) { Text("Connect") }
+        }
+        // Fallback: paste raw QR URL
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it },
+                modifier = Modifier.weight(1f),
+                label = { Text("[DEBUG] Paste QR URL") },
+                singleLine = true,
+            )
+            OutlinedButton(
+                onClick = {
+                    if (url.isNotBlank()) onSubmit(url.trim(), portText.toIntOrNull())
+                },
+                enabled = url.isNotBlank(),
+            ) { Text("QR") }
+        }
+    }
+}
+
+@androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
+@Composable
+private fun CameraQrScanner(
+    onQrDetected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var detected by remember { mutableStateOf(false) }
+
+    AndroidView(
+        factory = { ctx ->
+            val previewView = PreviewView(ctx)
+            val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+            cameraProviderFuture.addListener({
+                val cameraProvider = cameraProviderFuture.get()
+                val preview = Preview.Builder().build().also {
+                    it.setSurfaceProvider(previewView.surfaceProvider)
+                }
+                val barcodeScanner = BarcodeScanning.getClient()
+                val analysis = ImageAnalysis.Builder()
+                    .setTargetResolution(Size(1280, 720))
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    .build()
+                analysis.setAnalyzer(ContextCompat.getMainExecutor(ctx)) { imageProxy ->
+                    if (!detected) {
+                        val mediaImage = imageProxy.image
+                        if (mediaImage != null) {
+                            val image = InputImage.fromMediaImage(
+                                mediaImage,
+                                imageProxy.imageInfo.rotationDegrees,
+                            )
+                            barcodeScanner.process(image)
+                                .addOnSuccessListener { barcodes ->
+                                    barcodes.firstOrNull { it.format == Barcode.FORMAT_QR_CODE }
+                                        ?.rawValue
+                                        ?.let { value ->
+                                            if (!detected) {
+                                                detected = true
+                                                onQrDetected(value)
+                                            }
+                                        }
+                                }
+                                .addOnCompleteListener { imageProxy.close() }
+                        } else {
+                            imageProxy.close()
+                        }
+                    } else {
+                        imageProxy.close()
+                    }
+                }
+                cameraProvider.unbindAll()
+                cameraProvider.bindToLifecycle(
+                    lifecycleOwner,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    analysis,
+                )
+            }, ContextCompat.getMainExecutor(ctx))
+            previewView
+        },
+        modifier = modifier,
+    )
+}

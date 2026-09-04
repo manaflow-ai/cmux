@@ -147,7 +147,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
                     parameterDigitCount: parameterDigitCount,
                     parameterSeparatorCount: parameterSeparatorCount,
                     parameterValue: parameterValue,
-                    final: byte,
+                    final: byte
                 )
                     ? .strip(length: cursor - start + 1)
                     : .passThrough
@@ -184,7 +184,7 @@ public struct SSHPTYReplayOutputFilter: Sendable {
         parameterDigitCount: Int,
         parameterSeparatorCount: Int,
         parameterValue: Int,
-        final: UInt8,
+        final: UInt8
     ) -> Bool {
         let hasParameter = parameterDigitCount > 0 || parameterSeparatorCount > 0
         let singleNumericParameter = parameterDigitCount > 0 && parameterSeparatorCount == 0

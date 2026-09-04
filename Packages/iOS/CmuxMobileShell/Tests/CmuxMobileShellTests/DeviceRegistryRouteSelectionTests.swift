@@ -767,7 +767,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore(writeAlwaysFails: true)
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent)
         )
         #expect(resolved == nil)
         #expect(defaults.string(forKey: "cmux.deviceRegistry.iosDeviceID") == nil)
@@ -790,7 +790,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present)
         )
         #expect(resolved == legacy)
         // Adopted into the authoritative store and still mirrored.
@@ -810,7 +810,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.absent)
         )
         #expect(resolved != nil)
         #expect(resolved != foreign)
@@ -829,7 +829,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.unavailable),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.unavailable)
         )
         #expect(resolved == nil)
         // Nothing minted, mirror preserved for the post-unlock retry.
@@ -846,7 +846,7 @@ import Testing
         let store = InMemoryDeviceIdentityStore()
 
         let resolved = DeviceRegistryService.durableDeviceID(
-            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present),
+            store: store, defaults: defaults, evidence: StaticEvidenceProbe(.present)
         )
         #expect(resolved != nil)
         if let resolved {
