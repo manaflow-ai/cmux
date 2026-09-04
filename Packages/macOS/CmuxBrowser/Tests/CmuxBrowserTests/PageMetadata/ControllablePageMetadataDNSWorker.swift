@@ -1,3 +1,5 @@
+@testable import CmuxBrowser
+
 actor ControllablePageMetadataDNSWorker: BrowserPageMetadataDNSWorking {
     typealias Completion = @Sendable ([BrowserPageMetadataResolvedAddress]) -> Void
 

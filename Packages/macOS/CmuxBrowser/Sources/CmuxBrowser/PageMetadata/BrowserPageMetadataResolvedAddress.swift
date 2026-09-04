@@ -23,10 +23,14 @@ struct BrowserPageMetadataResolvedAddress: Hashable, Sendable {
             }
             var output = [CChar](repeating: 0, count: Int(INET6_ADDRSTRLEN))
             return withUnsafePointer(to: &address) { pointer in
-                guard inet_ntop(AF_INET6, pointer, &output, socklen_t(output.count)) != nil,
-                      let address = IPv6Address(String(cString: output)) else {
+                guard inet_ntop(AF_INET6, pointer, &output, socklen_t(output.count)) != nil else {
                     return nil
                 }
+                let text = String(
+                    decoding: output.prefix(while: { $0 != 0 }).map { UInt8(bitPattern: $0) },
+                    as: UTF8.self
+                )
+                guard let address = IPv6Address(text) else { return nil }
                 return .ipv6(address)
             }
         }

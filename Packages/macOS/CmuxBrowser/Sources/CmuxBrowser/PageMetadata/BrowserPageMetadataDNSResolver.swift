@@ -43,7 +43,10 @@ actor BrowserPageMetadataDNSResolver: BrowserPageMetadataResolving {
                 enqueueQuery(queryID, host: host, continuation: continuation)
             }
         } onCancel: { [weak self] in
-            Task { await self?.cancelQuery(queryID) }
+            guard let self else { return }
+            Task {
+                await self.cancelQuery(queryID)
+            }
         }
     }
 

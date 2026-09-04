@@ -138,9 +138,8 @@ struct BrowserPageMetadataServiceTests {
             transport: transport
         )
 
-        let fetchedTitle = try #require(try await service.title(
-            for: #require(URL(string: "https://example.com/title"))
-        ))
+        let url = try #require(URL(string: "https://example.com/title"))
+        let fetchedTitle = try #require(try await service.title(for: url))
 
         #expect(fetchedTitle.utf8.count <= BrowserPageMetadataService.maximumTitleUTF8Bytes)
         #expect(fetchedTitle.count < originalTitle.count)
