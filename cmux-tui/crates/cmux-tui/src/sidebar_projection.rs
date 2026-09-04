@@ -96,15 +96,14 @@ impl ProjectionRailState {
         if self.selected_action.is_some() {
             return;
         }
-        if let Some(target) = self.selected_target {
-            if let Some(index) = rows
+        if let Some(target) = self.selected_target
+            && let Some(index) = rows
                 .iter()
                 .position(|row| row.target == target)
                 .or_else(|| rows.iter().position(|row| row.target.same_resource(target)))
-            {
-                self.selected = index;
-                return;
-            }
+        {
+            self.selected = index;
+            return;
         }
         self.selected = self.selected.min(rows.len().saturating_sub(1));
         self.selected_target = rows.get(self.selected).map(|row| row.target);
