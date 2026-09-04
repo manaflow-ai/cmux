@@ -1129,11 +1129,21 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     if url.scheme() != "file" {
         return None;
     }
-    let host = url.host_str()?;
+    // `url` normalizes an explicit `localhost` authority to no host. Preserve
+    // that trusted spelling without accepting a genuinely hostless URL.
+    const LOCALHOST_AUTHORITY: &str = "file://localhost";
+    let explicit_localhost = value
+        .get(..LOCALHOST_AUTHORITY.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(LOCALHOST_AUTHORITY))
+        && value
+            .as_bytes()
+            .get(LOCALHOST_AUTHORITY.len())
+            .is_none_or(|byte| *byte == b'/');
+    let host = url.host_str().or_else(|| explicit_localhost.then_some("localhost"))?;
     if !terminal_pwd_host_is_local(host) {
         return None;
     }
-    url.set_host(Some("localhost")).ok()?;
+    url.set_host(None).ok()?;
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
 }
 
