@@ -46,8 +46,10 @@ describe("lazy active-limit provider refresh", () => {
     const running = row({ status: "running", providerVmId: "provider-vm-new" });
     let legacyCandidateCalls = 0;
     let statsCalls = 0;
+    let beginReservation: unknown;
     const repo = {
-      beginCreate: () => {
+      beginCreate: (input: { resourceReservation?: unknown }) => {
+        beginReservation = input.resourceReservation;
         return Effect.succeed({ inserted: true, vm: requested });
       },
       legacyResourceReservationCandidates: () => Effect.sync(() => {
@@ -94,10 +96,12 @@ describe("lazy active-limit provider refresh", () => {
         maxActiveVms: 50,
         provider: "freestyle",
         image: "snapshot-test",
+        imageSize: { name: "xl", cpu: 16, memoryMb: 32768, storageMb: 131072 },
       }).pipe(Effect.provide(layer)),
     );
     expect(legacyCandidateCalls).toBe(0);
     expect(statsCalls).toBe(0);
+    expect(beginReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 131072 });
   });
 
   test("refreshes stale rows for every provider with a status read, not just freestyle", async () => {
