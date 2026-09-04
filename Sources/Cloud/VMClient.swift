@@ -283,6 +283,10 @@ struct VMSummary {
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
+    /// Server-generated three-word name (`sleepy-teal-otter`), fixed for the
+    /// machine's life and unique among the owner's live machines. Nil on
+    /// machines created before the backend assigned names.
+    var slug: String?
     /// When the free plan's access window closes for this machine (epoch ms);
     /// nil on paid plans or when the window is disabled server-side.
     var freeAccessExpiresAt: Int64?
@@ -291,8 +295,13 @@ struct VMSummary {
     var addressIPv4: String?
     var addressIPv6: String?
 
-    /// The name to show people: the label when set, otherwise the machine id.
-    var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+    /// The name to show people: the label when set, else the generated slug,
+    /// else the machine id.
+    var preferredName: String {
+        if let displayName, !displayName.isEmpty { return displayName }
+        if let slug, !slug.isEmpty { return slug }
+        return id
+    }
 
     /// The address to hand a person who asked for "the IP": v4 when the network
     /// allocated one (shorter, pasteable anywhere), else v6.
@@ -735,6 +744,7 @@ actor VMClient {
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
+            summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
             if let address = dict["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1084,6 +1094,8 @@ actor VMClient {
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 
@@ -1152,6 +1164,7 @@ actor VMClient {
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
         }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 

@@ -43,4 +43,24 @@ struct MachinesPanelUncappedPlanTests {
         #expect(plan?.countLabel == "2 of 5 machines")
         #expect(plan?.isAtLimit == false)
     }
+
+    @Test("A generated slug names an unlabeled machine and labels still win")
+    func generatedSlugFallback() {
+        var summary = VMSummary(
+            id: "8f1c2a64-0b3e-4d5f-9a7b-1c2d3e4f5a6b",
+            provider: "freestyle",
+            status: "running",
+            image: "cmuxd-ws:tooling-20260509f",
+            createdAt: 0,
+            base: nil
+        )
+        summary.slug = "sleepy-teal-otter"
+        let unlabeled = MachineSnapshotBuilder.snapshot(from: summary)
+        #expect(unlabeled.label == nil)
+        #expect(unlabeled.displayName == "sleepy-teal-otter")
+        #expect(CloudTreeMachineRowContent.subtitle(unlabeled).contains(summary.id))
+
+        summary.displayName = "dev box"
+        #expect(MachineSnapshotBuilder.snapshot(from: summary).displayName == "dev box")
+    }
 }

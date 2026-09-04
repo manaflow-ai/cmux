@@ -41,6 +41,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     let createdAt: Date?
     /// User-chosen label; nil when the machine has no label.
     let label: String?
+    /// Server-generated three-word name; nil for machines older than naming.
+    var slug: String? = nil
     /// Free-plan access window position; `.unrestricted` on paid plans.
     var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
@@ -53,7 +55,16 @@ struct MachineSnapshot: Equatable, Identifiable {
     /// anywhere), v6 is the fallback.
     var privateAddress: String?
 
-    var displayName: String { label?.isEmpty == false ? label! : id }
+    /// The label when set, else the generated name, else the machine id.
+    var displayName: String {
+        if let label, !label.isEmpty { return label }
+        if let slug, !slug.isEmpty { return slug }
+        return id
+    }
+
+    /// True when the row shows something other than the id, so the id still
+    /// needs a home on the second line (CLI verbs and URLs use it).
+    var showsName: Bool { displayName != id }
 
     var kindLabel: String {
         isDesktop
@@ -182,6 +193,7 @@ enum MachineSnapshotBuilder {
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
             label: summary.displayName,
+            slug: summary.slug,
             freeAccess: freeAccess,
             stats: nil,
             privateAddress: summary.preferredPrivateAddress
