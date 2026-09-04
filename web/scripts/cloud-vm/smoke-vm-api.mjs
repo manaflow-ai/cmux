@@ -225,6 +225,8 @@ try {
 
     let attachTransport;
     let attachDurationMs;
+    let attachAttempts;
+    let attachStatuses;
     if (!skipAttach) {
       // Every cmux Cloud machine runs only the cmux-tui remote daemon.
       const expectedTransport = "cmux-remote";
@@ -238,15 +240,19 @@ try {
       // not the race.
       const attachStartedAt = performance.now();
       const attachBudgetMs = 120_000;
+      const statuses = [];
+      let attempts = 0;
       let attach;
       let attachText;
       for (;;) {
+        attempts += 1;
         attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
           method: "POST",
           headers: { ...authHeaders, "content-type": "application/json" },
           body: JSON.stringify(attachBody),
         });
         attachText = await attach.text();
+        statuses.push(attach.status);
         if (attach.status !== 502) break;
         const elapsed = performance.now() - attachStartedAt;
         if (elapsed >= attachBudgetMs) break;
@@ -261,6 +267,8 @@ try {
         await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfterSeconds) * 1000));
       }
       attachDurationMs = Math.round(performance.now() - attachStartedAt);
+      attachAttempts = attempts;
+      attachStatuses = statuses;
       if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
       const attached = JSON.parse(attachText);
       if (attached.transport !== expectedTransport) {
@@ -353,7 +361,7 @@ try {
       createDurationMs,
       ...(skipAttach
         ? { attachSkipped: true }
-        : { attachTransport, attachDurationMs }),
+        : { attachTransport, attachDurationMs, attachAttempts, attachStatuses }),
       ...(edge ? { edge } : {}),
       destroyed: true,
       destroyDurationMs,
