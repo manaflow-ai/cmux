@@ -425,6 +425,17 @@ struct MachineSidebarPointerTopology {
     workspace_creation_policy: Option<WorkspaceCreationPolicy>,
 }
 
+/// A data owner for a native sidebar row map. Pointer capture is cancelled
+/// only when the owner that produced the captured rows changes. Layout
+/// changes use the existing global pointer-topology boundary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SidebarPointerDomain {
+    Workspace,
+    Files,
+    Tabs,
+    Projection,
+}
+
 fn machine_sidebar_pointer_topology(ui: Option<&MachineUiState>) -> MachineSidebarPointerTopology {
     let Some(ui) = ui else {
         return MachineSidebarPointerTopology {
@@ -13983,8 +13994,15 @@ impl App {
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
-        if previous_machine_topology != machine_sidebar_pointer_topology(self.machine_ui.as_ref()) {
-            self.invalidate_sidebar_pointer_topology();
+        let next_machine_topology = machine_sidebar_pointer_topology(self.machine_ui.as_ref());
+        if previous_machine_topology.recoverable_workspace_ids
+            != next_machine_topology.recoverable_workspace_ids
+            || previous_machine_topology.workspace_creation_policy
+                != next_machine_topology.workspace_creation_policy
+        {
+            // Machine rows have no drag capture. Only the provider-owned
+            // workspace rows can change a native target in this rail update.
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Workspace]);
         }
         self.machine_pointer_context_cache = None;
         self.reconcile_workspace_rail_selection();
@@ -15493,7 +15511,11 @@ impl App {
             self.quit = true;
         }
         if previous_sidebar_topology != sidebar_tree_pointer_topology(&tree) {
-            self.invalidate_sidebar_pointer_topology();
+            self.invalidate_sidebar_pointer_domains(&[
+                SidebarPointerDomain::Workspace,
+                SidebarPointerDomain::Tabs,
+                SidebarPointerDomain::Projection,
+            ]);
         }
         let live_browsers = tree
             .workspaces()
@@ -16885,7 +16907,7 @@ impl App {
         let before = self.sidebar_files_pointer_topology();
         let changed = self.sidebar_files.follow_focused_cwd(&cwd);
         if changed && before != self.sidebar_files_pointer_topology() {
-            self.invalidate_sidebar_pointer_topology();
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
         }
         changed
     }
@@ -16898,7 +16920,7 @@ impl App {
         let before = self.sidebar_files_pointer_topology();
         self.sidebar_files.refresh();
         if before != self.sidebar_files_pointer_topology() {
-            self.invalidate_sidebar_pointer_topology();
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
         }
     }
 
@@ -16906,7 +16928,7 @@ impl App {
         let before = self.sidebar_files_pointer_topology();
         self.sidebar_files.reroot(directory);
         if before != self.sidebar_files_pointer_topology() {
-            self.invalidate_sidebar_pointer_topology();
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
         }
     }
 
@@ -16914,7 +16936,7 @@ impl App {
         let before = self.sidebar_files_pointer_topology();
         let command = self.sidebar_files.handle_key(key);
         if before != self.sidebar_files_pointer_topology() {
-            self.invalidate_sidebar_pointer_topology();
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
         }
         command
     }
@@ -16940,7 +16962,7 @@ impl App {
         }
         changed |= self.sidebar_files.tick(now);
         if before != self.sidebar_files_pointer_topology() {
-            self.invalidate_sidebar_pointer_topology();
+            self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Files]);
         }
         changed
     }
@@ -17669,14 +17691,12 @@ impl App {
         }
         match &event {
             AppEvent::Mux(MuxEvent::LayoutChanged(_)) => {
-                self.invalidate_sidebar_pointer_topology();
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::NormalizedInput(input) if input.is_routable() => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
-                self.invalidate_sidebar_pointer_topology();
                 if self.session.remote_tree_is_stale() {
                     self.session.refresh_remote_tree_if_stale();
                 } else {
@@ -18081,7 +18101,11 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
-                self.invalidate_sidebar_pointer_topology();
+                self.invalidate_sidebar_pointer_domains(&[
+                    SidebarPointerDomain::Workspace,
+                    SidebarPointerDomain::Tabs,
+                    SidebarPointerDomain::Projection,
+                ]);
                 self.retire_surface_state(id);
                 self.remove_surface_from_cached_tree(id);
                 if self.surface_only == Some(id) {
@@ -18200,8 +18224,10 @@ impl App {
                 // Agent rows have no native drag capture. Their paint-only
                 // refresh must not cancel a Files or Workspaces gesture in a
                 // neighboring rail.
-                let paint_requested = self
-                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Agent);
+                let paint_requested = self.invalidate_projection_rows_for_surface(
+                    surface,
+                    ProjectionSurfaceChange::Agent,
+                );
                 Ok(if paint_requested { RenderAction::Paint } else { RenderAction::None })
             }
             AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
@@ -18989,24 +19015,26 @@ impl App {
         self.advance_pointer_focus_generation();
     }
 
-    /// Native sidebar captures contain rendered row geometry. A tree, machine
-    /// catalog, or file-list update can replace that geometry before the next
-    /// frame. Cancel only those captures so pane, browser, and PTY gestures can
-    /// keep their established pass-through behavior.
-    fn invalidate_sidebar_pointer_topology(&mut self) {
-        if matches!(
-            self.drag,
-            Some(
-                Drag::TabArm { .. }
-                    | Drag::Tab { .. }
-                    | Drag::WorkspaceArm { .. }
+    /// Cancel a row capture only when its data owner changed. A machine
+    /// update, for example, must not interrupt a Files scrollbar drag.
+    fn invalidate_sidebar_pointer_domains(&mut self, domains: &[SidebarPointerDomain]) {
+        let should_cancel = self.drag.as_ref().is_some_and(|drag| {
+            domains.iter().any(|domain| match (domain, drag) {
+                (
+                    SidebarPointerDomain::Workspace,
+                    Drag::WorkspaceArm { .. }
                     | Drag::Workspace { .. }
-                    | Drag::WorkspaceScrollbar { .. }
-                    | Drag::FilesScrollbar { .. }
-                    | Drag::RailResize(_)
-                    | Drag::SidebarSplit { .. }
-            )
-        ) {
+                    | Drag::WorkspaceScrollbar { .. },
+                )
+                | (SidebarPointerDomain::Files, Drag::FilesScrollbar { .. })
+                | (SidebarPointerDomain::Tabs, Drag::TabArm { .. } | Drag::Tab { .. }) => true,
+                // The current projection rows have no native drag gesture.
+                // Keep this arm explicit so a future projection drag cannot
+                // accidentally inherit another rail's invalidation policy.
+                (SidebarPointerDomain::Projection, _) => false,
+            })
+        });
+        if should_cancel {
             self.invalidate_pointer_topology();
         }
     }
@@ -44688,11 +44716,17 @@ mod tests {
     }
 
     #[test]
-    fn machine_catalog_refresh_cancels_native_sidebar_capture_before_new_rows() {
+    fn machine_catalog_refresh_does_not_cancel_an_unrelated_files_capture() {
         let mux = Mux::new("machine-sidebar-pointer-boundary-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
         app.machine_ui = Some(provider_machine_ui());
-        app.drag = Some(Drag::RailResize(RailKind::Machine));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
         app.active_pointer_buttons.insert(MouseButton::Left);
 
         let mut update = provider_machine_ui();
@@ -44705,8 +44739,66 @@ mod tests {
         });
         app.apply_machine_ui_update(update);
 
-        assert!(app.drag.is_none(), "machine row changes must release old sidebar captures");
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn machine_workspace_refresh_cancels_workspace_capture_before_new_rows() {
+        let mux = Mux::new("machine-workspace-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
+
+        assert!(app.drag.is_none(), "new recoverable workspace rows must release old capture");
         assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn notification_tree_refresh_does_not_cancel_an_unrelated_files_capture() {
+        let mux = Mux::new("notification-files-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::TreeChanged)).unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+    }
+
+    #[test]
+    fn pane_layout_refresh_does_not_cancel_an_unrelated_files_capture() {
+        let mux = Mux::new("layout-files-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::LayoutChanged(1))).unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
     }
 
     #[test]
