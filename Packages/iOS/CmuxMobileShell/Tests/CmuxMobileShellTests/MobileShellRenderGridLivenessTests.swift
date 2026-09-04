@@ -633,6 +633,10 @@ import Testing
     #expect(try await pollUntil {
         await router.count(of: "mobile.events.subscribe") >= 2
     })
+    #expect(try await pollUntil {
+        await router.successfulSubscribeCount() >= 2
+    })
+    #expect(await router.successfulSubscribeStreamIDs().last?.isEmpty == false)
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionGeneration == originalGeneration)
     #expect(store.connectionState == .connected)
@@ -668,6 +672,10 @@ import Testing
     #expect(try await pollUntil {
         await router.count(of: "mobile.events.subscribe") >= 3
     })
+    #expect(try await pollUntil {
+        await router.successfulSubscribeCount() >= 2
+    })
+    #expect(await router.successfulSubscribeStreamIDs().last?.isEmpty == false)
     #expect(store.remoteClient === originalClient)
     #expect(store.connectionGeneration == originalGeneration)
     #expect(store.connectionState == .connected)
