@@ -685,6 +685,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     weak var tabManager: TabManager?
     weak var notificationStore: TerminalNotificationStore?
     weak var sidebarState: SidebarState?
+    /// Composition-root-owned context-pressure service for managed agent panes.
+    /// The reference is immutable so window/workspace lifetime cannot replace
+    /// the service underneath an in-flight recovery decision.
+    let agentContextManagementCoordinator = AgentContextManagementCoordinator()
 #if DEBUG
     private(set) var pullRequestProbeService = PullRequestProbeService(debugLog: { cmuxDebugLog($0) })
 #else
@@ -6783,24 +6787,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         return trimmed.isEmpty ? String(localized: "workspace.displayName.fallback", defaultValue: "Workspace") : trimmed
     }
 
+    @discardableResult
     func rollbackDetachedSurface(
         _ detached: Workspace.DetachedSurfaceTransfer,
         to workspace: Workspace,
         sourcePane: PaneID?,
         sourceIndex: Int?,
         focus: Bool
-    ) {
+    ) -> Bool {
         let rollbackPane = sourcePane.flatMap { pane in
             workspace.bonsplitController.allPaneIds.first(where: { $0 == pane })
         } ?? workspace.bonsplitController.focusedPaneId
             ?? workspace.bonsplitController.allPaneIds.first
-        guard let rollbackPane else { return }
-        _ = workspace.attachDetachedSurface(
+        guard let rollbackPane else {
+            agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: workspace
+            )
+            return false
+        }
+        let restored = workspace.attachDetachedSurface(
             detached,
             inPane: rollbackPane,
             atIndex: sourceIndex,
             focus: focus
         )
+        guard restored != nil else {
+            agentContextManagementCoordinator.remove(
+                panelId: detached.panelId,
+                workspace: workspace
+            )
+            return false
+        }
+        return true
     }
 
     func cleanupEmptySourceWorkspaceAfterSurfaceMove(
@@ -9633,6 +9652,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             text,
             to: workspace,
             preferredPanelId: terminalPanel.id,
+            isUserInitiated: true,
             onFailure: onSendFailure
         )
         return true
@@ -10935,29 +10955,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func handleFeedRequestSendText(_ notification: Notification) {
-        guard let surfaceId = notification.userInfo?["surfaceId"] as? String,
+        guard let workspaceId = notification.userInfo?["workspaceId"] as? String,
+              let claimedWorkspaceID = UUID(uuidString: workspaceId),
+              let surfaceId = notification.userInfo?["surfaceId"] as? String,
+              let claimedSurfaceID = UUID(uuidString: surfaceId),
               let text = notification.userInfo?["text"] as? String,
               !text.isEmpty
         else { return }
 
-        let controller = TerminalController.shared
-        let invoke: (String, [String: Any]) -> Void = { method, params in
-            let payload: [String: Any] = [
-                "id": UUID().uuidString,
-                "method": method,
-                "params": params,
-            ]
-            guard let data = try? JSONSerialization.data(withJSONObject: payload),
-                  let line = String(data: data, encoding: .utf8)
-            else { return }
-            _ = controller.handleSocketLine(line)
+        // Validate the notification's claimed address at the same live-owner
+        // boundary used by banner replies. A Feed card can outlive a panel
+        // move, so route the send through the current workspace rather than
+        // allowing a stale workspace id to select another terminal.
+        guard let target = liveSurfaceOwner(
+            surfaceID: claimedSurfaceID,
+            preferredTabID: claimedWorkspaceID
+        ) else { return }
+        let targetSurfaceID = target.surfaceID
+
+        let payload: [String: Any] = [
+            "id": UUID().uuidString,
+            "method": "surface.send_text",
+            "params": [
+                "workspace_id": target.tabID.uuidString,
+                "surface_id": targetSurfaceID.uuidString,
+                "text": text + "\r",
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload),
+              let line = String(data: data, encoding: .utf8),
+              let responseData = TerminalController.shared.handleSocketLine(line).data(using: .utf8),
+              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any],
+              response["ok"] as? Bool == true else {
+            return
         }
         // Terminal-mode Return is CR. sendNamedKey "Return" also works
         // but one send_text is atomic, so append CR directly.
-        invoke("surface.send_text", [
-            "surface_id": surfaceId,
-            "text": text + "\r",
-        ])
+        // Feed replies are user-authored input even though they travel
+        // through the socket bridge instead of the focused terminal view.
+        // Record cancellation only after the command accepted/queued input.
+        agentContextManagementCoordinator.userDidType(panelId: targetSurfaceID)
     }
 
     @objc private func handleReactGrabDidCopySelection(_ notification: Notification) {
@@ -11020,7 +11057,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             "focusedAfterRequest=\(Self.debugShortId(workspace.focusedPanelId))"
         )
 #endif
-        sendTextWhenReady(content, to: workspace, preferredPanelId: returnPanelId)
+        sendTextWhenReady(
+            content,
+            to: workspace,
+            preferredPanelId: returnPanelId,
+            isUserInitiated: true
+        )
     }
 
     nonisolated private static func debugShortId(_ id: UUID?) -> String {
@@ -11038,15 +11080,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         _ text: String,
         to tab: Tab,
         preferredPanelId: UUID? = nil,
+        isUserInitiated: Bool = false,
         beforeSend: (() -> Void)? = nil,
         onFailure: (() -> Void)? = nil
     ) {
         let isReactGrabPasteback = preferredPanelId != nil
-#if DEBUG
         let initialTargetPanel = Self.resolveTerminalPanelForTextSend(
             in: tab,
             preferredPanelId: preferredPanelId
         )
+        if isUserInitiated, initialTargetPanel?.surface.surface == nil {
+            // A cold user-targeted paste can wait for runtime creation while
+            // PTY output continues. Cancel pending recovery before that wait
+            // so a pressure callback cannot win the keyboard race; the shared
+            // send path still records the accepted write when it eventually
+            // arrives.
+            initialTargetPanel?.surface.didObserveUserInitiatedInput()
+        }
+#if DEBUG
         if isReactGrabPasteback {
             cmuxDebugLog(
                 "reactGrab.pasteback h2.send.start " +
@@ -11065,7 +11116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ),
            terminalPanel.isAgentHibernated {
             beforeSend?()
-            if !terminalPanel.sendText(text) {
+            if !terminalPanel.sendText(text, isUserInitiated: isUserInitiated) {
                 onFailure?()
             }
             return
@@ -11086,7 +11137,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             }
 #endif
             beforeSend?()
-            let didSend = terminalPanel.sendText(text)
+            let didSend = terminalPanel.sendText(
+                text,
+                isUserInitiated: isUserInitiated
+            )
 #if DEBUG
             if isReactGrabPasteback, didSend {
                 cmuxDebugLog(
@@ -11145,7 +11199,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             resolved = true
             cleanupObservers()
             beforeSend?()
-            let didSend = terminalPanel.sendText(text)
+            let didSend = terminalPanel.sendText(
+                text,
+                isUserInitiated: isUserInitiated
+            )
 #if DEBUG
             if isReactGrabPasteback, didSend {
                 cmuxDebugLog(
@@ -15723,8 +15780,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 case .rejected:
                     NSSound.beep()
                 case .acceptedMutation:
-                    // The font mutation fans out across the workspace. Attribute
-                    // the handled input only to the responder that originated it.
+                    // The font mutation fans out across the workspace. Notify
+                    // only the responder that originated it; this shortcut is
+                    // not human prompt input for context-management purposes.
                     originatingSurface?.didReceiveExplicitInput()
                     originatingSurface?.didAcceptExplicitInput()
                 case .consumedWithoutMutation:

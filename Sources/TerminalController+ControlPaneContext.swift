@@ -654,11 +654,23 @@ extension TerminalController: ControlPaneContext {
             select: focus
         ) else {
             if let sourcePaneForRollback {
-                _ = sourceWorkspace.attachDetachedSurface(
+                if sourceWorkspace.attachDetachedSurface(
                     detached,
                     inPane: sourcePaneForRollback,
                     atIndex: sourceIndex,
                     focus: true
+                ) == nil {
+                    AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                        panelId: detached.panelId,
+                        workspace: sourceWorkspace,
+                        ownerOverride: .workspace(sourceWorkspace)
+                    )
+                }
+            } else {
+                AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: sourceWorkspace,
+                    ownerOverride: .workspace(sourceWorkspace)
                 )
             }
             return .createWorkspaceFailed

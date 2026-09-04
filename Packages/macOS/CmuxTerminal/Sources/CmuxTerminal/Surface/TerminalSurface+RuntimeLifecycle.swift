@@ -166,9 +166,11 @@ extension TerminalSurface {
             let callbackContext = surfaceCallbackContext
             invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: false)
             surfaceCallbackContext = nil
+            contextPressureDetectorGeneration &+= 1
             let manualIOContext = self.manualIOContext
             self.manualIOContext = nil
             let teeLease = mobileByteTeeLease
+            teeLease?.setContextPressureMonitoringEnabled(false)
             mobileByteTeeLease = nil
             let retiredRemoteOutputLane = retireRemoteOutputLane()
             let staleRuntimeResources = TerminalSurfaceStaleRuntimeResources(
@@ -306,9 +308,11 @@ extension TerminalSurface {
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
+        contextPressureDetectorGeneration &+= 1
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
+        teeLease?.setContextPressureMonitoringEnabled(false)
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
         if let surfaceToFree {
@@ -400,9 +404,11 @@ extension TerminalSurface {
         let retiredRemoteOutputLane = retireRemoteOutputLane()
         invalidateRuntimeClipboardRequests(in: callbackContext, completingNativeRequests: surfaceToFree != nil)
         surfaceCallbackContext = nil
+        contextPressureDetectorGeneration &+= 1
         let manualIOContext = manualIOContext
         self.manualIOContext = nil
         let teeLease = mobileByteTeeLease
+        teeLease?.setContextPressureMonitoringEnabled(false)
         mobileByteTeeLease = nil
         byteTee.dropSurface(surfaceID: id)
 
@@ -816,8 +822,17 @@ extension TerminalSurface {
         // and feed them into their own libghostty surface, guaranteeing
         // grid parity by construction. The lease is released alongside
         // `surfaceCallbackContext` when the surface tears down.
+        mobileByteTeeLease?.setContextPressureMonitoringEnabled(false)
         mobileByteTeeLease?.release()
-        mobileByteTeeLease = byteTee.installTee(on: createdSurface, workspaceID: tabId, surfaceID: id)
+        contextPressureDetectorGeneration &+= 1
+        mobileByteTeeLease = byteTee.installTee(
+            on: createdSurface,
+            workspaceID: tabId,
+            surfaceID: id,
+            contextPressureDetectorGeneration: contextPressureDetectorGeneration,
+            contextPressureMonitoringEnabled: contextPressureMonitoringEnabled,
+            contextPressureProvider: contextPressureProvider
+        )
         if runtimeInitialInput != nil {
             nextRuntimeInitialInput = nil
         }

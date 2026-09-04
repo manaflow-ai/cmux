@@ -642,6 +642,12 @@ final class CmuxSettingsFileStore {
             logInvalid("terminal.agentHibernation", sourcePath: sourcePath)
         }
 
+        parseAgentContextManagementSection(
+            from: section,
+            sourcePath: sourcePath,
+            snapshot: &snapshot
+        )
+
         if let rawRendererRealization = section["rendererRealization"],
            let rendererRealization = rawRendererRealization as? [String: Any] {
             if let value = jsonBool(rendererRealization["enabled"]) {
@@ -1630,6 +1636,7 @@ final class CmuxSettingsFileStore {
         let changes = sideEffects.changes
         let apply = {
             var agentSessionAutoResumeDidChange = false
+            var agentContextManagementDidChange = false
             var agentHibernationDidChange = false
             var rendererRealizationDidChange = false
             var paneChromeDidChange = false
@@ -1656,6 +1663,11 @@ final class CmuxSettingsFileStore {
                 if change.defaultsKey == AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey {
                     agentSessionAutoResumeDidChange = true
                 }
+                if change.defaultsKey == TerminalCatalogSection().agentContextManagementEnabled.userDefaultsKey ||
+                    change.defaultsKey == TerminalCatalogSection().agentContextManagementAction.userDefaultsKey ||
+                    change.defaultsKey == TerminalCatalogSection().agentContextManagementPreserveState.userDefaultsKey {
+                    agentContextManagementDidChange = true
+                }
                 if change.defaultsKey == AgentHibernationSettings.enabledKey ||
                     change.defaultsKey == AgentHibernationSettings.idleSecondsKey ||
                     change.defaultsKey == AgentHibernationSettings.maxLiveTerminalsKey ||
@@ -1680,6 +1692,12 @@ final class CmuxSettingsFileStore {
 
             if agentSessionAutoResumeDidChange {
                 AgentSessionAutoResumeSettings.notifyDidChange(notificationCenter: notificationCenter)
+            }
+            if agentContextManagementDidChange {
+                AgentContextManagementSettings(
+                    defaults: UserDefaults.standard,
+                    notificationCenter: notificationCenter
+                ).notifyDidChange()
             }
             if agentHibernationDidChange {
                 AgentHibernationSettings.notifyDidChange(notificationCenter: notificationCenter)

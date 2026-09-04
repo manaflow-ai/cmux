@@ -24,9 +24,20 @@ extension DockSplitStore {
         restoredTerminalScrollbackByPanelId.removeAll()
         terminalStartupRestoreCoordinator.removeAllRestores()
         clearDeferredAgentResumeRestores()
-        surfaceResumeBindingsByPanelId.removeAll()
+        let removedBindingPanelIds = Set(surfaceResumeBindingsByPanelId.keys)
+            .union(managedAgentResumeBindingsByPanelId.keys)
+        // Remove the managed fallback before publishing effective binding
+        // removals; otherwise the coordinator would still resolve a managed
+        // session while the effective map is being cleared.
         surfaceResumeRestoreClaimsByPanelId.removeAll()
         managedAgentResumeBindingsByPanelId.removeAll()
+        removeAllSurfaceResumeBindings()
+        if let coordinator = AppDelegate.shared?.agentContextManagementCoordinator {
+            coordinator.remove(
+                panelIds: Array(removedBindingPanelIds),
+                owner: .dock(self)
+            )
+        }
         invalidatedCachedTransferAgentSessionPanelIds.removeAll()
         replacedCachedTransferAgentSessionPanelIds.removeAll()
         manualUnreadPanelIds.removeAll()

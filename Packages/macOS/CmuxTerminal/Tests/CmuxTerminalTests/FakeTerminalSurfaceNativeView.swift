@@ -17,6 +17,10 @@ final class FakeTerminalSurfaceNativeView: NSView {
     var deferredRuntimeInputs: [() -> Void] = []
     var deferredRuntimeInputBytes: [Int] = []
     var mobileMouseButtonEvents: [String] = []
+    // This fixture deliberately has no clipboard sequencer, so it opts into
+    // the immediate path explicitly rather than relying on the production
+    // protocol's fail-closed default.
+    var canAcceptImmediateContextManagementInput: Bool { true }
 
     func toggleKeyboardCopyMode() -> Bool { false }
     func cancelKeyboardCopyMode() {

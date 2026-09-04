@@ -572,7 +572,7 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
         failures,
     )
     hooks = settings.get("hooks", {})
-    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest"}
+    expected_hooks = {"SessionStart", "Stop", "SubagentStop", "SessionEnd", "Notification", "UserPromptSubmit", "PreCompact", "PreToolUse", "PostToolUse", "PermissionRequest"}
     expect(set(hooks.keys()) == expected_hooks, f"unexpected hook keys: {hooks.keys()}, expected {expected_hooks}", failures)
     for hook_name, expected_subcommand in {
         "SessionStart": "session-start",
@@ -587,6 +587,16 @@ def test_live_socket_injects_supported_hooks_without_unlocking_bypass(failures: 
             f"{hook_name} hook should pin bundled cmux, got {hook_command!r}",
             failures,
         )
+    pre_compact_hooks = hooks.get("PreCompact", [{}])[0].get("hooks", [{}])
+    expect(
+        any(
+            h.get("command") == '"${CMUX_CLAUDE_HOOK_CMUX_BIN:-cmux}" hooks feed --source claude --event PreCompact'
+            and h.get("async") is True
+            for h in pre_compact_hooks
+        ),
+        f"PreCompact hook should asynchronously call hooks feed, got {pre_compact_hooks}",
+        failures,
+    )
     pre_tool_use_groups = hooks.get("PreToolUse", [])
     cron_guard_groups = [group for group in pre_tool_use_groups if group.get("matcher") == "CronCreate"]
     expect(cron_guard_groups, f"PreToolUse should install a CronCreate guard, got {pre_tool_use_groups}", failures)
@@ -717,7 +727,7 @@ def test_live_socket_merges_user_settings_into_hooks(failures: list[str]) -> Non
     )
     expected_hooks = {
         "SessionStart", "Stop", "SubagentStop", "SessionEnd",
-        "Notification", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
+        "Notification", "UserPromptSubmit", "PreCompact", "PreToolUse", "PostToolUse", "PermissionRequest",
     }
     expect(
         set(settings.get("hooks", {}).keys()) == expected_hooks,

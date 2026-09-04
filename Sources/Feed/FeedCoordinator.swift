@@ -149,6 +149,10 @@ final class FeedCoordinator: @unchecked Sendable {
     func ingestRevalidatedOnMainActor(_ event: WorkstreamEvent) -> UUID? {
         guard let store else { return nil }
         store.ingest(event)
+        // Only an accepted, target-revalidated provider hook can confirm a
+        // pressure episode. Raw PTY marker matches remain diagnostic until the
+        // context coordinator receives this structured evidence.
+        AppDelegate.shared?.agentContextManagementCoordinator.confirmProviderEvidence(from: event)
         if let ppid = event.ppid, ppid > 0 {
             armPidWatcher(ppid: ppid)
         }

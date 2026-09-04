@@ -5284,7 +5284,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     @discardableResult
     func prepareSurfaceForPaste(reason: String) -> Bool {
         let inputSurface = terminalSurface
-        let cancelledDeferredAdmission = inputSurface?.didReceiveExplicitInput() == true
+        let cancelledDeferredAdmission = inputSurface?.didReceiveExplicitInput(
+            isUserInitiated: true
+        ) == true
         guard ensureSurfaceReadyForInput() != nil else {
             if cancelledDeferredAdmission || inputSurface?.canCreateRuntimeSurface == true,
                let inputSurface {
@@ -6422,8 +6424,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func keyDown(with event: NSEvent) {
+        // Cancel pending context recovery before clipboard sequencing can defer
+        // this user event; admission itself is authoritative user intent.
+        let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput(
+            isUserInitiated: true
+        ) == true
         if routeInputDuringClipboardRead(event) { return }
-        let cancelledDeferredAdmission = terminalSurface?.didReceiveExplicitInput() == true
 #if DEBUG
         let typingTimingStart = CmuxTypingTiming.start()
         let phaseTotalStart = ProcessInfo.processInfo.systemUptime
@@ -7559,6 +7565,9 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
     }
 
     override func mouseDown(with event: NSEvent) {
+        // A deferred terminal click is user intent and must win over a pending
+        // context-recovery write before the clipboard sequencer queues it.
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
         reconcileGhosttyMouseButtons(
             reason: "mouseDown.preflight",
@@ -8422,6 +8431,7 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
 #endif
 
     override func rightMouseDown(with event: NSEvent) {
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
         reconcileGhosttyMouseButtons(
             reason: "rightMouseDown.preflight",
@@ -8433,7 +8443,6 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.rightMouseDown(with: event)
             return
         }
-
         let mouseState = rememberGhosttyMouseState(from: event)
         ghostty_surface_mouse_pos(surface, mouseState.surfacePoint.x, mouseState.surfacePoint.y, mouseState.mods)
         _ = sendGhosttyMouseButton(
@@ -8482,12 +8491,12 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
             super.otherMouseDown(with: event)
             return
         }
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         if routeInputDuringClipboardRead(event) { return }
         reconcileGhosttyMouseButtons(
             reason: "otherMouseDown.preflight",
             forceButtons: Set([.middle])
         )
-        terminalSurface?.didReceiveExplicitInput()
         requestPointerFocusRecovery()
         window?.makeFirstResponder(self)
         guard let surface = surface else { return }
@@ -9245,7 +9254,10 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         case .reject:
             return false
         case .insertText(let text):
-            return terminalSurface?.sendText(text) ?? false
+            return terminalSurface?.sendText(
+                text,
+                isUserInitiated: true
+            ) ?? false
         case .fileURLs(let fileURLs):
             let plan = TerminalImageTransferPlanner.plan(
                 fileURLs: fileURLs,
@@ -10970,7 +10982,11 @@ final class GhosttySurfaceScrollView: NSView {
             onNavigateSearch: { [weak terminalSurface] direction in
                 _ = direction.perform { terminalSurface?.performExplicitInputBindingAction($0) ?? false }
             },
-            onSearchTextChanged: { [weak terminalSurface] in terminalSurface?.didReceiveExplicitInput() },
+            onSearchTextChanged: { [weak terminalSurface] in
+                // Find-field edits never reach the agent PTY, so they must
+                // retain the non-user input boundary for context recovery.
+                terminalSurface?.didReceiveExplicitInput()
+            },
             onFieldDidFocus: { [weak self, weak terminalSurface] in
                 self?.searchFocusTarget = .searchField
                 terminalSurface?.setFocus(false)
@@ -13273,7 +13289,7 @@ extension GhosttyNSView: NSTextInputClient {
     /// automation payloads remain byte-for-byte stable.
     fileprivate func sendTextToSurface(_ chars: String, preserveLiteralEscape: Bool) {
         guard !chars.isEmpty else { return }
-        terminalSurface?.didReceiveExplicitInput()
+        terminalSurface?.didReceiveExplicitInput(isUserInitiated: true)
         recordDirectAgentHibernationTerminalInput()
         sendTextToSurfaceAfterInputNotification(
             chars,

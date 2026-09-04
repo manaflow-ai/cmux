@@ -293,4 +293,83 @@ extension CMUXCLI {
             isAuthoritative: true
         ))
     }
+
+    /// Validates a generic Claude/Codex feed event against the live managed
+    /// binding before attaching a pane target. Hook/environment surface ids are
+    /// claims, not authority: the app must still report the current owner and
+    /// a matching agent-hook checkpoint for this exact session.
+    func validatedFeedSurfaceTarget(
+        source: String,
+        sessionId: String?,
+        surfaceId: String?,
+        workspaceId: String?,
+        client: SocketClient,
+        responseTimeout: TimeInterval = 1.0
+    ) -> (workspaceId: String, surfaceId: String)? {
+        let normalizedSource = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard normalizedSource == "claude" || normalizedSource == "codex",
+              let sessionId = normalizedHookValue(sessionId),
+              let surfaceId = normalizedHookValue(surfaceId),
+              isUUID(surfaceId) else {
+            return nil
+        }
+
+        var params: [String: Any] = ["surface_id": surfaceId]
+        if let workspaceId = normalizedHookValue(workspaceId), isUUID(workspaceId) {
+            params["workspace_id"] = workspaceId
+        }
+        let payload: [String: Any]
+        do {
+            let boundedTimeout = responseTimeout.isFinite
+                ? min(max(responseTimeout, 0.05), 1.0)
+                : 0.05
+            payload = try client.sendV2(
+                method: "surface.resume.get",
+                params: params,
+                responseTimeout: boundedTimeout
+            )
+        } catch {
+            return nil
+        }
+        guard let liveWorkspaceId = normalizedHandleValue(payload["workspace_id"] as? String),
+              isUUID(liveWorkspaceId),
+              let liveSurfaceId = normalizedHandleValue(payload["surface_id"] as? String),
+              isUUID(liveSurfaceId),
+              let binding = payload["resume_binding"] as? [String: Any],
+              let kind = normalizedHookValue(binding["kind"] as? String)?.lowercased(),
+              (normalizedSource == "claude"
+                  ? kind == "claude" || kind == "claude_code"
+                  : kind == "codex"),
+              normalizedHookValue(binding["source"] as? String)?.lowercased() == "agent-hook",
+              let checkpoint = normalizedHookValue(binding["checkpoint_id"] as? String),
+              Self.feedSessionIDsMatch(checkpoint, sessionId, source: normalizedSource) else {
+            return nil
+        }
+        return (liveWorkspaceId, liveSurfaceId)
+    }
+
+    private static func feedSessionIDsMatch(
+        _ checkpoint: String,
+        _ sessionId: String,
+        source: String
+    ) -> Bool {
+        let normalizedCheckpoint = checkpoint.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedSession = sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedCheckpoint.isEmpty, !normalizedSession.isEmpty else { return false }
+        if normalizedCheckpoint.caseInsensitiveCompare(normalizedSession) == .orderedSame {
+            return true
+        }
+        let loweredCheckpoint = normalizedCheckpoint.lowercased()
+        let loweredSession = normalizedSession.lowercased()
+        let prefixes = [
+            "\(source)-",
+            "\(source)_",
+            "\(source)-code-",
+            "\(source)_code_",
+        ]
+        return prefixes.contains { prefix in
+            loweredCheckpoint.hasPrefix(prefix)
+                && String(loweredCheckpoint.dropFirst(prefix.count)) == loweredSession
+        }
+    }
 }

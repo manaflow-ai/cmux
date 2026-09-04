@@ -1612,12 +1612,12 @@ private final class TextBoxSubmitEventRunner {
 
             switch event {
             case .keyText(let text):
-                guard surface.sendKeyText(text) else {
+                guard surface.sendKeyText(text, isUserInitiated: true) else {
                     fail(.terminalWriteRejected)
                     return
                 }
             case .pasteText(let text):
-                guard surface.sendText(text) else {
+                guard surface.sendText(text, isUserInitiated: true) else {
                     fail(.terminalWriteRejected)
                     return
                 }
@@ -1634,13 +1634,13 @@ private final class TextBoxSubmitEventRunner {
             case .namedKeyRepeat(let key, let count):
                 guard count > 0 else { continue }
                 for _ in 0..<count {
-                    guard surface.sendNamedKey(key).acceptedForTextBoxSubmit else {
+                    guard surface.sendNamedKey(key, isUserInitiated: true).acceptedForTextBoxSubmit else {
                         fail(.terminalWriteRejected)
                         return
                     }
                 }
             case .namedKey(let key):
-                guard surface.sendNamedKey(key).acceptedForTextBoxSubmit else {
+                guard surface.sendNamedKey(key, isUserInitiated: true).acceptedForTextBoxSubmit else {
                     fail(.terminalWriteRejected)
                     return
                 }
@@ -2052,7 +2052,8 @@ private final class TextBoxSubmitEventRunner {
         ) else {
             filePasteFallbackSatisfiedClipboardRead = true
             return surface.sendText(
-                TerminalImageTransferPlanner.escapeForShell(path)
+                TerminalImageTransferPlanner.escapeForShell(path),
+                isUserInitiated: true
             ) ? .completed : .rejected
         }
         pasteFilePathMutationLease = lease
@@ -2081,7 +2082,8 @@ private final class TextBoxSubmitEventRunner {
                 _ = lease.finish()
                 filePasteFallbackSatisfiedClipboardRead = true
                 guard surface.sendText(
-                    TerminalImageTransferPlanner.escapeForShell(path)
+                    TerminalImageTransferPlanner.escapeForShell(path),
+                    isUserInitiated: true
                 ) else {
                     fail(.terminalWriteRejected)
                     return
@@ -2114,7 +2116,8 @@ private final class TextBoxSubmitEventRunner {
             guard handled else {
                 filePasteFallbackSatisfiedClipboardRead = true
                 let sentFallback = surface.sendText(
-                    TerminalImageTransferPlanner.escapeForShell(path)
+                    TerminalImageTransferPlanner.escapeForShell(path),
+                    isUserInitiated: true
                 )
                 restorePasteboardIfNeeded()
                 guard sentFallback else {
@@ -2757,18 +2760,18 @@ struct TextBoxInputContainer: View {
     }
 
     private func forwardText(_ text: String, focusTerminalAfterSend: Bool) {
-        surface.sendInput(text)
+        surface.sendInput(text, isUserInitiated: true)
         if focusTerminalAfterSend {
             focusTerminal()
         }
     }
 
     private func forwardKey(_ key: TextBoxTerminalKey) {
-        _ = surface.sendNamedKey(key.rawValue)
+        _ = surface.sendNamedKey(key.rawValue, isUserInitiated: true)
     }
 
     private func forwardControl(_ key: String) {
-        _ = surface.sendNamedKey("ctrl-\(key)")
+        _ = surface.sendNamedKey("ctrl-\(key)", isUserInitiated: true)
     }
 
     func ownsTextView(_ textView: TextBoxInputTextView) -> Bool {

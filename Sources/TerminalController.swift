@@ -5572,7 +5572,24 @@ class TerminalController {
                     ?? sourceWorkspace.bonsplitController.focusedPaneId
                     ?? sourceWorkspace.bonsplitController.allPaneIds.first
                 if let rollbackPane {
-                    _ = sourceWorkspace.attachDetachedSurface(transfer, inPane: rollbackPane, atIndex: sourceIndex, focus: focus)
+                    if sourceWorkspace.attachDetachedSurface(
+                        transfer,
+                        inPane: rollbackPane,
+                        atIndex: sourceIndex,
+                        focus: focus
+                    ) == nil {
+                        app.agentContextManagementCoordinator.remove(
+                            panelId: transfer.panelId,
+                            workspace: sourceWorkspace,
+                            ownerOverride: .workspace(sourceWorkspace)
+                        )
+                    }
+                } else {
+                    app.agentContextManagementCoordinator.remove(
+                        panelId: transfer.panelId,
+                        workspace: sourceWorkspace,
+                        ownerOverride: .workspace(sourceWorkspace)
+                    )
                 }
                 result = .err(code: "internal_error", message: "Failed to attach surface to destination", data: nil)
                 return
@@ -15904,7 +15921,10 @@ class TerminalController {
         #if DEBUG
         let sendStart = ProcessInfo.processInfo.systemUptime
         #endif
-        let sendResult = terminalTarget.sendInputResult(text)
+        let sendResult = terminalTarget.sendInputResult(
+            text,
+            isUserInitiated: true
+        )
         switch sendResult {
         case .sent:
             terminalTarget.forceRefresh(reason: "mobileHost.terminalInput")
@@ -15972,7 +15992,10 @@ class TerminalController {
             return .err(code: "invalid_params", message: "Image payload was empty or exceeded the size limit", data: nil)
         }
 
-        let sendResult = terminalTarget.sendInputResult(escapedPath)
+        let sendResult = terminalTarget.sendInputResult(
+            escapedPath,
+            isUserInitiated: true
+        )
         switch sendResult {
         case .sent:
             terminalTarget.forceRefresh(reason: "mobileHost.terminalPasteImage")
@@ -16068,7 +16091,7 @@ class TerminalController {
         // surface): they run `resumeForExplicitInputIfNeeded()` first, waking a
         // hibernated agent terminal the same way local typing does, so a mobile
         // composer submit cannot write into a cold surface.
-        guard terminalTarget.sendText(text) else {
+        guard terminalTarget.sendText(text, isUserInitiated: true) else {
             return .err(code: "surface_unavailable", message: Self.terminalSurfaceUnavailableMessage, data: ["surface_id": surfaceId.uuidString])
         }
 
@@ -16082,7 +16105,10 @@ class TerminalController {
         var submitted = false
         var submitError: String?
         if let submitKeyName {
-            let keyResult = terminalTarget.sendNamedKeyResult(submitKeyName)
+            let keyResult = terminalTarget.sendNamedKeyResult(
+                submitKeyName,
+                isUserInitiated: true
+            )
             if keyResult.accepted {
                 submitted = true
             } else {

@@ -9,6 +9,51 @@ public import GhosttyKit
 public protocol TerminalByteTeeLease: AnyObject, Sendable {
     /// Balances the retain taken when the tee was installed.
     func release()
+
+    /// Requests that provider-specific context-pressure parser state be reset
+    /// to a new surface-owned generation before the tee consumes its next PTY
+    /// output chunk.
+    ///
+    /// The request is deliberately asynchronous across the PTY callback
+    /// boundary: the callback owns parser mutation, while callers such as the
+    /// main-actor recovery coordinator only publish a short-lived reset edge.
+    /// - Parameter generation: Monotonic generation allocated by the owning
+    ///   ``TerminalSurface``.
+    func resetContextPressureDetectors(to generation: UInt64)
+
+    /// Enables or disables provider-pressure parsing for this runtime surface.
+    ///
+    /// The flag is consumed synchronously by the serialized PTY callback. The
+    /// caller should enable it only after an authoritative managed-session
+    /// binding exists, and disable it before that binding is removed.
+    /// - Parameter enabled: Whether this surface is currently eligible for
+    ///   context-pressure detection/reporting. Automated recovery writes are
+    ///   gated separately by the app-level policy setting.
+    func setContextPressureMonitoringEnabled(_ enabled: Bool)
+
+    /// Selects the provider whose pressure detector is eligible on this
+    /// surface. The hint is a persisted managed-agent kind (for example,
+    /// `claude` or `codex`); nil clears the selection.
+    ///
+    /// - Parameter provider: The authoritative provider hint, or nil while the
+    ///   surface is unbound.
+    func setContextPressureProvider(_ provider: String?)
+}
+
+/// Supplies safe no-op context-monitoring operations for tee implementations
+/// that only forward mobile bytes and do not parse provider pressure.
+public extension TerminalByteTeeLease {
+    /// Default no-op for tee leases that do not install context-pressure
+    /// detectors.
+    func resetContextPressureDetectors(to _: UInt64) {}
+
+    /// Default no-op for tee leases that do not install context-pressure
+    /// detectors.
+    func setContextPressureMonitoringEnabled(_: Bool) {}
+
+    /// Default no-op for tee leases that do not install context-pressure
+    /// detectors.
+    func setContextPressureProvider(_: String?) {}
 }
 
 /// Installs and tears down the shared PTY output tee for runtime surfaces.
@@ -22,12 +67,21 @@ public protocol TerminalByteTeeBinding: AnyObject, Sendable {
     ///   - surface: The live runtime surface.
     ///   - workspaceID: The workspace that owns the surface.
     ///   - surfaceID: The owning surface id used to key tee state.
+    ///   - contextPressureDetectorGeneration: The initial parser generation for
+    ///     this runtime-surface lifetime.
+    ///   - contextPressureMonitoringEnabled: Whether provider-pressure parsing
+    ///     is eligible when the callback is installed.
+    ///   - contextPressureProvider: The authoritative provider hint, or nil
+    ///     until the surface receives a managed-session binding.
     /// - Returns: The retained lease the caller releases on teardown.
     @MainActor
     func installTee(
         on surface: ghostty_surface_t,
         workspaceID: UUID,
-        surfaceID: UUID
+        surfaceID: UUID,
+        contextPressureDetectorGeneration: UInt64,
+        contextPressureMonitoringEnabled: Bool,
+        contextPressureProvider: String?
     ) -> any TerminalByteTeeLease
 
     /// Drops all tee/replay state keyed by a surface id.

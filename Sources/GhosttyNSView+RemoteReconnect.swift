@@ -53,6 +53,6 @@ extension GhosttyNSView {
             workspace.reconnectRemoteConnection(surfaceId: panel.id)
             return
         }
-        panel.sendInput("r\r")
+        panel.sendInput("r\r", isUserInitiated: true)
     }
 }

@@ -2240,6 +2240,8 @@ def test_codex_lifecycle_feed_events_stay_telemetry_and_distinct(cli_path: str, 
         event = params["event"]
         if event.get("hook_event_name") != event_name or event.get("_source") != "codex":
             raise AssertionError(f"Codex {event_name} should stay distinct in Feed, got {event!r}")
+        if event_name in {"PreCompact", "PostCompact"} and event.get("surface_id") != FAKE_SURFACE_ID:
+            raise AssertionError(f"Codex {event_name} should retain the live surface id, got {event!r}")
         if event_name == "PostToolUse":
             tool_input = event.get("tool_input")
             if not isinstance(tool_input, dict):

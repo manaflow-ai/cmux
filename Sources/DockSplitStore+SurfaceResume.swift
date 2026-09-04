@@ -106,7 +106,7 @@ extension DockSplitStore {
             restoredAgentLifecycle.setSnapshot(restorableAgent, panelId: panelId)
             restoredAgentLifecycle.invalidatedFingerprintsByPanelId.removeValue(forKey: panelId)
         }
-        surfaceResumeBindingsByPanelId[panelId] = binding
+        updateSurfaceResumeBinding(panelId: panelId, to: binding)
         return true
     }
 
@@ -234,7 +234,15 @@ extension DockSplitStore {
             managedAgentResumeBindingsByPanelId.removeValue(forKey: panelId)
             if let effectiveBinding = surfaceResumeBindingsByPanelId[panelId],
                Self.dockResumeBindingsRepresentSameManagedSession(effectiveBinding, binding) {
-                surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+                updateSurfaceResumeBinding(panelId: panelId, to: nil)
+            } else {
+                // A delayed teardown for the managed binding must not erase a
+                // replacement binding that already owns the live surface.
+                updateSurfaceResumeBinding(
+                    panelId: panelId,
+                    to: surfaceResumeBindingsByPanelId[panelId],
+                    notifyWhenUnchanged: true
+                )
             }
             if cachedTransferContainsManagedSession(
                 panelId: panelId,
@@ -256,7 +264,7 @@ extension DockSplitStore {
               effectiveBinding == binding else {
             return false
         }
-        surfaceResumeBindingsByPanelId.removeValue(forKey: panelId)
+        updateSurfaceResumeBinding(panelId: panelId, to: nil)
         clearAgentRestoreStateOwned(
             by: binding,
             panelId: panelId,

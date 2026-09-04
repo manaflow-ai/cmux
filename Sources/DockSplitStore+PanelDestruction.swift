@@ -10,6 +10,7 @@ extension DockSplitStore {
 
     @discardableResult
     func discardPanelStateAndClose(panelId: UUID) -> (any Panel)? {
+        AppDelegate.shared?.agentContextManagementCoordinator.remove(panelId: panelId, workspace: nil)
         if panels[panelId] is BrowserPanel {
             removeBrowserOpenTabSuggestion(panelId: panelId)
         }

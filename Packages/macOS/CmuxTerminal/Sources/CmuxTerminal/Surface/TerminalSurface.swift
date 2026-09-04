@@ -252,6 +252,8 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     @MainActor public var onVisualBell: (@MainActor () -> Void)?
     /// Routes accepted explicit user input to the surface's current panel owner.
     @MainActor public var onExplicitInput: (@MainActor () -> Void)?
+    /// Observes explicit user input without replacing the owner callback.
+    @MainActor public var onUserExplicitInput: (@MainActor () -> Void)?
     /// Notifies the owner when explicit input cancels a deferred auto-resume.
     @MainActor public var onStartupRestoreAdmissionCancelled: (@MainActor () -> Void)?
     /// Called after durable font-size lineage changes.
@@ -359,6 +361,20 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     /// coordinator's request). Releasing earlier is a use-after-free on the
     /// io-reader thread.
     var mobileByteTeeLease: (any TerminalByteTeeLease)?
+    /// Monotonic across runtime replacement so queued detector events from an
+    /// older tee lifetime can never authorize input in a newer one.
+    // Kept nonisolated so deinit can invalidate the retiring tee generation
+    // before handing callback userdata to asynchronous native teardown. The
+    // surface model is non-Sendable; all ordinary reads/writes remain on the
+    // main actor, with deinit as the one teardown exception.
+    var contextPressureDetectorGeneration: UInt64 = 0
+    /// Desired pressure-monitoring eligibility. This survives a cold or
+    /// replaced runtime so a newly installed tee starts with the authoritative
+    /// managed-session state instead of waiting for another lifecycle event.
+    @MainActor var contextPressureMonitoringEnabled = false
+    /// Desired managed provider for the pressure tee. Nil keeps provider
+    /// parsing disabled until an authoritative binding is published.
+    @MainActor var contextPressureProvider: String? = nil
     /// The desired focus state for the Ghostty C surface. May be set before the
     /// C surface exists (e.g. during layout restoration); `createSurface`
     /// reapplies this value once the runtime surface exists, then keeps using it
@@ -725,6 +741,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // replay buffers keyed by the old id. If teardown already ran, it nil'd
         // mobileByteTeeLease, so teeLease is nil here and ?.release() no-ops.
         let teeLease = mobileByteTeeLease
+        // Disable delivery before handing the lease to asynchronous native
+        // teardown; queued pressure events must not reach a retired surface.
+        teeLease?.setContextPressureMonitoringEnabled(false)
+        contextPressureDetectorGeneration &+= 1
         mobileByteTeeLease = nil
         // `dropSurface` is @MainActor but `deinit` is nonisolated, so hop to the
         // main actor with the surface id captured by value (no self capture).

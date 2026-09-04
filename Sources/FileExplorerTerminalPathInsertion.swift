@@ -66,7 +66,7 @@ enum FileExplorerTerminalPathInsertion {
         guard !text.isEmpty else { return false }
 
         guard let terminalPanel = targetTerminalPanel(for: window) else { return false }
-        terminalPanel.sendText(text)
+        terminalPanel.sendText(text, isUserInitiated: true)
         return true
     }
 

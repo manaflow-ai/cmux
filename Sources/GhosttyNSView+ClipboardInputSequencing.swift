@@ -127,6 +127,12 @@ extension GhosttyNSView {
         )
     }
 
+    var canAcceptImmediateContextManagementInput: Bool {
+        !terminalClipboardInputSequencer.hasInputDeferral(
+            for: terminalSurface?.runtimeSurfaceGeneration ?? .max
+        )
+    }
+
     func withPotentialClipboardPasteIntent<Result>(
         _ body: () throws -> Result
     ) rethrows -> Result {

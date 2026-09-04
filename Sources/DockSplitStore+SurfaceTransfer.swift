@@ -304,6 +304,22 @@ extension DockSplitStore {
             preservedTransfer?.restoredPanelTitleBoundary
                 ?? restoredPanelTitleBoundariesByPanelId[panelId]
 
+        // Resolve and fence the coordinator while this Dock still owns the
+        // panel. The Bonsplit close below intentionally removes the panel from
+        // `panels` before it runs its callbacks, so resolving afterward cannot
+        // find the source owner and would leave stale pressure state behind.
+        let contextCoordinator = AppDelegate.shared?.agentContextManagementCoordinator
+        let contextOwner = contextCoordinator?.owner(
+            for: panelId,
+            preferredWorkspaceID: workspaceId
+        )
+        contextCoordinator?.remove(
+            panelId: panelId,
+            workspace: nil,
+            preserveState: true,
+            ownerOverride: contextOwner
+        )
+
         // Drop our ownership first: once the tab close fires `reconcilePanels`,
         // a still-tracked panel would be `panel.close()`d (killing the process).
         if panel is BrowserPanel {
@@ -329,6 +345,12 @@ extension DockSplitStore {
                 )
             }
             installSubscription(for: panel)
+            // The close was rejected, so restore the coordinator's live owner
+            // and monitoring state that was fenced before the attempted close.
+            contextCoordinator?.bindingDidChange(
+                panelIds: [panelId],
+                owner: .dock(self)
+            )
             return nil
         }
         if let terminalPanel = panel as? TerminalPanel {
@@ -389,7 +411,13 @@ extension DockSplitStore {
             remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
         )
         adoptManualUnreadState(false, panelId: panelId)
-        clearSessionRestoreState(panelId: panelId)
+        // The detached transfer still owns the session and may be rolled back;
+        // defer context-management cleanup until the caller decides whether it
+        // was actually discarded.
+        clearSessionRestoreState(
+            panelId: panelId,
+            notifyContextManagement: false
+        )
         return detached
     }
 
@@ -447,9 +475,16 @@ extension DockSplitStore {
             isPinned: detached.isPinned,
             inPane: paneId
         ) else {
+            // The caller still owns the detached transfer and may be able to
+            // roll it back into its source container. Do not discard the
+            // coordinator's preserved state until that rollback is known to
+            // have failed.
             panels.removeValue(forKey: detached.panelId)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(
+                panelId: detached.panelId,
+                notifyContextManagement: false
+            )
             return nil
         }
         bindSurface(newTabId, toPanelId: detached.panelId)
@@ -546,8 +581,13 @@ extension DockSplitStore {
         guard let newPane else {
             removeSurfaceMapping(forSurfaceId: tab.id)
             removeDetachedSurfaceTransfer(forPanelID: detached.panelId)
+            // As above, let the transfer owner decide whether the panel was
+            // truly discarded or can still be reattached to its source.
             panels.removeValue(forKey: detached.panelId)
-            clearSessionRestoreState(panelId: detached.panelId)
+            clearSessionRestoreState(
+                panelId: detached.panelId,
+                notifyContextManagement: false
+            )
             return nil
         }
         adoptManualUnreadState(
@@ -598,6 +638,20 @@ extension DockSplitStore {
         focus: Bool,
         reconcileReason: String
     ) {
+        // `adoptSessionRestoreState` copies lifecycle and binding evidence with
+        // context-management publication suppressed. Publish only after the
+        // destination tab exists, so preserved pressure can never authorize a
+        // PTY write during a failed or partially-created transfer.
+        AppDelegate.shared?.agentContextManagementCoordinator.bindingDidChange(
+            panelIds: [panel.id],
+            owner: .dock(self)
+        )
+        if let terminal = panel as? TerminalPanel {
+            AppDelegate.shared?.agentContextManagementCoordinator.shellDidChange(
+                panelId: terminal.id,
+                state: terminal.shellActivity.state
+            )
+        }
         installSubscription(for: panel)
         withCoalescedTerminalViewReattach {
             applyVisibility(to: panel)

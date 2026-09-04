@@ -14,7 +14,7 @@ extension TerminalSurface {
     @MainActor
     public func mobileScroll(deltaLines: Double, col: Int, row: Int) {
         guard deltaLines != 0 else { return }
-        didReceiveExplicitInput()
+        didReceiveExplicitInput(isUserInitiated: true)
         mobileScrollAfterInputNotification(
             deltaLines: deltaLines,
             col: col,
@@ -63,7 +63,7 @@ extension TerminalSurface {
     /// the main actor like the desktop's own click path.
     @MainActor
     public func mobileClick(col: Int, row: Int) {
-        didReceiveExplicitInput()
+        didReceiveExplicitInput(isUserInitiated: true)
         mobileClickAfterInputNotification(col: col, row: row)
     }
 

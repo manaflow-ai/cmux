@@ -551,7 +551,7 @@ final class ScriptTerminal: NSObject {
               let terminal else {
             return false
         }
-        terminal.sendText(text)
+        terminal.sendText(text, isUserInitiated: true)
         return true
     }
 

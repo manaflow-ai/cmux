@@ -77,6 +77,11 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   //   "showScrollBar": false,
   //   "copyOnSelect": true,
   //   "autoResumeAgentSessions": true,
+  //   "agentContextManagement": {
+  //     "enabled": false,
+  //     "action": "compact",
+  //     "preserveState": false
+  //   },
   //   "showTextBoxOnNewTerminals": false,
   //   "focusTextBoxOnNewTerminals": false,
   //   "agentHibernation": {

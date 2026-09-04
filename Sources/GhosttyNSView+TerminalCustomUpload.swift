@@ -42,7 +42,9 @@ extension GhosttyNSView {
             return true
         }
 
-        let accepted = surface.sendText(text)
+        // The shared send path records user intent only when this write is
+        // accepted, including when the outer clipboard sequencer replays it.
+        let accepted = surface.sendText(text, isUserInitiated: true)
         onCompleted()
         return accepted
     }

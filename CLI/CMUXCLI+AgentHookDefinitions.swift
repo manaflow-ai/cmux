@@ -8,6 +8,12 @@ extension CMUXCLI {
     static let feedHookProcessTimeoutMilliseconds = 120_000
     static let feedHookClientDeadlineSeconds = Double(feedHookProcessTimeoutMilliseconds) / 1_000 - 2
     static let feedHookDecisionWaitSeconds = feedHookClientDeadlineSeconds - 3
+    /// Fast telemetry may probe a live target, but it must not inherit the
+    /// acknowledged hook's one-second stall budget on every frame.
+    static let feedTelemetryValidationTimeoutSeconds: TimeInterval = 0.15
+    /// The acknowledged path has a larger bounded budget because its response
+    /// is load-bearing and already runs behind the hook deadline.
+    static let feedAcknowledgedValidationTimeoutSeconds: TimeInterval = 1.0
     /// Configuration for a hook-based agent integration.
     struct AgentHookDef {
         let name: String            // CLI name: "cursor", "gemini", etc.

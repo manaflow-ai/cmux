@@ -39485,16 +39485,25 @@ export default CMUXSessionRestore;
         var lifecycleProbeClient: SocketClient?
         defer { lifecycleProbeClient?.close() }
 
-        func makeLifecycleProbeClient() -> SocketClient? {
+        func makeLifecycleProbeClient(deadline: Date? = nil) -> SocketClient? {
             guard let socketPath else { return nil }
+            let effectiveDeadline = deadline ?? lifecycleProbeDeadline
+            let connectBudget = min(0.25, effectiveDeadline.timeIntervalSinceNow)
+            guard connectBudget > 0 else { return nil }
             let probe = SocketClient(path: socketPath)
             do {
-                try probe.connectWithoutRetry(responseTimeout: 0.25)
+                try probe.connectWithoutRetry(responseTimeout: connectBudget)
+                let authenticationBudget = min(0.25, effectiveDeadline.timeIntervalSinceNow)
+                guard authenticationBudget > 0 else {
+                    probe.close()
+                    return nil
+                }
                 try authenticateClientIfNeeded(
                     probe,
                     explicitPassword: socketPassword,
                     socketPath: socketPath,
-                    responseTimeout: 0.25
+                    responseTimeout: authenticationBudget,
+                    deadline: effectiveDeadline
                 )
                 lifecycleProbeClient = probe
                 return probe
@@ -39591,10 +39600,12 @@ export default CMUXSessionRestore;
             print(compactedFeedOutput)
             return
         }
-        let sessionId = firstString(
+        let reportedSessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
-        ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        )
+        let sessionId = reportedSessionId
+            ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
         guard let workstreamID = Self.feedWorkstreamID(
             source: source,
             sessionID: sessionId
@@ -39848,7 +39859,62 @@ export default CMUXSessionRestore;
             request["id"] = UUID().uuidString
         }
 
+        func applyValidatedFeedSurfaceTarget(
+            using activeClient: SocketClient,
+            responseTimeout: TimeInterval = Self.feedTelemetryValidationTimeoutSeconds
+        ) {
+            guard validatedCodexFeedTarget == nil,
+                  let candidateSurfaceId = firstString(
+                      in: stdinObj,
+                      keys: ["surface_id", "surfaceId"]
+                  ) ?? normalizedHookValue(env["CMUX_SURFACE_ID"]),
+                  let target = validatedFeedSurfaceTarget(
+                      source: source,
+                      sessionId: reportedSessionId,
+                      surfaceId: candidateSurfaceId,
+                      workspaceId: eventDict["workspace_id"] as? String
+                          ?? normalizedHookValue(env["CMUX_WORKSPACE_ID"]),
+                      client: activeClient,
+                      responseTimeout: responseTimeout
+                  ) else {
+                return
+            }
+            eventDict["workspace_id"] = target.workspaceId
+            eventDict["surface_id"] = target.surfaceId
+            request["params"] = [
+                "event": eventDict,
+                "wait_timeout_seconds": waitTimeout,
+            ]
+        }
+
         if waitTimeout == 0 && !shouldAwaitTelemetryIngestion {
+            // Early `hooks feed` dispatch intentionally has no pre-connected
+            // client. When a provider/session/surface claim is present, open
+            // one bounded probe connection so telemetry receives the same live
+            // surface validation as the acknowledged path. Events without a
+            // complete claim stay on the cheap one-way lane.
+            let validationClient: SocketClient? = if client != nil {
+                client
+            } else if let lifecycleProbeClient {
+                lifecycleProbeClient
+            } else if reportedSessionId != nil,
+                      (source == "claude" || source == "codex"),
+                      let candidateSurfaceId = firstString(
+                          in: stdinObj,
+                          keys: ["surface_id", "surfaceId"]
+                      ) ?? normalizedHookValue(env["CMUX_SURFACE_ID"]),
+                      !candidateSurfaceId.isEmpty {
+                makeLifecycleProbeClient(
+                    deadline: Date.now.addingTimeInterval(
+                        Self.feedTelemetryValidationTimeoutSeconds
+                    )
+                )
+            } else {
+                nil
+            }
+            if let validationClient {
+                applyValidatedFeedSurfaceTarget(using: validationClient)
+            }
             let payload = try JSONSerialization.data(withJSONObject: request)
             let line = String(data: payload, encoding: .utf8) ?? "{}"
             // Codex-style agents block in their own approval UI while this
@@ -39878,11 +39944,11 @@ export default CMUXSessionRestore;
                     toolName: toolName,
                     eventDict: eventDict,
                     env: env,
-                    client: client,
+                    client: validationClient,
                     socketPath: socketPath,
                     socketPassword: socketPassword
                 )
-                let telemetrySocketPath = socketPath ?? client?.socketPath
+                let telemetrySocketPath = socketPath ?? validationClient?.socketPath
                 if let telemetrySocketPath {
                     sendBestEffortFeedTelemetry(
                         socketPath: telemetrySocketPath,
@@ -39945,6 +40011,11 @@ export default CMUXSessionRestore;
             print("{}")
             return
         }
+
+        applyValidatedFeedSurfaceTarget(
+            using: activeClient,
+            responseTimeout: Self.feedAcknowledgedValidationTimeoutSeconds
+        )
 
         if shouldAwaitTelemetryIngestion {
             if let target = try resolvePiFeedClaim(commandArgs: commandArgs, client: activeClient) {

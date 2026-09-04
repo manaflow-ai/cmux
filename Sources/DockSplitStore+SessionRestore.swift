@@ -163,6 +163,14 @@ extension DockSplitStore {
                     to: terminalStartupRestoreCoordinator
                 )
             } else {
+                // `detachSurface` preserves managed-agent coordinator state
+                // for a possible move rollback. Session restore has no source
+                // rollback path once attachment fails, so this caller owns
+                // the final discard boundary.
+                AppDelegate.shared?.agentContextManagementCoordinator.remove(
+                    panelId: detached.panelId,
+                    workspace: sourceWorkspace
+                )
                 let cancelledRestore = sourceWorkspace
                     .terminalStartupRestoreCoordinator
                     .cancelPendingRestore(panelID: detached.panelId)
@@ -479,13 +487,26 @@ extension DockSplitStore {
            !excludingStableIdentities.contains(stableSurfaceId) {
             terminal.adoptStableSurfaceId(stableSurfaceId)
         }
+        let shouldPublishResumeBinding: Bool
         if let resumeBinding {
-            if surfaceResumeBindingMutationAllowed(resumeBinding, panelId: terminal.id) {
-                surfaceResumeBindingsByPanelId[terminal.id] = resumeBinding
-            }
+            shouldPublishResumeBinding = surfaceResumeBindingMutationAllowed(
+                resumeBinding,
+                panelId: terminal.id
+            )
+        } else {
+            shouldPublishResumeBinding = surfaceResumeBindingRemovalAllowed(
+                panelId: terminal.id
+            )
         }
         if let managedResumeBinding {
             managedAgentResumeBindingsByPanelId[terminal.id] = managedResumeBinding
+        }
+        if shouldPublishResumeBinding {
+            updateSurfaceResumeBinding(
+                panelId: terminal.id,
+                to: resumeBinding,
+                notifyWhenUnchanged: true
+            )
         }
         if let restoredScrollback {
             restoredTerminalScrollbackByPanelId[terminal.id] = restoredScrollback
