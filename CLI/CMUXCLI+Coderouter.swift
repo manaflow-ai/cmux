@@ -49,7 +49,7 @@ extension CMUXCLI {
         subscriptions <list|add|remove>.
 
         Examples:
-          claude setup-token && cmux coderouter accounts add claude --label work
+          cmux coderouter accounts add claude --label work
           cmux coderouter accounts
           cmux coderouter accounts remove work
         """
