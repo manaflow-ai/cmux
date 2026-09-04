@@ -43,6 +43,8 @@ import {
   isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
+  isVmTunnelEnrollmentBusyError,
+  isVmTunnelEnrollmentUnavailableError,
   vmWorkflowErrorCause,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
@@ -653,6 +655,48 @@ export function vmModelPlaneErrorResponse(
   });
 }
 
+/** Translate private-network tunnel enrollment failures into the public VM error contract. */
+function vmTunnelErrorResponse(error: unknown): Response | null {
+  if (isVmTunnelNotFoundError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: error.deviceFingerprint },
+    });
+  }
+
+  if (isVmTunnelEnrollmentBusyError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_busy",
+      status: 409,
+      message: "This computer is already being enrolled on the Cloud VM network.",
+      action: "Retry the same enrollment request after the current request finishes.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: error.retryAfterSeconds,
+    });
+  }
+
+  if (isVmTunnelEnrollmentUnavailableError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_unavailable",
+      status: 503,
+      message: "Cloud VM network enrollment is temporarily unavailable.",
+      action: "Retry after the Cloud VM service has completed its database upgrade.",
+      reason: error.reason,
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 30,
+    });
+  }
+
+  return null;
+}
+
 /** Translate a normalized workflow failure into the public VM error contract. */
 // oxlint-disable-next-line complexity -- Centralized dispatch preserves the public error precedence contract.
 export async function vmWorkflowErrorResponse(
@@ -752,17 +796,8 @@ export async function vmWorkflowErrorResponse(
     });
   }
 
-  if (isVmTunnelNotFoundError(workflowError)) {
-    return vmErrorResponse({
-      error: "vm_tunnel_not_found",
-      status: 404,
-      message: "This computer is not enrolled on your Cloud VM network.",
-      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
-      phase: "network",
-      retryable: false,
-      details: { deviceFingerprint: workflowError.deviceFingerprint },
-    });
-  }
+  const tunnelResponse = vmTunnelErrorResponse(workflowError);
+  if (tunnelResponse) return tunnelResponse;
 
   if (isVmCreateDisabledError(workflowError)) {
     return vmErrorResponse({
