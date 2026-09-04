@@ -1225,19 +1225,21 @@ import Testing
         var legacyDocument = CloudVMStateDocument(snapshot: [
             "agents": [["terminal_id": "term_build", "state": "working"]],
         ])
-        #expect(legacyDocument.upsert(
+        let didUpsertLegacy = legacyDocument.upsert(
             collectionKey: "agents",
             id: "agent_new",
             value: ["id": "agent_new", "terminal_id": "term_build", "state": "working"],
             alternateField: (name: "terminal_id", value: "term_build")
-        ))
+        )
+        #expect(didUpsertLegacy)
         // The row still has its positional storage key, but delete addresses
         // the explicit payload id. Identity cannot depend on the map key.
-        #expect(legacyDocument.delete(
+        let didDeleteLegacy = legacyDocument.delete(
             collectionKey: "agents",
             id: "agent_new",
             alternateField: (name: "terminal_id", value: "term_build")
-        ))
+        )
+        #expect(didDeleteLegacy)
         #expect(legacyDocument.opaqueEntities(excluding: []).isEmpty)
 
         var ambiguousDocument = CloudVMStateDocument(snapshot: [
@@ -1247,44 +1249,49 @@ import Testing
             ],
         ])
         let before = try #require(ambiguousDocument.data())
-        #expect(!ambiguousDocument.upsert(
+        let didUpsertAmbiguous = ambiguousDocument.upsert(
             collectionKey: "notifications",
             id: "notice",
             value: ["id": "notice", "body": "replacement"]
-        ))
+        )
+        #expect(!didUpsertAmbiguous)
         #expect(ambiguousDocument.data() == before)
-        #expect(!ambiguousDocument.delete(collectionKey: "notifications", id: "notice"))
+        let didDeleteAmbiguous = ambiguousDocument.delete(collectionKey: "notifications", id: "notice")
+        #expect(!didDeleteAmbiguous)
         #expect(ambiguousDocument.data() == before)
 
         // The envelope id and payload id are one identity contract. A mismatch
         // must force snapshot recovery and cannot overwrite an existing row.
-        #expect(!ambiguousDocument.upsert(
+        let didUpsertMismatched = ambiguousDocument.upsert(
             collectionKey: "notifications",
             id: "notice",
             value: ["id": "different", "body": "unsafe"]
-        ))
+        )
+        #expect(!didUpsertMismatched)
         #expect(ambiguousDocument.data() == before)
 
         var relationshipDocument = CloudVMStateDocument(snapshot: [
             "agents": [["id": "agent-1", "terminal_id": "term-a", "state": "working"]],
         ])
         let relationshipBefore = try #require(relationshipDocument.data())
-        #expect(!relationshipDocument.delete(
+        let didDeleteWrongRelationship = relationshipDocument.delete(
             collectionKey: "agents",
             id: "agent-1",
             alternateField: (name: "terminal_id", value: "term-b")
-        ))
+        )
+        #expect(!didDeleteWrongRelationship)
         #expect(relationshipDocument.data() == relationshipBefore)
 
         var missingRelationshipDocument = CloudVMStateDocument(snapshot: [
             "agents": [["id": "agent-1", "state": "working"]],
         ])
         let missingRelationshipBefore = try #require(missingRelationshipDocument.data())
-        #expect(!missingRelationshipDocument.delete(
+        let didDeleteMissingRelationship = missingRelationshipDocument.delete(
             collectionKey: "agents",
             id: "agent-1",
             alternateField: (name: "terminal_id", value: "term-a")
-        ))
+        )
+        #expect(!didDeleteMissingRelationship)
         #expect(missingRelationshipDocument.data() == missingRelationshipBefore)
     }
 
