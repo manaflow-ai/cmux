@@ -967,6 +967,7 @@ struct WorkspaceShellView: View {
                 )
             }
             .frame(minHeight: 44)
+            .fixedSize(horizontal: true, vertical: false)
             .accessibilityIdentifier("MobileSplitSidebarDestinationPicker")
         }
 
@@ -982,8 +983,11 @@ struct WorkspaceShellView: View {
                 Text(title)
                     .font(.subheadline.weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? .primary : .secondary)
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .lineLimit(1)
+                    .allowsTightening(true)
+                    .minimumScaleFactor(0.82)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
