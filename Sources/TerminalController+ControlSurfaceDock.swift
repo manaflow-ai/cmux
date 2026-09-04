@@ -456,6 +456,16 @@ extension TerminalController {
         if let routedSurfaceID = routing.surfaceID {
             return (routedSurfaceID, false)
         }
+        if let routedPaneID = routing.paneID {
+            guard let paneID = dock.bonsplitController.allPaneIds.first(where: {
+                $0.id == routedPaneID
+            }),
+            let tabID = dock.bonsplitController.selectedTab(inPane: paneID)?.id,
+            let panel = dock.panel(for: tabID) else {
+                return (nil, false)
+            }
+            return (panel.id, false)
+        }
         return (dock.focusedPanelId, false)
     }
 

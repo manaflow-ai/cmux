@@ -12,6 +12,8 @@ import {
   cmuxTuiPersistentMountWait,
   parseCmuxTuiManifest,
   parseEnrollmentInvitationUri,
+  cmuxTuiAttachBundleCommand,
+  parseCmuxTuiAttachBundle,
 } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const SHA = "c7a3155341a85a2f10a873d69a041bdf1855ec059a802e58e0779a7a6bdec607";
@@ -688,7 +690,7 @@ describe("cmux-tui install and daemon commands", () => {
     writeExecutable("mountpoint", [
       "#!/bin/sh",
       "path=\"$2\"",
-      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
+      "if [ \"$path\" = \"$CMUX_TEST_BACKING\" ]; then if [ -e \"$CMUX_TEST_STATE/daemon-ready\" ]; then : > \"$CMUX_TEST_STATE/fallback-watch-ready\"; fi; [ ! -e \"$CMUX_TEST_STATE/backing-unmounted\" ]; exit $?; fi",
       "exit 1",
       "",
     ].join("\n"));
@@ -721,7 +723,11 @@ describe("cmux-tui install and daemon commands", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       expect(existsSync(join(state, "daemon-ready"))).toBe(true);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const watcherDeadline = Date.now() + 2_000;
+      while (!existsSync(join(state, "fallback-watch-ready")) && Date.now() < watcherDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(existsSync(join(state, "fallback-watch-ready"))).toBe(true);
       // Missing findmnt must select a bounded direct mount check, not signal the
       // supervisor before the daemon has a chance to serve the mounted home.
       expect(child.exitCode).toBeNull();
@@ -786,5 +792,54 @@ describe("enrollment invitation parsing", () => {
     expect(() => parseEnrollmentInvitationUri("cmux://enroll/!!!")).toThrow(/undecodable|id or expiry/);
     const missing = `cmux://enroll/${Buffer.from(JSON.stringify({ version: 1 })).toString("base64url")}`;
     expect(() => parseEnrollmentInvitationUri(missing)).toThrow(/id or expiry/);
+  });
+});
+
+describe("cmux-tui attach bundle", () => {
+  const stdoutFor = (probe: string, devices: string, invite: string) =>
+    ["__CMUX_PROBE__", probe, "__CMUX_DEVICES__", devices, "__CMUX_INVITE__", invite, "__CMUX_END__", ""].join("\n");
+  const invitation = `cmux://enroll/${Buffer.from(JSON.stringify({ id: "inv-abc", expires_at_unix: 1900000000 })).toString("base64url")}`;
+
+  test("one exec carries the readiness gate, the probe, the devices, and a conditional mint", () => {
+    const command = cmuxTuiAttachBundleCommand({ readyGate: "test -f /ready", deviceFingerprint: "fp-1" });
+    expect(command).toContain("{ test -f /ready; } || exit 3");
+    expect(command).toContain("remote-probe --json");
+    expect(command).toContain("remote enroll devices --session cloud --json");
+    expect(command).toContain(`case "$D" in *'"fingerprint":"fp-1"'*) ;; *) env HOME=/root /root/.cmux/bin/cmux-tui remote enroll create --session cloud --ttl 300 --json;; esac`);
+    expect(cmuxTuiAttachBundleCommand({})).not.toContain("exit 3");
+    expect(cmuxTuiAttachBundleCommand({})).not.toContain("case");
+    expect(() => cmuxTuiAttachBundleCommand({ deviceFingerprint: "bad fp; rm -rf /" })).toThrow("unexpected shape");
+  });
+
+  test("parses build, enrollment, and invitation from the fenced output", () => {
+    const parsed = parseCmuxTuiAttachBundle(
+      stdoutFor(
+        JSON.stringify({ build_identity: "abc123", remote_protocol: 12, version: "0.13.0" }),
+        JSON.stringify([{ fingerprint: "fp-2", revoked_at_unix: null }]),
+        JSON.stringify({ uri: invitation }),
+      ),
+      "freestyle",
+      "vm-1",
+      "fp-1",
+    );
+    expect(parsed.daemonBuild).toEqual({ commit: "abc123", remoteProtocol: 12, version: "0.13.0" });
+    expect(parsed.enrolled).toBe(false);
+    expect(parsed.invitation?.invitationId).toBe("inv-abc");
+  });
+
+  test("an enrolled, unrevoked fingerprint needs no invitation; a revoked one does", () => {
+    const enrolled = parseCmuxTuiAttachBundle(
+      stdoutFor("{}", JSON.stringify([{ fingerprint: "fp-1", revoked_at_unix: null }]), ""),
+      "freestyle", "vm-1", "fp-1",
+    );
+    expect(enrolled.enrolled).toBe(true);
+    expect(enrolled.invitation).toBeNull();
+    expect(enrolled.daemonBuild).toBeNull();
+    const revoked = parseCmuxTuiAttachBundle(
+      stdoutFor("{}", JSON.stringify([{ fingerprint: "fp-1", revoked_at_unix: 1 }]), ""),
+      "freestyle", "vm-1", "fp-1",
+    );
+    expect(revoked.enrolled).toBe(false);
+    expect(revoked.invitation).toBeNull();
   });
 });

@@ -5,6 +5,7 @@ import { withSentryConfig } from "@sentry/nextjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
+import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -14,6 +15,11 @@ const releaseDocsOrigin =
   process.env.CMUX_RELEASE_DOCS_ORIGIN ?? "https://cmux-docs-release.vercel.app";
 const nightlyDocsOrigin =
   process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
+// The embedded browser reaches a dev server through its per-instance
+// Tailscale Serve hostname. Next.js blocks cross-origin HMR and RSC resources
+// unless that hostname is explicitly allowed. Keep this opt-in and validated
+// so production and SSH-backed development retain the default protection.
+const directDevBackendAllowedHost = directDevBackendHost();
 
 // Agent landing pages moved under /agents/<agent>. Keep the old top-level
 // slugs working with permanent redirects, for the bare English path and every
@@ -56,6 +62,9 @@ const tuiInstallerHeaderRules = [
 
 const nextConfig: NextConfig = {
   poweredByHeader,
+  allowedDevOrigins: directDevBackendAllowedHost
+    ? [directDevBackendAllowedHost]
+    : undefined,
   cacheComponents: true,
   partialPrefetching: true,
   experimental: {
@@ -177,6 +186,11 @@ const nextConfig: NextConfig = {
       "./public/logo.png",
     ],
     "**/browser-opengraph-image": ["./public/logo.png"],
+    // Changelog versions outside generateStaticParams render at request time
+    // and read the copy that tools/sync-changelog.ts writes before the build.
+    "**/docs/changelog": ["./CHANGELOG.md"],
+    "**/docs/changelog/**": ["./CHANGELOG.md"],
+    "**/sitemap.xml": ["./CHANGELOG.md"],
   },
   images: {
     // AVIF first: for the detailed hero screenshot (crisp terminal text +

@@ -25,6 +25,25 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+/**
+ * A private-network or tunnel operation on a deployment that does not serve
+ * one — the provider has no `privateNetworking`, or
+ * `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` has rolled the feature back.
+ *
+ * Distinct from {@link VmOperationUnsupportedError} because the caller's next
+ * move is different: this is a deployment that will not give *any* caller a
+ * tunnel, so a client should stop offering to set one up rather than retry.
+ */
+export class VmPrivateNetworkUnavailableError extends Data.TaggedError("VmPrivateNetworkUnavailableError")<{
+  readonly provider: ProviderId;
+  readonly reason: string;
+}> {}
+
+/** The caller asked about a tunnel this account has never enrolled, or revoked. */
+export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundError")<{
+  readonly deviceFingerprint: string;
+}> {}
+
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
   readonly snapshotId: string;
 }> {}
@@ -109,6 +128,33 @@ export class VmAccountDeletionIdentityRevocationError extends Data.TaggedError(
   readonly cause: unknown;
 }> {}
 
+/**
+ * Why the machine's coderouter model plane could not be provisioned.
+ * `unavailable`: coderouter itself failed (503, retry). There is no plan or
+ * entitlement gate on the model plane.
+ */
+export type VmModelPlaneFailureKind = "unavailable";
+
+/** Failure codes stored on the VM row for each {@link VmModelPlaneFailureKind}. */
+export const VM_MODEL_PLANE_FAILURE_CODES = {
+  unavailable: "model_plane_unavailable",
+} as const satisfies Record<VmModelPlaneFailureKind, string>;
+
+/**
+ * Failure code written by the retired coderouter entitlement gate. Rows that
+ * carry it still exist; a same-key create retry must reach provisioning again.
+ */
+export const LEGACY_MODEL_PLANE_ENTITLEMENT_FAILURE_CODE = "model_plane_entitlement";
+
+/**
+ * The create was refused before any provider call because the machine could
+ * not be wired to coderouter. The row is marked failed and any credit refunded.
+ */
+export class VmModelPlaneError extends Data.TaggedError("VmModelPlaneError")<{
+  readonly kind: VmModelPlaneFailureKind;
+  readonly cause: unknown;
+}> {}
+
 export type VmWorkflowError =
   | VmDatabaseError
   | VmProviderOperationError
@@ -125,7 +171,20 @@ export type VmWorkflowError =
   | VmCreateCreditsInsufficientError
   | VmBillingError
   | VmAttachTransportUnsupportedError
-  | VmAccountDeletionIdentityRevocationError;
+  | VmPrivateNetworkUnavailableError
+  | VmTunnelNotFoundError
+  | VmAccountDeletionIdentityRevocationError
+  | VmModelPlaneError;
+
+export function isVmPrivateNetworkUnavailableError(
+  err: unknown,
+): err is VmPrivateNetworkUnavailableError {
+  return (err as { _tag?: string } | null)?._tag === "VmPrivateNetworkUnavailableError";
+}
+
+export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelNotFoundError";
+}
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
@@ -183,6 +242,10 @@ export function isVmAccountDeletionIdentityRevocationError(
   return (err as { _tag?: string } | null)?._tag === "VmAccountDeletionIdentityRevocationError";
 }
 
+export function isVmModelPlaneError(err: unknown): err is VmModelPlaneError {
+  return (err as { _tag?: string } | null)?._tag === "VmModelPlaneError";
+}
+
 export function isVmDatabaseError(err: unknown): err is VmDatabaseError {
   return (err as { _tag?: string } | null)?._tag === "VmDatabaseError";
 }
@@ -216,7 +279,10 @@ const vmWorkflowErrorTagRecord = {
   VmCreateCreditsInsufficientError: true,
   VmBillingError: true,
   VmAttachTransportUnsupportedError: true,
+  VmPrivateNetworkUnavailableError: true,
+  VmTunnelNotFoundError: true,
   VmAccountDeletionIdentityRevocationError: true,
+  VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;
 
 const vmWorkflowErrorTags: ReadonlySet<string> = new Set(Object.keys(vmWorkflowErrorTagRecord));

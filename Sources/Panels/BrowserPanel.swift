@@ -635,8 +635,46 @@ enum BrowserInsecureHTTPSettings {
 
     static func isHostAllowed(_ host: String, rawAllowlist: String?) -> Bool {
         guard let normalizedHost = normalizeHost(host) else { return false }
+        // Private-network addresses skip the warning outright: the modal's
+        // rationale — "traffic can be read or modified on the network" — is
+        // about the public Internet, and traffic to these ranges never crosses
+        // it. cmux Cloud machines live here (their VPC addresses, reached
+        // through the user's WireGuard tunnel, which encrypts the path anyway),
+        // so warning on every http://10.x panel would train people to click
+        // through the one dialog that matters on public sites.
+        if isPrivateNetworkHost(normalizedHost) { return true }
         return normalizedAllowlistPatterns(rawValue: rawAllowlist).contains { pattern in
             hostMatchesPattern(normalizedHost, pattern: pattern)
+        }
+    }
+
+    /// Whether the (normalized) host is a literal address in a range that is
+    /// not publicly routable: RFC 1918 IPv4, IPv4 link-local, IPv6 unique-local
+    /// (`fc00::/7` — cmux VPC addresses are here) and IPv6 link-local. Names
+    /// are never matched — only literals, so DNS can't smuggle a public host in.
+    static func isPrivateNetworkHost(_ normalizedHost: String) -> Bool {
+        // IPv6 literal (normalizeHost strips brackets and lowercases).
+        if normalizedHost.contains(":") {
+            var addr = in6_addr()
+            guard inet_pton(AF_INET6, normalizedHost, &addr) == 1 else { return false }
+            let bytes = withUnsafeBytes(of: addr) { Array($0) }
+            let first = bytes[0]
+            if first == 0xfc || first == 0xfd { return true }               // fc00::/7 unique-local
+            if first == 0xfe, (bytes[1] & 0xc0) == 0x80 { return true }     // fe80::/10 link-local
+            return false
+        }
+        // IPv4 literal.
+        var addr4 = in_addr()
+        guard inet_pton(AF_INET, normalizedHost, &addr4) == 1 else { return false }
+        let value = UInt32(bigEndian: addr4.s_addr)
+        let octet1 = UInt8(truncatingIfNeeded: value >> 24)
+        let octet2 = UInt8(truncatingIfNeeded: value >> 16)
+        switch octet1 {
+        case 10: return true                                                // 10.0.0.0/8
+        case 172: return (16...31).contains(octet2)                         // 172.16.0.0/12
+        case 192: return octet2 == 168                                      // 192.168.0.0/16
+        case 169: return octet2 == 254                                      // 169.254.0.0/16 link-local
+        default: return false
         }
     }
 
@@ -1955,6 +1993,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
     /// The underlying web view
     private(set) var webView: WKWebView
+    private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
     var browserViewportHostRestorationTask: Task<Void, Never>?
@@ -2897,6 +2936,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable JavaScript
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        WebSurfaceSelectionReader.installTracking(in: configuration.userContentController)
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserFileSystemAccessBridge.scriptSource,
@@ -7083,6 +7123,19 @@ extension BrowserPanel {
     /// Execute JavaScript
     func evaluateJavaScript(_ script: String) async throws -> Any? {
         try await webView.evaluateJavaScript(script)
+    }
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        let url = preferredURLStringForOmnibar()
+        guard hasCommittedDocumentSinceWebViewReplacement ||
+                webView.backForwardList.currentItem != nil else {
+            return .snapshot(.none(kind: .browser, url: url))
+        }
+        return await surfaceSelectionReader.read(
+            webView: webView,
+            kind: .browser,
+            url: url
+        )
     }
 
     // MARK: - Find in Page

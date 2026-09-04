@@ -1150,7 +1150,7 @@ fn tab_resource_identity(state: &State, surface_slot: SurfaceId) -> Option<TabRe
 
 fn ordered_terminal_tab_ids(
     state: &State,
-) -> anyhow::Result<HashMap<crate::resource::TerminalPublicId, Vec<TabPublicId>>> {
+) -> anyhow::Result<HashMap<TerminalPublicId, Vec<TabPublicId>>> {
     let mut tabs = Vec::new();
     for pane in state.panes.values() {
         for (position, surface_slot) in pane.tabs.iter().enumerate() {

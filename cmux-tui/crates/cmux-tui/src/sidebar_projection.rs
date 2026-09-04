@@ -89,7 +89,7 @@ pub(crate) fn rows(
     // Workspace rows are the common projection and can reach roughly 1000
     // entries. Reserve that baseline up front so a render does not repeatedly
     // grow and copy the backing buffer while appending the tree.
-    let mut rows = Vec::with_capacity(tree.workspaces.len());
+    let mut rows = Vec::with_capacity(tree.workspaces().len());
     let agents_by_surface: HashMap<SurfaceId, &AgentInfo> =
         agents.iter().map(|agent| (agent.surface, agent)).collect();
     append_level(
@@ -99,7 +99,7 @@ pub(crate) fn rows(
         None,
         tree,
         &agents_by_surface,
-        selected_workspace.min(tree.workspaces.len().saturating_sub(1)),
+        selected_workspace.min(tree.workspaces().len().saturating_sub(1)),
         collapsed,
     );
     rows
@@ -121,7 +121,7 @@ fn append_level(
     match resource {
         SidebarResourceKind::Machines => {}
         SidebarResourceKind::Workspaces => {
-            for (workspace_index, workspace) in tree.workspaces.iter().enumerate() {
+            for (workspace_index, workspace) in tree.workspaces().iter().enumerate() {
                 let branch = has_children.then_some(ProjectionBranch::Workspace(workspace.id));
                 let expanded = branch.is_none_or(|branch| !collapsed.contains(&branch));
                 output.push(ProjectionRow {
@@ -158,7 +158,7 @@ fn append_level(
         }
         SidebarResourceKind::Panes => {
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
-            let Some(workspace) = tree.workspaces.get(workspace_index) else { return };
+            let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 for pane in &screen.panes {
                     if context.is_some_and(|context| {
@@ -211,7 +211,7 @@ fn append_level(
         SidebarResourceKind::Tabs | SidebarResourceKind::Agents => {
             let agent_only = resource == SidebarResourceKind::Agents;
             let workspace_index = context.map_or(selected_workspace, |context| context.workspace);
-            let Some(workspace) = tree.workspaces.get(workspace_index) else { return };
+            let Some(workspace) = tree.workspaces().get(workspace_index) else { return };
             for (screen_index, screen) in workspace.screens.iter().enumerate() {
                 if context.is_some_and(|context| {
                     context.screen.is_some_and(|candidate| candidate != screen_index)
@@ -284,8 +284,8 @@ mod tests {
     use crate::session::tree::{PaneView, ScreenView, TabView, WorkspaceView};
 
     fn tree() -> TreeView {
-        TreeView {
-            workspaces: vec![WorkspaceView {
+        TreeView::from_parts(
+            vec![WorkspaceView {
                 id: 1,
                 resource_id: None,
                 key: "workspace-1".into(),
@@ -313,10 +313,10 @@ mod tests {
                 }],
                 active_screen: 0,
             }],
-            workspace_revision: 1,
-            pane_revision: Some(1),
-            active_workspace: 0,
-        }
+            1,
+            Some(1),
+            0,
+        )
     }
 
     fn tab(surface: SurfaceId, title: &str) -> TabView {

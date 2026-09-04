@@ -113,6 +113,25 @@ struct AgentNotificationRegressionTests {
         }
     }
 
+    private func firstPolicyCompletion(
+        from stream: AsyncStream<Void>,
+        within timeout: Duration
+    ) async -> Void? {
+        await withTaskGroup(of: Void?.self) { group in
+            group.addTask {
+                var iterator = stream.makeAsyncIterator()
+                return await iterator.next()
+            }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return nil
+            }
+            let value = await group.next() ?? nil
+            group.cancelAll()
+            return value
+        }
+    }
+
     private func waitForFile(at url: URL) async -> Bool {
         await waitForFile(at: url, timeout: .seconds(15))
     }
@@ -307,6 +326,57 @@ struct AgentNotificationRegressionTests {
         let recorded = fixture.store.notifications.filter { $0.title == "Claude Code" }
         #expect(recorded.map(\.tabId) == [fixture.destination.id])
         #expect(recorded.first?.surfaceId == fixture.panelId)
+    }
+
+    @Test("Policy-suppressed delivery does not expose a dismiss handle")
+    func policySuppressedDeliveryOmitsNotificationID() async throws {
+        let fixture = try makeFixture(
+            policyHookCommand: #"sed 's/"record":true/"record":false/'"#
+        )
+        defer { fixture.restore() }
+
+        let completion = AsyncStream.makeStream(
+            of: Void.self,
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        defer { completion.continuation.finish() }
+
+        try await confirmation("policy-suppressed notification completed") { completed in
+            let signalCompletion: () -> Void = {
+                completed()
+                completion.continuation.yield(())
+            }
+            fixture.store.configureNotificationDeliveryHandlerForTesting { _, _ in signalCompletion() }
+            fixture.store.configureSuppressedNotificationFeedbackHandlerForTesting { _, _ in signalCompletion() }
+            let routing = ControlRoutingSelectors(
+                hasWindowIDParam: false,
+                windowID: nil,
+                groupID: nil,
+                workspaceID: fixture.source.id,
+                surfaceID: nil,
+                paneID: nil
+            )
+            let result = TerminalController.shared.controlNotificationCreateForTarget(
+                routing: routing,
+                workspaceID: fixture.source.id,
+                surfaceID: fixture.panelId,
+                title: "Suppressed",
+                subtitle: "",
+                body: "No stored notification"
+            )
+
+            guard case .delivered(_, _, _, let notificationID) = result else {
+                Issue.record("Expected policy-suppressed delivery, got \(result)")
+                return
+            }
+            #expect(notificationID == nil)
+            let didComplete = await firstPolicyCompletion(
+                from: completion.stream,
+                within: .seconds(15)
+            ) != nil
+            #expect(didComplete, "Policy evaluation must reach a side-effect completion callback")
+        }
+        #expect(fixture.store.notifications.allSatisfy { $0.title != "Suppressed" })
     }
 
     @Test("Policy-delayed relay delivery stays in its authorized workspace")

@@ -6,28 +6,142 @@ import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
-import { observeModelUsage } from "./responseUsage";
+import { isStreamingResponse, observeModelUsage } from "./responseUsage";
+import {
+  recordRouteEvent,
+  recordUsageEvent,
+} from "./usageLedger";
+import {
+  currentCoderouterRequestId,
+  recordCoderouterOutcome,
+  recordCoderouterSpan,
+} from "./requestTelemetry";
+import {
+  CoderouterOperationDeadlineError,
+  CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS,
+  fetchWithHeadersTimeout,
+  remainingUpstreamHeadersTimeoutMs,
+  upstreamHeadersTimeoutMs,
+  withCoderouterOperationDeadline,
+} from "./upstreamFetch";
+import {
+  authenticateRequestRouteToken,
+  VM_PLACEHOLDER_API_KEY,
+  type RouteTokenAuthFailure,
+  type RouteTokenIdentity,
+} from "./routeTokenAuth";
 
 const OPENCODE_CONSOLE = "https://console.opencode.ai";
 
+type OpenCodeDependencies = {
+  readonly authenticate: typeof authenticateRouteToken;
+  readonly select: typeof selectAccountForRequest;
+  readonly credential: typeof freshCredential;
+  readonly remoteConfig: (accessToken: string, signal?: AbortSignal) => Promise<Record<string, unknown>>;
+  readonly fetch?: typeof fetch;
+};
+
+/** Runtime seams used by tests to exercise request-wide timeout behavior. */
+export type OpenCodeProxyRuntimeOverrides = {
+  readonly now?: () => number;
+  readonly upstreamHeadersBudgetMs?: number;
+  readonly upstreamHeadersTimeoutMs?: number;
+};
+
+type OpenCodeProxyRuntime = {
+  readonly now: () => number;
+  readonly upstreamHeadersBudgetMs: number;
+  readonly upstreamHeadersTimeoutMs: number;
+};
+
+const defaultDependencies: OpenCodeDependencies = {
+  authenticate: authenticateRouteToken,
+  select: selectAccountForRequest,
+  credential: freshCredential,
+  remoteConfig,
+  fetch,
+};
+
+const AUTH_FAILURE_MESSAGES: Record<RouteTokenAuthFailure, string> = {
+  missing_route_token: "Sign in with `cr login` and retry.",
+  invalid_route_token:
+    "Your coderouter session expired or was revoked. Run `cr login` and retry.",
+  vm_mismatch:
+    "This machine's coderouter credential does not match the machine it was issued to.",
+};
+
 export async function openCodeClientConfig(
   request: Request,
+  dependencies: OpenCodeDependencies = defaultDependencies,
+  runtimeOverrides: OpenCodeProxyRuntimeOverrides = {},
 ): Promise<Response> {
-  const auth = await routeIdentity(request);
-  if (!auth) {
-    captureAuthRejection(request, "opencode_config");
-    return Response.json({ error: "unauthorized" }, { status: 401 });
+  const runtime = resolveOpenCodeRuntime(runtimeOverrides);
+  const upstreamHeaderDeadlineAt = runtime.now() + runtime.upstreamHeadersBudgetMs;
+  const auth = await authenticateRequestRouteToken(
+    request,
+    dependencies.authenticate,
+  );
+  if (!auth.ok) {
+    captureAuthRejection("opencode_config", auth.reason);
+    return apiError("unauthorized", AUTH_FAILURE_MESSAGES[auth.reason], 401, false);
   }
-  const resolved = await openCodeAccount(auth.teamId);
+  let resolved: Awaited<ReturnType<typeof openCodeAccount>>;
+  try {
+    resolved = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => openCodeAccount(auth.identity.teamId, dependencies, signal),
+    );
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    if (!(error instanceof CoderouterOperationDeadlineError)) {
+      reportCoderouterFailure("rds", error, {
+        provider: "opencode-go",
+        operation: "select_opencode_account",
+        request_id: currentCoderouterRequestId(),
+      });
+    }
+    return apiError(
+      "provider_unavailable",
+      "coderouter could not load the team's OpenCode accounts. Retry shortly.",
+      503,
+      true,
+    );
+  }
   if (!resolved)
     return Response.json({ error: "no_usable_account" }, { status: 503 });
-  const remote = await remoteConfig(resolved.credential.accessToken);
+  let remote: Record<string, unknown>;
+  try {
+    remote = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => dependencies.remoteConfig(resolved.credential.accessToken, signal),
+    );
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    reportCoderouterFailure("provider_usage", error, {
+      provider: "opencode-go",
+      operation: "load_opencode_config",
+      request_id: currentCoderouterRequestId(),
+    });
+    return apiError(
+      "provider_unavailable",
+      "OpenCode configuration is temporarily unavailable. Retry shortly.",
+      502,
+      true,
+    );
+  }
   // The proxy origin comes from the serving request, not a hardcoded host,
   // so the config works on every deployment of this app (coderouter.dev,
   // the cmux origin Cloud VMs are minted against, previews, self-hosted).
+  //
+  // A VM-bound token never leaves the edge: the guest's config carries the
+  // public placeholder key, and the edge injects the real token per request.
   const provider = rewriteProviders(
     remote,
-    auth.token,
+    auth.identity.vmId === null ? auth.identity.token : VM_PLACEHOLDER_API_KEY,
     new URL(request.url).origin,
   );
   return Response.json(
@@ -42,12 +156,21 @@ export async function proxyOpenCodeRequest(
   request: Request,
   providerId: string,
   path: readonly string[],
+  dependencies: OpenCodeDependencies = defaultDependencies,
+  runtimeOverrides: OpenCodeProxyRuntimeOverrides = {},
 ): Promise<Response> {
   const startedAt = performance.now();
-  const auth = await routeIdentity(request);
-  if (!auth) {
-    captureAuthRejection(request, "opencode_proxy");
+  const runtime = resolveOpenCodeRuntime(runtimeOverrides);
+  const upstreamHeaderDeadlineAt = runtime.now() + runtime.upstreamHeadersBudgetMs;
+  const requestId = currentCoderouterRequestId();
+  const authResult = await authenticateRequestRouteToken(
+    request,
+    dependencies.authenticate,
+  );
+  if (!authResult.ok) {
+    captureAuthRejection("opencode_proxy", authResult.reason);
     captureOpenCodeHealth({
+      requestId,
       startedAt,
       status: 401,
       outcome: "unauthorized",
@@ -55,15 +178,65 @@ export async function proxyOpenCodeRequest(
     });
     return apiError(
       "unauthorized",
-      "Your coderouter session expired or was revoked. Run `cr login` and retry.",
+      AUTH_FAILURE_MESSAGES[authResult.reason],
       401,
       false,
     );
   }
-  const resolved = await openCodeAccount(auth.teamId);
+  const auth = authResult.identity;
+  const selectStartedAt = performance.now();
+  let resolved: Awaited<ReturnType<typeof openCodeAccount>>;
+  try {
+    resolved = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => openCodeAccount(auth.teamId, dependencies, signal),
+    );
+  } catch (error) {
+    if (request.signal.aborted) throw error;
+    recordCoderouterSpan({
+      name: "account_selection",
+      startedAt: selectStartedAt,
+      error: error instanceof CoderouterOperationDeadlineError
+        ? "deadline_exceeded"
+        : error instanceof Error ? error.name : "select_failed",
+      attributes: {
+        provider: "opencode-go",
+        ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
+      },
+    });
+    if (!(error instanceof CoderouterOperationDeadlineError)) {
+      reportCoderouterFailure("rds", error, {
+        provider: "opencode-go",
+        operation: "select_opencode_account",
+        request_id: requestId,
+      });
+    }
+    captureOpenCodeHealth({
+      requestId,
+      identity: auth,
+      startedAt,
+      status: 503,
+      outcome: "provider_unavailable",
+      failureStage: "account_selection",
+    });
+    return apiError(
+      "provider_unavailable",
+      "coderouter could not load the team's OpenCode accounts. Retry shortly.",
+      503,
+      true,
+    );
+  }
+  recordCoderouterSpan({
+    name: "account_selection",
+    startedAt: selectStartedAt,
+    attributes: { provider: "opencode-go", attempts: resolved?.attempts ?? 0, healthy: resolved !== null },
+  });
   if (!resolved) {
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 503,
       outcome: "no_usable_account",
@@ -77,15 +250,36 @@ export async function proxyOpenCodeRequest(
     );
   }
   let config: Record<string, unknown>;
+  const configStartedAt = performance.now();
   try {
-    config = await remoteConfig(resolved.credential.accessToken);
+    config = await withCoderouterOperationDeadline(
+      request.signal,
+      upstreamHeaderDeadlineAt,
+      runtime.now,
+      (signal) => dependencies.remoteConfig(resolved.credential.accessToken, signal),
+    );
+    recordCoderouterSpan({ name: "provider_config", startedAt: configStartedAt, attributes: { provider: "opencode-go" } });
   } catch (error) {
+    if (request.signal.aborted) throw error;
+    recordCoderouterSpan({
+      name: "provider_config",
+      startedAt: configStartedAt,
+      error: error instanceof CoderouterOperationDeadlineError
+        ? "deadline_exceeded"
+        : error instanceof Error ? error.name : "config_failed",
+      attributes: {
+        provider: "opencode-go",
+        ...(error instanceof CoderouterOperationDeadlineError ? { timeout_ms: error.timeoutMs } : {}),
+      },
+    });
     reportCoderouterFailure("provider_usage", error, {
       provider: "opencode-go",
       operation: "config",
+      request_id: requestId,
     });
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 502,
       outcome: "provider_unavailable",
@@ -102,7 +296,8 @@ export async function proxyOpenCodeRequest(
   const provider = config[providerId];
   if (!isRecord(provider)) {
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 404,
       outcome: "unknown_provider",
@@ -120,7 +315,8 @@ export async function proxyOpenCodeRequest(
   const base = isRecord(api) ? api.url : undefined;
   if (typeof base !== "string" || !safeProviderURL(base)) {
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 502,
       outcome: "invalid_provider",
@@ -147,23 +343,61 @@ export async function proxyOpenCodeRequest(
   }
   headers.set("authorization", `Bearer ${resolved.credential.accessToken}`);
   let upstream: Response;
+  const upstreamStartedAt = performance.now();
+  const headersTimeoutMs = remainingUpstreamHeadersTimeoutMs(
+    upstreamHeaderDeadlineAt,
+    runtime.now(),
+    runtime.upstreamHeadersTimeoutMs,
+  );
+  if (headersTimeoutMs === null) {
+    captureOpenCodeHealth({
+      requestId,
+      identity: auth,
+      startedAt,
+      status: 503,
+      outcome: "provider_unavailable",
+      failureStage: "upstream_transport",
+      attempts: resolved.attempts,
+    });
+    return apiError(
+      "provider_unavailable",
+      "The selected OpenCode provider could not be reached before the request deadline. Retry shortly.",
+      503,
+      true,
+    );
+  }
   try {
-    upstream = await fetch(target, {
+    upstream = await fetchWithHeadersTimeout(dependencies.fetch ?? fetch, target, {
       method: request.method,
       headers,
       body:
         request.method === "GET" || request.method === "HEAD"
           ? undefined
           : request.body,
+      signal: request.signal,
       duplex: "half",
       cache: "no-store",
-    } as RequestInit & { duplex: "half" });
+    } as RequestInit & { duplex: "half" }, headersTimeoutMs);
+    recordCoderouterSpan({
+      name: "upstream_attempt",
+      startedAt: upstreamStartedAt,
+      attributes: { provider: "opencode-go", attempt: 1, status: upstream.status },
+    });
   } catch (error) {
+    if (request.signal.aborted) throw error;
+    recordCoderouterSpan({
+      name: "upstream_attempt",
+      startedAt: upstreamStartedAt,
+      error: error instanceof Error ? error.name : "transport",
+      attributes: { provider: "opencode-go", attempt: 1 },
+    });
     reportCoderouterFailure("upstream_transport", error, {
       provider: "opencode-go",
+      request_id: requestId,
     });
     captureOpenCodeHealth({
-      teamId: auth.teamId,
+      requestId,
+      identity: auth,
       startedAt,
       status: 502,
       outcome: "provider_unavailable",
@@ -182,21 +416,24 @@ export async function proxyOpenCodeRequest(
     status: upstream.status,
     duration_ms: Math.round(performance.now() - startedAt),
   });
+  const streamed = isStreamingResponse(upstream);
   // Emit terminal health before the response body is consumed; token parsing
   // remains an independent aggregate-usage concern.
   captureOpenCodeHealth({
-    teamId: auth.teamId,
+    requestId,
+    identity: auth,
     startedAt,
     status: upstream.status,
     outcome: upstream.ok ? "success" : "upstream_error",
     failureStage: upstream.ok ? "none" : "upstream_response",
     attempts: resolved.attempts,
-    responseStreamed: upstream.body !== null,
+    responseStreamed: streamed,
   });
   const body = observeModelUsage(upstream.body, (usage) => {
     if (!usage || usage.totalTokens === 0) return;
     captureCoderouterEvent({
       event: "coderouter_model_request_completed",
+      userId: auth.stackUserId,
       teamId: auth.teamId,
       properties: {
         provider: "opencode-go",
@@ -205,7 +442,26 @@ export async function proxyOpenCodeRequest(
         cached_input_tokens: usage.cachedInputTokens,
         output_tokens: usage.outputTokens,
         total_tokens: usage.totalTokens,
+        request_id: requestId,
+        duration_ms: Math.round(performance.now() - startedAt),
+        status: upstream.status,
+        response_streamed: streamed,
+        ...vmIdProperty(auth.vmId),
       },
+    });
+    recordUsageEvent({
+      requestId,
+      teamId: auth.teamId,
+      stackUserId: auth.stackUserId,
+      vmId: auth.vmId,
+      provider: "opencode-go",
+      agent: "opencode",
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      cachedInputTokens: usage.cachedInputTokens,
+      outputTokens: usage.outputTokens,
+      totalTokens: usage.totalTokens,
+      status: upstream.status,
     });
   });
   return new Response(body, {
@@ -216,14 +472,14 @@ export async function proxyOpenCodeRequest(
 
 async function openCodeAccount(
   teamId: string,
-  dependencies = {
-    select: selectAccountForRequest,
-    credential: freshCredential,
-  },
+  dependencies: Pick<OpenCodeDependencies, "select" | "credential"> = defaultDependencies,
+  signal?: AbortSignal,
 ) {
   const attempted: string[] = [];
   for (let attempt = 0; attempt < 8; attempt++) {
-    const account = await dependencies.select(teamId, "opencode-go", attempted);
+    throwIfAborted(signal);
+    const account = await dependencies.select(teamId, "opencode-go", attempted, signal);
+    throwIfAborted(signal);
     if (!account) return null;
     attempted.push(account.id);
     try {
@@ -231,11 +487,14 @@ async function openCodeAccount(
         teamId,
         accountId: account.id,
         expectedRevision: account.vaultRevision,
+        signal,
       });
+      throwIfAborted(signal);
       if (credential.provider === "opencode-go") {
         return { account, credential, attempts: attempted.length };
       }
     } catch {
+      throwIfAborted(signal);
       // Broken, refreshing, and transiently unavailable accounts are skipped.
     }
   }
@@ -244,12 +503,15 @@ async function openCodeAccount(
 
 async function remoteConfig(
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<Record<string, unknown>> {
   const response = await fetchProviderRead(() =>
     fetch(`${OPENCODE_CONSOLE}/api/config`, {
       headers: { authorization: `Bearer ${accessToken}` },
       cache: "no-store",
-      signal: AbortSignal.timeout(5_000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(5_000)])
+        : AbortSignal.timeout(5_000),
     }),
   );
   if (!response.ok)
@@ -350,34 +612,24 @@ function withoutSecrets(
   );
 }
 
-async function routeIdentity(
-  request: Request,
-): Promise<{ teamId: string; stackUserId: string; token: string } | null> {
-  const header = request.headers.get("authorization")?.trim() ?? "";
-  const token = /^Bearer[ \t]+(.+)$/i.exec(header)?.[1]?.trim();
-  if (!token) return null;
-  const identity = await authenticateRouteToken(token);
-  return identity ? { ...identity, token } : null;
-}
-
 function captureAuthRejection(
-  request: Request,
   surface: "opencode_config" | "opencode_proxy",
+  reason: RouteTokenAuthFailure,
 ): void {
-  const authorization = request.headers.get("authorization")?.trim() ?? "";
   captureCoderouterEvent({
     event: "coderouter_auth_rejected",
-    properties: {
-      surface,
-      reason: /^Bearer[ \t]+(.+)$/i.test(authorization)
-        ? "invalid_route_token"
-        : "missing_route_token",
-    },
+    properties: { surface, reason },
   });
 }
 
+/** Per-VM attribution for bound tokens; omitted for unbound (CLI) tokens. */
+function vmIdProperty(vmId: string | null): { vm_id?: string } {
+  return vmId === null ? {} : { vm_id: vmId };
+}
+
 function captureOpenCodeHealth(input: {
-  readonly teamId?: string;
+  readonly requestId: string;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
   readonly startedAt: number;
   readonly status: number;
   readonly outcome:
@@ -398,20 +650,30 @@ function captureOpenCodeHealth(input: {
   readonly attempts?: number;
   readonly responseStreamed?: boolean;
 }): void {
-  captureCoderouterEvent({
-    event: "coderouter_route_health",
-    ...(input.teamId ? { teamId: input.teamId } : {}),
-    properties: {
-      provider: "opencode-go",
-      agent: "opencode",
-      outcome: input.outcome,
-      failure_stage: input.failureStage,
-      status: input.status,
-      duration_ms: Math.round(performance.now() - input.startedAt),
-      attempt_count: input.attempts ?? 0,
-      refresh_retry_count: 0,
-      response_streamed: input.responseStreamed ?? false,
-    },
+  const durationMs = Math.round(performance.now() - input.startedAt);
+  recordCoderouterOutcome({
+    outcome: input.outcome,
+    failureStage: input.failureStage,
+    status: input.status,
+    provider: "opencode-go",
+    agent: "opencode",
+    attempts: input.attempts ?? 0,
+    refreshRetries: 0,
+    responseStreamed: input.responseStreamed ?? false,
+  });
+  recordRouteEvent({
+    requestId: input.requestId,
+    teamId: input.identity?.teamId,
+    vmId: input.identity?.vmId ?? null,
+    provider: "opencode-go",
+    agent: "opencode",
+    outcome: input.outcome,
+    failureStage: input.failureStage,
+    status: input.status,
+    attemptCount: input.attempts ?? 0,
+    refreshRetryCount: 0,
+    durationMs,
+    responseStreamed: input.responseStreamed ?? false,
   });
 }
 
@@ -459,6 +721,21 @@ function filteredResponseHeaders(input: Headers): Headers {
     if (value) headers.set(name, value);
   }
   return headers;
+}
+
+function resolveOpenCodeRuntime(
+  overrides: OpenCodeProxyRuntimeOverrides,
+): OpenCodeProxyRuntime {
+  return {
+    now: overrides.now ?? (() => performance.now()),
+    upstreamHeadersBudgetMs: overrides.upstreamHeadersBudgetMs ?? CODEROUTER_UPSTREAM_FAILOVER_BUDGET_MS,
+    upstreamHeadersTimeoutMs: overrides.upstreamHeadersTimeoutMs ?? upstreamHeadersTimeoutMs(),
+  };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

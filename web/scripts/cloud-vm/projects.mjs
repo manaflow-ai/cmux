@@ -43,8 +43,15 @@ export const requiredRuntimeEnvKeys = [
   "CMUX_VM_FREESTYLE_ENABLED",
   // Every Vercel cron (VM alerts included) refuses to run without it.
   "CRON_SECRET",
+  // Coderouter: the usage ledger (customer-facing usage, alert source) and
+  // the credential vault key. Coderouter analytics use the main PostHog
+  // project (POSTHOG_PROJECT_KEY has an in-code default).
+  "CLICKHOUSE_DATABASE",
+  "CLICKHOUSE_PASSWORD",
+  "CLICKHOUSE_URL",
+  "CLICKHOUSE_USER",
+  "CODEROUTER_KMS_KEY_ID",
   "FREESTYLE_API_KEY",
-  "FREESTYLE_SANDBOX_SNAPSHOT",
   "NEXT_PUBLIC_STACK_PROJECT_ID",
   "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
   "PGDATABASE",
@@ -77,12 +84,44 @@ export const forbiddenRuntimeEnvKeys = [
 ];
 
 export const legacyCloudVmEnvKeys = [
+  // Blaxel, E2B, and Daytona were removed by the provider migrations. Keep
+  // their keys visible to the audit until operators remove them from Vercel.
+  "BL_API_KEY",
+  "BL_WORKSPACE",
+  "BLAXEL_SANDBOX_IMAGE",
+  "BLAXEL_SANDBOX_DESKTOP_IMAGE",
+  "CMUX_VM_BLAXEL_ENABLED",
+  "E2B_API_KEY",
+  "E2B_CMUXD_WS_TEMPLATE",
+  "E2B_SANDBOX_TEMPLATE",
+  "CMUX_VM_E2B_ENABLED",
+  "DAYTONA_API_KEY",
+  "DAYTONA_API_URL",
+  "DAYTONA_SANDBOX_SNAPSHOT",
+  "CMUX_VM_DAYTONA_ENABLED",
   "CMUX_RIVET_INTERNAL_SECRET",
   "RIVET_ENDPOINT",
   "RIVET_NAMESPACE",
   "RIVET_PUBLIC_ENDPOINT",
   "RIVET_RUNNER_VERSION",
   "RIVET_TOKEN",
+  // Subrouter and coderouter access gates were removed: team membership is
+  // the only requirement. The runtime ignores these keys; delete them.
+  "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+  "SUBROUTER_ALLOWED_TEAM_IDS",
+  "CODEROUTER_HOSTED_PRO_REQUIRED",
+  // The isolated coderouter PostHog project (HMAC pseudonyms, PostHog
+  // Endpoints) was retired on 2026-09-03: coderouter events now go to the main
+  // cmux project keyed by Stack user id. The runtime ignores these keys.
+  "CODEROUTER_ANALYTICS_SCOPE_SECRET",
+  "POSTHOG_CODEROUTER_API_HOST",
+  "POSTHOG_CODEROUTER_ENDPOINT_NAME",
+  "POSTHOG_CODEROUTER_ENDPOINT_SECRET",
+  "POSTHOG_CODEROUTER_ENVIRONMENT_ID",
+  "POSTHOG_CODEROUTER_INGEST_HOST",
+  "POSTHOG_CODEROUTER_PERSONAL_API_KEY",
+  "POSTHOG_CODEROUTER_PROJECT_ID",
+  "POSTHOG_CODEROUTER_PROJECT_KEY",
 ];
 
 export function normalizeTarget(value) {
