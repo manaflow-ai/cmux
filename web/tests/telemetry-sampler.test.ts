@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { context as otelContext, trace, TraceFlags } from "@opentelemetry/api";
+import { context as otelContext, trace, TraceFlags, type Span } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
   BasicTracerProvider,
@@ -9,7 +9,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 
 import { buildCmuxTraceSampler, isPriorityPath, isPrioritySpan, isVmPrioritySpan } from "../services/observability/sampler";
-import { withApiRouteSpan, withPrioritySpan } from "../services/telemetry";
+import { recordSpanError, withApiRouteSpan, withPrioritySpan } from "../services/telemetry";
 
 describe("buildCmuxTraceSampler", () => {
   const neverSample = buildCmuxTraceSampler({ CMUX_OTEL_BASE_SAMPLE_RATIO: "0" });
@@ -188,6 +188,34 @@ describe("withApiRouteSpan re-rooting under head sampling", () => {
     expect(spans[0]?.name).toBe("cmux.dashboard.auth");
     expect(spans[0]?.parentSpanContext).toBeUndefined();
     expect(spans[0]?.links[0]?.context.traceId).toBe("1af7651916cd43dd8448eb211c80319c");
+  });
+
+  test("priority marker cannot be disabled by caller attributes", async () => {
+    exporter.reset();
+    await withPrioritySpan(
+      "cmux-dashboard",
+      "cmux.dashboard.auth",
+      { "cmux.priority": false },
+      async () => undefined,
+    );
+    expect(exporter.getFinishedSpans()[0]?.attributes["cmux.priority"]).toBe(true);
+  });
+
+  test("span exception payloads redact sensitive error text", () => {
+    let recorded: unknown;
+    const span = {
+      recordException(exception: unknown) {
+        recorded = exception;
+      },
+      setStatus() {},
+      setAttributes() {},
+    } as unknown as Span;
+    recordSpanError(span, new Error("request failed Bearer super-secret-token"));
+    expect(recorded).toEqual({
+      name: "Error",
+      message: "request failed [redacted]",
+      stack: expect.stringContaining("request failed [redacted]"),
+    });
   });
 
   test("a vm route inside a sampled trace nests normally", async () => {

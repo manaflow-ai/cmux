@@ -73,7 +73,7 @@ export async function withPrioritySpan<T>(
   return withSpan(
     tracerName,
     name,
-    { "cmux.priority": true, ...attributes },
+    { ...attributes, "cmux.priority": true },
     fn,
     {
       context: reRoot ? trace.deleteSpan(otelContext.active()) : undefined,
@@ -134,11 +134,17 @@ export function setSpanAttributes(span: Span, attributes: MaybeAttributes): void
 
 export function recordSpanError(span: Span, err: unknown): void {
   if (err instanceof Error) {
-    span.recordException(err);
-    span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+    const message = scrubText(err.message).slice(0, ERROR_CAUSE_MESSAGE_MAX);
+    const stack = err.stack ? scrubText(err.stack).slice(0, 4_000) : undefined;
+    span.recordException({
+      name: err.name,
+      message,
+      ...(stack ? { stack } : {}),
+    });
+    span.setStatus({ code: SpanStatusCode.ERROR, message });
     span.setAttributes({
       "cmux.error_name": err.name,
-      "cmux.error_message": scrubText(err.message),
+      "cmux.error_message": message,
     });
     const causes = summarizeErrorCauses(err);
     if (causes) {
@@ -151,7 +157,7 @@ export function recordSpanError(span: Span, err: unknown): void {
     }
     return;
   }
-  const message = String(err);
+  const message = scrubText(String(err)).slice(0, ERROR_CAUSE_MESSAGE_MAX);
   span.recordException(message);
   span.setStatus({ code: SpanStatusCode.ERROR, message });
   span.setAttributes({
