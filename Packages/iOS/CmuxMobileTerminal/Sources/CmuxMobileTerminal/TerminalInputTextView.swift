@@ -266,7 +266,7 @@ final class TerminalInputTextView: UIView, UIKeyInput, UITextInput {
     private var themeChromeColor: UIColor { themeBarColor.terminalReadableForeground }
     /// Match the leading margin used by the terminal composer attachment
     /// controls so the keyboard toggle sits on the same vertical guide.
-    private static let accessoryHorizontalInset = MobileComposerLayout.standard.horizontalInset
+    private static let accessoryHorizontalInset = MobileComposerLayout.horizontalInset
     private static let accessoryButtonFont = UIFont.systemFont(ofSize: 14, weight: .medium)
     /// One shared SF Symbol config for every icon on the bar (paste, zoom,
     /// arrows, settings, keyboard toggle) so all glyphs render at one size.

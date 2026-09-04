@@ -5,13 +5,7 @@ public import CoreGraphics
 /// Keeping the leading margin in the support package prevents the UIKit keyboard
 /// control and the SwiftUI attachment controls from drifting apart as either
 /// surface evolves.
-public struct MobileComposerLayout: Sendable {
-    public static let standard = Self()
-
+public enum MobileComposerLayout {
     /// Leading and trailing margin used by the terminal composer chrome.
-    public let horizontalInset: CGFloat
-
-    public init(horizontalInset: CGFloat = 12) {
-        self.horizontalInset = horizontalInset
-    }
+    public static let horizontalInset: CGFloat = 12
 }
