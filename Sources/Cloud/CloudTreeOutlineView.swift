@@ -28,6 +28,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
     @Environment(\.tabDragTransferRegistry) private var tabDragTransferRegistry
     @Environment(\.colorScheme) private var colorScheme
 
+    /// A terminal rename needs a stable daemon tab placement. A terminal row
+    /// with only a legacy workspace hint is not enough, because the same
+    /// terminal can have zero or many tab placements.
+    static func canRenameTerminal(
+        resource: SurfaceResource,
+        remoteView: SurfaceRemoteView?
+    ) -> Bool {
+        remoteView != nil || resource.remoteViews?.isEmpty == false
+    }
+
     func makeCoordinator() -> Coordinator {
         Coordinator(
             machineActions: machineActions,
@@ -430,24 +440,38 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if case .terminal(let row) = child.kind { return row.isOpen }
                     return false
                 }), case .terminal(let openRow) = shown.kind {
-                    // A terminal opens as a tab, not a new column: it joins the
-                    // existing layout instead of widening it every time.
-                    nodeActions.project(openRow.resource.id, .tab, true)
+                    if let view = openRow.remoteView {
+                        nodeActions.projectRemoteView(openRow.resource.id, view, .tab, true)
+                    } else {
+                        // A terminal opens as a tab, not a new column: it joins the
+                        // existing layout instead of widening it every time.
+                        nodeActions.project(openRow.resource.id, .tab, true)
+                    }
                 } else if let group = node.dragGroup, !group.isEmpty {
                     nodeActions.openGroupAsWorkspace(machine, group, workspace.id)
                 }
             case .localWorkspace(let row):
                 nodeActions.selectLocalWorkspace(row.workspaceID)
             case .terminal(let row):
-                // A terminal opens as a tab, not a new column: it joins the
-                // existing layout instead of widening it every time.
-                nodeActions.project(row.resource.id, .tab, true)
-            case .display(let resource, let openIn):
+                if let view = row.remoteView {
+                    nodeActions.projectRemoteView(row.resource.id, view, .tab, true)
+                } else {
+                    // A terminal opens as a tab, not a new column: it joins the
+                    // existing layout instead of widening it every time.
+                    nodeActions.project(row.resource.id, .tab, true)
+                }
+            case .display(let resource, let openIn, let remoteView):
                 // A workspace's Desktop row opens INSIDE the local workspace showing
                 // that remote workspace — never a jump to a VNC pane in a different
                 // workspace. Pool rows (openIn == nil) keep the global open-or-focus.
                 if let openIn {
-                    nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                    if let remoteView {
+                        nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openIn)
+                    } else {
+                        nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                    }
+                } else if let remoteView {
+                    nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
@@ -458,7 +482,11 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     nodeActions.project(resource.id, .split, true)
                 }
             case .browser(let row):
-                nodeActions.project(row.resource.id, .split, true)
+                if let view = row.remoteView {
+                    nodeActions.projectRemoteView(row.resource.id, view, .split, true)
+                } else {
+                    nodeActions.project(row.resource.id, .split, true)
+                }
             case .placeholder(let machineID, let placeholder):
                 // "Asleep — open to wake": a fresh terminal on the machine is what wakes it.
                 if placeholder.style == .dimmed, let machine = machine(id: machineID) {
@@ -620,10 +648,29 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 var items = resourceMenuItems(
                     row.resource,
                     isLocal: row.resource.machine.isLocal,
-                    openAction: { [weak self] in self?.open(node) }
+                    openAction: { [weak self] in self?.open(node) },
+                    remoteView: row.remoteView
                 )
                 if !row.resource.machine.isLocal {
                     items.append(.separator())
+                    // A tab-specific row renames one view. A pool row with several
+                    // views has no single safe target, so expose the explicit
+                    // all-views operation. A detached zero-view resource has no
+                    // daemon tab to rename and keeps this item hidden.
+                    let canRename = CloudTreeOutlineView.canRenameTerminal(
+                        resource: row.resource,
+                        remoteView: row.remoteView
+                    )
+                    if canRename {
+                        let title = if row.remoteView == nil {
+                            String(localized: "cloudTree.menu.renameTerminalAllViews", defaultValue: "Rename all views\u{2026}")
+                        } else {
+                            String(localized: "cloudTree.menu.renameTerminal", defaultValue: "Rename\u{2026}")
+                        }
+                        items.append(item(title) { [nodeActions] in
+                            nodeActions.renameTerminal(row.resource, row.remoteView)
+                        })
+                    }
                     items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
@@ -631,14 +678,16 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 return resourceMenuItems(
                     row.resource,
                     isLocal: row.resource.machine.isLocal,
-                    openAction: { [weak self] in self?.open(node) }
+                    openAction: { [weak self] in self?.open(node) },
+                    remoteView: row.remoteView
                 )
-            case .display(let resource, let openIn):
+            case .display(let resource, let openIn, let remoteView):
                 return resourceMenuItems(
                     resource,
                     isLocal: false,
                     openInLocalWorkspace: openIn,
-                    openAction: { [weak self] in self?.open(node) }
+                    openAction: { [weak self] in self?.open(node) },
+                    remoteView: remoteView
                 )
             case .port(let resource, let url, let openIn):
                 return resourceMenuItems(
@@ -666,7 +715,8 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             isLocal: Bool,
             openInLocalWorkspace: UUID? = nil,
             openAction: (@MainActor () -> Void)? = nil,
-            portURL: String? = nil
+            portURL: String? = nil,
+            remoteView: SurfaceRemoteView? = nil
         ) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
@@ -676,15 +726,33 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     if let openAction {
                         openAction()
                     } else if let openInLocalWorkspace {
-                        nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
+                        if let remoteView {
+                            nodeActions.projectRemoteViewInLocalWorkspace(resource.id, remoteView, openInLocalWorkspace)
+                        } else {
+                            nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
+                        }
+                    } else if let remoteView {
+                        nodeActions.projectRemoteView(resource.id, remoteView, .split, true)
                     } else {
                         nodeActions.project(resource.id, .split, true)
                     }
                 },
-                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in nodeActions.project(resource.id, .tab, true) },
+                item(String(localized: "cloudTree.menu.openInNewTab", defaultValue: "Open in New Tab")) { [nodeActions] in
+                    if let remoteView {
+                        nodeActions.projectRemoteView(resource.id, remoteView, .tab, true)
+                    } else {
+                        nodeActions.project(resource.id, .tab, true)
+                    }
+                },
             ]
             if !isLocal {
-                items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in nodeActions.project(resource.id, .split, false) })
+                items.append(item(String(localized: "cloudTree.menu.openInNewPane", defaultValue: "Open in New Pane")) { [nodeActions] in
+                    if let remoteView {
+                        nodeActions.projectRemoteView(resource.id, remoteView, .split, false)
+                    } else {
+                        nodeActions.project(resource.id, .split, false)
+                    }
+                })
             }
             items.append(.separator())
             if let portURL {

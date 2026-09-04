@@ -1,6 +1,5 @@
 import Foundation
 import CMUXAgentLaunch
-import CmuxBrowser
 import CmuxAgentJournal
 import CmuxFoundation
 import CmuxSettings
@@ -35,6 +34,9 @@ struct CLIError: Error, CustomStringConvertible {
     /// v2 error's data payload, so callers can make idempotency decisions
     /// structurally instead of parsing display text.
     let vmBackendCode: String?
+    /// HTTP status from the Cloud VM backend, when the app forwarded an HTTP
+    /// failure through the local v2 socket.
+    let vmBackendHTTPStatus: Int?
     let socketFailureKind: SocketFailureKind?
 
     init(
@@ -43,6 +45,7 @@ struct CLIError: Error, CustomStringConvertible {
         v2Code: String? = nil,
         isStructuredProtocolResponse: Bool = false,
         vmBackendCode: String? = nil,
+        vmBackendHTTPStatus: Int? = nil,
         socketFailureKind: SocketFailureKind? = nil
     ) {
         self.message = message
@@ -50,6 +53,7 @@ struct CLIError: Error, CustomStringConvertible {
         self.v2Code = v2Code
         self.isStructuredProtocolResponse = isStructuredProtocolResponse
         self.vmBackendCode = vmBackendCode
+        self.vmBackendHTTPStatus = vmBackendHTTPStatus
         self.socketFailureKind = socketFailureKind
     }
 
@@ -4130,7 +4134,8 @@ final class SocketClient {
                 ),
                 v2Code: error["code"] as? String,
                 isStructuredProtocolResponse: true,
-                vmBackendCode: data?["backend_code"] as? String
+                vmBackendCode: data?["backend_code"] as? String,
+                vmBackendHTTPStatus: (data?["http_status"] as? NSNumber)?.intValue
             )
         }
 
@@ -4382,7 +4387,8 @@ struct CMUXCLI {
     // `vm_image_config_error`.
     /// `--size` spellings → memory in MB. The supported base-image ladder is
     /// 4 GB, 8 GB, 16 GB, 24 GB, 32 GB, and 64 GB of RAM, with disk sizes
-    /// following each image.
+    /// following each image. Pricing separately describes 5 vCPU, 20 GB RAM,
+    /// and 200 GB disk as one pool shared across the plan's Cloud VMs.
     private static let cloudVMSizeAliases: [String: Int] = [
         "4g": 4096, "4gb": 4096,
         "8g": 8192, "8gb": 8192,
@@ -4409,10 +4415,18 @@ struct CMUXCLI {
         guard let gib = Int(number), (4...256).contains(gib), gib % 4 == 0 else { return nil }
         return gib * 1024
     }
-    /// `--base` / `--no-desktop` → shell-only; anything else (including `--desktop`
-    /// and no flag) → a machine with a screen.
-    static func parseCloudVMKindFlags(_ args: [String]) -> VMMachineKind {
-        args.contains("--base") || args.contains("--no-desktop") ? .base : .desktop
+    /// Return only a kind that the caller explicitly requested. A missing flag
+    /// lets the control plane choose the provider's active image-manifest
+    /// default, so this client does not guess provider capabilities.
+    static func parseExplicitCloudVMKindFlag(_ args: [String], command: String) throws -> VMMachineKind? {
+        let requestsBase = args.contains("--base") || args.contains("--no-desktop")
+        let requestsDesktop = args.contains("--desktop")
+        if requestsBase && requestsDesktop {
+            throw CLIError(message: "\(command): choose one of --base or --desktop")
+        }
+        if requestsBase { return .base }
+        if requestsDesktop { return .desktop }
+        return nil
     }
     private static let cloudVMDesktopPort = 6901
     /// Whether a machine payload (`vm.create` / `vm.status` / `vm.base_open`
@@ -4857,67 +4871,6 @@ struct CMUXCLI {
         normalizedEnvValue(environment["CMUX_BUNDLE_ID"])
         ?? containingAppBundleIdentifier()
         ?? defaultBrowserSettingsDomain
-    }
-
-    // Presentation flags are global, but command option values can also look like flags.
-    private static let commandOptionsWithValues: Set<String> = [
-        "--action", "--after-workspace", "--agent", "--amount", "--arch",
-        "--attr", "--before-workspace", "--body", "--color", "--command",
-        "--config", "--cwd", "--description", "--direction", "--domain",
-        "--dx", "--dy", "--email", "--event", "--expires", "--focus",
-        "--function", "--id", "--image", "--index", "--key", "--kind",
-        "--label", "--layout", "--lines", "--load-state", "--max-depth", "--name", "--os",
-        "--order", "--out", "--pane", "--panel", "--path", "--profile", "--property",
-        "--provider", "--relay-port", "--script", "--selector", "--session",
-        "--shell", "--source", "--subtitle", "--surface", "--tab", "--target-pane", "--team",
-        "--text", "--timeout", "--timeout-ms", "--title", "--transcript",
-        "--turn", "--type", "--url", "--url-contains", "--value", "--window",
-        "--workspace", "--engine", "--checkpoint", "--checkpoint-id",
-    ]
-
-    private func parsePresentationOptions(
-        _ commandArgs: [String]
-    ) throws -> (jsonOutput: Bool, idFormat: String?, remaining: [String]) {
-        var jsonOutput = false
-        var idFormat: String?
-        var remaining: [String] = []
-        var index = 0
-        var pastTerminator = false
-        while index < commandArgs.count {
-            let arg = commandArgs[index]
-            if pastTerminator {
-                remaining.append(arg)
-                index += 1
-                continue
-            }
-            if arg == "--" {
-                pastTerminator = true
-                remaining.append(arg)
-                index += 1
-                continue
-            }
-            if arg == "--json" {
-                jsonOutput = true
-                index += 1
-                continue
-            }
-            if arg == "--id-format" {
-                guard index + 1 < commandArgs.count else {
-                    throw CLIError(message: "--id-format requires a value (refs|uuids|both)")
-                }
-                idFormat = commandArgs[index + 1]
-                index += 2
-                continue
-            }
-            remaining.append(arg)
-            if Self.commandOptionsWithValues.contains(arg), index + 1 < commandArgs.count {
-                remaining.append(commandArgs[index + 1])
-                index += 2
-                continue
-            }
-            index += 1
-        }
-        return (jsonOutput, idFormat, remaining)
     }
 
     private func runBrowserAvailabilityCommand(
@@ -5826,19 +5779,27 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
-                let rows: [(String, String, String, String, String)] = vms.map { vm in
+                var rows: [(String, String, String, String, String)] = []
+                rows.reserveCapacity(vms.count)
+                for vm in vms {
                     let id = (vm["id"] as? String) ?? "?"
-                    let displayName = (vm["displayName"] as? String).flatMap { value in
-                        value.isEmpty ? nil : value
+                    let displayName = vm["displayName"] as? String
+                    let slug = vm["slug"] as? String
+                    let label: String
+                    if let displayName, !displayName.isEmpty {
+                        label = displayName
+                    } else if let slug, !slug.isEmpty {
+                        label = slug
+                    } else {
+                        label = id
                     }
-                    let slug = (vm["slug"] as? String).flatMap { value in
-                        value.isEmpty ? nil : value
-                    }
-                    let name = displayName ?? slug ?? id
-                    let status = (vm["status"] as? String) ?? "unknown"
-                    let provider = (vm["provider"] as? String) ?? "?"
-                    let image = (vm["image"] as? String) ?? "?"
-                    return (id, name, status, provider, image)
+                    rows.append((
+                        id,
+                        label,
+                        (vm["status"] as? String) ?? "unknown",
+                        (vm["provider"] as? String) ?? "?",
+                        (vm["image"] as? String) ?? "?"
+                    ))
                 }
                 let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
@@ -6626,6 +6587,9 @@ struct CMUXCLI {
             case "terminal":
                 try runVMTerminalCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
+            case "tab":
+                try runVMTabCommand(rest: rest, client: client, jsonOutput: jsonOutput)
+
             case "route":
                 try runVMRouteCommand(rest: rest, client: client, jsonOutput: jsonOutput)
 
@@ -7274,23 +7238,20 @@ struct CMUXCLI {
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2OKSummary(payload, idFormat: idFormat, kinds: ["pane", "workspace"]))
 
         case "new-pane":
-            let (engine, argsWithoutEngine) = try parseBrowserEngineOption(commandArgs)
-            let workspaceArg = workspaceFromArgsOrEnv(argsWithoutEngine, windowOverride: windowId)
-            let type = optionValue(argsWithoutEngine, name: "--type")
-            let direction = optionValue(argsWithoutEngine, name: "--direction") ?? "right"
-            let url = optionValue(argsWithoutEngine, name: "--url")
-            let profile = try parseBrowserProfileOption(argsWithoutEngine).selector
-            let placement = optionValue(argsWithoutEngine, name: "--placement")
-            let focusOpt = optionValue(argsWithoutEngine, name: "--focus")
-            try browserEngineRequiresBrowserType(engine, type: type)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
+            let type = optionValue(commandArgs, name: "--type")
+            let direction = optionValue(commandArgs, name: "--direction") ?? "right"
+            let url = optionValue(commandArgs, name: "--url")
+            let profile = try parseBrowserProfileOption(commandArgs).selector
+            let placement = optionValue(commandArgs, name: "--placement")
+            let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = ["direction": direction]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(argsWithoutEngine, windowOverride: windowId), client: client)
+            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
-            if let engine { params["engine"] = engine }
             if let profile {
                 guard type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "browser" else {
                     throw CLIError(message: String(
@@ -7305,19 +7266,17 @@ struct CMUXCLI {
             let payload = try client.sendV2(method: "pane.create", params: params)
             printV2Payload(payload, jsonOutput: jsonOutput, idFormat: idFormat, fallbackText: v2CreationSummary(payload, idFormat: idFormat, kinds: ["surface", "pane", "dock_surface", "dock_pane", "workspace"]))
         case "new-surface":
-            let (engine, argsWithoutEngine) = try parseBrowserEngineOption(commandArgs)
-            let workspaceArg = workspaceFromArgsOrEnv(argsWithoutEngine, windowOverride: windowId)
-            let type = optionValue(argsWithoutEngine, name: "--type")
-            let paneRaw = optionValue(argsWithoutEngine, name: "--pane")
-            let url = optionValue(argsWithoutEngine, name: "--url")
-            let provider = optionValue(argsWithoutEngine, name: "--provider") ?? optionValue(argsWithoutEngine, name: "--provider-id")
-            let renderer = optionValue(argsWithoutEngine, name: "--renderer") ?? optionValue(argsWithoutEngine, name: "--renderer-kind")
-            let workingDirectory = optionValue(argsWithoutEngine, name: "--working-directory") ?? optionValue(argsWithoutEngine, name: "--cwd")
-            let placement = optionValue(argsWithoutEngine, name: "--placement")
-            let focusOpt = optionValue(argsWithoutEngine, name: "--focus")
-            try browserEngineRequiresBrowserType(engine, type: type)
+            let workspaceArg = workspaceFromArgsOrEnv(commandArgs, windowOverride: windowId)
+            let type = optionValue(commandArgs, name: "--type")
+            let paneRaw = optionValue(commandArgs, name: "--pane")
+            let url = optionValue(commandArgs, name: "--url")
+            let provider = optionValue(commandArgs, name: "--provider") ?? optionValue(commandArgs, name: "--provider-id")
+            let renderer = optionValue(commandArgs, name: "--renderer") ?? optionValue(commandArgs, name: "--renderer-kind")
+            let workingDirectory = optionValue(commandArgs, name: "--working-directory") ?? optionValue(commandArgs, name: "--cwd")
+            let placement = optionValue(commandArgs, name: "--placement")
+            let focusOpt = optionValue(commandArgs, name: "--focus")
             var params: [String: Any] = [:]
-            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(argsWithoutEngine, windowOverride: windowId), client: client)
+            let winId = try normalizeWindowHandle(windowFromArgsOrOverride(commandArgs, windowOverride: windowId), client: client)
             if let winId { params["window_id"] = winId }
             let wsId = try normalizeWorkspaceHandle(workspaceArg, client: client, windowHandle: winId)
             if let wsId { params["workspace_id"] = wsId }
@@ -7326,7 +7285,6 @@ struct CMUXCLI {
             if let paneId { params["pane_id"] = paneId }
             if let type { params["type"] = type }
             if let url { params["url"] = url }
-            if let engine { params["engine"] = engine }
             if let placement { params["placement"] = placement }
             if let provider { params["provider_id"] = provider }
             if let renderer { params["renderer_kind"] = renderer }
@@ -13227,9 +13185,9 @@ struct CMUXCLI {
         )
     }
 
-    /// Open an interactive cmux-managed shell on a cloud VM. The managed Cloud VM path requires
-    /// cmuxd-remote WebSocket attach so reconnects, mobile attach, and notification fanout all
-    /// use the same session primitive. SSH remains an explicit manual fallback.
+    /// Open an interactive cmux-managed shell on a cloud VM. Freestyle uses the
+    /// cmux-tui remote daemon; the forced-SSH branch remains only as a compatibility
+    /// probe for older deployments that still expose an SSH endpoint.
     func logVMTiming(
         _ stage: String,
         vmID: String,
@@ -13279,41 +13237,49 @@ struct CMUXCLI {
         idFormat: CLIIDFormat
     ) throws -> VMOpenedWorkspace? {
         if forceSSH {
-            let sshInfoStartedAt = Date()
-            let response = try client.sendV2(
-                method: "vm.ssh_info",
-                params: ["id": id],
-                responseTimeout: Self.vmAttachResponseTimeoutSeconds
-            )
-            logVMTiming("ssh_info", vmID: id, transport: "ssh", startedAt: sshInfoStartedAt)
-            let options = try vmSSHOptions(
-                fromAttachInfo: response,
-                workspaceName: workspaceName,
-                windowRaw: windowRaw,
-                client: client,
-                remoteRelayPort: generateRemoteRelayPort(),
-                pinWorkspaceToTop: shouldPinWorkspaceToTop,
-                focus: focus
-            )
-            let relayID = UUID().uuidString.lowercased()
-            let relayToken = try randomHex(byteCount: 32)
-            try runSSHWithOptions(
-                options,
-                relayID: relayID,
-                relayToken: relayToken,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat,
-                vmIDForSplitAttach: id
-            )
-            return nil
+            do {
+                let sshInfoStartedAt = Date()
+                let response = try client.sendV2(
+                    method: "vm.ssh_info",
+                    params: ["id": id],
+                    responseTimeout: Self.vmAttachResponseTimeoutSeconds
+                )
+                logVMTiming("ssh_info", vmID: id, transport: "ssh", startedAt: sshInfoStartedAt)
+                let options = try vmSSHOptions(
+                    fromAttachInfo: response,
+                    workspaceName: workspaceName,
+                    windowRaw: windowRaw,
+                    client: client,
+                    remoteRelayPort: generateRemoteRelayPort(),
+                    pinWorkspaceToTop: shouldPinWorkspaceToTop,
+                    focus: focus
+                )
+                let relayID = UUID().uuidString.lowercased()
+                let relayToken = try randomHex(byteCount: 32)
+                try runSSHWithOptions(
+                    options,
+                    relayID: relayID,
+                    relayToken: relayToken,
+                    client: client,
+                    jsonOutput: jsonOutput,
+                    idFormat: idFormat,
+                    vmIDForSplitAttach: id
+                )
+                return nil
+            } catch let error as CLIError where Self.shouldFallbackFromForcedSSH(error) {
+                // `vm ssh` predates the cmux-tui route. A provider may expose
+                // scoped SSH, but the managed alias must continue through the
+                // shared cmux-remote path when the legacy endpoint is unsupported.
+                cliDebugLog("cli.vm.ssh.alias_fallback vm=\(String(id.prefix(8))) reason=cmux-remote")
+            }
         }
 
-        // Every cloud entrypoint lands here, and the machine's cmux-tui remote daemon is
-        // the session for all of them: `vm new`, `vm shell`, `vm fork`, `vm restore`,
-        // Base (sidebar cloud button, `vm base open|reset`), and the Machines panel.
-        // The websocket/SSH transports below remain only for deployments whose control
-        // plane reports no cmux-tui at all; a cmux-tui-only machine never reaches them.
+        // Every current Freestyle entrypoint lands here, and the machine's cmux-tui
+        // remote daemon is the session for all of them: `vm new`, `vm shell`,
+        // `vm ssh`, `vm fork`, `vm restore`, Base, and the Machines panel. The
+        // websocket/SSH transports below remain only for an older deployment whose
+        // control plane reports no cmux-tui at all; a cmux-tui-only machine never
+        // reaches them.
         let attachInfoStartedAt = Date()
         if let opened = try openVMShellViaCmuxTuiIfAvailable(
             vmId: id,
@@ -13327,7 +13293,7 @@ struct CMUXCLI {
             client: client
         ) {
             logVMTiming("attach_info", vmID: id, transport: "cmux-remote", startedAt: attachInfoStartedAt)
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "ok": true,
                 "vm_id": id,
                 "workspace_id": opened.workspaceId,
@@ -13340,6 +13306,9 @@ struct CMUXCLI {
                 "remote_workspace_id": opened.remoteWorkspaceId ?? NSNull(),
                 "surface_id": opened.terminalSurfaceId ?? NSNull(),
             ]
+            if let networkAddresses = opened.networkAddresses {
+                payload["network_addresses"] = networkAddresses
+            }
             if jsonOutput {
                 print(jsonString(formatIDs(payload, mode: idFormat)))
             } else {
@@ -13453,8 +13422,8 @@ struct CMUXCLI {
         let (focusOpt, rem1) = parseOption(rem0a, name: "--focus")
         let focus = try parseCloudVMFocusOption(focusOpt, command: "vm base open")
         let detach = hasFlag(rem1, name: "--detach") || hasFlag(rem1, name: "-d")
-        let baseKind = Self.parseCloudVMKindFlags(rem1)
-        let remaining = rem1.filter { !["--detach", "-d", "--desktop", "--base"].contains($0) }
+        let baseKind = try Self.parseExplicitCloudVMKindFlag(rem1, command: "vm base open")
+        let remaining = rem1.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
         if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
             throw CLIError(message: """
                 vm base open: unknown flag '\(unknown)'.
@@ -13462,8 +13431,10 @@ struct CMUXCLI {
                 Known flags:
                   --workspace <workspace-id>
                   --window <id|ref|index>
-                  --base            shell-only Base (first open only; default is a desktop)
-                  --desktop
+                  --base            shell-only Base (first open only)
+                  --desktop         request a Base image with a desktop
+                  --no-desktop       alias for --base
+                  (no kind flag uses the server's active Base image default)
                   --focus <true|false>  false opens Base without selecting its workspace
                   --detach, -d
                 """)
@@ -13481,9 +13452,11 @@ struct CMUXCLI {
         let vmCreateStartedAt = Date()
         // The kind only matters when Base does not exist yet; an existing Base keeps
         // its image, so a bare open never changes a machine.
+        var params: [String: Any] = [:]
+        if let baseKind { params["kind"] = baseKind.rawValue }
         let response = try client.sendV2(
             method: "vm.base_open",
-            params: ["kind": baseKind.rawValue],
+            params: params,
             responseTimeout: Self.vmCreateResponseTimeoutSeconds
         )
         logVMTiming(
@@ -13554,8 +13527,8 @@ struct CMUXCLI {
         let (targetWorkspaceOpt, rem1) = parseOption(rem0, name: "--workspace")
         let (windowOpt, rem2) = parseOption(rem1, name: "--window")
         let detach = hasFlag(rem2, name: "--detach") || hasFlag(rem2, name: "-d")
-        let baseKind = Self.parseCloudVMKindFlags(rem2)
-        let remaining = rem2.filter { !["--detach", "-d", "--desktop", "--base"].contains($0) }
+        let baseKind = try Self.parseExplicitCloudVMKindFlag(rem2, command: "vm base reset")
+        let remaining = rem2.filter { !["--detach", "-d", "--desktop", "--base", "--no-desktop"].contains($0) }
         if let unknown = remaining.first(where: { Self.isUnknownFlagToken($0, allowedShortFlags: ["-d"]) }) {
             throw CLIError(message: """
                 vm base reset: unknown flag '\(unknown)'.
@@ -13564,8 +13537,10 @@ struct CMUXCLI {
                   --reason <text>
                   --workspace <workspace-id>
                   --window <id|ref|index>
-                  --base            shell-only Base (default is a desktop)
-                  --desktop
+                  --base            shell-only Base
+                  --desktop         request a Base image with a desktop
+                  --no-desktop       alias for --base
+                  (no kind flag uses the server's active Base image default)
                   --detach, -d
                 """)
         }
@@ -13578,7 +13553,8 @@ struct CMUXCLI {
         }
 
         let targetWindow = try validatedWindowHandle(windowOpt ?? windowId, client: client)
-        var params: [String: Any] = ["kind": baseKind.rawValue]
+        var params: [String: Any] = [:]
+        if let baseKind { params["kind"] = baseKind.rawValue }
         if let reasonOpt, !reasonOpt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             params["reason"] = reasonOpt
         }
@@ -13894,6 +13870,23 @@ struct CMUXCLI {
     private static func isVMNotFoundError(_ error: Error) -> Bool {
         let message = String(describing: error).lowercased()
         return message.contains("vm_not_found") || message.contains("was not found")
+    }
+
+    /// A forced SSH request is a compatibility probe, not permission to hide a
+    /// real auth, billing, or VM failure. Fall back only when the old managed
+    /// route is explicitly unsupported or absent. Provider-level Freestyle SSH
+    /// is not a substitute for the cmux-remote graph session.
+    private static func shouldFallbackFromForcedSSH(_ error: CLIError) -> Bool {
+        if error.vmBackendCode == "vm_not_found" || isVMNotFoundError(error) {
+            return false
+        }
+        if error.vmBackendCode == Self.vmAttachTransportUnsupportedCode {
+            return true
+        }
+        if error.isStructuredProtocolResponse, error.v2Code == "method_not_found" {
+            return true
+        }
+        return false
     }
 
     private func defaultFreestyleSSHInfoWithRetryIfNeeded(
@@ -16948,8 +16941,7 @@ struct CMUXCLI {
 
         if subcommand == "open" || subcommand == "open-split" || subcommand == "new" {
             // Parse routing flags before URL assembly so they never leak into the URL string.
-            let (engine, argsWithoutEngine) = try parseBrowserEngineOption(subArgs)
-            let (workspaceOpt, argsAfterWorkspace) = parseOption(argsWithoutEngine, name: "--workspace")
+            let (workspaceOpt, argsAfterWorkspace) = parseOption(subArgs, name: "--workspace")
             let (windowOpt, argsAfterWindow) = parseOption(argsAfterWorkspace, name: "--window")
             let (focusOpt, argsAfterFocus) = parseOption(argsAfterWindow, name: "--focus")
             let (profileSelector, urlArgs) = try parseBrowserProfileOption(argsAfterFocus)
@@ -16973,12 +16965,6 @@ struct CMUXCLI {
 
             if surfaceRaw != nil, subcommand == "open" {
                 // Treat `browser <surface> open <url>` as navigate for agent-browser ergonomics.
-                guard engine == nil else {
-                    throw CLIError(message: String(
-                        localized: "cli.browser.engine.error.navigateUnsupported",
-                        defaultValue: "--engine is only supported when browser open creates a new pane; omit the surface selector"
-                    ))
-                }
                 guard profileSelector == nil else {
                     throw CLIError(message: String(
                         localized: "cli.browser.profile.error.navigateUnsupported",
@@ -17003,9 +16989,6 @@ struct CMUXCLI {
             }
             if let profileSelector {
                 params["profile"] = profileSelector
-            }
-            if let engine {
-                params["engine"] = engine
             }
             if let sourceSurface = try normalizeSurfaceHandle(surfaceRaw, client: client) {
                 params["surface_id"] = sourceSurface
@@ -18011,13 +17994,9 @@ struct CMUXCLI {
                 output(payload, fallback: "OK")
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
-                let (engine, argsWithoutEngine) = try parseBrowserEngineOption(tabArgs)
-                let url = argsWithoutEngine.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let url = tabArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !url.isEmpty {
                     params["url"] = url
-                }
-                if let engine {
-                    params["engine"] = engine
                 }
                 let payload = try client.sendV2(method: "browser.tab.new", params: params)
                 output(payload, fallback: "OK")
@@ -18836,7 +18815,7 @@ struct CMUXCLI {
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info|workspace|terminal|tab> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports; run `cmux vpn up`
@@ -18866,8 +18845,12 @@ struct CMUXCLI {
                                         pane, no focus); --keys presses named keys after.
               terminal read <machine> <term-id>
                                         Print the terminal's visible screen.
+              terminal rename <machine> <term-id> <name>
+                                        Rename a terminal for every client.
               terminal wait <machine> <term-id> --pattern <regex> [--timeout <s>]
                                         Block until the screen matches; exit 1 on timeout.
+              tab rename <machine> <tab-id> <name>
+                                        Rename one daemon tab placement.
               prompt [--open <agent>]   Install the cmux-cloud skill file and print the
                                         kickoff prompt for any agent; --open starts a
                                         local claude|codex|opencode|pi terminal with it.
@@ -18879,13 +18862,14 @@ struct CMUXCLI {
                                         forwarded ports — each with the address
                                         `vm open` / `surface open` accepts.
               status <id>                Print provider, status, and image.
-              base open [--desktop|--base] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
+              base open [--desktop|--base|--no-desktop] [--workspace <id>] [--window <id|ref|index>] [--focus <true|false>] [--detach|-d]
                                         Open Base, your persistent cloud workspace.
                                         Reuses the same VM every time. The first
-                                        open picks the kind (desktop by default).
+                                        open uses the server's active Base image
+                                        default unless you pass --base or --desktop.
                                         --focus false opens it without switching
                                         to its workspace.
-              base reset [--desktop|--base] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
+              base reset [--desktop|--base|--no-desktop] [--reason <text>] [--workspace <id>] [--window <id|ref|index>] [--detach|-d]
                                         Create a new Base generation. The previous
                                         VM is retained so accidental resets are
                                         recoverable.
@@ -19899,7 +19883,6 @@ struct CMUXCLI {
 
             Flags:
               --type <terminal|browser|simulator> Pane type (default: terminal)
-              --engine <webkit|chromium>             \(String(localized: "cli.browser.engine.flagDescription", defaultValue: "Rendering engine (browser only)"))
               --direction <left|right|up|down>    Split direction (default: right)
               --placement <workspace|dock>        Target container (default: workspace).
                                                   dock splits the right-sidebar Dock.
@@ -19923,7 +19906,6 @@ struct CMUXCLI {
 
             Flags:
               --type <terminal|browser|simulator|agent-session>   Surface type (default: terminal)
-              --engine <webkit|chromium>             \(String(localized: "cli.browser.engine.flagDescription", defaultValue: "Rendering engine (browser only)"))
               --pane <id|ref|index>       Target pane
               --placement <workspace|dock>  Target container (default: workspace).
                                            dock adds the surface to the right-sidebar Dock
@@ -41324,7 +41306,7 @@ export default CMUXSessionRestore;
           \(restoreCommandUsageLine)
           restore-session
           \(String(localized: "cli.sessions.command", defaultValue: "sessions [list] [options]"))
-          open <path-or-url>... \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
+          open <path-or-url>... [--workspace <id|ref|index>] [--surface <id|ref|index>] [--pane <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>] [--no-focus]
           diff [patch-file|-] [--source <unstaged|staged|branch|last-turn>] [--unstaged|--staged|--branch|--last-turn] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--cwd <path>] [--base <ref>] [--focus <true|false>] [--no-focus] [--title <text>] [--layout <split|unified>] [--font-size <points>]
           feedback [--email <email> --body <text> [--image <path> ...]]
           feed tui|clear
@@ -41347,7 +41329,7 @@ export default CMUXSessionRestore;
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())
-          vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|ssh> [args...]    (alias: cloud)
+          vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|ssh|workspace|terminal|tab> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]
@@ -41389,8 +41371,8 @@ export default CMUXSessionRestore;
           top [--all] [--workspace <id|ref|index>] [--window <id|ref|index>] [--processes] [--sort <cpu|mem|proc>] [--flat] [--format <tree|tsv>]
           memory [--all] [--workspace <id|ref|index>] [--groups <count>]
           focus-pane --pane <id|ref|index> [--workspace <id|ref|index>] [--window <id|ref|index>]
-          new-pane [--type <terminal|browser|simulator>] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
-          new-surface [--type <terminal|browser|simulator|agent-session>] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
+          new-pane [--type <terminal|browser|simulator>] [--direction <left|right|up|down>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>]
+          new-surface [--type <terminal|browser|simulator|agent-session>] [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--url <url>] [--provider <codex|claude|opencode>] [--renderer <react|solid>] [--focus <true|false>]
           close-surface [--surface <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>]
           move-surface --surface <id|ref|index> [--pane <id|ref|index>] [--workspace <id|ref|index>] [--window <id|ref|index>] [--before <id|ref|index>] [--after <id|ref|index>] [--index <n>] [--focus <true|false>]
           split-off --surface <id|ref|index> <left|right|up|down> [--workspace <id|ref|index>] [--window <id|ref|index>] [--focus <true|false>]
@@ -41465,8 +41447,8 @@ export default CMUXSessionRestore;
 
           browser [--surface <id|ref|index> | <surface>] <subcommand> ...
           browser disable | enable | status
-          browser open [url] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
-          browser open-split [url] \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
+          browser open [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]")) [--focus <true|false>] (create browser split in caller's workspace; if surface supplied, behaves like navigate)
+          browser open-split [url] \(String(localized: "cli.browser.profile.option", defaultValue: "[--profile <name|uuid>]"))
           browser goto|navigate <url> [--snapshot-after]
           browser back|forward|reload [--snapshot-after]
           browser react-grab toggle [--surface <id>] [--return-to <terminal-surface>]
@@ -41497,7 +41479,7 @@ export default CMUXSessionRestore;
           browser import [...]
           \(String(localized: "cli.browser.cookies.usage", defaultValue: "browser cookies <get|set|clear> [--http-only] [...]"))
           browser storage <local|session> <get|set|clear> [...]
-          browser tab <new|list|switch|close|<index>> \(String(localized: "cli.browser.engine.option", defaultValue: "[--engine <webkit|chromium>]")) [...]
+          browser tab <new|list|switch|close|<index>> [...]
           browser console <list|clear>
           browser errors <list|clear>
           browser highlight <selector>

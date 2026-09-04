@@ -22,6 +22,11 @@
       "title": "cmux Pro requis",
       "message": "Les Cloud VM nécessitent un abonnement cmux Pro.",
       "action": "Passez à cmux Pro sur {upgradeUrl} pour créer des Cloud VM."
+    },
+    "sharedResource": {
+      "message": "Le pool partagé de ressources {resource} des Cloud VM est plein.",
+      "action": "Supprimez une Cloud VM inutilisée, puis réessayez.",
+      "oversizedAction": "Demandez une taille {resource} de Cloud VM plus petite, compatible avec le pool partagé."
     }
   },
   "billingRecovery": {

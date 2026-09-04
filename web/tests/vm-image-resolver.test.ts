@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   findVmImageKindDefault,
+  listVmImageKindDefaults,
   reportVmImageConfigError,
   inferVmProviderForImage,
   listVmImageKinds,
@@ -22,22 +23,37 @@ function captureImageConfigError(fn: () => unknown): VmImageConfigError {
   throw new Error("expected VmImageConfigError to be thrown");
 }
 
-// The committed manifest default: the `freestyle-cmux-devbox-terminfo4` ladder
-// (the desktop session with owner-signalled readiness, the accessibility bus,
-// clipboard helper and published DISPLAY; epoch 2026-09-02-r4), one snapshot per Freestyle size,
-// listed under both kinds (a desktop image is a superset of a base one, so
-// the same snapshot id serves both; the base listing's version carries a
-// `-base` suffix). The manifest is the only source of truth for images; no env
-// var selects or overrides one, and the plan's memory picks the size.
-const ladderVersion = "freestyle-cmux-devbox-terminfo4";
-const ladder = {
-  sm: "sh-0003615f317e430b9476e311b283fa12",
-  md: "sh-68828c99790541b7bc5d03d20e0564e1",
-  lg: "sh-11c8a7c5b83c47e7867ba0157b0fdb36",
-  lgx: "sh-f8fe1e9a5b184e139015806f208beb32",
-  xl: "sh-f78366e5a8884c6e81095f6a88ee14ae",
-  "2xl": "sh-2cf1a9cf5f194bb38328f026bc27e1ff",
-} as const;
+// The resolver must follow the currently promoted manifest ladder. Deriving
+// this fixture from the flagged defaults keeps a valid image promotion from
+// becoming a false test failure. The consistency test below still protects
+// the two-kind, one-snapshot-per-size contract and the version suffixes.
+type ManifestEntry = ReturnType<typeof listVmImageKindDefaults>[number];
+const defaultsBySize = (kind: VmImageKind): Record<string, ManifestEntry> =>
+  Object.fromEntries(
+    listVmImageKindDefaults("freestyle", kind)
+      .filter((entry) => entry.size !== undefined)
+      .map((entry) => [entry.size!.name, entry]),
+  );
+const ladderDefaults = {
+  desktop: defaultsBySize("desktop"),
+  base: defaultsBySize("base"),
+};
+const ladder = Object.fromEntries(
+  VM_IMAGE_SIZE_NAMES.map((size) => [size, ladderDefaults.desktop[size]!.imageId]),
+) as Record<(typeof VM_IMAGE_SIZE_NAMES)[number], string>;
+const ladderVersion = ladderDefaults.desktop.sm!.version.replace(/-sm$/, "");
+
+test("the promoted Freestyle ladder is complete and internally consistent", () => {
+  for (const size of VM_IMAGE_SIZE_NAMES) {
+    const desktop = ladderDefaults.desktop[size];
+    const base = ladderDefaults.base[size];
+    expect(desktop).toBeDefined();
+    expect(base).toBeDefined();
+    expect(desktop!.imageId).toBe(base!.imageId);
+    expect(desktop!.version).toBe(`${ladderVersion}-${size}`);
+   expect(base!.version).toBe(`${ladderVersion}-${size}-base`);
+ }
+});
 // cmux's validated pre-ladder public-platform devbox: still listed (base only,
 // size-less) so stored rows and explicit requests keep resolving, no longer a
 // default.

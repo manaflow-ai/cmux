@@ -22,6 +22,11 @@
       "title": "cmux Pro påkrævet",
       "message": "Cloud VM'er kræver en cmux Pro-plan.",
       "action": "Opgrader til cmux Pro på {upgradeUrl} for at oprette Cloud VM'er."
+    },
+    "sharedResource": {
+      "message": "Den delte {resource}-ressourcepulje til Cloud VM er fuld.",
+      "action": "Slet en ubrugt Cloud VM, og prøv igen.",
+      "oversizedAction": "Anmod om en mindre {resource}-størrelse til Cloud VM, som passer i den delte pulje."
     }
   },
   "billingRecovery": {

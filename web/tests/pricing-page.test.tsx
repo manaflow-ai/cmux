@@ -164,10 +164,10 @@ describe("localized pricing page", () => {
       "/api/billing/checkout?plan=pro&amp;cmux_external_browser=1&amp;interval=year",
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*px-5 py-2\.5 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
+      /href="\/api\/billing\/checkout\?plan=pro[^"]*interval=year"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Pro/,
     );
     expect(html).toMatch(
-      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*px-5 py-2\.5 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
+      /href="\/api\/billing\/checkout\?plan=team[^"]*interval=year"[^>]*class="[^"]*min-h-12 px-5 py-3 text-\[15px\][^"]*"[^>]*><span>Get Teams/,
     );
     expect(html).toContain('<p class="mt-5 text-sm font-medium">Includes:</p>');
     expect(html).not.toContain('style="min-height:4rem"');
@@ -252,7 +252,9 @@ describe("localized pricing page", () => {
 
     expect(html).toContain("$50");
     expect(html).toContain("$60");
-    expect(html).toContain("Up to 50 Cloud VMs, each with 8 GB RAM and 32 GB disk by default; sizes from 4 to 64 GB RAM are available");
+    expect(html).toContain(
+      "Up to 50 Cloud VMs, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
+    );
     expect(html).toContain("Unlimited workspaces");
     expect(html).not.toContain("Unlimited active Cloud VMs");
     expect(html).toContain(

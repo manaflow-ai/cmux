@@ -540,12 +540,7 @@ extension DockSplitStore {
         let browser = makeBrowserPanel(
             url: nil,
             preferredProfileID: browserSnapshot.profileID,
-            transparentBackground: browserSnapshot.transparentBackground ?? false,
-            // Snapshots written before the engine field existed represent
-            // WebKit panes. Do not reinterpret those historical panes using
-            // whatever default the user selected later.
-            engine: browserSnapshot.engine ?? .webkit,
-            chromiumStorageID: browserSnapshot.chromiumStorageID
+            transparentBackground: browserSnapshot.transparentBackground ?? false
         )
         guard attachSessionRestoredPanel(browser, snapshot: snapshot, inPane: paneId) != nil else {
             return nil
