@@ -17,6 +17,8 @@ import {
   VmRepositoryLive,
   type CloudVmIdentityLeaseRow,
   type CloudVmLeaseRow,
+  type CloudVmBaseGenerationRow,
+  type CloudVmBaseRow,
   type CloudVmSessionRow,
   type CloudVmRow,
   type VmRepositoryShape,
@@ -173,6 +175,63 @@ describe("VM Effect workflows", () => {
     expect(result.diskTotalMb).toBe(65536);
     expect(usageEvents).toHaveLength(1);
     expect(usageEvents[0]?.eventType).toBe("vm.resize");
+  });
+
+  test("persists a provider-rounded disk claim after a paid resize", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000142",
+      userId: "user-workflow-resize-confirmed",
+      billingTeamId: "team-workflow-resize-confirmed",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-resize-confirmed",
+      status: "running",
+    });
+    const confirmations: Array<{
+      id: string;
+      expectedDiskMb: number;
+      confirmedDiskMb: number;
+    }> = [];
+    let statsCalls = 0;
+    const repo = {
+      ...testWorkflowRepo({ vm }),
+      reserveVmResize: () => Effect.succeed({
+        previousDiskMb: 32768,
+        reservedDiskMb: 65536,
+      }),
+      confirmVmResize: (confirmation: typeof confirmations[number]) =>
+        Effect.sync(() => {
+          confirmations.push(confirmation);
+          return true;
+        }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.sync(() => ({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        // Freestyle can round a requested disk up to its allocation step.
+        diskTotalMb: ++statsCalls === 1 ? 65536 : 73728,
+      })),
+      resize: () => Effect.void,
+    };
+
+    await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        storageMb: 65536,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(confirmations).toEqual([{
+      id: vm.id,
+      expectedDiskMb: 65536,
+      confirmedDiskMb: 73728,
+    }]);
   });
 
   test("rejects a disk shrink before calling the provider", async () => {
@@ -2414,6 +2473,115 @@ describe("VM Effect workflows", () => {
         and metadata->>'source' = 'base_open_provider_missing'
     `;
     expect(destroyedUsageCount).toBe("1");
+  });
+
+  test("reconciles legacy VM claims before paid Base recovery checks", async () => {
+    const now = new Date();
+    const existing = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000143",
+      userId: "user-workflow-base-reconcile",
+      billingTeamId: "team-workflow-base-reconcile",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-base-reconcile-old",
+      status: "running",
+    });
+    const base = {
+      id: "00000000-0000-4000-8000-000000000144",
+      scopeType: "team",
+      scopeId: existing.billingTeamId!,
+      name: "default",
+      activeGeneration: 1,
+      activeVmId: existing.id,
+      activeProvider: "freestyle",
+      activeProviderVmId: existing.providerVmId,
+      state: "ready",
+      createdByUserId: existing.userId,
+      lastOpenedByUserId: existing.userId,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseRow;
+    const generation = {
+      id: "00000000-0000-4000-8000-000000000145",
+      baseId: base.id,
+      generation: 1,
+      vmId: existing.id,
+      provider: "freestyle",
+      providerVmId: existing.providerVmId,
+      state: "active",
+      createdByUserId: existing.userId,
+      retainedAt: null,
+      deletedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    } as CloudVmBaseGenerationRow;
+    const events: string[] = [];
+    let beginCalls = 0;
+    const legacy = { ...existing, id: "00000000-0000-4000-8000-000000000146" };
+    const repo = {
+      ...testWorkflowRepo({
+        vm: existing,
+        markProviderObservedStatus: () => {
+          events.push("mark-destroyed");
+          return Effect.succeed(true);
+        },
+      }),
+      legacyResourceReservationCandidates: () => {
+        events.push("legacy-candidates");
+        return Effect.succeed([legacy]);
+      },
+      setResourceReservation: () => {
+        events.push("legacy-write");
+        return Effect.succeed(true);
+      },
+      beginBaseOpen: () => {
+        events.push("begin");
+        beginCalls += 1;
+        return beginCalls === 1
+          ? Effect.succeed({ kind: "existing" as const, base, generation, vm: existing })
+          : Effect.fail(new Error("stop after recovery reservation check") as never);
+      },
+    } as unknown as VmRepositoryShape;
+    const deleted = new Error("VM_DELETED: provider VM is gone");
+    deleted.name = "VmDeletedError";
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => {
+        events.push("provider-status");
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle",
+          operation: "getStatus",
+          cause: deleted,
+        }));
+      },
+      getStats: () => {
+        events.push("provider-stats");
+        return Effect.succeed({
+          state: "awake" as const,
+          sampledAt: Date.now(),
+          diskTotalMb: 65536,
+        });
+      },
+    };
+
+    await Effect.runPromise(
+      openBaseVm({
+        userId: existing.userId,
+        billingCustomerType: "team",
+        billingTeamId: existing.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        image: existing.imageId,
+        baseName: "default",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))).pipe(Effect.flip),
+    );
+
+    const firstBegin = events.indexOf("begin");
+    const secondBegin = events.lastIndexOf("begin");
+    const secondLegacyWrite = events.lastIndexOf("legacy-write");
+    expect(beginCalls).toBe(2);
+    expect(secondLegacyWrite).toBeGreaterThan(firstBegin);
+    expect(secondLegacyWrite).toBeLessThan(secondBegin);
   });
 
   dbTest("resets Base by retaining the previous generation when capacity allows", async () => {
