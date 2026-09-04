@@ -768,6 +768,16 @@ extension MobileShellComposite {
         activeRoute = sub.route
         connectionState = .connected
         markMacConnectionHealthy()
+        // A pooled Mac may have authenticated before the background policy
+        // refresh completed. Recheck after promotion, too: the target is now
+        // the foreground owner even when another Mac was foreground when the
+        // stricter policy arrived. If it fails, drain the reused transport
+        // before the caller's fresh-dial fallback can race this session.
+        revalidateActiveMacCompatibilityPolicy()
+        guard connectionState == .connected else {
+            await sub.client.disconnectAndWaitForTransportDrain()
+            return .unavailable
+        }
         // Establish the foreground listener before fetching the snapshot that
         // focus will publish. This closes the control-unsubscribe/terminal-
         // subscribe gap for legacy Macs that have no state-sync cursor repair.
