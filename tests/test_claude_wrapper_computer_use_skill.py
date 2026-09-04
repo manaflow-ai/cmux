@@ -48,6 +48,7 @@ def run_wrapper(
     preexisting_link_target: Path | None = None,
     preexisting_directory: bool = False,
     preexisting_legacy_link_target: Path | None = None,
+    project_skill_collision: bool = False,
     install_global_skill: bool = False,
     global_skill_opt_out: bool = False,
 ) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
@@ -70,6 +71,21 @@ def run_wrapper(
     bundled_skill = bundle_bin.parent / "cmux-cua"
     bundled_skill.mkdir()
     (bundled_skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+    # The app resource carries a private .claude/skills projection so the
+    # wrapper can expose the signed skill through Claude's --add-dir contract
+    # without writing ~/.claude. Xcode copies this hidden resource with the
+    # existing cmux-cua folder.
+    session_skill = bundled_skill / ".claude" / "skills" / "cmux-cua"
+    session_skill.parent.mkdir(parents=True)
+    session_skill.symlink_to(bundled_skill, target_is_directory=True)
+
+    project_skill = root / ".claude" / "skills" / "cmux-cua"
+    if project_skill_collision:
+        project_skill.mkdir(parents=True)
+        (project_skill / "SKILL.md").write_text(
+            "---\nname: cmux-cua\ndescription: Project-owned build skill.\n---\n\nProject instructions.\n",
+            encoding="utf-8",
+        )
 
     args_log = root / "claude-args.log"
     write_executable(
@@ -154,6 +170,13 @@ def plugin_dir_arg(args: list[str]) -> str | None:
     return None
 
 
+def add_dir_arg(args: list[str]) -> str | None:
+    for index, arg in enumerate(args[:-1]):
+        if arg == "--add-dir":
+            return args[index + 1]
+    return None
+
+
 def test_claude_skill_is_global_without_plugin_duplicate_by_default(failures: list[str]) -> None:
     dangling = Path(
         "/nonexistent/cmux DEV old.app/Contents/Resources/cmux-cua"
@@ -177,6 +200,103 @@ def test_claude_skill_is_global_without_plugin_duplicate_by_default(failures: li
     expect(
         plugin_dir_arg(args) is None,
         f"expected no session plugin when the global link is installed, got {args}",
+        failures,
+    )
+
+
+def test_claude_default_is_session_scoped_without_global_mutation(
+    failures: list[str],
+) -> None:
+    result, link, bundled_skill, args = run_wrapper(["hello"])
+    expect(
+        result.returncode == 0,
+        f"default session wrapper exited {result.returncode}: {result.stderr}",
+        failures,
+    )
+    expect(
+        not link.exists() and not link.is_symlink(),
+        f"default Claude launch unexpectedly wrote a global skill, got {link}",
+        failures,
+    )
+    expect(
+        add_dir_arg(args) == str(bundled_skill),
+        f"default Claude launch must use the session-only skill root, got {args}",
+        failures,
+    )
+    expect(
+        plugin_dir_arg(args) is None,
+        f"session fallback must not use a plugin-qualified path, got {args}",
+        failures,
+    )
+
+
+def test_claude_cleans_cmux_link_without_recreating_global_skill(
+    failures: list[str],
+) -> None:
+    dangling = Path("/nonexistent/cmux NIGHTLY old.app/Contents/Resources/cmux-cua")
+    result, link, bundled_skill, args = run_wrapper(
+        ["hello"],
+        preexisting_link_target=dangling,
+    )
+    expect(
+        result.returncode == 0,
+        f"stale Claude link wrapper exited {result.returncode}: {result.stderr}",
+        failures,
+    )
+    expect(
+        not link.exists() and not link.is_symlink(),
+        f"stale Claude link should be removed under the new default, got {link}",
+        failures,
+    )
+    expect(
+        add_dir_arg(args) == str(bundled_skill),
+        f"stale-link cleanup must retain the session fallback, got {args}",
+        failures,
+    )
+
+
+def test_claude_collision_keeps_project_skill_and_avoids_second_row(
+    failures: list[str],
+) -> None:
+    result, link, _, args = run_wrapper(
+        ["hello"],
+        project_skill_collision=True,
+    )
+    expect(
+        result.returncode == 0,
+        f"Claude collision wrapper exited {result.returncode}: {result.stderr}",
+        failures,
+    )
+    expect(
+        not link.exists() and not link.is_symlink(),
+        f"Claude collision must not create a global duplicate, got {link}",
+        failures,
+    )
+    expect(
+        add_dir_arg(args) is None,
+        f"Claude collision must not add a second same-name session root, got {args}",
+        failures,
+    )
+
+
+def test_claude_explicit_global_opt_in_remains_available(failures: list[str]) -> None:
+    result, link, bundled_skill, args = run_wrapper(
+        ["hello"],
+        install_global_skill=True,
+    )
+    expect(
+        result.returncode == 0,
+        f"explicit Claude global wrapper exited {result.returncode}: {result.stderr}",
+        failures,
+    )
+    expect(
+        link.is_symlink() and os.path.realpath(link) == os.path.realpath(bundled_skill),
+        f"explicit opt-in should install the bundled Claude link, got {link}",
+        failures,
+    )
+    expect(
+        add_dir_arg(args) is None,
+        f"global Claude install must not add a duplicate session root, got {args}",
         failures,
     )
 
@@ -352,6 +472,10 @@ def test_strict_mcp_config_skips_all_computer_use_sideloading(failures: list[str
 def main() -> int:
     failures: list[str] = []
     test_claude_skill_is_global_without_plugin_duplicate_by_default(failures)
+    test_claude_default_is_session_scoped_without_global_mutation(failures)
+    test_claude_cleans_cmux_link_without_recreating_global_skill(failures)
+    test_claude_collision_keeps_project_skill_and_avoids_second_row(failures)
+    test_claude_explicit_global_opt_in_remains_available(failures)
     test_claude_migrates_legacy_computer_use_link(failures)
     test_claude_leaves_user_owned_legacy_links_alone(failures)
     test_claude_global_skill_can_be_disabled_explicitly(failures)

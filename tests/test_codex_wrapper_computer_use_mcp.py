@@ -291,6 +291,48 @@ def expect(condition: bool, message: str, failures: list[str]) -> None:
         failures.append(message)
 
 
+def _frontmatter_name(skill_file: Path) -> str | None:
+    """Read the name from an isolated fixture skill document."""
+    in_frontmatter = False
+    for line in skill_file.read_text(encoding="utf-8").splitlines():
+        if line.strip() == "---":
+            if in_frontmatter:
+                break
+            in_frontmatter = True
+            continue
+        if in_frontmatter and line.startswith("name:"):
+            return line.split(":", 1)[1].strip().strip("\"'")
+    return None
+
+
+def discover_picker_entries(project_root: Path, global_root: Path) -> list[dict[str, str]]:
+    """Model the filesystem contract that Codex supplies to its picker.
+
+    The final picker is Codex-owned. These entries intentionally inspect only
+    generated fixture files and the two roots whose precedence is relevant to
+    this regression, so a test can prove whether cmux left duplicate rows for
+    the client to render.
+    """
+    entries: list[dict[str, str]] = []
+    for scope, skill_dir in (
+        ("project", project_root / ".agents" / "skills" / "cmux-cua"),
+        ("global", global_root / "cmux-cua"),
+    ):
+        skill_file = skill_dir / "SKILL.md"
+        if not skill_file.is_file():
+            continue
+        name = _frontmatter_name(skill_file)
+        if name:
+            entries.append(
+                {
+                    "scope": scope,
+                    "name": name,
+                    "path": str(skill_file.resolve()),
+                }
+            )
+    return entries
+
+
 def arg_value(args: list[str], prefix: str) -> str | None:
     return next((arg.split("=", 1)[1] for arg in args if arg.startswith(prefix)), None)
 
@@ -398,7 +440,10 @@ def run_wrapper(
     install_global_skill: bool = False,
     global_skill_opt_out: bool = False,
     preexisting_legacy_link: bool = False,
+    preexisting_cmux_link: bool = False,
+    preexisting_unrelated_link: bool = False,
     preexisting_skill_directory: bool = False,
+    project_skill_collision: bool = False,
     mcp_handshake: bool = False,
     diagnostics: bool = False,
     non_cmux: bool = False,
@@ -424,6 +469,18 @@ def run_wrapper(
             "Use the bundled Computer Use tools.\n",
             encoding="utf-8",
         )
+
+        project_skill = tmp / ".agents" / "skills" / "cmux-cua"
+        if project_skill_collision:
+            project_skill.mkdir(parents=True)
+            (project_skill / "SKILL.md").write_text(
+                "---\n"
+                "name: cmux-cua\n"
+                "description: Project-owned build skill.\n"
+                "---\n\n"
+                "Build and test the project Computer Use implementation.\n",
+                encoding="utf-8",
+            )
 
         args_log = tmp / "codex-args.log"
         mcp_trace_log = tmp / "mcp-trace.log"
@@ -514,6 +571,17 @@ exit 1
             else:
                 env.pop("CMUX_CUA_DIAGNOSTICS", None)
             skills_root = sandbox_home / ".agents" / "skills"
+            if preexisting_cmux_link or preexisting_unrelated_link:
+                skills_root.mkdir(parents=True, exist_ok=True)
+                destination = skills_root / "cmux-cua"
+                if preexisting_cmux_link:
+                    destination.symlink_to(
+                        "/nonexistent/cmux NIGHTLY old.app/Contents/Resources/cmux-cua"
+                    )
+                else:
+                    destination.symlink_to(
+                        "/nonexistent/user-owned.app/Contents/Resources/cmux-cua"
+                    )
             if preexisting_legacy_link:
                 skills_root.mkdir(parents=True, exist_ok=True)
                 (skills_root / "cmux-computer-use").symlink_to(
@@ -630,6 +698,12 @@ exit 1
                     else None
                 ),
                 "legacy_present": legacy_skill.exists() or legacy_skill.is_symlink(),
+                "project_content": (
+                    (project_skill / "SKILL.md").read_text(encoding="utf-8")
+                    if (project_skill / "SKILL.md").is_file()
+                    else None
+                ),
+                "picker_entries": discover_picker_entries(tmp, sandbox_home / ".agents" / "skills"),
                 "mcp_trace": [],
             }
             if mcp_trace_log.exists():
@@ -894,6 +968,138 @@ def test_codex_skill_is_global_without_config_duplicate_by_default(failures: lis
     )
 
 
+def test_codex_installs_global_skill_by_default(failures: list[str]) -> None:
+    """A cmux launch keeps the bundled skill visible in Codex's picker."""
+    code, args, stderr, skill = run_wrapper(["hello"])
+    expect(code == 0, f"default-scope wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["exists"] is True and skill["is_symlink"] is True,
+        f"default launch must install the bundled picker link, got {skill}",
+        failures,
+    )
+    fallback = configured_skill_path(args)
+    expect(
+        fallback is None,
+        f"a durable link must avoid an invocation-scoped duplicate, got {args}",
+        failures,
+    )
+
+
+def test_codex_retargets_cmux_owned_stale_link(failures: list[str]) -> None:
+    """Existing cmux-owned links are updated to the current app bundle."""
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        preexisting_cmux_link=True,
+    )
+    expect(code == 0, f"stale-link wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["exists"] is True and skill["is_symlink"] is True
+        and isinstance(skill["target"], str)
+        and "cmux.app/Contents/Resources/cmux-cua" in skill["target"],
+        f"stale cmux link should be retargeted safely, got {skill}",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is None,
+        f"retargeted global link must avoid a duplicate fallback, got {args}",
+        failures,
+    )
+
+
+def test_codex_collision_keeps_project_skill_and_one_picker_row(failures: list[str]) -> None:
+    """A project skill wins without hiding or rewriting its contents."""
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        project_skill_collision=True,
+    )
+    expect(code == 0, f"collision wrapper exited {code}: {stderr}", failures)
+    entries = skill.get("picker_entries")
+    expect(
+        isinstance(entries, list) and len(entries) == 1,
+        f"project/global collision must not leave duplicate picker rows, got {entries}",
+        failures,
+    )
+    if isinstance(entries, list) and entries:
+        expect(
+            entries[0]["scope"] == "project" and entries[0]["name"] == "cmux-cua",
+            f"project-first resolution must remain deterministic, got {entries}",
+            failures,
+        )
+    expect(
+        isinstance(skill.get("project_content"), str)
+        and "Build and test the project" in skill["project_content"],
+        f"project-owned skill must remain untouched, got {skill}",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is not None
+        and configured_skill_path(args).parent.name == "cmux-cua-macos-driver"
+        and "name: cmux-cua (macOS driver)" in configured_skill_path(args).read_text(encoding="utf-8"),
+        f"bundled fallback must be scoped during a collision, got {args}",
+        failures,
+    )
+
+
+def test_codex_explicit_global_opt_in_still_installs_without_collision(
+    failures: list[str],
+) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        install_global_skill=True,
+    )
+    expect(code == 0, f"explicit-global wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["exists"] is True and skill["is_symlink"] is True,
+        f"explicit opt-in should install the bundled link, got {skill}",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is None,
+        f"installed global skill must not also be injected by path, got {args}",
+        failures,
+    )
+
+
+def test_codex_explicit_global_opt_in_does_not_override_project_skill(
+    failures: list[str],
+) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        install_global_skill=True,
+        project_skill_collision=True,
+    )
+    expect(code == 0, f"collision opt-in wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["exists"] is False and skill["is_symlink"] is False,
+        f"global opt-in must not create a duplicate beside a project skill, got {skill}",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is not None,
+        f"collision opt-in must retain the scoped bundled fallback, got {args}",
+        failures,
+    )
+
+
+def test_codex_preserves_unrelated_global_symlink_by_default(failures: list[str]) -> None:
+    code, args, stderr, skill = run_wrapper(
+        ["hello"],
+        preexisting_unrelated_link=True,
+    )
+    expect(code == 0, f"unrelated-link wrapper exited {code}: {stderr}", failures)
+    expect(
+        skill["is_symlink"] is True
+        and skill["target"] == "/nonexistent/user-owned.app/Contents/Resources/cmux-cua",
+        f"unrelated symlink must remain untouched, got {skill}",
+        failures,
+    )
+    expect(
+        configured_skill_path(args) is not None,
+        f"preserved user link needs a scoped bundled fallback, got {args}",
+        failures,
+    )
+
+
 def test_codex_migrates_legacy_computer_use_link(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(["hello"], preexisting_legacy_link=True)
     expect(code == 0, f"legacy-migration wrapper exited {code}: {stderr}", failures)
@@ -920,12 +1126,8 @@ def test_codex_falls_back_to_config_for_user_owned_skill_path(failures: list[str
     skill_path = configured_skill_path(args)
     expect(
         skill_path is not None
-        and skill_path.parts[-4:] == (
-            "Contents",
-            "Resources",
-            "cmux-cua",
-            "SKILL.md",
-        ),
+        and skill_path.parent.name == "cmux-cua-macos-driver"
+        and "name: cmux-cua (macOS driver)" in skill_path.read_text(encoding="utf-8"),
         f"expected the invocation-scoped fallback for a user-owned path, got {args}",
         failures,
     )
@@ -1188,6 +1390,12 @@ def main() -> int:
     test_codex_outside_cmux_reports_fail_closed_attachment(failures)
     test_codex_gets_cmux_cua(failures)
     test_codex_skill_is_global_without_config_duplicate_by_default(failures)
+    test_codex_installs_global_skill_by_default(failures)
+    test_codex_retargets_cmux_owned_stale_link(failures)
+    test_codex_collision_keeps_project_skill_and_one_picker_row(failures)
+    test_codex_explicit_global_opt_in_still_installs_without_collision(failures)
+    test_codex_explicit_global_opt_in_does_not_override_project_skill(failures)
+    test_codex_preserves_unrelated_global_symlink_by_default(failures)
     test_codex_migrates_legacy_computer_use_link(failures)
     test_codex_falls_back_to_config_for_user_owned_skill_path(failures)
     test_codex_global_skill_can_be_disabled_explicitly(failures)
