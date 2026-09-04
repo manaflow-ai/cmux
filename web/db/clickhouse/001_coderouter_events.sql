@@ -32,6 +32,7 @@ TTL toDateTime(event_time) + INTERVAL 400 DAY;
 CREATE TABLE IF NOT EXISTS {db}.route_events (
   event_time DateTime64(3, 'UTC') CODEC(Delta, ZSTD),
   team_id String,
+  stack_user_id Nullable(String),
   vm_id Nullable(String),
   provider LowCardinality(String),
   agent LowCardinality(String),

@@ -11,9 +11,10 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 
 | Term | Meaning |
 |------|---------|
-| **Machine** | A persistent cloud VM (`cmux vm ls`). Sleeps when idle (free while asleep), wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
-| **Contents** | Ubuntu (shared devbox image): node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool. **Claude Code, Codex, OpenCode, and Pi are preinstalled**. Machines are shell-only today — no provider ships a desktop image, so there is no VNC screen to open. Provisioning runs in the background on first boot — `cat /tmp/cmux/provision.log` on a brand-new machine if a tool is missing. |
+| **Machine** | A persistent cloud VM (`cmux vm ls`). cmux-created machines have no provider idle timeout, so they stay available until the user pauses/stops or destroys them; an already-sleeping machine wakes on connect or exec. `/root` is a 16 GB persistent volume; the rest of the filesystem is disposable compute. |
+| **Contents** | Ubuntu 24.04 (shared devbox image): node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, `cua-driver`. **Claude Code, Codex, OpenCode, and Pi are preinstalled**. Desktop-kind machines (the default; `vm new --base` makes a shell-only machine with no screen) boot a desktop: TigerVNC on `:1` with an openbox session, a dock (Chrome, Files, Ghostty) and noVNC on 6901 — the **Desktop** row in the sidebar / `vm open <m>:desktop` shows it. Shells on the machine get `DISPLAY=:1` (and the accessibility bus) while the desktop is up, so `agent-browser`, `xdotool` and `cua-driver mcp` act on that screen. |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces → terminals, visible in `cmux vm tree`. A terminal you start there keeps running when the Mac disconnects. |
+| **Workspaces** | One machine hosts **many** cmux-tui workspaces: the machine is the big box, workspaces are the desks in it. Make a workspace per task *inside* a machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) — not a machine per task. The Cloud sidebar shows them grouped under the machine's Workspaces group. |
 | **Surface** | A terminal, VNC screen or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
@@ -79,6 +80,8 @@ cmux vm open <id>                       # the machine's shell (+ its screen on d
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
 cmux vm workspace rename <id> <ws> <name>   # rename it; `close` keeps its terminals (they detach into the pool), `rm` deletes it AND kills them
+cmux vm tab rename <id> <tab> <name>       # rename one exact tab placement; "" clears its custom label
+cmux vm terminal rename <id> <term> <name> # rename every tab placement; "" clears every custom label
 cmux vm open <id>:desktop               # the noVNC screen
 cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it

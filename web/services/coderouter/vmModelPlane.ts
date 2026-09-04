@@ -14,7 +14,8 @@
 // unwired machine (no env, no rule, still no secret). Never set it in
 // production. Tokens never rotate; destroy revokes them.
 import { issueRouteToken, revokeRouteTokensForVm } from "./repository";
-import { ROUTE_TOKEN_HEADER, VM_ID_HEADER, VM_PLACEHOLDER_API_KEY } from "./routeTokenAuth";
+import { ROUTE_TOKEN_HEADER, VM_ID_HEADER } from "./routeTokenAuth";
+import { vmEdgeAliasDomain } from "./vmGuestEnv";
 import type { VmEdgeRule } from "../vms/drivers/types";
 
 export const VM_ROUTE_TOKEN_LABEL = "vm";
@@ -29,8 +30,6 @@ export type VmModelPlaneInput = {
 };
 
 export type VmModelPlaneProvision = {
-  /** Guest env: base URLs, placeholder keys, the VM id. Never a token. */
-  readonly envs: Record<string, string>;
   /** Edge header injection for the coderouter host. Holds the token. */
   readonly edgeRules: readonly VmEdgeRule[];
 };
@@ -131,17 +130,6 @@ export function coderouterEdgeOrigin(raw: string | undefined): string {
   return url.origin;
 }
 
-/** The guest env for one origin and VM id. No token anywhere. */
-export function vmModelPlaneEnvs(origin: string, cloudVmId: string): Record<string, string> {
-  return {
-    OPENAI_BASE_URL: `${origin}/v1`,
-    OPENAI_API_KEY: VM_PLACEHOLDER_API_KEY,
-    CMUX_CODEROUTER_URL: origin,
-    ANTHROPIC_BASE_URL: origin,
-    ANTHROPIC_API_KEY: VM_PLACEHOLDER_API_KEY,
-    CMUX_VM_ID: cloudVmId,
-  };
-}
 
 /**
  * Mint the machine's route token and build its edge rule and env. Throws
@@ -169,11 +157,14 @@ export async function provisionVmModelPlane(
   } catch (err) {
     throw new VmModelPlaneUnavailableError(`coderouter route token issue failed: ${errorMessage(err)}`, err);
   }
+  // The guest dials the alias; the edge terminates it and forwards to this
+  // deployment's API host with the machine's token. The guest env is static
+  // and baked (services/coderouter/vmGuestEnv.ts), so nothing is written here.
   return {
-    envs: vmModelPlaneEnvs(origin, input.cloudVmId),
     edgeRules: [
       {
-        domain: new URL(origin).hostname,
+        domain: vmEdgeAliasDomain(),
+        destinationHost: new URL(origin).hostname,
         headers: {
           ...edgeOriginHeaders(dependencies),
           [ROUTE_TOKEN_HEADER]: token,

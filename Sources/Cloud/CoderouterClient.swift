@@ -25,11 +25,11 @@ enum CoderouterClientError: Error, CustomStringConvertible {
     }
 }
 
-/// The credential shapes `PUT /api/coderouter/claude-upstream` accepts. The
-/// team's Claude leg uses exactly one of these; setting a new one replaces the
-/// previous upstream. Secrets travel from the CLI process over the local
-/// socket into this actor and out to the cmux backend; they are never logged,
-/// echoed, or persisted on the Mac.
+/// The credential shapes `POST /api/coderouter/claude-upstream` accepts. A
+/// team holds any number of accounts of any kind; adding one never replaces
+/// another. Secrets travel from the CLI process over the local socket into
+/// this actor and out to the cmux backend; they are never logged, echoed, or
+/// persisted on the Mac.
 enum ClaudeUpstreamInput: Sendable {
     case anthropicAPIKey(String)
     case anthropicOAuth(token: String)
@@ -43,14 +43,15 @@ enum ClaudeUpstreamInput: Sendable {
         }
     }
 
-    var jsonBody: [String: Any] {
+    func jsonBody(label: String?) -> [String: Any] {
+        var body: [String: Any]
         switch self {
         case let .anthropicAPIKey(apiKey):
-            return ["kind": kind, "apiKey": apiKey]
+            body = ["kind": kind, "apiKey": apiKey]
         case let .anthropicOAuth(token):
-            return ["kind": kind, "token": token]
+            body = ["kind": kind, "token": token]
         case let .bedrock(region, accessKeyID, secretAccessKey, sessionToken, modelIDs):
-            var body: [String: Any] = [
+            body = [
                 "kind": kind,
                 "region": region,
                 "accessKeyId": accessKeyID,
@@ -62,13 +63,16 @@ enum ClaudeUpstreamInput: Sendable {
             if !modelIDs.isEmpty {
                 body["modelIds"] = modelIDs
             }
-            return body
         }
+        if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
+            body["label"] = label
+        }
+        return body
     }
 }
 
 /// Team-level coderouter settings the app manages for the CLI (`cmux
-/// coderouter ...`): the Claude upstream credential and per-machine usage.
+/// coderouter ...`): the Claude upstream accounts and per-machine usage.
 /// Same origin, session auth, and team header as `AIAccountsClient`; the
 /// backend authorizes `manage` for writes and `use-or-manage` for reads.
 actor CoderouterClient {
@@ -87,41 +91,76 @@ actor CoderouterClient {
         self.auth = auth
     }
 
-    /// `{ teamId, upstream: { kind, identifier, region, modelIds, updatedAt } | null }`.
-    /// `identifier` is already masked by the server; no secret is returned.
-    func claudeUpstream(teamID: String?) async throws -> JSONValue {
+    /// `{ teamId, accounts: [{ id, kind, label, identifier, region, modelIds,
+    /// state, cooldownUntil, lastFailureCode, lastUsedAt, createdAt, updatedAt }],
+    /// upstream }`. Identifiers are already masked by the server.
+    func claudeAccounts(teamID: String?) async throws -> JSONValue {
         let (data, http) = try await request("GET", path: "/api/coderouter/claude-upstream", teamID: teamID)
         try ensureOK(http, data: data)
         return try bridgedJSONObject(data)
     }
 
-    /// Replaces the team's Claude upstream. Returns the same shape as
-    /// `claudeUpstream` plus `created: true` when no upstream existed before.
-    func setClaudeUpstream(_ input: ClaudeUpstreamInput, teamID: String?) async throws -> JSONValue {
+    /// Adds an account. Returns `{ teamId, account, accountsTotal }`.
+    func addClaudeAccount(_ input: ClaudeUpstreamInput, label: String?, teamID: String?) async throws -> JSONValue {
         let (data, http) = try await request(
-            "PUT",
+            "POST",
             path: "/api/coderouter/claude-upstream",
-            jsonBody: input.jsonBody,
+            jsonBody: input.jsonBody(label: label),
             teamID: teamID
         )
         try ensureOK(http, data: data)
-        var object = try decodeJSONObject(data)
-        object["created"] = http.statusCode == 201
-        guard let value = JSONValue(foundationObject: object) else {
-            throw CoderouterClientError.malformedResponse("response is not valid JSON")
-        }
-        return value
+        return try bridgedJSONObject(data)
     }
 
-    /// Removes the team's Claude upstream. A 404 (nothing configured) is
-    /// reported as `removed: false` instead of an error so `clear` is idempotent.
-    func clearClaudeUpstream(teamID: String?) async throws -> JSONValue {
-        let (data, http) = try await request("DELETE", path: "/api/coderouter/claude-upstream", teamID: teamID)
+    /// Renames or enables/disables one account. Returns `{ teamId, account }`.
+    func updateClaudeAccount(id accountID: String, label: String?, state: String?, teamID: String?) async throws -> JSONValue {
+        var body: [String: Any] = [:]
+        if let label { body["label"] = label }
+        if let state { body["state"] = state }
+        let escaped = try pathSegment(accountID, fieldName: "account id")
+        let (data, http) = try await request(
+            "PATCH",
+            path: "/api/coderouter/claude-upstream/\(escaped)",
+            jsonBody: body,
+            teamID: teamID
+        )
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
+    /// Removes one account. A 404 is reported as `removed: false` so `remove`
+    /// is idempotent.
+    func removeClaudeAccount(id accountID: String, teamID: String?) async throws -> JSONValue {
+        let escaped = try pathSegment(accountID, fieldName: "account id")
+        let (data, http) = try await request("DELETE", path: "/api/coderouter/claude-upstream/\(escaped)", teamID: teamID)
         if http.statusCode == 404 {
-            return .object(["removed": .bool(false)])
+            return .object(["removed": .bool(false), "count": .int(0)])
         }
         try ensureOK(http, data: data)
         return try bridgedJSONObject(data)
+    }
+
+    /// Removes every account of the team. A 404 (nothing configured) is
+    /// reported as `removed: false`.
+    func clearClaudeAccounts(teamID: String?) async throws -> JSONValue {
+        let (data, http) = try await request("DELETE", path: "/api/coderouter/claude-upstream", teamID: teamID)
+        if http.statusCode == 404 {
+            return .object(["removed": .bool(false), "count": .int(0)])
+        }
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
+    /// Percent-encode a caller-provided value as a single URL path segment;
+    /// `/`, `.`, and `..` would otherwise change the backend route.
+    private func pathSegment(_ value: String, fieldName: String) throws -> String {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/?#")
+        guard let encoded = value.addingPercentEncoding(withAllowedCharacters: allowed),
+              !encoded.isEmpty, encoded != ".", encoded != ".." else {
+            throw CoderouterClientError.malformedResponse("invalid \(fieldName)")
+        }
+        return encoded
     }
 
     private func bridgedJSONObject(_ data: Data) throws -> JSONValue {
@@ -211,6 +250,9 @@ actor CoderouterClient {
         if status == 403 {
             return "This account cannot manage the team's coderouter settings."
         }
+        if status == 404 {
+            return "No Claude upstream account with that id exists on this team. Run `cmux coderouter claude list`."
+        }
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
         var serverError: String?
         if let data = trimmed.data(using: .utf8),
@@ -221,7 +263,7 @@ actor CoderouterClient {
         }
         if let serverError = serverError.map(AIAccountsClient.redactSecrets), !serverError.isEmpty {
             if status == 400 {
-                return "coderouter rejected the credential (HTTP 400): \(serverError). Check the token shape and retry."
+                return "coderouter rejected the request (HTTP 400): \(serverError). Check the credential format and retry."
             }
             return "coderouter request failed (HTTP \(status)): \(serverError)"
         }

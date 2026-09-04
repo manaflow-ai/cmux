@@ -280,9 +280,23 @@ if [[ -n "${FAKE_TUI_SESSION_IDS:-}" ]]; then
     : > "$TMPDIR/hermes-tui-active-session-extra.json"
   fi
   IFS=',' read -r -a fake_tui_session_ids <<< "$FAKE_TUI_SESSION_IDS"
+  first_tui_session=1
   for fake_tui_session_id in "${fake_tui_session_ids[@]}"; do
     printf '{"session_id":"%s"}\\n' "$fake_tui_session_id" > "$active_session_file"
-    sleep 0.25
+    if (( first_tui_session == 1 && ${#fake_tui_session_ids[@]} > 1 )); then
+      # Wait for the observable lifecycle event before replacing the
+      # authoritative active-session file. This keeps the fixture deterministic
+      # on loaded runners without synchronizing on the watcher's process shape.
+      for _ in {1..200}; do
+        if [[ -f "${FAKE_CMUX_CALLS_LOG:-}" ]] &&
+           /usr/bin/grep -a -q 'session-start' "$FAKE_CMUX_CALLS_LOG"; then
+          break
+        fi
+        /bin/sleep 0.01
+      done
+      first_tui_session=0
+    fi
+    /bin/sleep 0.25
   done
 fi
 if [[ "${FAKE_SAMPLE_TUI_WATCHER_CPU:-0}" == "1" ]]; then

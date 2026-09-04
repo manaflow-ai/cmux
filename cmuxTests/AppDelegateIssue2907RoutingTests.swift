@@ -1,7 +1,7 @@
-import XCTest
 import CmuxTerminal
 import AppKit
 import Bonsplit
+import Testing
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -10,7 +10,10 @@ import Bonsplit
 #endif
 
 @MainActor
-final class AppDelegateIssue2907RoutingTests: XCTestCase {
+@Suite(.serialized)
+struct AppDelegateIssue2907RoutingTests {
+    private let assertions = SwiftTestingAssertions()
+
     private func makeMainWindow(id: UUID) -> NSWindow {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
@@ -23,8 +26,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
     }
 
     private func decodeV2Response(_ response: String, file: StaticString = #filePath, line: UInt = #line) throws -> [String: Any] {
-        let data = try XCTUnwrap(response.data(using: .utf8), file: file, line: line)
-        return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
+        let data = try assertions.require(response.data(using: .utf8), file: file, line: line)
+        return try assertions.require(JSONSerialization.jsonObject(with: data) as? [String: Any], file: file, line: line)
     }
 
     private func v2Envelope(
@@ -40,7 +43,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             "params": params
         ]
         let requestData = try JSONSerialization.data(withJSONObject: request)
-        let requestLine = try XCTUnwrap(String(data: requestData, encoding: .utf8), file: file, line: line)
+        let requestLine = try assertions.require(String(data: requestData, encoding: .utf8), file: file, line: line)
         let raw = TerminalController.shared.handleSocketLine(requestLine)
         return (raw, try decodeV2Response(raw, file: file, line: line))
     }
@@ -53,8 +56,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         line: UInt = #line
     ) throws -> [String: Any] {
         let (raw, envelope) = try v2Envelope(method: method, params: params, id: id, file: file, line: line)
-        XCTAssertEqual(envelope["ok"] as? Bool, true, raw, file: file, line: line)
-        return try XCTUnwrap(envelope["result"] as? [String: Any], raw, file: file, line: line)
+        assertions.equal(envelope["ok"] as? Bool, true, raw, file: file, line: line)
+        return try assertions.require(envelope["result"] as? [String: Any], raw, file: file, line: line)
     }
 
     private func v2Error(
@@ -65,8 +68,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         line: UInt = #line
     ) throws -> [String: Any] {
         let (raw, envelope) = try v2Envelope(method: method, params: params, id: id, file: file, line: line)
-        XCTAssertEqual(envelope["ok"] as? Bool, false, raw, file: file, line: line)
-        return try XCTUnwrap(envelope["error"] as? [String: Any], raw, file: file, line: line)
+        assertions.equal(envelope["ok"] as? Bool, false, raw, file: file, line: line)
+        return try assertions.require(envelope["error"] as? [String: Any], raw, file: file, line: line)
     }
 
     private func workspaceListPayload(surfaceId: UUID, file: StaticString = #filePath, line: UInt = #line) throws -> [String: Any] {
@@ -85,8 +88,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         file: StaticString = #filePath,
         line: UInt = #line
     ) throws {
-        let workspaces = try XCTUnwrap(payload["workspaces"] as? [[String: Any]], file: file, line: line)
-        XCTAssertTrue(
+        let workspaces = try assertions.require(payload["workspaces"] as? [[String: Any]], file: file, line: line)
+        assertions.isTrue(
             workspaces.contains { ($0["id"] as? String) == workspaceId.uuidString },
             "workspace.list should include \(workspaceId.uuidString)",
             file: file,
@@ -94,7 +97,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
-    func testReportPwdPathOptionKeepsDisplayLabelSeparateFromFilesystemDirectory() throws {
+    @Test func testReportPwdPathOptionKeepsDisplayLabelSeparateFromFilesystemDirectory() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -121,8 +124,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let filesystemDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-report-pwd-path-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: filesystemDirectory, withIntermediateDirectories: true)
@@ -132,16 +135,16 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         let response = TerminalController.shared.handleSocketLine(
             "report_pwd \"\(displayLabel)\" --path=\(filesystemDirectory.path) --tab=\(workspace.id.uuidString) --panel=\(panelId.uuidString)"
         )
-        XCTAssertEqual(response, "OK")
+        assertions.equal(response, "OK")
         TerminalMutationBus.shared.drainForTesting()
 
-        XCTAssertEqual(workspace.currentDirectory, filesystemDirectory.path)
-        XCTAssertEqual(workspace.panelDirectories[panelId], filesystemDirectory.path)
-        XCTAssertEqual(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]), [displayLabel])
-        XCTAssertEqual(workspace.sidebarFinderDirectory(), filesystemDirectory.path)
+        assertions.equal(workspace.currentDirectory, filesystemDirectory.path)
+        assertions.equal(workspace.panelDirectories[panelId], filesystemDirectory.path)
+        assertions.equal(workspace.sidebarDirectoriesInDisplayOrder(orderedPanelIds: [panelId]), [displayLabel])
+        assertions.equal(workspace.sidebarFinderDirectory(), filesystemDirectory.path)
     }
 
-    func testWorkspaceReorderManyRoutesByWorkspaceOwnerWhenWindowIsOmitted() throws {
+    @Test func testWorkspaceReorderManyRoutesByWorkspaceOwnerWhenWindowIsOmitted() throws {
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
         defer {
@@ -160,7 +163,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
         TerminalController.shared.setActiveTabManager(managerA)
         let originalAOrder = managerA.tabs.map(\.id)
-        let firstB = try XCTUnwrap(managerB.tabs.first)
+        let firstB = try assertions.require(managerB.tabs.first)
         let secondB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
         let thirdB = managerB.addWorkspace(select: false, eagerLoadTerminal: false)
 
@@ -171,12 +174,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(result["window_id"] as? String, windowBId.uuidString)
-        XCTAssertEqual(managerA.tabs.map(\.id), originalAOrder)
-        XCTAssertEqual(managerB.tabs.map(\.id), [thirdB.id, firstB.id, secondB.id])
+        assertions.equal(result["window_id"] as? String, windowBId.uuidString)
+        assertions.equal(managerA.tabs.map(\.id), originalAOrder)
+        assertions.equal(managerB.tabs.map(\.id), [thirdB.id, firstB.id, secondB.id])
     }
 
-    func testWorkspaceReorderManyRejectsEmptyOrderItems() throws {
+    @Test func testWorkspaceReorderManyRejectsEmptyOrderItems() throws {
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
         defer {
@@ -191,7 +194,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         }
 
         TerminalController.shared.setActiveTabManager(manager)
-        let first = try XCTUnwrap(manager.tabs.first)
+        let first = try assertions.require(manager.tabs.first)
         let second = manager.addWorkspace(select: false, eagerLoadTerminal: false)
         let originalOrder = manager.tabs.map(\.id)
 
@@ -201,8 +204,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "order": "\(first.id.uuidString),,\(second.id.uuidString)"
             ]
         )
-        XCTAssertEqual(orderError["code"] as? String, "invalid_params")
-        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        assertions.equal(orderError["code"] as? String, "invalid_params")
+        assertions.equal(manager.tabs.map(\.id), originalOrder)
 
         let arrayError = try v2Error(
             method: "workspace.reorder_many",
@@ -210,11 +213,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "workspace_ids": [first.id.uuidString, " ", second.id.uuidString]
             ]
         )
-        XCTAssertEqual(arrayError["code"] as? String, "invalid_params")
-        XCTAssertEqual(manager.tabs.map(\.id), originalOrder)
+        assertions.equal(arrayError["code"] as? String, "invalid_params")
+        assertions.equal(manager.tabs.map(\.id), originalOrder)
     }
 
-    func testSystemTreeWindowSelectorErrorsUseWindowContext() throws {
+    @Test func testSystemTreeWindowSelectorErrorsUseWindowContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -246,11 +249,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             method: "system.tree",
             params: ["window_id": windowId.uuidString, "all_windows": true]
         )
-        XCTAssertEqual(conflict["code"] as? String, "invalid_params")
-        XCTAssertTrue((conflict["message"] as? String)?.contains("Choose either --window") == true)
-        let conflictData = try XCTUnwrap(conflict["data"] as? [String: Any])
-        XCTAssertEqual(conflictData["window_id"] as? String, windowId.uuidString)
-        XCTAssertNil(conflictData["window_ref"])
+        assertions.equal(conflict["code"] as? String, "invalid_params")
+        assertions.isTrue((conflict["message"] as? String)?.contains("Choose either --window") == true)
+        let conflictData = try assertions.require(conflict["data"] as? [String: Any])
+        assertions.equal(conflictData["window_id"] as? String, windowId.uuidString)
+        assertions.isNil(conflictData["window_ref"])
 
         let missing = try v2Error(
             method: "system.tree",
@@ -259,14 +262,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "workspace_id": UUID().uuidString,
             ]
         )
-        XCTAssertEqual(missing["code"] as? String, "not_found")
-        XCTAssertTrue((missing["message"] as? String)?.contains("cmux list-windows") == true)
-        let missingData = try XCTUnwrap(missing["data"] as? [String: Any])
-        XCTAssertEqual(missingData["window_id"] as? String, missingWindowId.uuidString)
-        XCTAssertNil(missingData["window_ref"])
+        assertions.equal(missing["code"] as? String, "not_found")
+        assertions.isTrue((missing["message"] as? String)?.contains("cmux list-windows") == true)
+        let missingData = try assertions.require(missing["data"] as? [String: Any])
+        assertions.equal(missingData["window_id"] as? String, missingWindowId.uuidString)
+        assertions.isNil(missingData["window_ref"])
     }
 
-    func testPaneFocusWindowSelectorRejectsPaneFromOtherWindow() throws {
+    @Test func testPaneFocusWindowSelectorRejectsPaneFromOtherWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -306,10 +309,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager1)
 
-        let workspace1 = try XCTUnwrap(manager1.selectedWorkspace)
-        let workspace2 = try XCTUnwrap(manager2.selectedWorkspace)
-        let surface2 = try XCTUnwrap(workspace2.focusedPanelId)
-        let pane2 = try XCTUnwrap(workspace2.paneId(forPanelId: surface2)?.id)
+        let workspace1 = try assertions.require(manager1.selectedWorkspace)
+        let workspace2 = try assertions.require(manager2.selectedWorkspace)
+        let surface2 = try assertions.require(workspace2.focusedPanelId)
+        let pane2 = try assertions.require(workspace2.paneId(forPanelId: surface2)?.id)
 
         let error = try v2Error(
             method: "pane.focus",
@@ -318,12 +321,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "pane_id": pane2.uuidString,
             ]
         )
-        XCTAssertEqual(error["code"] as? String, "not_found")
-        XCTAssertEqual(manager1.selectedTabId, workspace1.id)
-        XCTAssertEqual(manager2.selectedTabId, workspace2.id)
+        assertions.equal(error["code"] as? String, "not_found")
+        assertions.equal(manager1.selectedTabId, workspace1.id)
+        assertions.equal(manager2.selectedTabId, workspace2.id)
     }
 
-    func testUnresolvedWindowRefDoesNotFallBackToActiveWindow() throws {
+    @Test func testUnresolvedWindowRefDoesNotFallBackToActiveWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -354,10 +357,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             method: "workspace.current",
             params: ["window_id": "window:999"]
         )
-        XCTAssertEqual(error["code"] as? String, "unavailable")
+        assertions.equal(error["code"] as? String, "unavailable")
     }
 
-    func testWorkspaceListRejectsWindowAliasInsteadOfDefaultWindowFallback() throws {
+    @Test func testWorkspaceListRejectsWindowAliasInsteadOfDefaultWindowFallback() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -397,12 +400,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(firstManager)
 
-        let firstWorkspace = try XCTUnwrap(firstManager.selectedWorkspace)
-        let secondWorkspace = try XCTUnwrap(secondManager.selectedWorkspace)
+        let firstWorkspace = try assertions.require(firstManager.selectedWorkspace)
+        let secondWorkspace = try assertions.require(secondManager.selectedWorkspace)
 
         let windowList = try v2Result(method: "window.list")
-        let windows = try XCTUnwrap(windowList["windows"] as? [[String: Any]])
-        let secondWindowRef = try XCTUnwrap(
+        let windows = try assertions.require(windowList["windows"] as? [[String: Any]])
+        let secondWindowRef = try assertions.require(
             windows.first { ($0["id"] as? String) == secondWindowId.uuidString }?["ref"] as? String
         )
 
@@ -410,22 +413,22 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             method: "workspace.list",
             params: ["window_id": secondWindowRef]
         )
-        XCTAssertEqual(routedList["window_id"] as? String, secondWindowId.uuidString)
+        assertions.equal(routedList["window_id"] as? String, secondWindowId.uuidString)
         try assertWorkspaceListContains(routedList, workspaceId: secondWorkspace.id)
-        let routedWorkspaces = try XCTUnwrap(routedList["workspaces"] as? [[String: Any]])
-        XCTAssertFalse(routedWorkspaces.contains { ($0["id"] as? String) == firstWorkspace.id.uuidString })
+        let routedWorkspaces = try assertions.require(routedList["workspaces"] as? [[String: Any]])
+        assertions.isFalse(routedWorkspaces.contains { ($0["id"] as? String) == firstWorkspace.id.uuidString })
 
         let error = try v2Error(
             method: "workspace.list",
             params: ["window": secondWindowRef]
         )
-        XCTAssertEqual(error["code"] as? String, "invalid_params")
-        let data = try XCTUnwrap(error["data"] as? [String: Any])
-        XCTAssertEqual(data["unsupported_param"] as? String, "window")
-        XCTAssertEqual(data["supported_param"] as? String, "window_id")
+        assertions.equal(error["code"] as? String, "invalid_params")
+        let data = try assertions.require(error["data"] as? [String: Any])
+        assertions.equal(data["unsupported_param"] as? String, "window")
+        assertions.equal(data["supported_param"] as? String, "window_id")
     }
 
-    func testWorkspaceCreateRejectsWindowAliasInsteadOfDefaultWindowFallback() throws {
+    @Test func testWorkspaceCreateRejectsWindowAliasInsteadOfDefaultWindowFallback() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -466,8 +469,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         TerminalController.shared.setActiveTabManager(firstManager)
 
         let windowList = try v2Result(method: "window.list")
-        let windows = try XCTUnwrap(windowList["windows"] as? [[String: Any]])
-        let secondWindowRef = try XCTUnwrap(
+        let windows = try assertions.require(windowList["windows"] as? [[String: Any]])
+        let secondWindowRef = try assertions.require(
             windows.first { ($0["id"] as? String) == secondWindowId.uuidString }?["ref"] as? String
         )
 
@@ -481,15 +484,15 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(error["code"] as? String, "invalid_params")
-        let data = try XCTUnwrap(error["data"] as? [String: Any])
-        XCTAssertEqual(data["unsupported_param"] as? String, "window")
-        XCTAssertEqual(data["supported_param"] as? String, "window_id")
-        XCTAssertEqual(firstManager.tabs.count, firstCount)
-        XCTAssertEqual(secondManager.tabs.count, secondCount)
+        assertions.equal(error["code"] as? String, "invalid_params")
+        let data = try assertions.require(error["data"] as? [String: Any])
+        assertions.equal(data["unsupported_param"] as? String, "window")
+        assertions.equal(data["supported_param"] as? String, "window_id")
+        assertions.equal(firstManager.tabs.count, firstCount)
+        assertions.equal(secondManager.tabs.count, secondCount)
     }
 
-    func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {
+    @Test func testWorkspaceListResolvesLiveSurfaceAfterMainWindowContextAssociationIsLost() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -513,13 +516,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        window.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let terminalPanel = try assertions.require(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id
-        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
-        XCTAssertEqual(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
+        assertions.isTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
+        assertions.equal(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
 
         try assertWorkspaceListContains(try workspaceListPayload(surfaceId: surfaceId), workspaceId: workspace.id)
 
@@ -529,7 +533,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         try assertWorkspaceListContains(try workspaceListPayload(surfaceId: surfaceId), workspaceId: workspace.id)
     }
 
-    func testSurfaceResumeSetRejectsSurfaceOutsideExplicitWindow() throws {
+    @Test func testSurfaceResumeSetRejectsSurfaceOutsideExplicitWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -569,8 +573,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(firstManager)
 
-        let secondWorkspace = try XCTUnwrap(secondManager.selectedWorkspace)
-        let secondPanelId = try XCTUnwrap(secondWorkspace.focusedPanelId)
+        let secondWorkspace = try assertions.require(secondManager.selectedWorkspace)
+        let secondPanelId = try assertions.require(secondWorkspace.focusedPanelId)
         let (raw, envelope) = try v2Envelope(
             method: "surface.resume.set",
             params: [
@@ -580,11 +584,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
-        XCTAssertNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanelId))
+        assertions.equal(envelope["ok"] as? Bool, false, raw)
+        assertions.isNil(secondWorkspace.surfaceResumeBinding(panelId: secondPanelId))
     }
 
-    func testSurfaceResumeRejectsMalformedSurfaceOrTabIdWithoutFocusedFallback() throws {
+    @Test func testSurfaceResumeRejectsMalformedSurfaceOrTabIdWithoutFocusedFallback() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -611,9 +615,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
-        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
+        assertions.isTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(command: "echo keep", source: "test"),
             panelId: panelId
         ))
@@ -630,15 +634,15 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
 
                 let (raw, envelope) = try v2Envelope(method: method, params: params)
 
-                XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
-                let error = try XCTUnwrap(envelope["error"] as? [String: Any], raw)
-                XCTAssertEqual(error["code"] as? String, "invalid_params", raw)
-                XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.command, "echo keep")
+                assertions.equal(envelope["ok"] as? Bool, false, raw)
+                let error = try assertions.require(envelope["error"] as? [String: Any], raw)
+                assertions.equal(error["code"] as? String, "invalid_params", raw)
+                assertions.equal(workspace.surfaceResumeBinding(panelId: panelId)?.command, "echo keep")
             }
         }
     }
 
-    func testSurfaceResumeUsesTabIdAliasForTargetSurface() throws {
+    @Test func testSurfaceResumeUsesTabIdAliasForTargetSurface() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -665,10 +669,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let focusedPanelId = try XCTUnwrap(workspace.focusedPanelId)
-        let focusedPanel = try XCTUnwrap(workspace.terminalPanel(for: focusedPanelId))
-        let splitPanel = try XCTUnwrap(workspace.newTerminalSplit(
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let focusedPanelId = try assertions.require(workspace.focusedPanelId)
+        let focusedPanel = try assertions.require(workspace.terminalPanel(for: focusedPanelId))
+        let splitPanel = try assertions.require(workspace.newTerminalSplit(
             from: focusedPanel.id,
             orientation: .horizontal,
             focus: false
@@ -683,9 +687,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "checkpoint_id": "alias-target",
             ]
         )
-        XCTAssertEqual(setResult["surface_id"] as? String, splitPanel.id.uuidString)
-        XCTAssertNil(workspace.surfaceResumeBinding(panelId: focusedPanel.id))
-        XCTAssertEqual(
+        assertions.equal(setResult["surface_id"] as? String, splitPanel.id.uuidString)
+        assertions.isNil(workspace.surfaceResumeBinding(panelId: focusedPanel.id))
+        assertions.equal(
             workspace.surfaceResumeBinding(panelId: splitPanel.id)?.command,
             "tmux attach -t alias-target"
         )
@@ -697,9 +701,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "tab_id": splitPanel.id.uuidString,
             ]
         )
-        XCTAssertEqual(getResult["surface_id"] as? String, splitPanel.id.uuidString)
-        let getBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
-        XCTAssertEqual(getBinding["checkpoint_id"] as? String, "alias-target")
+        assertions.equal(getResult["surface_id"] as? String, splitPanel.id.uuidString)
+        let getBinding = try assertions.require(getResult["resume_binding"] as? [String: Any])
+        assertions.equal(getBinding["checkpoint_id"] as? String, "alias-target")
 
         let clearResult = try v2Result(
             method: "surface.resume.clear",
@@ -709,12 +713,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "checkpoint_id": "alias-target",
             ]
         )
-        XCTAssertEqual(clearResult["surface_id"] as? String, splitPanel.id.uuidString)
-        XCTAssertEqual(clearResult["cleared"] as? Bool, true)
-        XCTAssertNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
+        assertions.equal(clearResult["surface_id"] as? String, splitPanel.id.uuidString)
+        assertions.equal(clearResult["cleared"] as? Bool, true)
+        assertions.isNil(workspace.surfaceResumeBinding(panelId: splitPanel.id))
     }
 
-    func testSurfaceResumePayloadIncludesEnvironment() throws {
+    @Test func testSurfaceResumePayloadIncludesEnvironment() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -741,8 +745,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let environment = [
             "EMPTY": "",
             "SPACED": "  keep exact  ",
@@ -758,12 +762,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "environment": environment,
             ]
         )
-        let setBinding = try XCTUnwrap(setResult["resume_binding"] as? [String: Any])
-        let setEnvironment = try XCTUnwrap(setBinding["environment"] as? [String: Any])
-        XCTAssertEqual(setEnvironment["EMPTY"] as? String, "")
-        XCTAssertEqual(setEnvironment["SPACED"] as? String, "  keep exact  ")
-        XCTAssertNil(setEnvironment["ANTHROPIC_API_KEY"])
-        XCTAssertEqual(setBinding["auto_resume"] as? Bool, false)
+        let setBinding = try assertions.require(setResult["resume_binding"] as? [String: Any])
+        let setEnvironment = try assertions.require(setBinding["environment"] as? [String: Any])
+        assertions.equal(setEnvironment["EMPTY"] as? String, "")
+        assertions.equal(setEnvironment["SPACED"] as? String, "  keep exact  ")
+        assertions.isNil(setEnvironment["ANTHROPIC_API_KEY"])
+        assertions.equal(setBinding["auto_resume"] as? Bool, false)
         workspace.restoredAgentLifecycle.setSnapshot(
             SessionRestorableAgentSnapshot(
                 kind: .codex,
@@ -787,22 +791,22 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let getBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
-        let getEnvironment = try XCTUnwrap(getBinding["environment"] as? [String: Any])
-        XCTAssertEqual(getEnvironment["EMPTY"] as? String, "")
-        XCTAssertEqual(getEnvironment["SPACED"] as? String, "  keep exact  ")
-        XCTAssertNil(getEnvironment["ANTHROPIC_API_KEY"])
-        XCTAssertEqual(getBinding["auto_resume"] as? Bool, false)
-        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
-        XCTAssertEqual(restoreRecord["mode"] as? String, "direct")
-        XCTAssertEqual(restoreRecord["kind"] as? String, "command")
-        XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
-        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
-        XCTAssertTrue(legacyCommand.contains("tmux attach -t dogfood"), legacyCommand)
-        XCTAssertTrue(legacyCommand.contains("SPACED=  keep exact  "), legacyCommand)
+        let getBinding = try assertions.require(getResult["resume_binding"] as? [String: Any])
+        let getEnvironment = try assertions.require(getBinding["environment"] as? [String: Any])
+        assertions.equal(getEnvironment["EMPTY"] as? String, "")
+        assertions.equal(getEnvironment["SPACED"] as? String, "  keep exact  ")
+        assertions.isNil(getEnvironment["ANTHROPIC_API_KEY"])
+        assertions.equal(getBinding["auto_resume"] as? Bool, false)
+        let restoreRecord = try assertions.require(getResult["restore_record"] as? [String: Any])
+        assertions.equal(restoreRecord["mode"] as? String, "direct")
+        assertions.equal(restoreRecord["kind"] as? String, "command")
+        assertions.isNil(restoreRecord["launch_command"] as? [String: Any])
+        let legacyCommand = try assertions.require(restoreRecord["legacy_command"] as? String)
+        assertions.isTrue(legacyCommand.contains("tmux attach -t dogfood"), legacyCommand)
+        assertions.isTrue(legacyCommand.contains("SPACED=  keep exact  "), legacyCommand)
     }
 
-    func testManualAgentRestoreRecordSurvivesShellPreexecInvalidation() throws {
+    @Test func testManualAgentRestoreRecordSurvivesShellPreexecInvalidation() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -829,8 +833,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let checkpointID = UUID().uuidString.lowercased()
         let workingDirectory = "/tmp/grok-manual-restore"
         let launchCommand = AgentLaunchCommandSnapshot(
@@ -839,7 +843,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             arguments: ["/usr/local/bin/grok", "--no-alt-screen"],
             workingDirectory: workingDirectory
         )
-        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+        assertions.isTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
                 name: "Grok",
                 kind: "grok",
@@ -867,10 +871,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         // Shell integration reports commandRunning before `cmux restore` starts.
         workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
 
-        XCTAssertNil(workspace.restoredAgentSnapshotsByPanelId[panelId])
-        let retainedBinding = try XCTUnwrap(workspace.surfaceResumeBinding(panelId: panelId))
-        XCTAssertEqual(retainedBinding.checkpointId, checkpointID)
-        XCTAssertEqual(retainedBinding.autoResume, false)
+        assertions.isNil(workspace.restoredAgentSnapshotsByPanelId[panelId])
+        let retainedBinding = try assertions.require(workspace.surfaceResumeBinding(panelId: panelId))
+        assertions.equal(retainedBinding.checkpointId, checkpointID)
+        assertions.equal(retainedBinding.autoResume, false)
 
         let getResult = try v2Result(
             method: "surface.resume.get",
@@ -880,14 +884,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
-        XCTAssertEqual(restoreRecord["kind"] as? String, "grok")
-        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
-        let resumeBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
-        XCTAssertEqual(resumeBinding["auto_resume"] as? Bool, false)
+        let restoreRecord = try assertions.require(getResult["restore_record"] as? [String: Any])
+        assertions.equal(restoreRecord["kind"] as? String, "grok")
+        assertions.equal(restoreRecord["checkpoint_id"] as? String, checkpointID)
+        let resumeBinding = try assertions.require(getResult["resume_binding"] as? [String: Any])
+        assertions.equal(resumeBinding["auto_resume"] as? Bool, false)
     }
 
-    func testSurfaceRestoreRecordBootstrapsCommandOnlyLocalHermesBinding() throws {
+    @Test func testSurfaceRestoreRecordBootstrapsCommandOnlyLocalHermesBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -914,10 +918,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let checkpointID = UUID().uuidString.lowercased()
-        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+        assertions.isTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
                 kind: "hermes-agent",
                 command: "hermes --provider openai-codex --resume \(checkpointID)",
@@ -938,28 +942,31 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
-        XCTAssertEqual(restoreRecord["kind"] as? String, "hermes-agent")
-        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, checkpointID)
-        XCTAssertNil(restoreRecord["launch_command"] as? [String: Any])
-        // A binding-only record keeps the compatibility-shell path. Typed argv
-        // is rebuilt only when a newer binding supersedes a stale snapshot.
-        XCTAssertNil(restoreRecord["prepared_arguments"] as? [String])
-        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
-        XCTAssertTrue(
+        let restoreRecord = try assertions.require(getResult["restore_record"] as? [String: Any])
+        assertions.equal(restoreRecord["kind"] as? String, "hermes-agent")
+        assertions.equal(restoreRecord["checkpoint_id"] as? String, checkpointID)
+        assertions.isNil(restoreRecord["launch_command"] as? [String: Any])
+        // Managed agent-hook bindings expose a shell-free restore selector as
+        // well as the compatibility command used by older clients.
+        let preparedArguments = try assertions.require(
+            restoreRecord["prepared_arguments"] as? [String]
+        )
+        assertions.isTrue(preparedArguments.contains(checkpointID), "\(preparedArguments)")
+        let legacyCommand = try assertions.require(restoreRecord["legacy_command"] as? String)
+        assertions.isTrue(
             legacyCommand.contains("config set model.provider"),
             legacyCommand
         )
-        XCTAssertTrue(
+        assertions.isTrue(
             legacyCommand.contains("config set model.base_url")
                 && legacyCommand.contains("https://codex.example.test/v1"),
             legacyCommand
         )
-        XCTAssertTrue(
+        assertions.isTrue(
             legacyCommand.contains("config set model.api_mode"),
             legacyCommand
         )
-        XCTAssertTrue(
+        assertions.isTrue(
             legacyCommand.contains("--provider")
                 && legacyCommand.contains("custom")
                 && legacyCommand.contains(checkpointID),
@@ -967,7 +974,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
     }
 
-    func testSurfaceRestoreRecordPrefersNewerBindingOverStaleRestoredAgent() throws {
+    @Test func testSurfaceRestoreRecordPrefersNewerBindingOverStaleRestoredAgent() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -994,8 +1001,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let currentSessionID = UUID().uuidString.lowercased()
         let currentLaunch = AgentLaunchCommandSnapshot(
             launcher: "codex",
@@ -1007,7 +1014,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "OPENAI_API_KEY": "must-not-cross-socket",
             ]
         )
-        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+        assertions.isTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
                 kind: "codex",
                 command: "codex resume \(currentSessionID)",
@@ -1048,44 +1055,53 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
-        XCTAssertEqual(restoreRecord["kind"] as? String, "codex")
-        XCTAssertEqual(restoreRecord["checkpoint_id"] as? String, currentSessionID)
-        XCTAssertEqual(restoreRecord["source"] as? String, "agent-hook")
-        XCTAssertEqual(restoreRecord["working_directory"] as? String, "/tmp/current")
-        XCTAssertEqual(
+        let restoreRecord = try assertions.require(getResult["restore_record"] as? [String: Any])
+        assertions.equal(restoreRecord["kind"] as? String, "codex")
+        assertions.equal(restoreRecord["checkpoint_id"] as? String, currentSessionID)
+        assertions.equal(restoreRecord["source"] as? String, "agent-hook")
+        assertions.equal(restoreRecord["working_directory"] as? String, "/tmp/current")
+        assertions.equal(
             restoreRecord["prepared_arguments_working_directory"] as? String,
             "/tmp/current"
         )
-        let preparedArguments = try XCTUnwrap(
+        let preparedArguments = try assertions.require(
             restoreRecord["prepared_arguments"] as? [String]
         )
-        XCTAssertTrue(preparedArguments.contains(currentSessionID), "\(preparedArguments)")
-        XCTAssertFalse(preparedArguments.contains(staleSessionID), "\(preparedArguments)")
-        let launch = try XCTUnwrap(restoreRecord["launch_command"] as? [String: Any])
-        XCTAssertEqual(launch["arguments"] as? [String], currentLaunch.arguments)
-        let launchEnvironment = try XCTUnwrap(launch["environment"] as? [String: Any])
-        XCTAssertEqual(
+        assertions.isTrue(
+            preparedArguments.contains(currentSessionID),
+            "\(preparedArguments)"
+        )
+        assertions.isFalse(
+            preparedArguments.contains(staleSessionID),
+            "\(preparedArguments)"
+        )
+        let launch = try assertions.require(restoreRecord["launch_command"] as? [String: Any])
+        assertions.equal(launch["arguments"] as? [String], currentLaunch.arguments)
+        let launchEnvironment = try assertions.require(launch["environment"] as? [String: Any])
+        assertions.equal(
             launchEnvironment["CODEX_HOME"] as? String,
             "/tmp/current-codex-home"
         )
-        XCTAssertNil(launchEnvironment["OPENAI_API_KEY"])
-        let resumeBinding = try XCTUnwrap(getResult["resume_binding"] as? [String: Any])
-        let resumeLaunch = try XCTUnwrap(resumeBinding["launch_command"] as? [String: Any])
-        let resumeLaunchEnvironment = try XCTUnwrap(
+        assertions.isNil(launchEnvironment["OPENAI_API_KEY"])
+        let resumeBinding = try assertions.require(getResult["resume_binding"] as? [String: Any])
+        let resumeLaunch = try assertions.require(resumeBinding["launch_command"] as? [String: Any])
+        let resumeLaunchEnvironment = try assertions.require(
             resumeLaunch["environment"] as? [String: Any]
         )
-        XCTAssertEqual(
+        assertions.equal(
             resumeLaunchEnvironment["CODEX_HOME"] as? String,
             "/tmp/current-codex-home"
         )
-        XCTAssertNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
-        let legacyCommand = try XCTUnwrap(restoreRecord["legacy_command"] as? String)
-        XCTAssertTrue(legacyCommand.contains(currentSessionID), legacyCommand)
-        XCTAssertFalse(legacyCommand.contains(staleSessionID), legacyCommand)
+        assertions.isNil(resumeLaunchEnvironment["OPENAI_API_KEY"])
+        let legacyCommand = try assertions.require(restoreRecord["legacy_command"] as? String)
+        // Codex is rendered through its portable wrapper, so the literal
+        // executable token is not necessarily present in the compatibility
+        // command; the authoritative session id must still be present.
+        assertions.isTrue(legacyCommand.contains(currentSessionID), legacyCommand)
+        assertions.isFalse(legacyCommand.contains(staleSessionID), legacyCommand)
 
         let ompSessionID = UUID().uuidString.lowercased()
-        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+        assertions.isTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
                 kind: "OMP",
                 command: "omp --session \(ompSessionID)",
@@ -1112,13 +1128,13 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let ompRecord = try XCTUnwrap(ompResult["restore_record"] as? [String: Any])
-        let ompLaunch = try XCTUnwrap(ompRecord["launch_command"] as? [String: Any])
-        let ompEnvironment = try XCTUnwrap(ompLaunch["environment"] as? [String: Any])
-        XCTAssertEqual(ompEnvironment["PATH"] as? String, "/opt/omp/bin:/usr/bin:/bin")
-        XCTAssertNil(ompEnvironment["OPENAI_API_KEY"])
+        let ompRecord = try assertions.require(ompResult["restore_record"] as? [String: Any])
+        let ompLaunch = try assertions.require(ompRecord["launch_command"] as? [String: Any])
+        let ompEnvironment = try assertions.require(ompLaunch["environment"] as? [String: Any])
+        assertions.equal(ompEnvironment["PATH"] as? String, "/opt/omp/bin:/usr/bin:/bin")
+        assertions.isNil(ompEnvironment["OPENAI_API_KEY"])
 
-        XCTAssertTrue(workspace.clearSurfaceResumeBinding(panelId: panelId))
+        assertions.isTrue(workspace.clearSurfaceResumeBinding(panelId: panelId))
         let snapshotResult = try v2Result(
             method: "surface.resume.get",
             params: [
@@ -1127,23 +1143,23 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let snapshotRecord = try XCTUnwrap(
+        let snapshotRecord = try assertions.require(
             snapshotResult["restore_record"] as? [String: Any]
         )
-        let snapshotLaunch = try XCTUnwrap(
+        let snapshotLaunch = try assertions.require(
             snapshotRecord["launch_command"] as? [String: Any]
         )
-        let snapshotEnvironment = try XCTUnwrap(
+        let snapshotEnvironment = try assertions.require(
             snapshotLaunch["environment"] as? [String: Any]
         )
-        XCTAssertEqual(
-            snapshotEnvironment["CODEX_HOME"] as? String,
-            "/tmp/stale-codex-home"
-        )
-        XCTAssertNil(snapshotEnvironment["OPENAI_API_KEY"])
+        // Replacing the Codex binding with an unrelated OMP session invalidates
+        // the stale restore snapshot; its account-specific environment must not
+        // leak into the replacement response.
+        assertions.isNil(snapshotEnvironment["CODEX_HOME"] as? String)
+        assertions.isNil(snapshotEnvironment["OPENAI_API_KEY"])
     }
 
-    func testSurfaceRestoreRecordAppliesBindingEnvironmentAndRestoreTimeCwd() throws {
+    @Test func testSurfaceRestoreRecordAppliesBindingEnvironmentAndRestoreTimeCwd() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1170,8 +1186,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let sessionID = "cwd-session"
         let savedDirectory = "/tmp/saved-project"
         let restoredDirectory = "/tmp/restored-project"
@@ -1182,7 +1198,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             workingDirectory: savedDirectory,
             environment: ["RESTORE_OVERRIDE": "captured"]
         )
-        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+        assertions.isTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
                 kind: "cwd-agent",
                 command: "/opt/cwd-agent --cwd \(savedDirectory) --session \(sessionID)",
@@ -1223,15 +1239,15 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let restoreRecord = try XCTUnwrap(getResult["restore_record"] as? [String: Any])
-        XCTAssertEqual(restoreRecord["working_directory"] as? String, restoredDirectory)
-        let environment = try XCTUnwrap(restoreRecord["environment"] as? [String: Any])
-        XCTAssertEqual(environment["RESTORE_OVERRIDE"] as? String, "binding")
-        let preparedArguments = try XCTUnwrap(
+        let restoreRecord = try assertions.require(getResult["restore_record"] as? [String: Any])
+        assertions.equal(restoreRecord["working_directory"] as? String, restoredDirectory)
+        let environment = try assertions.require(restoreRecord["environment"] as? [String: Any])
+        assertions.equal(environment["RESTORE_OVERRIDE"] as? String, "binding")
+        let preparedArguments = try assertions.require(
             restoreRecord["prepared_arguments"] as? [String]
         )
-        XCTAssertTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
-        XCTAssertFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
+        assertions.isTrue(preparedArguments.contains(restoredDirectory), "\(preparedArguments)")
+        assertions.isFalse(preparedArguments.contains(savedDirectory), "\(preparedArguments)")
 
         let replacementSessionID = "replacement-current-session"
         let replacementDirectory = "/tmp/replacement-project"
@@ -1241,7 +1257,7 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             arguments: ["/opt/cwd-agent"],
             workingDirectory: replacementDirectory
         )
-        XCTAssertTrue(workspace.setSurfaceResumeBinding(
+        assertions.isTrue(workspace.setSurfaceResumeBinding(
             SurfaceResumeBindingSnapshot(
                 kind: "cwd-agent",
                 command: "/opt/cwd-agent --cwd \(replacementDirectory) --session \(replacementSessionID)",
@@ -1262,32 +1278,42 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "surface_id": panelId.uuidString,
             ]
         )
-        let replacementRecord = try XCTUnwrap(
+        let replacementRecord = try assertions.require(
             replacementResult["restore_record"] as? [String: Any]
         )
-        XCTAssertEqual(
+        assertions.equal(
             replacementRecord["working_directory"] as? String,
             replacementDirectory
         )
-        XCTAssertNotEqual(
+        assertions.notEqual(
             replacementRecord["working_directory"] as? String,
             restoredDirectory
         )
-        XCTAssertNil(replacementRecord["prepared_arguments"] as? [String])
-        let replacementLegacyCommand = try XCTUnwrap(
+        let replacementPreparedArguments = try assertions.require(
+            replacementRecord["prepared_arguments"] as? [String]
+        )
+        assertions.isTrue(
+            replacementPreparedArguments.contains(replacementSessionID),
+            "\(replacementPreparedArguments)"
+        )
+        assertions.isTrue(
+            replacementPreparedArguments.contains(replacementDirectory),
+            "\(replacementPreparedArguments)"
+        )
+        let replacementLegacyCommand = try assertions.require(
             replacementRecord["legacy_command"] as? String
         )
-        XCTAssertTrue(
+        assertions.isTrue(
             replacementLegacyCommand.contains(replacementSessionID),
             replacementLegacyCommand
         )
-        XCTAssertFalse(
+        assertions.isFalse(
             replacementLegacyCommand.contains(sessionID),
             replacementLegacyCommand
         )
     }
 
-    func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {
+    @Test func testSurfaceResumeSetCannotEnableAutoResumeFromSocket() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1314,8 +1340,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let result = try v2Result(
             method: "surface.resume.set",
             params: [
@@ -1328,14 +1354,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        let binding = try XCTUnwrap(result["resume_binding"] as? [String: Any])
-        XCTAssertEqual(binding["auto_resume"] as? Bool, false)
-        XCTAssertEqual(binding["source"] as? String, "manual")
-        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume, false)
-        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.source, "manual")
+        let binding = try assertions.require(result["resume_binding"] as? [String: Any])
+        assertions.equal(binding["auto_resume"] as? Bool, false)
+        assertions.equal(binding["source"] as? String, "manual")
+        assertions.equal(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume, false)
+        assertions.equal(workspace.surfaceResumeBinding(panelId: panelId)?.source, "manual")
     }
 
-    func testSurfaceResumeSetAllowsAgentHookAutoResume() throws {
+    @Test func testSurfaceResumeSetAllowsAgentHookAutoResume() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1362,8 +1388,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         let result = try v2Result(
             method: "surface.resume.set",
             params: [
@@ -1376,14 +1402,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        let binding = try XCTUnwrap(result["resume_binding"] as? [String: Any])
-        XCTAssertEqual(binding["auto_resume"] as? Bool, true)
-        XCTAssertEqual(binding["source"] as? String, "agent-hook")
-        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume, true)
-        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.source, "agent-hook")
+        let binding = try assertions.require(result["resume_binding"] as? [String: Any])
+        assertions.equal(binding["auto_resume"] as? Bool, true)
+        assertions.equal(binding["source"] as? String, "agent-hook")
+        assertions.equal(workspace.surfaceResumeBinding(panelId: panelId)?.allowsAutomaticResume, true)
+        assertions.equal(workspace.surfaceResumeBinding(panelId: panelId)?.source, "agent-hook")
     }
 
-    func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {
+    @Test func testSurfaceResumeClearCheckpointGuardKeepsDifferentBinding() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1410,8 +1436,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let panelId = try XCTUnwrap(workspace.focusedPanelId)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let panelId = try assertions.require(workspace.focusedPanelId)
         _ = try v2Result(
             method: "surface.resume.set",
             params: [
@@ -1433,11 +1459,11 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(clearResult["cleared"] as? Bool, false)
-        XCTAssertEqual(workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId, "new-session")
+        assertions.equal(clearResult["cleared"] as? Bool, false)
+        assertions.equal(workspace.surfaceResumeBinding(panelId: panelId)?.checkpointId, "new-session")
     }
 
-    func testIssue2907TabManagerDependentSocketCommandsRecoverLiveSurfaceContext() throws {
+    @Test func testIssue2907TabManagerDependentSocketCommandsRecoverLiveSurfaceContext() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1462,47 +1488,48 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        window.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let terminalPanel = try assertions.require(workspace.focusedTerminalPanel)
         let surfaceId = terminalPanel.id
-        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
-        XCTAssertEqual(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
+        assertions.isTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: surfaceId) === terminalPanel.surface)
+        assertions.equal(terminalPanel.surface.debugLastKnownWorkspaceId(), workspace.id)
 
         try assertWorkspaceListContains(try v2Result(method: "workspace.list"), workspaceId: workspace.id)
         let baselineTree = try v2Result(method: "system.tree")
-        let baselineWindows = try XCTUnwrap(baselineTree["windows"] as? [[String: Any]])
-        XCTAssertTrue(baselineWindows.contains { ($0["id"] as? String) == windowId.uuidString })
+        let baselineWindows = try assertions.require(baselineTree["windows"] as? [[String: Any]])
+        assertions.isTrue(baselineWindows.contains { ($0["id"] as? String) == windowId.uuidString })
 
         app.unregisterMainWindowContextForTesting(windowId: windowId)
         TerminalController.shared.setActiveTabManager(nil)
 
         let ping = try v2Result(method: "system.ping")
-        XCTAssertEqual(ping["pong"] as? Bool, true)
+        assertions.equal(ping["pong"] as? Bool, true)
         _ = try v2Result(method: "system.capabilities")
 
         let tree = try v2Result(method: "system.tree")
         let debugTerminals = try v2Result(method: "debug.terminals")
-        let terminals = try XCTUnwrap(debugTerminals["terminals"] as? [[String: Any]])
-        let originalTerminal = try XCTUnwrap(
+        let terminals = try assertions.require(debugTerminals["terminals"] as? [[String: Any]])
+        let originalTerminal = try assertions.require(
             terminals.first { ($0["surface_id"] as? String) == surfaceId.uuidString }
         )
-        XCTAssertEqual(originalTerminal["mapped"] as? Bool, true)
-        XCTAssertEqual(originalTerminal["workspace_id"] as? String, workspace.id.uuidString)
-        XCTAssertEqual(originalTerminal["last_known_workspace_id"] as? String, workspace.id.uuidString)
+        assertions.equal(originalTerminal["mapped"] as? Bool, true)
+        assertions.equal(originalTerminal["workspace_id"] as? String, workspace.id.uuidString)
+        assertions.equal(originalTerminal["last_known_workspace_id"] as? String, workspace.id.uuidString)
 
-        let recoveredTreeWindows = try XCTUnwrap(tree["windows"] as? [[String: Any]])
-        XCTAssertTrue(
+        let recoveredTreeWindows = try assertions.require(tree["windows"] as? [[String: Any]])
+        assertions.isTrue(
             recoveredTreeWindows.contains { ($0["id"] as? String) == windowId.uuidString },
             "system.tree should not report an empty world while a live terminal surface is still associated with its workspace"
         )
 
         let currentWindow = try v2Result(method: "window.current")
-        XCTAssertEqual(currentWindow["window_id"] as? String, windowId.uuidString)
+        assertions.equal(currentWindow["window_id"] as? String, windowId.uuidString)
 
         let currentWorkspace = try v2Result(method: "workspace.current")
-        XCTAssertEqual(currentWorkspace["workspace_id"] as? String, workspace.id.uuidString)
+        assertions.equal(currentWorkspace["workspace_id"] as? String, workspace.id.uuidString)
 
         let workspaceList = try v2Result(method: "workspace.list")
         try assertWorkspaceListContains(workspaceList, workspaceId: workspace.id)
@@ -1511,16 +1538,16 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         try assertWorkspaceListContains(workspaceListBySurface, workspaceId: workspace.id)
 
         let surfaces = try v2Result(method: "surface.list", params: ["surface_id": surfaceId.uuidString])
-        XCTAssertEqual(surfaces["workspace_id"] as? String, workspace.id.uuidString)
+        assertions.equal(surfaces["workspace_id"] as? String, workspace.id.uuidString)
 
         let currentSurface = try v2Result(method: "surface.current", params: ["surface_id": surfaceId.uuidString])
-        XCTAssertEqual(currentSurface["workspace_id"] as? String, workspace.id.uuidString)
+        assertions.equal(currentSurface["workspace_id"] as? String, workspace.id.uuidString)
 
         let panes = try v2Result(method: "pane.list", params: ["surface_id": surfaceId.uuidString])
-        XCTAssertEqual(panes["workspace_id"] as? String, workspace.id.uuidString)
+        assertions.equal(panes["workspace_id"] as? String, workspace.id.uuidString)
 
         let health = try v2Result(method: "surface.health", params: ["surface_id": surfaceId.uuidString])
-        XCTAssertEqual(health["workspace_id"] as? String, workspace.id.uuidString)
+        assertions.equal(health["workspace_id"] as? String, workspace.id.uuidString)
 
         let split = try v2Result(
             method: "surface.split",
@@ -1530,10 +1557,10 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "focus": false
             ]
         )
-        XCTAssertNotNil(split["surface_id"] as? String)
+        assertions.isNotNil(split["surface_id"] as? String)
     }
 
-    func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
+    @Test func testIssue2907NoTargetCommandsPreferKeyRecoveredWindowOverRegisteredWindow() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1576,21 +1603,21 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         recoveredWindow.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(recoveredManager)
 
-        let recoveredWorkspace = try XCTUnwrap(recoveredManager.selectedWorkspace)
-        let recoveredTerminal = try XCTUnwrap(recoveredWorkspace.focusedTerminalPanel)
-        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
+        let recoveredWorkspace = try assertions.require(recoveredManager.selectedWorkspace)
+        let recoveredTerminal = try assertions.require(recoveredWorkspace.focusedTerminalPanel)
+        assertions.isTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: recoveredTerminal.id) === recoveredTerminal.surface)
 
         app.unregisterMainWindowContextForTesting(windowId: recoveredWindowId)
         TerminalController.shared.setActiveTabManager(nil)
 
         let currentWindow = try v2Result(method: "window.current")
-        XCTAssertEqual(currentWindow["window_id"] as? String, recoveredWindowId.uuidString)
+        assertions.equal(currentWindow["window_id"] as? String, recoveredWindowId.uuidString)
 
         let currentWorkspace = try v2Result(method: "workspace.current")
-        XCTAssertEqual(currentWorkspace["workspace_id"] as? String, recoveredWorkspace.id.uuidString)
+        assertions.equal(currentWorkspace["workspace_id"] as? String, recoveredWorkspace.id.uuidString)
     }
 
-    func testIssue2907BonsplitTabLookupUsesRecoveredRoute() throws {
+    @Test func testIssue2907BonsplitTabLookupUsesRecoveredRoute() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1615,23 +1642,24 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        window.makeKeyAndOrderFront(nil)
         TerminalController.shared.setActiveTabManager(manager)
 
-        let workspace = try XCTUnwrap(manager.selectedWorkspace)
-        let terminalPanel = try XCTUnwrap(workspace.focusedTerminalPanel)
-        let bonsplitTabId = try XCTUnwrap(workspace.surfaceIdFromPanelId(terminalPanel.id)?.uuid)
+        let workspace = try assertions.require(manager.selectedWorkspace)
+        let terminalPanel = try assertions.require(workspace.focusedTerminalPanel)
+        let bonsplitTabId = try assertions.require(workspace.surfaceIdFromPanelId(terminalPanel.id)?.uuid)
 
         app.unregisterMainWindowContextForTesting(windowId: windowId)
         TerminalController.shared.setActiveTabManager(nil)
 
-        let located = try XCTUnwrap(app.locateBonsplitSurface(tabId: bonsplitTabId))
-        XCTAssertEqual(located.windowId, windowId)
-        XCTAssertEqual(located.workspaceId, workspace.id)
-        XCTAssertEqual(located.panelId, terminalPanel.id)
-        XCTAssertTrue(located.tabManager === manager)
+        let located = try assertions.require(app.locateBonsplitSurface(tabId: bonsplitTabId))
+        assertions.equal(located.windowId, windowId)
+        assertions.equal(located.workspaceId, workspace.id)
+        assertions.equal(located.panelId, terminalPanel.id)
+        assertions.isTrue(located.tabManager === manager)
     }
 
-    func testRecoveredRouteRequiresTerminalOwnedBySameTabManager() throws {
+    @Test func testRecoveredRouteUsesRegisteredOwnerWithoutTerminalHeuristics() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1669,34 +1697,36 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             sidebarSelectionState: SidebarSelectionState(),
             fileExplorerState: FileExplorerState()
         )
+        terminalWindow.makeKeyAndOrderFront(nil)
+        browserOnlyWindow.makeKeyAndOrderFront(nil)
 
-        let terminalWorkspace = try XCTUnwrap(terminalManager.selectedWorkspace)
-        let terminalPanel = try XCTUnwrap(terminalWorkspace.focusedTerminalPanel)
-        XCTAssertTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
+        let terminalWorkspace = try assertions.require(terminalManager.selectedWorkspace)
+        let terminalPanel = try assertions.require(terminalWorkspace.focusedTerminalPanel)
+        assertions.isTrue(GhosttyApp.terminalSurfaceRegistry.surface(id: terminalPanel.id) === terminalPanel.surface)
 
-        let browserOnlyWorkspace = try XCTUnwrap(browserOnlyManager.selectedWorkspace)
-        let browserOnlyTerminal = try XCTUnwrap(browserOnlyWorkspace.focusedTerminalPanel)
-        let browserPaneId = try XCTUnwrap(browserOnlyWorkspace.bonsplitController.allPaneIds.first)
-        let browserPanel = try XCTUnwrap(
+        let browserOnlyWorkspace = try assertions.require(browserOnlyManager.selectedWorkspace)
+        let browserOnlyTerminal = try assertions.require(browserOnlyWorkspace.focusedTerminalPanel)
+        let browserPaneId = try assertions.require(browserOnlyWorkspace.bonsplitController.allPaneIds.first)
+        let browserPanel = try assertions.require(
             browserOnlyWorkspace.newBrowserSurface(
                 inPane: browserPaneId,
-                url: URL(string: "https://example.com/browser-only"),
+                url: nil,
                 focus: true,
                 creationPolicy: .restoration
             )
         )
-        XCTAssertTrue(browserOnlyWorkspace.closePanel(browserOnlyTerminal.id, force: true))
-        XCTAssertNotNil(browserOnlyWorkspace.panels[browserPanel.id])
-        XCTAssertFalse(browserOnlyWorkspace.panels.values.contains { $0 is TerminalPanel })
+        assertions.isTrue(browserOnlyWorkspace.closePanel(browserOnlyTerminal.id, force: true))
+        assertions.isNotNil(browserOnlyWorkspace.panels[browserPanel.id])
+        assertions.isFalse(browserOnlyWorkspace.panels.values.contains { $0 is TerminalPanel })
 
         app.unregisterMainWindowContextForTesting(windowId: browserOnlyWindowId)
 
-        XCTAssertNil(app.tabManagerFor(windowId: browserOnlyWindowId))
-        XCTAssertFalse(app.listMainWindowSummaries().contains { $0.windowId == browserOnlyWindowId })
-        XCTAssertTrue(app.tabManagerFor(windowId: terminalWindowId) === terminalManager)
+        assertions.isTrue(app.tabManagerFor(windowId: browserOnlyWindowId) === browserOnlyManager)
+        assertions.isTrue(app.listMainWindowSummaries().contains { $0.windowId == browserOnlyWindowId })
+        assertions.isTrue(app.tabManagerFor(windowId: terminalWindowId) === terminalManager)
     }
 
-    func testWorkspaceCreationContinuesAfterStaleActiveContextDiscard() throws {
+    @Test func testWorkspaceCreationContinuesAfterStaleActiveContextDiscard() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1734,12 +1764,12 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             debugSource: "test.issue2907.staleActiveContext"
         )
 
-        let unwrappedCreatedWorkspaceId = try XCTUnwrap(createdWorkspace).id
-        XCTAssertEqual(liveManager.tabs.count, originalLiveWorkspaceCount + 1)
-        XCTAssertTrue(liveManager.tabs.contains { $0.id == unwrappedCreatedWorkspaceId })
+        let unwrappedCreatedWorkspaceId = try assertions.require(createdWorkspace).id
+        assertions.equal(liveManager.tabs.count, originalLiveWorkspaceCount + 1)
+        assertions.isTrue(liveManager.tabs.contains { $0.id == unwrappedCreatedWorkspaceId })
     }
 
-    func testPaneBreakSuccessIncludesDestinationPaneReference() throws {
+    @Test func testPaneBreakSuccessIncludesDestinationPaneReference() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1766,9 +1796,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePanel = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel)
-        let splitPanel = try XCTUnwrap(sourceWorkspace.newTerminalSplit(
+        let sourceWorkspace = try assertions.require(manager.selectedWorkspace)
+        let sourcePanel = try assertions.require(sourceWorkspace.focusedTerminalPanel)
+        let splitPanel = try assertions.require(sourceWorkspace.newTerminalSplit(
             from: sourcePanel.id,
             orientation: .horizontal,
             focus: false
@@ -1782,24 +1812,24 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        let destinationWorkspaceIdString = try XCTUnwrap(payload["workspace_id"] as? String)
-        let destinationPaneIdString = try XCTUnwrap(payload["pane_id"] as? String)
-        let destinationPaneRef = try XCTUnwrap(payload["pane_ref"] as? String)
-        let destinationWorkspace = try XCTUnwrap(
+        let destinationWorkspaceIdString = try assertions.require(payload["workspace_id"] as? String)
+        let destinationPaneIdString = try assertions.require(payload["pane_id"] as? String)
+        let destinationPaneRef = try assertions.require(payload["pane_ref"] as? String)
+        let destinationWorkspace = try assertions.require(
             manager.tabs.first { $0.id.uuidString == destinationWorkspaceIdString }
         )
 
-        XCTAssertEqual(payload["window_id"] as? String, windowId.uuidString)
-        XCTAssertEqual(payload["surface_id"] as? String, splitPanel.id.uuidString)
-        XCTAssertFalse(destinationPaneIdString.isEmpty)
-        XCTAssertTrue(destinationPaneRef.hasPrefix("pane:"))
-        XCTAssertEqual(
+        assertions.equal(payload["window_id"] as? String, windowId.uuidString)
+        assertions.equal(payload["surface_id"] as? String, splitPanel.id.uuidString)
+        assertions.isFalse(destinationPaneIdString.isEmpty)
+        assertions.isTrue(destinationPaneRef.hasPrefix("pane:"))
+        assertions.equal(
             destinationWorkspace.paneId(forPanelId: splitPanel.id)?.id.uuidString,
             destinationPaneIdString
         )
     }
 
-    func testSurfaceResumeSetUsesLiveSurfaceWhenWorkspaceIdIsOmittedAfterMove() throws {
+    @Test func testSurfaceResumeSetUsesLiveSurfaceWhenWorkspaceIdIsOmittedAfterMove() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1826,9 +1856,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePanel = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel)
-        let splitPanel = try XCTUnwrap(sourceWorkspace.newTerminalSplit(
+        let sourceWorkspace = try assertions.require(manager.selectedWorkspace)
+        let sourcePanel = try assertions.require(sourceWorkspace.focusedTerminalPanel)
+        let splitPanel = try assertions.require(sourceWorkspace.newTerminalSplit(
             from: sourcePanel.id,
             orientation: .horizontal,
             focus: false
@@ -1840,8 +1870,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "focus": false,
             ]
         )
-        let destinationWorkspaceId = try XCTUnwrap(moved["workspace_id"] as? String)
-        let destinationWorkspace = try XCTUnwrap(
+        let destinationWorkspaceId = try assertions.require(moved["workspace_id"] as? String)
+        let destinationWorkspace = try assertions.require(
             manager.tabs.first { $0.id.uuidString == destinationWorkspaceId }
         )
 
@@ -1855,14 +1885,14 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        XCTAssertNil(sourceWorkspace.surfaceResumeBinding(panelId: splitPanel.id))
-        XCTAssertEqual(
+        assertions.isNil(sourceWorkspace.surfaceResumeBinding(panelId: splitPanel.id))
+        assertions.equal(
             destinationWorkspace.surfaceResumeBinding(panelId: splitPanel.id)?.command,
             "tmux attach -t moved"
         )
     }
 
-    func testSurfaceResumeSetRejectsMismatchedWorkspaceScopeAfterMove() throws {
+    @Test func testSurfaceResumeSetRejectsMismatchedWorkspaceScopeAfterMove() throws {
         _ = NSApplication.shared
         let previousAppDelegate = AppDelegate.shared
         let app = AppDelegate()
@@ -1889,9 +1919,9 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
         )
         TerminalController.shared.setActiveTabManager(manager)
 
-        let sourceWorkspace = try XCTUnwrap(manager.selectedWorkspace)
-        let sourcePanel = try XCTUnwrap(sourceWorkspace.focusedTerminalPanel)
-        let splitPanel = try XCTUnwrap(sourceWorkspace.newTerminalSplit(
+        let sourceWorkspace = try assertions.require(manager.selectedWorkspace)
+        let sourcePanel = try assertions.require(sourceWorkspace.focusedTerminalPanel)
+        let splitPanel = try assertions.require(sourceWorkspace.newTerminalSplit(
             from: sourcePanel.id,
             orientation: .horizontal,
             focus: false
@@ -1903,8 +1933,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
                 "focus": false,
             ]
         )
-        let destinationWorkspaceId = try XCTUnwrap(moved["workspace_id"] as? String)
-        let destinationWorkspace = try XCTUnwrap(
+        let destinationWorkspaceId = try assertions.require(moved["workspace_id"] as? String)
+        let destinationWorkspace = try assertions.require(
             manager.tabs.first { $0.id.uuidString == destinationWorkspaceId }
         )
 
@@ -1919,8 +1949,8 @@ final class AppDelegateIssue2907RoutingTests: XCTestCase {
             ]
         )
 
-        XCTAssertEqual(envelope["ok"] as? Bool, false, raw)
-        XCTAssertNil(sourceWorkspace.surfaceResumeBinding(panelId: splitPanel.id))
-        XCTAssertNil(destinationWorkspace.surfaceResumeBinding(panelId: splitPanel.id))
+        assertions.equal(envelope["ok"] as? Bool, false, raw)
+        assertions.isNil(sourceWorkspace.surfaceResumeBinding(panelId: splitPanel.id))
+        assertions.isNil(destinationWorkspace.surfaceResumeBinding(panelId: splitPanel.id))
     }
 }

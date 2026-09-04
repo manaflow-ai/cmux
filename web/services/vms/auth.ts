@@ -6,6 +6,14 @@ import {
   verifyStackAccessTokenLocally,
   type StackAccessTokenIdentity,
 } from "../auth/stackAccessToken";
+import { recordAuthResolution } from "../auth/authTelemetry";
+import { withStackAuthSpan } from "../auth/stackTelemetry";
+import {
+  deleteIdentitySnapshot,
+  identitySnapshotTtlMs,
+  readIdentitySnapshot,
+  writeIdentitySnapshot,
+} from "../auth/identitySnapshot";
 import { hasAuthRateLimitSignal } from "./authErrors";
 import { cloudDb } from "../../db/client";
 import { accountDeletionTombstones } from "../../db/schema";
@@ -20,9 +28,14 @@ import {
   resolveBillingTeam,
   type BillingTeamLike,
 } from "../billing/teamResolution";
+import {
+  isDevelopmentProAccessEnabled,
+  PRO_PLAN_ID,
+} from "../billing/pro";
 
 export type AuthedUser = {
   id: string;
+  isAnonymous?: boolean;
   displayName: string | null;
   primaryEmail: string | null;
   billingCustomerType: "team" | "user";
@@ -90,6 +103,12 @@ type VerifyRequestOptions = {
   readonly allowDeletingAccount?: boolean;
   readonly listAllTeams?: boolean;
   readonly subrouterAuthorizationSignal?: AbortSignal;
+  /**
+   * List every team even when the selected team would have answered this
+   * request. Only a complete list may be stored as an identity snapshot: a
+   * partial one would later deny a team the user really belongs to.
+   */
+  readonly forceCompleteTeamList?: boolean;
 };
 
 const DEFAULT_SUBROUTER_STACK_AUTH_TIMEOUT_MS = 10_000;
@@ -134,6 +153,7 @@ function nativeAuthCacheKey(
     normalizedOptionalString(options.requestedTeamId) ?? "",
     options.allowDeletingAccount === true ? "1" : "0",
     options.listAllTeams === true ? "1" : "0",
+    options.forceCompleteTeamList === true ? "1" : "0",
   ].join("\n");
   return createHash("sha256").update(material).digest("hex");
 }
@@ -265,6 +285,30 @@ export async function verifySubrouterRequest(
   });
 }
 
+/**
+ * Verify a browser session without resolving its team or billing state.
+ * Dashboard layouts use this narrow check before they render any private UI.
+ * The shared authorization slot makes the Stack SDK call obey the caller's
+ * deadline even though the SDK does not accept an AbortSignal itself.
+ */
+export async function verifyBrowserSessionRequest(
+  request: Request,
+  signal: AbortSignal,
+) {
+  if (!isStackConfigured()) return null;
+  const user = await stackAuthorizationCall(
+    () => getStackServerApp().getUser({
+      or: "return-null",
+      tokenStore: request as unknown as {
+        headers: { get(name: string): string | null };
+      },
+    }),
+    signal,
+    "get_user",
+  );
+  return user && !user.isAnonymous ? user : null;
+}
+
 export function isSubrouterAuthorizationError(
   error: unknown,
 ): error is
@@ -299,12 +343,16 @@ function subrouterStackAuthorizationTimeoutMs(
 async function stackAuthorizationCall<T>(
   operation: () => Promise<T>,
   signal: AbortSignal | undefined,
+  operationName = "request",
 ): Promise<T> {
-  if (!signal) return operation();
+  const timedOperation = () => withStackAuthSpan(operationName, operation, {
+    "cmux.auth.deadline_gated": signal !== undefined,
+  });
+  if (!signal) return timedOperation();
   const release = await acquireStackAuthorizationSlot(signal);
   let pending: Promise<T>;
   try {
-    pending = Promise.resolve().then(operation);
+    pending = Promise.resolve().then(timedOperation);
   } catch (error) {
     release();
     throw new SubrouterAuthorizationUnavailableError(
@@ -461,7 +509,10 @@ export async function verifyRequest(
     const cacheKey = cacheable ? nativeAuthCacheKey(tokens, options) : null;
     if (cacheKey) {
       const cached = readNativeAuthCache(cacheKey);
-      if (cached) return cached;
+      if (cached) {
+        recordAuthResolution({ source: "snapshot", providerCalled: false });
+        return cached;
+      }
     }
     // Subrouter calls carry their own deadline and error classes; only the
     // cacheable native path (device registry, iroh broker, relay) is gated.
@@ -475,6 +526,7 @@ export async function verifyRequest(
           return stackServerApp.getUser({ tokenStore: tokens });
         },
         options.subrouterAuthorizationSignal,
+        "get_user",
       );
     } catch (error) {
       // The circuit's own fast-fail must not count as a new upstream throttle,
@@ -484,11 +536,17 @@ export async function verifyRequest(
       throw error;
     }
     if (user) {
-      const authed = await authedUserFromStackUser(user, options);
-      if (authed && cacheKey) {
-        writeNativeAuthCache(cacheKey, authed, tokens, authCacheTtlMs());
+      const resolved = await authedUserFromStackUser(user, options);
+      if (resolved && cacheKey) {
+        writeNativeAuthCache(cacheKey, resolved.user, tokens, authCacheTtlMs());
       }
-      return authed;
+      if (resolved) {
+        recordAuthResolution({ source: "stack", providerCalled: true });
+        await writeIdentitySnapshot(resolved.user, {
+          completeTeamList: resolved.completeTeamList,
+        });
+      }
+      return resolved?.user ?? null;
     }
     // A caller that presents native credentials must succeed or fail as that
     // native session. Falling back to an ambient browser cookie would let an
@@ -508,11 +566,110 @@ export async function verifyRequest(
       },
     }),
     options.subrouterAuthorizationSignal,
+    "get_user",
   );
   if (user) {
-    return await authedUserFromStackUser(user, options);
+    const resolved = await authedUserFromStackUser(user, options);
+    if (resolved) recordAuthResolution({ source: "cookie", providerCalled: true });
+    return resolved?.user ?? null;
   }
   return null;
+}
+
+/**
+ * Verify a native request for a route that needs the user's identity AND team
+ * membership, at device-registry volume.
+ *
+ * The access token is checked locally against Stack's published signing keys,
+ * and the team membership it does not carry comes from `stack_identity_
+ * snapshots`, a shared row refreshed from Stack at most once per TTL per user.
+ * A request answered this way makes no call to the auth provider at all. Any
+ * miss (no token, token not locally verifiable, no fresh snapshot) falls
+ * through to `verifyRequest`, which asks Stack and refreshes the snapshot.
+ *
+ * Trade-off, stated: team membership can be up to the snapshot TTL stale, so a
+ * user removed from a team keeps that team's device-registry access until the
+ * row refreshes. Stack sends no membership webhook we could invalidate on, so
+ * the TTL (default ten minutes) is the bound. Routes that gate money, account
+ * mutation, or admin powers must keep calling `verifyRequest`.
+ */
+export async function verifyRequestFromSnapshot(
+  request: Request,
+  options: {
+    readonly requestedTeamId?: string | null;
+    readonly maxSnapshotAgeMs?: number;
+    /** Test seam for the local token verifier. */
+    readonly verifyAccessToken?: (
+      accessToken: string,
+    ) => Promise<StackAccessTokenIdentity | null>;
+    /** Test seam for the account-deletion tombstone lookup. */
+    readonly isAccountDeleted?: (userId: string) => Promise<boolean>;
+  } = {},
+): Promise<AuthedUser | null> {
+  if (!isStackConfigured()) return null;
+  const tokens = parseNativeStackTokens(request);
+  if (tokens) {
+    const verifier = options.verifyAccessToken
+      ? null
+      : stackAccessTokenVerifierFromEnv();
+    const local = options.verifyAccessToken
+      ? await options.verifyAccessToken(tokens.accessToken)
+      : verifier
+      ? await verifyStackAccessTokenLocally(tokens.accessToken, verifier)
+      : null;
+    if (local) {
+      const snapshot = await readIdentitySnapshot(
+        local.userId,
+        options.maxSnapshotAgeMs ?? identitySnapshotTtlMs(),
+      );
+      if (snapshot) {
+        // Stack's deletion metadata is not in the token, so the tombstone is
+        // read directly rather than behind the usual metadata short-circuit.
+        const isDeleted = options.isAccountDeleted ?? isAccountDeletionTombstoned;
+        if (await isDeleted(local.userId)) {
+          await deleteIdentitySnapshot(local.userId);
+          return null;
+        }
+        recordAuthResolution({
+          source: "snapshot",
+          providerCalled: false,
+          snapshotAgeMs: snapshot.ageMs,
+        });
+        return snapshot.user;
+      }
+    } else {
+      recordAuthResolution({
+        source: "stack",
+        providerCalled: true,
+        localVerifyMiss: verifier || options.verifyAccessToken
+          ? "rejected"
+          : "not_configured",
+      });
+    }
+  }
+  // Refreshing needs the complete team list, or the snapshot it writes could
+  // later deny a team the user really belongs to.
+  return await verifyRequest(request, {
+    requestedTeamId: options.requestedTeamId,
+    allowCookie: false,
+    forceCompleteTeamList: true,
+  });
+}
+
+/** Whether this user id has a tombstone that blocks authentication. */
+async function isAccountDeletionTombstoned(userId: string): Promise<boolean> {
+  const userIdHash = accountDeletionUserHash(userId);
+  const [deletion] = await cloudDb()
+    .select({
+      userIdHash: accountDeletionTombstones.userIdHash,
+      status: accountDeletionTombstones.status,
+      updatedAt: accountDeletionTombstones.updatedAt,
+    })
+    .from(accountDeletionTombstones)
+    .where(eq(accountDeletionTombstones.userIdHash, userIdHash))
+    .limit(1);
+  return deletion?.userIdHash === userIdHash &&
+    isBlockingAccountDeletionTombstone(deletion);
 }
 
 export type VerifiedIdentity = {
@@ -561,16 +718,28 @@ export async function verifyRequestIdentity(
       : verifier
         ? await verifyStackAccessTokenLocally(tokens.accessToken, verifier)
         : null;
-    if (local) return { id: local.userId, source: "access_token" };
+    if (local) {
+      recordAuthResolution({ source: "access_token", providerCalled: false });
+      return { id: local.userId, source: "access_token" };
+    }
   }
   const user = await verifyRequest(request, { allowCookie: options.allowCookie });
   return user ? { id: user.id, source: "stack" } : null;
 }
 
+/**
+ * A user resolved from Stack, plus whether the team list backing it is the
+ * user's complete membership. Only a complete list may be snapshotted.
+ */
+type ResolvedStackUser = {
+  readonly user: AuthedUser;
+  readonly completeTeamList: boolean;
+};
+
 async function authedUserFromStackUser(
   user: StackUserLike,
   options: VerifyRequestOptions,
-): Promise<AuthedUser | null> {
+): Promise<ResolvedStackUser | null> {
   if (!options.allowDeletingAccount && await isAccountDeletionAuthBlocked(user)) {
     return null;
   }
@@ -580,11 +749,17 @@ async function authedUserFromStackUser(
   // Full pagination is reserved for the explicit team-picker route. Other
   // callers resolve one requested team with Stack's exact-ID search so shared
   // VM authentication never inherits an unbounded multi-page dependency.
-  const needsListedTeams = !selectedTeam ||
+  const needsListedTeams = options.forceCompleteTeamList === true ||
+    !selectedTeam ||
     (!!requestedTeamId && requestedTeamId !== selectedTeam.id);
-  const listedTeamRaw = options.subrouterAuthorizationSignal === undefined
+  // Whether the branch taken below enumerates every team the user belongs to.
+  // Only that case may be stored as an identity snapshot.
+  const completeTeamList = options.subrouterAuthorizationSignal === undefined
     ? needsListedTeams && typeof user.listTeams === "function"
-      ? await user.listTeams()
+    : options.listAllTeams === true;
+  const listedTeamRaw = options.subrouterAuthorizationSignal === undefined
+    ? completeTeamList
+      ? await user.listTeams!()
       : []
     : options.listAllTeams === true
     ? await listAllStackTeams(user, options.subrouterAuthorizationSignal)
@@ -607,28 +782,39 @@ async function authedUserFromStackUser(
     selectedTeam,
     listTeams: async () => listedTeams,
   });
-  const userBillingPlanId = billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
-  const billingPlanId = billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
+  const developmentPro = !user.isAnonymous && isDevelopmentProAccessEnabled();
+  const userBillingPlanId = developmentPro
+    ? PRO_PLAN_ID
+    : billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
+  const billingPlanId = developmentPro
+    ? PRO_PLAN_ID
+    : billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ?? userBillingPlanId;
   const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
   const authedTeams = teams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
-    billingPlanId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+    billingPlanId: developmentPro
+      ? PRO_PLAN_ID
+      : billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
     billingSeats: billingSeatsFromMetadata(team.clientReadOnlyMetadata),
   }));
 
   return {
-    id: user.id,
-    displayName: user.displayName,
-    primaryEmail: user.primaryEmail,
-    billingCustomerType: billingTeam ? "team" : "user",
-    billingTeamId: billingTeam?.id ?? user.id,
-    selectedTeamId: selectedTeam?.id ?? null,
-    teams: authedTeams,
-    teamIds,
-    userBillingPlanId,
-    billingPlanId,
-    billingSeats,
+    user: {
+      id: user.id,
+      isAnonymous: user.isAnonymous === true,
+      displayName: user.displayName,
+      primaryEmail: user.primaryEmail,
+      billingCustomerType: billingTeam ? "team" : "user",
+      billingTeamId: billingTeam?.id ?? user.id,
+      selectedTeamId: selectedTeam?.id ?? null,
+      teams: authedTeams,
+      teamIds,
+      userBillingPlanId,
+      billingPlanId,
+      billingSeats,
+    },
+    completeTeamList,
   };
 }
 
@@ -651,6 +837,7 @@ async function listAllStackTeams(
         limit: STACK_TEAM_PAGE_SIZE,
       }),
       signal,
+      "list_teams",
     );
     teams.push(...page);
     const nextCursor = normalizedOptionalString(page.nextCursor);
@@ -676,6 +863,7 @@ async function findStackTeam(
       limit: STACK_TEAM_PAGE_SIZE,
     }),
     signal,
+    "list_teams",
   );
   const match = page.find(
     (candidate) => billingTeamFromUnknown(candidate)?.id === teamId,
@@ -708,6 +896,7 @@ function hasAccountDeletionMetadataFlag(metadata: unknown): boolean {
 
 type StackUserLike = {
   readonly id: string;
+  readonly isAnonymous?: boolean;
   readonly displayName: string | null;
   readonly primaryEmail: string | null;
   readonly clientReadOnlyMetadata?: unknown;

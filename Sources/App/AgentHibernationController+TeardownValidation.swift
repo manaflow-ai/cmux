@@ -52,11 +52,11 @@ extension AgentHibernationController {
             AgentHibernationTrackingGate.isEnabled() &&
             record.isStillOwnedByOriginalWorkspace &&
             (
-                request.trigger == .systemMemoryPressure ||
+                request.trigger.isMemoryPressure ||
                     currentProcessEntry?.processSafetyAllowsScheduledHibernation == true
             ) &&
             (
-                request.trigger != .systemMemoryPressure ||
+                !request.trigger.isMemoryPressure ||
                     Self.memoryPressureTeardownAllowsProcessEntry(currentProcessEntry)
             ) &&
             currentHibernationPanelProcessIDs == record.panelProcessIDs &&

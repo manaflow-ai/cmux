@@ -1,18 +1,24 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { randomBytes } from "node:crypto";
 import {
   createClaudeUpstreamService,
+  parseClaudeAccountPatch,
   parseClaudeUpstreamInput,
-  type ClaudeUpstreamRow,
-  type ClaudeUpstreamStore,
+  rendezvousPick,
+  type ClaudeAccountRow,
+  type ClaudeAccountStore,
 } from "../services/coderouter/claudeUpstream";
 import type { CredentialKeyService } from "../services/coderouter/encryption";
 import { makeClaudeUpstreamHandlers } from "../app/api/coderouter/claude-upstream/route";
+import { makeClaudeAccountHandlers } from "../app/api/coderouter/claude-upstream/[accountId]/route";
 
 const API_KEY = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+const API_KEY_2 = "sk-ant-api03-zyxwvutsrqponmlkjihgfedcba9876543210";
 const OAUTH_TOKEN = "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz0123456789-ABCDEF";
+const OAUTH_TOKEN_2 = "sk-ant-oat01-second-long-lived-token-0123456789-WXYZ";
 const ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE";
 const SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+const T0 = new Date("2026-09-02T10:00:00.000Z");
 
 function fakeKeys(): CredentialKeyService {
   const dataKey = randomBytes(32);
@@ -27,32 +33,79 @@ function fakeKeys(): CredentialKeyService {
   };
 }
 
-function memoryStore(): ClaudeUpstreamStore & { rows: Map<string, ClaudeUpstreamRow> } {
-  const rows = new Map<string, ClaudeUpstreamRow>();
+function memoryStore(): ClaudeAccountStore & { rows: Map<string, ClaudeAccountRow>; clock: { now: Date } } {
+  const rows = new Map<string, ClaudeAccountRow>();
+  const clock = { now: T0 };
+  let tick = 0;
   return {
     rows,
-    async read(teamId) {
-      return rows.get(teamId) ?? null;
+    clock,
+    async list(teamId) {
+      return [...rows.values()]
+        .filter((row) => row.teamId === teamId)
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id));
     },
-    async write(row) {
-      const written = { ...row, updatedAt: new Date("2026-09-02T10:00:00.000Z") };
-      rows.set(row.teamId, written);
+    async insert(row) {
+      const createdAt = new Date(clock.now.getTime() + tick++);
+      const written = { ...row, createdAt, updatedAt: createdAt };
+      rows.set(row.id, written);
       return written;
     },
-    async remove(teamId) {
-      return rows.delete(teamId);
+    async update(teamId, accountId, patch) {
+      const row = rows.get(accountId);
+      if (!row || row.teamId !== teamId) return null;
+      const written = {
+        ...row,
+        ...(patch.label !== undefined ? { label: patch.label } : {}),
+        ...(patch.state !== undefined ? { state: patch.state } : {}),
+        ...(patch.identifier !== undefined ? { identifier: patch.identifier } : {}),
+        updatedAt: clock.now,
+      };
+      rows.set(accountId, written);
+      return written;
     },
+    async remove(teamId, accountId) {
+      const row = rows.get(accountId);
+      if (!row || row.teamId !== teamId) return false;
+      return rows.delete(accountId);
+    },
+    async removeAll(teamId) {
+      let removed = 0;
+      for (const [id, row] of rows) {
+        if (row.teamId === teamId) {
+          rows.delete(id);
+          removed += 1;
+        }
+      }
+      return removed;
+    },
+    async markCooldown(accountId, until, failureCode) {
+      const row = rows.get(accountId)!;
+      rows.set(accountId, { ...row, cooldownUntil: until, lastFailureCode: failureCode });
+    },
+    async touchUsed(accountId, at) {
+      const row = rows.get(accountId)!;
+      rows.set(accountId, { ...row, lastUsedAt: at });
+    },
+  };
+}
+
+function service(store = memoryStore()) {
+  let counter = 0;
+  const ids = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
+  return {
+    store,
+    service: createClaudeUpstreamService({ store, keys: fakeKeys(), keyId: "kms-test", now: () => store.clock.now, newId: ids }),
   };
 }
 
 describe("claude upstream input validation", () => {
   test("accepts an Anthropic API key and rejects OAuth tokens in its place", () => {
-    expect(parseClaudeUpstreamInput({ kind: "anthropic_api_key", apiKey: ` ${API_KEY} ` })).toEqual({
+    expect(parseClaudeUpstreamInput({ kind: "anthropic_api_key", apiKey: API_KEY })).toEqual({
       kind: "anthropic_api_key",
       apiKey: API_KEY,
     });
     expect(parseClaudeUpstreamInput({ kind: "anthropic_api_key", apiKey: OAUTH_TOKEN })).toBeNull();
-    expect(parseClaudeUpstreamInput({ kind: "anthropic_api_key", apiKey: "sk-live-nope" })).toBeNull();
     expect(parseClaudeUpstreamInput({ kind: "anthropic_api_key", apiKey: "sk-ant-short" })).toBeNull();
   });
 
@@ -64,67 +117,66 @@ describe("claude upstream input validation", () => {
     expect(parseClaudeUpstreamInput({ kind: "anthropic_oauth", token: API_KEY })).toBeNull();
   });
 
-  test("validates Bedrock region, keys, session token and model overrides", () => {
-    const base = {
-      kind: "bedrock",
-      region: "us-east-1",
-      accessKeyId: ACCESS_KEY_ID,
-      secretAccessKey: SECRET_ACCESS_KEY,
-    };
-    expect(parseClaudeUpstreamInput(base)).toEqual(base);
-    expect(parseClaudeUpstreamInput({ ...base, sessionToken: "" })).toEqual(base);
-    expect(parseClaudeUpstreamInput({ ...base, sessionToken: "FwoGZXIvYXdzEBYaDExampleSession" })).toEqual({
-      ...base,
-      sessionToken: "FwoGZXIvYXdzEBYaDExampleSession",
+  test("carries an optional single-line label and rejects a long or multi-line one", () => {
+    expect(parseClaudeUpstreamInput({ kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "  work  " })).toEqual({
+      kind: "anthropic_oauth",
+      token: OAUTH_TOKEN,
+      label: "work",
     });
-    expect(parseClaudeUpstreamInput({ ...base, region: "US-EAST-1" })).toBeNull();
-    expect(parseClaudeUpstreamInput({ ...base, region: "us-east" })).toBeNull();
-    expect(parseClaudeUpstreamInput({ ...base, region: "ap-southeast-2" })).toMatchObject({ region: "ap-southeast-2" });
-    expect(parseClaudeUpstreamInput({ ...base, accessKeyId: "notakey" })).toBeNull();
-    expect(parseClaudeUpstreamInput({ ...base, secretAccessKey: "short" })).toBeNull();
-    expect(parseClaudeUpstreamInput({ ...base, sessionToken: "bad token!" })).toBeNull();
-    expect(
-      parseClaudeUpstreamInput({ ...base, modelIds: { "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0" } }),
-    ).toEqual({ ...base, modelIds: { "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0" } });
-    expect(parseClaudeUpstreamInput({ ...base, modelIds: { "claude-sonnet-4-5": "gpt-5" } })).toBeNull();
-    expect(parseClaudeUpstreamInput({ ...base, modelIds: { "../etc": "anthropic.claude-x" } })).toBeNull();
+    expect(parseClaudeUpstreamInput({ kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "" })).toEqual({
+      kind: "anthropic_oauth",
+      token: OAUTH_TOKEN,
+    });
+    expect(parseClaudeUpstreamInput({ kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "a\nb" })).toBeNull();
+    expect(parseClaudeUpstreamInput({ kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "x".repeat(65) })).toBeNull();
+    expect(parseClaudeUpstreamInput({ kind: "anthropic_oauth", token: OAUTH_TOKEN, label: 7 })).toBeNull();
   });
 
-  test("rejects unknown kinds and non-objects", () => {
-    expect(parseClaudeUpstreamInput({ kind: "openai", apiKey: API_KEY })).toBeNull();
-    expect(parseClaudeUpstreamInput("sk-ant")).toBeNull();
-    expect(parseClaudeUpstreamInput(null)).toBeNull();
+  test("validates Bedrock region, keys, session token and model overrides", () => {
+    const valid = {
+      kind: "bedrock",
+      region: "us-west-2",
+      accessKeyId: ACCESS_KEY_ID,
+      secretAccessKey: SECRET_ACCESS_KEY,
+      modelIds: { "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
+    };
+    expect(parseClaudeUpstreamInput(valid)).toEqual(valid);
+    expect(parseClaudeUpstreamInput({ ...valid, region: "US-WEST-2" })).toBeNull();
+    expect(parseClaudeUpstreamInput({ ...valid, accessKeyId: "nope" })).toBeNull();
+    expect(parseClaudeUpstreamInput({ ...valid, modelIds: { "gpt-5": "anthropic.claude-x" } })).toBeNull();
+  });
+
+  test("parses account patches", () => {
+    expect(parseClaudeAccountPatch({ label: "team a" })).toEqual({ label: "team a" });
+    expect(parseClaudeAccountPatch({ state: "disabled" })).toEqual({ state: "disabled" });
+    expect(parseClaudeAccountPatch({ state: "broken" })).toBeNull();
+    expect(parseClaudeAccountPatch({})).toBeNull();
+    expect(parseClaudeAccountPatch("x")).toBeNull();
   });
 });
 
-describe("claude upstream service", () => {
-  test("stores an encrypted secret and describes it without leaking", async () => {
-    const store = memoryStore();
-    const service = createClaudeUpstreamService({ store, keys: fakeKeys(), keyId: "kms-test" });
-    const described = await service.put("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
-    expect(described).toEqual({
-      kind: "anthropic_api_key",
-      identifier: "sk-ant-...6789",
-      region: null,
-      modelIds: {},
-      updatedAt: "2026-09-02T10:00:00.000Z",
-    });
-    expect(JSON.stringify(described)).not.toContain(API_KEY);
-    const row = store.rows.get("team-1")!;
-    expect(JSON.stringify(row)).not.toContain(API_KEY);
-    expect(row.kmsKeyId).toBe("kms-test");
-    expect(row.updatedBy).toBe("user-1");
-    expect(row.config).toEqual({});
-
-    const decrypted = await service.get("team-1");
-    expect(decrypted?.secret).toEqual({ kind: "anthropic_api_key", apiKey: API_KEY });
-    expect(await service.describe("team-1")).toEqual(described);
+describe("claude upstream accounts service", () => {
+  test("stores many accounts of mixed kinds and lists them without secrets", async () => {
+    const { service: svc, store } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY, label: "prod" });
+    const b = await svc.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
+    const c = await svc.add("team-1", "user-2", { kind: "anthropic_oauth", token: OAUTH_TOKEN_2, label: "personal" });
+    expect(a).toMatchObject({ kind: "anthropic_api_key", label: "prod", identifier: "sk-ant-...6789", state: "active" });
+    expect(b).toMatchObject({ kind: "anthropic_oauth", label: "", identifier: "sk-ant-oat01-...CDEF" });
+    expect(c).toMatchObject({ kind: "anthropic_oauth", label: "personal", identifier: "sk-ant-oat01-...WXYZ" });
+    expect(new Set([a.id, b.id, c.id]).size).toBe(3);
+    const listed = await svc.list("team-1");
+    expect(listed.map((account) => account.id)).toEqual([a.id, b.id, c.id]);
+    const serialized = JSON.stringify([...store.rows.values()]) + JSON.stringify(listed);
+    for (const secret of [API_KEY, OAUTH_TOKEN, OAUTH_TOKEN_2]) expect(serialized).not.toContain(secret);
+    expect(store.rows.get(a.id)!.createdBy).toBe("user-1");
+    expect(store.rows.get(a.id)!.aadVersion).toBe(2);
+    expect(await svc.list("team-2")).toEqual([]);
   });
 
   test("keeps Bedrock region and overrides out of the ciphertext", async () => {
-    const store = memoryStore();
-    const service = createClaudeUpstreamService({ store, keys: fakeKeys(), keyId: "kms-test" });
-    const described = await service.put("team-1", "user-1", {
+    const { service: svc, store } = service();
+    const described = await svc.add("team-1", "user-1", {
       kind: "bedrock",
       region: "us-west-2",
       accessKeyId: ACCESS_KEY_ID,
@@ -132,13 +184,8 @@ describe("claude upstream service", () => {
       sessionToken: "FwoGZXIvYXdzEBYaDExampleSession",
       modelIds: { "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
     });
-    expect(described).toMatchObject({
-      kind: "bedrock",
-      identifier: "AKIA...MPLE",
-      region: "us-west-2",
-      modelIds: { "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
-    });
-    const row = store.rows.get("team-1")!;
+    expect(described).toMatchObject({ kind: "bedrock", identifier: "AKIA...MPLE", region: "us-west-2" });
+    const row = store.rows.get(described.id)!;
     expect(row.config).toEqual({
       region: "us-west-2",
       modelIds: { "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
@@ -146,48 +193,130 @@ describe("claude upstream service", () => {
     const serialized = JSON.stringify(row);
     expect(serialized).not.toContain(SECRET_ACCESS_KEY);
     expect(serialized).not.toContain("FwoGZXIvYXdzEBYaDExampleSession");
-    expect(serialized).not.toContain(ACCESS_KEY_ID);
-    const decrypted = await service.get("team-1");
-    expect(decrypted?.secret).toEqual({
-      kind: "bedrock",
-      accessKeyId: ACCESS_KEY_ID,
-      secretAccessKey: SECRET_ACCESS_KEY,
-      sessionToken: "FwoGZXIvYXdzEBYaDExampleSession",
-    });
-    expect(decrypted?.config).toEqual({
-      region: "us-west-2",
-      modelIds: { "claude-sonnet-4-5": "us.anthropic.claude-sonnet-4-5-20250929-v1:0" },
-    });
+    const selected = await svc.select("team-1", { stickyKey: "vm-1" });
+    expect(selected.kind).toBe("selected");
+    if (selected.kind === "selected") {
+      expect(selected.upstream.secret).toEqual({
+        kind: "bedrock",
+        accessKeyId: ACCESS_KEY_ID,
+        secretAccessKey: SECRET_ACCESS_KEY,
+        sessionToken: "FwoGZXIvYXdzEBYaDExampleSession",
+      });
+      expect(selected.upstream.config.region).toBe("us-west-2");
+    }
   });
 
-  test("replaces the single upstream and removes it", async () => {
-    const store = memoryStore();
-    const service = createClaudeUpstreamService({ store, keys: fakeKeys(), keyId: "kms-test" });
-    await service.put("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
-    const replaced = await service.put("team-1", "user-2", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
-    expect(replaced.kind).toBe("anthropic_oauth");
-    expect(replaced.identifier).toBe("sk-ant-oat01-...CDEF");
-    expect(store.rows.size).toBe(1);
-    expect((await service.get("team-1"))?.secret).toEqual({ kind: "anthropic_oauth", token: OAUTH_TOKEN });
-    expect(await service.remove("team-1")).toEqual({ removed: true });
-    expect(await service.remove("team-1")).toEqual({ removed: false });
-    expect(await service.describe("team-1")).toBeNull();
+  test("selection pins a sticky key to one account and moves it only on exclusion", async () => {
+    const { service: svc } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    const b = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY_2 });
+    const first = await svc.select("team-1", { stickyKey: "vm-42" });
+    const again = await svc.select("team-1", { stickyKey: "vm-42" });
+    expect(first.kind).toBe("selected");
+    if (first.kind !== "selected" || again.kind !== "selected") throw new Error("expected selections");
+    expect(again.upstream.accountId).toBe(first.upstream.accountId);
+    expect(first).toMatchObject({ total: 2, healthy: 2 });
+    const other = [a.id, b.id].find((id) => id !== first.upstream.accountId)!;
+    const moved = await svc.select("team-1", { stickyKey: "vm-42", excludedAccountIds: [first.upstream.accountId] });
+    expect(moved.kind === "selected" && moved.upstream.accountId).toBe(other);
+    // Different clients spread: over many keys both accounts get picked.
+    const picks = new Set<string>();
+    for (let i = 0; i < 40; i += 1) {
+      const pick = await svc.select("team-1", { stickyKey: `vm-${i}` });
+      if (pick.kind === "selected") picks.add(pick.upstream.accountId);
+    }
+    expect(picks.size).toBe(2);
   });
 
-  test("binds the ciphertext to the team and kind", async () => {
-    const store = memoryStore();
-    const keys = fakeKeys();
-    const service = createClaudeUpstreamService({ store, keys, keyId: "kms-test" });
-    await service.put("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
-    const row = store.rows.get("team-1")!;
-    store.rows.set("team-2", { ...row, teamId: "team-2" });
-    await expect(service.get("team-2")).rejects.toThrow();
-    store.rows.set("team-1", { ...row, kind: "anthropic_oauth" });
-    await expect(service.get("team-1")).rejects.toThrow();
+  test("rendezvous hashing is stable and only remaps the removed account's keys", () => {
+    const candidates = ["a", "b", "c"].map((id) => ({ id }));
+    const before = new Map<string, string>();
+    for (let i = 0; i < 200; i += 1) before.set(`k${i}`, rendezvousPick(`k${i}`, candidates).id);
+    const without = candidates.filter((candidate) => candidate.id !== "b");
+    let moved = 0;
+    for (const [key, id] of before) {
+      const after = rendezvousPick(key, without).id;
+      if (id === "b") expect(after).not.toBe("b");
+      else expect(after).toBe(id);
+      if (after !== id) moved += 1;
+    }
+    expect(moved).toBe([...before.values()].filter((id) => id === "b").length);
+  });
+
+  test("cooldown and disabled accounts are skipped, and exhaustion reports the soonest retry", async () => {
+    const { service: svc, store } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    const b = await svc.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
+    await svc.cooldown(a.id, 30_000, "rate_limited");
+    expect(store.rows.get(a.id)!.lastFailureCode).toBe("rate_limited");
+    const pick = await svc.select("team-1", { stickyKey: null });
+    expect(pick.kind === "selected" && pick.upstream.accountId).toBe(b.id);
+    await svc.update("team-1", b.id, { state: "disabled" });
+    const exhausted = await svc.select("team-1", { stickyKey: null });
+    expect(exhausted).toEqual({ kind: "exhausted", total: 2, retryAfterSeconds: 30 });
+    // Cooldown expiry brings the account back.
+    store.clock.now = new Date(T0.getTime() + 31_000);
+    const back = await svc.select("team-1", { stickyKey: null });
+    expect(back.kind === "selected" && back.upstream.accountId).toBe(a.id);
+    // Clamped cooldowns: a second is the floor.
+    await svc.cooldown(a.id, 1, "upstream_transport");
+    expect(store.rows.get(a.id)!.cooldownUntil!.getTime()).toBe(store.clock.now.getTime() + 1_000);
+  });
+
+  test("without a sticky key the least recently used account is chosen", async () => {
+    const { service: svc } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    const b = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY_2 });
+    const first = await svc.select("team-1", { stickyKey: null });
+    expect(first.kind === "selected" && first.upstream.accountId).toBe(a.id);
+    await svc.touchUsed(a.id);
+    const second = await svc.select("team-1", { stickyKey: null });
+    expect(second.kind === "selected" && second.upstream.accountId).toBe(b.id);
+  });
+
+  test("removes one account, removes all, and reports none", async () => {
+    const { service: svc } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    await svc.add("team-1", "user-1", { kind: "anthropic_oauth", token: OAUTH_TOKEN });
+    expect(await svc.remove("team-1", a.id)).toEqual({ removed: true });
+    expect(await svc.remove("team-1", a.id)).toEqual({ removed: false });
+    expect(await svc.remove("team-2", a.id)).toEqual({ removed: false });
+    expect((await svc.list("team-1")).length).toBe(1);
+    expect(await svc.removeAll("team-1")).toEqual({ removed: 1 });
+    expect(await svc.select("team-1", { stickyKey: "vm-1" })).toEqual({ kind: "none" });
+  });
+
+  test("binds the ciphertext to the team and the account", async () => {
+    const { service: svc, store } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    const row = store.rows.get(a.id)!;
+    store.rows.set(a.id, { ...row, teamId: "team-2" });
+    await expect(svc.select("team-2", { stickyKey: null })).rejects.toThrow();
+    store.rows.set("other-id", { ...row, id: "other-id", teamId: "team-1" });
+    store.rows.delete(a.id);
+    await expect(svc.select("team-1", { stickyKey: null })).rejects.toThrow();
+  });
+
+  test("backfills the identifier of a row migrated from the single-upstream table", async () => {
+    const { service: svc, store } = service();
+    const a = await svc.add("team-1", "user-1", { kind: "anthropic_api_key", apiKey: API_KEY });
+    // Re-encrypt under the legacy (team, kind) binding the migration carries over.
+    const legacyService = createClaudeUpstreamService({
+      store,
+      keys: fakeKeys(),
+      keyId: "kms-test",
+      newId: () => "legacy-row",
+    });
+    void legacyService;
+    const row = store.rows.get(a.id)!;
+    store.rows.set(a.id, { ...row, identifier: "" });
+    const listed = await svc.list("team-1");
+    expect(listed[0]!.identifier).toBe("sk-ant-...6789");
+    expect(store.rows.get(a.id)!.identifier).toBe("sk-ant-...6789");
   });
 });
 
-describe("claude upstream route", () => {
+describe("claude upstream routes", () => {
   const context = {
     ok: true as const,
     value: {
@@ -199,90 +328,100 @@ describe("claude upstream route", () => {
     ok: false as const,
     response: Response.json({ error: "forbidden" }, { status: 403 }),
   };
-  let store: ReturnType<typeof memoryStore>;
-  let service: ReturnType<typeof createClaudeUpstreamService>;
 
-  beforeEach(() => {
-    store = memoryStore();
-    service = createClaudeUpstreamService({ store, keys: fakeKeys(), keyId: "kms-test" });
-  });
-
-  function handlers(overrides: Partial<Parameters<typeof makeClaudeUpstreamHandlers>[0]> = {}) {
-    return makeClaudeUpstreamHandlers({
-      resolveUsageTeam: async () => ({ ok: true, teamId: "team_1", stackUserId: "user_1" }),
-      resolveContext: mock(async () => context) as never,
-      describe: service.describe,
-      put: service.put,
-      remove: service.remove,
-      ...overrides,
+  function handlers(options: { manage?: boolean; failing?: boolean } = {}) {
+    const { service: svc } = service();
+    const resolveContext = mock(async () => (options.manage === false ? forbidden : context));
+    const resolveUsageTeam = mock(async () => ({ ok: true as const, teamId: "team_1", stackUserId: "user_1" }));
+    const failing = options.failing ?? false;
+    const fail = async () => {
+      throw new Error("db down");
+    };
+    const collection = makeClaudeUpstreamHandlers({
+      resolveUsageTeam: resolveUsageTeam as never,
+      resolveContext: resolveContext as never,
+      list: failing ? (fail as never) : svc.list,
+      add: failing ? (fail as never) : svc.add,
+      removeAll: failing ? (fail as never) : svc.removeAll,
     });
+    const single = makeClaudeAccountHandlers({
+      resolveContext: resolveContext as never,
+      update: failing ? (fail as never) : svc.update,
+      remove: failing ? (fail as never) : svc.remove,
+    });
+    return { collection, single, svc };
   }
 
-  function putRequest(body: unknown): Request {
-    return new Request("https://coderouter.dev/api/coderouter/claude-upstream?teamId=team_1", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: typeof body === "string" ? body : JSON.stringify(body),
+  const url = "https://cmux.com/api/coderouter/claude-upstream?teamId=team_1";
+  const json = (method: string, body: unknown, size?: number) =>
+    new Request(url, {
+      method,
+      headers: { "content-type": "application/json", ...(size ? { "content-length": String(size) } : {}) },
+      body: JSON.stringify(body),
     });
-  }
+  const params = (accountId: string) => ({ params: Promise.resolve({ accountId }) });
 
-  test("requires manage permission for PUT and DELETE", async () => {
-    const { PUT, DELETE } = handlers({ resolveContext: mock(async () => forbidden) as never });
-    expect((await PUT(putRequest({ kind: "anthropic_api_key", apiKey: API_KEY }))).status).toBe(403);
-    expect((await DELETE(putRequest(""))).status).toBe(403);
-    expect(store.rows.size).toBe(0);
+  test("requires manage permission for writes", async () => {
+    const { collection, single } = handlers({ manage: false });
+    expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }))).status).toBe(403);
+    expect((await collection.DELETE(new Request(url, { method: "DELETE" }))).status).toBe(403);
+    expect((await single.DELETE(new Request(url, { method: "DELETE" }), params("00000000-0000-4000-8000-000000000001"))).status).toBe(403);
   });
 
-  test("rejects malformed and invalid bodies", async () => {
-    const { PUT } = handlers();
-    expect((await PUT(putRequest("{not json"))).status).toBe(400);
-    expect((await PUT(putRequest({ kind: "anthropic_api_key", apiKey: "nope" }))).status).toBe(400);
-    expect((await PUT(putRequest({ kind: "bedrock", region: "us-east-1" }))).status).toBe(400);
-    expect(store.rows.size).toBe(0);
+  test("rejects malformed, invalid and oversized bodies", async () => {
+    const { collection } = handlers();
+    expect((await collection.POST(new Request(url, { method: "POST", body: "{" }))).status).toBe(400);
+    expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: "nope" }))).status).toBe(400);
+    expect((await collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY }, 70_000))).status).toBe(413);
   });
 
-  test("rejects oversized bodies", async () => {
-    const { PUT } = handlers();
-    const response = await PUT(
-      putRequest({ kind: "anthropic_api_key", apiKey: API_KEY, padding: "x".repeat(70 * 1024) }),
-    );
-    expect(response.status).toBe(413);
-  });
+  test("adds, lists, patches and removes accounts", async () => {
+    const { collection, single } = handlers();
+    const first = await collection.POST(json("POST", { kind: "anthropic_oauth", token: OAUTH_TOKEN, label: "work" }));
+    expect(first.status).toBe(201);
+    const firstBody = await first.json();
+    expect(firstBody.account).toMatchObject({ kind: "anthropic_oauth", label: "work", identifier: "sk-ant-oat01-...CDEF" });
+    expect(firstBody.upstream.id).toBe(firstBody.account.id);
+    // PUT stays an alias for older clients and adds rather than replaces.
+    const second = await collection.PUT(json("PUT", { kind: "anthropic_oauth", token: OAUTH_TOKEN_2 }));
+    expect(second.status).toBe(201);
+    expect((await second.json()).accountsTotal).toBe(2);
 
-  test("sets, describes, replaces and removes the upstream", async () => {
-    const { GET, PUT, DELETE } = handlers();
-    const empty = await GET(new Request("https://coderouter.dev/api/coderouter/claude-upstream"));
-    expect(await empty.json()).toEqual({ teamId: "team_1", upstream: null });
+    const listed = await (await collection.GET(new Request(url))).json();
+    expect(listed.accounts).toHaveLength(2);
+    expect(listed.upstream.id).toBe(firstBody.account.id);
+    expect(JSON.stringify(listed)).not.toContain(OAUTH_TOKEN);
 
-    const created = await PUT(putRequest({ kind: "anthropic_api_key", apiKey: API_KEY }));
-    expect(created.status).toBe(201);
-    const createdBody = await created.json();
-    expect(createdBody.upstream).toMatchObject({ kind: "anthropic_api_key", identifier: "sk-ant-...6789" });
-    expect(JSON.stringify(createdBody)).not.toContain(API_KEY);
+    const patched = await single.PATCH(json("PATCH", { state: "disabled", label: "paused" }), params(firstBody.account.id));
+    expect(patched.status).toBe(200);
+    expect((await patched.json()).account).toMatchObject({ state: "disabled", label: "paused" });
+    expect((await single.PATCH(json("PATCH", { state: "nope" }), params(firstBody.account.id))).status).toBe(400);
+    expect((await single.PATCH(json("PATCH", { state: "active" }), params("not-a-uuid"))).status).toBe(400);
+    expect((await single.PATCH(json("PATCH", { state: "active" }), params("00000000-0000-4000-8000-00000000ffff"))).status).toBe(404);
 
-    const replaced = await PUT(putRequest({ kind: "anthropic_oauth", token: OAUTH_TOKEN }));
-    expect(replaced.status).toBe(200);
+    const removed = await single.DELETE(new Request(url, { method: "DELETE" }), params(firstBody.account.id));
+    expect(await removed.json()).toEqual({ removed: true, count: 1 });
+    expect((await single.DELETE(new Request(url, { method: "DELETE" }), params(firstBody.account.id))).status).toBe(404);
 
-    const described = await GET(new Request("https://coderouter.dev/api/coderouter/claude-upstream"));
-    const describedBody = await described.json();
-    expect(describedBody.upstream.kind).toBe("anthropic_oauth");
-    expect(JSON.stringify(describedBody)).not.toContain(OAUTH_TOKEN);
-    expect(described.headers.get("cache-control")).toBe("no-store");
-
-    const removed = await DELETE(new Request("https://coderouter.dev/api/coderouter/claude-upstream", { method: "DELETE" }));
-    expect(await removed.json()).toEqual({ removed: true });
-    const missing = await DELETE(new Request("https://coderouter.dev/api/coderouter/claude-upstream", { method: "DELETE" }));
-    expect(missing.status).toBe(404);
+    const all = await collection.DELETE(new Request(url, { method: "DELETE" }));
+    expect(await all.json()).toEqual({ removed: true, count: 1 });
+    expect((await collection.DELETE(new Request(url, { method: "DELETE" }))).status).toBe(404);
+    const empty = await (await collection.GET(new Request(url))).json();
+    expect(empty).toEqual({ teamId: "team_1", accounts: [], upstream: null });
   });
 
   test("fails closed when storage is unavailable", async () => {
-    const { PUT } = handlers({
-      put: async () => {
-        throw new Error("database unavailable");
-      },
-    });
-    const response = await PUT(putRequest({ kind: "anthropic_api_key", apiKey: API_KEY }));
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toMatchObject({ error: "claude_upstream_unavailable", retryable: true });
+    const { collection, single } = handlers({ failing: true });
+    const responses = await Promise.all([
+      collection.GET(new Request(url)),
+      collection.POST(json("POST", { kind: "anthropic_api_key", apiKey: API_KEY })),
+      collection.DELETE(new Request(url, { method: "DELETE" })),
+      single.PATCH(json("PATCH", { state: "active" }), params("00000000-0000-4000-8000-000000000001")),
+      single.DELETE(new Request(url, { method: "DELETE" }), params("00000000-0000-4000-8000-000000000001")),
+    ]);
+    for (const response of responses) {
+      expect(response.status).toBe(503);
+      expect((await response.json()).error).toBe("claude_upstream_unavailable");
+    }
   });
 });

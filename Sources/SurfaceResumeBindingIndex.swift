@@ -54,6 +54,10 @@ struct SurfaceResumeBindingIndex: Sendable {
         self.ambiguousPanelIds = ambiguousPanelIds
     }
 
+    var isEmpty: Bool {
+        bindingsByPanel.isEmpty
+    }
+
     func binding(workspaceId: UUID, panelId: UUID) -> SurfaceResumeBindingSnapshot? {
         bindingsByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)]
             ?? binding(panelId: panelId)

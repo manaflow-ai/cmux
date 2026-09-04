@@ -13,12 +13,21 @@ import {
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
 import { requestOrigin, requestWithOrigin } from "./app/lib/request-origin";
+import {
+  DASHBOARD_RETURN_PATH_HEADER,
+  dashboardReturnPathForRequest,
+} from "./app/lib/dashboard-return-path";
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
   const request = requestWithOrigin(incomingRequest);
+  const dashboardReturnPath = dashboardReturnPathForRequest(
+    request.nextUrl.pathname,
+    request.nextUrl.search,
+    routing.locales,
+  );
   const host = request.headers.get("host") ?? "";
 
   // 301 redirect cmux.dev (and www.cmux.dev) to cmux.com, preserving path and query
@@ -135,9 +144,38 @@ export default function middleware(incomingRequest: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  // Post-checkout pages live outside the [locale] tree, like /app-pricing.
-  // Without this bypass next-intl rewrites them into /<locale>/billing/...,
-  // which has no route and 404s via the pass-through root layout.
+  // The post-checkout success page uses the dashboard shell while keeping its
+  // stable Stripe return URL. Rewrite it into the localized dashboard tree so
+  // the browser stays on /billing/success and receives the normal sidebar,
+  // theme, and account providers.
+  if (pathname === "/billing/success" || pathname === "/billing/success/") {
+    const locale = preferredAppRouteLocale(request);
+    const url = request.nextUrl.clone();
+    url.pathname = `/${locale}/dashboard/billing/success`;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-next-intl-locale", locale);
+    return NextResponse.rewrite(url, {
+      request: { headers: requestHeaders },
+    });
+  }
+
+  // Founder purchases can be completed before a Stack account exists. Keep
+  // the recovery URL stable in emails and payment-link follow-up while
+  // rendering the localized public page.
+  if (pathname === "/billing/recover" || pathname === "/billing/recover/") {
+    const locale = preferredAppRouteLocale(request);
+    const url = request.nextUrl.clone();
+    url.pathname = `/${locale}/billing/recover`;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-next-intl-locale", locale);
+    return NextResponse.rewrite(url, {
+      request: { headers: requestHeaders },
+    });
+  }
+
+  // Other post-checkout pages still live outside the [locale] tree, like
+  // /app-pricing. Without this bypass next-intl rewrites them into /<locale>/
+  // billing/... which has no route and 404s through the pass-through layout.
   if (pathname === "/billing" || pathname.startsWith("/billing/")) {
     return NextResponse.next();
   }
@@ -147,6 +185,17 @@ export default function middleware(incomingRequest: NextRequest) {
   // session can share the same production URL.
   if (pathname === "/cloud/billing" || pathname === "/cloud/billing/") {
     return NextResponse.next();
+  }
+
+  // Protected VM domains hand users back to one fixed CMUX origin. Keep the
+  // opaque auth transaction URL stable while still selecting localized copy.
+  if (pathname === "/cloud/access" || pathname === "/cloud/access/") {
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set(
+      "x-next-intl-locale",
+      preferredAppRouteLocale(request),
+    );
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   // Machine desktop wrapper panes: the URL lives inside long-lived app panes,
@@ -307,7 +356,39 @@ export default function middleware(incomingRequest: NextRequest) {
     );
   }
 
+  if (dashboardReturnPath) {
+    setRequestHeaderOverride(
+      response,
+      DASHBOARD_RETURN_PATH_HEADER,
+      dashboardReturnPath,
+    );
+  }
+
   return response;
+}
+
+/**
+ * Add a request header to the response's standard middleware override list.
+ * This preserves the original request body, which matters for any future
+ * dashboard server action or form POST.
+ */
+function setRequestHeaderOverride(
+  response: NextResponse,
+  name: string,
+  value: string,
+): void {
+  const overrideHeaders = new Set(
+    (response.headers.get("x-middleware-override-headers") ?? "")
+      .split(",")
+      .map((header) => header.trim())
+      .filter(Boolean),
+  );
+  overrideHeaders.add(name);
+  response.headers.set(
+    "x-middleware-override-headers",
+    [...overrideHeaders].join(","),
+  );
+  response.headers.set(`x-middleware-request-${name}`, value);
 }
 
 function setFallbackContentLinkHeader(

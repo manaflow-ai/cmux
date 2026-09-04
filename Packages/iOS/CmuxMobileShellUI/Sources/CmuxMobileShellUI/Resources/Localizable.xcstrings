@@ -12493,6 +12493,28 @@
         }
       }
     },
+    "mobile.settings.taskComposerFullLiquidGlass": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task Composer Liquid Glass"
+          }
+        }
+      }
+    },
+    "mobile.settings.taskComposerFullLiquidGlassCaption": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use Liquid Glass controls and a transparent bar in New Task."
+          }
+        }
+      }
+    },
     "mobile.iroh.diagnostics.failure.unknown": {
       "extractionState": "manual",
       "localizations": {

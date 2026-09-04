@@ -277,6 +277,17 @@ struct SpawnedOwner {
     state: std::sync::Arc<OwnerProcessState>,
 }
 
+const DETACHED_OWNER_IDENTITY_ENV: [&str; 5] =
+    ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"];
+
+/// Remove terminal identity claims from the detached owner while preserving
+/// configuration and socket variables inherited from the launching client.
+fn configure_detached_owner_environment(command: &mut Command) {
+    for key in DETACHED_OWNER_IDENTITY_ENV {
+        command.env_remove(key);
+    }
+}
+
 impl SpawnedOwner {
     fn terminate(self) {
         self.state.terminate.store(true, std::sync::atomic::Ordering::Release);
@@ -304,6 +315,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     if let Some(term) = &spec.term {
         command.arg("--term").arg(term);
     }
+    configure_detached_owner_environment(&mut command);
     // The owner reports through the bounded client log at its state root;
     // terminal teardown must never reach it, so it gets no stdio and (on
     // Unix) its own session, free of the controlling terminal.
@@ -369,4 +381,45 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
         return Err(io::Error::other("local owner reaper unavailable"));
     }
     Ok(SpawnedOwner { state })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsString;
+    use std::process::Command;
+
+    use super::configure_detached_owner_environment;
+
+    #[test]
+    fn detached_owner_removes_terminal_identity_but_keeps_configuration() {
+        let mut command = Command::new("cmux-tui");
+        command
+            .env("CMUX_SURFACE_ID", "surface")
+            .env("CMUX_WORKSPACE_ID", "workspace")
+            .env("CMUX_TAB_ID", "tab")
+            .env("CMUX_PANEL_ID", "panel")
+            .env("CMUX_PANE_ID", "pane")
+            .env("CMUX_TUI_CONFIG", "/tmp/mux.json")
+            .env("CMUX_MUX_CONFIG", "/tmp/legacy-mux.json");
+
+        configure_detached_owner_environment(&mut command);
+
+        let values = command
+            .get_envs()
+            .map(|(key, value)| (key.to_owned(), value.map(OsString::from)))
+            .collect::<std::collections::HashMap<_, _>>();
+        for key in
+            ["CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", "CMUX_TAB_ID", "CMUX_PANEL_ID", "CMUX_PANE_ID"]
+        {
+            assert_eq!(values.get(OsString::from(key).as_os_str()), Some(&None));
+        }
+        assert_eq!(
+            values.get(OsString::from("CMUX_TUI_CONFIG").as_os_str()),
+            Some(&Some(OsString::from("/tmp/mux.json")))
+        );
+        assert_eq!(
+            values.get(OsString::from("CMUX_MUX_CONFIG").as_os_str()),
+            Some(&Some(OsString::from("/tmp/legacy-mux.json")))
+        );
+    }
 }
