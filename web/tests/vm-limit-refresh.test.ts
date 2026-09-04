@@ -6,7 +6,7 @@ import { VmBillingGateway, noOpVmBillingGateway } from "../services/vms/billingG
 import { VmLimitExceededError } from "../services/vms/errors";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import { VmRepository, type CloudVmRow, type VmRepositoryShape } from "../services/vms/repository";
-import { createVm } from "../services/vms/workflows";
+import { createVm, reconcileVmProviderStatuses } from "../services/vms/workflows";
 
 type ObservedStatusUpdate = Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0];
 const FIXTURE_NOW = new Date("2026-01-01T00:00:00.000Z");
@@ -41,30 +41,19 @@ function row(overrides: Partial<CloudVmRow>): CloudVmRow {
 // status read. The lazy refresh on limit-exceeded must reconcile every
 // provider the gateway can report on, exactly like the cron path.
 describe("lazy active-limit provider refresh", () => {
-  test("backfills a legacy disk claim before the shared create check", async () => {
+  test("does not fan out legacy provider reads on a successful create", async () => {
     const requested = row({ status: "provisioning", providerVmId: null });
-    const legacy = row({
-      id: "00000000-0000-4000-8000-000000000105",
-      status: "running",
-      providerVmId: "provider-vm-legacy-disk",
-      providerMetadata: {},
-    });
-    const reservations: Array<{ id: string; reservation: { vcpus: number; memoryMb: number; diskMb: number } }> = [];
     const running = row({ status: "running", providerVmId: "provider-vm-new" });
+    let legacyCandidateCalls = 0;
+    let statsCalls = 0;
     const repo = {
       beginCreate: () => {
-        expect(reservations).toEqual([{
-          id: legacy.id,
-          reservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 65536 },
-        }]);
         return Effect.succeed({ inserted: true, vm: requested });
       },
-      legacyResourceReservationCandidates: () => Effect.succeed([legacy]),
-      setResourceReservation: (input: typeof reservations[number]) =>
-        Effect.sync(() => {
-          reservations.push(input);
-          return true;
-        }),
+      legacyResourceReservationCandidates: () => Effect.sync(() => {
+        legacyCandidateCalls += 1;
+        return [];
+      }),
       claimBillingGrant: () => Effect.succeed({ kind: "already_claimed" as const }),
       markBillingGrantApplied: () => Effect.void,
       deleteBillingGrant: () => Effect.void,
@@ -82,10 +71,9 @@ describe("lazy active-limit provider refresh", () => {
         createdAt: FIXTURE_NOW.getTime(),
       }),
       destroy: () => Effect.void,
-      getStats: () => Effect.succeed({
-        state: "awake" as const,
-        sampledAt: FIXTURE_NOW.getTime(),
-        diskTotalMb: 65536,
+      getStats: () => Effect.sync(() => {
+        statsCalls += 1;
+        return { state: "awake" as const, sampledAt: FIXTURE_NOW.getTime(), diskTotalMb: 65536 };
       }),
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
       openAttach: () => Effect.fail(new Error("unused") as never),
@@ -108,6 +96,8 @@ describe("lazy active-limit provider refresh", () => {
         image: "snapshot-test",
       }).pipe(Effect.provide(layer)),
     );
+    expect(legacyCandidateCalls).toBe(0);
+    expect(statsCalls).toBe(0);
   });
 
   test("refreshes stale rows for every provider with a status read, not just freestyle", async () => {
@@ -221,5 +211,54 @@ describe("lazy active-limit provider refresh", () => {
     expect(observedIds).toContain("provider-vm-stale-freestyle");
     expect(observedIds).toHaveLength(200);
     expect(new Set(observed.map((u) => u.status))).toEqual(new Set(["destroyed"]));
+  });
+});
+
+describe("background resource reconciliation", () => {
+  test("uses a global bounded batch instead of a request owner scope", async () => {
+    const legacy = row({
+      id: "00000000-0000-4000-8000-000000000106",
+      status: "running",
+      providerVmId: "provider-vm-background-legacy",
+      providerMetadata: {},
+    });
+    let candidateInput: { userId?: string; billingTeamId?: string | null; limit: number } | undefined;
+    const reservations: Array<{ id: string; reservation: { vcpus: number; memoryMb: number; diskMb: number } }> = [];
+    const repo = {
+      legacyResourceReservationCandidates: (input: typeof candidateInput) =>
+        Effect.sync(() => {
+          candidateInput = input;
+          return [legacy];
+        }),
+      setResourceReservation: (input: typeof reservations[number]) =>
+        Effect.sync(() => {
+          reservations.push(input);
+          return true;
+        }),
+      reconciliationCandidates: () => Effect.succeed([]),
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      getStatus: () => Effect.succeed("running" as const),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: FIXTURE_NOW.getTime(),
+        diskTotalMb: 65536,
+      }),
+    } as unknown as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(
+        Effect.provide(Layer.mergeAll(
+          Layer.succeed(VmRepository, repo),
+          Layer.succeed(VmProviderGateway, provider),
+        )),
+      ),
+    );
+
+    expect(candidateInput).toEqual({ limit: 50 });
+    expect(reservations).toEqual([{
+      id: legacy.id,
+      reservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 65536 },
+    }]);
   });
 });

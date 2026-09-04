@@ -288,6 +288,62 @@ describe("VM Effect workflows", () => {
     expect(usageEvents).toHaveLength(0);
   });
 
+  test("finalizes a paid resize conservatively when the post-resize stats read fails", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000144",
+      userId: "user-workflow-resize-stats-failure",
+      billingTeamId: "team-workflow-resize-stats-failure",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-resize-stats-failure",
+      status: "running",
+    });
+    const confirmations: Array<{ confirmedDiskMb: number; operationId: string }> = [];
+    let statsCalls = 0;
+    const repo = {
+      ...testWorkflowRepo({ vm }),
+      reserveVmResize: () => Effect.succeed({
+        previousDiskMb: 32768,
+        reservedDiskMb: 204800,
+        requestedDiskMb: 65536,
+        operationId: "resize-operation-stats-failure",
+      }),
+      confirmVmResize: (confirmation: { confirmedDiskMb: number; operationId: string }) =>
+        Effect.sync(() => {
+          confirmations.push(confirmation);
+          return true;
+        }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => {
+        statsCalls += 1;
+        return statsCalls === 1
+          ? Effect.succeed({ state: "awake" as const, sampledAt: Date.now(), diskTotalMb: 32768 })
+          : Effect.fail(providerOperationError("getStats", "stats response was lost"));
+      },
+      resize: () => Effect.void,
+    };
+
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId!],
+        providerVmId: vm.providerVmId!,
+        storageMb: 65536,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toMatchObject({ _tag: "VmProviderOperationError", operation: "getStats" });
+    expect(confirmations).toHaveLength(1);
+    expect(confirmations[0]).toMatchObject({
+      confirmedDiskMb: 262144,
+      operationId: "resize-operation-stats-failure",
+    });
+  });
+
   test("rejects a disk shrink before calling the provider", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000141",
@@ -2529,7 +2585,7 @@ describe("VM Effect workflows", () => {
     expect(destroyedUsageCount).toBe("1");
   });
 
-  test("reconciles legacy VM claims before paid Base recovery checks", async () => {
+  test("keeps paid Base recovery free of synchronous legacy provider fanout", async () => {
     const now = new Date();
     const existing = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000143",
@@ -2632,10 +2688,11 @@ describe("VM Effect workflows", () => {
 
     const firstBegin = events.indexOf("begin");
     const secondBegin = events.lastIndexOf("begin");
-    const secondLegacyWrite = events.lastIndexOf("legacy-write");
     expect(beginCalls).toBe(2);
-    expect(secondLegacyWrite).toBeGreaterThan(firstBegin);
-    expect(secondLegacyWrite).toBeLessThan(secondBegin);
+    expect(events).not.toContain("legacy-candidates");
+    expect(events).not.toContain("legacy-write");
+    expect(firstBegin).toBeGreaterThanOrEqual(0);
+    expect(secondBegin).toBeGreaterThan(firstBegin);
   });
 
   dbTest("does not stamp an unmeasured reservation on a free VM row", async () => {
@@ -2879,7 +2936,7 @@ describe("VM Effect workflows", () => {
     expect(current).toBe(true);
   });
 
-  dbTest("recovers a completed pending resize before checking a paid create", async () => {
+  dbTest("background reconciliation recovers a completed pending resize before a paid create", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
     const oldVmId = "00000000-0000-4000-8000-000000000150";
@@ -2904,6 +2961,7 @@ describe("VM Effect workflows", () => {
 
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
       getStats: (_provider, providerVmId) => {
         expect(providerVmId).toBe("provider-vm-resize-recovery-old");
         return Effect.succeed({
@@ -2922,6 +2980,10 @@ describe("VM Effect workflows", () => {
         createdAt: Date.now(),
       }),
     };
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
 
     const created = await Effect.runPromise(
       createVm({

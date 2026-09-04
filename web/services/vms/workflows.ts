@@ -178,7 +178,8 @@ const IDENTITY_REVOKE_PROVIDER_TIMEOUT = "5 seconds";
 const ACTIVE_IDENTITY_REVOKE_HOT_PATH_LIMIT = 8;
 const ACCOUNT_DELETION_IDENTITY_REVOKE_BATCH = 8;
 const VM_STATUS_RECONCILE_BATCH_LIMIT = 200;
-const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 200;
+const LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT = 50;
+const LEGACY_RESOURCE_RECONCILE_CONCURRENCY = 5;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type ExistingVmAccessInput = {
@@ -291,6 +292,12 @@ export function reconcileVmProviderStatuses(input: {
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
+    const repo = yield* VmRepository;
+    // Legacy resource claims are repaired by this background cron. Keeping
+    // provider fanout here removes migration work from user-facing creates.
+    yield* reconcileLegacyResourceReservations(repo, providers, {
+      limit: LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
+    });
     const getStatus = providers.getStatus;
     if (!getStatus) {
       return {
@@ -302,7 +309,6 @@ export function reconcileVmProviderStatuses(input: {
       };
     }
 
-    const repo = yield* VmRepository;
     const candidates = yield* repo.reconciliationCandidates({
       limit: boundedVmStatusReconcileLimit(input.limit),
     });
@@ -689,9 +695,6 @@ export function openBaseVm(input: {
         sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
       }
       : input;
-    if (isPaidVmPlan(input.billingPlanId)) {
-      yield* reconcileLegacyResourceReservations(repo, providers, input);
-    }
     const create = yield* measureVmEffect(
       input.timing,
       "begin_base_open",
@@ -725,9 +728,6 @@ export function resetBaseVm(input: {
         sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
       }
       : input;
-    if (isPaidVmPlan(input.billingPlanId)) {
-      yield* reconcileLegacyResourceReservations(repo, providers, input);
-    }
     const create = yield* measureVmEffect(
       input.timing,
       "begin_base_reset",
@@ -953,12 +953,6 @@ function reopenBaseIfProviderDeleted(
               generation: create.generation.generation,
             },
           }).pipe(Effect.catchAll(() => Effect.void));
-          if (isPaidVmPlan(input.billingPlanId)) {
-            // The initial Base lookup may have found a legacy VM row. Reconcile
-            // it again after marking the provider row destroyed, before the
-            // replacement reservation is checked under the billing lock.
-            yield* reconcileLegacyResourceReservations(repo, providers, input);
-          }
           return yield* measureVmEffect(
             input.timing,
             "begin_base_open",
@@ -1368,43 +1362,37 @@ function beginCreateWithLazyProviderRefresh(
     readonly timing?: VmTimingSink;
   } & Parameters<VmRepositoryShape["beginCreate"]>[0],
 ): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
-  const reconcile = isPaidVmPlan(input.billingPlanId)
-    ? reconcileLegacyResourceReservations(repo, providers, input)
-    : Effect.void;
-  // Construct the repository effect only after reconciliation completes. The
-  // repository shape is supplied by test doubles and live adapters alike, so
-  // calling it while assembling the Effect would bypass this ordering.
+  // Construct the repository effect lazily. Provider status refresh remains a
+  // bounded retry after a limit conflict; legacy resource migration runs in
+  // the background reconcile cron instead of on every create.
   const beginCreate = Effect.suspend(() =>
     measureVmEffect(input.timing, "begin_create", repo.beginCreate(input))
   );
-  return reconcile.pipe(
-    Effect.andThen(beginCreate),
+  return beginCreate.pipe(
     Effect.catchAll((err) => {
       if (!isVmLimitExceededError(err) && !isVmSharedResourceLimitExceededError(err)) return Effect.fail(err);
-      return Effect.gen(function* () {
-        if (isPaidVmPlan(input.billingPlanId)) {
-          yield* reconcileLegacyResourceReservations(repo, providers, input);
-        }
-        yield* measureVmEffect(
-          input.timing,
-          "limit_reconcile",
-          refreshActiveLimitProviderStatuses(repo, providers, input),
-        ).pipe(Effect.catchAll(() => Effect.void));
-        return yield* Effect.suspend(() =>
+      return measureVmEffect(
+        input.timing,
+        "limit_reconcile",
+        refreshActiveLimitProviderStatuses(repo, providers, input),
+      ).pipe(
+        Effect.catchAll(() => Effect.void),
+        Effect.andThen(Effect.suspend(() =>
           measureVmEffect(input.timing, "begin_create", repo.beginCreate(input))
-        );
-      });
+        )),
+      );
     }),
   );
 }
 
-/** Backfill legacy disk claims from bounded provider reads before quota checks. */
+/** Backfill legacy claims in a bounded background batch. */
 function reconcileLegacyResourceReservations(
   repo: VmRepositoryShape,
   providers: VmProviderGatewayShape,
   input: {
-    readonly userId: string;
-    readonly billingTeamId: string;
+    readonly userId?: string;
+    readonly billingTeamId?: string | null;
+    readonly limit?: number;
   },
 ): Effect.Effect<void, never> {
   const findCandidates = repo.legacyResourceReservationCandidates;
@@ -1416,7 +1404,7 @@ function reconcileLegacyResourceReservations(
     const candidates = yield* findCandidates({
       userId: input.userId,
       billingTeamId: input.billingTeamId,
-      limit: LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
+      limit: input.limit ?? LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT,
     }).pipe(Effect.catchAll(() => Effect.succeed([])));
     yield* Effect.forEach(candidates, (vm) => {
       const providerVmId = vm.providerVmId;
@@ -1462,7 +1450,7 @@ function reconcileLegacyResourceReservations(
         // fallback remains conservative instead of silently undercounting.
         Effect.catchAll(() => Effect.void),
       );
-    }, { concurrency: 10, discard: true });
+    }, { concurrency: LEGACY_RESOURCE_RECONCILE_CONCURRENCY, discard: true });
   });
 }
 
@@ -2204,12 +2192,6 @@ export function resizeVm(input: {
     if (!providers.resize || !providers.getStats) {
       return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "resize" }));
     }
-    if (isPaidVmPlan(input.billingPlanId ?? vm.billingPlanId ?? "")) {
-      yield* reconcileLegacyResourceReservations(repo, providers, {
-        userId: input.userId,
-        billingTeamId: vm.billingTeamId ?? input.billingTeamId ?? input.userId,
-      });
-    }
     yield* preflightResumeIfSuspended(repo, providers, vm, input.providerVmId, "resize", {
       forceProviderProbe: true,
     });
@@ -2289,7 +2271,9 @@ export function resizeVm(input: {
     yield* providers.resize(vm.provider, input.providerVmId, { storageMb: input.storageMb }).pipe(
       Effect.onExit(rollbackIfProviderDidNotGrow),
     );
-    const updated = yield* providers.getStats(vm.provider, input.providerVmId);
+    const updated = yield* providers.getStats(vm.provider, input.providerVmId).pipe(
+      Effect.tapError(() => finalizeUnobservedResize(repo, vm.id, reservation)),
+    );
     // The provider can round a requested disk up. Persist the observed claim
     // before returning so the next shared-pool check cannot undercount it.
     // Missing or malformed stats fail closed at the per-VM maximum.
@@ -2327,6 +2311,37 @@ export function resizeVm(input: {
     }).pipe(Effect.catchAll(() => Effect.void));
     return updated;
   });
+}
+
+/**
+ * A successful provider resize followed by a lost stats response still owns
+ * its reservation. Clear the pending generation at the per-VM maximum so a
+ * later request is not blocked by a marker that no longer has an owner.
+ * Background reconciliation can lower this conservative claim when stats are
+ * available again.
+ */
+function finalizeUnobservedResize(
+  repo: VmRepositoryShape,
+  vmId: string,
+  reservation: VmResizeReservation | null,
+): Effect.Effect<void, never> {
+  if (!reservation || !repo.confirmVmResize) return Effect.void;
+  return repo.confirmVmResize({
+    id: vmId,
+    expectedDiskMb: reservation.reservedDiskMb,
+    ...(reservation.requestedDiskMb === undefined
+      ? {}
+      : { minimumDiskMb: reservation.requestedDiskMb }),
+    confirmedDiskMb: VM_DISK_MB_MAX,
+    operationId: reservation.operationId,
+  }).pipe(
+    Effect.asVoid,
+    Effect.catchAll((err) =>
+      Effect.sync(() => {
+        console.error(`[vm] could not finalize unobserved resize for ${vmId}`, errorMessage(err));
+      }),
+    ),
+  );
 }
 
 export function openVmPort(input: {

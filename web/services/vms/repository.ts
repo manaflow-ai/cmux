@@ -250,9 +250,10 @@ export type VmRepositoryShape = {
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /** Live rows whose resource claim predates the shared-pool marker. */
   readonly legacyResourceReservationCandidates?: (input: {
-    readonly userId: string;
+    /** Optional owner scope. Omit both fields for the background migration batch. */
+    readonly userId?: string;
     readonly billingTeamId?: string | null;
-    /** Keep provider reconciliation bounded on the request path. */
+    /** Keep provider reconciliation bounded. */
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
   /** Persist a provider-confirmed claim for a legacy VM row. */
@@ -1695,14 +1696,25 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   legacyResourceReservationCandidates: (input) =>
     dbEffect("legacyResourceReservationCandidates", async () => {
       const db = cloudDb();
+      const scope = input.billingTeamId?.trim()
+        ? eq(cloudVms.billingTeamId, input.billingTeamId.trim())
+        : input.userId
+          ? and(
+            eq(cloudVms.userId, input.userId),
+            or(isNull(cloudVms.billingTeamId), eq(cloudVms.billingTeamId, input.userId)),
+          )
+          : null;
+      const predicates = [
+        inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+        isNotNull(cloudVms.providerVmId),
+        ...(scope ? [scope] : []),
+      ];
       const rows = await db
         .select()
         .from(cloudVms)
         .where(
           and(
-            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
-            isNotNull(cloudVms.providerVmId),
-            accountScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+            ...predicates,
             or(
               sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}`,
               sql`not coalesce((${validResourceReservationMarkerSql()}), false)`,

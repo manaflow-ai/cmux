@@ -512,4 +512,4 @@ Plan limits are team-based. Stack Auth personal teams should stay enabled for bo
 
 ### Pricing is flat
 
-Paid plans include up to 50 active VMs (per paid seat on Team) for a flat subscription price, with 5 vCPU, 20 GB memory, and 200 GB disk shared across those VMs. There is no usage metering, no overages, and no per-hour VM size pricing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple.
+Paid plans include up to 50 active VMs (per paid seat on Team) for a flat subscription price, with 5 vCPU, 20 GB memory, and 200 GB disk shared across those VMs. There is no usage metering, no overages, and no per-hour VM size pricing; an earlier GB-RAM-awake-seconds metering design was considered and dropped to keep pricing simple. Legacy VM resource claims are repaired by the status-reconcile cron in batches of 50, so create and resize requests do not fan out provider stats reads. Until a row is repaired, the repository uses a conservative claim and may delay a create until the next cron pass.
