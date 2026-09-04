@@ -34,7 +34,8 @@ struct MobileCloudComposition {
             baseURL: baseURL,
             tokens: CloudAPITokenSource(
                 accessToken: { try? await coordinator.accessToken() },
-                refreshToken: { await coordinator.refreshToken() }
+                refreshToken: { await coordinator.refreshToken() },
+                teamID: { await coordinator.resolvedTeamID }
             )
         )
         // Unsigned simulator apps cannot use the data-protection Keychain (no

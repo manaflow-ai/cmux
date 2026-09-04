@@ -78,6 +78,10 @@ public actor CloudVMService: CloudVMServing {
     }
 
     private func send(_ request: URLRequest) async throws -> Data {
+        var request = request
+        if let teamID = await tokens.teamID(), !teamID.isEmpty {
+            request.setValue(teamID, forHTTPHeaderField: "X-Cmux-Team-Id")
+        }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else {
             throw CloudAPIError.malformedResponse("non-HTTP response")
