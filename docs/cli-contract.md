@@ -587,7 +587,7 @@ Events command:
 
 | Option | Contract |
 | --- | --- |
-| `--after <seq>`, `--after-seq <seq>` | Subscribe to retained events after a sequence number. |
+| `--after <seq>`, `--after-seq <seq>` | Subscribe to durable events after a sequence number. |
 | `--cursor-file <path>` | Read the starting sequence from a file and update it after every event. |
 | `--name <event>` | Filter by event name. Repeatable. |
 | `--category <name>` | Filter by category. Repeatable. |
@@ -599,15 +599,21 @@ Events command:
 `events.stream` is a v2 socket method advertised by `capabilities`. The first
 response frame is an `ack`; sequence resume metadata lives under `ack.resume` as
 `after_seq`, `oldest_seq`, `latest_seq`, `next_seq`, and `gap`. Event frames
-carry a process-local monotonic `seq` and a stable `id` for dedupe. Clients
-should persist `seq` after processing each event and reconnect with that value.
-See [events.md](events.md) for the full protocol and event catalog. Every emitted event is also appended to
+carry a durable stream-monotonic `seq`, a `boot_id` segment marker, and a stable
+`id` for dedupe. Clients should persist `seq` after processing each event and
+reconnect with that value. `ack.resume.gap` is explicit when the cursor falls
+outside the bounded durable log or crosses a missing sequence.
+See [events.md#resume-contract](events.md#resume-contract) for the full
+protocol, gap reasons, sequence-consistent snapshot cutover, and event catalog.
+cmux best-effort attempts to append every emitted event to
 `~/.cmuxterm/events.jsonl`, including model lifecycle events for window
 creation, close, focus, key-window state, workspace selection, pane focus, and
-surface selection, focus, creation, or closure. The stream is bounded: cmux keeps
-4,096 replay events in memory, caps each encoded event frame at 16 KiB, closes
-slow subscribers after 1,024 pending events, and rotates `events.jsonl` with one
-16 MiB archive at `events.jsonl.1`.
+surface selection, focus, creation, or closure. Disk backpressure can omit
+records, so JSONL consumers must treat the file as potentially incomplete rather
+than as a complete audit source. The stream is bounded: cmux keeps 4,096 events
+in memory for live delivery, replays `events.jsonl` plus its one 16 MiB rotated
+archive, caps each encoded event frame at 16 KiB, and closes slow subscribers
+after 1,024 pending events.
 
 ## Workspace todos
 

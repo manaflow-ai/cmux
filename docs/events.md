@@ -3,10 +3,12 @@
 cmux exposes a reconnectable event stream for local tools that need to observe
 workspace, pane, surface, notification, browser, Feed, and agent-hook activity.
 
-The same events are appended to `~/.cmuxterm/events.jsonl` as newline-delimited
-JSON. The live stream is delivered over the existing cmux socket. Clients call
-the v2 method `events.stream`, then keep reading newline-delimited JSON frames
-from the same connection.
+The same events are best-effort appended to `~/.cmuxterm/events.jsonl` as
+newline-delimited JSON. Disk backpressure or bounded retention can leave that
+file incomplete, so it is not a complete audit source. The live stream is
+delivered over the existing cmux socket. Clients call the v2 method
+`events.stream`, then keep reading newline-delimited JSON frames from the same
+connection.
 
 ## Quick start
 
@@ -17,13 +19,16 @@ cmux events --category notification
 cmux events --category feed --category agent --no-heartbeat
 ```
 
-Every event has a monotonically increasing process-local `seq` and a `boot_id`.
-Persist the latest processed `seq`, then reconnect with `after_seq` or use
-`cmux events --cursor-file`. If cmux restarts, `boot_id` changes and the server
-marks stale cursors as a resume gap.
+Every event has a monotonically increasing stream `seq` and a `boot_id` segment
+marker. Sequence gaps are possible when the bounded durable log has discarded
+records or disk backpressure dropped pending writes. Persist the latest
+processed `seq`, then reconnect with `after_seq` or use `cmux events --cursor-file`;
+a restart does not by itself invalidate a cursor while its durable span remains
+available.
 
-Use the JSONL log for audit and catch-up tools. Use the socket stream for live
-delivery with bounded replay.
+Use the JSONL log for recent, best-effort diagnostics and catch-up hints; JSONL
+consumers must tolerate omitted records. Use the socket stream for live delivery
+and use the gap recovery contract below when a complete state is required.
 
 Lifecycle events with `source: "window.lifecycle"` or
 `source: "workspace.lifecycle"` are emitted from the cmux model, so they cover
@@ -43,7 +48,7 @@ Parameters:
 
 | Param | Type | Meaning |
 | --- | --- | --- |
-| `after_seq` | integer | Replay retained events whose `seq` is greater than this value. |
+| `after_seq` | integer | Replay durable events whose `seq` is greater than this value. |
 | `after` | integer | Alias for `after_seq`. |
 | `names` | string array | Optional event-name filter. |
 | `name` | string or array | Alias for `names`. |
@@ -57,7 +62,7 @@ commands on that connection after `events.stream`.
 ## Frames
 
 The server writes one JSON object per line. The first frame is always `ack`.
-After that, the stream sends retained replay events, then live events and
+After that, the stream sends durable replay events, then live events and
 heartbeats.
 
 ### Ack
@@ -86,11 +91,40 @@ heartbeats.
 }
 ```
 
-`resume.gap` is `true` when the requested cursor is older than cmux still keeps
-in memory, or newer than the current process after an app restart. In that case,
-process the replayed tail, then refresh any state you need through
-snapshot-style commands such as `list-workspaces`, `list-notifications`, `tree`,
-`extension.sidebar.snapshot`, or focused surface queries.
+`resume.gap` is `true` when the requested cursor predates the bounded durable
+log, falls across a missing sequence, or is newer than the current stream. When
+`gap` is `true`, `gap_reason` is present and contains one of these exact values:
+
+| `gap_reason` | Meaning |
+| --- | --- |
+| `requested sequence is older than the durable event log` | The cursor is before the oldest durable record. |
+| `requested sequence is older than the retained in-memory event log` | The non-durable in-memory fallback has already evicted the cursor. |
+| `requested sequence is newer than this cmux process; cmux probably restarted` | The cursor is ahead of this process's latest sequence. |
+| `durable event log has a sequence gap` | One or more records in the requested durable span are unavailable. |
+
+The field is omitted when `gap` is `false`. For a gap, use a sequence-consistent
+cutover so a newer snapshot cannot be followed by older replay events:
+
+1. Keep the `events.stream` connection open and buffer every replay and live
+   event frame received after the `ack`. That connection is dedicated to the
+   stream and cannot carry snapshot commands.
+2. Open a second authenticated socket and request a snapshot, preferably
+   `extension.sidebar.snapshot`, whose response includes the event boundary in
+   `seq` (also named `sequence`). Use the equivalent sequence field for another
+   snapshot command when its contract provides one.
+3. Apply the snapshot atomically. Once it succeeds, persist its returned `seq`
+   (also named `sequence` where that snapshot contract uses the alias) as the
+   client cursor before continuing or reconnecting. That persisted cursor is the
+   snapshot boundary.
+4. From the buffered stream frames, discard frames with `seq` at or below that
+   boundary, deduplicate by `id`, and apply only frames newer than the boundary
+   in ascending sequence order. Continue applying subsequent live frames only
+   when their sequence is newer than the boundary.
+
+This ordering ensures that an older replay tail cannot overwrite state captured
+by the newer snapshot. Snapshot-style commands include `list-workspaces`,
+`list-notifications`, `tree`, `extension.sidebar.snapshot`, and focused surface
+queries.
 
 ### Event
 
@@ -128,9 +162,9 @@ Event fields:
 
 | Field | Meaning |
 | --- | --- |
-| `seq` | Process-local sequence. Increases by one for every emitted event. |
-| `boot_id` | UUID process-boot identifier for this in-memory event log. Changes when cmux restarts. |
-| `id` | Stable event id for the current cmux process. Use it for dedupe. |
+| `seq` | Durable stream sequence. It increases across cmux restarts; gaps identify records that are no longer available. |
+| `boot_id` | UUID process-boot identifier used as a segment marker. It changes when cmux restarts. |
+| `id` | Stable event id combining the boot segment and sequence. Use it for dedupe. |
 | `name` | Specific event name, such as `feed.item.received`. |
 | `category` | Coarse subscription group. |
 | `source` | Producer, such as `socket.v2`, `notification.store`, or `codex`. |
@@ -165,14 +199,17 @@ The intended client loop is:
 1. Connect to the cmux socket and authenticate if required.
 2. Send `events.stream` with the last fully processed `seq`.
 3. Read `ack`.
-4. If `ack.resume.gap` is true, refresh state through snapshot commands.
-5. Process replayed events, then live events.
-6. Persist each event's `seq` only after your side effect succeeds.
-7. Reconnect with the latest persisted `seq` if the socket closes.
+4. If `ack.resume.gap` is true, perform the two-connection snapshot cutover
+   above; otherwise process replayed events, then live events.
+5. Resume consuming buffered and subsequent live frames, applying only frames
+   newer than the snapshot boundary when one was used (otherwise process the
+   replay tail in sequence order).
+6. Persist each event's `seq` only after your side effect succeeds, then
+   reconnect with the latest persisted `seq` if the socket closes.
 
-The retained replay buffer is in memory and bounded to 4,096 events. Individual
-event frames are capped to 16 KiB after JSON encoding; oversized payloads are
-replaced with a small payload that sets `payload_truncated: true`.
+The in-memory replay buffer is bounded to 4,096 events for live delivery.
+Individual event frames are capped to 16 KiB after JSON encoding; oversized
+payloads are replaced with a small payload that sets `payload_truncated: true`.
 
 Each live subscriber also has a bounded pending queue of 1,024 events. If a
 client stops reading and falls behind that queue, cmux closes that subscription
@@ -181,13 +218,25 @@ successfully processed.
 
 The durable event log is bounded too. cmux writes current events to
 `~/.cmuxterm/events.jsonl`, rotates the previous file to
-`~/.cmuxterm/events.jsonl.1`, and caps each file at 16 MiB. Disk writes are
-batched behind a bounded 1,024-line queue. Under sustained disk backpressure,
-cmux drops the oldest pending disk-only lines and keeps the live socket stream
-and in-memory replay buffer moving. Clients can read those files for recent
-auditing, but should treat the socket `ack.resume.gap` contract plus snapshot
-commands as the source of truth for catch-up after long outages. Feed still
-writes its specialized long-term audit log to `~/.cmuxterm/workstream.jsonl`.
+`~/.cmuxterm/events.jsonl.1`, and caps each file at 16 MiB. `events.stream`
+replays both generations, so a reconnect can cross a process restart while the
+records remain on disk. On startup, cmux restores the separately persisted
+sequence floor at `~/.cmuxterm/events.jsonl.seq` before allocating a new `seq`;
+this floor is independent of the JSONL records, so a queued event that is lost
+before disk append cannot reuse its sequence after restart. cmux reserves a
+small sequence range per floor write; unused reserved values are therefore
+reported as gaps after a restart. If the floor is missing or unreadable, cmux
+advances conservatively and reports a durable gap so clients must use snapshot
+recovery. If the floor cannot be persisted while an event is being published,
+cmux discards that event before delivery to connected `events.stream`
+subscribers, the retained buffer, or the JSONL log; the resulting
+`ack.resume.gap` on a later subscription is the only signal. Disk writes are
+best-effort and batched behind a bounded 1,024-line queue. Under sustained disk
+backpressure, cmux drops the oldest pending disk-only lines; the resulting
+sequence gap is reported in `ack.resume` so clients can refresh from a snapshot.
+Consumers of the JSONL files must treat them as potentially incomplete rather
+than as a complete audit source. Feed still writes its specialized long-term
+audit log to `~/.cmuxterm/workstream.jsonl`.
 
 ## CLI
 

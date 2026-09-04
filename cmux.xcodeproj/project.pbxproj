@@ -840,8 +840,11 @@
 		9648F1A20000000000000002 /* CmuxDiffViewerURLSchemeHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9648F1A10000000000000001 /* CmuxDiffViewerURLSchemeHandler.swift */; };
 		D1320AA0D1320AA0D1320AA2 /* CmuxDockTilePlugin.plugin in Copy Dock Tile Plugin */ = {isa = PBXBuildFile; fileRef = D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C54860040000000000000001 /* CmuxDurableDeepLinkRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C54860040000000000000002 /* CmuxDurableDeepLinkRestoreTests.swift */; };
+		E7E000000000000000000013 /* CmuxEventBus+DurableReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000014 /* CmuxEventBus+DurableReplay.swift */; };
 		E7E000000000000000000005 /* CmuxEventBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000006 /* CmuxEventBus.swift */; };
 		E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000004 /* CmuxEventBusTests.swift */; };
+		E7E000000000000000000011 /* CmuxEventDurableReplayTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000012 /* CmuxEventDurableReplayTests.swift */; };
+		E7E000000000000000000015 /* CmuxEventLogReplayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000016 /* CmuxEventLogReplayStore.swift */; };
 		E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E00000000000000000000E /* CmuxEventLogWriter.swift */; };
 		E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000008 /* CmuxEventPublishing.swift */; };
 		E7E000000000000000000001 /* CmuxEventStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7E000000000000000000002 /* CmuxEventStream.swift */; };
@@ -3986,8 +3989,11 @@
 		9648F1A10000000000000001 /* CmuxDiffViewerURLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxDiffViewerURLSchemeHandler.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CmuxDockTilePlugin.plugin; sourceTree = BUILT_PRODUCTS_DIR; };
 		C54860040000000000000002 /* CmuxDurableDeepLinkRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxDurableDeepLinkRestoreTests.swift; sourceTree = "<group>"; };
+		E7E000000000000000000014 /* CmuxEventBus+DurableReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxEventBus+DurableReplay.swift"; sourceTree = "<group>"; };
 		E7E000000000000000000006 /* CmuxEventBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBus.swift; sourceTree = "<group>"; };
 		E7E000000000000000000004 /* CmuxEventBusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventBusTests.swift; sourceTree = "<group>"; };
+		E7E000000000000000000012 /* CmuxEventDurableReplayTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventDurableReplayTests.swift; sourceTree = "<group>"; };
+		E7E000000000000000000016 /* CmuxEventLogReplayStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogReplayStore.swift; sourceTree = "<group>"; };
 		E7E00000000000000000000E /* CmuxEventLogWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventLogWriter.swift; sourceTree = "<group>"; };
 		E7E000000000000000000008 /* CmuxEventPublishing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventPublishing.swift; sourceTree = "<group>"; };
 		E7E000000000000000000002 /* CmuxEventStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxEventStream.swift; sourceTree = "<group>"; };
@@ -7463,6 +7469,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */,
 				D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */,
 				E7E000000000000000000006 /* CmuxEventBus.swift */,
+				E7E000000000000000000014 /* CmuxEventBus+DurableReplay.swift */,
+				E7E000000000000000000016 /* CmuxEventLogReplayStore.swift */,
 				E7E00000000000000000000E /* CmuxEventLogWriter.swift */,
 				E7E00000000000000000000C /* CmuxLifecycleEventPublishing.swift */,
 				E7E000000000000000000008 /* CmuxEventPublishing.swift */,
@@ -9279,6 +9287,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A7984AD10000000000000002 /* SocketConfigurationLifecycleTests.swift */,
 				9C1BEA3D2E6F49709A71C021 /* TerminalControllerTerminalTextTests.swift */,
 				E7E000000000000000000004 /* CmuxEventBusTests.swift */,
+				E7E000000000000000000012 /* CmuxEventDurableReplayTests.swift */,
 				7837E0027837E0027837E002 /* CmuxSocketEventMapperTests.swift */,
 				A5A5A504A1B2C3D4E5F60718 /* TerminalNotificationQueueTests.swift */,
 				A5A5A508A1B2C3D4E5F60718 /* TerminalNotificationClearAllTests.swift */,
@@ -10366,7 +10375,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
 				C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */,
 				9648F1A20000000000000002 /* CmuxDiffViewerURLSchemeHandler.swift in Sources */,
+				E7E000000000000000000013 /* CmuxEventBus+DurableReplay.swift in Sources */,
 				E7E000000000000000000005 /* CmuxEventBus.swift in Sources */,
+				E7E000000000000000000015 /* CmuxEventLogReplayStore.swift in Sources */,
 				E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
 				E7E000000000000000000007 /* CmuxEventPublishing.swift in Sources */,
 				E7E000000000000000000001 /* CmuxEventStream.swift in Sources */,
@@ -12371,6 +12382,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB1205 /* CmuxConfigWorkspaceActionTests.swift in Sources */,
 				C54860040000000000000001 /* CmuxDurableDeepLinkRestoreTests.swift in Sources */,
 				E7E000000000000000000003 /* CmuxEventBusTests.swift in Sources */,
+				E7E000000000000000000011 /* CmuxEventDurableReplayTests.swift in Sources */,
 				D36090010000000000000005 /* CmuxMainWindowConstrainFrameTests.swift in Sources */,
 					D36090020000000000000005 /* CmuxMainWindowFullScreenCapabilityTests.swift in Sources */,
 					C54860030000000000000001 /* CmuxNavigationTargetResolverTests.swift in Sources */,
