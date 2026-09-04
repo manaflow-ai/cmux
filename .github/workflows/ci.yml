@@ -1714,7 +1714,11 @@ jobs:
             fi
             echo "::group::swift test $pkgdir"
             case "$pkg" in
-            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport)
+            # CmuxFoundation contains a process-limit stress fixture for SSH
+            # authentication cleanup. Run its suites in separate test
+            # processes so unrelated process-spawning suites cannot consume
+            # the fixture's intentionally small process headroom.
+            CmuxAgentChat|CmuxAuthRuntime|CmuxIrohTransport|CmuxFoundation)
               ./scripts/ci/run-swift-testing-suites.sh "$pkgdir"
               ;;
             CmuxTerminal|CmuxTerminalCore)
