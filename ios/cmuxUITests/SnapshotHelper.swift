@@ -63,6 +63,25 @@ open class Snapshot: NSObject {
     static var deviceLanguage = ""
     static var currentLocale = ""
 
+    /// Fastlane's language list uses App Store identifiers (for example,
+    /// `de-DE`), while `AppleLanguages` expects language or script identifiers
+    /// (`de`, `zh-Hant`). Keep the two launch arguments in their native formats
+    /// so localized resources resolve consistently on every simulator.
+    static func appleLanguageCode(for identifier: String) -> String {
+        let components = identifier
+            .replacingOccurrences(of: "_", with: "-")
+            .split(separator: "-")
+        guard let language = components.first else { return "" }
+        guard let script = components.dropFirst().first, script.count == 4 else {
+            return String(language)
+        }
+        return "\(language)-\(script)"
+    }
+
+    static func appleLocaleIdentifier(for identifier: String) -> String {
+        identifier.replacingOccurrences(of: "-", with: "_")
+    }
+
     open class func setupSnapshot(_ app: XCUIApplication, waitForAnimations: Bool = true) {
 
         Snapshot.app = app
@@ -91,7 +110,8 @@ open class Snapshot: NSObject {
         do {
             let trimCharacterSet = CharacterSet.whitespacesAndNewlines
             deviceLanguage = try String(contentsOf: path, encoding: .utf8).trimmingCharacters(in: trimCharacterSet)
-            app.launchArguments += ["-AppleLanguages", "(\(deviceLanguage))"]
+            let appleLanguage = appleLanguageCode(for: deviceLanguage)
+            app.launchArguments += ["-AppleLanguages", "(\(appleLanguage))"]
         } catch {
             NSLog("Couldn't detect/set language...")
         }
@@ -113,7 +133,9 @@ open class Snapshot: NSObject {
         }
 
         if currentLocale.isEmpty && !deviceLanguage.isEmpty {
-            currentLocale = Locale(identifier: deviceLanguage).identifier
+            currentLocale = appleLocaleIdentifier(for: deviceLanguage)
+        } else if !currentLocale.isEmpty {
+            currentLocale = appleLocaleIdentifier(for: currentLocale)
         }
 
         if !currentLocale.isEmpty {
