@@ -1281,6 +1281,10 @@ impl Inner {
                         cancellation: context.cancellation.clone(),
                     })
                     .await;
+                if context.cancellation.is_cancelled() {
+                    handle.control.kill();
+                    return Err("PTY open cancelled".to_owned());
+                }
                 let PtyHandle { control, output, banner } = handle;
                 let shell_session = Arc::new(ShellSession {
                     control,
