@@ -2,6 +2,7 @@ name: CI
 
 on:
   # Keep the full suite available for explicit validation, while always
+  # Changes to CI guard scripts also retrigger the full workflow through this path.
   # running the lightweight GhosttyKit provenance check when its pointer,
   # checksum, or helper changes in a PR.
   pull_request:
