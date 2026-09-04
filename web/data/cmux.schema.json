@@ -1415,6 +1415,29 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "defaultEngine": {
+          "type": "string",
+          "enum": ["auto", "webkit", "chromium"],
+          "default": "auto",
+          "descriptionKey": "schemaDescriptions.browser.defaultEngine",
+          "description": "Rendering engine for newly-created embedded browser panes. Auto follows the system default browser; explicit WebKit or Chromium choices override it. Chromium runs out of process."
+        },
+        "chromiumExtensionDirectories": {
+          "type": "string",
+          "default": "",
+          "descriptionKey": "schemaDescriptions.browser.chromiumExtensionDirectories",
+          "description": "Newline-separated absolute paths to unpacked Chromium extension directories loaded into new Chromium panes."
+        },
+        "remoteDebuggingPort": {
+          "type": "integer",
+          "oneOf": [
+            { "const": 0 },
+            { "minimum": 1024, "maximum": 65535 }
+          ],
+          "default": 0,
+          "descriptionKey": "schemaDescriptions.browser.remoteDebuggingPort",
+          "description": "Loopback-only Chromium CDP port. Zero disables external CDP attachment; otherwise use a port from 1024 through 65535."
+        },
         "defaultSearchEngine": {
           "type": "string",
           "enum": ["google", "duckduckgo", "bing", "kagi", "startpage", "brave", "perplexity", "exa", "yahoo", "ecosia", "qwant", "mojeek", "wikipedia", "github", "baidu", "yandex", "custom"],

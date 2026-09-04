@@ -1,6 +1,20 @@
 {
   "billingRecovery": {
-    "message": "If we found an account, check your email for next steps"
+    "message": "If we found an account, check your email for next steps",
+    "metaTitle": "Connect your Founder purchase",
+    "metaDescription": "Use the email from your Founder purchase to create or recover your cmux account.",
+    "eyebrow": "Founder access",
+    "title": "Connect your Founder purchase",
+    "body": "Use the email from your Founder purchase. We will send a secure sign-in link that creates or recovers the cmux account for that purchase.",
+    "differentEmail": "Already have a cmux account with another email? Reply to your Founder welcome email. We will verify both addresses and move access safely.",
+    "formAriaLabel": "Connect a Founder purchase",
+    "emailLabel": "Purchase email",
+    "emailPlaceholder": "you@example.com",
+    "submit": "Send sign-in link",
+    "submitting": "Sending...",
+    "success": "If we found a purchase or account, check your email for next steps.",
+    "error": "We could not send the request. Try again later.",
+    "backToHome": "Back to cmux"
   },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",
@@ -16,12 +30,14 @@
         "snapshot": "This Cloud VM does not support saved VM state.",
         "restore": "This Cloud VM kind does not support restoring saved VM state.",
         "fork": "This Cloud VM does not support copying to a new VM.",
+        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
         "default": "This Cloud VM does not support the requested operation."
       },
       "action": {
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "fork": "Do not retry. Create a new VM with `cmux vm new`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
         "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong."
       }
     },
@@ -750,6 +766,7 @@
     "metaDescriptionNoVault": "cmux is a free, open source macOS terminal for AI coding agents. Upgrade to Pro for isolated Cloud VMs. Enterprise adds SSO and self-hosting.",
     "metaDescriptionNoVaultShort": "cmux is a free, open source macOS terminal. Pro adds isolated Cloud VMs; Enterprise adds SSO and self-hosting.",
     "title": "Pricing",
+    "alreadyPaid": "Already paid? Connect your purchase",
     "perMonth": "/mo",
     "perMonthBilledYearly": "/mo, billed yearly",
     "perUserMonth": "/user/mo",
@@ -783,7 +800,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk",
+        "Up to 50 Cloud VMs, each with 8 GB RAM and 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -883,8 +900,8 @@
         {
           "label": "Cloud VM size",
           "free": "false",
-          "pro": "5 vCPU, 20 GB RAM, 200 GB disk",
-          "team": "5 vCPU, 20 GB RAM, 200 GB disk",
+          "pro": "8 GB RAM, 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
+          "team": "8 GB RAM, 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
           "enterprise": "Custom"
         },
         {
@@ -963,7 +980,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with 5 vCPU, 20 GB of RAM, and 200 GB of disk."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with configurable 4, 8, 16, 24, 32, or 64 GB of RAM and 16, 32, 64, 96, or 128 GB of disk."
         },
         {
           "q": "What is cmux Vault?",
@@ -2193,6 +2210,9 @@
           "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "browser": {
+          "defaultEngine": "Rendering engine for newly-created embedded browser panes. Auto follows the system default browser; explicit WebKit or Chromium choices override it. Chromium runs out of process.",
+          "chromiumExtensionDirectories": "Newline-separated absolute paths to unpacked Chromium extension directories loaded into new Chromium panes.",
+          "remoteDebuggingPort": "Loopback-only Chromium CDP port. Zero disables external CDP attachment; otherwise use a port from 1024 through 65535.",
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
@@ -3296,6 +3316,9 @@
     "metaTitle": "cmux Pro is active",
     "title": "cmux Pro is active",
     "body": "We created or upgraded your account with {email}. You can open cmux now or add more sign-in methods.",
+    "purchaseComplete": "You're all set",
+    "proLabel": "Pro plan",
+    "dashboardLink": "Go to dashboard",
     "emailLabel": "Purchase email",
     "whatUnlockedTitle": "What you unlocked",
     "openCmux": "Open cmux",

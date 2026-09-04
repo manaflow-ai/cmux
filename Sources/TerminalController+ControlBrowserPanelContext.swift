@@ -1,4 +1,5 @@
 import AppKit
+import CmuxBrowser
 import CmuxControlSocket
 import Foundation
 import WebKit
@@ -10,6 +11,19 @@ import WebKit
 /// the selected-workspace panel reach, byte-faithful to the legacy bodies
 /// (which always targeted the active TabManager's selected workspace).
 extension TerminalController: ControlBrowserPanelContext {
+    func controlBrowserEngineStrings() -> ControlBrowserEngineStrings {
+        ControlBrowserEngineStrings(
+            invalidOption: String(
+                localized: "browser.engine.error.invalid",
+                defaultValue: "Choose WebKit or Chromium for the browser engine."
+            ),
+            browserOnly: String(
+                localized: "browser.engine.error.browserOnly",
+                defaultValue: "A browser engine can only be selected when creating a browser pane or surface."
+            )
+        )
+    }
+
     /// The selected workspace's browser panel for a v1 panel id (the shared
     /// guard head of the legacy bodies).
     private func browserPanelV1Panel(panelID: UUID) -> BrowserPanel? {
@@ -33,7 +47,7 @@ extension TerminalController: ControlBrowserPanelContext {
         NSWorkspace.shared.open(url)
     }
 
-    func controlBrowserPanelOpen(url: URL?) -> UUID? {
+    func controlBrowserPanelOpen(url: URL?, engine: BrowserEngineKind?) -> UUID? {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
@@ -46,7 +60,8 @@ extension TerminalController: ControlBrowserPanelContext {
             orientation: .horizontal,
             url: url,
             focus: focus,
-            creationPolicy: .automationPreload
+            creationPolicy: .automationPreload,
+            engine: engine
         )?.id
     }
 
@@ -91,6 +106,12 @@ extension TerminalController: ControlBrowserPanelContext {
         // Prevent omnibar auto-focus from immediately stealing first responder back.
         panel.suppressOmnibarAutofocus(for: 1.5)
 
+        if panel.isChromiumBacked {
+            if panel.requestExplicitWebViewFocus() { return .focused }
+            guard panel.chromiumContentView?.window != nil else { return .webViewNotInWindow }
+            return .focusDidNotMove
+        }
+
         let webView = panel.webView
         guard let window = webView.window else { return .webViewNotInWindow }
         guard !webView.isHiddenOrHasHiddenAncestor else { return .webViewHidden }
@@ -113,6 +134,10 @@ extension TerminalController: ControlBrowserPanelContext {
 
     func controlBrowserPanelIsWebViewFocused(panelID: UUID) -> ControlBrowserPanelWebViewFocusState {
         guard let panel = browserPanelV1Panel(panelID: panelID) else { return .panelNotFound }
+        if panel.isChromiumBacked {
+            return .focused(panel.isChromiumContentFocused())
+        }
+
         let webView = panel.webView
         guard let window = webView.window else { return .focused(false) }
         return .focused(Self.responderChainContains(window.firstResponder, target: webView))

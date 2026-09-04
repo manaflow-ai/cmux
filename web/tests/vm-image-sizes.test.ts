@@ -13,9 +13,9 @@ import {
   type DevboxManifestEntry,
 } from "../scripts/devbox-image-common";
 
-// Machine sizes are Freestyle's t-shirt ladder (freestyle-vms
-// catalog/snapshots.json), one cmux snapshot per size, picked by the plan's
-// memory. These pin the ladder and the per-size promotion semantics.
+// Machine sizes are Freestyle's t-shirt ladder plus cmux's validated 24 GiB
+// intermediate snapshot, one cmux snapshot per size, picked by plan memory.
+// These pin the ladder and the per-size promotion semantics.
 
 const entry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntry => ({
   provider: "freestyle",
@@ -32,7 +32,7 @@ const entry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntr
 });
 
 describe("size ladder", () => {
-  test("mirrors Freestyle's catalog exactly, smallest first", () => {
+  test("keeps the Freestyle ladder and cmux intermediate size, smallest first", () => {
     expect(VM_IMAGE_SIZE_NAMES).toEqual(["sm", "md", "lg", "lgx", "xl", "2xl"]);
     expect(VM_IMAGE_SIZES.map((s) => [s.name, s.cpu, s.memoryMb, s.storageMb, s.freestyleBase])).toEqual([
       ["sm", 2, 4096, 16384, "freestyle/ubuntu-sm"],

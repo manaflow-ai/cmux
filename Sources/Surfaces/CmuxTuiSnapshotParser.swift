@@ -333,20 +333,7 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// Listening TCP ports from `ss -ltn` / `netstat -ltn` output (what `cmux vm ports` runs).
     static func listeningPorts(fromSocketListing text: String) -> [Int] {
-        var seen = Set<Int>()
-        var ports: [Int] = []
-        for line in text.split(separator: "\n") {
-            let columns = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            guard columns.count >= 4 else { continue }
-            // `ss`: State Recv-Q Send-Q Local:Port …; `netstat`: Proto Recv-Q Send-Q Local:Port …
-            for column in columns.prefix(5) {
-                guard let colon = column.lastIndex(of: ":"), let port = Int(column[column.index(after: colon)...]),
-                      (1...65535).contains(port), seen.insert(port).inserted else { continue }
-                ports.append(port)
-                break
-            }
-        }
-        return ports.sorted()
+        Set(listeningPortBindings(fromSocketListing: text).map(\.port)).sorted()
     }
 
     /// Transport ports reserved for the daemon and the machine's noVNC display.
@@ -392,7 +379,7 @@ struct CmuxTuiSnapshotParser: Sendable {
     /// back to the legacy provider-minted-endpoint path.
     static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
         SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(port)"),
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port)),
             title: ":\(port)",
             detail: nil,
             lifecycle: .running,
