@@ -4,6 +4,8 @@ import { Link } from "@/i18n/navigation";
 import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { isVaultEnabled } from "@/services/vault/config";
+import { withPrioritySpan } from "@/services/telemetry";
+import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
 
 export default async function DashboardIndexPage({
@@ -16,7 +18,16 @@ export default async function DashboardIndexPage({
   if (!isStackConfigured()) {
     redirect("/");
   }
-  const user = await getStackServerApp().getUser({ or: "return-null" });
+  const user = await withPrioritySpan(
+    "cmux-dashboard",
+    "cmux.dashboard.auth",
+    { "http.route": "/dashboard", "cmux.locale": locale },
+    () => withStackAuthSpan(
+      "get_user",
+      () => getStackServerApp().getUser({ or: "return-null" }),
+      { "cmux.auth.flow": "dashboard" },
+    ),
+  );
   if (!user) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard")));
   }
