@@ -74,6 +74,7 @@ extension WorkspaceDetailView {
 /// have the same hit target and accessibility identity.
 struct WorkspaceSidebarToggleButton: View {
     let action: () -> Void
+    var usesSystemToolbarChrome = false
 
     var body: some View {
         Button(action: action) {
@@ -84,7 +85,7 @@ struct WorkspaceSidebarToggleButton: View {
             L10n.string("mobile.sidebar.toggle", defaultValue: "Show or Hide Sidebar")
         )
         .accessibilityIdentifier("MobileSplitSidebarToggle")
-        .ownedBarSidebarGlassButton()
+        .ownedBarSidebarGlassButton(usesSystemToolbarChrome: usesSystemToolbarChrome)
         .fixedSize()
     }
 }
@@ -107,7 +108,7 @@ private extension View {
     }
 
     @ViewBuilder
-    func ownedBarSidebarGlassButton() -> some View {
+    func ownedBarSidebarGlassButton(usesSystemToolbarChrome: Bool = false) -> some View {
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.plain)
@@ -115,7 +116,16 @@ private extension View {
                     width: WorkspaceRootToolbarSizing.controlHeight,
                     height: WorkspaceRootToolbarSizing.controlHeight
                 )
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .modifier(WorkspaceSidebarToolbarChromeModifier(
+                    usesSystemToolbarChrome: usesSystemToolbarChrome
+                ))
+        } else if usesSystemToolbarChrome {
+            self
+                .buttonStyle(.plain)
+                .frame(
+                    width: WorkspaceRootToolbarSizing.controlHeight,
+                    height: WorkspaceRootToolbarSizing.controlHeight
+                )
         } else {
             self
                 .buttonStyle(.plain)
@@ -133,6 +143,19 @@ private extension View {
             self.glassEffect(.regular.interactive(), in: .capsule)
         } else {
             self.background(.thinMaterial, in: Capsule())
+        }
+    }
+}
+
+@available(iOS 26.0, *)
+private struct WorkspaceSidebarToolbarChromeModifier: ViewModifier {
+    let usesSystemToolbarChrome: Bool
+
+    func body(content: Content) -> some View {
+        if usesSystemToolbarChrome {
+            content
+        } else {
+            content.glassEffect(.regular.interactive(), in: .capsule)
         }
     }
 }

@@ -903,7 +903,13 @@ struct WorkspaceShellView: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                WorkspaceSidebarToggleButton(action: toggleSplitSidebar)
+                // The system toolbar supplies the sidebar's shared glass group.
+                // Do not layer the detail bar's standalone glass capsule inside
+                // that group.
+                WorkspaceSidebarToggleButton(
+                    action: toggleSplitSidebar,
+                    usesSystemToolbarChrome: true
+                )
             }
         }
         .toolbar {
