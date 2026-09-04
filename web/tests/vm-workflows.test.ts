@@ -47,6 +47,7 @@ import {
   createVm,
   destroyVm,
   execVm,
+  forkVm,
   homeVolumeNameForUser,
   listUserVms,
   approveVmCmuxRemoteEnrollment,
@@ -61,6 +62,7 @@ import {
   restoreVm,
   reconcileVmProviderStatuses,
   resizeVm,
+  snapshotVm,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -140,6 +142,110 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("repairs a legacy fork claim from provider CPU and memory stats", async () => {
+    const source = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000151",
+      userId: "user-workflow-legacy-fork-shape",
+      billingTeamId: "team-workflow-legacy-fork-shape",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-legacy-fork-source",
+      status: "running",
+      providerMetadata: {},
+    });
+    const pendingFork = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000152",
+      userId: source.userId,
+      billingTeamId: source.billingTeamId,
+      billingPlanId: "pro",
+      providerVmId: null,
+      status: "provisioning",
+      providerMetadata: {},
+    });
+    let reservation: unknown;
+    const repo = {
+      ...testWorkflowRepo({ vm: source }),
+      beginCreate: (input: { resourceReservation?: unknown }) => {
+        reservation = input.resourceReservation;
+        return Effect.succeed({ inserted: true, vm: pendingFork });
+      },
+      markCreateRunning: () => Effect.succeed({
+        ...pendingFork,
+        providerVmId: "provider-vm-legacy-fork-copy",
+        status: "running" as const,
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      resume: () => Effect.succeed(testVmHandle({ providerVmId: source.providerVmId! })),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: 16,
+        memoryTotalMb: 32768,
+        diskTotalMb: 65536,
+      }),
+      fork: () => Effect.succeed(testVmHandle({ providerVmId: "provider-vm-legacy-fork-copy" })),
+    };
+
+    await Effect.runPromise(
+      forkVm({
+        userId: source.userId,
+        billingCustomerType: "team",
+        billingTeamId: source.billingTeamId!,
+        teamIds: [source.billingTeamId!],
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        providerVmId: source.providerVmId!,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(reservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
+  });
+
+  test("records CPU and memory in new snapshot claims", async () => {
+    const source = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000153",
+      userId: "user-workflow-snapshot-shape",
+      billingTeamId: "team-workflow-snapshot-shape",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-snapshot-shape",
+      status: "running",
+      providerMetadata: {},
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const repo = testWorkflowRepo({ vm: source, usageEvents });
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: 16,
+        memoryTotalMb: 32768,
+        diskTotalMb: 65536,
+      }),
+      snapshot: () => Effect.succeed({
+        id: "snapshot-with-resource-claim",
+        createdAt: Date.now(),
+      }),
+    };
+
+    await Effect.runPromise(
+      snapshotVm({
+        userId: source.userId,
+        teamIds: [source.billingTeamId!],
+        providerVmId: source.providerVmId!,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    const event = usageEvents.find((candidate) => candidate.eventType === "vm.snapshot.created");
+    expect(event?.metadata).toMatchObject({
+      vcpus: 16,
+      memoryMb: 32768,
+      diskMb: 65536,
+    });
+  });
+
   test("resizes a running VM disk, records the change, and returns provider-confirmed stats", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000140",
