@@ -120,6 +120,81 @@ import Testing
         #expect(saved?.legacyTailscaleRoutes?.first?.endpoint == .hostPort(host: host, port: port))
     }
 
+    @Test func rescanningQRCodeRestoresDeletedRouteInTheComputerList() async throws {
+        let router = LivenessHostRouter()
+        let box = TransportBox()
+        let factory = KindRecordingTransportFactory(router: router, box: box)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let pairedMacStore = try MobilePairedMacStore(
+            databaseURL: directory.appendingPathComponent("paired-macs.sqlite3")
+        )
+        let originalRoute = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: host, port: port),
+            priority: 10
+        )
+        let irohRoute = try CmxAttachRoute(
+            id: "iroh",
+            kind: .iroh,
+            endpoint: .peer(
+                identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)),
+                pathHints: []
+            ),
+            priority: 0
+        )
+        let debugRoute = try CmxAttachRoute(
+            id: "debug_loopback",
+            kind: .debugLoopback,
+            endpoint: .hostPort(host: "127.0.0.1", port: port),
+            priority: 20
+        )
+        try await pairedMacStore.upsert(
+            macDeviceID: "test-mac",
+            displayName: "Test Mac",
+            routes: [irohRoute, originalRoute, debugRoute],
+            instanceTag: "default",
+            markActive: true,
+            stackUserID: "phone-user",
+            now: Self.fixedNow
+        )
+        #expect(try await pairedMacStore.removeRouteIfAuthorized(
+            macDeviceID: "test-mac",
+            route: originalRoute,
+            condition: .matchingInstanceTag("default"),
+            stackUserID: "phone-user",
+            teamID: nil,
+            now: Self.fixedNow.addingTimeInterval(1)
+        ))
+
+        let runtime = LivenessTestRuntime(
+            transportFactory: factory,
+            now: { Self.fixedNow },
+            supportedRouteKinds: [.iroh, .tailscale, .debugLoopback]
+        )
+        let store = makeStore(
+            runtime: runtime,
+            pairedMacStore: pairedMacStore,
+            connectionMethod: .tailscale
+        )
+        store.pairingCode = currentQRCode()
+
+        await store.connectPairingInput()
+
+        let saved = try #require(await pairedMacStore.activeMac(stackUserID: "phone-user"))
+        #expect(saved.routes.contains(originalRoute))
+        #expect(saved.routes.contains(irohRoute))
+        #expect(saved.routes.contains(debugRoute))
+        let displayed = try #require(store.displayPairedMacs.first { $0.macDeviceID == "test-mac" })
+        #expect(displayed.routes.contains(originalRoute))
+    }
+
     @Test func manualMagicDNSHasDeterministicSafeFallbackWithoutDialing() async throws {
         let router = LivenessHostRouter()
         let box = TransportBox()

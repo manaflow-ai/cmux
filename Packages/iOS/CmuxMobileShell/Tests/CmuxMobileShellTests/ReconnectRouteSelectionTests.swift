@@ -723,13 +723,11 @@ import Testing
         )
     }
 
-    /// Switching an Iroh-identified pairing to Tailscale Only still replaces
-    /// the live session (its route decisions were made under the old method),
-    /// but the replacement dial rides the Iroh lane pinned to the pairing's
-    /// numeric Tailscale addresses: transport admission stays the single auth
-    /// authority for every session purpose, and the raw TCP lane is reserved
-    /// for legacy pairings without an Iroh identity.
-    @Test func changingToTailscaleReplacesLiveIrohWithPinnedIrohDial() async throws {
+    /// Switching an Iroh-identified pairing to Tailscale Only replaces the
+    /// live session and dials the authorized raw Tailscale route. The Iroh
+    /// session must not survive as an implicit fallback when the phone's
+    /// Tailscale tunnel is the selected transport.
+    @Test func changingToTailscaleReplacesLiveIrohWithAuthorizedTailscaleDial() async throws {
         let clock = TestClock()
         let router = LivenessHostRouter()
         // The factory boxes the live Iroh transport it hands out, so the test
@@ -737,8 +735,7 @@ import Testing
         let liveTransportBox = TransportBox()
         let factory = KindRecordingTransportFactory(
             router: router,
-            box: liveTransportBox,
-            failingKinds: [.tailscale]
+            box: liveTransportBox
         )
         let tailscale = try tailscale()
         let iroh = try iroh()
@@ -799,14 +796,12 @@ import Testing
         let applied = try await pollUntil {
             let originalTransportClosed =
                 await originalTransport?.isClosedForTesting() == true
-            return factory.attemptedKinds().filter { $0 == .iroh }.count == 2
+            return factory.attemptedKinds() == [.iroh, .tailscale]
                 && store.connectionState == .connected
                 && originalTransportClosed
         }
         #expect(applied)
-        #expect(store.activeRoute?.kind == .iroh)
-        // Tailscale Only never dials the raw TCP lane for a pairing with an
-        // Iroh identity, even when that dial would be authorized.
-        #expect(!factory.attemptedKinds().contains(.tailscale))
+        #expect(store.activeRoute?.kind == .tailscale)
+        #expect(factory.attemptedKinds() == [.iroh, .tailscale])
     }
 }
