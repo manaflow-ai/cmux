@@ -391,6 +391,10 @@ extension CmxIrohHostRuntime {
     func handleConnectivityNetworkChange(revision: UInt64) async {
         guard lifecycleRevision == revision,
               lifecyclePhase.ownsNetworkOperation else { return }
+        // Capture retry ownership before the LAN callback suspends. The retry
+        // may finish while that callback is running, but it still owns this
+        // network event because it re-reads the endpoint before publishing.
+        let retryScheduledBeforeLANRefresh = registrationRetryScheduled
         await handleLANRefresh()
         guard lifecycleRevision == revision,
               lifecyclePhase.ownsNetworkOperation else { return }
@@ -398,6 +402,11 @@ extension CmxIrohHostRuntime {
             registrationRefreshPending = true
             return
         }
+        // A cached activation already owns a forced registration retry. The
+        // retry re-reads the endpoint, so starting another round here would
+        // race that owner and arm duplicate renewal deadlines.
+        guard !retryScheduledBeforeLANRefresh,
+              !registrationRetryScheduled else { return }
         scheduleRegistrationRefresh(revision: revision)
     }
 
@@ -432,6 +441,7 @@ extension CmxIrohHostRuntime {
     ) {
         registrationRenewalTask?.cancel()
         registrationRenewalTask = nil
+        registrationRetryScheduled = false
         guard lifecyclePhase.ownsNetworkOperation,
               lifecycleRevision == revision,
               let deadline = Self.registrationRenewalDeadline(
@@ -455,6 +465,7 @@ extension CmxIrohHostRuntime {
         } catch {
             return
         }
+        registrationRetryScheduled = false
         guard lifecyclePhase == .active,
               lifecycleRevision == revision,
               !Task.isCancelled else { return }
@@ -482,6 +493,7 @@ extension CmxIrohHostRuntime {
         )
         registrationRenewalTask?.cancel()
         let deadline = registrationClock.now().addingTimeInterval(delay)
+        registrationRetryScheduled = true
         registrationRenewalTask = Task { [weak self] in
             await self?.runRegistrationRenewal(
                 revision: revision,

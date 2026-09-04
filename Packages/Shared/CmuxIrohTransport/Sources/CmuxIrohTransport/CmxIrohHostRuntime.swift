@@ -97,6 +97,7 @@ public actor CmxIrohHostRuntime {
     var lanPublicationGeneration: UInt64 = 0
     var registrationRefreshTask: Task<Void, Never>?
     var registrationRenewalTask: Task<Void, Never>?
+    var registrationRetryScheduled = false
     var registrationRefreshPending = false
     var registrationRefreshPendingForcesPublication = false
     var registrationRefreshEnabled = false
@@ -171,6 +172,7 @@ public actor CmxIrohHostRuntime {
         let revision = lifecycleRevision
         registrationRefreshPending = false
         registrationRefreshPendingForcesPublication = false
+        registrationRetryScheduled = false
         registrationRefreshEnabled = false
         registrationRefreshFailureCount = 0
         currentSnapshot = CmxIrohHostRuntimeSnapshot(
