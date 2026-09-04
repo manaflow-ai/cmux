@@ -107,15 +107,19 @@ class MobileCoreRpcSession(
         val obj = try {
             json.parseToJsonElement(text).jsonObject
         } catch (e: Exception) {
+                println("RpcSession: Failed to parse frame: ${text.take(200)}")
             return
         }
 
         val id = obj["id"]?.jsonPrimitive?.contentOrNull
         val topic = obj["topic"]?.jsonPrimitive?.contentOrNull
+        val kind = obj["kind"]?.jsonPrimitive?.contentOrNull
+        println("RpcSession: Frame kind=$kind id=${id?.take(8)} topic=$topic keys=${obj.keys}")
 
         when {
             // Response to a pending request
-            id != null && (obj.containsKey("result") || obj.containsKey("error")) -> {
+            id != null && (obj.containsKey("result") || obj.containsKey("error") || obj.containsKey("ok")) -> {
+                println("RpcSession: Routing as response id=${id.take(8)}")
                 pending.remove(id)?.completion?.complete(obj)
             }
             // Server-pushed event
@@ -123,7 +127,11 @@ class MobileCoreRpcSession(
                 val payload = obj["payload"]?.jsonObject ?: JsonObject(emptyMap())
                 val streamId = obj["stream_id"]?.jsonPrimitive?.contentOrNull
                 val envelope = EventEnvelope(topic = topic, payload = payload, stream_id = streamId)
+                println("RpcSession: Routing as event topic=$topic payloadKeys=${payload.keys}")
                 _events.tryEmit(envelope)
+            }
+            else -> {
+                println("RpcSession: Unrouted frame: ${text.take(200)}")
             }
         }
     }

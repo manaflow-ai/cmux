@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -60,17 +61,22 @@ fun TerminalScreen(
                     }
                 }
                 is TerminalUiState.Connected -> {
-                    // Terminal output
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(s.lines.size) {
+                        if (s.lines.isNotEmpty()) {
+                            listState.scrollToItem(s.lines.size - 1)
+                        }
+                    }
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .padding(8.dp),
-                        reverseLayout = false,
                     ) {
                         items(s.lines) { line ->
                             Text(
-                                text = line,
+                                text = line.ifEmpty { " " },
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 13.sp,
                                 color = Color(0xFFD4D4D4),

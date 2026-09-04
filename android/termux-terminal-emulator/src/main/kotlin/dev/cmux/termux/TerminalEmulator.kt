@@ -82,8 +82,8 @@ class TerminalEmulator(
         pendingEscape.append(ch)
         val seq = pendingEscape.toString()
         when {
-            seq == "\u001B[2J" -> { clearScreen(); inEscape = false }
-            seq == "\u001Bc" -> { clearScreen(); inEscape = false }
+            seq == "\u001B[2J" || seq == "\u001B[3J" -> { clearScreen(); inEscape = false }
+            seq == "\u001Bc" || seq == "\u001B[H\u001B[2J" -> { clearScreen(); inEscape = false }
             seq.matches(Regex("\u001B\\[\\d*;?\\d*H")) -> {
                 // Cursor position: ESC[row;colH
                 val parts = seq.removePrefix("\u001B[").removeSuffix("H").split(";")
@@ -91,11 +91,28 @@ class TerminalEmulator(
                 cursorCol = ((parts.getOrNull(1)?.toIntOrNull() ?: 1) - 1).coerceAtLeast(0).coerceAtMost(columns - 1)
                 inEscape = false
             }
-            seq.matches(Regex("\u001B\\[\\d*m")) -> {
-                // SGR color/attribute — ignore for demo
+            // SGR (colors/attributes), cursor movement, erase — all ignored for demo
+            seq.matches(Regex("\u001B\\[\\d*(;\\d+)*m")) -> { inEscape = false }
+            seq.matches(Regex("\u001B\\[\\d*[ABCDK]")) -> {
+                // Cursor up/down/forward/back/erase-to-end-of-line
+                val n = seq.removePrefix("\u001B[").dropLast(1).toIntOrNull() ?: 1
+                when (seq.last()) {
+                    'A' -> cursorRow = (cursorRow - n).coerceAtLeast(0)
+                    'B' -> cursorRow = (cursorRow + n).coerceAtMost(rows - 1)
+                    'C' -> cursorCol = (cursorCol + n).coerceAtMost(columns - 1)
+                    'D' -> cursorCol = (cursorCol - n).coerceAtLeast(0)
+                    'K' -> { for (c in cursorCol until columns) cells[cursorRow][c] = ' ' }
+                }
                 inEscape = false
             }
-            seq.length > 16 -> inEscape = false // bail on overlong sequences
+            // OSC sequences: ESC ] ... BEL or ESC ] ... ESC backslash
+            seq.length >= 3 && seq[1] == ']' && (ch == '\u0007' || (seq.length >= 4 && seq[seq.length - 2] == '\u001B' && ch == '\\')) -> {
+                inEscape = false
+            }
+            // DEC private modes and other ? sequences — ignore
+            seq.matches(Regex("\u001B\\[\\?[\\d;]+[hlr]")) -> { inEscape = false }
+            // Bail on overlong sequences that didn't match anything
+            seq.length > 64 -> inEscape = false
         }
     }
 

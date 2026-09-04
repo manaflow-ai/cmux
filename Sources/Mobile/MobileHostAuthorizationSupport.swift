@@ -106,6 +106,12 @@ actor MobileHostStackAuthVerifier {
         }
 
         let localUserID = await currentAuthenticatedLocalUserID()
+        #if DEBUG
+        // In debug builds with no local user signed in, accept any valid Stack
+        // Auth token. This lets the Android emulator connect without requiring
+        // the Mac debug app to be signed in.
+        if localUserID == nil { return }
+        #endif
         try MobileHostAuthorizationPolicy.authorizeStackUserID(
             localUserID: localUserID,
             remoteUserID: remoteUserID
