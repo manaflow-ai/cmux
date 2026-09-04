@@ -257,8 +257,11 @@ state:
 - Terminal scrollback (best effort)
 - Browser URL and navigation history
 
-cmux does not checkpoint arbitrary live process state. tmux, vim, shells, and
-unsupported terminal apps reopen as normal terminals.
+cmux does not checkpoint arbitrary live process state. Ordinary terminals,
+tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
+For live detach/reattach across cmux quit, crashes, and updates, opt in to the
+local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
+for its lifecycle and machine-sleep limits.
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
@@ -373,7 +376,15 @@ Yes. Terminal rendering uses your Ghostty config, so themes, fonts, colors, and 
 
 ### Are my sessions saved?
 
-Yes. cmux restores your windows, workspaces, panes, working directories, and scrollback when you relaunch, and the state survives a full computer restart, not just quitting the app. Agent sessions like Claude Code, Codex, and OpenCode come back too. See [session restore](https://cmux.com/docs/session-restore).
+cmux restores windows, workspaces, panes, working directories, and best-effort
+scrollback when you relaunch. Supported agent integrations can resume from
+their saved session IDs. Those are reconstructed app state and resume commands;
+they do not keep arbitrary live processes running. Use `cmux local-tmux` for
+live local detach/reattach across cmux quit, crashes, and updates. A local tmux
+server cannot survive logout, restart, shutdown, or power loss; use
+`cmux ssh-tmux`, `cmux mosh-tmux`, or a persistent cloud VM when the owner must
+remain online while this Mac is offline. See [session restore](https://cmux.com/docs/session-restore)
+and [`docs/local-tmux.md`](docs/local-tmux.md).
 
 ### How does it compare to tmux?
 
