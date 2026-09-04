@@ -42,11 +42,12 @@ export function RecoverBillingForm() {
           value={email}
           onChange={(event) => {
             setEmail(event.target.value);
-            if (status === "error") setStatus("idle");
+            if (status !== "submitting") setStatus("idle");
           }}
           placeholder={t("emailPlaceholder")}
           autoComplete="email"
           required
+          disabled={status === "submitting"}
           className="h-11 w-full border border-border bg-background px-3 text-[15px] text-foreground outline-none transition-colors focus:border-foreground"
         />
       </label>
