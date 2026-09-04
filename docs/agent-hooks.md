@@ -49,6 +49,24 @@ Session hooks write `~/.cmuxterm/<agent>-hook-sessions.json`. Each entry stores 
 
 The sanitizer preserves model, sandbox, config, and cwd-related flags. It drops prompts, credentials, old session selectors, and noninteractive commands so relaunch resumes the session instead of starting a new task or leaking secrets.
 
+### Claude Code hook writes
+
+The Claude wrapper does not install a catch-all `PreToolUse` hook. Ordinary tool calls therefore stay inside Claude Code and do not launch a cmux hook process or append Feed telemetry. A tool call that produces a `PermissionRequest` still runs the targeted `hooks feed --source claude` bridge and may append one permission event. Other targeted hooks remain for lifecycle changes, `AskUserQuestion`, `ExitPlanMode`, `CronCreate`, and `PushNotification`.
+
+Legacy wrappers may still invoke `hooks claude pre-tool-use` for ordinary tools. When the session is already running and verbose tool status is disabled, cmux acknowledges that observation without changing status, notifications, Feed, or the session mapping file. Session mappings are rewritten only when their stored state changes.
+
+If endpoint-security policy requires no wrapper-injected Claude hooks, turn off **Settings > Automation > Claude Code Integration** or set:
+
+```json
+{
+  "automation": {
+    "claudeCodeIntegration": false
+  }
+}
+```
+
+This disables cmux's Claude session tracking, status updates, Feed permission bridge, notifications, and automatic session resume. For one launch without changing Settings, use `CMUX_CLAUDE_HOOKS_DISABLED=1 claude`.
+
 Claude Code's `PushNotification` tool (model-initiated "notify the user now" pushes) is bridged through a `PostToolUse` hook into cmux notifications. The tool normally delivers via a raw OSC desktop notification, which cmux suppresses on surfaces running a hook-integrated agent, so the bridge is what makes those pushes visible inside cmux. It mirrors the tool's own outcome: a push the tool reports as skipped (user active, channel disabled) is not duplicated.
 
 Grok uses its `Notification` hook for user-facing completion messages. cmux records `Stop` as idle state, but leaves the visible notification text to the `Notification` payload so repeated turns keep Grok's own message instead of a generic completion fallback.
