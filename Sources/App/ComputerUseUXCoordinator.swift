@@ -72,7 +72,6 @@ final class ComputerUseUXCoordinator {
     deinit {
         enabledSettingTask?.cancel()
         toolInvocationTask?.cancel()
-        onboardingIntentCoordinator?.stop()
     }
 
     static func isComputerUseToolInvocation(_ event: WorkstreamEvent) -> Bool {

@@ -359,6 +359,13 @@ struct ComputerUseIntentBoundary {
         label: String,
         semanticText: String?
     ) -> String {
+        // Prompt text is the stable identity for duplicate UserPromptSubmit
+        // callbacks in one turn; generated hook request ids often include a
+        // fresh timestamp. The ledger's completed-turn bit still separates
+        // two later turns that happen to repeat the same prompt.
+        if label == "turn", let semanticText = normalized(semanticText) {
+            return "\(label):\(digest(semanticText))"
+        }
         if let requestID = normalized(event.requestId) {
             return "request:\(digest(requestID))"
         }

@@ -506,6 +506,57 @@ struct ComputerUseUXTests {
         #expect(nextClaim.signal == secondSignal)
     }
 
+    @Test func computerUseIntentLedgerTreatsRepeatedPromptAsOneTurn() throws {
+        let session = ComputerUseIntentBoundary.Session(
+            source: "codex",
+            sessionID: "session-repeat",
+            surfaceID: nil
+        )
+        let signal = ComputerUseIntentBoundary.Signal(
+            kind: .explicitPrompt,
+            session: session,
+            requestToken: "turn:same"
+        )
+        var ledger = ComputerUseIntentBoundary.Ledger()
+        let first = try #require(
+            ledger.observe(
+                .turnStarted(
+                    ComputerUseIntentBoundary.TurnStart(
+                        session: session,
+                        token: "turn:same",
+                        signal: signal
+                    )
+                )
+            )
+        )
+        ledger.finish(first, completion: .handled)
+        #expect(
+            ledger.observe(
+                .turnStarted(
+                    ComputerUseIntentBoundary.TurnStart(
+                        session: session,
+                        token: "turn:same",
+                        signal: signal
+                    )
+                )
+            ) == nil,
+            "duplicate prompt callbacks must not create another gate"
+        )
+        ledger.observe(.completed(session))
+        let next = try #require(
+            ledger.observe(
+                .turnStarted(
+                    ComputerUseIntentBoundary.TurnStart(
+                        session: session,
+                        token: "turn:same",
+                        signal: signal
+                    )
+                )
+            )
+        )
+        #expect(next.signal == signal)
+    }
+
     @MainActor
     @Test func onboardingIntentCoordinatorRunsOneEvaluationPerTurn() async throws {
         let session = ComputerUseIntentBoundary.Session(
@@ -538,6 +589,36 @@ struct ComputerUseUXTests {
         coordinator.observe(.request(secondSignal))
         await coordinator.waitForIdle()
         #expect(evaluationCount == 2)
+        coordinator.stop()
+    }
+
+    @MainActor
+    @Test func onboardingIntentCoordinatorReleasesOnlyTransientFailures() async {
+        let session = ComputerUseIntentBoundary.Session(
+            source: "codex",
+            sessionID: "session-retry",
+            surfaceID: nil
+        )
+        let signal = ComputerUseIntentBoundary.Signal(
+            kind: .protectedAction(toolName: "click"),
+            session: session,
+            requestToken: "request:retry"
+        )
+        var evaluations = 0
+        let coordinator = ComputerUseOnboardingIntentCoordinator { _ in
+            evaluations += 1
+            return evaluations == 1 ? .retry : .handled
+        }
+
+        coordinator.observe(.request(signal))
+        await coordinator.waitForIdle()
+        coordinator.observe(.request(signal))
+        await coordinator.waitForIdle()
+
+        #expect(evaluations == 2)
+        coordinator.observe(.request(signal))
+        await coordinator.waitForIdle()
+        #expect(evaluations == 2, "handled requests stay coalesced")
         coordinator.stop()
     }
 

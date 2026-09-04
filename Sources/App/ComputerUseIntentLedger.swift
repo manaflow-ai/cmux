@@ -35,7 +35,9 @@ extension ComputerUseIntentBoundary {
                 return nil
             case .turnStarted(let turn):
                 var state = states[turn.session] ?? SessionState()
-                let isNewTurn = turn.token == nil || state.lastPromptToken != turn.token
+                let isNewTurn = state.turnEnded
+                    || turn.token == nil
+                    || state.lastPromptToken != turn.token
                 if isNewTurn {
                     state.generation &+= 1
                     state.turnClaimed = false
