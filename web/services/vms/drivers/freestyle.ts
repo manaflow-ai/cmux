@@ -26,6 +26,7 @@ import {
 import { recordSpanError, setSpanAttributes, withVmSpan } from "../telemetry";
 import { guestCliInstallCommand } from "../guestCli";
 import { guestCoderouterInstallCommand } from "../guestCoderouter";
+import { guestModelPlaneInstallCommand } from "../guestAgentConfig";
 import {
   CMUX_TUI_INSTALL_TIMEOUT_MS,
   CMUX_TUI_PORT,
@@ -962,6 +963,10 @@ export class FreestyleProvider implements VMProvider {
     const command = [
       "export HOME=/root",
       "export PATH=\"/opt/mise/shims:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH\"",
+      // Repair the shell contract before the short-circuiting coderouter
+      // installer. This is what upgrades persistent VMs created from an
+      // older image whose agent-config.sh lacks Claude/identity exports.
+      guestModelPlaneInstallCommand(vmId),
       guestCliInstallCommand(),
       guestCoderouterInstallCommand(),
     ].join(" && ");

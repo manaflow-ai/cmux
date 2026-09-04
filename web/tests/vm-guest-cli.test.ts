@@ -6,6 +6,12 @@ import { join } from "node:path";
 
 import { GUEST_CMUX_SHIM, GUEST_CMUX_SHIM_PATH, guestCliInstallCommand } from "../services/vms/guestCli";
 import {
+  GUEST_MODEL_PLANE_PROFILE_PATH,
+  GUEST_MODEL_PLANE_RUNTIME_PATH,
+  guestModelPlaneInstallCommand,
+  guestModelPlaneRuntimeScript,
+} from "../services/vms/guestAgentConfig";
+import {
   GUEST_CODEROUTER_ALIAS_PATH,
   GUEST_CODEROUTER_BIN_PATH,
   GUEST_CODEROUTER_INSTALL_ROOT,
@@ -87,5 +93,95 @@ describe("in-VM CodeRouter CLI installer", () => {
     expect(command).toContain("prefix --global");
     expect(command).toContain("mv /etc/cmux/coderouter-version.tmp /etc/cmux/coderouter-version");
     expect(spawnSync("sh", ["-n", "-c", command]).status).toBe(0);
+  });
+});
+
+describe("attach-time model-plane shell repair", () => {
+  test("derives Claude credentials and VM identity from a persisted env file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-model-plane-"));
+    try {
+      const envFile = join(dir, "model-plane.env");
+      const runtime = join(dir, "runtime.sh");
+      writeFileSync(
+        envFile,
+        [
+          "export OPENAI_BASE_URL='https://router.example/v1'",
+          "export OPENAI_API_KEY='crt_test'",
+          "export CMUX_CODEROUTER_URL='https://router.example'",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(runtime, guestModelPlaneRuntimeScript("vm-test"));
+      const result = spawnSync(
+        "sh",
+        ["-c", `. "$1"; printf '%s\\n' "$ANTHROPIC_BASE_URL|$ANTHROPIC_AUTH_TOKEN|$ANTHROPIC_API_KEY|$CMUX_VM_ID"`, "sh", runtime],
+        {
+          encoding: "utf8",
+          env: {
+            HOME: dir,
+            CMUX_MODEL_PLANE_ENV_FILE: envFile,
+            PATH: process.env.PATH ?? "/usr/bin:/bin",
+          },
+        },
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toBe("https://router.example|crt_test|crt_test|vm-test");
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("does not overwrite explicit provider environment values", () => {
+    const dir = mkdtempSync(join(tmpdir(), "cmux-model-plane-explicit-"));
+    try {
+      const envFile = join(dir, "model-plane.env");
+      const runtime = join(dir, "runtime.sh");
+      writeFileSync(
+        envFile,
+        [
+          "export OPENAI_BASE_URL='https://managed.example/v1'",
+          "export OPENAI_API_KEY='managed_key'",
+          "export CMUX_CODEROUTER_URL='https://managed.example'",
+          "",
+        ].join("\n"),
+      );
+      writeFileSync(runtime, guestModelPlaneRuntimeScript("vm-test"));
+      const result = spawnSync(
+        "sh",
+        ["-c", `. "$1"; printf '%s\\n' "$OPENAI_BASE_URL|$OPENAI_API_KEY|$CMUX_CODEROUTER_URL|$ANTHROPIC_BASE_URL|$ANTHROPIC_AUTH_TOKEN"`, "sh", runtime],
+        {
+          encoding: "utf8",
+          env: {
+            HOME: dir,
+            CMUX_MODEL_PLANE_ENV_FILE: envFile,
+            OPENAI_BASE_URL: "https://caller.example/v1",
+            OPENAI_API_KEY: "caller_key",
+            CMUX_CODEROUTER_URL: "https://caller.example",
+            PATH: process.env.PATH ?? "/usr/bin:/bin",
+          },
+        },
+      );
+      expect(result.status).toBe(0);
+      expect(result.stdout.trim()).toBe(
+        "https://caller.example/v1|caller_key|https://caller.example|https://caller.example|caller_key",
+      );
+      expect(result.stderr).toBe("");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("installs atomically and exposes a profile hook", () => {
+    const command = guestModelPlaneInstallCommand("vm-test");
+    expect(command).toContain(`${GUEST_MODEL_PLANE_RUNTIME_PATH}.tmp`);
+    expect(command).toContain(`mv ${GUEST_MODEL_PLANE_RUNTIME_PATH}.tmp ${GUEST_MODEL_PLANE_RUNTIME_PATH}`);
+    expect(command).toContain(`${GUEST_MODEL_PLANE_PROFILE_PATH}.tmp`);
+    expect(command).toContain("/etc/cmux/bashrc");
+    expect(spawnSync("sh", ["-n", "-c", command]).status).toBe(0);
+  });
+
+  test("rejects an unsafe VM id before generating a shell script", () => {
+    expect(() => guestModelPlaneRuntimeScript("vm-test; touch /tmp/pwned")).toThrow("invalid Freestyle VM id");
   });
 });
