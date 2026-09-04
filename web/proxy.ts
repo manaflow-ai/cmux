@@ -13,12 +13,21 @@ import {
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
 import { requestOrigin, requestWithOrigin } from "./app/lib/request-origin";
+import {
+  DASHBOARD_RETURN_PATH_HEADER,
+  dashboardReturnPathForRequest,
+} from "./app/lib/dashboard-return-path";
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
   const request = requestWithOrigin(incomingRequest);
+  const dashboardReturnPath = dashboardReturnPathForRequest(
+    request.nextUrl.pathname,
+    request.nextUrl.search,
+    routing.locales,
+  );
   const host = request.headers.get("host") ?? "";
 
   // 301 redirect cmux.dev (and www.cmux.dev) to cmux.com, preserving path and query
@@ -333,7 +342,39 @@ export default function middleware(incomingRequest: NextRequest) {
     );
   }
 
+  if (dashboardReturnPath) {
+    setRequestHeaderOverride(
+      response,
+      DASHBOARD_RETURN_PATH_HEADER,
+      dashboardReturnPath,
+    );
+  }
+
   return response;
+}
+
+/**
+ * Add a request header to the response's standard middleware override list.
+ * This preserves the original request body, which matters for any future
+ * dashboard server action or form POST.
+ */
+function setRequestHeaderOverride(
+  response: NextResponse,
+  name: string,
+  value: string,
+): void {
+  const overrideHeaders = new Set(
+    (response.headers.get("x-middleware-override-headers") ?? "")
+      .split(",")
+      .map((header) => header.trim())
+      .filter(Boolean),
+  );
+  overrideHeaders.add(name);
+  response.headers.set(
+    "x-middleware-override-headers",
+    [...overrideHeaders].join(","),
+  );
+  response.headers.set(`x-middleware-request-${name}`, value);
 }
 
 function setFallbackContentLinkHeader(

@@ -20,6 +20,12 @@ Read before changing billing, pricing, Stripe, Pro entitlement, checkout, webhoo
 ## Dev workflow
 
 - Use `web/scripts/stripe/dev-stack.sh`.
+- Local `bun dev` accounts use the development Stack project and receive a
+  non-persistent Pro entitlement automatically. This applies only when
+  `CMUX_LOCAL_DEV_PRO=1`, `NODE_ENV=development`, `VERCEL_ENV` is unset, and
+  `NEXT_PUBLIC_STACK_PROJECT_ID` is the development project. Release and
+  preview deployments remain billing-backed. Use `dev-grant.sh` only when
+  testing an explicit manual grant or a non-local deployment.
 - The tagged app bakes `CMUX_PORT` into `Info.plist`; run the dev server on the tag's printed port, never a hardcoded one.
 - Per-branch Docker Postgres ports collide with other agents' containers. Use `--db-port` and never stop containers you did not create.
 - `/app-pricing` requires `cmux_app=1`. `cmux_scheme` threads the native deeplink return scheme; `cmux-dev-*` schemes are honored only for localhost requests.

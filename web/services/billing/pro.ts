@@ -34,6 +34,23 @@ export const TEAM_PLAN_ID = "team";
 // Existing operator grants may still use `cmuxVmPlan: "founders"`.
 export const FOUNDERS_PLAN_ID = "founders";
 export const FREE_PLAN_ID = "free";
+/** Stack project used by the local cmux development server. */
+export const DEVELOPMENT_STACK_PROJECT_ID = "454ecd03-1db2-4050-845e-4ce5b0cd9895";
+
+/**
+ * Local development accounts are Pro by default. This is intentionally tied
+ * to the local launcher, Next's development runtime, and the non-production
+ * Stack project so a misconfigured preview or production process cannot grant
+ * access.
+ */
+export function isDevelopmentProAccessEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.NODE_ENV === "development" &&
+    env.CMUX_LOCAL_DEV_PRO === "1" &&
+    !env.VERCEL_ENV &&
+    env.NEXT_PUBLIC_STACK_PROJECT_ID === DEVELOPMENT_STACK_PROJECT_ID;
+}
 /**
  * Plan ids an operator may write to `clientReadOnlyMetadata.cmuxVmPlan` to
  * grant Pro without a Stripe subscription. Mirrors `isPaidVmPlan` in
@@ -103,6 +120,7 @@ export async function syncProPlanMetadata(
 
 export type ProReconcileUser = ProMetadataCustomer & {
   readonly id?: string;
+  readonly isAnonymous?: boolean;
 };
 
 export type ActiveStripeSubscriptionQuery = (stackUserId: string) => Promise<boolean>;
@@ -180,11 +198,23 @@ export async function resolveProPlanStatus(
     /** Optional state snapshot used by checkout and deterministic callers. */
     stripeBillingStatus?: StripeBillingStatus | StripeBillingStatusQuery;
     withFreshMetadataUser?: FreshProMetadataUserMutation;
+    /** Runtime environment override used by deterministic callers and tests. */
+    environment?: Record<string, string | undefined>;
   } = {},
 ): Promise<ProPlanStatus> {
   const metadata = proMetadataRecord(user.clientReadOnlyMetadata);
   const hasManualVmPlanOverride = hasManualVmOverride(metadata);
   const metadataPlanId = planIdFromMetadata(metadata);
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(options.environment)) {
+    return {
+      planId: PRO_PLAN_ID,
+      isPro: true,
+      billingManagement: "none",
+      metadataPlanId,
+      hasManualVmPlanOverride,
+      metadataChanged: false,
+    };
+  }
   const hasLegacyQueryOverrides = Boolean(
     options.hasActiveStripeSubscription || options.hasStripeCustomer,
   );
