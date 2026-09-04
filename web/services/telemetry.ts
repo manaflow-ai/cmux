@@ -53,6 +53,35 @@ export async function withSpan<T>(
   );
 }
 
+/**
+ * Keep a small, explicitly named operation even when its surrounding request
+ * was dropped by head sampling. The parent remains linked for correlation,
+ * while the operation becomes the root of a sampled trace.
+ */
+export async function withPrioritySpan<T>(
+  tracerName: string,
+  name: string,
+  attributes: MaybeAttributes,
+  fn: SpanCallback<T>,
+): Promise<T> {
+  const parent = trace.getSpanContext(otelContext.active());
+  const reRoot =
+    parent !== undefined &&
+    trace.isSpanContextValid(parent) &&
+    (parent.traceFlags & TraceFlags.SAMPLED) === 0;
+  const links = reRoot ? [{ context: parent }] : undefined;
+  return withSpan(
+    tracerName,
+    name,
+    { "cmux.priority": true, ...attributes },
+    fn,
+    {
+      context: reRoot ? trace.deleteSpan(otelContext.active()) : undefined,
+      links,
+    },
+  );
+}
+
 export async function withApiRouteSpan<T extends Response>(
   request: Request,
   route: string,
