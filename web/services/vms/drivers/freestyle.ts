@@ -1340,7 +1340,7 @@ export class FreestyleProvider implements VMProvider {
   }
 }
 
-/** The resources a machine of `memoryMb` is sold with (see entitlements.ts). */
+/** The provider resources each machine receives for `memoryMb` (see entitlements.ts). */
 export function freestyleTargetResources(
   memoryMb: number,
   env: Record<string, string | undefined> = process.env,

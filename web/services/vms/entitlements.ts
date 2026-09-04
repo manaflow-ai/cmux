@@ -130,8 +130,9 @@ function resolveBillingContext(
 
 /**
  * Machine sizes a person can pick, as memory in MB. The provider currently
- * accepts one sizing profile (5 vCPU / 20 GB / 200 GB); pricing describes
- * those resources as shared across the plan's VMs. vCPUs follow memory
+ * accepts one per-VM sizing profile (5 vCPU / 20 GB / 200 GB); pricing
+ * describes those resources as shared across the plan's VMs. Aggregate
+ * provider resource quotas are outside this module. vCPUs follow memory
  * (vcpusForMemoryMb). Kept as a list so a future size tier is one entry, not a
  * new concept.
  */
