@@ -305,6 +305,11 @@ extension TerminalController {
             // Mac sidebar renders). Kept alongside has_unread so released phones
             // that only know the boolean keep working.
             "unread_count": unreadCount,
+            "task_status": v2OrNull(
+                WorkspaceTodoFeature.isEnabled && !workspace.todoState.statusHidden
+                    ? workspace.effectiveTaskStatus.rawValue
+                    : nil
+            ),
             "terminals": terminals,
             "surfaces": surfaces,
             "simulators": simulators
