@@ -159,6 +159,7 @@ final class TerminalNotificationStore: ObservableObject {
     static let actionShowIdentifier = "com.cmuxterm.app.userNotification.show"
     static let actionReplyIdentifier = "terminal.reply"
     nonisolated static let retargetsToLiveSurfaceOwnerUserInfoKey = "retargetsToLiveSurfaceOwner"
+    nonisolated static let windowIdUserInfoKey = "CMUX_NOTIFICATION_WINDOW_ID"
     /// Mobile-host event topic the Mac emits when one or more delivered
     /// notifications are dismissed/cleared on this Mac, so an attached phone can
     /// clear the matching banners it is mirroring. Payload carries the stable
@@ -2449,6 +2450,10 @@ final class TerminalNotificationStore: ObservableObject {
         let notificationId = notification.id
         let notificationTabId = notification.tabId
         let notificationSurfaceId = notification.surfaceId
+        let notificationWindowId = AppDelegate.shared?
+            .contextContainingTabId(notificationTabId)?.windowId
+            ?? AppDelegate.shared?.tabManagerFor(tabId: notificationTabId)
+                .flatMap { AppDelegate.shared?.windowId(for: $0) }
         let notificationSoundContext = notification.soundContext
         let retargetsToLiveSurfaceOwner = notification.retargetsToLiveSurfaceOwner
         let clickActionUserInfo = notification.clickAction?.userInfo ?? [:]
@@ -2532,6 +2537,9 @@ final class TerminalNotificationStore: ObservableObject {
                 ]
                 if let surfaceId = notificationSurfaceId {
                     content.userInfo["surfaceId"] = surfaceId.uuidString
+                }
+                if let notificationWindowId {
+                    content.userInfo[Self.windowIdUserInfoKey] = notificationWindowId.uuidString
                 }
                 if let soundContext = notificationSoundContext {
                     content.userInfo["soundAgentID"] = soundContext.agentID
