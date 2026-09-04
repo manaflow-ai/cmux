@@ -10,6 +10,7 @@ enum VMTunnelAutostart {
     enum InstallError: Error, CustomStringConvertible {
         case wireGuardMissing
         case notEnrolled
+        case notSignedIn
         /// Anything else. Carries no command output: the underlying tools
         /// report paths and system detail that mean nothing to the person
         /// reading a banner, so the detail is logged and this stays product
@@ -22,6 +23,11 @@ enum VMTunnelAutostart {
                 return String(
                     localized: "cloud.tunnel.autostart.wireGuardMissing",
                     defaultValue: "cmux needs WireGuard on this Mac to reach your cloud machines' private network."
+                )
+            case .notSignedIn:
+                return String(
+                    localized: "cloud.tunnel.autostart.notSignedIn",
+                    defaultValue: "Sign in to cmux Cloud first, then connect this Mac."
                 )
             case .notEnrolled:
                 return String(

@@ -75,7 +75,7 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
-        MachinesTunnelBanner(backgroundColor: chromeBackgroundColor)
+        MachinesTunnelSetupCard(backgroundColor: chromeBackgroundColor)
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -935,25 +935,27 @@ struct MachineRowActions {
     }
 }
 
-/// Offers to put this Mac on the Cloud VM private network, and disappears once
-/// it is on.
+/// The private-networking setup step, shown until this Mac is on the Cloud VM
+/// network and gone afterwards.
 ///
-/// Cloud machines have no public inbound port, so nothing reaches them until
-/// the tunnel is up — which needs root, which the app cannot take on its own
-/// without a NetworkExtension entitlement. Turning it on installs a launchd
-/// job that owns the tunnel from then on, so this is asked once and never
-/// again, including across reboots. Before this existed the panel simply
-/// showed machines that would not connect, and the fix was a terminal command
-/// nobody could be expected to know.
-private struct MachinesTunnelBanner: View {
+/// Cloud machines have no public inbound port, so until the tunnel is up they
+/// are simply unreachable — the panel lists machines that will not open and
+/// says nothing about why. This is deliberately a step rather than a hint: it
+/// is a prerequisite for the feature working at all, and the cost of missing
+/// it is a machine that looks broken.
+///
+/// One button does the whole thing. Enrolling this Mac writes the tunnel
+/// config, and installing the launchd job needs an administrator once; doing
+/// only the second is what left a fresh install telling people to "open a
+/// cloud machine once" when opening one never enrolled anything.
+private struct MachinesTunnelSetupCard: View {
     let backgroundColor: NSColor
-    @State private var isHovered = false
-    @State private var installTask: Task<Void, Never>?
+    @State private var setupTask: Task<Void, Never>?
     @State private var errorText: String?
-    /// Re-read after the install so the banner can retire itself.
+    /// Re-read after setup so the card can retire itself.
     @State private var refreshToken = 0
 
-    private var isWorking: Bool { installTask != nil }
+    private var isWorking: Bool { setupTask != nil }
 
     private var tunnelReady: Bool {
         _ = refreshToken
@@ -964,77 +966,94 @@ private struct MachinesTunnelBanner: View {
 
     var body: some View {
         if !tunnelReady {
-            Button {
-                turnOn()
-            } label: {
-                HStack(spacing: 5) {
-                    if isWorking {
-                        ProgressView().controlSize(.mini)
-                    } else {
-                        Image(systemName: "lock.shield")
-                            .font(.system(size: 10, weight: .semibold))
-                    }
-                    Text(errorText ?? String(
-                        localized: "machines.tunnel.banner",
-                        defaultValue: "Cloud machines need this Mac on their private network."
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.shield")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tint)
+                    Text(String(
+                        localized: "machines.tunnel.setup.title",
+                        defaultValue: "Finish setting up cloud machines"
                     ))
-                    .cmuxFont(size: 11)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    Spacer(minLength: 0)
-                    if !isWorking {
-                        Text(String(localized: "machines.tunnel.turnOn", defaultValue: "Turn On"))
-                            .cmuxFont(size: 11)
-                            .underline(isHovered)
-                    }
+                    .cmuxFont(size: 12, weight: .semibold)
                 }
-                .foregroundColor(errorText == nil ? .secondary : Color.orange)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
+                Text(errorText ?? String(
+                    localized: "machines.tunnel.setup.body",
+                    defaultValue: "Your cloud machines are private, so this Mac has to join their network before it can open them. This asks for your password once and then keeps working on its own."
+                ))
+                .cmuxFont(size: 11)
+                .foregroundStyle(errorText == nil ? .secondary : Color.orange)
+                .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    Button {
+                        setUp()
+                    } label: {
+                        HStack(spacing: 5) {
+                            if isWorking { ProgressView().controlSize(.mini) }
+                            Text(isWorking
+                                ? String(localized: "machines.tunnel.setup.working", defaultValue: "Setting up…")
+                                : (errorText == nil
+                                    ? String(localized: "machines.tunnel.setup.action", defaultValue: "Connect This Mac")
+                                    : String(localized: "machines.tunnel.setup.retry", defaultValue: "Try Again")))
+                        }
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(isWorking)
+                    .accessibilityIdentifier("MachinesPanel.tunnelSetup.action")
+                    Spacer(minLength: 0)
+                }
             }
-            .buttonStyle(.plain)
-            .disabled(isWorking)
-            .onHover { isHovered = $0 }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color(nsColor: backgroundColor))
-            .help(String(
-                localized: "machines.tunnel.help",
-                defaultValue: "Asks for an administrator once, then keeps the tunnel up automatically — including after a restart."
-            ))
-            .accessibilityIdentifier("MachinesPanel.tunnelBanner")
+            .accessibilityIdentifier("MachinesPanel.tunnelSetup")
             .onDisappear {
-                installTask?.cancel()
-                installTask = nil
+                setupTask?.cancel()
+                setupTask = nil
             }
         }
     }
 
-    private func turnOn() {
-        guard installTask == nil else { return }
+    private func setUp() {
+        guard setupTask == nil else { return }
         errorText = nil
-        let manager = VMTunnelManager()
-        let interfaceName = manager.interfaceName
-        let configPath = manager.configURL.path
-        // The install blocks on an authorization dialog and a privileged
-        // shell, so it runs off the main actor; only its result comes back.
-        installTask = Task { @MainActor in
-            let result: Result<Bool, Error> = await Task.detached(priority: .userInitiated) {
-                do {
-                    return .success(try VMTunnelAutostart.install(
-                        interfaceName: interfaceName,
-                        userConfigPath: configPath
-                    ))
-                } catch {
-                    return .failure(error)
+        setupTask = Task { @MainActor in
+            defer {
+                setupTask = nil
+                refreshToken += 1
+            }
+            let manager = VMTunnelManager()
+            do {
+                // Enroll first: the launchd job applies a config that does not
+                // exist until this runs, and nothing else in the app writes it.
+                guard let client = VMClient.shared else {
+                    throw VMTunnelAutostart.InstallError.notSignedIn
                 }
-            }.value
-            if case .failure(let error) = result {
+                let state = try await manager.enroll(client: client)
+                // The install blocks on an authorization dialog and a
+                // privileged shell, so it leaves the main actor.
+                let interfaceName = state.interfaceName
+                let configPath = state.configPath
+                let result: Result<Bool, Error> = await Task.detached(priority: .userInitiated) {
+                    do {
+                        return .success(try VMTunnelAutostart.install(
+                            interfaceName: interfaceName,
+                            userConfigPath: configPath
+                        ))
+                    } catch {
+                        return .failure(error)
+                    }
+                }.value
+                if case .failure(let error) = result { throw error }
+            } catch is CancellationError {
+                return
+            } catch {
+                cmuxDebugLog("vpn.autostart.setup_failed error=\(String(reflecting: error))")
                 errorText = (error as? VMTunnelAutostart.InstallError)?.description
                     ?? VMTunnelAutostart.InstallError.failed.description
             }
-            installTask = nil
-            refreshToken += 1
         }
     }
 }
