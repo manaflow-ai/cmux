@@ -109,6 +109,7 @@ public actor MobileIrxRuntimeComposition {
     private var deviceListStore: IrxDeviceListStore?
     private var provisioningTask: Task<Void, Never>?
     private var provisionInFlight: Task<IrxBrokerService, any Error>?
+    private var networkPathObservationTask: Task<Void, Never>?
     /// Auth observation stays alive for the lifetime of the composition. A
     /// successful first provision must not terminate it, otherwise an
     /// implicit token clear or account switch leaves the endpoint running.
@@ -207,10 +208,18 @@ public actor MobileIrxRuntimeComposition {
         self.auth = auth
         legacyComposition = legacy
         self.controlPlaneBaseURL = controlPlaneBaseURL
+        networkPathObservationTask?.cancel()
+        networkPathObservationTask = nil
+        lifecycleEpoch &+= 1
+        let configurationEpoch = lifecycleEpoch
         if let reachability {
             let networkPathState = self.networkPathState
             let lanPeerDiscovery = self.lanPeerDiscovery
-            Task {
+            networkPathObservationTask = Task { [weak self] in
+                guard let self,
+                      await self.isLifecycleEpochCurrent(configurationEpoch),
+                      !Task.isCancelled
+                else { return }
                 await networkPathState.start(
                     reachability: reachability,
                     onPathChange: {
@@ -232,7 +241,6 @@ public actor MobileIrxRuntimeComposition {
         authObservationTask?.cancel()
         provisioningTask?.cancel()
         provisioningTask = nil
-        lifecycleEpoch &+= 1
         // Proactive provisioning is event-driven on auth. The observation task
         // never exits after a successful provision, so implicit sign-out and
         // account switches receive the same teardown as explicit sign-out.
@@ -272,6 +280,10 @@ public actor MobileIrxRuntimeComposition {
 
     private func isCurrent(_ epoch: UInt64) -> Bool {
         epoch == lifecycleEpoch && activeAccountID != nil
+    }
+
+    private func isLifecycleEpochCurrent(_ epoch: UInt64) -> Bool {
+        epoch == lifecycleEpoch
     }
 
     private func requireCurrent(_ epoch: UInt64) throws {
@@ -484,6 +496,9 @@ public actor MobileIrxRuntimeComposition {
     /// the next account starts from its own directory.
     public func handleSignOut() async {
         lifecycleEpoch &+= 1
+        networkPathObservationTask?.cancel()
+        networkPathObservationTask = nil
+        await networkPathState.stop()
         activeAccountID = nil
         provisioningTask?.cancel()
         provisioningTask = nil

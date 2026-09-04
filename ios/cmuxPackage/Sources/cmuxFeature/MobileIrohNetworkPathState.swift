@@ -30,6 +30,14 @@ actor MobileIrohNetworkPathState {
         }
     }
 
+    /// Stops path observation when the owning runtime signs out. Without an
+    /// explicit stop, a reachability stream can outlive the endpoint identity
+    /// it was observing and repopulate LAN authorization for the next account.
+    func stop() {
+        observationTask?.cancel()
+        observationTask = nil
+    }
+
     func snapshot() -> CmxIrohNetworkPathSnapshot {
         var profiles = Set(lanProfiles.keys)
         if TailscaleStatus(
