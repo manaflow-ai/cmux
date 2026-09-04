@@ -63,7 +63,7 @@ extension TabManager {
         // client). Auto titles never propagate. Workspace names stay non-empty,
         // so clearing remains a local title operation only.
         if applied, propagateToCloud, source == .user {
-            CloudWorkspaceRenameWriteThrough.propagate(
+            SurfaceCatalog.shared.propagateCloudWorkspaceRename(
                 workspace: tabs[index], localTitle: title, previousCustomTitle: previousCustomTitle
             )
         }

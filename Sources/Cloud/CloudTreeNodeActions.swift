@@ -250,7 +250,7 @@ struct CloudTreeNodeActions {
                             focus: true,
                             host: .app
                         )
-                        CloudWorkspaceRenameWriteThrough.bind(
+                        catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID, machine: machine,
                             remoteWorkspaceID: resource.remoteWorkspace?.id ?? remoteWorkspaceID,
                             generatedTitle: Self.localWorkspaceTitle(hostName: machineName(machine), group: group)
@@ -265,7 +265,7 @@ struct CloudTreeNodeActions {
                             focus: true,
                             host: .app
                         )
-                        CloudWorkspaceRenameWriteThrough.bind(
+                        catalog.bindCloudWorkspace(
                             localWorkspaceID: opened.workspaceID,
                             machine: machine,
                             remoteWorkspaceID: routedGroup.remoteWorkspaceID,
@@ -413,7 +413,7 @@ struct CloudTreeNodeActions {
             focus: focus,
             host: .app
         )
-        CloudWorkspaceRenameWriteThrough.bind(
+        catalog.bindCloudWorkspace(
             localWorkspaceID: opened.workspaceID,
             machine: machine,
             remoteWorkspaceID: workspace.id,

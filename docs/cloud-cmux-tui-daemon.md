@@ -238,6 +238,14 @@ client changed the completed tabs. A transport failure can still leave a
 partial fan-out, so the operation returns an explicit partial-operation error
 instead of silently claiming success.
 
+Local owner lookup and projection reconciliation live in the constructable
+`CloudWorkspaceRenameService`. `AppDelegate` injects its workspace and tab-manager
+environment into the catalog at launch. The service has no static runtime state, and
+tests can provide an isolated environment. This keeps `SurfaceCatalog` as the owner
+of ordering and accepted state while leaving the executable as the composition root.
+The existing `SurfaceCatalog.shared` is retained as a legacy app seam; new rename
+state must not add another singleton or bypass the catalog.
+
 Names have an explicit clear value. A non-empty name is a custom label, and an
 empty string clears the custom label so the daemon can publish its generated
 title again. `nil` means that a caller did not provide a name and is not a

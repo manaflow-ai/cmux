@@ -238,6 +238,9 @@ final class SurfaceCatalog {
     /// The process-wide ordering owner for remote rename intents. A remote identity can
     /// have projections in several local windows, so this cannot live in a TabManager.
     let cloudRenameCoordinator = CloudRenameCoordinator()
+    /// Resolves local workspace owners for cloud rename write-through. The app installs
+    /// its live environment at the composition root; tests keep the no-op environment.
+    private(set) var cloudWorkspaceRenameService: CloudWorkspaceRenameService
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
     private var inFlightProjects: [MaterializationKey: SurfaceProjectionMaterialization] = [:]
@@ -266,7 +269,8 @@ final class SurfaceCatalog {
         retiredMaterializationRetention: Duration = SurfaceCatalog.defaultRetiredMaterializationRetention,
         completedMaterializationRetention: Duration = SurfaceCatalog.defaultCompletedMaterializationRetention,
         maximumTrackedMaterializations: Int = SurfaceCatalog.defaultMaximumTrackedMaterializations,
-        materializationClock: any Clock<Duration> = ContinuousClock()
+        materializationClock: any Clock<Duration> = ContinuousClock(),
+        cloudWorkspaceRenameService: CloudWorkspaceRenameService = CloudWorkspaceRenameService()
     ) {
         precondition(abandonedMaterializationTimeout > .zero)
         precondition(retiredMaterializationRetention > .zero)
@@ -277,6 +281,77 @@ final class SurfaceCatalog {
         self.completedMaterializationRetention = completedMaterializationRetention
         self.maximumTrackedMaterializations = maximumTrackedMaterializations
         self.materializationClock = materializationClock
+        self.cloudWorkspaceRenameService = cloudWorkspaceRenameService
+    }
+
+    /// Installs the app-owned cloud rename service once the composition root can provide
+    /// workspace and tab-manager lookups. The catalog retains ownership after install.
+    func installCloudWorkspaceRenameService(_ service: CloudWorkspaceRenameService) {
+        cloudWorkspaceRenameService = service
+    }
+
+    /// Reconciles a local workspace binding from its exact cloud projections.
+    func reconcileCloudWorkspaceBinding(localWorkspaceID: UUID) {
+        cloudWorkspaceRenameService.reconcileBinding(
+            localWorkspaceID: localWorkspaceID,
+            catalog: self
+        )
+    }
+
+    /// Propagates a local workspace title through the catalog's ordered remote lane.
+    func propagateCloudWorkspaceRename(
+        workspace: Workspace,
+        localTitle: String?,
+        previousCustomTitle: String?
+    ) {
+        cloudWorkspaceRenameService.propagate(
+            workspace: workspace,
+            localTitle: localTitle,
+            previousCustomTitle: previousCustomTitle,
+            catalog: self
+        )
+    }
+
+    /// Propagates a local pane title through the exact remote tab placement.
+    func propagateCloudTerminalRename(
+        workspace: Workspace,
+        panelID: UUID,
+        resource: SurfaceResource,
+        name: String,
+        previousCustomTitle: String?
+    ) {
+        cloudWorkspaceRenameService.propagateTerminalRename(
+            workspace: workspace,
+            panelID: panelID,
+            resource: resource,
+            name: name,
+            previousCustomTitle: previousCustomTitle,
+            catalog: self
+        )
+    }
+
+    /// Applies an accepted daemon snapshot to all local projections with exact IDs.
+    func reconcileCloudRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+        cloudWorkspaceRenameService.reconcileRemoteState(
+            machine: machine,
+            state: state,
+            catalog: self
+        )
+    }
+
+    /// Persists the machine and remote workspace identity behind a local workspace.
+    func bindCloudWorkspace(
+        localWorkspaceID: UUID,
+        machine: SurfaceMachineID,
+        remoteWorkspaceID: String?,
+        generatedTitle: String? = nil
+    ) {
+        cloudWorkspaceRenameService.bind(
+            localWorkspaceID: localWorkspaceID,
+            machine: machine,
+            remoteWorkspaceID: remoteWorkspaceID,
+            generatedTitle: generatedTitle
+        )
     }
 
     // MARK: Providers
@@ -1182,10 +1257,7 @@ final class SurfaceCatalog {
     /// existing pane such as a local terminal the app created on its own).
     func record(_ projection: SurfaceProjection) {
         insertSupersedingLocalPlaceholder(projection)
-        CloudWorkspaceRenameWriteThrough.reconcileBinding(
-            localWorkspaceID: projection.workspaceID,
-            catalog: self
-        )
+        reconcileCloudWorkspaceBinding(localWorkspaceID: projection.workspaceID)
         notifyChange()
     }
 
@@ -1201,10 +1273,7 @@ final class SurfaceCatalog {
         updated.remoteWorkspaceID = view.workspace.id
         updated.remoteTabID = view.tabID
         projections.insert(updated)
-        CloudWorkspaceRenameWriteThrough.reconcileBinding(
-            localWorkspaceID: updated.workspaceID,
-            catalog: self
-        )
+        reconcileCloudWorkspaceBinding(localWorkspaceID: updated.workspaceID)
         notifyChange()
         return updated
     }
@@ -1247,10 +1316,7 @@ final class SurfaceCatalog {
             projection.workspaceID = workspaceID
             projections.insert(projection)
         }
-        CloudWorkspaceRenameWriteThrough.reconcileBinding(
-            localWorkspaceID: workspaceID,
-            catalog: self
-        )
+        reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         notifyChange()
     }
 
@@ -1325,10 +1391,7 @@ final class SurfaceCatalog {
                 pendingRestoredProjections[record] = workspaceID
             }
         }
-        CloudWorkspaceRenameWriteThrough.reconcileBinding(
-            localWorkspaceID: workspaceID,
-            catalog: self
-        )
+        reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         notifyChange()
     }
 
@@ -1385,10 +1448,7 @@ final class SurfaceCatalog {
             resolvedWorkspaceIDs.insert(workspaceID)
         }
         for workspaceID in resolvedWorkspaceIDs {
-            CloudWorkspaceRenameWriteThrough.reconcileBinding(
-                localWorkspaceID: workspaceID,
-                catalog: self
-            )
+            reconcileCloudWorkspaceBinding(localWorkspaceID: workspaceID)
         }
     }
 

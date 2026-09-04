@@ -98,6 +98,12 @@ browsers, and agents. The macOS app must not create a second remote graph.
   CLI, and local projection paths enter through `SurfaceCatalog`; provider
   methods are transport primitives. A local binding or projection stores the
   exact remote ID; legacy fallback is allowed only for one unambiguous view.
+- Local lookup and projection reconciliation use the constructable
+  `CloudWorkspaceRenameService`, injected by the app composition root. Its
+  environment contains only workspace and tab-manager lookup closures, so tests
+  can isolate it without `AppDelegate.shared`. The catalog still owns the
+  mutation lane and accepted graph. This is a deliberate seam for future
+  multi-window and agent control surfaces, not a second remote-state cache.
 - Delta publication uses one canonical `CloudVMState.document` plus a
   materialized typed-graph index. The document stores every top-level value and
   collection row as canonical JSON fragments, so a title, lifecycle, agent, or

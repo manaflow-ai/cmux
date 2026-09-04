@@ -794,7 +794,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             observation: observationWithPendingWrites(observation)
         )
         if reconcileTitles {
-            CloudWorkspaceRenameWriteThrough.reconcileRemoteState(machine: machine, state: state)
+            catalog.reconcileCloudRemoteState(machine: machine, state: state)
         }
     }
 
@@ -839,7 +839,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             observation: observationWithPendingWrites()
         )
         if reconcileTitles {
-            CloudWorkspaceRenameWriteThrough.reconcileRemoteState(machine: machine, state: state)
+            catalog.reconcileCloudRemoteState(machine: machine, state: state)
         }
         // A newly restored terminal may need its attach pane materialized. Existing rows do not
         // need a full projection scan for every title event.

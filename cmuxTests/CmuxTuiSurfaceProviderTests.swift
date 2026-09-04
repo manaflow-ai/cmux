@@ -298,7 +298,7 @@ import Testing
 
     @Test func cloudRenameWriteThroughTargetsAndNames() throws {
         // The persisted binding wins over projections.
-        let bound = CloudWorkspaceRenameWriteThrough.remoteTarget(
+        let bound = CloudWorkspaceRenameService().remoteTarget(
             binding: WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: false, remoteWorkspaceID: "ws_main"),
             projectedResources: []
         )
@@ -308,31 +308,31 @@ import Testing
         // Without a binding, projections decide only when every view agrees…
         let resources = CmuxTuiSnapshotParser.terminals(fromSnapshot: Self.sessionSnapshot, machine: Self.machine)
         let shell = try #require(resources.first { $0.id.key == "term_shell" })
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [shell])?.remoteWorkspaceID == "ws_api")
+        #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [shell])?.remoteWorkspaceID == "ws_api")
 
         // …a terminal viewed in two remote workspaces, or no panes at all, refuses to guess.
         let build = try #require(resources.first { $0.id.key == "term_build" })
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
+        #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [build])?.remoteWorkspaceID == nil)
+        #expect(CloudWorkspaceRenameService().remoteTarget(binding: nil, projectedResources: [])?.remoteWorkspaceID == nil)
 
         // Legacy projection fallback drops the generated prefix; a bound workspace keeps
         // an intentional prefix as part of the user's exact title.
-        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
-        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine, stripGeneratedPrefix: false) == "vivid-newt: api")
-        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
-        #expect(CloudWorkspaceRenameWriteThrough.remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
+        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine) == "api")
+        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "vivid-newt: api", machine: Self.machine, stripGeneratedPrefix: false) == "vivid-newt: api")
+        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "api work", machine: Self.machine) == "api work")
+        #expect(CloudWorkspaceRenameService().remoteName(fromLocalTitle: "   ", machine: Self.machine) == nil)
     }
 
     @Test func cloudRenameRecognizesOnlyTheActualGeneratedWorkspaceTitle() {
         #expect(
-            CloudWorkspaceRenameWriteThrough.isGeneratedPrefixedTitle(
+            CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
                 "vivid-newt: api",
                 machine: Self.machine,
                 remoteWorkspaceName: "api"
             )
         )
         #expect(
-            !CloudWorkspaceRenameWriteThrough.isGeneratedPrefixedTitle(
+            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
                 "vivid-newt: api",
                 machine: Self.machine,
                 remoteWorkspaceName: "other"
@@ -341,7 +341,7 @@ import Testing
         // A user-entered title with the same prefix is still exact when it does
         // not match the name that generated the previous title.
         #expect(
-            !CloudWorkspaceRenameWriteThrough.isGeneratedPrefixedTitle(
+            !CloudWorkspaceRenameService().isGeneratedPrefixedTitle(
                 "vivid-newt: api",
                 machine: Self.machine,
                 remoteWorkspaceName: "api work"
@@ -361,7 +361,7 @@ import Testing
             remoteWorkspaceID: "ws_api",
             remoteTabID: "tab_2"
         )
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: exact, resource: shell) == "tab_2")
+        #expect(CloudWorkspaceRenameService().remoteTabID(for: exact, resource: shell) == "tab_2")
 
         let matchingLegacy = SurfaceProjection(
             resource: shell.id,
@@ -369,7 +369,7 @@ import Testing
             panelID: UUID(),
             remoteWorkspaceID: "ws_api"
         )
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: matchingLegacy, resource: shell) == "tab_2")
+        #expect(CloudWorkspaceRenameService().remoteTabID(for: matchingLegacy, resource: shell) == "tab_2")
 
         let mismatchedLegacy = SurfaceProjection(
             resource: shell.id,
@@ -377,14 +377,14 @@ import Testing
             panelID: UUID(),
             remoteWorkspaceID: "ws_main"
         )
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: mismatchedLegacy, resource: shell) == nil)
+        #expect(CloudWorkspaceRenameService().remoteTabID(for: mismatchedLegacy, resource: shell) == nil)
 
         let unscopedLegacy = SurfaceProjection(
             resource: shell.id,
             workspaceID: workspaceID,
             panelID: UUID()
         )
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: unscopedLegacy, resource: shell) == "tab_2")
+        #expect(CloudWorkspaceRenameService().remoteTabID(for: unscopedLegacy, resource: shell) == "tab_2")
 
         let build = try #require(resources.first { $0.id.key == "term_build" })
         let ambiguous = SurfaceProjection(
@@ -393,7 +393,7 @@ import Testing
             panelID: UUID(),
             remoteWorkspaceID: "ws_main"
         )
-        #expect(CloudWorkspaceRenameWriteThrough.remoteTabID(for: ambiguous, resource: build) == nil)
+        #expect(CloudWorkspaceRenameService().remoteTabID(for: ambiguous, resource: build) == nil)
     }
 
     @Test func inferredWorkspaceBindingRequiresOneCloudIdentity() throws {
@@ -410,7 +410,7 @@ import Testing
             remoteTabID: "tab_2"
         )
         #expect(
-            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+            CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [exact],
                 resources: resources
             )?.remoteWorkspaceID == "ws_api"
@@ -423,7 +423,7 @@ import Testing
             panelID: UUID()
         )
         #expect(
-            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+            CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [legacy],
                 resources: resources
             )?.remoteWorkspaceID == "ws_api"
@@ -448,7 +448,7 @@ import Testing
             panelID: UUID()
         )
         #expect(
-            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+            CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [exact, localProjection],
                 resources: resources + [local]
             ) == nil
@@ -461,7 +461,7 @@ import Testing
             remoteTabID: "tab_1"
         )
         #expect(
-            CloudWorkspaceRenameWriteThrough.inferredRemoteWorkspaceTarget(
+            CloudWorkspaceRenameService().inferredRemoteWorkspaceTarget(
                 projections: [exact, multiView],
                 resources: resources
             ) == nil

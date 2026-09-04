@@ -129,21 +129,49 @@ extension Workspace {
 }
 
 
-/// Writes local rename intents through to the cloud machine a local workspace or pane
-/// stands for, so the name persists on that daemon and reaches every attached client.
-/// The pane leg lives in `Workspace.setPanelCustomTitle`; this type carries the
-/// workspace leg plus the pure target/name rules both legs and the tests share.
+/// Identifies one remote workspace placement for a local projection.
 struct CloudWorkspaceRemoteIdentity: Hashable, Sendable {
     let machine: SurfaceMachineID
     let workspaceID: String
 }
 
-enum CloudWorkspaceRenameWriteThrough {
+/// Supplies the application lookups needed by cloud rename reconciliation.
+///
+/// The closures keep the rename service independent from the app delegate. Tests can
+/// provide an isolated registry, while the composition root supplies the live one.
+struct CloudWorkspaceRenameEnvironment {
+    let workspace: @MainActor (UUID) -> Workspace?
+    let tabManager: @MainActor (UUID) -> TabManager?
+    let workspaces: @MainActor () -> [Workspace]
+
+    init(
+        workspace: @escaping @MainActor (UUID) -> Workspace? = { _ in nil },
+        tabManager: @escaping @MainActor (UUID) -> TabManager? = { _ in nil },
+        workspaces: @escaping @MainActor () -> [Workspace] = { [] }
+    ) {
+        self.workspace = workspace
+        self.tabManager = tabManager
+        self.workspaces = workspaces
+    }
+}
+
+/// Owns cloud rename policy and the application-side write-through lifecycle.
+///
+/// The service is constructed by the app composition root and passed to the surface
+/// catalog. It has no process-wide mutable state. The catalog remains the owner of
+/// remote ordering and accepted cloud snapshots; this service only resolves local
+/// owners, applies titles, and submits intents through that catalog.
+final class CloudWorkspaceRenameService {
+    let environment: CloudWorkspaceRenameEnvironment
+
+    init(environment: CloudWorkspaceRenameEnvironment = CloudWorkspaceRenameEnvironment()) {
+        self.environment = environment
+    }
     /// A local workspace can be automatically associated with a remote workspace only
     /// when all identity-bearing panes prove the same cloud identity and no local pane
     /// is present. A mixed local/cloud workspace is intentionally left unbound: there
     /// is no honest remote owner for its title, and guessing would rename the wrong VM.
-    static func inferredRemoteWorkspaceTarget(
+    func inferredRemoteWorkspaceTarget(
         projections: [SurfaceProjection],
         resources: [SurfaceResource]
     ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
@@ -185,11 +213,8 @@ enum CloudWorkspaceRenameWriteThrough {
     /// `workspace.cloud_vm_bind` choice. This helper only adds information; it never
     /// replaces a deliberate binding or clears state during a temporary disconnect.
     @MainActor
-    static func reconcileBinding(
-        localWorkspaceID: UUID,
-        catalog: SurfaceCatalog = .shared
-    ) {
-        guard let workspace = AppDelegate.shared?.workspaceFor(tabId: localWorkspaceID) else { return }
+    func reconcileBinding(localWorkspaceID: UUID, catalog: SurfaceCatalog) {
+        guard let workspace = environment.workspace(localWorkspaceID) else { return }
         if let remoteWorkspaceID = workspace.cloudVMBinding?.remoteWorkspaceID,
            !remoteWorkspaceID.isEmpty {
             return
@@ -216,18 +241,21 @@ enum CloudWorkspaceRenameWriteThrough {
     /// every view agrees on a single remote workspace — a local workspace composing
     /// panes from several remote workspaces (or pool terminals) has no one name to
     /// write, so nothing propagates.
-    static func remoteTarget(
+    func remoteTarget(
         binding: WorkspaceCloudVMBinding?,
         projectedResources: [SurfaceResource]
     ) -> (machine: SurfaceMachineID, remoteWorkspaceID: String)? {
         if let binding, let remote = binding.remoteWorkspaceID, !remote.isEmpty {
             return (.cloud(binding.vmID), remote)
         }
-        var seen = Set<CloudRenameCoordinator.Key>()
+        var seen = Set<CloudWorkspaceRemoteIdentity>()
         var found: (SurfaceMachineID, String)?
         for resource in projectedResources where !resource.machine.isLocal {
             for workspace in resource.remoteWorkspaces {
-                seen.insert(.workspace(machine: resource.machine, id: workspace.id))
+                seen.insert(CloudWorkspaceRemoteIdentity(
+                    machine: resource.machine,
+                    workspaceID: workspace.id
+                ))
                 found = (resource.machine, workspace.id)
             }
         }
@@ -237,7 +265,7 @@ enum CloudWorkspaceRenameWriteThrough {
 
     /// The daemon-side name for a local title. Legacy projection fallback titles carry
     /// a generated "<machine>: " prefix; a bound workspace preserves the exact user text.
-    static func remoteName(
+    func remoteName(
         fromLocalTitle title: String,
         machine: SurfaceMachineID,
         stripGeneratedPrefix: Bool = true
@@ -255,7 +283,7 @@ enum CloudWorkspaceRenameWriteThrough {
     /// its workspace id agrees with the resource's sole current view. A stale
     /// workspace id must fail closed, because choosing the sole view anyway can
     /// rename a different remote placement.
-    static func remoteTabID(for projection: SurfaceProjection?, resource: SurfaceResource) -> String? {
+    func remoteTabID(for projection: SurfaceProjection?, resource: SurfaceResource) -> String? {
         if let explicit = projection?.remoteTabID?.trimmingCharacters(in: .whitespacesAndNewlines),
            !explicit.isEmpty {
             return explicit
@@ -274,9 +302,13 @@ enum CloudWorkspaceRenameWriteThrough {
     /// Enqueues a local workspace rename. Requests for one workspace run in order; a
     /// failed request rolls the local title back only when no newer edit replaced it.
     @MainActor
-    static func propagate(workspace: Workspace, localTitle: String?, previousCustomTitle: String?) {
+    func propagate(
+        workspace: Workspace,
+        localTitle: String?,
+        previousCustomTitle: String?,
+        catalog: SurfaceCatalog
+    ) {
         guard let localTitle, !localTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        let catalog = SurfaceCatalog.shared
         // A persisted binding is authoritative. Avoid scanning and sorting every
         // projection on the common bound path; the projection fallback is only for
         // legacy workspaces that predate the binding id.
@@ -323,7 +355,7 @@ enum CloudWorkspaceRenameWriteThrough {
         ),
               catalog.provider(for: target.machine) != nil else { return }
         let expectedTitle = workspace.customTitle
-        let manager = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+        let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
         Task { @MainActor [weak workspace, weak manager] in
             do {
                 try await catalog.renameRemoteWorkspace(
@@ -349,7 +381,7 @@ enum CloudWorkspaceRenameWriteThrough {
         }
     }
 
-    static func isGeneratedPrefixedTitle(
+    func isGeneratedPrefixedTitle(
         _ previousTitle: String?,
         machine: SurfaceMachineID,
         remoteWorkspaceName: String
@@ -363,16 +395,16 @@ enum CloudWorkspaceRenameWriteThrough {
     /// failed request restores the prior local override when the user has not
     /// edited the pane again.
     @MainActor
-    static func propagateTerminalRename(
+    func propagateTerminalRename(
         workspace: Workspace,
         panelID: UUID,
         resource: SurfaceResource,
         name: String,
-        previousCustomTitle: String?
+        previousCustomTitle: String?,
+        catalog: SurfaceCatalog
     ) {
         let name = CloudRemoteRenameName(rawValue: name).wireValue
         let expectedTitle = workspace.panelCustomTitles[panelID]
-        let catalog = SurfaceCatalog.shared
         let projection = catalog.projection(forPanel: panelID)
         // A daemon name belongs to one tab placement. A persisted projection id is
         // authoritative. Legacy sessions may infer a target only when there is one
@@ -413,9 +445,12 @@ enum CloudWorkspaceRenameWriteThrough {
     /// until the command succeeds or rolls back. This avoids a polling race
     /// without creating a second durable source of truth.
     @MainActor
-    static func reconcileRemoteState(machine: SurfaceMachineID, state: CloudVMState) {
+    func reconcileRemoteState(
+        machine: SurfaceMachineID,
+        state: CloudVMState,
+        catalog: SurfaceCatalog
+    ) {
         guard case .cloud = machine else { return }
-        let catalog = SurfaceCatalog.shared
         let snapshot = catalog.snapshot
         // Synchronizable snapshots reject duplicate identity rows at the parser
         // boundary. Keep these defensive maps total for legacy callers that may
@@ -430,7 +465,7 @@ enum CloudWorkspaceRenameWriteThrough {
         let resourcesByID = snapshot.resources(on: machine).reduce(into: [SurfaceResourceID: SurfaceResource]()) {
             $0[$1.id] = $1
         }
-        let localWorkspaces = AppDelegate.shared?.surfaceCatalogWorkspaces() ?? []
+        let localWorkspaces = environment.workspaces()
         let localWorkspacesByID = Dictionary(
             localWorkspaces.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
@@ -453,7 +488,7 @@ enum CloudWorkspaceRenameWriteThrough {
                 currentTitleSource: workspace.effectiveCustomTitleSource,
                 currentCustomTitle: workspace.customTitle
             )
-            let manager = workspace.owningTabManager ?? AppDelegate.shared?.tabManagerFor(tabId: workspace.id)
+            let manager = workspace.owningTabManager ?? environment.tabManager(workspace.id)
             _ = manager?.setCustomTitle(
                 tabId: workspace.id,
                 title: displayName,
@@ -486,7 +521,7 @@ enum CloudWorkspaceRenameWriteThrough {
         }
     }
 
-    private static func workspaceDisplayName(
+    private func workspaceDisplayName(
         machine: SurfaceMachineID,
         remoteName: String,
         currentTitleSource: Workspace.CustomTitleSource?,
@@ -505,14 +540,14 @@ enum CloudWorkspaceRenameWriteThrough {
     /// Records which machine + remote workspace a just-opened local workspace stands
     /// for, so later local renames write through without guessing from its panes.
     @MainActor
-    static func bind(
+    func bind(
         localWorkspaceID: UUID,
         machine: SurfaceMachineID,
         remoteWorkspaceID: String?,
         generatedTitle: String? = nil
     ) {
         guard let vmID = machine.cloudMachineID,
-              let manager = AppDelegate.shared?.tabManagerFor(tabId: localWorkspaceID),
+              let manager = environment.tabManager(localWorkspaceID),
               let workspace = manager.workspacesById[localWorkspaceID] else { return }
         let previousBinding = workspace.cloudVMBinding
         let sameMachine = previousBinding?.vmID == vmID

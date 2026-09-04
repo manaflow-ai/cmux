@@ -2480,7 +2480,7 @@ nonisolated struct WorkspaceCloudVMBinding: Equatable, Sendable {
     let isBase: Bool
     /// The cmux-tui workspace on the machine this local workspace stands for (`ws_…`),
     /// recorded when a remote workspace is opened locally. Local workspace renames
-    /// write through to it (`CloudWorkspaceRenameWriteThrough`).
+    /// write through to it (`CloudWorkspaceRenameService`).
     let remoteWorkspaceID: String?
 
     init(vmID: String, isBase: Bool, remoteWorkspaceID: String? = nil) {
@@ -5390,7 +5390,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // broadcast, and shown by every attached client (tree rows, other Macs,
         // TUI tab bars).
         if let resource = cloudResourceForPropagation, resource.kind == .terminal {
-            CloudWorkspaceRenameWriteThrough.propagateTerminalRename(
+            SurfaceCatalog.shared.propagateCloudTerminalRename(
                 workspace: self,
                 panelID: panelId,
                 resource: resource,
