@@ -14,6 +14,7 @@ import {
   PLAN_SHARED_VCPU,
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   firstExceededSharedResource,
+  sharedResourceUsage,
   sharedResourceCapacityForMaxActiveVms,
   vmResourceReservationForCreate,
   VM_DISK_MB_DEFAULT,
@@ -126,19 +127,22 @@ describe("pricing copy matches the plan policy", () => {
       diskMb: PLAN_SHARED_DISK_MB * 2,
     });
     expect(firstExceededSharedResource({
-      used: { vcpus: 0, memoryMb: PLAN_SHARED_MEMORY_MB, diskMb: 0 },
-      requested: { vcpus: 1, memoryMb: 1, diskMb: 1 },
+      used: { vcpus: 0, memoryMb: PLAN_SHARED_MEMORY_MB, diskMb: PLAN_SHARED_DISK_MB - 1 },
+      requested: { vcpus: 1, memoryMb: 1, diskMb: 2 },
       capacity: {
         vcpus: PLAN_SHARED_VCPU,
         memoryMb: PLAN_SHARED_MEMORY_MB,
         diskMb: PLAN_SHARED_DISK_MB,
       },
     })).toEqual({
-      resource: "memoryMb",
-      used: PLAN_SHARED_MEMORY_MB,
-      requested: 1,
-      limit: PLAN_SHARED_MEMORY_MB,
+      resource: "diskMb",
+      used: PLAN_SHARED_DISK_MB - 1,
+      requested: 2,
+      limit: PLAN_SHARED_DISK_MB,
     });
+    expect(sharedResourceUsage("vcpus", PLAN_SHARED_VCPU, 1)).toBe(PLAN_SHARED_VCPU);
+    expect(sharedResourceUsage("memoryMb", PLAN_SHARED_MEMORY_MB, 1)).toBe(PLAN_SHARED_MEMORY_MB);
+    expect(sharedResourceUsage("diskMb", PLAN_SHARED_DISK_MB - 1, 2)).toBe(PLAN_SHARED_DISK_MB + 1);
   });
 
   test("a size-less plan reservation follows requested memory", () => {

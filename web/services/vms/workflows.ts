@@ -2046,6 +2046,7 @@ export function resizeVm(input: {
         userId: input.userId,
         billingTeamId: vm.billingTeamId ?? input.billingTeamId,
         providerVmId: input.providerVmId,
+        currentDiskMb: currentMb,
         storageMb: input.storageMb,
         maxActiveVms: input.maxActiveVms ?? maxActiveVmsForPlan(vm.billingPlanId),
         sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(

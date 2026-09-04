@@ -248,6 +248,8 @@ export type VmRepositoryShape = {
     readonly userId: string;
     readonly billingTeamId?: string | null;
     readonly providerVmId: string;
+    /** Provider-confirmed current disk, used to repair legacy reservations. */
+    readonly currentDiskMb?: number;
     readonly storageMb: number;
     readonly maxActiveVms?: number | null;
     readonly sharedResourceCapacity?: VmResourceReservation;
@@ -532,6 +534,8 @@ async function reservedResourceTotals(
   billingTeamId: string,
   excludeVmId?: string,
 ): Promise<VmResourceReservation> {
+  // CPU and memory are shared ceilings across the team's machines. Disk is
+  // persistent storage, so each live reservation consumes additional pool.
   const fields = reservedResourceFields();
   const predicates = [
     inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
@@ -540,8 +544,8 @@ async function reservedResourceTotals(
   if (excludeVmId) predicates.push(ne(cloudVms.id, excludeVmId));
   const [row] = await tx
     .select({
-      vcpus: sql<number>`coalesce(sum(${fields.vcpus}), 0)`,
-      memoryMb: sql<number>`coalesce(sum(${fields.memoryMb}), 0)`,
+      vcpus: sql<number>`coalesce(max(${fields.vcpus}), 0)`,
+      memoryMb: sql<number>`coalesce(max(${fields.memoryMb}), 0)`,
       diskMb: sql<number>`coalesce(sum(${fields.diskMb}), 0)`,
     })
     .from(cloudVms)
@@ -1603,11 +1607,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           if (!current || current.status === "destroyed") return null;
 
           const previous = vmResourceReservationFromMetadata(current.providerMetadata);
+          const previousDiskMb = Math.max(previous.diskMb, input.currentDiskMb ?? 0);
           const reserved = {
             ...previous,
             // A stale provider read must never make the durable reservation
             // shrink. The workflow already validates grow-only semantics.
-            diskMb: Math.max(previous.diskMb, input.storageMb),
+            diskMb: Math.max(previousDiskMb, input.storageMb),
           };
           const billingTeamId = current.billingTeamId ?? requestedTeamId ?? input.userId;
           const capacity = sharedResourceCapacityForInput(
@@ -1640,7 +1645,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             })
             .where(and(eq(cloudVms.id, current.id), ne(cloudVms.status, "destroyed")));
           return {
-            previousDiskMb: previous.diskMb,
+            previousDiskMb,
             reservedDiskMb: reserved.diskMb,
           };
         });

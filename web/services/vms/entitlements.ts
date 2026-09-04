@@ -23,6 +23,7 @@ export {
   VM_RESOURCE_RESERVATION_METADATA_KEY,
   sharedResourceCapacityForMaxActiveVms,
   firstExceededSharedResource,
+  sharedResourceUsage,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
   withVmResourceReservationMetadata,

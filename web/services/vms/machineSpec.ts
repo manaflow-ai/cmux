@@ -2,9 +2,11 @@
  * The provider sizing profile and the plan-wide Cloud VM resource policy.
  *
  * The count allowance and the resource pool are separate limits. Postgres
- * records each machine's reservation, and the VM repository checks the sum of
- * live reservations while holding the billing-team lock. Keeping the policy
- * here gives pricing tests, workflows, and provider sizing one source of truth.
+ * records each machine's reservation, and the VM repository checks the live
+ * claims while holding the billing-team lock. CPU and memory are shared
+ * ceilings, so the largest claim wins; disk is persistent storage, so claims
+ * add. Keeping the policy here gives pricing tests, workflows, and provider
+ * sizing one source of truth.
  *
  * This module stays dependency-free so provider drivers can size a machine
  * without pulling the billing graph into their module.
@@ -102,7 +104,7 @@ export function sharedResourceCapacityForMaxActiveVms(
   };
 }
 
-/** Return the first resource for which a reservation would exceed the pool. */
+/** Return the first resource for which a shared claim would exceed the pool. */
 export function firstExceededSharedResource(input: {
   readonly used: VmResourceReservation;
   readonly requested: VmResourceReservation;
@@ -117,9 +119,19 @@ export function firstExceededSharedResource(input: {
     const used = input.used[resource];
     const requested = input.requested[resource];
     const limit = input.capacity[resource];
-    if (used + requested > limit) return { resource, used, requested, limit };
+    const projected = sharedResourceUsage(resource, used, requested);
+    if (projected > limit) return { resource, used, requested, limit };
   }
   return null;
+}
+
+/** CPU and memory are one shared ceiling; persistent disk is additive. */
+export function sharedResourceUsage(
+  resource: VmSharedResourceName,
+  used: number,
+  requested: number,
+): number {
+  return resource === "diskMb" ? used + requested : Math.max(used, requested);
 }
 
 /** Read a persisted reservation, falling back safely for legacy VM rows. */
