@@ -87,15 +87,16 @@ const FLOW_DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 /// each budget available for control/error frames after PTY data saturates.
 const WRITER_QUEUE_CAPACITY: usize = 128;
 const FLOW_RESUME_MESSAGES: usize = WRITER_QUEUE_CAPACITY - 32;
-const WRITER_QUEUE_BYTE_CAP: u64 = (MAX_TUNNEL_FRAME_BYTES as u64 + HEADER_BYTES as u64) * 2;
 const WRITER_CONTROL_MESSAGE_RESERVE: usize = 8;
 const WRITER_CONTROL_BYTE_RESERVE: u64 = 64 * 1024;
+const WRITER_DATA_BYTE_CAP: u64 = (MAX_TUNNEL_FRAME_BYTES as u64 + HEADER_BYTES as u64) * 2;
+const WRITER_QUEUE_BYTE_CAP: u64 = WRITER_DATA_BYTE_CAP + WRITER_CONTROL_BYTE_RESERVE;
 
 fn writer_queue_byte_limit(control: bool) -> u64 {
     if control {
         WRITER_QUEUE_BYTE_CAP
     } else {
-        WRITER_QUEUE_BYTE_CAP.saturating_sub(WRITER_CONTROL_BYTE_RESERVE)
+        WRITER_DATA_BYTE_CAP
     }
 }
 
