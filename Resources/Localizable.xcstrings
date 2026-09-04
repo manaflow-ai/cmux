@@ -65435,6 +65435,57 @@
         }
       }
     },
+    "cli.terminalCreation.error.commandRequiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command requires <text>"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command には <text> が必要です"
+          }
+        }
+      }
+    },
+    "cli.terminalCreation.error.commandRequiresTerminalType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command can only be used with --type terminal"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: --command は --type terminal でのみ使用できます"
+          }
+        }
+      }
+    },
+    "cli.terminalCreation.help.initialCommandDescription": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Run this as the new terminal's initial command"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいターミナルの初期コマンドとして実行"
+          }
+        }
+      }
+    },
     "cli.vm.create.machineReady": {
       "extractionState": "manual",
       "localizations": {
@@ -166077,6 +166128,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "ワークスペースが見つかりません"
+          }
+        }
+      }
+    },
+    "rpc.v2.terminalCreation.error.initialInputRequiresTerminalType": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Initial command input can only be used with terminal surfaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "初期コマンド入力はターミナルサーフェスでのみ使用できます"
           }
         }
       }

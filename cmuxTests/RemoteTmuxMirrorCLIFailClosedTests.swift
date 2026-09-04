@@ -10,6 +10,18 @@ import Testing
 
 @MainActor
 extension RemoteTmuxMirrorCLIObservabilityTests {
+    @Test func mirrorRoutedCreationRejectsInitialInput() {
+        let unsupported = TerminalController.shared.mirrorRoutedUnsupportedOptions(
+            workingDirectory: nil,
+            initialCommand: nil,
+            initialInput: "echo ready\r",
+            tmuxStartCommand: nil,
+            startupEnvironment: [:]
+        )
+
+        #expect(unsupported == ["initial_input"])
+    }
+
     @Test func unresolvedMirrorMutationsFailClosed() throws {
         do {
             let harness = try Harness(addPeerSurface: true, activeTmuxPaneID: nil)

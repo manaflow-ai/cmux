@@ -19,6 +19,7 @@ extension TerminalController {
         let title: String?
         let description: String?
         let initialCommand: String?
+        let initialInput: String?
         let initialEnvironment: [String: String]
         let workspaceEnvironment: [String: String]
         let workingDirectory: String?
@@ -46,6 +47,9 @@ extension TerminalController {
             $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? nil
                 : WorkspaceInitialCommandLoginShell.wrap($0)
+        }
+        let initialInput = v2RawString(params, "initial_input").flatMap {
+            $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0
         }
         let initialEnvironment = sanitizedInitialEnvironment(v2StringMap(params, "initial_env") ?? [:])
         let workspaceEnvironment = Workspace.sanitizedWorkspaceEnvironment(
@@ -165,6 +169,7 @@ extension TerminalController {
             title: title,
             description: description,
             initialCommand: initialCommand,
+            initialInput: initialInput,
             initialEnvironment: initialEnvironment,
             workspaceEnvironment: workspaceEnvironment,
             workingDirectory: cwd,
