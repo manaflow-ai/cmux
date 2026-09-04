@@ -230,7 +230,12 @@ final class TerminalCmdClickUITests: XCTestCase {
         )
         defer { app.terminate() }
 
-        _ = try waitForReadySetup()
+        let setup = try waitForReadySetup()
+        XCTAssertEqual(
+            setup.payload["mouseReportingCaptured"] as? String,
+            "1",
+            "Expected the fixture to enable terminal mouse reporting before the click. payload=\(setup.payload)"
+        )
         let expectedURL = "https://github.com"
         let result = try runCommand(action: "stationary_cmd_click_token")
         XCTAssertEqual(
