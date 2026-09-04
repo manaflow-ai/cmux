@@ -286,6 +286,19 @@ extension Array where Element == CuratedSettingEntry {
                 ),
                 synonyms: "push notification privacy hide content generic message terminal text forwardNotificationsHideContent"
             ),
+            .init(
+                section: .mobile,
+                id: "irohStatus",
+                title: String(
+                    localized: "settings.mobile.iroh.status",
+                    defaultValue: "Iroh Endpoint"
+                ),
+                detailText: String(
+                    localized: "settings.mobile.iroh.status.subtitle",
+                    defaultValue: "Connection status for this Mac on iPhone."
+                ),
+                synonyms: "iroh endpoint mobile iphone ipad ios connection status"
+            ),
             .init(section: .mobile, id: "iOSPairingHost", title: "iOS Pairing", synonyms: "ios iphone ipad mobile pairing local network permission sync"),
             .init(section: .mobile, id: "iOSPairingPort", title: String(localized: "settings.mobile.port", defaultValue: "Pairing Port"), synonyms: "mobile.iOSPairingHost.port ios iphone mobile pairing port tcp listener firewall conflict"),
             .init(section: .mobile, id: "iOSPairingDisplayName", title: String(localized: "settings.mobile.displayName", defaultValue: "Display Name"), synonyms: "mobile.iOSPairingHost.displayName ios iphone mobile pairing display name mac hostname device label"),

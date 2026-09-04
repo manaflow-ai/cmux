@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CmuxSettings
 import Foundation
 import Testing
@@ -280,7 +281,8 @@ struct MobileHostServiceSettingsTests {
                 ),
             ],
             activeConnectionCount: 0,
-            lastErrorDescription: nil
+            lastErrorDescription: nil,
+            effectiveIrohActivationState: .active
         )
 
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status, now: now)
@@ -423,6 +425,49 @@ struct MobileHostTransportRouteCompositionTests {
 
         MobileHostPublicStatusCache.update(irohIdentity: nil)
         #expect(MobileHostPublicStatusCache.snapshot().map(\.kind) == [.tailscale])
+    }
+
+    @Test func brokerReauthenticationStateReachesMobileSettingsSnapshot() {
+        let failure = IrxBrokerFailure(
+            operation: .register,
+            error: CmxIrohBrokerTokenRecoveryError.authenticationRequired
+        )
+        let status = MobileHostServiceStatus(
+            isRunning: false,
+            port: nil,
+            configuredPort: 58_465,
+            usesEphemeralFallback: false,
+            routes: [],
+            activeConnectionCount: 0,
+            lastErrorDescription: nil,
+            effectiveIrohActivationState: .reauthenticationRequired,
+            irohBrokerFailure: failure
+        )
+
+        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
+        #expect(snapshot.irohStatus == .reauthenticationRequired)
+        #expect(status.payload["iroh_broker_operation"] as? String == "register")
+        #expect(status.payload["iroh_broker_error_code"] as? String == "unauthorized")
+    }
+
+    @Test func routeCleanupPreservesIrxLifecycleState() {
+        let failure = IrxBrokerFailure(
+            operation: .discover,
+            error: CmxIrohBrokerTokenRecoveryError.authenticationRequired
+        )
+        MobileHostPublicStatusCache.update(
+            irxActivationState: .reauthenticationRequired,
+            failure: failure
+        )
+        defer {
+            MobileHostPublicStatusCache.update(irxActivationState: .inactive)
+        }
+
+        MobileHostPublicStatusCache.removeAll()
+
+        let status = MobileHostPublicStatusCache.irxActivationStatus()
+        #expect(status.state == .reauthenticationRequired)
+        #expect(status.failure == failure)
     }
 }
 

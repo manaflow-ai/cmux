@@ -110,46 +110,18 @@ extension MobileHostIrohRuntime {
         }
         let rawBroker = try CmxIrohTrustBrokerClient(
             baseURL: brokerBaseURL,
-            tokenSource: .accountPinned(
-                to: accountID,
-                // An ATOMIC authenticated snapshot per fetch, validated
-                // against the activation's ACCOUNT pin: identity and
-                // credentials come from one transition-checked capture, so an
-                // account switch completing while the read is suspended can
-                // never hand this runtime a DIFFERENT account's credentials,
-                // and the pin fails requests closed the moment the account
-                // changes. Deliberately NOT generation-pinned: every completed
-                // sign-in advances the generation, and a same-account
-                // re-sign-in must keep this long-lived runtime serviceable —
-                // it is still the same user, so serving the new session's
-                // credentials is correct, whereas a generation pin would
-                // strand the runtime on nil credentials until relaunch. The
-                // snapshot's pair capture is store-level (no network while the
-                // stored access token is valid).
-                snapshot: { [weak auth] in
-                    guard let auth else { return nil }
-                    let session: AuthenticatedSessionSnapshot
-                    do {
-                        session = try await auth.authenticatedSessionSnapshot()
-                    } catch AuthError.unauthorized {
-                        // Definitively signed out: fail closed.
-                        return nil
-                    }
-                    // Transient failures (a revalidation owns the token
-                    // store, a re-mint is in flight or offline) rethrow so
-                    // the broker classifies them connectivity instead of
-                    // tearing the host runtime down as unauthorized.
-                    return CmxIrohAccountCredentialSnapshot(
-                        accountID: session.accountID,
-                        credentials: CmxIrohBrokerCredentials(
-                            accessToken: session.accessToken,
-                            refreshToken: session.refreshToken
-                        )
+            tokenSource: auth.accountPinnedIrohBrokerTokenSource(
+                accountID: accountID,
+                onForceRefreshStart: { [weak self] in
+                    await self?.markBrokerAuthenticationRefreshStarted(
+                        revision: revision
                     )
                 },
-                forceRefresh: { [weak auth] in
-                    guard let auth else { return }
-                    _ = try await auth.forceRefreshAccessToken()
+                onForceRefreshCompletion: { [weak self] requiresReauthentication in
+                    await self?.completeBrokerAuthenticationRefresh(
+                        revision: revision,
+                        requiresReauthentication: requiresReauthentication
+                    )
                 }
             ),
             clientNamespace: clientNamespace.rawValue,
@@ -522,6 +494,7 @@ extension MobileHostIrohRuntime {
         runtime = hostRuntime
         activeAccountID = accountID
         activeAppInstanceID = appInstanceID
+        clearIrohAuthenticationFailure()
         _ = publishIrohRouteIfActive(revision: revision)
         diagnosticLog.record(DiagnosticEvent(
             .endpointActive,

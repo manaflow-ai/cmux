@@ -187,6 +187,10 @@ final class IrohSettingsModel {
         // in diagnostics, or a relay-configuration failure on the snapshot
         // (relay-policy-only degradation carries no lastFailureKind).
         guard !Task.isCancelled,
+              // irx owns its own recovery lifecycle; its terminal state is
+              // already surfaced by the status row and must not be restarted
+              // by this observer-driven diagnostic pass.
+              next.supportsRelayConfiguration,
               previousStatus != .degraded,
               next.runtimeStatus == .degraded,
               diagnosticReport.lastFailureKind != nil

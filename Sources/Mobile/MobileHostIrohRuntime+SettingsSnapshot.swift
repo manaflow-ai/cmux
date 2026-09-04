@@ -1,9 +1,101 @@
 import CMUXMobileCore
 import CmuxIrohTransport
+import CmuxIrxTransport
 import Foundation
 
 @MainActor
 extension MobileHostIrohRuntime {
+    /// Marks the activation owner before AuthCoordinator can publish a
+    /// signed-out identity during a broker-triggered refresh.
+    func markBrokerAuthenticationRefreshStarted(
+        revision: UInt64
+    ) {
+        guard lifecycleRevision == revision, !signOutIntentActive else {
+            return
+        }
+        pendingBrokerAuthenticationRefreshRevision = revision
+    }
+
+    /// Clears the handoff marker after refresh completion. A definitive
+    /// rejection intentionally leaves it set until the activation-failure
+    /// handler records the operation-specific reauthentication state.
+    func completeBrokerAuthenticationRefresh(
+        revision: UInt64,
+        requiresReauthentication: Bool
+    ) {
+        guard pendingBrokerAuthenticationRefreshRevision == revision,
+              lifecycleRevision == revision else {
+            return
+        }
+        if !requiresReauthentication {
+            pendingBrokerAuthenticationRefreshRevision = nil
+        }
+    }
+
+    /// Maps the legacy runtime's route-publication phase to the shared Mobile
+    /// settings lifecycle state without inferring status from cached routes.
+    var publishedIrohActivationState: IrxHostActivationState {
+        if desiredActive, irohAuthenticationFailure != nil {
+            return .reauthenticationRequired
+        }
+        if desiredActive, failureRecoveryTask != nil {
+            return .retrying
+        }
+        if desiredActive, irohActivationFailure != nil {
+            return .failed
+        }
+        switch routePublicationPhase {
+        case .unavailable:
+            return .inactive
+        case .starting:
+            return .activating
+        case .active:
+            return .active
+        }
+    }
+
+    /// The definitive broker failure retained for the shared host status
+    /// projection. It remains visible after route teardown.
+    var publishedIrohBrokerFailure: IrxBrokerFailure? {
+        guard desiredActive else { return nil }
+        return irohAuthenticationFailure ?? irohActivationFailure
+    }
+
+    /// Records a definitive auth rejection from the shared broker client and
+    /// stops legacy recovery until the account transitions or the user retries.
+    @discardableResult
+    func handleIrohActivationFailure(
+        _ error: any Error,
+        revision: UInt64
+    ) async -> Bool {
+        let failure = error as? IrxBrokerFailure
+            ?? IrxBrokerFailure(operation: .register, error: error)
+        guard failure.requiresReauthentication,
+              revision == lifecycleRevision else { return false }
+        pendingBrokerAuthenticationRefreshRevision = nil
+        irohAuthenticationFailure = failure
+        irohActivationFailure = failure
+        cancelFailureRecovery(resetBackoff: true)
+        let failedRuntime = runtime
+        runtime = nil
+        clearIrohRoutePublication(revision: revision)
+        if let failedRuntime {
+            await failedRuntime.stop()
+        }
+        diagnosticLog.record(DiagnosticEvent(
+            .hostAuthenticationFailed,
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
+        publishIrohSettingsUpdate()
+        return true
+    }
+
+    /// Clears a prior auth failure when a fresh activation is authorized.
+    func clearIrohAuthenticationFailure() {
+        irohAuthenticationFailure = nil
+        irohActivationFailure = nil
+    }
+
     func irohSettingsSnapshot() async -> CmxIrohSettingsSnapshot {
         let service = relayPolicyService
         let effective = await service?.effectivePolicy() ?? relayPolicyEffective
@@ -32,12 +124,16 @@ extension MobileHostIrohRuntime {
         let debugTransportVerificationMode: CmxIrohTransportVerificationMode? = nil
         let pathPreference: CmxIrohPathPreference = .automatic
         #endif
+        let requiresReauthentication = desiredActive
+            && irohAuthenticationFailure != nil
         return CmxIrohSettingsSnapshot(
-            runtimeStatus: Self.settingsRuntimeStatus(
-                runtimeState,
-                failure: diagnostics?.failure,
-                selectedPath: selectedPath
-            ),
+            runtimeStatus: requiresReauthentication
+                ? .degraded
+                : Self.settingsRuntimeStatus(
+                    runtimeState,
+                    failure: diagnostics?.failure,
+                    selectedPath: selectedPath
+                ),
             selectedTransportPath: selectedPath,
             preference: Self.settingsPreference(requested),
             pathPreference: pathPreference,
@@ -58,7 +154,10 @@ extension MobileHostIrohRuntime {
             policySequence: diagnostics?.policySequence,
             policyExpiresAt: diagnostics?.policyExpiresAt,
             staleRelayIDs: Set(diagnostics?.staleRelayIDs ?? []),
-            failureDescription: diagnostics?.failure?.rawValue,
+            failureDescription: requiresReauthentication
+                ? irohAuthenticationFailure?.diagnosticErrorCode
+                : diagnostics?.failure?.rawValue,
+            requiresReauthentication: requiresReauthentication,
             debugTransportVerificationMode: debugTransportVerificationMode
         )
     }

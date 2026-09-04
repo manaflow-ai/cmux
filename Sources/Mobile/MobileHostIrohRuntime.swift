@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxAuthRuntime
 import CmuxIrohTransport
+import CmuxIrxTransport
 import CryptoKit
 import Foundation
 import Observation
@@ -128,6 +129,18 @@ final class MobileHostIrohRuntime {
         pathHints: [CmxIrohPathHint]
     )?
     var routePublicationPhase: RoutePublicationPhase = .unavailable
+    /// The last definitive broker-auth rejection. Kept separately from the
+    /// legacy relay-policy diagnostics so Settings can distinguish sign-in
+    /// from a merely degraded relay catalog after the endpoint is torn down.
+    var irohAuthenticationFailure: IrxBrokerFailure?
+    /// Last non-auth activation failure, retained while bounded recovery is
+    /// pending so Settings/status do not collapse a retrying host to inactive.
+    var irohActivationFailure: IrxBrokerFailure?
+    /// Fences the short interval where AuthCoordinator clears its published
+    /// identity before the broker receives a definitive refresh rejection.
+    /// The matching activation-failure handler clears this marker after it
+    /// records the operation-specific state.
+    var pendingBrokerAuthenticationRefreshRevision: UInt64?
     var preparedSignOut: CmxIrohHostSignOutPreparation?
     var signOutIntentActive = false
     var signOutPreparationTask: Task<Void, Never>?
@@ -243,6 +256,7 @@ final class MobileHostIrohRuntime {
         eraseAccountState: Bool,
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
+        pendingBrokerAuthenticationRefreshRevision = nil
         lifecycleRevision &+= 1
         cancelRetryInspection()
         bindingPersistenceQueue.cancel()
@@ -279,11 +293,13 @@ final class MobileHostIrohRuntime {
         // deactivating transition ends the need for it.
         cancelFailureRecovery(resetBackoff: false)
         if eraseAccountState {
+            clearIrohAuthenticationFailure()
             clearIrohRoutePublication(revision: revision)
             await quarantineForSignOut()
         } else if restartActiveRuntime
                     || activeAccountID != targetAccountID
                     || targetAccountID == nil {
+            clearIrohAuthenticationFailure()
             let previousRuntime = runtime
             runtime = nil
             clearIrohRoutePublication(revision: revision)
@@ -307,6 +323,7 @@ final class MobileHostIrohRuntime {
               !signOutIntentActive,
               desiredActive,
               let targetAccountID,
+              irohAuthenticationFailure == nil,
               runtime == nil else { return }
 
         diagnosticLog.record(DiagnosticEvent(
@@ -319,6 +336,11 @@ final class MobileHostIrohRuntime {
         } catch is CancellationError {
             return
         } catch {
+            if await handleIrohActivationFailure(error, revision: revision) {
+                return
+            }
+            irohActivationFailure = error as? IrxBrokerFailure
+                ?? IrxBrokerFailure(operation: .register, error: error)
             let failureKind = Self.diagnosticFailureKind(for: error)
             let failureType = String(reflecting: type(of: error))
             diagnosticLog.record(DiagnosticEvent(

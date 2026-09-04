@@ -51,6 +51,7 @@ extension MobileHostIrohRuntime {
 
     /// Fences lifecycle work before auth begins its first asynchronous token read.
     func beginSignOutPreparation() {
+        pendingBrokerAuthenticationRefreshRevision = nil
         guard signOutPreparationTask == nil else { return }
         signOutIntentActive = true
         signOutPreparationRevision &+= 1
@@ -184,6 +185,14 @@ extension MobileHostIrohRuntime {
             let states = self.authObserver.states(for: auth)
             for await state in states {
                 guard !Task.isCancelled else { return }
+                if state.accountID == nil,
+                   pendingBrokerAuthenticationRefreshRevision == lifecycleRevision {
+                    // AuthCoordinator publishes the cleared identity before
+                    // the broker's definitive refresh error crosses back to
+                    // this runtime. Keep the rejected owner intact until the
+                    // operation-specific failure handler records reauth.
+                    continue
+                }
                 let previousAccountID = self.observedAccountID
                 self.observedAccountID = state.accountID
                 if self.signOutIntentActive {

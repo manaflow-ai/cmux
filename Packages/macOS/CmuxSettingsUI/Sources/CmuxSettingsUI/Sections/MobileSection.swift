@@ -114,7 +114,7 @@ public struct MobileSection: View {
                     // The Iroh endpoint hosts for every signed-in Mac even when
                     // the legacy pairing listener is toggled off, so diagnostics
                     // follow the live snapshot rather than the toggle alone.
-                    if iOSPairingHost.current || status.current?.isRunning == true {
+                    if iOSPairingHost.current || status.current?.isRunning == true || (status.current != nil && status.current?.irohStatus != .inactive) {
                         SettingsCardDivider()
                         diagnostics
                     }
@@ -478,19 +478,19 @@ public struct MobileSection: View {
     /// Read-only connection count and the reachable routes the phone can use.
     @ViewBuilder
     private var diagnostics: some View {
-        let snapshot = status.current
+        if let snapshot = status.current { irohStatusRow(snapshot) }
         SettingsCardRow(
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:connections",
             String(localized: "settings.mobile.connections", defaultValue: "Connected Devices"),
             subtitle: String(localized: "settings.mobile.connections.subtitle", defaultValue: "iOS devices currently attached to this Mac.")
         ) {
-            Text("\(snapshot?.activeConnectionCount ?? 0)")
+            Text("\(status.current?.activeConnectionCount ?? 0)")
                 .cmuxFont(size: 13, weight: .medium)
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
         }
-        routesView(snapshot)
+        routesView(status.current)
     }
 
     @ViewBuilder

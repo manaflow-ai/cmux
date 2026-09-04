@@ -78,13 +78,18 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
 
         let transportStatus: StageStatus = switch snapshot.runtimeStatus {
         case .inactive, .degraded: .failed
-        case .starting: .warning
+        case .starting, .retrying: .warning
         case .active, .direct, .relayed, .privateNetwork: .passed
         }
-        let policyStatus: StageStatus = switch snapshot.policySource {
-        case .server: .passed
-        case .cached: .warning
-        case .unavailable: .failed
+        let policyStatus: StageStatus
+        if snapshot.supportsRelayConfiguration {
+            policyStatus = switch snapshot.policySource {
+            case .server: .passed
+            case .cached: .warning
+            case .unavailable: .failed
+            }
+        } else {
+            policyStatus = .notApplicable
         }
         let relayStatus: StageStatus = switch relayReachability {
         case .notConfigured: .notApplicable
@@ -116,28 +121,33 @@ public struct CmxIrohConnectionCheckReport: Equatable, Sendable {
         recommendation = Self.recommendation(
             role: role,
             transportStatus: transportStatus,
-            policyStatus: policyStatus,
             relayReachability: relayReachability,
             discoveryStatus: discoveryStatus,
             sessionStatus: sessionStatus,
             failureKind: diagnostics.lastFailureKind,
-            hasRelayConfigurationProblem: !snapshot.staleRelayIDs.isEmpty
-                || snapshot.failureDescription != nil
+            requiresReauthentication: snapshot.requiresReauthentication,
+            hasRelayConfigurationProblem: snapshot.supportsRelayConfiguration
+                && (
+                    snapshot.policySource == .unavailable
+                        || !snapshot.staleRelayIDs.isEmpty
+                        || snapshot.failureDescription != nil
+                )
         )
     }
 
     private static func recommendation(
         role: Role,
         transportStatus: StageStatus,
-        policyStatus: StageStatus,
         relayReachability: RelayReachability,
         discoveryStatus: StageStatus,
         sessionStatus: StageStatus,
         failureKind: DiagnosticFailureKind?,
+        requiresReauthentication: Bool,
         hasRelayConfigurationProblem: Bool
     ) -> Recommendation {
+        if requiresReauthentication { return .refreshAccount }
         if transportStatus == .failed, failureKind == .offline { return .checkInternet }
-        if policyStatus == .failed || hasRelayConfigurationProblem {
+        if hasRelayConfigurationProblem {
             return .reviewRelaySettings
         }
         // Corporate-allowlist advice requires a relay that was actually probed

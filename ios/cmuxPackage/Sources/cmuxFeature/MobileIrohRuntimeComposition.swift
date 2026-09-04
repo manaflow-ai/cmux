@@ -3422,35 +3422,16 @@ extension MobileIrohRuntimeComposition {
     private func brokerTokenSource(
         pinnedTo expectedAccountID: String
     ) -> CmxIrohBrokerTokenSource {
-        .accountPinned(
-            to: expectedAccountID,
-            snapshot: { [weak auth] in
-                guard let auth else { return nil }
-                let session: AuthenticatedSessionSnapshot
-                do {
-                    session = try await auth.authenticatedSessionSnapshot()
-                } catch AuthError.unauthorized {
-                    // Definitively signed out: fail closed (the broker reports
-                    // missingAuthentication and activation stops).
-                    return nil
-                }
-                // Every other failure (revalidation owns the token store, an
-                // expired access token's re-mint is in flight or offline) is
-                // transient: rethrow so the broker classifies it connectivity
-                // and activation falls back to the cached verified policy
-                // instead of failing closed on every launch.
-                return CmxIrohAccountCredentialSnapshot(
-                    accountID: session.accountID,
-                    credentials: CmxIrohBrokerCredentials(
-                        accessToken: session.accessToken,
-                        refreshToken: session.refreshToken
-                    )
-                )
-            },
-            forceRefresh: { [weak auth] in
-                guard let auth else { return }
-                _ = try await auth.forceRefreshAccessToken()
-            }
+        guard let auth else {
+            // This method is only called after `auth` is installed, but keep
+            // the construction fail-closed if a teardown races the call.
+            return CmxIrohBrokerTokenSource(
+                credentialPair: { nil },
+                recoveredCredentialPair: { _ in nil }
+            )
+        }
+        return auth.accountPinnedIrohBrokerTokenSource(
+            accountID: expectedAccountID
         )
     }
 

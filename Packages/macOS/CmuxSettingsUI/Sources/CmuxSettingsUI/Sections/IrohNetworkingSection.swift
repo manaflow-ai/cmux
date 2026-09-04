@@ -36,8 +36,17 @@ public struct IrohNetworkingSection: View {
                 }
             }
             Group {
-                relayPolicyCard
-                customRelayCard
+                if model.snapshot.supportsRelayConfiguration {
+                    relayPolicyCard
+                    customRelayCard
+                } else {
+                    SettingsCard {
+                        SettingsCardNote(String(
+                            localized: "settings.networking.relay.automaticOnly",
+                            defaultValue: "Relay selection is managed automatically for this connection."
+                        ))
+                    }
+                }
                 privateNetworkCard
                 connectionCheckCard
             }
@@ -240,15 +249,17 @@ public struct IrohNetworkingSection: View {
                 .buttonStyle(.bordered)
                 .controlSize(.small)
             }
-            SettingsCardDivider()
-            SettingsCardRow(
-                configurationReview: .settingsOnly,
-                searchAnchorID: "setting:networking:policy",
-                String(localized: "settings.networking.policy", defaultValue: "Relay Policy"),
-                subtitle: policyStatusText
-            ) {
-                Image(systemName: policySymbol)
-                    .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
+            if model.snapshot.supportsRelayConfiguration {
+                SettingsCardDivider()
+                SettingsCardRow(
+                    configurationReview: .settingsOnly,
+                    searchAnchorID: "setting:networking:policy",
+                    String(localized: "settings.networking.policy", defaultValue: "Relay Policy"),
+                    subtitle: policyStatusText
+                ) {
+                    Image(systemName: policySymbol)
+                        .foregroundStyle(model.snapshot.policySource == .unavailable ? .orange : .secondary)
+                }
             }
             IrohDiagnosticsReportRows(
                 report: model.diagnosticReport,
@@ -256,12 +267,7 @@ public struct IrohNetworkingSection: View {
                 isMutating: model.isMutating,
                 clear: { await model.clearDiagnosticReport() }
             )
-            if !model.snapshot.staleRelayIDs.isEmpty || model.snapshot.failureDescription != nil {
-                SettingsCardNote(String(
-                    localized: "settings.networking.attention",
-                    defaultValue: "Your saved relay choice needs attention. Direct Iroh remains available, but cmux will not substitute an unselected relay."
-                ))
-            }
+            IrohNetworkingAttentionNote(snapshot: model.snapshot)
         }
     }
 
@@ -346,32 +352,7 @@ public struct IrohNetworkingSection: View {
     }
 
     private var runtimeStatusText: String {
-        switch model.snapshot.runtimeStatus {
-        case .inactive:
-            String(localized: "settings.networking.status.inactive", defaultValue: "Inactive")
-        case .starting:
-            String(localized: "settings.networking.status.starting", defaultValue: "Starting")
-        case .active:
-            String(localized: "settings.networking.status.active", defaultValue: "Iroh endpoint active")
-        case .direct:
-            String(localized: "settings.networking.status.direct", defaultValue: "Connected directly peer-to-peer")
-        case let .relayed(provider, region):
-            String(localized: "settings.networking.status.relayed", defaultValue: "Connected through \(provider), \(region)")
-        case let .privateNetwork(displayName):
-            if displayName.isEmpty {
-                String(
-                    localized: "settings.networking.status.private.generic",
-                    defaultValue: "Connected through a private network"
-                )
-            } else {
-                String(
-                    localized: "settings.networking.status.private",
-                    defaultValue: "Connected through \(displayName)"
-                )
-            }
-        case .degraded:
-            String(localized: "settings.networking.status.degraded", defaultValue: "Direct-only until relay settings recover")
-        }
+        networkingRuntimeStatusText(for: model.snapshot)
     }
 
     private var policyStatusText: String {

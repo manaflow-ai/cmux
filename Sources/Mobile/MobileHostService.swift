@@ -220,32 +220,6 @@ enum MobileHostRequestActivity {
     #endif
 }
 
-struct MobileHostServiceStatus {
-    let isRunning: Bool
-    let port: Int?
-    /// The preferred port from settings the listener tried to bind.
-    let configuredPort: Int
-    /// True when the listener is running on an OS-assigned ephemeral port
-    /// because the configured port could not be bound.
-    let usesEphemeralFallback: Bool
-    let routes: [CmxAttachRoute]
-    let activeConnectionCount: Int
-    let lastErrorDescription: String?
-
-    var payload: [String: Any] {
-        let now = Date()
-        return [
-            "is_running": isRunning,
-            "port": port ?? NSNull(),
-            "configured_port": configuredPort,
-            "uses_ephemeral_fallback": usesEphemeralFallback,
-            "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
-            "active_connection_count": activeConnectionCount,
-            "last_error": lastErrorDescription ?? NSNull()
-        ]
-    }
-}
-
 /// What ``MobileHostService/syncToSettings()`` should do to reconcile
 /// the live listener with the current settings. A pure value so the
 /// restart-on-port-change logic is unit-testable without a real `NWListener`.
@@ -478,19 +452,25 @@ final class MobileHostService {
     /// otherwise. Running both would reincarnate the binding in a loop.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
-        if MobileHostIrxRuntime.isEnabled {
-            MobileHostIrxRuntime.shared.configure(auth: auth)
-        } else {
-            MobileHostIrohRuntime.shared.configure(auth: auth)
-        }
+        // Both runtimes observe the same auth coordinator so a feature-flag
+        // flip while the process is alive can hand ownership to the other
+        // stack without leaving it unconfigured. Desired activity below still
+        // selects exactly one owner.
+        MobileHostIrxRuntime.shared.configure(auth: auth)
+        MobileHostIrohRuntime.shared.configure(auth: auth)
+        let irxEnabled = MobileHostIrxRuntime.isEnabled
+        MobileHostIrxRuntime.shared.setDesiredActive(irxEnabled)
+        MobileHostIrohRuntime.shared.setDesiredActive(!irxEnabled)
     }
 
     func updateIrohRoute(
         identity: CmxIrohPeerIdentity?,
+        owner: MobileHostIrohRouteOwner = .legacy,
         pathHints: [CmxIrohPathHint] = []
     ) {
         MobileHostPublicStatusCache.update(
             irohIdentity: identity,
+            owner: owner,
             pathHints: pathHints
         )
     }
@@ -1044,15 +1024,30 @@ final class MobileHostService {
             if listener == nil {
                 mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
             }
-            if plan.activatesIroh {
+            if MobileHostIrxRuntime.isEnabled, plan.activatesIroh {
+                MobileHostIrohRuntime.shared.setDesiredActive(false)
+                MobileHostIrxRuntime.shared.setDesiredActive(true)
+            } else if plan.activatesIroh {
+                MobileHostIrxRuntime.shared.setDesiredActive(false)
                 MobileHostIrohRuntime.shared.setDesiredActive(true)
+            } else {
+                MobileHostIrxRuntime.shared.setDesiredActive(false)
+                MobileHostIrohRuntime.shared.setDesiredActive(false)
             }
             return
         }
 
         CmxIrohTCPFirstActivation.start(
             startTCP: { startListener(usePreferredPort: true) },
-            scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
+            scheduleIroh: {
+                if MobileHostIrxRuntime.isEnabled {
+                    MobileHostIrohRuntime.shared.setDesiredActive(false)
+                    MobileHostIrxRuntime.shared.setDesiredActive(true)
+                } else {
+                    MobileHostIrxRuntime.shared.setDesiredActive(false)
+                    MobileHostIrohRuntime.shared.setDesiredActive(true)
+                }
+            }
         )
     }
 
@@ -1131,6 +1126,10 @@ final class MobileHostService {
     }
 
     func stop() {
+        // Stop both owners: the runtime feature flag can change while the
+        // process is alive, so branching here could leave the old endpoint
+        // bound and let the two stacks contend for one broker slot.
+        MobileHostIrxRuntime.shared.setDesiredActive(false)
         MobileHostIrohRuntime.shared.setDesiredActive(false)
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
@@ -1251,6 +1250,14 @@ final class MobileHostService {
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let isRunning = (listener != nil && listenerPort != nil)
             || MobileHostPublicStatusCache.hasIrohRoute()
+        let irxStatus = MobileHostPublicStatusCache.irxActivationStatus()
+        let legacyIrohState = MobileHostIrohRuntime.shared.publishedIrohActivationState
+        let effectiveIrxState = MobileHostIrxRuntime.isEnabled
+            ? irxStatus.state
+            : legacyIrohState
+        let brokerFailure = MobileHostIrxRuntime.isEnabled
+            ? irxStatus.failure
+            : MobileHostIrohRuntime.shared.publishedIrohBrokerFailure
         return MobileHostServiceStatus(
             isRunning: isRunning,
             port: listenerPort,
@@ -1260,7 +1267,9 @@ final class MobileHostService {
             usesEphemeralFallback: isRunning && listenerUsesEphemeralFallback,
             routes: routes,
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
-            lastErrorDescription: lastErrorDescription
+            lastErrorDescription: lastErrorDescription,
+            effectiveIrohActivationState: effectiveIrxState,
+            irohBrokerFailure: brokerFailure
         )
     }
 
@@ -1288,7 +1297,13 @@ final class MobileHostService {
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
-        MobileHostIrohRuntime.shared.setDesiredActive(true)
+        if MobileHostIrxRuntime.isEnabled {
+            MobileHostIrohRuntime.shared.setDesiredActive(false)
+            MobileHostIrxRuntime.shared.setDesiredActive(true)
+        } else {
+            MobileHostIrxRuntime.shared.setDesiredActive(false)
+            MobileHostIrohRuntime.shared.setDesiredActive(true)
+        }
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
         // reusing the applied port; a fresh start still binds the default via

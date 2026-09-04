@@ -28,7 +28,7 @@ struct CmxIrohConnectionCheckReportTests {
         let report = CmxIrohConnectionCheckReport(
             role: .mobileClient,
             snapshot: snapshot(runtimeStatus: .active, hasMac: true),
-            diagnostics: diagnosticFailure(.timedOut),
+            diagnostics: diagnosticFailure(.offline),
             relayReachability: .unreachable,
             macDiscovery: .found
         )
@@ -56,6 +56,69 @@ struct CmxIrohConnectionCheckReportTests {
         )
 
         #expect(report.recommendation == .reviewRelaySettings)
+    }
+
+    @Test
+    func unsupportedRuntimeFailureDoesNotRecommendHiddenRelaySettings() {
+        let snapshot = CmxIrohSettingsSnapshot(
+            runtimeStatus: .degraded,
+            preference: .automatic,
+            managedRelays: [],
+            customRelays: [],
+            policySource: .unavailable,
+            failureDescription: "no_credentials_issued",
+            supportsRelayConfiguration: false
+        )
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: snapshot,
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+
+        #expect(report.recommendation == .refreshAccount)
+        #expect(
+            report.stages.first { $0.kind == .relayPolicy }?.status == .notApplicable
+        )
+    }
+
+    @Test
+    func reauthenticationRequiredIsExplicitAndRecommendsSignIn() {
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: CmxIrohSettingsSnapshot(
+                runtimeStatus: .degraded,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .unavailable,
+                requiresReauthentication: true
+            ),
+            diagnostics: .empty,
+            relayReachability: .unavailable
+        )
+
+        #expect(report.recommendation == .refreshAccount)
+        #expect(report.stages.first { $0.kind == .encryptedTransport }?.status == .failed)
+    }
+
+    @Test
+    func reauthenticationOutranksAnEarlierOfflineDiagnostic() {
+        let report = CmxIrohConnectionCheckReport(
+            role: .macHost,
+            snapshot: CmxIrohSettingsSnapshot(
+                runtimeStatus: .degraded,
+                preference: .automatic,
+                managedRelays: [],
+                customRelays: [],
+                policySource: .unavailable,
+                requiresReauthentication: true
+            ),
+            diagnostics: diagnosticFailure(.offline),
+            relayReachability: .unavailable
+        )
+
+        #expect(report.recommendation == .refreshAccount)
     }
 
     @Test
