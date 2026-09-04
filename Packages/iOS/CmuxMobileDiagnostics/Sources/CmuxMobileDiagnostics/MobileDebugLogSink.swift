@@ -134,8 +134,13 @@ public actor MobileDebugLogSink {
                 continuation.yield(line)
             }
             appendToFile(line)
-            for observer in appendObservers.values {
-                observer(line)
+            // Free-text mirrors are part of the shareable export only when the
+            // verbose file itself is enabled. Structured DiagnosticLog events
+            // remain separately persisted regardless of this opt-in.
+            if fileLoggingEnabled {
+                for observer in appendObservers.values {
+                    observer(line)
+                }
             }
         }
     }
