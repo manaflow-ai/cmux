@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
+import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import {
   coderouterAccounts,
   coderouterCredentials,
@@ -283,8 +284,9 @@ export async function listEncryptedCredentials(
 export async function encryptedCredentialForAccount(
   teamId: string,
   accountId: string,
+  signal?: AbortSignal,
 ): Promise<EncryptedCredential | null> {
-  const [row] = await cloudDb()
+  const [row] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .select({
       accountId: coderouterCredentials.accountId,
       teamId: coderouterCredentials.teamId,
@@ -302,7 +304,7 @@ export async function encryptedCredentialForAccount(
       eq(coderouterCredentials.teamId, teamId),
       eq(coderouterCredentials.accountId, accountId),
     ))
-    .limit(1);
+    .limit(1));
   return row ? encryptedCredentialRow(row) : null;
 }
 
@@ -507,21 +509,26 @@ const SESSION_BINDING_LOAD_WINDOW = "6 hours";
 /** Bindings idle longer than this are pruned opportunistically. */
 const SESSION_BINDING_RETENTION = "7 days";
 
-async function sweepExpiredRefreshLeases(teamId: string): Promise<void> {
+async function sweepExpiredRefreshLeases(
+  teamId: string,
+  signal?: AbortSignal,
+): Promise<void> {
   const now = new Date();
-  await cloudDb()
-    .update(coderouterAccounts)
-    .set({
-      state: "active",
-      refreshLeaseId: null,
-      refreshLeaseExpiresAt: null,
-      updatedAt: now,
-    })
-    .where(and(
-      eq(coderouterAccounts.teamId, teamId),
-      eq(coderouterAccounts.state, "refreshing"),
-      lte(coderouterAccounts.refreshLeaseExpiresAt, now),
-    ));
+  await runWithCloudDbQuerySignal(signal, async () => {
+    await cloudDb()
+      .update(coderouterAccounts)
+      .set({
+        state: "active",
+        refreshLeaseId: null,
+        refreshLeaseExpiresAt: null,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(coderouterAccounts.teamId, teamId),
+        eq(coderouterAccounts.state, "refreshing"),
+        lte(coderouterAccounts.refreshLeaseExpiresAt, now),
+      ));
+  });
 }
 
 /**
@@ -534,6 +541,7 @@ export async function findSessionAccount(
   provider: CodeRouterProvider,
   sessionKey: string,
   excludedAccountIds: readonly string[] = [],
+  signal?: AbortSignal,
 ): Promise<RoutedAccount | null> {
   let result: unknown;
   try {
@@ -542,6 +550,7 @@ export async function findSessionAccount(
       provider,
       sessionKey,
       excludedAccountIds,
+      signal,
     );
   } catch (error) {
     // The session table's migration has not been applied yet. Route without
@@ -551,10 +560,12 @@ export async function findSessionAccount(
   }
   const [row] = databaseRows(result);
   if (!row) return null;
-  await cloudDb()
-    .update(coderouterAccounts)
-    .set({ lastUsedAt: new Date() })
-    .where(eq(coderouterAccounts.id, String(row.id)));
+  await runWithCloudDbQuerySignal(signal, async () => {
+    await cloudDb()
+      .update(coderouterAccounts)
+      .set({ lastUsedAt: new Date() })
+      .where(eq(coderouterAccounts.id, String(row.id)));
+  });
   return routedAccountRow(row);
 }
 
@@ -563,26 +574,27 @@ async function findSessionAccountStatement(
   provider: CodeRouterProvider,
   sessionKey: string,
   excludedAccountIds: readonly string[],
+  signal?: AbortSignal,
 ): Promise<unknown> {
-  return await cloudDb().execute(sql`
-    update "coderouter_session_accounts" as binding
-    set "last_seen_at" = now()
-    from "coderouter_accounts" as account
-    where binding."team_id" = ${teamId}
-      and binding."provider" = ${provider}
-      and binding."session_key" = ${sessionKey}
-      and account."id" = binding."account_id"
-      -- 'refreshing' is a healthy account with a credential refresh in
-      -- flight (seconds). Moving the session would discard its prompt
-      -- cache for no reason, so the binding stays usable.
-      and account."state" in ('active', 'refreshing')
-      and (account."cooldown_until" is null or account."cooldown_until" <= now())
-      ${accountExclusion(sql`account."id"`, excludedAccountIds)}
-    returning
-      account."id" as "id",
-      account."vault_revision" as "vaultRevision",
-      account."credential_expires_at" as "credentialExpiresAt"
-  `);
+  return await runWithCloudDbQuerySignal(signal, () => cloudDb().execute(sql`
+      update "coderouter_session_accounts" as binding
+      set "last_seen_at" = now()
+      from "coderouter_accounts" as account
+      where binding."team_id" = ${teamId}
+        and binding."provider" = ${provider}
+        and binding."session_key" = ${sessionKey}
+        and account."id" = binding."account_id"
+        -- 'refreshing' is a healthy account with a credential refresh in
+        -- flight (seconds). Moving the session would discard its prompt
+        -- cache for no reason, so the binding stays usable.
+        and account."state" in ('active', 'refreshing')
+        and (account."cooldown_until" is null or account."cooldown_until" <= now())
+        ${accountExclusion(sql`account."id"`, excludedAccountIds)}
+      returning
+        account."id" as "id",
+        account."vault_revision" as "vaultRevision",
+        account."credential_expires_at" as "credentialExpiresAt"
+    `));
 }
 
 /**
@@ -597,14 +609,15 @@ export async function claimAccountForPlacement(
   teamId: string,
   provider: CodeRouterProvider,
   excludedAccountIds: readonly string[] = [],
+  signal?: AbortSignal,
 ): Promise<RoutedAccount | null> {
   try {
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, true);
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, true, signal);
   } catch (error) {
     // The session table's migration has not been applied yet. Claim without
     // the session-load ordering term rather than failing the request.
     if (!isMissingSessionTableError(error)) throw error;
-    return await claimWithOrdering(teamId, provider, excludedAccountIds, false);
+    return await claimWithOrdering(teamId, provider, excludedAccountIds, false, signal);
   }
 }
 
@@ -613,6 +626,7 @@ async function claimWithOrdering(
   provider: CodeRouterProvider,
   excludedAccountIds: readonly string[],
   withSessionLoad: boolean,
+  signal?: AbortSignal,
 ): Promise<RoutedAccount | null> {
   // First pass skips rows other placements hold locked, so overlapping claims
   // fan out across different accounts instead of herding onto one.
@@ -622,6 +636,7 @@ async function claimWithOrdering(
     excludedAccountIds,
     true,
     withSessionLoad,
+    signal,
   );
   if (spread) return spread;
   // Every usable account was locked by a concurrent claim (or none exists).
@@ -633,6 +648,7 @@ async function claimWithOrdering(
     excludedAccountIds,
     false,
     withSessionLoad,
+    signal,
   );
 }
 
@@ -642,39 +658,40 @@ async function claimStatement(
   excludedAccountIds: readonly string[],
   skipLocked: boolean,
   withSessionLoad: boolean,
+  signal?: AbortSignal,
 ): Promise<RoutedAccount | null> {
-  const result = await cloudDb().execute(sql`
-    with candidate as (
-      select account."id"
-      from "coderouter_accounts" as account
-      where account."team_id" = ${teamId}
-        and account."provider" = ${provider}
-        and account."state" = 'active'
-        and (account."cooldown_until" is null or account."cooldown_until" <= now())
-        ${accountExclusion(sql`account."id"`, excludedAccountIds)}
-      order by
-        ${withSessionLoad
-          ? sql`(
-              select count(*)
-              from "coderouter_session_accounts" as binding
-              where binding."account_id" = account."id"
-                and binding."last_seen_at" > now() - interval '${sql.raw(SESSION_BINDING_LOAD_WINDOW)}'
-            ) asc,`
-          : sql``}
-        account."last_used_at" asc nulls first,
-        account."created_at" asc
-      limit 1
-      ${skipLocked ? sql.raw("for update of account skip locked") : sql``}
-    )
-    update "coderouter_accounts" as claimed
-    set "last_used_at" = now(), "updated_at" = now()
-    from candidate
-    where claimed."id" = candidate."id"
-    returning
-      claimed."id" as "id",
-      claimed."vault_revision" as "vaultRevision",
-      claimed."credential_expires_at" as "credentialExpiresAt"
-  `);
+  const result = await runWithCloudDbQuerySignal(signal, () => cloudDb().execute(sql`
+      with candidate as (
+        select account."id"
+        from "coderouter_accounts" as account
+        where account."team_id" = ${teamId}
+          and account."provider" = ${provider}
+          and account."state" = 'active'
+          and (account."cooldown_until" is null or account."cooldown_until" <= now())
+          ${accountExclusion(sql`account."id"`, excludedAccountIds)}
+        order by
+          ${withSessionLoad
+            ? sql`(
+                select count(*)
+                from "coderouter_session_accounts" as binding
+                where binding."account_id" = account."id"
+                  and binding."last_seen_at" > now() - interval '${sql.raw(SESSION_BINDING_LOAD_WINDOW)}'
+              ) asc,`
+            : sql``}
+          account."last_used_at" asc nulls first,
+          account."created_at" asc
+        limit 1
+        ${skipLocked ? sql.raw("for update of account skip locked") : sql``}
+      )
+      update "coderouter_accounts" as claimed
+      set "last_used_at" = now(), "updated_at" = now()
+      from candidate
+      where claimed."id" = candidate."id"
+      returning
+        claimed."id" as "id",
+        claimed."vault_revision" as "vaultRevision",
+        claimed."credential_expires_at" as "credentialExpiresAt"
+    `));
   const [row] = databaseRows(result);
   return row ? routedAccountRow(row) : null;
 }
@@ -685,25 +702,29 @@ export async function bindSessionAccount(
   provider: CodeRouterProvider,
   sessionKey: string,
   accountId: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   const db = cloudDb();
   try {
-    await db
-      .insert(coderouterSessionAccounts)
-      .values({ teamId, provider, sessionKey, accountId })
-      .onConflictDoUpdate({
-        target: [
-          coderouterSessionAccounts.teamId,
-          coderouterSessionAccounts.provider,
-          coderouterSessionAccounts.sessionKey,
-        ],
-        set: { accountId, lastSeenAt: new Date() },
-      });
-    await db.execute(sql`
-      delete from "coderouter_session_accounts"
-      where "team_id" = ${teamId}
-        and "last_seen_at" < now() - interval '${sql.raw(SESSION_BINDING_RETENTION)}'
-    `);
+    await runWithCloudDbQuerySignal(signal, async () => {
+      await db
+        .insert(coderouterSessionAccounts)
+        .values({ teamId, provider, sessionKey, accountId })
+        .onConflictDoUpdate({
+          target: [
+            coderouterSessionAccounts.teamId,
+            coderouterSessionAccounts.provider,
+            coderouterSessionAccounts.sessionKey,
+          ],
+          set: { accountId, lastSeenAt: new Date() },
+        });
+      throwIfAborted(signal);
+      await db.execute(sql`
+        delete from "coderouter_session_accounts"
+        where "team_id" = ${teamId}
+          and "last_seen_at" < now() - interval '${sql.raw(SESSION_BINDING_RETENTION)}'
+      `);
+    });
   } catch (error) {
     // The session table's migration has not been applied yet. Skip the pin
     // rather than failing the request; routing degrades to the legacy
@@ -755,24 +776,31 @@ export function createSessionAccountSelector(
   provider: CodeRouterProvider;
   sessionKey: string | null;
   excludedAccountIds?: readonly string[];
+  signal?: AbortSignal;
 }) => Promise<StickyRoutedAccount | null> {
   return async (input) => {
+    throwIfAborted(input.signal);
     const excluded = input.excludedAccountIds ?? [];
-    await dependencies.sweepLeases(input.teamId);
+    await dependencies.sweepLeases(input.teamId, input.signal);
+    throwIfAborted(input.signal);
     if (input.sessionKey) {
       const bound = await dependencies.findBound(
         input.teamId,
         input.provider,
         input.sessionKey,
         excluded,
+        input.signal,
       );
+      throwIfAborted(input.signal);
       if (bound) return { ...bound, sticky: true };
     }
     const placed = await dependencies.claim(
       input.teamId,
       input.provider,
       excluded,
+      input.signal,
     );
+    throwIfAborted(input.signal);
     if (!placed) return null;
     if (input.sessionKey) {
       await dependencies.bind(
@@ -780,10 +808,17 @@ export function createSessionAccountSelector(
         input.provider,
         input.sessionKey,
         placed.id,
+        input.signal,
       );
+      throwIfAborted(input.signal);
     }
     return { ...placed, sticky: false };
   };
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
 }
 
 export const selectAccountForSession = createSessionAccountSelector({
@@ -797,9 +832,14 @@ export async function selectAccountForRequest(
   teamId: string,
   provider: CodeRouterProvider,
   excludedAccountIds: readonly string[] = [],
+  signal?: AbortSignal,
 ): Promise<RoutedAccount | null> {
-  await sweepExpiredRefreshLeases(teamId);
-  return await claimAccountForPlacement(teamId, provider, excludedAccountIds);
+  throwIfAborted(signal);
+  await sweepExpiredRefreshLeases(teamId, signal);
+  throwIfAborted(signal);
+  const account = await claimAccountForPlacement(teamId, provider, excludedAccountIds, signal);
+  throwIfAborted(signal);
+  return account;
 }
 
 function accountExclusion(
@@ -833,24 +873,26 @@ function databaseRows(result: unknown): readonly Record<string, unknown>[] {
 export async function markAccountCooldown(
   accountId: string,
   durationMs: number,
+  signal?: AbortSignal,
 ): Promise<void> {
   const bounded = Math.min(Math.max(durationMs, 1_000), 7 * 24 * 60 * 60 * 1_000);
-  await cloudDb()
+  await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       cooldownUntil: new Date(Date.now() + bounded),
       lastFailureCode: "rate_limited",
       updatedAt: new Date(),
     })
-    .where(eq(coderouterAccounts.id, accountId));
+    .where(eq(coderouterAccounts.id, accountId)));
 }
 
 export async function claimRefreshLease(
   accountId: string,
   now = new Date(),
+  signal?: AbortSignal,
 ): Promise<string | null> {
   const leaseId = randomUUID();
-  const [claimed] = await cloudDb()
+  const [claimed] = await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       state: "refreshing",
@@ -865,7 +907,7 @@ export async function claimRefreshLease(
         lte(coderouterAccounts.refreshLeaseExpiresAt, now),
       ),
     ))
-    .returning({ id: coderouterAccounts.id });
+    .returning({ id: coderouterAccounts.id }));
   return claimed ? leaseId : null;
 }
 
@@ -875,8 +917,9 @@ export async function completeRefreshLease(input: {
   readonly expectedRevision: number;
   readonly credential: CodeRouterCredential;
   readonly encrypted: EncryptedCredential;
+  readonly signal?: AbortSignal;
 }): Promise<void> {
-  await cloudDb().transaction(async (tx) => {
+  await runWithCloudDbQuerySignal(input.signal, () => cloudDb().transaction(async (tx) => {
     const [updatedCredential] = await tx
       .update(coderouterCredentials)
       .set({
@@ -911,14 +954,15 @@ export async function completeRefreshLease(input: {
     if (!completed) {
       throw new CodeRouterCredentialRace("credential refresh lost lease");
     }
-  });
+  }));
 }
 
 export async function releaseRefreshLease(
   accountId: string,
   leaseId: string,
+  signal?: AbortSignal,
 ): Promise<void> {
-  await cloudDb()
+  await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       state: "active",
@@ -930,7 +974,7 @@ export async function releaseRefreshLease(
     .where(and(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
-    ));
+    )));
 }
 
 export async function failRefreshLease(
@@ -938,8 +982,9 @@ export async function failRefreshLease(
   leaseId: string,
   terminal: boolean,
   code: string,
+  signal?: AbortSignal,
 ): Promise<void> {
-  await cloudDb()
+  await runWithCloudDbQuerySignal(signal, () => cloudDb()
     .update(coderouterAccounts)
     .set({
       state: terminal ? "broken" : "active",
@@ -951,7 +996,7 @@ export async function failRefreshLease(
     .where(and(
       eq(coderouterAccounts.id, accountId),
       eq(coderouterAccounts.refreshLeaseId, leaseId),
-    ));
+    )));
 }
 
 export async function withVaultLease<T>(

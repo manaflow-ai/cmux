@@ -21,6 +21,7 @@ struct MachineCreateCoordinatorTests {
         var progressHandlers: [@MainActor (String) -> Void] = []
         var completions: [@MainActor (CloudVMActionLauncher.Completion) -> Void] = []
         var starts = true
+        var cancellations = 0
 
         var launch: MachineCreateCoordinator.Launch {
             { [self] arguments, progress, completion in
@@ -29,6 +30,18 @@ struct MachineCreateCoordinatorTests {
                 progressHandlers.append(progress)
                 completions.append(completion)
                 return true
+            }
+        }
+
+        var cancellableLaunch: MachineCreateCoordinator.CancellableLaunch {
+            { [self] arguments, progress, completion in
+                self.arguments.append(arguments)
+                guard starts else { return nil }
+                progressHandlers.append(progress)
+                completions.append(completion)
+                return CloudVMActionLauncher.CancellationHandle {
+                    self.cancellations += 1
+                }
             }
         }
 
@@ -178,6 +191,28 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operations.first?.isSuperseded(by: [machine], catalogMachines: []) == true)
     }
 
+    @Test func markerAtTheStartOfALargeProgressCallbackIsNotDropped() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let largeChunk = "OK machine=calm-petrel\n" + String(repeating: "progress ", count: 5_000)
+
+        launches.progressHandlers[0](largeChunk)
+
+        #expect(coordinator.operations.first?.createdMachineID == "calm-petrel")
+    }
+
+    @Test func launchRegistryDoesNotLetAStalePIDCallbackRemoveTheReplacement() {
+        var registry = CloudVMActionLauncher.LaunchRegistry<String>()
+        let oldLaunch = UUID()
+        let replacementLaunch = UUID()
+        registry.insert("old", processID: 42, launchID: oldLaunch)
+        registry.insert("replacement", processID: 42, launchID: replacementLaunch)
+
+        #expect(registry.remove(processID: 42, launchID: oldLaunch) == nil)
+        #expect(registry.entry(processID: 42)?.value == "replacement")
+        #expect(registry.remove(processID: 42, launchID: replacementLaunch) == "replacement")
+    }
+
     // MARK: Success
 
     @Test func successDropsTheRowAndTellsThePersonWhereTheMachineOpened() {
@@ -269,6 +304,41 @@ struct MachineCreateCoordinatorTests {
         #expect(changes.changes == 3, "start, failure, dismiss")
     }
 
+    @Test func runningCreateCanBeCancelledAndLateCompletionCleansUpCreatedMachine() {
+        let center = NotificationCenter()
+        let launches = LaunchRecorder()
+        let notices = NoticeRecorder()
+        var cleanedMachineIDs: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { notices.notices.append($0) },
+            notificationCenter: center,
+            cancelCreatedMachine: { cleanedMachineIDs.append($0) }
+        )
+        let request = Self.newMachineRequest(name: "cancel me")
+
+        #expect(coordinator.start(request, cancellableLaunch: launches.cancellableLaunch))
+        let id = coordinator.operations[0].id
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+
+        coordinator.cancel(id)
+
+        #expect(coordinator.operations.isEmpty, "Cancel removes the pending row immediately")
+        #expect(launches.cancellations == 1, "Cancel terminates the in-flight CLI")
+        #expect(cleanedMachineIDs == ["calm-petrel"], "A machine announced before cancellation is destroyed")
+
+        // A process can report its final bytes after the row is gone. They must not
+        // recreate the row or post a misleading success notification.
+        launches.completions[0](CloudVMActionLauncher.Completion(
+            terminationStatus: 0,
+            output: "OK machine=calm-petrel",
+            workspaceId: nil,
+            machineId: "calm-petrel"
+        ))
+        #expect(coordinator.operations.isEmpty)
+        #expect(notices.notices.isEmpty)
+        #expect(cleanedMachineIDs == ["calm-petrel"], "Late completion is reconciled exactly once")
+    }
+
     @Test func retryThatCannotLaunchReportsInline() {
         let (coordinator, launches, _, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
@@ -306,6 +376,22 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.isFailure == true)
         #expect(notice?.title == "calm-petrel was created, but opening it failed")
         #expect(notice?.body == "attach failed (HTTP 502)\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
+    }
+
+    @Test func completionWithoutMachineIDUsesTheProgressMarker() {
+        let (coordinator, launches, _, changes, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+
+        launches.complete(status: 1, output: "Error: attach failed")
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
+            machineID: "calm-petrel",
+            output: "Error: attach failed"
+        ))
+        #expect(!coordinator.retry(id), "a machine already announced by progress must not be created again")
     }
 
     /// An older bundled CLI without the `machine=` token still classifies via
@@ -375,6 +461,35 @@ struct MachineCreateCoordinatorTests {
         launches.complete(status: 0, output: "Opened Base base-1")
         #expect(coordinator.operations.isEmpty)
         #expect(notices.notices.isEmpty, "the account this belonged to is gone; nobody to tell")
+    }
+
+    @Test func signOutRetainsCreateTombstoneForLateMachineCleanup() {
+        let center = NotificationCenter()
+        let launches = LaunchRecorder()
+        var cleanedMachineIDs: [String] = []
+        let coordinator = MachineCreateCoordinator(
+            notifier: { _ in },
+            notificationCenter: center,
+            cancelCreatedMachine: { cleanedMachineIDs.append($0) }
+        )
+
+        #expect(coordinator.start(Self.newMachineRequest(), cancellableLaunch: launches.cancellableLaunch))
+        launches.progressHandlers[0]("OK machine=late-box\n")
+        center.post(name: .cmuxCloudVMAccessDidEnd, object: nil)
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(cleanedMachineIDs == ["late-box"], "known machine is cleaned before auth state is cleared")
+
+        // The process can flush the same marker after sign-out. The retained
+        // tombstone reconciles it without resurrecting a row or issuing a
+        // duplicate delete.
+        launches.completions[0](CloudVMActionLauncher.Completion(
+            terminationStatus: 1,
+            output: "OK machine=late-box",
+            workspaceId: nil,
+            machineId: "late-box"
+        ))
+        #expect(cleanedMachineIDs == ["late-box"])
     }
 }
 
