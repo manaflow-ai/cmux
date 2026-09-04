@@ -18,6 +18,7 @@ type ReporterDependencies = {
 export class RateLimitRuleReporter {
   private readonly claim: (key: string) => Promise<"claimed" | "duplicate" | "unavailable">;
   private readonly report: typeof reportError;
+  private readonly inFlight = new Map<string, Promise<void>>();
 
   constructor(dependencies: ReporterDependencies = {}) {
     this.claim = dependencies.claim ?? claimAlert;
@@ -28,32 +29,39 @@ export class RateLimitRuleReporter {
     if (process.env.VERCEL_ENV !== "production") return;
 
     const key = `${input.route}:${input.reason}`;
-    const work = async () => {
-      const result = await this.claim(key);
-      if (result === "unavailable") {
-        console.error("cmux.rate_limit.alert_dedupe_unavailable", {
-          route: input.route,
-          reason: input.reason,
-        });
-        return;
-      }
-      if (result === "duplicate") return;
-      this.report(
-        new Error("Vercel firewall rate-limit rule is missing"),
-        { subsystem: "rate_limit", route: input.route, reason: input.reason },
-        {
-          level: "warning",
-          fingerprint: ["cmux-rate-limit-rule-missing", input.route],
-          tags: { subsystem: "rate_limit", route: input.route, reason: input.reason },
-        },
-      );
-    };
+    if (this.inFlight.has(key)) return;
+    const work = this.run(input, key);
+    this.inFlight.set(key, work);
+    const finished = work.finally(() => {
+      this.inFlight.delete(key);
+    });
 
     try {
-      after(work);
+      after(() => finished);
     } catch {
-      void work();
+      void finished;
     }
+  }
+
+  private async run(input: AlertInput, key: string): Promise<void> {
+    const result = await this.claim(key);
+    if (result === "unavailable") {
+      console.error("cmux.rate_limit.alert_dedupe_unavailable", {
+        route: input.route,
+        reason: input.reason,
+      });
+      return;
+    }
+    if (result === "duplicate") return;
+    this.report(
+      new Error("Vercel firewall rate-limit rule is missing"),
+      { subsystem: "rate_limit", route: input.route, reason: input.reason },
+      {
+        level: "warning",
+        fingerprint: ["cmux-rate-limit-rule-missing", input.route],
+        tags: { subsystem: "rate_limit", route: input.route, reason: input.reason },
+      },
+    );
   }
 }
 
