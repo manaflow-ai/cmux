@@ -360,6 +360,41 @@ struct ReopenLastClosedTests {
         ])
     }
 
+    /// Restoring a later duplicate ID removes the selected record, not the earlier duplicate.
+    @Test
+    func restoringDuplicateIDsRemovesTheSelectedRecordPosition() throws {
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelSnapshot = try #require(
+            workspace.sessionSnapshot(includeScrollback: false).panels.first
+        )
+        let duplicateID = UUID()
+        let store = ClosedItemHistoryStore(capacity: 10, loadPersisted: false)
+        store.push(panelRecord(
+            id: duplicateID,
+            title: "Older Duplicate",
+            closedAt: 1,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+        store.push(panelRecord(
+            id: duplicateID,
+            title: "Newer Duplicate",
+            closedAt: 2,
+            workspace: workspace,
+            snapshot: panelSnapshot
+        ))
+
+        var restoredTitle: String?
+        #expect(store.restoreFirstRestorable { entry in
+            guard case .panel(let panelEntry) = entry else { return false }
+            restoredTitle = panelEntry.snapshot.customTitle
+            return true
+        })
+        #expect(restoredTitle == "Newer Duplicate")
+        #expect(store.menuSnapshot().items.map(\.title) == ["Older Duplicate"])
+    }
+
     /// Builds a panel history fixture with a deterministic close timestamp.
     private func panelRecord(
         id: UUID = UUID(),
