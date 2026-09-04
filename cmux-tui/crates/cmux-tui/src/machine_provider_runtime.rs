@@ -115,7 +115,15 @@ impl ProviderCloseWorker {
                                     stopping = true;
                                     continue;
                                 }
-                                recv(wake_receiver) -> _ => continue,
+                                recv(wake_receiver) -> _ => {
+                                    let next = pending.lock().ok().and_then(|mut pending| {
+                                        let key = pending.keys().next().copied()?;
+                                        let close = pending.remove(&key)?;
+                                        Some(close)
+                                    });
+                                    let Some(close) = next else { continue };
+                                    close
+                                }
                                 recv(receiver) -> close => match close {
                                     Ok(close) => close,
                                     Err(_) => break,
