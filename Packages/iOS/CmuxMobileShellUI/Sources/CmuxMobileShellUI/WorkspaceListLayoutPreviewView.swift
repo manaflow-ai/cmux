@@ -46,7 +46,7 @@ private final class WorkspaceListLayoutPreviewModel {
     func runLiveUpdates() async {
         guard liveUpdateMode != .off else { return }
         var updateLane = 0
-        var updateGeneration = 0
+        var updateGenerationByLane = Array(repeating: 0, count: 10)
         while !Task.isCancelled {
             do {
                 try await Task.sleep(for: .milliseconds(80))
@@ -60,7 +60,7 @@ private final class WorkspaceListLayoutPreviewModel {
                     workspaces[index].previewAt = Date()
                     workspaces[index].lastActivityAt = Date()
                     if liveUpdateMode == .agentSessions {
-                        let completed = updateGeneration.isMultiple(of: 2)
+                        let completed = updateGenerationByLane[updateLane].isMultiple(of: 2)
                         workspaces[index].customDescription = completed
                             ? "Agent session \(index) completed"
                             : nil
@@ -90,8 +90,8 @@ private final class WorkspaceListLayoutPreviewModel {
                     workspaces[index].lastActivityAt = restamped
                 }
             }
+            updateGenerationByLane[updateLane] += 1
             updateLane = (updateLane + 1) % 10
-            updateGeneration += 1
         }
     }
 
