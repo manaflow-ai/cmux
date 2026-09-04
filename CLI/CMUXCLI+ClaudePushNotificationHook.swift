@@ -74,7 +74,9 @@ extension CMUXCLI {
         // change: the agent is usually still running when it fires, and a
         // push must not flip a running pane to "Needs input".
         let payload = notificationPayload(title: title, subtitle: "", body: pushMessage)
-        _ = try sendV1Command("notify_target_async \(workspaceId) \(surfaceId) \(payload)", client: client)
+        _ = try sendV1Command(try semanticNotificationCommand(source: "claude", agentKey: Self.claudeCodeStatusKey,
+            sessionId: parsedInput.sessionId, workspaceId: workspaceId, surfaceId: surfaceId,
+            kind: .messagePublished, rawObject: parsedInput.rawObject, payload: payload), client: client)
         printClaudeHookAck()
     }
 

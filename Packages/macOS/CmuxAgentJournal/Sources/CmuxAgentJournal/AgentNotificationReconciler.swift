@@ -40,6 +40,12 @@ public struct AgentNotificationReconciler: Sendable {
         let sessionKey = Self.key([draft.source, sessionID])
         var session = sessions[sessionKey] ?? Session()
         let context = draft.attention
+        if draft.kind == .stateChanged, draft.declaredPhase == nil { return .init(.observation) }
+        if draft.kind == .messagePublished {
+            guard context?.notification != nil else { return .init(.observation) }
+            let key = context?.requestIdentity ?? context?.eventIdentity ?? draft.eventId
+            return .init(.accepted, identity: Self.key([sessionKey, "message", key]))
+        }
         let incomingTurn = context?.turnIdentity
         if [.approvalRequested, .questionRequested, .planReviewRequested].contains(draft.kind),
            let request = context?.requestIdentity, session.resolvedRequests.contains(request) {
@@ -86,6 +92,8 @@ public struct AgentNotificationReconciler: Sendable {
         }
         let previousPhase = session.phase
         switch draft.kind {
+        case .messagePublished:
+            return .init(.observation)
         case .sessionStarted:
             session.ended = false
         case .turnStarted:

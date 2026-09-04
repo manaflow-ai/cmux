@@ -15,6 +15,7 @@ extension AgentJournalLifecycleCenter {
         reducer: AgentLifecycleReducer,
         state: inout AgentLifecycleReducerState
     ) -> LifecycleApplication? {
+        guard event.kind != .messagePublished else { return nil }
         let canonical = canonicalized(event, aliases: aliases)
         reducer.apply(canonical, to: &state)
         guard canonical.draft.unattributedReason == nil else {

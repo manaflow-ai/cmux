@@ -131,4 +131,22 @@ struct AgentNotificationReconcilerTests {
         #expect(lateStart.invalidatedCorrelationKeys.isEmpty)
         #expect(reconciler.apply(event(3, .approvalRequested, source: source, request: "r1")).identity == approval.identity)
     }
+    @Test(arguments: ["claude", "codex"])
+    func observationsDoNotInvalidateCompletion(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        _ = reconciler.apply(event(1, .turnStarted, source: source, notify: false))
+        _ = reconciler.apply(event(3, .stateChanged, source: source, notify: false, occurredAt: 30))
+        #expect(reconciler.apply(event(2, .turnCompleted, source: source, occurredAt: 20)).disposition == .accepted)
+    }
+
+    @Test(arguments: ["claude", "codex"])
+    func explicitMessageIsIdempotentAndDoesNotSettleTheTurn(source: String) {
+        var reconciler = AgentNotificationReconciler()
+        let start = event(1, .turnStarted, source: source, notify: false)
+        _ = reconciler.apply(start)
+        let message = reconciler.apply(event(2, .messagePublished, source: source, request: "push"))
+        #expect(message.disposition == .accepted)
+        #expect(reconciler.apply(event(3, .messagePublished, source: source, request: "push")).identity == message.identity)
+        #expect(reconciler.apply(event(4, .turnCompleted, source: source)).identity != message.identity)
+    }
 }

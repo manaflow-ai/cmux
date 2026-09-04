@@ -4545,7 +4545,7 @@ struct CMUXCLI {
         return parts.joined(separator: " · ")
     }
 
-    private static let claudeCodeStatusKey = "claude_code"
+    static let claudeCodeStatusKey = "claude_code"
 
     private static func agentNotificationMeta(
         category: AgentHookNotifyCategory,
@@ -35107,9 +35107,11 @@ export default CMUXSessionRestore;
                         body: pendingBody,
                         meta: pendingMeta
                     )
-                    sendCursorCriticalCommand(
-                        "notify_target_async \(workspaceId) \(surfaceId) \(pendingPayload)"
-                    )
+                    if let command = try? semanticNotificationCommand(source: def.name, agentKey: def.statusKey,
+                        sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId,
+                        kind: .approvalRequested, rawObject: input.rawObject, payload: pendingPayload) {
+                        sendCursorCriticalCommand(command)
+                    }
                     return
                 }
 

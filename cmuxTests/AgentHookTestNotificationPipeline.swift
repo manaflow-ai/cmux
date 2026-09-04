@@ -47,11 +47,13 @@ final class AgentHookTestNotificationPipeline {
     private static func presentation(_ draft: AgentJournalEventDraft) -> String? {
         guard let candidate = draft.attention?.notification,
               let workspace = draft.workspaceId, let surface = draft.surfaceId else { return nil }
+        let base = "notify_target_async \(workspace) \(surface) \(candidate.title)|\(candidate.subtitle)|\(candidate.body)"
+        if draft.kind == .messagePublished { return base }
         var meta = "c=\(candidate.category);p=\(draft.pendingWork ? 1 : 0);a=\(draft.source);n=\(draft.isSubagent ? 1 : 0)"
         let sound = draft.kind == .errorReported ? "errorStalled"
             : candidate.category == "turn-complete" ? "turnDone" : "needsInput"
         meta += ";s=\(sound)"
         if let key = candidate.correlationKey { meta += ";k=\(key)" }
-        return "notify_target_async \(workspace) \(surface) \(candidate.title)|\(candidate.subtitle)|\(candidate.body)|\(meta)"
+        return base + "|" + meta
     }
 }

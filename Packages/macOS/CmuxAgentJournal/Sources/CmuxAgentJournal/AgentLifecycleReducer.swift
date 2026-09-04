@@ -105,7 +105,7 @@ public struct AgentLifecycleReducer: Sendable {
             // state-changed events are observations.
             guard let declared = draft.declaredPhase else { return nil }
             return (declared, previous?.ended ?? false)
-        case .childSpawned, .childCompleted, .childFailed:
+        case .childSpawned, .childCompleted, .childFailed, .messagePublished:
             return nil
         }
     }

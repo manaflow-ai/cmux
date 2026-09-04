@@ -18,6 +18,9 @@ extension CMUXCLI {
         var context = Self.semanticAttentionContext(rawObject)
         context.notification = AgentJournalNotification(title: fields[0], subtitle: fields[1], body: fields[2],
             category: category, correlationKey: meta.first { $0.hasPrefix("k=") }.map { String($0.dropFirst(2)) })
+        if let correlationKey = context.notification?.correlationKey {
+            context.requestIdentity = correlationKey
+        }
         let draft = AgentJournalEventDraft(kind: kind,
             occurredAtMs: Self.semanticOccurredAtMs(rawObject) ?? Int64(Date().timeIntervalSince1970 * 1000),
             source: source, agentKey: agentKey, sessionId: sessionId,
