@@ -1,5 +1,40 @@
 public import Foundation
 
+/// The shape of a Cloud machine. The server maps this to its current image
+/// manifest, so the phone never needs to know provider-specific image IDs.
+public enum CloudMachineKind: String, CaseIterable, Sendable, Equatable {
+    /// A shell-only machine that boots quickly and uses fewer resources.
+    case base
+    /// A machine with the desktop image, when the provider offers one.
+    case desktop
+}
+
+/// Options accepted by `POST /api/vm` when creating a Cloud machine.
+public struct CloudMachineCreateOptions: Sendable, Equatable {
+    public var kind: CloudMachineKind
+    public var provider: String?
+    public var image: String?
+    public var persistentHome: Bool
+    public var perMachineHome: Bool
+    public var memoryMb: Int?
+
+    public init(
+        kind: CloudMachineKind = .base,
+        provider: String? = nil,
+        image: String? = nil,
+        persistentHome: Bool = false,
+        perMachineHome: Bool = false,
+        memoryMb: Int? = nil
+    ) {
+        self.kind = kind
+        self.provider = provider
+        self.image = image
+        self.persistentHome = persistentHome
+        self.perMachineHome = perMachineHome
+        self.memoryMb = memoryMb
+    }
+}
+
 /// One Cloud VM as listed by `GET /api/vm`.
 ///
 /// Only the fields the phone shows are decoded; the id doubles as the address

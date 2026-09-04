@@ -16,6 +16,9 @@ import Testing
 
     final class ScriptedService: CloudVMServing, @unchecked Sendable {
         func listMachines() async throws -> [CloudMachine] { [] }
+        func createMachine(options _: CloudMachineCreateOptions, idempotencyKey _: String) async throws -> CloudMachine {
+            throw StubError(message: "unused")
+        }
         func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, deviceName: String?) async throws -> CloudTunnelEnrollment { throw StubError(message: "unused") }
         func openAttach(machineID: String, deviceFingerprint: String) async throws -> CloudAttachEndpoint {
             CloudAttachEndpoint(route: "ws://h/v1/link", session: "s")

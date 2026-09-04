@@ -21,10 +21,37 @@ public struct CloudAPIRequestBuilder: Sendable, Equatable {
 
     /// Attach can wait on the daemon coming up, so it gets a longer deadline.
     public static let attachTimeout: TimeInterval = 90
+    /// VM provisioning can include provider boot and image setup.
+    public static let createTimeout: TimeInterval = 16 * 60
 
     /// `GET /api/vm`.
     public func listMachines(accessToken: String, refreshToken: String) throws -> URLRequest {
         try request("GET", path: "/api/vm", body: nil, accessToken: accessToken, refreshToken: refreshToken)
+    }
+
+    /// `POST /api/vm` with the same options the Mac client sends.
+    public func createMachine(
+        options: CloudMachineCreateOptions,
+        idempotencyKey: String,
+        accessToken: String,
+        refreshToken: String
+    ) throws -> URLRequest {
+        let key = idempotencyKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { throw CloudAPIError.invalidURL("empty VM create idempotency key") }
+        var body: [String: Any] = ["kind": options.kind.rawValue]
+        if let provider = options.provider?.trimmingCharacters(in: .whitespacesAndNewlines), !provider.isEmpty {
+            body["provider"] = provider
+        }
+        if let image = options.image?.trimmingCharacters(in: .whitespacesAndNewlines), !image.isEmpty {
+            body["image"] = image
+        }
+        if options.persistentHome { body["persistentHome"] = true }
+        if options.perMachineHome { body["perMachineHome"] = true }
+        if let memoryMb = options.memoryMb { body["memoryMb"] = memoryMb }
+        var request = try request("POST", path: "/api/vm", body: body, accessToken: accessToken, refreshToken: refreshToken)
+        request.setValue(key, forHTTPHeaderField: "Idempotency-Key")
+        request.timeoutInterval = Self.createTimeout
+        return request
     }
 
     /// `POST /api/vm/tunnel` with this device's public key and fingerprint.

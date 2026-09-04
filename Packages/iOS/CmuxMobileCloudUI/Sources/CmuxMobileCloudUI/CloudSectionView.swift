@@ -14,6 +14,7 @@ import SwiftUI
 /// the enclosing ``CloudFlowView``'s appearance and the scene phase (5A).
 public struct CloudSectionView: View {
     @State private var controller: CloudSessionController
+    @State private var isCreateSheetPresented = false
 
     /// Creates the section over a session controller.
     public init(controller: CloudSessionController) {
@@ -29,6 +30,9 @@ public struct CloudSectionView: View {
         .navigationTitle(L10n.string("mobile.cloud.title", defaultValue: "Cloud"))
         .navigationBarTitleDisplayMode(.inline)
         .refreshable { controller.refreshMachines() }
+        .sheet(isPresented: $isCreateSheetPresented) {
+            CloudCreateMachineSheet(controller: controller)
+        }
     }
 
     @ViewBuilder
@@ -61,7 +65,7 @@ public struct CloudSectionView: View {
                 Section { loadingRow }
             } else if machines.isEmpty {
                 Section {
-                    Text(L10n.string("mobile.cloud.empty", defaultValue: "No cloud machines yet. Create one from cmux on your Mac or the web app."))
+                    Text(L10n.string("mobile.cloud.empty", defaultValue: "No cloud machines yet."))
                         .foregroundStyle(.secondary)
                         .accessibilityIdentifier("CloudMachinesEmpty")
                 }
@@ -79,8 +83,23 @@ public struct CloudSectionView: View {
                     Section { CloudFailureRow(failure: failure, retry: { controller.refreshMachines() }) }
                 }
             }
+            createMachineSection
         default:
             EmptyView()
+        }
+    }
+
+    private var createMachineSection: some View {
+        Section {
+            Button {
+                isCreateSheetPresented = true
+            } label: {
+                Label(
+                    L10n.string("mobile.cloud.machines.new", defaultValue: "New cloud machine"),
+                    systemImage: "plus"
+                )
+            }
+            .accessibilityIdentifier("CloudCreateMachineButton")
         }
     }
 
@@ -91,6 +110,94 @@ public struct CloudSectionView: View {
                 .foregroundStyle(.secondary)
         }
         .accessibilityIdentifier("CloudMachinesLoading")
+    }
+}
+
+/// A small create form. The backend remains the source of truth for team,
+/// provider, image, and billing checks; the phone only chooses the machine
+/// shape and sends the request when the user confirms.
+struct CloudCreateMachineSheet: View {
+    let controller: CloudSessionController
+    @Environment(\.dismiss) private var dismiss
+    @State private var kind: CloudMachineKind = .base
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker(
+                        L10n.string("mobile.cloud.create.kind", defaultValue: "Type"),
+                        selection: $kind
+                    ) {
+                        ForEach(CloudMachineKind.allCases, id: \.self) { kind in
+                            Text(kindTitle(kind)).tag(kind)
+                        }
+                    }
+                    .accessibilityIdentifier("CloudCreateMachineKind")
+                    Text(kindDescription(kind))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Button {
+                        Task {
+                            let created = await controller.createMachine(options: .init(kind: kind))
+                            if created != nil { dismiss() }
+                        }
+                    } label: {
+                        HStack {
+                            Text(L10n.string("mobile.cloud.create.submit", defaultValue: "Create machine"))
+                            if controller.isCreatingMachine {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(controller.isCreatingMachine)
+                    .accessibilityIdentifier("CloudCreateMachineSubmit")
+
+                    if let failure = controller.lastCreateFailure {
+                        Text(failure.localizedMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                        Text(failure.detail)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                            .accessibilityIdentifier("CloudCreateMachineFailure")
+                    }
+                } footer: {
+                    Text(L10n.string(
+                        "mobile.cloud.create.wait",
+                        defaultValue: "Provisioning can take a few minutes. You can leave this screen and check the machine list later."
+                    ))
+                }
+            }
+            .navigationTitle(L10n.string("mobile.cloud.create.title", defaultValue: "New cloud machine"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(L10n.string("mobile.cloud.cancel", defaultValue: "Cancel")) { dismiss() }
+                        .disabled(controller.isCreatingMachine)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func kindTitle(_ kind: CloudMachineKind) -> String {
+        switch kind {
+        case .base: return L10n.string("mobile.cloud.create.base", defaultValue: "Base, terminal only")
+        case .desktop: return L10n.string("mobile.cloud.create.desktop", defaultValue: "Desktop, terminal plus screen")
+        }
+    }
+
+    private func kindDescription(_ kind: CloudMachineKind) -> String {
+        switch kind {
+        case .base: return L10n.string("mobile.cloud.create.base.description", defaultValue: "Starts faster and uses less memory.")
+        case .desktop: return L10n.string("mobile.cloud.create.desktop.description", defaultValue: "Includes a desktop for GUI apps and browser work.")
+        }
     }
 }
 

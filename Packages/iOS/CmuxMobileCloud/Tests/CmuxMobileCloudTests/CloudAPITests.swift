@@ -19,6 +19,32 @@ import Testing
         #expect(request.httpBody == nil)
     }
 
+    @Test func createSendsKindRetryKeyAndOptionalSettings() throws {
+        let request = try builder.createMachine(
+            options: .init(kind: .desktop, perMachineHome: true, memoryMb: 20480),
+            idempotencyKey: "create-1",
+            accessToken: "acc",
+            refreshToken: "ref"
+        )
+        #expect(request.url?.path == "/api/vm")
+        #expect(request.httpMethod == "POST")
+        #expect(request.timeoutInterval == CloudAPIRequestBuilder.createTimeout)
+        #expect(request.value(forHTTPHeaderField: "Idempotency-Key") == "create-1")
+        let json = try body(request)
+        #expect(json["kind"] as? String == "desktop")
+        #expect(json["perMachineHome"] as? Bool == true)
+        #expect(json["memoryMb"] as? Int == 20480)
+        #expect(json["persistentHome"] == nil)
+    }
+
+    @Test func createRejectsAnEmptyRetryKey() {
+        #expect(throws: CloudAPIError.self) {
+            try builder.createMachine(
+                options: .init(), idempotencyKey: "  ", accessToken: "a", refreshToken: "r"
+            )
+        }
+    }
+
     @Test func enrollSendsOnlyThePublicKey() throws {
         let request = try builder.enrollTunnel(
             clientPublicKey: "pub", deviceFingerprint: "ios-1", deviceName: "  ",
@@ -74,6 +100,11 @@ import Testing
         #expect(machines[0].preferredName == "dev")
         #expect(machines[1].preferredName == "vm2")
         #expect(machines[0].isRunning)
+    }
+
+    @Test func decodesCreatedMachine() throws {
+        let machine = try decoding.createdMachine(from: Data(#"{"id":"vm-new","provider":"freestyle","status":"provisioning","displayName":"phone"}"#.utf8))
+        #expect(machine == CloudMachine(id: "vm-new", provider: "freestyle", status: "provisioning", displayName: "phone"))
     }
 
     @Test func rejectsMachinesWithoutID() {

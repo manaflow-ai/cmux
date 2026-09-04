@@ -30,6 +30,17 @@ public actor CloudVMService: CloudVMServing {
         return try decoding.machines(from: data)
     }
 
+    public func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
+        let (access, refresh) = try await credentials()
+        let data = try await send(requests.createMachine(
+            options: options,
+            idempotencyKey: idempotencyKey,
+            accessToken: access,
+            refreshToken: refresh
+        ))
+        return try decoding.createdMachine(from: data)
+    }
+
     public func enrollTunnel(
         clientPublicKey: String,
         deviceFingerprint: String,

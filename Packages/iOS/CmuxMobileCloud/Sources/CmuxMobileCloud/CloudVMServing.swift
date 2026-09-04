@@ -6,6 +6,9 @@ public import Foundation
 public protocol CloudVMServing: Sendable {
     /// The account's machines.
     func listMachines() async throws -> [CloudMachine]
+    /// Create a machine through the existing `/api/vm` control-plane endpoint.
+    /// The idempotency key makes a retry safe for paid provider creates.
+    func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine
     /// Enroll this device's WireGuard peer. Idempotent per fingerprint.
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, deviceName: String?) async throws
         -> CloudTunnelEnrollment

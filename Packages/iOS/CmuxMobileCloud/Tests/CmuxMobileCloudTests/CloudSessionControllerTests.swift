@@ -52,6 +52,35 @@ import Testing
         #expect(service.calls.list == 1)
     }
 
+    @Test func createMachineUsesTheExistingControlPlaneAndRefreshesTheList() async throws {
+        let service = FakeCloudVMService()
+        let controller = makeController(service: service)
+
+        let created = await controller.createMachine(options: .init(kind: .desktop))
+
+        #expect(created == CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
+        #expect(service.calls.create.count == 1)
+        #expect(service.calls.create[0].options == .init(kind: .desktop))
+        #expect(!service.calls.create[0].idempotencyKey.isEmpty)
+        await settle { service.calls.list == 1 }
+        #expect(controller.isCreatingMachine == false)
+        #expect(controller.lastCreateFailure == nil)
+    }
+
+    @Test func retryingTheSameFailedCreateReusesItsIdempotencyKey() async {
+        let service = FakeCloudVMService()
+        service.creation = .failure(StubError(message: "timed out"))
+        let controller = makeController(service: service)
+        let options = CloudMachineCreateOptions(kind: .base)
+
+        #expect(await controller.createMachine(options: options) == nil)
+        service.creation = .success(CloudMachine(id: "vm-retried", provider: "freestyle", status: "starting"))
+        _ = await controller.createMachine(options: options)
+
+        #expect(service.calls.create.count == 2)
+        #expect(service.calls.create[0].idempotencyKey == service.calls.create[1].idempotencyKey)
+    }
+
     @Test func disappearDropsTunnelAndForegroundReturnRestartsOnlyWhileVisible() async {
         let starter = FakeTunnelStarter()
         let controller = makeController(starter: starter)

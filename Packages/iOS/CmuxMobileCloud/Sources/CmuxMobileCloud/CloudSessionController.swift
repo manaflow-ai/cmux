@@ -18,6 +18,10 @@ public final class CloudSessionController {
     public private(set) var tunnel: CloudTunnelPhase = .idle
     /// The account's machines.
     public private(set) var machines: CloudListPhase<CloudMachine> = .idle
+    /// Whether a new machine is being provisioned.
+    public private(set) var isCreatingMachine = false
+    /// The latest create failure, shown beside the create action.
+    public private(set) var lastCreateFailure: CloudSessionFailure?
     /// How many Cloud screens are on screen; the tunnel is wanted while > 0.
     public private(set) var visibleScreenCount = 0
     /// Whether any Cloud screen is on screen.
@@ -43,6 +47,7 @@ public final class CloudSessionController {
     private var startGeneration: UInt64 = 0
     private var listTask: Task<Void, Never>?
     private var connections: [String: CloudMachineConnection] = [:]
+    private var pendingCreate: (options: CloudMachineCreateOptions, idempotencyKey: String)?
 
     /// Creates the controller.
     /// - Parameters:
@@ -182,6 +187,34 @@ public final class CloudSessionController {
                 guard !Task.isCancelled else { return }
                 self.machines = .failed(CloudSessionFailure.classify(error, stage: .list), previous: self.machines.elements)
             }
+        }
+    }
+
+    /// Provision a Cloud machine through the control plane. The server owns
+    /// team resolution and image selection; the phone only sends a kind and a
+    /// stable retry key. A failed retry with the same options reuses its key,
+    /// so a provider create cannot be duplicated by a client timeout.
+    @discardableResult
+    public func createMachine(options: CloudMachineCreateOptions = .init()) async -> CloudMachine? {
+        guard !isCreatingMachine else { return nil }
+        isCreatingMachine = true
+        lastCreateFailure = nil
+        defer { isCreatingMachine = false }
+        let idempotencyKey: String
+        if let pendingCreate, pendingCreate.options == options {
+            idempotencyKey = pendingCreate.idempotencyKey
+        } else {
+            idempotencyKey = UUID().uuidString
+            pendingCreate = (options, idempotencyKey)
+        }
+        do {
+            let machine = try await service.createMachine(options: options, idempotencyKey: idempotencyKey)
+            pendingCreate = nil
+            refreshMachines()
+            return machine
+        } catch {
+            lastCreateFailure = CloudSessionFailure.classify(error, stage: .list)
+            return nil
         }
     }
 

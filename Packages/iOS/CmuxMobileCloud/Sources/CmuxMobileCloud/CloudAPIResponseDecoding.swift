@@ -26,6 +26,12 @@ public struct CloudAPIResponseDecoding: Sendable {
         }
     }
 
+    /// `POST /api/vm` → the newly created machine.
+    public func createdMachine(from data: Data) throws -> CloudMachine {
+        let object = try jsonObject(data)
+        return try machine(from: object, context: "create response")
+    }
+
     /// `POST /api/vm/tunnel` → the enrollment.
     public func tunnelEnrollment(from data: Data) throws -> CloudTunnelEnrollment {
         let object = try jsonObject(data)
@@ -88,6 +94,17 @@ public struct CloudAPIResponseDecoding: Sendable {
             throw CloudAPIError.malformedResponse("response is not a JSON object")
         }
         return object
+    }
+
+    private func machine(from dict: [String: Any], context: String) throws -> CloudMachine {
+        guard let id = dict["id"] as? String, !id.isEmpty,
+              let provider = dict["provider"] as? String, !provider.isEmpty else {
+            throw CloudAPIError.malformedResponse("machine is missing id or provider in \(context)")
+        }
+        let rawStatus = (dict["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let status = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
+        let displayName = (dict["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return CloudMachine(id: id, provider: provider, status: status, displayName: displayName)
     }
 
     private static func int(_ value: Any?) -> Int? {

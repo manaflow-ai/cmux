@@ -6,6 +6,7 @@ import os
 final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     struct Calls: Sendable {
         var list = 0
+        var create: [(options: CloudMachineCreateOptions, idempotencyKey: String)] = []
         var enroll: [(publicKey: String, fingerprint: String, deviceName: String?)] = []
         var attach: [(machineID: String, fingerprint: String)] = []
         var approve: [(machineID: String, invitationId: String)] = []
@@ -15,6 +16,7 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     var calls: Calls { lock.withLock { $0 } }
 
     var machines: Result<[CloudMachine], any Error> = .success([])
+    var creation: Result<CloudMachine, any Error> = .success(CloudMachine(id: "vm-created", provider: "freestyle", status: "starting"))
     var enrollment: Result<CloudTunnelEnrollment, any Error> = .success(Fixtures.enrollment)
     var attach: Result<CloudAttachEndpoint, any Error> = .success(CloudAttachEndpoint(route: "ws://[fd00::10]:1337/v1/link", session: "s1"))
     var approvals: [Bool] = [true]
@@ -22,6 +24,11 @@ final class FakeCloudVMService: CloudVMServing, @unchecked Sendable {
     func listMachines() async throws -> [CloudMachine] {
         lock.withLock { $0.list += 1 }
         return try machines.get()
+    }
+
+    func createMachine(options: CloudMachineCreateOptions, idempotencyKey: String) async throws -> CloudMachine {
+        lock.withLock { $0.create.append((options, idempotencyKey)) }
+        return try creation.get()
     }
 
     func enrollTunnel(clientPublicKey: String, deviceFingerprint: String, deviceName: String?) async throws -> CloudTunnelEnrollment {
