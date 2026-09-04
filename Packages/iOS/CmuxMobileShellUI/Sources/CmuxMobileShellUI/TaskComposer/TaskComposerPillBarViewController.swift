@@ -11,7 +11,11 @@ final class TaskComposerPillBarViewController<Leading: View, Pills: View, Traili
     private let leadingHost: UIHostingController<Leading>
     private let pillsHost: UIHostingController<Pills>
     private let trailingHost: UIHostingController<Trailing>
-    private let fixedControlGap: CGFloat = 8
+    /// Keeps the viewport flush with each fixed control, like the terminal
+    /// accessory row. The visual breathing room lives inside the scroll view,
+    /// so the edge fade starts at the adjacent button instead of after a hard
+    /// gap.
+    private let scrollContentInset: CGFloat = 8
 
     init(leading: Leading, pills: Pills, trailing: Trailing) {
         leadingHost = UIHostingController(rootView: leading)
@@ -61,11 +65,11 @@ final class TaskComposerPillBarViewController<Leading: View, Pills: View, Traili
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
         NSLayoutConstraint.activate([
-            // Keep the scroll viewport between the fixed controls. The pills
-            // never render underneath either control, so the edge mask fades
-            // them at the actual viewport boundary instead of hiding overlap.
-            scrollView.leadingAnchor.constraint(equalTo: leadingHost.view.trailingAnchor, constant: fixedControlGap),
-            scrollView.trailingAnchor.constraint(equalTo: trailingHost.view.leadingAnchor, constant: -fixedControlGap),
+            // Keep the scroll viewport flush between the fixed controls. The
+            // pills never render underneath either control, and the inset
+            // below supplies the visual gap inside the fade band.
+            scrollView.leadingAnchor.constraint(equalTo: leadingHost.view.trailingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingHost.view.leadingAnchor),
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
@@ -81,11 +85,19 @@ final class TaskComposerPillBarViewController<Leading: View, Pills: View, Traili
             trailingHost.view.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
 
-        // Unlike the terminal bar, this row has fixed controls on both sides,
-        // so there is no content inset to carry a visual gap or allow overlap.
-        // The viewport itself supplies the clipping boundary for the mask.
-        scrollView.contentInset = .zero
-        scrollView.horizontalScrollIndicatorInsets = .zero
+        // Match the terminal accessory's geometry: the scroll frame reaches
+        // the adjacent control, while the inset carries the inter-control gap
+        // and lets the mask begin fading at that control's edge. Starting at
+        // the negative inset keeps the first pill at the same visual position
+        // when the row is at rest.
+        scrollView.contentInset = UIEdgeInsets(
+            top: 0,
+            left: scrollContentInset,
+            bottom: 0,
+            right: scrollContentInset
+        )
+        scrollView.horizontalScrollIndicatorInsets = scrollView.contentInset
+        scrollView.contentOffset = CGPoint(x: -scrollContentInset, y: 0)
     }
 
     func update(leading: Leading, pills: Pills, trailing: Trailing) {
