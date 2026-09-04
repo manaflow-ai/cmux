@@ -1190,6 +1190,56 @@ struct HookFence {
     ended: bool,
 }
 
+enum DirectHookTransition {
+    Continue,
+    Restart(crate::workspace_registry::AgentHookProjectionState),
+}
+
+impl HookFence {
+    fn accepts_journal_transition(
+        &self,
+        session_id: &str,
+        is_session_start: bool,
+        sequence: u64,
+    ) -> bool {
+        if sequence <= self.sequence {
+            return false;
+        }
+        if self.session_id == session_id {
+            return !self.ended;
+        }
+        is_session_start && self.ended
+    }
+
+    fn direct_transition(
+        &self,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<DirectHookTransition> {
+        let session_id = session_id.filter(|session_id| {
+            !session_id.is_empty()
+                && !session_id.starts_with("cmux-hook-sequence:")
+                && !session_id.starts_with("cmux-hook-ended:")
+        });
+        if self.ended {
+            let Some(session_id) = session_id.filter(|session_id| *session_id != self.session_id)
+            else {
+                anyhow::bail!("agent_session_ended");
+            };
+            return Ok(DirectHookTransition::Restart(
+                crate::workspace_registry::AgentHookProjectionState {
+                    agent_session_id: session_id.to_owned(),
+                    applied_sequence: self.sequence,
+                    ended: false,
+                },
+            ));
+        }
+        if session_id != Some(self.session_id.as_str()) {
+            anyhow::bail!("agent_session_conflict");
+        }
+        Ok(DirectHookTransition::Continue)
+    }
+}
+
 /// Durable hook projection carried by a hook-sourced agent report. Socket
 /// reports carry none; hook reports carry the fence state and the journal
 /// sequence that produced it.
@@ -5684,20 +5734,11 @@ impl Mux {
                     .map(|fence| fence.session_id.clone())
             })
             .unwrap_or_else(|| legacy_hook_session_id(&terminal_id, sequence));
-        if let Some(fence) = previous_fence.as_ref() {
-            if fence.session_id == agent_session_id {
-                if fence.ended || sequence <= fence.sequence {
-                    return Ok(());
-                }
-            } else if !is_session_start || !fence.ended || sequence <= fence.sequence {
-                // A mismatched event cannot cross an active lifecycle fence.
-                // A start may replace an ended fence only as a new lifecycle:
-                // an explicit adapter id must differ from the ended id, while
-                // a legacy adapter receives the sequence-scoped token above.
-                return Ok(());
-            }
-        }
-        if previous_fence.as_ref().is_some_and(|fence| sequence <= fence.sequence) {
+        if previous_fence.as_ref().is_some_and(|fence| {
+            !fence.accepts_journal_transition(&agent_session_id, is_session_start, sequence)
+        }) {
+            // A mismatched event cannot cross an active lifecycle fence. A
+            // start may replace an ended fence only as a new lifecycle.
             return Ok(());
         }
         // The record's session field is a human-facing label; native agent
@@ -9289,37 +9330,13 @@ impl Mux {
             }) {
                 anyhow::bail!("agent_session_ended");
             }
-        } else if let Some(fence) = sequence_guard
-            .as_ref()
-            .and_then(|guard| guard.get(&terminal_id))
-            .filter(|fence| fence.ended)
+        } else if hook_state.is_none()
+            && let Some(fence) =
+                sequence_guard.as_ref().and_then(|guard| guard.get(&terminal_id))
         {
-            let supplied_session = source_session.as_deref().filter(|session| {
-                !session.is_empty()
-                    && !session.starts_with("cmux-hook-sequence:")
-                    && !session.starts_with("cmux-hook-ended:")
-            });
-            let journal_hook_session = hook_state.is_some_and(|state| {
-                !state.ended
-                    && state.applied_sequence > fence.sequence
-                    && state.agent_session_id != fence.session_id
-                    && source_session
-                        .as_deref()
-                        .is_some_and(|session| session.starts_with("cmux-hook-sequence:"))
-            });
-            let direct_hook_session = hook_state.is_none()
-                && supplied_session.is_some_and(|session| session != fence.session_id);
-            if direct_hook_session {
-                direct_hook_state = Some(crate::workspace_registry::AgentHookProjectionState {
-                    agent_session_id: supplied_session
-                        .expect("direct hook session was checked above")
-                        .to_owned(),
-                    applied_sequence: fence.sequence,
-                    ended: false,
-                });
-            }
-            if !journal_hook_session && !direct_hook_session {
-                anyhow::bail!("agent_session_ended");
+            match fence.direct_transition(source_session.as_deref())? {
+                DirectHookTransition::Continue => {}
+                DirectHookTransition::Restart(state) => direct_hook_state = Some(state),
             }
         }
         let effective_hook_state = direct_hook_state.as_ref().or(hook_state);
