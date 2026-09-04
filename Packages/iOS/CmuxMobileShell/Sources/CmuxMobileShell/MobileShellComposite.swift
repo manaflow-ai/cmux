@@ -3141,18 +3141,23 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let activeMac = loadedActiveMac.flatMap {
             isHidden($0) || isDemonstrationPairedMac($0) ? nil : $0
         }
+        let allMacs = loadedMacs.filter {
+            !isHidden($0) && !isDemonstrationPairedMac($0)
+        }
         // Reconnect candidates include every saved Computer, but strict
         // Tailscale owns the recovery pass only for the selected foreground
         // pairing. When there is no retained foreground identity (for example
         // launch restore), the store's active row is the selection authority.
+        // A retained key can outlive its row after deletion or scope refresh;
+        // fall back to the current active row instead of letting a stale key
+        // make a selected Tailscale pairing look like an unrelated candidate.
         let retainedForegroundKey = foregroundOrRecoveryMacKey
+        let retainedForegroundKeyIsPresent = retainedForegroundKey != .anonymousForeground
+            && allMacs.contains { MacPairingKey($0) == retainedForegroundKey }
         let reconnectSelectionKey: MacPairingKey? =
-            retainedForegroundKey == .anonymousForeground
-                ? activeMac.map(MacPairingKey.init)
-                : retainedForegroundKey
-        let allMacs = loadedMacs.filter {
-            !isHidden($0) && !isDemonstrationPairedMac($0)
-        }
+            retainedForegroundKeyIsPresent
+                ? retainedForegroundKey
+                : activeMac.map(MacPairingKey.init)
         // Candidate Macs in priority order: the active Mac first, then every
         // other saved Mac. Rows with no locally usable route stay in the list so
         // one authenticated registry snapshot can upgrade an older Tailscale
