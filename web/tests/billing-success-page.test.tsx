@@ -92,11 +92,11 @@ describe("billing success page", () => {
     expect(html).toContain("Add provider accounts so cmux can route work through them.");
     expect(html).toContain("cmux iOS app");
     expect(html).toContain("Use cmux on your phone.");
-    expect(html).toContain('href="https://cmux.test/handler/after-sign-in?native_app_return_to=cmux%3A%2F%2Fauth-callback"');
+    expect(html).toContain('href="cmux://auth-callback"');
     expect(html).toContain('href="/dashboard/coderouter"');
     expect(html).toContain('href="/dashboard/ai-accounts"');
     expect(html).toContain('href="/dashboard/testflight"');
-    expect(html).toContain('href="/api/billing/portal"');
+    expect(html).toContain('href="/dashboard/billing"');
     expect(html).toContain('href="/handler/account-settings"');
     expect(html).toContain("Manage billing");
     expect(html).toContain("Open cmux");
@@ -121,12 +121,9 @@ describe("billing success page", () => {
       });
       const html = renderToStaticMarkup(element);
 
-      expect(html).toContain(
-        "native_app_return_to=cmux-dev-test%3A%2F%2Fauth-callback",
-      );
-      expect(html).toContain("cmux_checkout_session=cs_123");
-      expect(html).toContain("cmux_native_return_expires=");
-      expect(html).toMatch(/cmux_native_return_signature=[a-f0-9]{64}/);
+      expect(html).toContain('href="cmux-dev-test://auth-callback"');
+      expect(html).not.toContain("handler/after-sign-in");
+      expect(html).not.toContain("cmux_checkout_session");
     } finally {
       nativeCallbackScheme = undefined;
       if (previousSecret === undefined) {
