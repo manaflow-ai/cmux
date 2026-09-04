@@ -3250,6 +3250,78 @@ describe("VM Effect workflows", () => {
       where id = ${vmId}
     `;
     expect(row).toEqual({ diskMb: VM_DISK_MB_MAX, pending: false, unconfirmed: true });
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+    const [stillUnconfirmed] = await sql<{
+      diskMb: number;
+      pending: boolean;
+      unconfirmed: boolean;
+    }[]>`
+      select
+        (provider_metadata->'cmuxResourceReservation'->>'diskMb')::integer as "diskMb",
+        provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending,
+        provider_metadata ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY} as unconfirmed
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(stillUnconfirmed).toEqual({ diskMb: VM_DISK_MB_MAX, pending: false, unconfirmed: true });
+  });
+
+  dbTest("does not reconcile a fresh pending resize while its request can still confirm", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000153";
+    const teamId = "team-workflow-resize-fresh-pending";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-workflow-resize-fresh-pending', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-fresh-pending', 'snapshot-test', 'running',
+        ${sql.json({
+          cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: PLAN_SHARED_DISK_MB },
+          [VM_RESOURCE_RESIZE_PENDING_METADATA_KEY]: {
+            operationId: "resize-operation-fresh-pending",
+            requestedDiskMb: 65536,
+            previousDiskMb: 32768,
+            createdAtMs: Date.now(),
+          },
+        })}
+      )
+    `;
+
+    let statsCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.sync(() => {
+        statsCalls += 1;
+        return {
+          state: "awake" as const,
+          sampledAt: Date.now(),
+          cpus: 2,
+          memoryTotalMb: 8192,
+          diskTotalMb: 73728,
+        };
+      }),
+    };
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    expect(statsCalls).toBe(0);
+    const [row] = await sql<{ pending: boolean; unconfirmed: boolean }[]>`
+      select
+        provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending,
+        provider_metadata ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY} as unconfirmed
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(row).toEqual({ pending: true, unconfirmed: false });
   });
 
   dbTest("uses the shared disk pool for snapshot events without a recorded size", async () => {

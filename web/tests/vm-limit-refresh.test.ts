@@ -265,4 +265,94 @@ describe("background resource reconciliation", () => {
       reservation: { vcpus: 5, memoryMb: 20 * 1024, diskMb: 65536 },
     }]);
   });
+
+  test("rotates past legacy providers that fail instead of starving newer rows", async () => {
+    const failed = Array.from({ length: 50 }, (_, index) => row({
+      id: `legacy-failed-${index}`,
+      providerVmId: `provider-vm-failed-${index}`,
+      status: "running",
+      providerMetadata: {},
+    }));
+    const newer = row({
+      id: "legacy-newer",
+      providerVmId: "provider-vm-newer",
+      status: "running",
+      providerMetadata: {},
+    });
+    const deferred: string[] = [];
+    const reservations: string[] = [];
+    let candidateCalls = 0;
+    const repo = {
+      legacyResourceReservationCandidates: () => Effect.sync(() => {
+        candidateCalls += 1;
+        return [...failed, newer].filter((candidate) => !deferred.includes(candidate.id)).slice(0, 50);
+      }),
+      deferResourceReservation: (input: { id: string }) => Effect.sync(() => {
+        deferred.push(input.id);
+      }),
+      setResourceReservation: (input: { id: string }) => Effect.sync(() => {
+        reservations.push(input.id);
+        return true;
+      }),
+      reconciliationCandidates: () => Effect.succeed([]),
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      getStats: (_provider: string, providerVmId: string) => failed.some(
+        (candidate) => candidate.providerVmId === providerVmId,
+      )
+        ? Effect.fail(new Error("provider unavailable"))
+        : Effect.succeed({
+          state: "awake" as const,
+          sampledAt: FIXTURE_NOW.getTime(),
+          cpus: 5,
+          memoryTotalMb: 20 * 1024,
+          diskTotalMb: 32768,
+        }),
+      getStatus: () => Effect.succeed("running" as const),
+    } as unknown as VmProviderGatewayShape;
+    const layer = Layer.mergeAll(
+      Layer.succeed(VmRepository, repo),
+      Layer.succeed(VmProviderGateway, provider),
+    );
+
+    await Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer)));
+    await Effect.runPromise(reconcileVmProviderStatuses().pipe(Effect.provide(layer)));
+
+    expect(candidateCalls).toBe(2);
+    expect(deferred).toHaveLength(50);
+    expect(reservations).toEqual([newer.id]);
+  });
+
+  test("times out a hung legacy provider stats read and defers the row", async () => {
+    const legacy = row({
+      id: "legacy-hung",
+      providerVmId: "provider-vm-hung",
+      status: "running",
+      providerMetadata: {},
+    });
+    const deferred: string[] = [];
+    const repo = {
+      legacyResourceReservationCandidates: () => Effect.succeed([legacy]),
+      deferResourceReservation: (input: { id: string }) => Effect.sync(() => {
+        deferred.push(input.id);
+      }),
+      setResourceReservation: () => Effect.succeed(true),
+      reconciliationCandidates: () => Effect.succeed([]),
+    } as unknown as VmRepositoryShape;
+    const provider = {
+      getStats: () => Effect.never,
+      getStatus: () => Effect.succeed("running" as const),
+    } as unknown as VmProviderGatewayShape;
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(
+        Effect.provide(Layer.mergeAll(
+          Layer.succeed(VmRepository, repo),
+          Layer.succeed(VmProviderGateway, provider),
+        )),
+      ),
+    );
+
+    expect(deferred).toEqual([legacy.id]);
+  });
 });
