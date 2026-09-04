@@ -83572,6 +83572,74 @@
           }
         }
       }
+    },
+    "mobile.pairing.stableMacUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A compatible stable cmux Mac release is not available yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性のある安定版cmux Macリリースはまだ利用できません。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.stableMacUnavailable.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A compatible cmux Mac release is not available yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性のあるcmux Macリリースはまだ利用できません。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.stableMacUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use a compatible Nightly Mac for now, or wait for the next stable release."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今は互換性のあるNightly Macを使用するか、次の安定版リリースをお待ちください。"
+          }
+        }
+      }
+    },
+    "mobile.pairing.guidance.stableMacUnavailable.official": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Use cmux on the Mac when a compatible release is available."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "互換性のあるリリースが利用可能になったら、Macでcmuxを使用してください。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

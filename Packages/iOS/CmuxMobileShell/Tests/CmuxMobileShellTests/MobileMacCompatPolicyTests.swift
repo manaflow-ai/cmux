@@ -179,6 +179,31 @@ import Testing
         #expect(blank?.macAppVersion == nil)
     }
 
+    @Test func missingStableMinimumBlocksStableLaneUntilReleaseExists() {
+        let nightlyOnly = MobileMacCompatPolicy(tiers: [
+            MobileMacCompatPolicy.Tier(
+                minIOSVersion: version("1.0.0"),
+                stableMinVersion: nil,
+                nightly: MobileMacCompatPolicy.NightlyRequirement(
+                    minBaseVersion: version("0.64.22"),
+                    minBuild: 3359013153901
+                )
+            ),
+        ])
+        let violation = nightlyOnly.violation(
+            iosVersion: "1.0.0",
+            channel: .stable,
+            macAppVersion: "0.64.22"
+        )
+        #expect(violation?.stableUnavailable == true)
+        #expect(violation?.requiredVersionDisplay == "a compatible stable Mac release")
+        #expect(nightlyOnly.violation(
+            iosVersion: "1.0.0",
+            channel: .nightly,
+            macAppVersion: "0.64.22-nightly.3359013153901"
+        ) == nil)
+    }
+
     @Test func nightlyStampOnStableChannelIsRefused() {
         let violation = policy.violation(
             iosVersion: "1.0.4",
@@ -264,6 +289,21 @@ import Testing
         #expect(decoded.tiers.first?.nightly?.minBuild == 3_345_650_013_202)
     }
 
+    @Test func decodesAnOmittedStableMinimumAsUnavailable() throws {
+        let payload = Data(#"{"entries":[{"minIOSVersion":"1.0.0","nightly":{"minBaseVersion":"0.64.22","minBuild":"3359013153901"}}]}"#.utf8)
+        let decoded = try #require(MobileMacCompatPolicy(decoding: payload))
+        #expect(decoded.tiers.first?.stableMinVersion == nil)
+        #expect(decoded.violation(
+            iosVersion: "1.0.0",
+            channel: .stable,
+            macAppVersion: "0.64.22"
+        )?.stableUnavailable == true)
+
+        let explicitNull = Data(#"{"entries":[{"minIOSVersion":"1.0.0","stableMinVersion":null}]}"#.utf8)
+        let nullDecoded = try #require(MobileMacCompatPolicy(decoding: explicitNull))
+        #expect(nullDecoded.tiers.first?.stableMinVersion == nil)
+    }
+
     @Test func decodeRejectsPartiallyParseablePayloads() {
         // Dropping an unparseable entry could silently weaken the
         // constraint, so the whole payload is discarded instead.
@@ -287,13 +327,18 @@ import Testing
 
     // MARK: - Baked fallback
 
-    @Test func bakedPolicyConstrainsEveryCurrentLaneToNextReleases() {
+    @Test func bakedPolicyBlocksStableUntilTheFirstCompatibleRelease() {
         // The App Store lane ships as 1.0.0 and the beta lane as 1.0.4;
         // both must fall inside the first tier.
         for appVersion in ["1.0.0", "1.0.4"] {
             let tier = MobileMacCompatPolicy.baked.tier(forIOSVersion: appVersion)
-            #expect(tier?.stableMinVersion == version("0.64.23"))
-            #expect(tier?.nightly?.minBuild == 3_345_650_013_202)
+            #expect(tier?.stableMinVersion == nil)
+            #expect(tier?.nightly?.minBuild == 3_359_013_153_901)
+            #expect(MobileMacCompatPolicy.baked.violation(
+                iosVersion: appVersion,
+                channel: .stable,
+                macAppVersion: "0.64.22"
+            )?.stableUnavailable == true)
         }
         // Versions below the first tier stay unconstrained.
         #expect(MobileMacCompatPolicy.baked.tier(forIOSVersion: "0.9.9") == nil)
@@ -363,6 +408,13 @@ import Testing
             isNightlyChannel: true
         )
         #expect(unknown.message.contains("0.64.22-nightly.100"))
+    }
+
+    @Test func stableUnavailableCopyDoesNotInventAVersion() {
+        let category = MobilePairingFailureCategory.stableMacUnavailable
+        #expect(category.message.contains("not available yet"))
+        #expect(category.guidance?.isEmpty == false)
+        #expect(category.analyticsReason == "stable_mac_unavailable")
     }
 
     @Test func versionGateRPCCodeFallsBackToGenericUpdateCategory() {

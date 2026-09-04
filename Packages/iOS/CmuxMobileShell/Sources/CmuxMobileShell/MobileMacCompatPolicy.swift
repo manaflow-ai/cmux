@@ -25,10 +25,10 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
     /// `web/data/mobile-mac-compat.ts`. Keep the two in sync when editing:
     /// the remote list replaces this the first time a device fetches it.
     /// The tier starts at 1.0.0 so it covers the App Store lane (which ships
-    /// as 1.0.0) as well as the 1.0.4 beta lane.
+    /// as 1.0.0) as well as the 1.0.4 beta lane. Stable admission remains
+    /// blocked until a compatible stable Mac release exists.
     public static let baked: MobileMacCompatPolicy = {
         guard let minIOS = MobileMacAppVersion(parsing: "1.0.0"),
-              let stableMin = MobileMacAppVersion(parsing: "0.64.23"),
               let nightlyBase = MobileMacAppVersion(parsing: "0.64.22")
         else {
             return MobileMacCompatPolicy(tiers: [])
@@ -36,10 +36,10 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         return MobileMacCompatPolicy(tiers: [
             Tier(
                 minIOSVersion: minIOS,
-                stableMinVersion: stableMin,
+                stableMinVersion: nil,
                 nightly: NightlyRequirement(
                     minBaseVersion: nightlyBase,
-                    minBuild: 3_345_650_013_202
+                    minBuild: 3_359_013_153_901
                 )
             ),
         ])
@@ -81,7 +81,16 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         let requirementDisplay: String
         switch channel {
         case .stable:
-            requirementDisplay = tier.stableMinVersion.description
+            guard let stableMinVersion = tier.stableMinVersion else {
+                let reported = macAppVersion?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return Violation(
+                    channel: channel,
+                    macAppVersion: reported?.isEmpty == false ? reported : nil,
+                    requiredVersionDisplay: "a compatible stable Mac release",
+                    stableUnavailable: true
+                )
+            }
+            requirementDisplay = stableMinVersion.description
         case .nightly:
             guard let nightly = tier.nightly else { return nil }
             requirementDisplay = "\(nightly.minBaseVersion)-nightly.\(nightly.minBuild)"
@@ -90,7 +99,8 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
         let violation = Violation(
             channel: channel,
             macAppVersion: reported?.isEmpty == false ? reported : nil,
-            requiredVersionDisplay: requirementDisplay
+            requiredVersionDisplay: requirementDisplay,
+            stableUnavailable: false
         )
         guard let reported, let stamp = MobileMacBuildVersionStamp(parsing: reported) else {
             return violation
@@ -100,7 +110,8 @@ public struct MobileMacCompatPolicy: Equatable, Sendable {
             // A nightly stamp on the stable channel is a mislabeled build;
             // fail closed rather than guessing which rule it satisfies.
             guard stamp.nightlyBuild == nil else { return violation }
-            return stamp.base >= tier.stableMinVersion ? nil : violation
+            guard let stableMinVersion = tier.stableMinVersion else { return violation }
+            return stamp.base >= stableMinVersion ? nil : violation
         case .nightly:
             guard let nightly = tier.nightly else { return nil }
             guard let build = stamp.nightlyBuild else { return violation }
@@ -132,10 +143,17 @@ extension MobileMacCompatPolicy {
         tiers.reserveCapacity(payload.entries.count)
         var previousMinIOSVersion: MobileMacAppVersion?
         for entry in payload.entries {
-            guard let minIOS = MobileMacAppVersion(parsing: entry.minIOSVersion),
-                  let stableMin = MobileMacAppVersion(parsing: entry.stableMinVersion)
-            else {
+            guard let minIOS = MobileMacAppVersion(parsing: entry.minIOSVersion) else {
                 return nil
+            }
+            let stableMin: MobileMacAppVersion?
+            if let rawStableMin = entry.stableMinVersion {
+                guard let parsedStableMin = MobileMacAppVersion(parsing: rawStableMin) else {
+                    return nil
+                }
+                stableMin = parsedStableMin
+            } else {
+                stableMin = nil
             }
             // The server publishes ascending, non-overwriting tiers. Reject
             // malformed responses at the trust boundary rather than caching a

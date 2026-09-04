@@ -105,6 +105,33 @@ describe("mobile-mac-compat route", () => {
     expect(validateList(list)).toEqual(list);
   });
 
+  test("accepts an omitted stable minimum and blocks stable admission", () => {
+    const list: MobileMacCompatList = {
+      ...base,
+      entries: [
+        {
+          minIOSVersion: "1.0.0",
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3359013153901" },
+        },
+      ],
+    };
+    expect(validateList(list)).toEqual(list);
+  });
+
+  test("accepts null as an explicit unavailable stable minimum", () => {
+    const list: MobileMacCompatList = {
+      ...base,
+      entries: [
+        {
+          minIOSVersion: "1.0.0",
+          stableMinVersion: null,
+          nightly: { minBaseVersion: "0.64.22", minBuild: "3359013153901" },
+        },
+      ],
+    };
+    expect(validateList(list)).toEqual(list);
+  });
+
   test("accepts an empty entries list (the remote kill switch)", () => {
     // Devices treat a fetched empty list as "no Mac version limit for
     // anyone", so emergency retraction must be publishable.

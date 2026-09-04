@@ -146,8 +146,8 @@ struct OnboardingConnectionView: View {
     }
 
     /// The minimum stable-channel Mac version this app version accepts, from
-    /// the fetched (or compiled-in) policy tier; `nil` when no tier applies,
-    /// which keeps the versionless copy.
+    /// the fetched (or compiled-in) policy tier; `nil` when no tier applies or
+    /// stable admission is not available yet, which keeps the versionless copy.
     ///
     /// Deliberately the STABLE floor even though Nightly Macs are admitted
     /// under a separate rule: onboarding guides a fresh Mac install, where
@@ -158,7 +158,7 @@ struct OnboardingConnectionView: View {
     private var requiredMacVersion: String? {
         macCompatCenter?.policy
             .tier(forIOSVersion: AppVersionInfo.current().marketingVersion)?
-            .stableMinVersion.description
+            .stableMinVersion?.description
     }
 }
 

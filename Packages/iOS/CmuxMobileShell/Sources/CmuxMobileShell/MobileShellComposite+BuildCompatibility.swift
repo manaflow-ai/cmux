@@ -42,6 +42,22 @@ extension MobileShellComposite {
         return .macAppVersionTooOld(violation)
     }
 
+    /// Converts a policy violation into the user-facing failure category. A
+    /// missing stable floor is a distinct state from an outdated stable Mac:
+    /// there is no stable release to update to yet.
+    func macVersionGateFailureCategory(
+        for violation: MobileMacCompatPolicy.Violation
+    ) -> MobilePairingFailureCategory {
+        if violation.stableUnavailable {
+            return .stableMacUnavailable
+        }
+        return .macAppVersionTooOld(
+            macVersion: violation.macAppVersion,
+            requiredVersion: violation.requiredVersionDisplay,
+            isNightlyChannel: violation.channel == .nightly
+        )
+    }
+
     /// The release lane the version gate holds this Mac to, or `nil` when
     /// the Mac is outside the gate. Only the official audience is gated:
     /// development builds admit only development-tag Macs (rebuilt from

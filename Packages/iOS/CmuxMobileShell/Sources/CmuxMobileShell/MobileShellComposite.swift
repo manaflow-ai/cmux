@@ -4635,11 +4635,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // applyStoredMacUpdateRequiredFailure ordering): the saved pairing
             // stays intact and reconnects once the Mac updates.
             applyPairingFailure(
-                .macAppVersionTooOld(
-                    macVersion: violation.macAppVersion,
-                    requiredVersion: violation.requiredVersionDisplay,
-                    isNightlyChannel: violation.channel == .nightly
-                ),
+                macVersionGateFailureCategory(for: violation),
                 phase: "identity"
             )
             connectionRequiresReauth = false
@@ -10011,7 +10007,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         continue routeLoop
                     case let .macAppVersionTooOld(violation):
                         mobileShellLog.error(
-                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public)"
+                            "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public) stableUnavailable=\(violation.stableUnavailable, privacy: .public)"
                         )
                         await client.disconnect()
                         pendingMacVersionGateViolation = violation
@@ -11375,11 +11371,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     ) -> MobilePairingFailureCategory {
         guard let violation = pendingMacVersionGateViolation else { return category }
         pendingMacVersionGateViolation = nil
-        return .macAppVersionTooOld(
-            macVersion: violation.macAppVersion,
-            requiredVersion: violation.requiredVersionDisplay,
-            isNightlyChannel: violation.channel == .nightly
-        )
+        return macVersionGateFailureCategory(for: violation)
     }
 
     private func clearTerminalCreationErrorIfRecovered() {
