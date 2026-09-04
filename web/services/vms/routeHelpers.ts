@@ -49,12 +49,15 @@ import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import {
   captureVmRequestOutcome,
+  isPolledVmOperation,
   reportVmErrorResponse,
   VM_ERROR_CODE_HEADER,
 } from "./observability";
 import {
+  annotateVmRequestBilling,
   runWithVmRequestContext,
   vmClientIdentityFromRequest,
+  vmIdFromRequestPath,
   type VmRequestContext,
 } from "./requestContext";
 import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy, vmUnsupportedOperationKey } from "./vmErrorMessages";
@@ -92,6 +95,7 @@ export async function withAuthedVmApiRoute(
     startedAtMs: performance.now(),
     client: vmClientIdentityFromRequest(request),
     vercelRequestId: request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+    vmId: vmIdFromRequestPath(request, route),
   };
   return runWithVmRequestContext(requestContext, () => withApiRouteSpan(
     request,
@@ -150,6 +154,14 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        // The caller's default billing scope. Routes that resolve entitlements
+        // refine it (a requested team, the normalized plan) through
+        // resolveVmAccountScope below.
+        annotateVmRequestBilling({
+          billingTeamId: user.billingTeamId,
+          billingCustomerType: user.billingCustomerType,
+          planId: user.billingPlanId ?? user.userBillingPlanId,
+        });
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
@@ -168,12 +180,6 @@ export async function withAuthedVmApiRoute(
       }
     },
   ));
-}
-
-const POLLED_OPERATIONS: ReadonlySet<string> = new Set(["list", "status", "stats", "list_sessions", "get_tunnel"]);
-
-function isPolledVmOperation(operation: string): boolean {
-  return POLLED_OPERATIONS.has(operation);
 }
 
 function scheduleTraceFlush(): void {
@@ -399,12 +405,14 @@ function resolveVmAccountScope(
 ): VmRouteAccountScope {
   const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
+    const entitlements = resolveVmEntitlements(user, process.env, {
+      requestedBillingTeamId,
+    });
+    annotateVmRequestBilling(entitlements);
     return {
       ok: true,
       requestedBillingTeamId,
-      entitlements: resolveVmEntitlements(user, process.env, {
-        requestedBillingTeamId,
-      }),
+      entitlements,
     };
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) {
