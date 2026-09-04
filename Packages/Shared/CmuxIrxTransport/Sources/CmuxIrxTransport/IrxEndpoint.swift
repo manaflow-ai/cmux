@@ -185,11 +185,11 @@ public actor IrxEndpointSupervisor {
         rotationGeneration: UInt64,
         gate: IrxRelayCredentialRotationGate
     ) async {
-        guard gate.isCurrent(rotationGeneration) else { return }
+        guard await gate.isCurrent(rotationGeneration) else { return }
         guard !deactivated else { return }
         guard let driver, !driver.isClosed() else { return }
         for credential in credentials {
-            guard gate.isCurrent(rotationGeneration) else { return }
+            guard await gate.isCurrent(rotationGeneration) else { return }
             do {
                 try await driver.insertRelay(
                     config: RelayConfig(
@@ -198,7 +198,7 @@ public actor IrxEndpointSupervisor {
                         authToken: credential.token
                     )
                 )
-                guard gate.isCurrent(rotationGeneration) else { return }
+                guard await gate.isCurrent(rotationGeneration) else { return }
                 installedRelayURLs.insert(credential.relayURL)
                 journal.record(
                     "endpoint", "relay-credential-rotated",
@@ -209,7 +209,7 @@ public actor IrxEndpointSupervisor {
                     ]
                 )
             } catch {
-                guard gate.isCurrent(rotationGeneration) else { return }
+                guard await gate.isCurrent(rotationGeneration) else { return }
                 journal.record(
                     "endpoint", "relay-credential-rotation-failed",
                     ["relay": credential.relayURL, "error": String(describing: error)]

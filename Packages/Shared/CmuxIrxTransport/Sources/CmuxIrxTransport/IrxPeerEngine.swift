@@ -240,24 +240,31 @@ public actor IrxPeerEngine {
         Task { _ = try? await self.ensureSession(trigger: trigger) }
     }
 
-    /// Foreground resume: keep an admitted session until its connection
-    /// actually reports closed. The keepalive watcher is the sole authority
-    /// for declaring a live-looking QUIC session dead. Previously this method
-    /// replaced every session older than 15 seconds, which turned an ordinary
-    /// app-foreground event into a user-visible disconnect and redial.
+    /// Foreground resume: retain a session that recently proved liveness, but
+    /// replace a native zombie whose closed flag stayed false during
+    /// suspension. This avoids age-based churn while preserving recovery.
     public func foregroundKick(staleAfter: Duration = .seconds(15)) {
         Task {
             if let session = self.currentSessionForKick(),
                await !session.connection.isClosed
             {
-                self.record(
-                    "foreground-session-retained",
-                    [
-                        "session": session.admit.session,
-                        "stale_after": String(describing: staleAfter),
-                    ]
-                )
-                return
+                let recentlyAlive: Bool
+                if staleAfter <= .zero {
+                    recentlyAlive = true
+                } else {
+                    recentlyAlive = await session.connection.hasRecentKeepalive(
+                        within: staleAfter)
+                }
+                if recentlyAlive {
+                    self.record(
+                        "foreground-session-retained",
+                        [
+                            "session": session.admit.session,
+                            "stale_after": String(describing: staleAfter),
+                        ]
+                    )
+                    return
+                }
             }
             _ = try? await self.ensureSession(trigger: "foreground")
         }

@@ -165,6 +165,15 @@ public actor IrxConnection {
         closedFlag || connection.closeReason() != nil
     }
 
+    /// Returns whether the connection has demonstrated liveness recently.
+    /// This catches suspended-app zombie sessions whose native closed flag has
+    /// not flipped, while allowing a healthy long-lived session to survive a
+    /// foreground event.
+    public func hasRecentKeepalive(within age: Duration) -> Bool {
+        guard let lastPongAt else { return false }
+        return ContinuousClock.now - lastPongAt <= age
+    }
+
     /// Registers a cancellation-aware waiter for the complete QUIC
     /// connection, shared by all RPC lanes on this session.
     public func makeClosureObservationID() -> UUID {
