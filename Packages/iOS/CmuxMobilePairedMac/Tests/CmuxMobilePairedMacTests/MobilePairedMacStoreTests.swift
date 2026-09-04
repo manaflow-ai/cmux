@@ -897,6 +897,55 @@ import Testing
         #expect(try await store.activeMac(stackUserID: "user-1", teamID: "team-a")?.routes.map(\.id) == ["updated"])
     }
 
+    @Test func claimingLegacyMacPreservesRemovedRouteTombstone() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let removedRoute = try CmxAttachRoute(
+            id: "removed",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.20", port: 22)
+        )
+        let retainedRoute = try CmxAttachRoute(
+            id: "retained",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "10.0.0.21", port: 22)
+        )
+
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Legacy",
+            routes: [removedRoute, retainedRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 1)
+        )
+        #expect(try await store.removeRouteIfAuthorized(
+            macDeviceID: "legacy-mac",
+            route: removedRoute,
+            condition: .matchingInstanceTag(nil),
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date(timeIntervalSince1970: 2)
+        ))
+
+        try await store.upsert(
+            macDeviceID: "legacy-mac",
+            displayName: "Claimed",
+            routes: [removedRoute, retainedRoute],
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: "team-a",
+            now: Date(timeIntervalSince1970: 3)
+        )
+
+        #expect(try await store.activeMac(
+            stackUserID: "user-1",
+            teamID: "team-a"
+        )?.routes == [retainedRoute])
+    }
+
     @Test func activatingTeamMacClearsVisibleLegacyActiveMac() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
