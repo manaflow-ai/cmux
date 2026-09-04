@@ -2093,6 +2093,9 @@ struct ContentView: View {
             layoutModel: titlebarControlsLayoutModel,
             viewModel: fullscreenControlsViewModel,
             onToggleSidebar: { sidebarState.toggle() },
+            onToggleRightSidebar: {
+                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+            },
             onToggleNotifications: { [fullscreenControlsViewModel] in
                 AppDelegate.shared?.toggleNotificationsPopover(
                     animated: true,
@@ -11243,6 +11246,9 @@ struct VerticalTabsSidebar: View, Equatable {
             leadingInset: CGFloat(titlebarDebugChromeSnapshot.leftControlsLeadingInset),
             topPadding: minimalModeSidebarTitlebarControlsTopPadding,
             onToggleSidebar: onToggleSidebar,
+            onToggleRightSidebar: {
+                _ = AppDelegate.shared?.toggleRightSidebarInActiveMainWindow(preferredWindow: observedWindow)
+            },
             onToggleNotifications: { anchorView in
                 AppDelegate.shared?.toggleNotificationsPopover(
                     animated: true,

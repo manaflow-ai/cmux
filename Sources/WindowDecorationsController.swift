@@ -343,6 +343,8 @@ final class WindowDecorationsController {
             switch slot {
             case .toggleSidebar:
                 context.sidebarState.toggle()
+            case .toggleRightSidebar:
+                _ = appDelegate.toggleRightSidebarInActiveMainWindow(preferredWindow: window)
             case .showNotifications:
                 let resolvedAnchorView = NotificationsAnchorRegistry.shared.closestAnchor(
                     in: window,
