@@ -1222,13 +1222,12 @@ impl HookFence {
                     .map(|fence| fence.session_id.clone())
             })
             .unwrap_or_else(|| legacy_hook_session_id(terminal_id, sequence));
-        if let Some(fence) = current {
-            if sequence <= fence.sequence
+        if let Some(fence) = current
+            && (sequence <= fence.sequence
                 || (fence.session_id == session_id && fence.ended)
-                || (fence.session_id != session_id && (!is_session_start || !fence.ended))
-            {
-                return JournalHookTransition::Ignore;
-            }
+                || (fence.session_id != session_id && (!is_session_start || !fence.ended)))
+        {
+            return JournalHookTransition::Ignore;
         }
         JournalHookTransition::Apply(session_id)
     }
