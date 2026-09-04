@@ -481,7 +481,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // snapshot suspends the reader; the first accepted versioned
                 // snapshot must reopen it on the same refresh, not wait for a
                 // later reconnect or optional lookup.
-                if await link.resumeEventsSubscription(from: cursor) {
+                let subscriptionResumed = await link.resumeEventsSubscription(from: cursor)
+                if CloudVMEventFeedRecoveryDecision.shouldClearWarning(
+                    snapshotCursor: cursor,
+                    subscriptionResumed: subscriptionResumed
+                ) {
                     eventsFeedWarning = nil
                 }
             } else {
@@ -1655,13 +1659,17 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 return
             }
             if installSnapshotIfNewer(incoming) {
-                eventsFeedWarning = nil
                 clearStateRecovery()
                 await link.setEventsCursor(incoming.cursor)
+                var subscriptionResumed = false
                 if let cursor = incoming.cursor {
-                    if await link.resumeEventsSubscription(from: cursor) {
-                        eventsFeedWarning = nil
-                    }
+                    subscriptionResumed = await link.resumeEventsSubscription(from: cursor)
+                }
+                if CloudVMEventFeedRecoveryDecision.shouldClearWarning(
+                    snapshotCursor: incoming.cursor,
+                    subscriptionResumed: subscriptionResumed
+                ) {
+                    eventsFeedWarning = nil
                 }
                 info.linkState = .connected
                 info.linkError = nil

@@ -1238,6 +1238,18 @@ struct CloudVMPendingMutation: Hashable, Codable, Sendable {
     var receipt: CloudVMCursor?
 }
 
+/// A snapshot repairs the document, but it does not by itself repair the live
+/// event feed. Keep an existing transport warning until the versioned feed is
+/// running again, so an agent never mistakes a point-in-time read for live sync.
+enum CloudVMEventFeedRecoveryDecision {
+    static func shouldClearWarning(
+        snapshotCursor: CloudVMCursor?,
+        subscriptionResumed: Bool
+    ) -> Bool {
+        snapshotCursor != nil && subscriptionResumed
+    }
+}
+
 /// The stream can carry a delta that the desktop does not understand, or it can
 /// end because its journal window overflowed. Both cases require a new snapshot.
 enum CloudVMStateSyncDecision: Equatable, Sendable {
