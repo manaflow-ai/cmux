@@ -5844,16 +5844,24 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
+                // Keep each field's type explicit. The nested optional
+                // flatMaps in this tuple push Swift's type checker over its
+                // reasonable-expression limit in the large CLI target.
                 let rows: [(String, String, String, String, String)] = vms.map { vm in
-                    (
-                        (vm["id"] as? String) ?? "?",
-                        (vm["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["id"] as? String) ?? "?",
-                        (vm["status"] as? String) ?? "unknown",
-                        (vm["provider"] as? String) ?? "?",
-                        (vm["image"] as? String) ?? "?"
-                    )
+                    let id: String = (vm["id"] as? String) ?? "?"
+                    let displayName: String? = vm["displayName"] as? String
+                    let slug: String? = vm["slug"] as? String
+                    let label: String = if let displayName, !displayName.isEmpty {
+                        displayName
+                    } else if let slug, !slug.isEmpty {
+                        slug
+                    } else {
+                        id
+                    }
+                    let status: String = (vm["status"] as? String) ?? "unknown"
+                    let provider: String = (vm["provider"] as? String) ?? "?"
+                    let image: String = (vm["image"] as? String) ?? "?"
+                    return (id, label, status, provider, image)
                 }
                 let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
