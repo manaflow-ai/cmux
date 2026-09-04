@@ -21,6 +21,7 @@ import {
   type VMVolumeListOptions,
   type VMStatus,
   type VMStats,
+  type VMResizeOptions,
   type CmuxRemoteApprovalResult,
   type CmuxRemoteApprovalOptions,
   type CmuxRemoteAttachOptions,
@@ -73,6 +74,11 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMStats, VmProviderOperationError>;
+  readonly resize?: (
+    provider: ProviderId,
+    vmId: string,
+    options: VMResizeOptions,
+  ) => Effect.Effect<void, VmProviderOperationError | VmOperationUnsupportedError>;
   /** Session transports the provider serves; undefined = legacy websocket/ssh. */
   readonly attachTransports?: (provider: ProviderId) => readonly AttachTransport[] | undefined;
   readonly openAttach: (
@@ -230,6 +236,13 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       }
       return impl.getStats(vmId);
     }),
+  resize: (provider, vmId, options) => {
+    const impl = getProvider(provider);
+    if (!impl.resize) {
+      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "resize" }));
+    }
+    return providerEffect(provider, "resize", () => impl.resize!(vmId, options));
+  },
   attachTransports: (provider) => getProvider(provider).attachTransports,
   openAttach: (provider, vmId, options) =>
     providerEffect(provider, "openAttach", () => getProvider(provider).openAttach(vmId, options)),
