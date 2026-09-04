@@ -423,15 +423,35 @@ struct RightSidebarPanelView: View {
                     presentation: .find
                 )
             case .sessions:
-                SessionIndexView(
-                    store: sessionIndexStore,
-                    onResume: onResumeSession,
-                    onOpen: onOpenSession,
-                    activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
-                    onFocus: { entry in
-                        _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                Group {
+                    if let historyLog = tabManager.vaultHistoryEventLog {
+                        VaultPaneView(
+                            store: sessionIndexStore,
+                            onResume: onResumeSession,
+                            onOpen: onOpenSession,
+                            activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(
+                                tabManager: tabManager
+                            ),
+                            onFocus: { entry in
+                                _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                            },
+                            historyLog: historyLog,
+                            chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
+                        )
+                    } else {
+                        SessionIndexView(
+                            store: sessionIndexStore,
+                            onResume: onResumeSession,
+                            onOpen: onOpenSession,
+                            activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(
+                                tabManager: tabManager
+                            ),
+                            onFocus: { entry in
+                                _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                            }
+                        )
                     }
-                )
+                }
                     .onAppear {
                         sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
                     }

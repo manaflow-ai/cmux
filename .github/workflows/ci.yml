@@ -1690,6 +1690,7 @@ jobs:
             CmuxTerminal
             CmuxTerminalCore
             CmuxUpdater
+            CmuxVaultHistory
             CMUXAgentLaunch
             CmuxAgentJournal
           )

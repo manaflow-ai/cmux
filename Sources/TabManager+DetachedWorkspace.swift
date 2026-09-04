@@ -92,6 +92,7 @@ extension TabManager {
             let insertIndex = Self.clampedDetachedWorkspaceInsertIndex(plannedInsertIndex, workspaces: updatedTabs)
             updatedTabs.insert(newWorkspace, at: insertIndex)
             tabs = updatedTabs
+            recordVaultHistoryWorkspaceCreated(newWorkspace)
 
             if select {
 #if DEBUG

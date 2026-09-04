@@ -285,19 +285,43 @@ struct RightSidebarToolPanelView: View {
                 onContainerChange: panel.attachFileExplorerContainer
             )
         case .sessions:
-            SessionIndexView(
-                store: panel.sessionIndexStore,
-                onResume: { entry in
-                    SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
-                },
-                onOpen: { entry in
-                    SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
-                },
-                activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
-                onFocus: { entry in
-                    _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+            Group {
+                if let historyLog = tabManager.vaultHistoryEventLog {
+                    VaultPaneView(
+                        store: panel.sessionIndexStore,
+                        onResume: { entry in
+                            SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                        },
+                        onOpen: { entry in
+                            SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+                        },
+                        activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(
+                            tabManager: tabManager
+                        ),
+                        onFocus: { entry in
+                            _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                        },
+                        historyLog: historyLog,
+                        chromeBackgroundColor: resolvedChromeBackgroundColor
+                    )
+                } else {
+                    SessionIndexView(
+                        store: panel.sessionIndexStore,
+                        onResume: { entry in
+                            SessionEntryResumeCoordinator.resume(entry, tabManager: tabManager)
+                        },
+                        onOpen: { entry in
+                            SessionEntryResumeCoordinator.open(entry, tabManager: tabManager)
+                        },
+                        activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(
+                            tabManager: tabManager
+                        ),
+                        onFocus: { entry in
+                            _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
+                        }
+                    )
                 }
-            )
+            }
             .background(
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)

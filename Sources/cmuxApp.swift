@@ -15,6 +15,7 @@ import Darwin
 import Bonsplit
 import UniformTypeIdentifiers
 import CmuxTerminal
+import CmuxVaultHistory
 
 /// The process entry point. When the binary is launched with a worker flag
 /// (the app re-executes its own binary so a crash or hang in paste preparation,
@@ -63,6 +64,7 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    private let vaultHistoryEventLog: VaultHistoryEventLog
     /// Composition-root owner for the config-backed automation bridge.
     private let automationEngine: AutomationEngine
     @StateObject private var tabManager: TabManager
@@ -135,7 +137,24 @@ struct cmuxApp: App {
         let notificationStore = TerminalNotificationStore.shared
         let closedItemHistoryStore = ClosedItemHistoryStore.shared
         let sidebarState = SidebarState()
+        let vaultHistoryFileURL: URL? = if SessionRestorePolicy.isRunningUnderAutomatedTests() {
+            nil
+        } else {
+            FileManager.default.urls(
+                for: .applicationSupportDirectory,
+                in: .userDomainMask
+            ).first.map {
+                VaultHistoryStoreLocation(
+                    applicationSupportDirectory: $0,
+                    bundleIdentifier: Bundle.main.bundleIdentifier
+                ).fileURL
+            }
+        }
+        let vaultHistoryEventLog = VaultHistoryEventLog(
+            store: VaultHistoryEventStore(fileURL: vaultHistoryFileURL)
+        )
         self.authComposition = authComposition
+        self.vaultHistoryEventLog = vaultHistoryEventLog
 
         // If invoked with CLI-style arguments (e.g. `cmux hooks setup`), exec the
         // bundled CLI at Contents/Resources/bin/cmux. The GUI binary and the CLI
@@ -250,7 +269,8 @@ struct cmuxApp: App {
         StartupBreadcrumbLog.append("app.init.tabManager.begin")
         let tabManager = TabManager(
             workspaceCustomizationStore: workspaceCustomizationStore,
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            vaultHistoryEventLog: vaultHistoryEventLog
         )
         let historyMenuCoordinator = HistoryMenuCoordinator(
             closedItemHistoryStore: closedItemHistoryStore,
@@ -329,6 +349,7 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
+            vaultHistoryEventLog: vaultHistoryEventLog,
             automationEngine: automationEngine,
             computerUseRuntimeService: computerUseRuntimeService
         )

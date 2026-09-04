@@ -661,22 +661,52 @@ final class SessionIndexStore: ObservableObject {
     }
 
     private var loadTask: Task<Void, Never>?
+    private var loadGeneration = 0
 
     func reload() {
+        _ = beginReload()
+    }
+
+    /// Reloads the durable agent indexes and returns only after the newest
+    /// requested reload has published its authoritative entry snapshot.
+    func reloadAndWaitForFreshEntries() async -> [SessionEntry] {
+        var pending = beginReload()
+        while true {
+            await pending.task.value
+            guard pending.generation != loadGeneration else {
+                return entries
+            }
+            guard let currentTask = loadTask else {
+                return entries
+            }
+            pending = (loadGeneration, currentTask)
+        }
+    }
+
+    private func beginReload() -> (generation: Int, task: Task<Void, Never>) {
         loadTask?.cancel()
         isLoading = true
+        loadGeneration &+= 1
+        let generation = loadGeneration
         directorySnapshotGeneration += 1
         invalidateDirectorySnapshots()
         let snapshotLoader = self.snapshotLoader
-        loadTask = Task { @MainActor [weak self] in
+        let task = Task { @MainActor [weak self] in
             let scanned = await snapshotLoader.load()
-            guard let self, !Task.isCancelled else { return }
+            guard let self,
+                  !Task.isCancelled,
+                  self.loadGeneration == generation else {
+                return
+            }
             self.entries = scanned
             self.isLoading = false
+            self.loadTask = nil
             self.backfillAgentOrderFromEntries()
             self.backfillDirectoryOrderFromEntries()
             self.refreshLiveSessionKeys()
         }
+        loadTask = task
+        return (generation, task)
     }
 
 #if DEBUG
