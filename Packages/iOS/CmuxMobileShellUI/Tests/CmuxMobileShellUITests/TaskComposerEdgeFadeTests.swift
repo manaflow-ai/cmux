@@ -10,7 +10,7 @@ struct TaskComposerEdgeFadeTests {
         #expect(TaskComposerEdgeFadeScrollView.edgeAlpha(distance: -4) == 1)
     }
 
-    @Test("fade ramps linearly while content passes beneath a control")
+    @Test("fade ramps linearly as content approaches a control edge")
     func incrementalRamp() {
         #expect(abs(TaskComposerEdgeFadeScrollView.edgeAlpha(distance: 6) - 0.75) < 0.0001)
         #expect(abs(TaskComposerEdgeFadeScrollView.edgeAlpha(distance: 12) - 0.5) < 0.0001)
