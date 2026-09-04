@@ -2,6 +2,19 @@
   "billingRecovery": {
     "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
   },
+  "notFoundPage": {
+    "eyebrow": "404 / ルートが見つかりません",
+    "title": "このページはワークスペースにありません。",
+    "description": "リンクが古いか、アドレスが間違っている可能性があります。",
+    "homeAction": "ホームページへ",
+    "docsAction": "ドキュメントを読む",
+    "supportAction": "サポートに連絡",
+    "terminalTitle": "cmux · zsh",
+    "terminalCommand": "cmux open ./requested-page",
+    "terminalError": "error: ルートが見つかりません",
+    "terminalHint": "hint: ホームまたはドキュメントを開いてください",
+    "footer": "ルートが見つからなくても、作業は止まりません。"
+  },
   "vmDesktop": {
     "invalidTitle": "このデスクトップリンクは無効です",
     "invalidBody": "リンクにセッションがないか、cmux が表示できない場所を指しています。cmux のマシンパネルで {machine} を右クリックし、「デスクトップを開く」からもう一度開いてください。",

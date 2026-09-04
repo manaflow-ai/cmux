@@ -2,6 +2,19 @@
   "billingRecovery": {
     "message": "If we found an account, check your email for next steps"
   },
+  "notFoundPage": {
+    "eyebrow": "404 / route not found",
+    "title": "This page is not in this workspace.",
+    "description": "The link may be old, or the address may be wrong.",
+    "homeAction": "Go to homepage",
+    "docsAction": "Read the docs",
+    "supportAction": "Contact support",
+    "terminalTitle": "cmux · zsh",
+    "terminalCommand": "cmux open ./requested-page",
+    "terminalError": "error: route not found",
+    "terminalHint": "hint: return home or open the docs",
+    "footer": "Lost routes do not stop the work."
+  },
   "vmDesktop": {
     "invalidTitle": "This desktop link isn't valid",
     "invalidBody": "The link is missing its session or points somewhere cmux won't frame. Reopen the desktop from cmux: right-click {machine} in the Machines panel and choose Open Desktop.",
