@@ -179,7 +179,7 @@ struct VaultAllSessionsBar: View {
             }
             .pickerStyle(.inline)
         } label: {
-            VaultToolbarIcon(systemName: "ellipsis.vertical")
+            VaultToolbarIcon(systemName: "ellipsis.vertical", isEmphasized: true)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -208,6 +208,7 @@ struct VaultAllSessionsBar: View {
 private struct VaultToolbarIcon: View {
     let systemName: String
     var isActive = false
+    var isEmphasized = false
     @State private var isHovered = false
 
     var body: some View {
@@ -215,6 +216,8 @@ private struct VaultToolbarIcon: View {
             .foregroundStyle(
                 isActive
                     ? Color.accentColor
+                    : isEmphasized
+                    ? Color.primary.opacity(isHovered ? 1 : 0.92)
                     : HeaderChromeIconStyle.foregroundColor.opacity(
                         isHovered
                             ? HeaderChromeIconStyle.hoveredOpacity
@@ -226,7 +229,7 @@ private struct VaultToolbarIcon: View {
                 height: RightSidebarChromeMetrics.headerControlSize
             )
             .background {
-                if isActive || isHovered {
+                if isActive || isHovered || isEmphasized {
                     RoundedRectangle(
                         cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
                         style: .continuous
@@ -234,7 +237,7 @@ private struct VaultToolbarIcon: View {
                     .fill(
                         isActive
                             ? Color.accentColor.opacity(0.12)
-                            : Color.primary.opacity(0.07)
+                            : Color.primary.opacity(isEmphasized ? 0.10 : 0.07)
                     )
                 }
             }
