@@ -92,8 +92,7 @@ struct WorkspaceReorderAtomicityTests {
 
         reorder.setPinned(selected, pinned: true)
 
-        #expect(host.tabSnapshots.count == 1)
-        #expect(host.tabSnapshots.allSatisfy { $0.contains(selected.id) })
+        #expect(host.tabSnapshots == [[pinned.id, selected.id, last.id]])
         #expect(model.tabs.map(\.id) == [pinned.id, selected.id, last.id])
     }
 }
