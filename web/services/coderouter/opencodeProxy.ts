@@ -431,24 +431,6 @@ export async function proxyOpenCodeRequest(
   });
   const body = observeModelUsage(upstream.body, (usage) => {
     if (!usage || usage.totalTokens === 0) return;
-    captureCoderouterEvent({
-      event: "coderouter_model_request_completed",
-      userId: auth.stackUserId,
-      teamId: auth.teamId,
-      properties: {
-        provider: "opencode-go",
-        model: usage.model ?? "unknown",
-        input_tokens: usage.inputTokens,
-        cached_input_tokens: usage.cachedInputTokens,
-        output_tokens: usage.outputTokens,
-        total_tokens: usage.totalTokens,
-        request_id: requestId,
-        duration_ms: Math.round(performance.now() - startedAt),
-        status: upstream.status,
-        response_streamed: streamed,
-        ...vmIdProperty(auth.vmId),
-      },
-    });
     recordUsageEvent({
       requestId,
       teamId: auth.teamId,
@@ -629,7 +611,7 @@ function vmIdProperty(vmId: string | null): { vm_id?: string } {
 
 function captureOpenCodeHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
   readonly startedAt: number;
   readonly status: number;
   readonly outcome:
@@ -664,6 +646,7 @@ function captureOpenCodeHealth(input: {
   recordRouteEvent({
     requestId: input.requestId,
     teamId: input.identity?.teamId,
+    stackUserId: input.identity?.stackUserId,
     vmId: input.identity?.vmId ?? null,
     provider: "opencode-go",
     agent: "opencode",

@@ -2,26 +2,21 @@
 //
 // Every coderouter route runs inside `withCoderouterRoute`, which owns one
 // request context (AsyncLocalStorage), one OpenTelemetry route span (Axiom),
-// and one PostHog trace in the isolated coderouter project. The proxies and
+// and one ClickHouse route row. The proxies and
 // the auth helper enrich the context as the request proceeds: the identity
 // once the route token is verified, one span per upstream attempt, and the
 // terminal outcome when the route result is known. After the response the
-// wrapper ships one batch to PostHog:
+// wrapper records the route in ClickHouse. PostHog receives only operational
+// exceptions:
 //
-// - `$ai_trace` (root) with the outcome, status, latency, provider, agent,
-//   attempts and the Axiom trace id, so the LLM analytics waterfall shows the
-//   request end to end;
-// - one `$ai_span` per recorded step (auth, account selection, each upstream
-//   attempt, credential refresh);
 // - `$exception` (Error Tracking) for every failure that is not the caller's
 //   fault, fingerprinted by outcome, stage and provider, `error` level when the
 //   fault is ours (RDS, config, crash), `warning` when an upstream provider or
 //   the tenant's account state caused it.
 //
 // The ledger request id (`x-coderouter-request-id` on every response) is the
-// PostHog `$ai_trace_id` and the ClickHouse `request_id`, so one id joins the
-// customer's report, the PostHog trace, the ClickHouse row and, via the
-// `trace_id` property, the Axiom span. No prompt, output, header, credential,
+// ClickHouse `request_id`, so one id joins the customer's report, the
+// ClickHouse row and the Axiom span. No prompt, output, header, credential,
 // email or account label ever enters this module.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
@@ -288,11 +283,10 @@ export function classifyCoderouterFault(outcome: CoderouterOutcome): CoderouterF
 // PostHog event builders.
 
 /**
- * The PostHog batch for one finished request: the `$ai_trace` root, its
- * `$ai_span` children, and an `$exception` when the outcome was a failure the
- * caller did not cause. Caller errors still mark the trace as an error so
- * HTTP failures remain filterable without creating Error Tracking issues.
- * Exported for tests; `withCoderouterRoute` sends it.
+ * Build the diagnostic trace shape used by tests and local debugging. The
+ * PostHog sender drops the trace and span entries before transmission, so it
+ * receives only an operational exception. Request outcomes and all token
+ * usage are authoritative in ClickHouse.
  */
 export function traceEvents(
   context: CoderouterRequestContext,
@@ -302,7 +296,6 @@ export function traceEvents(
     ? derivedOutcome(context, input)
     : context.outcome;
   const fault = classifyCoderouterFault(outcome);
-  const traceIsError = input.status >= 400 || outcome.outcome !== "success";
   const shouldEmitException = fault !== "none" && fault !== "caller";
   const teamId = context.identity?.teamId;
   const userId = context.identity?.stackUserId ?? context.userId;
@@ -319,6 +312,7 @@ export function traceEvents(
     ...(context.vercelRequestId ? { vercel_request_id: context.vercelRequestId } : {}),
     ...(context.identity?.vmId ? { coderouter_vm_id: context.identity.vmId } : {}),
   };
+  const traceIsError = input.status >= 400 || outcome.outcome !== "success";
   const events: CoderouterRawEvent[] = [
     {
       event: "$ai_trace",
@@ -447,8 +441,9 @@ export function coderouterControlRoute<Context = unknown>(
 /**
  * Wraps a route handler so every request has a ledger request id, a route
  * span, a request context, trace and request-id response headers, and a
- * post-response PostHog batch. An unhandled throw is reported with its real
- * stack (Sentry via `reportCoderouterFailure`, PostHog `$exception`) and
+ * post-response operational exception event. An unhandled throw is reported
+ * with its real stack (Sentry via `reportCoderouterFailure`, PostHog
+ * `$exception`) and
  * answered with the surface's 503, never swallowed.
  */
 export function withCoderouterRoute<Context = unknown>(
