@@ -3170,6 +3170,39 @@ describe("VM Effect workflows", () => {
     });
   });
 
+  dbTest("uses recorded provider shape for a legacy snapshot source", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vm_usage_events (
+        user_id, billing_team_id, billing_plan_id, event_type, provider, image_id, metadata
+      ) values (
+        'user-workflow-recorded-snapshot', 'team-workflow-recorded-snapshot', 'pro',
+        'vm.snapshot.created', 'freestyle', 'snapshot-test',
+        ${sql.json({
+          snapshotId: "recorded-legacy-snapshot",
+          vcpus: 2,
+          memoryMb: 8192,
+          diskMb: 65536,
+        })}
+      )
+    `;
+
+    const reservation = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.ownedSnapshotResourceReservation!({
+          userId: "user-workflow-recorded-snapshot",
+          billingTeamId: "team-workflow-recorded-snapshot",
+          provider: "freestyle",
+          snapshotId: "recorded-legacy-snapshot",
+        });
+      }).pipe(Effect.provide(VmRepositoryLive)),
+    );
+
+    expect(reservation).toEqual({ vcpus: 2, memoryMb: 8192, diskMb: 65536 });
+  });
+
   dbTest("resets Base by retaining the previous generation when capacity allows", async () => {
     if (!sql) throw new Error("test database not initialized");
     await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
