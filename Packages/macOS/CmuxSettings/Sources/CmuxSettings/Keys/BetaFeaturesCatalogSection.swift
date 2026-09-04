@@ -1,10 +1,9 @@
 import Foundation
 
 /// Beta-feature toggles. Each key here gates an experimental code path
-/// in the running app. The id prefix is `rightSidebar.beta.*` for the
-/// existing right-sidebar Dock toggle; new betas should follow the
-/// pattern `<feature-domain>.beta.<flag-name>` so the cmux.json view
-/// groups them sensibly.
+/// in the running app. Keys follow the pattern
+/// `<feature-domain>.beta.<flag-name>` so the cmux.json view groups them
+/// sensibly.
 public struct BetaFeaturesCatalogSection: SettingCatalogSection {
     /// Right-sidebar Feed: an experimental mode that surfaces inline agent
     /// decisions (permission prompts, questions) in the right-sidebar mode
@@ -23,6 +22,14 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         id: "rightSidebar.beta.dock.enabled",
         defaultValue: false,
         userDefaultsKey: "rightSidebar.beta.dock.enabled"
+    )
+
+    /// Right-sidebar Source Control: a read-only Git changes surface. Defaults
+    /// off so the panel is opt-in while its interaction model is stabilized.
+    public let sourceControl = DefaultsKey<Bool>(
+        id: "sourceControl.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "sourceControl.beta.enabled"
     )
 
     /// Extensions: the experimental ExtensionKit sidebar-extension surface

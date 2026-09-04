@@ -1,4 +1,4 @@
-import Darwin
+internal import Darwin
 public import Foundation
 
 /// A failed `read(2)`/`poll(2)` against a process pipe or socket descriptor,

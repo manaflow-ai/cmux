@@ -1191,9 +1191,16 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         .switchRightSidebarToSessions,
         .switchRightSidebarToFeed,
         .switchRightSidebarToDock,
+        .switchRightSidebarToSourceControl,
     ]
+    private let feedEnabledKey = RightSidebarBetaFeatureSettings.feedEnabledKey
+    private let dockEnabledKey = RightSidebarBetaFeatureSettings.dockEnabledKey
+    private let sourceControlEnabledKey = RightSidebarBetaFeatureSettings.sourceControlEnabledKey
     private var originalSettingsFileStore: KeyboardShortcutSettingsFileStore!
     private var savedShortcutData: [KeyboardShortcutSettings.Action: Data?] = [:]
+    private var savedFeedEnabled: Any?
+    private var savedDockEnabled: Any?
+    private var savedSourceControlEnabled: Any?
     private var temporaryDirectoryURL: URL?
 
     override func setUpWithError() throws {
@@ -1204,6 +1211,9 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
                 (action, UserDefaults.standard.data(forKey: action.defaultsKey))
             }
         )
+        savedFeedEnabled = UserDefaults.standard.object(forKey: feedEnabledKey)
+        savedDockEnabled = UserDefaults.standard.object(forKey: dockEnabledKey)
+        savedSourceControlEnabled = UserDefaults.standard.object(forKey: sourceControlEnabledKey)
 
         let directoryURL = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1217,6 +1227,9 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         for action in touchedShortcutActions {
             UserDefaults.standard.removeObject(forKey: action.defaultsKey)
         }
+        UserDefaults.standard.set(true, forKey: feedEnabledKey)
+        UserDefaults.standard.set(true, forKey: dockEnabledKey)
+        UserDefaults.standard.set(true, forKey: sourceControlEnabledKey)
         KeyboardShortcutSettings.notifySettingsFileDidChange()
     }
 
@@ -1227,6 +1240,21 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
             } else {
                 UserDefaults.standard.removeObject(forKey: action.defaultsKey)
             }
+        }
+        if let savedFeedEnabled {
+            UserDefaults.standard.set(savedFeedEnabled, forKey: feedEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: feedEnabledKey)
+        }
+        if let savedDockEnabled {
+            UserDefaults.standard.set(savedDockEnabled, forKey: dockEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: dockEnabledKey)
+        }
+        if let savedSourceControlEnabled {
+            UserDefaults.standard.set(savedSourceControlEnabled, forKey: sourceControlEnabledKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: sourceControlEnabledKey)
         }
         KeyboardShortcutSettings.settingsFileStore = originalSettingsFileStore
         KeyboardShortcutSettings.notifySettingsFileDidChange()
@@ -1242,6 +1270,7 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(RightSidebarMode.sessions.shortcutAction, .switchRightSidebarToSessions)
         XCTAssertEqual(RightSidebarMode.feed.shortcutAction, .switchRightSidebarToFeed)
         XCTAssertEqual(RightSidebarMode.dock.shortcutAction, .switchRightSidebarToDock)
+        XCTAssertEqual(RightSidebarMode.sourceControl.shortcutAction, .switchRightSidebarToSourceControl)
         XCTAssertEqual(RightSidebarMode.machines.shortcutAction, .switchRightSidebarToMachines)
     }
 
@@ -1265,6 +1294,14 @@ final class RightSidebarModeShortcutHintTests: XCTestCase {
         XCTAssertEqual(
             RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "5", modifiers: [.control], keyCode: 23)),
             .dock
+        )
+        XCTAssertEqual(
+            RightSidebarMode.modeShortcut(for: makeKeyDownEvent(key: "6", modifiers: [.control], keyCode: 22)),
+            .sourceControl
+        )
+        XCTAssertEqual(
+            KeyboardShortcutSettings.Action.switchRightSidebarToMachines.defaultShortcut.key,
+            "7"
         )
     }
 

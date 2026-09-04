@@ -169,9 +169,9 @@ extension RemoteTmuxController {
     }
 
     /// Consolidates an existing host mirror into a newly created dedicated window.
-    ///
-    /// The destination manager is supplied by the caller so the same ownership
-    /// move can be exercised independently of AppKit window creation.
+    /// Consolidates existing mirrors into the supplied manager. Keeping the
+    /// destination injectable lets the ownership move be verified without
+    /// requiring a native AppKit window.
     func moveExistingMirrors(for host: RemoteTmuxHost, into targetManager: TabManager) {
         let hostWorkspaceIds = Set(sessionMirrors.values.compactMap { mirror -> UUID? in
             guard mirror.host.connectionHash == host.connectionHash else { return nil }

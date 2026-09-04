@@ -3,35 +3,28 @@ import Foundation
 
 extension RightSidebarMode {
     static func from(cliArgument rawValue: String) -> RightSidebarMode? {
-        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "files":
-            return .files
-        case "find":
-            return .find
-        case "vault", "sessions":
-            return .sessions
-        case "feed":
-            return .feed
-        case "dock":
-            return .dock
-        case "cloud", "machines", "vms":
-            return .machines
-        case "custom", "custom-sidebar":
-            return .customSidebar
-        default:
-            return nil
-        }
+        RightSidebarPanelRegistry().mode(forCLIArgument: rawValue)
     }
 
     static func availableModes(defaults: UserDefaults = .standard) -> [RightSidebarMode] {
-        availableModes(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
-        )
+        RightSidebarPanelRegistry().availableModes(defaults: defaults)
     }
 
-    static func availableModes(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> [RightSidebarMode] {
+    func isAvailable(defaults: UserDefaults = .standard) -> Bool {
+        guard let descriptor = RightSidebarPanelRegistry().descriptor(for: self) else {
+            return false
+        }
+        return descriptor.isAvailable(defaults)
+    }
+
+    /// Compatibility overload for callers that already have the legacy beta
+    /// values. The registry-backed Source Control flag is intentionally not
+    /// inferred here; use `availableModes(defaults:)` for the complete catalog.
+    static func availableModes(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> [RightSidebarMode] {
         allCases.filter {
             $0.isAvailable(
                 feedEnabled: feedEnabled,
@@ -41,30 +34,27 @@ extension RightSidebarMode {
         }
     }
 
-    func isAvailable(defaults: UserDefaults = .standard) -> Bool {
-        isAvailable(
-            feedEnabled: RightSidebarBetaFeatureSettings.isFeedEnabled(defaults: defaults),
-            dockEnabled: RightSidebarBetaFeatureSettings.isDockEnabled(defaults: defaults),
-            machinesEnabled: CloudMachinesFeature.offMainIsEnabled(defaults: defaults)
-        )
-    }
-
-    func isAvailable(feedEnabled: Bool, dockEnabled: Bool, machinesEnabled: Bool) -> Bool {
-        switch self {
-        case .files, .find, .sessions:
+    func isAvailable(
+        feedEnabled: Bool,
+        dockEnabled: Bool,
+        machinesEnabled: Bool
+    ) -> Bool {
+        switch rawValue {
+        case RightSidebarMode.files.rawValue,
+             RightSidebarMode.find.rawValue,
+             RightSidebarMode.sessions.rawValue:
             return true
-        case .feed:
+        case RightSidebarMode.feed.rawValue:
             return feedEnabled
-        case .dock:
+        case RightSidebarMode.dock.rawValue:
             return dockEnabled
-        case .machines:
+        case RightSidebarMode.machines.rawValue:
             return machinesEnabled
-        case .customSidebar:
-            // Available once the custom-sidebars beta is on AND a right-side
-            // sidebar has been picked (right_sidebar set custom <name>); the
-            // mode bar then grows a Custom button.
+        case RightSidebarMode.customSidebar.rawValue:
             return CmuxExtensionSidebarSelection.customSidebarsEnabled
                 && FileExplorerState.persistedCustomSidebarName() != nil
+        default:
+            return false
         }
     }
 }

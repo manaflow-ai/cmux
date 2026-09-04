@@ -337,6 +337,13 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(
                 section: .betaFeatures,
+                id: "source-control",
+                title: String(localized: "settings.betaFeatures.sourceControl", defaultValue: "Source Control"),
+                paths: ["sourceControl.beta.enabled"],
+                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.source-control", defaultValue: "sourceControl.beta.enabled source control git scm commit stage unstage diff changes right sidebar beta")
+            ),
+            .init(
+                section: .betaFeatures,
                 id: "cloudMachines",
                 title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
                 detailText: [

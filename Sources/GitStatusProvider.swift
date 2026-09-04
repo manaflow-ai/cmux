@@ -22,13 +22,25 @@ struct GitStatusProvider: Sendable {
     }
 
     func fetchStatus(directory: String) -> [String: GitFileStatus] {
-        guard let repoRoot = gitRepoRoot(for: directory) else { return [:] }
+        fetchSnapshot(directory: directory).statusesByPath
+    }
+
+    /// Reads local Git status and returns both tree decorations and
+    /// filesystem-free file entries for list consumers.
+    func fetchSnapshot(directory: String) -> GitStatusSnapshot {
+        guard let repoRoot = gitRepoRoot(for: directory) else { return .empty }
         // git reports the repo root physically (/private/var/...) while the caller may spell
         // the explorer root through a symlink (/var, /tmp, a symlinked project dir). Resolve
         // both to one spelling for the containment check, and emit keys under the caller's
         // spelling so FileExplorerStore lookups match.
+        guard let output = runGit(
+            in: repoRoot,
+            arguments: ["status", "--porcelain=v1", "--untracked-files=all", "-z"]
+        ) else {
+            return .empty
+        }
         return parseGitStatus(
-            output: runGit(in: repoRoot, arguments: ["status", "--porcelain=v1", "-z"]),
+            output: output,
             repoRoot: Self.canonicalPath(repoRoot),
             explorerRoot: Self.canonicalPath(directory),
             keyRoot: directory
@@ -39,31 +51,59 @@ struct GitStatusProvider: Sendable {
         directory: String, destination: String, port: Int?,
         identityFile: String?, sshOptions: [String]
     ) -> [String: GitFileStatus] {
+        fetchSnapshotSSH(
+            directory: directory,
+            destination: destination,
+            port: port,
+            identityFile: identityFile,
+            sshOptions: sshOptions
+        ).statusesByPath
+    }
+
+    /// Reads remote Git status without consulting the local filesystem.
+    func fetchSnapshotSSH(
+        directory: String, destination: String, port: Int?,
+        identityFile: String?, sshOptions: [String]
+    ) -> GitStatusSnapshot {
         let escapedDir = directory.replacingOccurrences(of: "'", with: "'\\''")
         let cmd = [
             "cd '\(escapedDir)' 2>/dev/null",
             "\(Self.nonLockingRemoteGitCommand) rev-parse --show-toplevel 2>/dev/null",
-            "echo '---GIT_STATUS---'",
-            "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 -z 2>/dev/null",
+            "printf '\\0'",
+            "\(Self.nonLockingRemoteGitCommand) status --porcelain=v1 --untracked-files=all -z 2>/dev/null",
         ].joined(separator: " && ")
         guard let output = runSSH(
             command: cmd, destination: destination,
             port: port, identityFile: identityFile, sshOptions: sshOptions
-        ) else { return [:] }
+        ) else { return .empty }
 
-        let parts = output.components(separatedBy: "---GIT_STATUS---\n")
-        guard parts.count == 2 else { return [:] }
-        let repoRoot = parts[0].trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        guard let separator = output.firstIndex(of: "\0") else { return .empty }
+        let repoRoot = String(output[..<separator]).trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
+        let statusStart = output.index(after: separator)
         // Remote paths must not be resolved against the local filesystem, so the comparison
         // space and the key space are both the caller's spelling here.
-        return parseGitStatus(output: parts[1], repoRoot: repoRoot, explorerRoot: directory, keyRoot: directory)
+        return parseGitStatus(
+            output: String(output[statusStart...]),
+            repoRoot: repoRoot,
+            explorerRoot: directory,
+            keyRoot: directory
+        )
     }
 
     private func parseGitStatus(
-        output: String?, repoRoot: String, explorerRoot: String, keyRoot: String
-    ) -> [String: GitFileStatus] {
-        guard let output, !output.isEmpty else { return [:] }
+        output: String, repoRoot: String, explorerRoot: String, keyRoot: String
+    ) -> GitStatusSnapshot {
+        guard !output.isEmpty else {
+            return GitStatusSnapshot(statusesByPath: [:], displayableEntries: [], state: .available)
+        }
         var statusMap: [String: GitFileStatus] = [:]
+        var diffSourcesByPath: [String: GitFileDiffSource] = [:]
+        var directoryPaths: Set<String> = []
+        // Keep the order emitted by `git status`. Git's porcelain stream is
+        // path-ordered, so Source Control can partition this sequence in one
+        // linear pass without re-sorting every group during rendering.
+        var orderedPaths: [String] = []
+        var orderedPathSet: Set<String> = []
         let normalizedRepoRoot = Self.pathWithoutTrailingSlashes(repoRoot)
         let normalizedExplorerRoot = Self.pathWithoutTrailingSlashes(explorerRoot)
         let normalizedKeyRoot = Self.pathWithoutTrailingSlashes(keyRoot)
@@ -78,10 +118,13 @@ struct GitStatusProvider: Sendable {
             }
             let indexStatus = entry[entry.startIndex]
             let workTreeStatus = entry[entry.index(after: entry.startIndex)]
-            let path = String(entry.dropFirst(3))
+            let rawPath = String(entry.dropFirst(3))
+            let pathIsDirectory = rawPath.hasSuffix("/")
+            let path = Self.pathWithoutTrailingSlashes(rawPath)
             let usesSecondPath = Self.statusUsesSecondPath(index: indexStatus, workTree: workTreeStatus)
             entryIndex += usesSecondPath ? 2 : 1
             guard let status = parseStatusChars(index: indexStatus, workTree: workTreeStatus) else { continue }
+            let diffSource = Self.diffSource(index: indexStatus, workTree: workTreeStatus, status: status)
 
             let absolutePath = Self.absolutePath(repoRoot: normalizedRepoRoot, relativePath: path)
             guard Self.path(absolutePath, isContainedIn: normalizedExplorerRoot) else { continue }
@@ -99,14 +142,30 @@ struct GitStatusProvider: Sendable {
             }
 
             statusMap[key] = status
+            diffSourcesByPath[key] = diffSource
+            if pathIsDirectory {
+                directoryPaths.insert(key)
+            }
+            if orderedPathSet.insert(key).inserted {
+                orderedPaths.append(key)
+            }
             markParentDirectories(
                 absolutePath: key,
                 explorerRoot: normalizedKeyRoot,
                 status: status,
-                in: &statusMap
+                in: &statusMap,
+                directoryPaths: &directoryPaths
             )
         }
-        return statusMap
+        let displayableEntries: [GitStatusSnapshotEntry] = orderedPaths.compactMap { path -> GitStatusSnapshotEntry? in
+            guard !directoryPaths.contains(path), let status = statusMap[path] else { return nil }
+            return GitStatusSnapshotEntry(path: path, status: status, diffSource: diffSourcesByPath[path] ?? .unstaged)
+        }
+        return GitStatusSnapshot(
+            statusesByPath: statusMap,
+            displayableEntries: displayableEntries,
+            state: .available
+        )
     }
 
     private func parseStatusChars(index: Character, workTree: Character) -> GitFileStatus? {
@@ -121,9 +180,23 @@ struct GitStatusProvider: Sendable {
         return nil
     }
 
+    private static func diffSource(
+        index: Character,
+        workTree: Character,
+        status: GitFileStatus
+    ) -> GitFileDiffSource {
+        if status == .untracked { return .untracked }
+        // A status with only an index column change is represented by the
+        // staged diff; otherwise show the worktree side (including mixed MM/RM
+        // entries, where the worktree delta is the actionable one).
+        return index != " " && workTree == " " ? .staged : .unstaged
+    }
+
     private func markParentDirectories(
         absolutePath: String, explorerRoot: String,
-        status: GitFileStatus, in map: inout [String: GitFileStatus]
+        status: GitFileStatus,
+        in map: inout [String: GitFileStatus],
+        directoryPaths: inout Set<String>
     ) {
         let dirStatus: GitFileStatus = (status == .untracked) ? .untracked : .modified
         var current = (absolutePath as NSString).deletingLastPathComponent
@@ -131,6 +204,7 @@ struct GitStatusProvider: Sendable {
             if map[current] == nil {
                 map[current] = dirStatus
             }
+            directoryPaths.insert(current)
             current = (current as NSString).deletingLastPathComponent
         }
     }

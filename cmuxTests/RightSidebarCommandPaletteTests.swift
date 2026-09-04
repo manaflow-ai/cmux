@@ -1,4 +1,5 @@
 import CmuxCommandPalette
+import CmuxSettings
 import Foundation
 import XCTest
 
@@ -14,6 +15,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.removeObject(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+            defaults.set(false, forKey: BetaFeaturesCatalogSection().customSidebars.userDefaultsKey)
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -43,6 +46,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertEqual(contributions.count, expectedCount)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
+            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.sourceControl)])
             XCTAssertEqual(
                 contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)] != nil,
                 RightSidebarMode.machines.isAvailable()
@@ -55,6 +59,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            defaults.set(true, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
 
             for mode in RightSidebarMode.allCases {
                 XCTAssertEqual(
@@ -82,9 +87,14 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let defaults = UserDefaults.standard
         let previousFeed = defaults.object(forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
         let previousDock = defaults.object(forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+        let previousSourceControl = defaults.object(forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+        let customSidebarsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
+        let previousCustomSidebars = defaults.object(forKey: customSidebarsKey)
         defer {
             restore(previousFeed, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             restore(previousDock, forKey: RightSidebarBetaFeatureSettings.dockEnabledKey)
+            restore(previousSourceControl, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+            restore(previousCustomSidebars, forKey: customSidebarsKey)
         }
         try body()
     }

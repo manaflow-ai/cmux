@@ -1,4 +1,6 @@
 import Foundation
+import CmuxSidebar
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -7,10 +9,28 @@ import Testing
 @testable import cmux
 #endif
 
-extension TerminalControllerSocketSecurityTests {
+@MainActor
+@Suite("Right sidebar remote commands", .serialized)
+struct RightSidebarRemoteCommandTests {
+    private func parseRightSidebarRequestForTesting(
+        _ commandLine: String,
+        defaults: UserDefaults = .standard
+    ) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+        let trimmed = commandLine.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: " ", maxSplits: 1).map(String.init)
+        guard parts.first?.lowercased() == "right_sidebar" else {
+            return .failure(.init(message: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|set-mode|mode>"))
+        }
+        return RightSidebarRemoteRequest.parse(
+            tokens: SidebarMetadataArgumentParser().tokenize(parts.count > 1 ? parts[1] : ""),
+            defaults: defaults
+        )
+    }
+
     @Test func v1CommandsDriveExistingState() throws {
         let previousAppDelegate = AppDelegate.shared
         let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
         defer { AppDelegate.shared = previousAppDelegate }
 
         let windowId = UUID()
@@ -61,13 +81,13 @@ extension TerminalControllerSocketSecurityTests {
         #expect(TerminalController.shared.handleSocketLine("right_sidebar set unknown").hasPrefix("ERROR:"))
     }
 
-    @Test func v1CommandsRejectCustomSidebarNames() throws {
+    @Test func v1CommandsSelectCustomSidebar() throws {
         let name = "__cmux_test_sidebar_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         try withTemporaryCustomSidebarsDirectory { directory in
             let fileURL = directory.appendingPathComponent("\(name).swift")
             try #"Text("Custom")"#.write(to: fileURL, atomically: true, encoding: .utf8)
 
-            let customSidebarsDefaultsKey = "customSidebars.beta.enabled"
+            let customSidebarsDefaultsKey = BetaFeaturesCatalogSection().customSidebars.userDefaultsKey
             let previousCustomSidebars = UserDefaults.standard.object(forKey: customSidebarsDefaultsKey)
             UserDefaults.standard.set(true, forKey: customSidebarsDefaultsKey)
             defer {
@@ -80,6 +100,7 @@ extension TerminalControllerSocketSecurityTests {
 
             let previousAppDelegate = AppDelegate.shared
             let appDelegate = AppDelegate()
+            AppDelegate.shared = appDelegate
             defer { AppDelegate.shared = previousAppDelegate }
 
             let windowId = UUID()
@@ -94,16 +115,23 @@ extension TerminalControllerSocketSecurityTests {
             )
             defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
 
-            #expect(TerminalController.shared.handleSocketLine("right_sidebar set \(name) --no-focus").hasPrefix("ERROR:"))
-            #expect(!fileExplorerState.isVisible)
-            #expect(fileExplorerState.mode == .files)
-            #expect(fileExplorerState.customSidebarName != name)
+            fileExplorerState.setVisible(false)
+            fileExplorerState.mode = .files
+
+            #expect(
+                TerminalController.shared.handleSocketLine(
+                    "right_sidebar set custom \(name) --no-focus"
+                ) == "OK"
+            )
+            #expect(fileExplorerState.isVisible)
+            #expect(fileExplorerState.mode == .customSidebar)
+            #expect(fileExplorerState.customSidebarName == name)
 
             let modeResponse = TerminalController.shared.handleSocketLine("right_sidebar mode")
             let modeData = try #require(modeResponse.data(using: .utf8))
             let modePayload = try #require(JSONSerialization.jsonObject(with: modeData) as? [String: Any])
-            #expect(modePayload["visible"] as? Bool == false)
-            #expect(modePayload["mode"] as? String == "files")
+            #expect(modePayload["visible"] as? Bool == true)
+            #expect(modePayload["mode"] as? String == "custom-sidebar")
         }
     }
 
@@ -151,7 +179,7 @@ extension TerminalControllerSocketSecurityTests {
         ]
 
         for (line, expected) in cases {
-            let result = TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line)
+            let result = parseRightSidebarRequestForTesting(line)
             #expect(try result.get() == expected, Comment(rawValue: line))
         }
 
@@ -159,6 +187,7 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar", "Usage: right_sidebar"),
             ("right_sidebar set", "Usage: right_sidebar set"),
             ("right_sidebar set unknown", "Unknown right sidebar mode"),
+            ("right_sidebar set-mode source-control", "Settings"),
             ("right_sidebar show --no-focus", "Usage: right_sidebar show"),
             ("right_sidebar files --no-focus", "--no-focus is only valid"),
             ("right_sidebar --bad", "Unknown right sidebar option"),
@@ -166,8 +195,23 @@ extension TerminalControllerSocketSecurityTests {
             ("right_sidebar show --window", "--window requires an id"),
         ]
 
+        let suiteName = "RightSidebarRemoteCommandTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(false, forKey: RightSidebarBetaFeatureSettings.sourceControlEnabledKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        switch parseRightSidebarRequestForTesting("right_sidebar set-mode source-control", defaults: defaults) {
+        case .success(let request):
+            Issue.record("Expected Source Control availability failure, got \(request)")
+        case .failure(let error):
+            #expect(
+                error.message == "ERROR: Right sidebar mode 'source-control' is unavailable; enable it in Settings"
+            )
+        }
+
         for (line, expectedMessage) in invalidCases {
-            switch TerminalController.shared.parseRightSidebarRemoteRequestForTesting(line) {
+            switch parseRightSidebarRequestForTesting(line, defaults: defaults) {
             case .success(let request):
                 Issue.record("Expected parser failure for \(line), got \(request)")
             case .failure(let error):

@@ -350,10 +350,12 @@ import Testing
         let surfaceIDBefore = try #require(focusedBefore["surface_id"] as? String)
 
         let responseText = await Task.detached {
-            TerminalController.shared.v2RemoteTmuxWindow(
-                id: 1,
-                params: ["host": host.destination]
-            )
+            HeadlessMainWindowInterceptor.replacingNewWindowContent {
+                TerminalController.shared.v2RemoteTmuxWindow(
+                    id: 1,
+                    params: ["host": host.destination]
+                )
+            }
         }.value
         let responseData = try #require(responseText.data(using: .utf8))
         let response = try #require(JSONSerialization.jsonObject(with: responseData) as? [String: Any])
@@ -410,12 +412,28 @@ import Testing
         let manager: TabManager
         let workspace: Workspace
         var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
+        private let headlessWindowInterceptor: HeadlessMainWindowInterceptor
 
         init() throws {
-            appDelegate = try #require(AppDelegate.shared)
-            windowId = appDelegate.createMainWindow()
-            manager = try #require(appDelegate.tabManagerFor(windowId: windowId))
-            workspace = try #require(manager.selectedWorkspace)
+            let resolvedAppDelegate = try #require(AppDelegate.shared)
+            let interceptor = HeadlessMainWindowInterceptor(appDelegate: resolvedAppDelegate)
+            do {
+                let createdWindowID = try HeadlessMainWindowInterceptor.replacingNewWindowContent {
+                    resolvedAppDelegate.createMainWindow(shouldActivate: false)
+                }
+                let createdManager = try #require(
+                    resolvedAppDelegate.tabManagerFor(windowId: createdWindowID)
+                )
+                let createdWorkspace = try #require(createdManager.selectedWorkspace)
+                appDelegate = resolvedAppDelegate
+                headlessWindowInterceptor = interceptor
+                windowId = createdWindowID
+                manager = createdManager
+                workspace = createdWorkspace
+            } catch {
+                interceptor.invalidate()
+                throw error
+            }
         }
 
         func tearDown() {
@@ -423,6 +441,7 @@ import Testing
             // Clear any marker so it can't leak into another serialized test.
             controller.consumeKillSessionsOnWindowClose(windowId: windowId)
             closeWindow(windowId)
+            headlessWindowInterceptor.invalidate()
         }
 
         func cacheConnection(host: RemoteTmuxHost, session: String) {
@@ -452,7 +471,7 @@ import Testing
 @Suite(.serialized) struct RemoteTmuxMirrorDedicatedPlacementTests {
     /// `--new-window` must consolidate every mirror for the host even when the
     /// Move Workspace action previously distributed those mirrors across several
-    /// Cached control connections keep this test network-free. Source managers
+    /// cached control connections. Keep this test network-free. Source managers
     /// are deliberately windowless: the regression is about workspace ownership
     /// and must not require a Ghostty renderer or AppKit window to be created.
     @Test func dedicatedWindowConsolidatesMirrorsFromEverySourceWindow() throws {
@@ -490,8 +509,8 @@ import Testing
         let twoWorkspace = try #require(sourceManagerB.tabs.first(where: { $0.isRemoteTmuxMirror }))
         controller.moveExistingMirrors(for: host, into: targetManager)
 
-        #expect(Set(targetManager.tabs.map(\.id)) == Set([oneWorkspace.id, twoWorkspace.id]))
-        #expect(targetManager.tabs.allSatisfy { $0.isRemoteTmuxMirror })
+        #expect(Set(targetManager.tabs.filter(\.isRemoteTmuxMirror).map(\.id)) == Set([oneWorkspace.id, twoWorkspace.id]))
+        #expect(targetManager.tabs.filter(\.isRemoteTmuxMirror).count == 2)
         #expect(sourceManagerA.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(sourceManagerB.tabs.allSatisfy { !$0.isRemoteTmuxMirror })
         #expect(one.exited == false)

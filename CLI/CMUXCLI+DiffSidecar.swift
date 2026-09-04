@@ -133,10 +133,27 @@ extension CMUXCLI {
             != legacy.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
+    /// Whether the typed sidecar protocol can represent this diff context.
+    ///
+    /// The current typed source envelope is repository-scoped. File-scoped
+    /// requests stay on the legacy generator, which already preserves the
+    /// literal path through source switches, untracked patches, and branch
+    /// regeneration. Failing over here prevents the production sidecar from
+    /// silently widening a selected Source Control row to the whole repository.
+    func diffViewerTypedSidecarSupports(context: DiffSourceContext) -> Bool {
+        normalizedDiffSourceValue(context.filePath) == nil
+    }
+
+    func shouldUseTypedDiffSidecar(runtime: URL?, context: DiffSourceContext) -> Bool {
+        diffViewerTypedSidecarSupports(context: context)
+            && diffViewerUsesTypedSidecar(runtime: runtime)
+    }
+
     func diffSessionSourcePayload(
         source: DiffSource,
         context: DiffSourceContext
     ) -> [String: Any]? {
+        guard diffViewerTypedSidecarSupports(context: context) else { return nil }
         guard let repoRoot = context.repoRoot else { return nil }
         switch source {
         case .unstaged:

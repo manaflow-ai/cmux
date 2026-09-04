@@ -57,6 +57,8 @@ final class MainWindowFocusController {
     private weak var fileSearchHost: FileExplorerContainerView?
     private weak var feedHost: FeedKeyboardFocusView?
     private weak var dockHost: DockKeyboardFocusView?
+    private weak var sourceControlHost: SourceControlKeyboardFocusView?
+    private let panelRegistry = RightSidebarPanelRegistry()
 
     private(set) var intent: MainWindowKeyboardFocusIntent? {
         didSet {
@@ -122,12 +124,12 @@ final class MainWindowFocusController {
 
     func registerFileExplorerHost(_ host: FileExplorerContainerView) {
         let mode = host.representedRightSidebarMode()
-        switch mode {
-        case .files:
+        switch panelRegistry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline:
             fileExplorerHost = host
-        case .find:
+        case .fileExplorerSearch:
             fileSearchHost = host
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .some(.sessionIndex), .some(.feed), .some(.dock), .some(.sourceControl), .some(.host), .some(.none), nil:
             break
         }
         focusRegisteredRightSidebarEndpointIfNeeded(mode: mode)
@@ -142,6 +144,11 @@ final class MainWindowFocusController {
     func registerDockHost(_ host: DockKeyboardFocusView) {
         dockHost = host
         focusRegisteredRightSidebarEndpointIfNeeded(mode: .dock)
+    }
+
+    func registerSourceControlHost(_ host: SourceControlKeyboardFocusView) {
+        sourceControlHost = host
+        focusRegisteredRightSidebarEndpointIfNeeded(mode: .sourceControl)
     }
 
     func noteRightSidebarInteraction(mode: RightSidebarMode) {
@@ -239,6 +246,9 @@ final class MainWindowFocusController {
             return true
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
+            return true
+        }
+        if sourceControlHost?.ownsKeyboardFocus(responder) == true {
             return true
         }
         return false
@@ -742,17 +752,15 @@ final class MainWindowFocusController {
         mode: RightSidebarMode,
         focusFirstItem: Bool
     ) -> RightSidebarFocusTarget {
-        switch mode {
-        case .files:
+        switch panelRegistry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline:
             return .outline
-        case .find:
+        case .fileExplorerSearch:
             return .searchField
-        case .sessions, .machines, .customSidebar:
+        case .feed, .dock, .sourceControl:
+            return focusFirstItem ? .firstItem : .host
+        case .some(.sessionIndex), .some(.host), .some(.none), nil:
             return .host
-        case .feed:
-            return focusFirstItem ? .firstItem : .host
-        case .dock:
-            return focusFirstItem ? .firstItem : .host
         }
     }
 
@@ -760,15 +768,11 @@ final class MainWindowFocusController {
         mode: RightSidebarMode,
         target: RightSidebarFocusTarget
     ) -> Bool {
-        switch mode {
-        case .files:
+        switch panelRegistry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline:
             return fileExplorerHost?.focusOutline() == true
-        case .find:
+        case .fileExplorerSearch:
             return fileSearchHost?.focusSearchField() == true
-        case .sessions, .customSidebar:
-            return mode == .customSidebar ? focusFallbackRightSidebarHost() : false
-        case .machines:
-            return focusFallbackRightSidebarHost()
         case .feed:
             if target == .firstItem {
                 feedHost?.focusFirstItemFromCoordinator()
@@ -779,6 +783,13 @@ final class MainWindowFocusController {
                 dockHost?.focusFirstItemFromCoordinator()
             }
             return dockHost?.focusHostFromCoordinator() == true
+        case .sourceControl:
+            if target == .firstItem {
+                return sourceControlHost?.focusFirstItemFromCoordinator() == true
+            }
+            return sourceControlHost?.focusHostFromCoordinator() == true
+        case .some(.sessionIndex), .some(.host), .some(.none), nil:
+            return focusFallbackRightSidebarHost()
         }
     }
 
@@ -842,6 +853,9 @@ final class MainWindowFocusController {
         }
         if dockHost?.ownsKeyboardFocus(responder) == true {
             return .dock
+        }
+        if sourceControlHost?.ownsKeyboardFocus(responder) == true {
+            return .sourceControl
         }
         return nil
     }

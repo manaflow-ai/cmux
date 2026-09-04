@@ -921,6 +921,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
         environment["CMUX_SURFACE_ID"] = surfaceID
         environment["CMUX_CLOUD_TMUX_SESSION"] = "cmux-cloud"
         environment["CMUX_FAKE_SSH_ARGS"] = capturedArgsPath
+        environment["CMUX_TEST_SSH_TOOL_PATH"] = fakeExpectPath
         environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
         environment["CMUX_CLAUDE_HOOK_SENTRY_DISABLED"] = "1"
         environment["PATH"] = "\(tempDirectory.path):/usr/bin:/bin:/usr/sbin:/sbin"

@@ -477,13 +477,19 @@ enum AgentHibernationTrackingGate {
 }
 
 enum RightSidebarBetaFeatureSettings {
-    static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
-    static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
-    static let cloudMachinesEnabledKey = "cloud.beta.machines.enabled"
+    // Compatibility aliases for older call sites. The catalog owns the
+    // identifiers and defaults; keep this shim read-only while callers migrate.
+    private static let catalog = BetaFeaturesCatalogSection()
 
-    static let defaultFeedEnabled = false
-    static let defaultDockEnabled = false
-    static let defaultCloudMachinesEnabled = false
+    static var feedEnabledKey: String { catalog.rightSidebarFeed.userDefaultsKey }
+    static var dockEnabledKey: String { catalog.rightSidebarDock.userDefaultsKey }
+    static var sourceControlEnabledKey: String { catalog.sourceControl.userDefaultsKey }
+    static var cloudMachinesEnabledKey: String { catalog.cloudMachines.userDefaultsKey }
+
+    static var defaultFeedEnabled: Bool { catalog.rightSidebarFeed.defaultValue }
+    static var defaultDockEnabled: Bool { catalog.rightSidebarDock.defaultValue }
+    static var defaultSourceControlEnabled: Bool { catalog.sourceControl.defaultValue }
+    static var defaultCloudMachinesEnabled: Bool { catalog.cloudMachines.defaultValue }
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: feedEnabledKey) != nil else { return defaultFeedEnabled }
@@ -493,6 +499,11 @@ enum RightSidebarBetaFeatureSettings {
     nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }
         return defaults.bool(forKey: dockEnabledKey)
+    }
+
+    nonisolated static func isSourceControlEnabled(defaults: UserDefaults = .standard) -> Bool {
+        guard defaults.object(forKey: sourceControlEnabledKey) != nil else { return defaultSourceControlEnabled }
+        return defaults.bool(forKey: sourceControlEnabledKey)
     }
 
     nonisolated static func isCloudMachinesEnabled(defaults: UserDefaults = .standard) -> Bool {

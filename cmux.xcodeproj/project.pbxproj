@@ -1432,8 +1432,13 @@
 		A10190000000000000000001 /* GhosttyTitleUpdateIngressTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10190000000000000000002 /* GhosttyTitleUpdateIngressTests.swift */; };
 		468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */; };
 		46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */; };
+		10202A00000000000000001D /* GitFileDiffSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000001E /* GitFileDiffSource.swift */; };
 		FE001107 /* GitFileStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001007 /* GitFileStatus.swift */; };
+		10202A00000000000000001F /* GitStatusLoadState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000020 /* GitStatusLoadState.swift */; };
 		FE001106 /* GitStatusProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE001006 /* GitStatusProvider.swift */; };
+		10202A000000000000000009 /* GitStatusSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000A /* GitStatusSnapshot.swift */; };
+		10202A00000000000000000B /* GitStatusSnapshotEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000C /* GitStatusSnapshotEntry.swift */; };
+		10202A000000000000000021 /* GitStatusSnapshotState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000022 /* GitStatusSnapshotState.swift */; };
 		3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */; };
 		3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */; };
 		8561A0018561A0018561A001 /* GlobalSearchInputOwnershipTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */; };
@@ -2097,9 +2102,16 @@
 		AA1B2C3D4E5F60720 /* RightSidebarChromeHeightUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */; };
 		B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */; };
 		C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */; };
+		10202A00000000000000000D /* RightSidebarDockPanelContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000000E /* RightSidebarDockPanelContent.swift */; };
 		B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A00000000000000000004 /* RightSidebarMode+Availability.swift */; };
+		10202A000000000000000001 /* RightSidebarMode.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000002 /* RightSidebarMode.swift */; };
 		46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */; };
 		468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */; };
+		10202A000000000000000023 /* RightSidebarPanelBehavior.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000024 /* RightSidebarPanelBehavior.swift */; };
+		10202A00000000000000000F /* RightSidebarPanelContext.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000010 /* RightSidebarPanelContext.swift */; };
+		10202A000000000000000003 /* RightSidebarPanelDescriptor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */; };
+		10202A000000000000000005 /* RightSidebarPanelRegistry.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000006 /* RightSidebarPanelRegistry.swift */; };
+		10202B000000000000000001 /* RightSidebarPanelRegistryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202B000000000000000002 /* RightSidebarPanelRegistryTests.swift */; };
 		FE003103 /* RightSidebarPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003003 /* RightSidebarPanelView.swift */; };
 		C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */; };
 		B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */ = {isa = PBXBuildFile; fileRef = B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */; };
@@ -2447,6 +2459,13 @@
 		F87920000000000000000001 /* SocketReloadConfigurationWaiterAdmission.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000002 /* SocketReloadConfigurationWaiterAdmission.swift */; };
 		F87920000000000000000003 /* SocketReloadConfigurationWaiterLease.swift in Sources */ = {isa = PBXBuildFile; fileRef = F87920000000000000000004 /* SocketReloadConfigurationWaiterLease.swift */; };
 		93300001A1B2C3D4E5F60718 /* SocketTerminalBindingRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93300002A1B2C3D4E5F60718 /* SocketTerminalBindingRegressionTests.swift */; };
+		10202A000000000000000011 /* SourceControlGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000012 /* SourceControlGroup.swift */; };
+		10202A000000000000000013 /* SourceControlGroupSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000014 /* SourceControlGroupSection.swift */; };
+		10202A000000000000000015 /* SourceControlGroupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000016 /* SourceControlGroupView.swift */; };
+		10202A000000000000000017 /* SourceControlKeyboardFocusBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000018 /* SourceControlKeyboardFocusBridge.swift */; };
+		10202A000000000000000019 /* SourceControlKeyboardFocusView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000001A /* SourceControlKeyboardFocusView.swift */; };
+		10202A000000000000000007 /* SourceControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A000000000000000008 /* SourceControlPanelView.swift */; };
+		10202A00000000000000001B /* SourceControlResourceRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10202A00000000000000001C /* SourceControlResourceRow.swift */; };
 		A5001230 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = A5001231 /* Sparkle */; };
 		A6AC72050000000000000001 /* SpinnerCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72050000000000000002 /* SpinnerCard.swift */; };
 		A6AC72090000000000000001 /* SpinnerEnergy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6AC72090000000000000002 /* SpinnerEnergy.swift */; };
@@ -4570,8 +4589,13 @@
 		A10190000000000000000002 /* GhosttyTitleUpdateIngressTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateIngressTests.swift; sourceTree = "<group>"; };
 		46814000000000000000000A /* GhosttyTitleUpdateSurfaceKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceKey.swift; sourceTree = "<group>"; };
 		46814000000000000000000C /* GhosttyTitleUpdateSurfaceState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTitleUpdateSurfaceState.swift; sourceTree = "<group>"; };
+		10202A00000000000000001E /* GitFileDiffSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitFileDiffSource.swift; sourceTree = "<group>"; };
 		FE001007 /* GitFileStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitFileStatus.swift; sourceTree = "<group>"; };
+		10202A000000000000000020 /* GitStatusLoadState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusLoadState.swift; sourceTree = "<group>"; };
 		FE001006 /* GitStatusProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusProvider.swift; sourceTree = "<group>"; };
+		10202A00000000000000000A /* GitStatusSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshot.swift; sourceTree = "<group>"; };
+		10202A00000000000000000C /* GitStatusSnapshotEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshotEntry.swift; sourceTree = "<group>"; };
+		10202A000000000000000022 /* GitStatusSnapshotState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GitStatusSnapshotState.swift; sourceTree = "<group>"; };
 		3865B0023865B0023865B002 /* GlobalSearchCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchCoordinator.swift; sourceTree = "<group>"; };
 		3865B0073865B0073865B007 /* GlobalSearchDocuments.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Search/GlobalSearchDocuments.swift; sourceTree = "<group>"; };
 		8561B0018561B0018561B001 /* GlobalSearchInputOwnershipTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchInputOwnershipTests.swift; sourceTree = "<group>"; };
@@ -5227,9 +5251,16 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		AA1B2C3D4E5F60721 /* RightSidebarChromeHeightUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeHeightUITests.swift; sourceTree = "<group>"; };
 		B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarChromeStyle.swift; sourceTree = "<group>"; };
 		C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarCommandPaletteTests.swift; sourceTree = "<group>"; };
+		10202A00000000000000000E /* RightSidebarDockPanelContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarDockPanelContent.swift; sourceTree = "<group>"; };
 		B37A00000000000000000004 /* RightSidebarMode+Availability.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RightSidebarMode+Availability.swift"; sourceTree = "<group>"; };
+		10202A000000000000000002 /* RightSidebarMode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarMode.swift; sourceTree = "<group>"; };
 		46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutEntry.swift; sourceTree = "<group>"; };
 		468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarModeShortcutMatcher.swift; sourceTree = "<group>"; };
+		10202A000000000000000024 /* RightSidebarPanelBehavior.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelBehavior.swift; sourceTree = "<group>"; };
+		10202A000000000000000010 /* RightSidebarPanelContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelContext.swift; sourceTree = "<group>"; };
+		10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelDescriptor.swift; sourceTree = "<group>"; };
+		10202A000000000000000006 /* RightSidebarPanelRegistry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelRegistry.swift; sourceTree = "<group>"; };
+		10202B000000000000000002 /* RightSidebarPanelRegistryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelRegistryTests.swift; sourceTree = "<group>"; };
 		FE003003 /* RightSidebarPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelView.swift; sourceTree = "<group>"; };
 		C57570010000000000000001 /* RightSidebarPanelViewTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarPanelViewTestSupport.swift; sourceTree = "<group>"; };
 		B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RightSidebarRemoteCommand.swift; sourceTree = "<group>"; };
@@ -5576,6 +5607,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		F87920000000000000000002 /* SocketReloadConfigurationWaiterAdmission.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketReloadConfigurationWaiterAdmission.swift; sourceTree = "<group>"; };
 		F87920000000000000000004 /* SocketReloadConfigurationWaiterLease.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketReloadConfigurationWaiterLease.swift; sourceTree = "<group>"; };
 		93300002A1B2C3D4E5F60718 /* SocketTerminalBindingRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocketTerminalBindingRegressionTests.swift; sourceTree = "<group>"; };
+		10202A000000000000000012 /* SourceControlGroup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlGroup.swift; sourceTree = "<group>"; };
+		10202A000000000000000014 /* SourceControlGroupSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlGroupSection.swift; sourceTree = "<group>"; };
+		10202A000000000000000016 /* SourceControlGroupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlGroupView.swift; sourceTree = "<group>"; };
+		10202A000000000000000018 /* SourceControlKeyboardFocusBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlKeyboardFocusBridge.swift; sourceTree = "<group>"; };
+		10202A00000000000000001A /* SourceControlKeyboardFocusView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlKeyboardFocusView.swift; sourceTree = "<group>"; };
+		10202A000000000000000008 /* SourceControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlPanelView.swift; sourceTree = "<group>"; };
+		10202A00000000000000001C /* SourceControlResourceRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceControlResourceRow.swift; sourceTree = "<group>"; };
 		A6AC72050000000000000002 /* SpinnerCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerCard.swift; sourceTree = "<group>"; };
 		A6AC72090000000000000002 /* SpinnerEnergy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerEnergy.swift; sourceTree = "<group>"; };
 		5B11E5A100000000000000A2 /* SpinnerGalleryDebugWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpinnerGalleryDebugWindowController.swift; sourceTree = "<group>"; };
@@ -8461,8 +8499,14 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C986A0120000000000000001 /* FilePreviewNativeDragPendingOwnership.swift */,
 				C986A0060000000000000001 /* ProvisionalDragWriterOwnership.swift */,
 				C986A00D0000000000000001 /* ProvisionalDragWriterOwnershipToken.swift */,
+				10202A00000000000000001E /* GitFileDiffSource.swift */,
 				FE001007 /* GitFileStatus.swift */,
 				FE001006 /* GitStatusProvider.swift */,
+				10202A000000000000000020 /* GitStatusLoadState.swift */,
+				10202A00000000000000000A /* GitStatusSnapshot.swift */,
+				10202A00000000000000000C /* GitStatusSnapshotEntry.swift */,
+				10202A000000000000000022 /* GitStatusSnapshotState.swift */,
+				10202A000000000000000024 /* RightSidebarPanelBehavior.swift */,
 				469201000000000000000007 /* SessionDragCoordinator.swift */,
 				46920100000000000000000D /* SessionDragSource.swift */,
 				46920100000000000000000B /* SessionDragSourceView.swift */,
@@ -8528,11 +8572,23 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B7F9A605B7F9A605B7F9A605 /* RightSidebarChromeStyle.swift */,
 				B7F9A603B7F9A603B7F9A603 /* WindowChromeMetrics.swift */,
 				B37A00000000000000000004 /* RightSidebarMode+Availability.swift */,
+				10202A000000000000000002 /* RightSidebarMode.swift */,
 				B37A0000000000000000000E /* RightSidebarRemoteCommand.swift */,
+				10202A000000000000000004 /* RightSidebarPanelDescriptor.swift */,
+				10202A000000000000000010 /* RightSidebarPanelContext.swift */,
+				10202A000000000000000006 /* RightSidebarPanelRegistry.swift */,
+				10202A00000000000000000E /* RightSidebarDockPanelContent.swift */,
 				FE003003 /* RightSidebarPanelView.swift */,
 				46814000000000000000000E /* RightSidebarModeShortcutEntry.swift */,
 				468110000000000000000006 /* RightSidebarModeShortcutMatcher.swift */,
 				FE0030A3 /* RightSidebarToolPanel.swift */,
+				10202A000000000000000008 /* SourceControlPanelView.swift */,
+				10202A000000000000000012 /* SourceControlGroup.swift */,
+				10202A000000000000000014 /* SourceControlGroupSection.swift */,
+				10202A000000000000000016 /* SourceControlGroupView.swift */,
+				10202A000000000000000018 /* SourceControlKeyboardFocusBridge.swift */,
+				10202A00000000000000001A /* SourceControlKeyboardFocusView.swift */,
+				10202A00000000000000001C /* SourceControlResourceRow.swift */,
 				DCDC1000000000000000B002 /* DockConfigurationLoadResult.swift */,
 				DCDC1000000000000000B004 /* DockConfigFile.swift */,
 				DCDC1000000000000000B006 /* DockConfigIdentity.swift */,
@@ -9250,6 +9306,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				B7758A020000000000000002 /* TerminationWatchdogTests.swift */,
 				6042B0016042B0016042B001 /* ShortcutHintModifierPolicyTests.swift */,
 				C3408A000000000000000004 /* RightSidebarCommandPaletteTests.swift */,
+				10202B000000000000000002 /* RightSidebarPanelRegistryTests.swift */,
 				78F49DA9F80DC43173341410 /* MachinesPanelModelTests.swift */,
 				763D217526D3832668F47568 /* CloudAgentSkillLauncherTests.swift */,
 				5130177E80C2A18E09DBBBC4 /* NewMachineModelTests.swift */,
@@ -10899,8 +10956,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				46811000000000000000000B /* GhosttyTitleUpdateIngress.swift in Sources */,
 				468140000000000000000009 /* GhosttyTitleUpdateSurfaceKey.swift in Sources */,
 				46814000000000000000000B /* GhosttyTitleUpdateSurfaceState.swift in Sources */,
+				10202A00000000000000001D /* GitFileDiffSource.swift in Sources */,
 				FE001107 /* GitFileStatus.swift in Sources */,
+				10202A00000000000000001F /* GitStatusLoadState.swift in Sources */,
 				FE001106 /* GitStatusProvider.swift in Sources */,
+				10202A000000000000000009 /* GitStatusSnapshot.swift in Sources */,
+				10202A00000000000000000B /* GitStatusSnapshotEntry.swift in Sources */,
+				10202A000000000000000021 /* GitStatusSnapshotState.swift in Sources */,
 					3865A0023865A0023865A002 /* GlobalSearchCoordinator.swift in Sources */,
 				3865A0073865A0073865A007 /* GlobalSearchDocuments.swift in Sources */,
 					8561A0058561A0058561A005 /* GlobalSearchKeyEvent+QueryEditing.swift in Sources */,
@@ -11344,9 +11406,15 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C7C5FAF2145342F395DB4C40 /* RestoredAgentLifecycleCoordinator.swift in Sources */,
 				B7F9A600B7F9A600B7F9A600 /* RightSidebarChromeGeometryReporting.swift in Sources */,
 				B7F9A604B7F9A604B7F9A604 /* RightSidebarChromeStyle.swift in Sources */,
+				10202A00000000000000000D /* RightSidebarDockPanelContent.swift in Sources */,
 				B37A00000000000000000003 /* RightSidebarMode+Availability.swift in Sources */,
+				10202A000000000000000001 /* RightSidebarMode.swift in Sources */,
 				46814000000000000000000D /* RightSidebarModeShortcutEntry.swift in Sources */,
 				468110000000000000000005 /* RightSidebarModeShortcutMatcher.swift in Sources */,
+				10202A000000000000000023 /* RightSidebarPanelBehavior.swift in Sources */,
+				10202A00000000000000000F /* RightSidebarPanelContext.swift in Sources */,
+				10202A000000000000000003 /* RightSidebarPanelDescriptor.swift in Sources */,
+				10202A000000000000000005 /* RightSidebarPanelRegistry.swift in Sources */,
 				FE003103 /* RightSidebarPanelView.swift in Sources */,
 				B37A0000000000000000000D /* RightSidebarRemoteCommand.swift in Sources */,
 				FE0031A3 /* RightSidebarToolPanel.swift in Sources */,
@@ -11594,6 +11662,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					A5001226 /* SocketControlMode+Display.swift in Sources */,
 				F87920000000000000000001 /* SocketReloadConfigurationWaiterAdmission.swift in Sources */,
 				F87920000000000000000003 /* SocketReloadConfigurationWaiterLease.swift in Sources */,
+				10202A000000000000000011 /* SourceControlGroup.swift in Sources */,
+				10202A000000000000000013 /* SourceControlGroupSection.swift in Sources */,
+				10202A000000000000000015 /* SourceControlGroupView.swift in Sources */,
+				10202A000000000000000017 /* SourceControlKeyboardFocusBridge.swift in Sources */,
+				10202A000000000000000019 /* SourceControlKeyboardFocusView.swift in Sources */,
+				10202A000000000000000007 /* SourceControlPanelView.swift in Sources */,
+				10202A00000000000000001B /* SourceControlResourceRow.swift in Sources */,
 					A6AC72050000000000000001 /* SpinnerCard.swift in Sources */,
 					A6AC72090000000000000001 /* SpinnerEnergy.swift in Sources */,
 					5B11E5A100000000000000A1 /* SpinnerGalleryDebugWindowController.swift in Sources */,
@@ -12906,6 +12981,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					F54100B0A1B2C3D4E5F60718 /* RestorableCodexForkTagTests.swift in Sources */,
 				9200B0019200B0019200B001 /* ResumeLauncherCwdConsistencyTests.swift in Sources */,
 				C3408A000000000000000003 /* RightSidebarCommandPaletteTests.swift in Sources */,
+				10202B000000000000000001 /* RightSidebarPanelRegistryTests.swift in Sources */,
 				C57570010000000000000002 /* RightSidebarPanelViewTestSupport.swift in Sources */,
 				5F5553CB5553CB5553CB0001 /* RightSidebarRemoteCommandTests.swift in Sources */,
 				C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */,

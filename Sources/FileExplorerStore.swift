@@ -711,6 +711,21 @@ final class FileExplorerStore: ObservableObject {
     @Published var rootNodes: [FileExplorerNode] = []
     @Published private(set) var isRootLoading: Bool = false
     @Published private(set) var gitStatusByPath: [String: GitFileStatus] = [:]
+    /// The latest immutable Git status result, including entries that are safe
+    /// to render as files without probing the filesystem from a view body.
+    /// Projection kept alongside ``gitStatusByPath``. The published map remains
+    /// the store's single observation signal for existing Files consumers.
+    private(set) var gitStatusSnapshot: GitStatusSnapshot = .empty
+    /// Precomputed Source Control sections built off the SwiftUI render path.
+    /// The existing `gitStatusByPath` publication remains the observation signal;
+    /// this immutable projection is assigned before that signal fires so rows
+    /// below SwiftUI list boundaries never retain the store itself.
+    private(set) var sourceControlGroups: [SourceControlGroupSection] = []
+    /// Explicit loading/repository state for Source Control presentation.
+    /// It uses the store's existing observation channel so clean and
+    /// unavailable repositories (both of which have an empty status map) still
+    /// invalidate the panel when a refresh begins or completes.
+    private(set) var gitStatusLoadState: GitStatusLoadState = .idle
     @Published private(set) var contentRevision = 0
     @Published private(set) var rootStatusMessage: String?
     private(set) var workspaceRootIdentity: UUID?
@@ -753,6 +768,11 @@ final class FileExplorerStore: ObservableObject {
     private var remoteHomeResolutionKey: String?
 
     private let gitStatusProvider: GitStatusProvider
+    private var gitStatusRequestGeneration: UInt64 = 0
+    private var gitStatusRefreshInFlight = false
+    private var gitStatusRefreshPending = false
+    private var gitStatusPublishedRootPath: String?
+    private var gitStatusPublishedProviderIdentity: ObjectIdentifier?
 
     init(gitStatusProvider: GitStatusProvider = GitStatusProvider()) {
         self.gitStatusProvider = gitStatusProvider
@@ -822,8 +842,41 @@ final class FileExplorerStore: ObservableObject {
     }
 
     func refreshGitStatus() {
-        guard !rootPath.isEmpty else {
+        gitStatusRequestGeneration &+= 1
+        let requestGeneration = gitStatusRequestGeneration
+        let requestedRootPath = rootPath
+        let requestedWorkspaceRootIdentity = workspaceRootIdentity
+        let requestedProviderIdentity = provider.map(ObjectIdentifier.init)
+        // `contentRevision` is the existing published invalidation signal for
+        // state that is intentionally kept outside the legacy file-tree map.
+        contentRevision &+= 1
+        gitStatusLoadState = .loading
+        let statusScopeChanged = gitStatusPublishedRootPath != requestedRootPath
+            || gitStatusPublishedProviderIdentity != requestedProviderIdentity
+        if statusScopeChanged {
+            // A changed root/provider must not show rows from the previous
+            // workspace, but repeated watcher ticks for one scope retain the
+            // last authoritative snapshot until its replacement is ready.
             gitStatusByPath = [:]
+            gitStatusSnapshot = .empty
+            sourceControlGroups = []
+        }
+
+        if gitStatusRefreshInFlight {
+            // Coalesce watcher/manual refresh bursts. The active process will
+            // finish, then one request using the latest root/provider snapshot
+            // starts; stale output can never publish.
+            gitStatusRefreshPending = true
+            return
+        }
+        gitStatusRefreshInFlight = true
+
+        guard !rootPath.isEmpty else {
+            contentRevision &+= 1
+            gitStatusLoadState = .unavailable
+            gitStatusPublishedRootPath = requestedRootPath
+            gitStatusPublishedProviderIdentity = requestedProviderIdentity
+            finishGitStatusRefresh()
             return
         }
         let path = rootPath
@@ -834,23 +887,64 @@ final class FileExplorerStore: ObservableObject {
             let opts = sshProvider.sshOptions
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatusSSH(
+                let snapshot = gitStatusProvider.fetchSnapshotSSH(
                     directory: path, destination: dest, port: port,
                     identityFile: identity, sshOptions: opts
                 )
-                DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                let sourceControlGroups = SourceControlGroupSection.makeSections(
+                    entries: snapshot.displayableEntries,
+                    root: requestedRootPath
+                )
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer { self.finishGitStatusRefresh() }
+                    guard self.gitStatusRequestGeneration == requestGeneration,
+                          self.rootPath == requestedRootPath,
+                          self.workspaceRootIdentity == requestedWorkspaceRootIdentity,
+                          self.provider.map(ObjectIdentifier.init) == requestedProviderIdentity else {
+                        return
+                    }
+                    self.gitStatusSnapshot = snapshot
+                    self.sourceControlGroups = sourceControlGroups
+                    self.gitStatusPublishedRootPath = requestedRootPath
+                    self.gitStatusPublishedProviderIdentity = requestedProviderIdentity
+                    self.gitStatusLoadState = snapshot.state == .available ? .available : .unavailable
+                    self.gitStatusByPath = snapshot.statusesByPath
                 }
             }
         } else {
             let gitStatusProvider = self.gitStatusProvider
             DispatchQueue.global(qos: .utility).async {
-                let status = gitStatusProvider.fetchStatus(directory: path)
-                DispatchQueue.main.async { [weak self] in
-                    self?.gitStatusByPath = status
+                let snapshot = gitStatusProvider.fetchSnapshot(directory: path)
+                let sourceControlGroups = SourceControlGroupSection.makeSections(
+                    entries: snapshot.displayableEntries,
+                    root: requestedRootPath
+                )
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    defer { self.finishGitStatusRefresh() }
+                    guard self.gitStatusRequestGeneration == requestGeneration,
+                          self.rootPath == requestedRootPath,
+                          self.workspaceRootIdentity == requestedWorkspaceRootIdentity,
+                          self.provider.map(ObjectIdentifier.init) == requestedProviderIdentity else {
+                        return
+                    }
+                    self.gitStatusSnapshot = snapshot
+                    self.sourceControlGroups = sourceControlGroups
+                    self.gitStatusPublishedRootPath = requestedRootPath
+                    self.gitStatusPublishedProviderIdentity = requestedProviderIdentity
+                    self.gitStatusLoadState = snapshot.state == .available ? .available : .unavailable
+                    self.gitStatusByPath = snapshot.statusesByPath
                 }
             }
         }
+    }
+
+    private func finishGitStatusRefresh() {
+        gitStatusRefreshInFlight = false
+        guard gitStatusRefreshPending else { return }
+        gitStatusRefreshPending = false
+        refreshGitStatus()
     }
 
     func materializeRemoteFileForPreview(path: String) async throws -> URL {

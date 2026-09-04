@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-/// Settings-invalidated snapshot for the five right-sidebar mode shortcuts.
+/// Settings-invalidated snapshot for the registry-owned right-sidebar mode shortcuts.
 /// Normal typing misses the modifier bucket without reading settings or the
 /// current keyboard layout.
 @MainActor

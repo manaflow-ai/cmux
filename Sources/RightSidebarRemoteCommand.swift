@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import Foundation
 
 struct RightSidebarRemoteTarget: Equatable, Sendable {
@@ -22,8 +23,7 @@ enum RightSidebarRemoteCommand: Equatable, Sendable {
     case hide
     case focus
     case setMode(RightSidebarMode, focus: Bool)
-    /// Switch to the Custom mode, optionally selecting which sidebar file
-    /// (`right_sidebar set custom [name]`). A nil name keeps the persisted one.
+    /// Switch to the Custom mode, optionally selecting a sidebar file.
     case setCustomSidebar(name: String?, focus: Bool)
     case getState
 }
@@ -49,7 +49,10 @@ enum RightSidebarRemoteApplyResult: Equatable, Sendable {
 }
 
 extension RightSidebarRemoteRequest {
-    static func parse(tokens: [String]) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
+    static func parse(
+        tokens: [String],
+        defaults: UserDefaults = .standard
+    ) -> Result<RightSidebarRemoteRequest, RightSidebarRemoteParseError> {
         var positional: [String] = []
         var target = RightSidebarRemoteTarget()
         var noFocus = false
@@ -105,7 +108,7 @@ extension RightSidebarRemoteRequest {
         }
 
         guard let action = positional.first?.lowercased() else {
-            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
+            return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage", defaultValue: "ERROR: Usage: right_sidebar <toggle|show|hide|focus|set|set-mode|mode> [mode] [--workspace=<workspace-id>] [--window=<window-id>] [--no-focus]")))
         }
 
         switch action {
@@ -134,20 +137,35 @@ extension RightSidebarRemoteRequest {
                 return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.mode", defaultValue: "ERROR: Usage: right_sidebar mode [--workspace=<workspace-id>] [--window=<window-id>]")))
             }
             return .success(.init(command: .getState, target: target))
-        case "set":
-            guard positional.count == 2 || positional.count == 3 else {
-                return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
+        case "set", "set-mode":
+            guard positional.count == 2 || (action == "set" && positional.count == 3) else {
+                return .failure(.init(message: String.localizedStringWithFormat(
+                    String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"),
+                    RightSidebarPanelRegistry().cliArgumentsDescription
+                )))
             }
             let rawMode = positional[1].trimmingCharacters(in: .whitespacesAndNewlines)
             if let mode = RightSidebarMode.from(cliArgument: rawMode) {
                 if mode == .customSidebar {
+                    guard action == "set" else {
+                        return .failure(.init(message: String.localizedStringWithFormat(
+                            String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"),
+                            RightSidebarPanelRegistry().cliArgumentsDescription
+                        )))
+                    }
                     let name = positional.count == 3
                         ? positional[2].trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                         : nil
                     return .success(.init(command: .setCustomSidebar(name: name, focus: !noFocus), target: target))
                 }
                 guard positional.count == 2 else {
-                    return .failure(.init(message: String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set <files|find|vault|sessions|feed|dock|custom> [sidebar-name] [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]")))
+                    return .failure(.init(message: String.localizedStringWithFormat(
+                        String(localized: "rightSidebar.remote.error.usage.set", defaultValue: "ERROR: Usage: right_sidebar set|set-mode <%@> [--no-focus] [--workspace=<workspace-id>] [--window=<window-id>]"),
+                        RightSidebarPanelRegistry().cliArgumentsDescription
+                    )))
+                }
+                if !mode.isAvailable(defaults: defaults) {
+                    return .failure(unavailableModeError(mode))
                 }
                 return .success(.init(command: .setMode(mode, focus: !noFocus), target: target))
             }
@@ -163,10 +181,21 @@ extension RightSidebarRemoteRequest {
                 if mode == .customSidebar {
                     return .success(.init(command: .setCustomSidebar(name: nil, focus: true), target: target))
                 }
+                if !mode.isAvailable(defaults: defaults) {
+                    return .failure(unavailableModeError(mode))
+                }
                 return .success(.init(command: .setMode(mode, focus: true), target: target))
             }
             return .failure(.init(message: String(localized: "rightSidebar.remote.error.unknownCommand", defaultValue: "ERROR: Unknown right sidebar command '\(action)'")))
         }
+    }
+
+    private static func unavailableModeError(_ mode: RightSidebarMode) -> RightSidebarRemoteParseError {
+        // V1 socket replies are consumed by scripts and hooks, so their error
+        // contract must not change with the host's display locale. UI copy can
+        // remain localized elsewhere; this protocol message stays canonical.
+        let argument = RightSidebarModeCatalog().canonicalCLIArgument(mode.rawValue) ?? mode.rawValue
+        return .init(message: "ERROR: Right sidebar mode '\(argument)' is unavailable; enable it in Settings")
     }
 
     private static func parseTargetOption(

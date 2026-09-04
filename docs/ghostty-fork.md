@@ -48,6 +48,24 @@ https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2
 with SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
 pinned in `scripts/ghosttykit-checksums.txt`.
 
+### Fish SSH wrapper feature disjunction
+
+- Pull request: https://github.com/manaflow-ai/ghostty/pull/207
+- Commit: `466f85867` (merge cmux Fish and render API compatibility pin)
+- File: `src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish`
+- Summary:
+  - Separates the non-empty `GHOSTTY_BIN` guard from the feature disjunction so
+    Fish installs the wrapper for `ssh-env`, `ssh-terminfo`, or both.
+  - Avoids Fish's sequential `and`/`or` evaluation accidentally requiring the
+    later `ssh-terminfo` check after `ssh-env` succeeds.
+- Conflict note:
+  - Preserve the explicit feature disjunction if upstream rewrites the Fish
+    integration. A single enabled SSH feature must still install the wrapper.
+- Artifact:
+  - https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-466f8586749216b686c5397d9f03e10eac1955c4-crashsubdir-cmux-crash-sentry-off-v1
+- SHA-256 `a27c76e786da0b625b4cab8c0e0ae052e559bbf598fecca1935087b262844afb`
+  is pinned in `scripts/ghosttykit-checksums.txt`.
+
 ### iOS tokened render disposition and nonblocking prompt reveal
 
 - Pull request:

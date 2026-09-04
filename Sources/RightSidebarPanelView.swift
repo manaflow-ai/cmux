@@ -16,62 +16,6 @@ private func rightSidebarDebugResponder(_ responder: NSResponder?) -> String {
     return String(describing: type(of: responder))
 }
 
-/// Mode shown in the right sidebar (the panel toggled by ⌘⌥B).
-enum RightSidebarMode: String, CaseIterable, Codable, Sendable {
-    case files
-    case find
-    case sessions
-    case feed
-    case dock
-    case machines
-    case customSidebar = "custom-sidebar"
-
-    var label: String {
-        switch self {
-        case .files: return String(localized: "rightSidebar.mode.files", defaultValue: "Files")
-        case .find: return String(localized: "rightSidebar.mode.find", defaultValue: "Find")
-        case .sessions: return String(localized: "rightSidebar.mode.sessions", defaultValue: "Vault")
-        case .feed: return String(localized: "rightSidebar.mode.feed", defaultValue: "Feed")
-        case .dock: return String(localized: "rightSidebar.mode.dock", defaultValue: "Dock")
-        case .machines: return String(localized: "rightSidebar.mode.machines", defaultValue: "Cloud")
-        case .customSidebar: return String(localized: "rightSidebar.mode.customSidebar", defaultValue: "Custom")
-        }
-    }
-
-
-    var symbolName: String {
-        switch self {
-        case .files: return "folder"
-        case .find: return "magnifyingglass"
-        case .sessions: return "books.vertical"
-        case .feed: return "dot.radiowaves.left.and.right"
-        case .dock: return "dock.rectangle"
-        case .machines: return "cloud"
-        case .customSidebar: return "wand.and.stars"
-        }
-    }
-
-    var shortcutAction: KeyboardShortcutSettings.Action? {
-        switch self {
-        case .files: return .switchRightSidebarToFiles
-        case .find: return .switchRightSidebarToFind
-        case .sessions: return .switchRightSidebarToSessions
-        case .feed: return .switchRightSidebarToFeed
-        case .dock: return .switchRightSidebarToDock
-        case .machines: return .switchRightSidebarToMachines
-        case .customSidebar: return nil
-        }
-    }
-}
-
-extension RightSidebarMode {
-    static let paneModes: [RightSidebarMode] = [.files, .find, .sessions]
-
-    var canOpenAsPane: Bool {
-        Self.paneModes.contains(self)
-    }
-}
-
 enum RightSidebarContentMountPolicy {
     static func shouldMountContent(isRightSidebarVisible: Bool, hasMountedContent: Bool) -> Bool {
         isRightSidebarVisible || hasMountedContent
@@ -79,12 +23,16 @@ enum RightSidebarContentMountPolicy {
 }
 
 enum FileExplorerRootSyncPolicy {
-    static func shouldSyncFileExplorerStore(isRightSidebarVisible: Bool, mode: RightSidebarMode) -> Bool {
+    static func shouldSyncFileExplorerStore(
+        isRightSidebarVisible: Bool,
+        mode: RightSidebarMode,
+        registry: RightSidebarPanelRegistry = RightSidebarPanelRegistry()
+    ) -> Bool {
         guard isRightSidebarVisible else { return false }
-        switch mode {
-        case .files, .find:
+        switch registry.descriptor(for: mode)?.behavior {
+        case .fileExplorerOutline, .fileExplorerSearch:
             return true
-        case .sessions, .feed, .dock, .machines, .customSidebar:
+        case .some(.sessionIndex), .some(.feed), .some(.dock), .some(.sourceControl), .some(.host), .some(.none), nil:
             return false
         }
     }
@@ -97,13 +45,14 @@ extension RightSidebarMode {
 
     static func modeShortcut(
         for event: NSEvent,
-        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
+        allowingAction: (KeyboardShortcutSettings.Action) -> Bool,
+        registry: RightSidebarPanelRegistry = RightSidebarPanelRegistry(),
+        defaults: UserDefaults = .standard
     ) -> RightSidebarMode? {
         guard event.type == .keyDown else { return nil }
-        for mode in RightSidebarMode.allCases {
+        for mode in registry.availableModes(defaults: defaults) {
             guard let action = mode.shortcutAction,
                   allowingAction(action),
-                  mode.isAvailable(),
                   KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
                 continue
             }
@@ -145,12 +94,16 @@ struct RightSidebarPanelView: View {
     private let focusShortcutHintXOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintX
     private let focusShortcutHintYOffset = ShortcutHintDebugSettings.defaultRightSidebarFocusHintY
     @LiveSetting(\.shortcuts.showModifierHoldHints) private var showModifierHoldHints
-    @AppStorage(RightSidebarBetaFeatureSettings.feedEnabledKey)
-    private var feedEnabled = RightSidebarBetaFeatureSettings.defaultFeedEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.dockEnabledKey)
-    private var dockEnabled = RightSidebarBetaFeatureSettings.defaultDockEnabled
-    @AppStorage(RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-    private var cloudMachinesBetaEnabled = RightSidebarBetaFeatureSettings.defaultCloudMachinesEnabled
+    @LiveSetting(\.betaFeatures.rightSidebarFeed)
+    private var feedEnabled
+    @LiveSetting(\.betaFeatures.rightSidebarDock)
+    private var dockEnabled
+    @LiveSetting(\.betaFeatures.sourceControl)
+    private var sourceControlEnabled
+    @LiveSetting(\.betaFeatures.cloudMachines)
+    private var cloudMachinesEnabled
+    @LiveSetting(\.betaFeatures.customSidebars)
+    private var customSidebarsEnabled
     @LiveSetting(\.customSidebars.renderer) private var customSidebarRenderer
     /// The right rail's OWN worker client. Never share the left sidebar's:
     /// the remote host swaps files in place on one client, so a shared client
@@ -165,11 +118,12 @@ struct RightSidebarPanelView: View {
     }
 
     private var availableModes: [RightSidebarMode] {
-        RightSidebarMode.availableModes(
-            feedEnabled: feedEnabled,
-            dockEnabled: dockEnabled,
-            machinesEnabled: CmuxFeatureFlags.shared.isCloudVMUIEnabled || cloudMachinesBetaEnabled
-        )
+        // Read the observable remote flag here so a PostHog update invalidates
+        // the mode bar immediately; the registry's off-main mirror supplies
+        // the same value to its availability closure.
+        _ = CmuxFeatureFlags.shared.isCloudVMUIEnabled
+        _ = customSidebarsEnabled
+        return fileExplorerState.panelRegistry.availableModes()
     }
 
     private var modeBarItems: [RightSidebarModeBarItem] {
@@ -240,7 +194,9 @@ struct RightSidebarPanelView: View {
         }
         .onChange(of: feedEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
         .onChange(of: dockEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
-        .onChange(of: cloudMachinesBetaEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: sourceControlEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: cloudMachinesEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
+        .onChange(of: customSidebarsEnabled) { _, _ in refreshModeAvailabilityAndFocusIfNeeded() }
     }
 
     private var modeBar: some View {
@@ -256,7 +212,7 @@ struct RightSidebarPanelView: View {
                         isSelected: item.isSelected(
                             mode: fileExplorerState.mode
                         ),
-                        badgeCount: item.mode == .feed ? feedPendingCount : 0,
+                        badgeCount: item.mode == .feed ? feedPendingCount : (item.mode == .sourceControl ? sourceControlChangeCount : 0),
                         shortcutHint: shortcut,
                         showsShortcutHint: ShortcutHintTitlebarPolicy.shouldShow(
                             shortcut: shortcut,
@@ -293,6 +249,10 @@ struct RightSidebarPanelView: View {
             isVisible: true,
             titlebarHeight: titlebarHeight
         )
+    }
+
+    private var sourceControlChangeCount: Int {
+        fileExplorerStore.gitStatusSnapshot.displayableEntries.count
     }
 
     private func openAsPaneButton(mode: RightSidebarMode) -> some View {
@@ -407,46 +367,38 @@ struct RightSidebarPanelView: View {
     @ViewBuilder
     private var contentForMode: some View {
         if RightSidebarContentMountPolicy.shouldMountContent(isRightSidebarVisible: fileExplorerState.isVisible, hasMountedContent: hasMountedRightSidebarContent) {
-            switch fileExplorerState.mode {
-            case .files:
-                FileExplorerPanelView(
-                    store: fileExplorerStore,
-                    state: fileExplorerState,
-                    onOpenFilePreview: onOpenFilePreview,
-                    presentation: .files
-                )
-            case .find:
-                FileExplorerPanelView(
-                    store: fileExplorerStore,
-                    state: fileExplorerState,
-                    onOpenFilePreview: onOpenFilePreview,
-                    presentation: .find
-                )
-            case .sessions:
-                SessionIndexView(
-                    store: sessionIndexStore,
-                    onResume: onResumeSession,
-                    onOpen: onOpenSession,
-                    activeSessionKeys: SessionEntryResumeCoordinator.inPaneSessionKeys(tabManager: tabManager),
-                    onFocus: { entry in
-                        _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
-                    }
-                )
-                    .onAppear {
-                        sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
-                    }
-            case .feed:
-                FeedPanelView(
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
-                )
-            case .dock:
-                dockPanel(windowAppearance: windowAppearance)
-            case .machines:
-                MachinesPanelView(
-                    chromeBackgroundColor: windowAppearance.resolvedChromeBackgroundColor
-                )
-            case .customSidebar:
+            if fileExplorerState.mode == .customSidebar {
+                // Custom sidebars need the window-owned data context and
+                // worker lifetime, so they remain a specialized mount beside
+                // the registry's first-party panel factories.
                 customSidebarPanel
+            } else {
+                let context = RightSidebarPanelContext(
+                    tabManager: tabManager,
+                    fileExplorerStore: fileExplorerStore,
+                    fileExplorerState: fileExplorerState,
+                    sessionIndexStore: sessionIndexStore,
+                    sessionIndexDirectory: sessionIndexDirectory,
+                    titlebarHeight: titlebarHeight,
+                    windowAppearance: windowAppearance,
+                    workspaceId: workspaceId,
+                    onResumeSession: onResumeSession,
+                    onOpenSession: onOpenSession,
+                    onOpenFilePreview: onOpenFilePreview,
+                    onOpenAsPane: onOpenAsPane,
+                    onOpenDiffViewer: { path, diffSource in
+                        _ = AppDelegate.shared?.openDiffViewerForWorkspacePath(
+                            path,
+                            diffSource: diffSource,
+                            tabManager: tabManager
+                        )
+                    },
+                    onClose: onClose
+                )
+                fileExplorerState.panelRegistry.makeContent(
+                    for: fileExplorerState.mode,
+                    context: context
+                )
             }
         } else {
             Color.clear
@@ -507,29 +459,9 @@ struct RightSidebarPanelView: View {
         sessionIndexStore.currentDirectory
     }
 
-    /// Renders this window's own Dock (created lazily on first show); no
-    /// window ever defers to a Dock rendered elsewhere.
-    @ViewBuilder
-    private func dockPanel(windowAppearance: WindowAppearanceSnapshot) -> some View {
-        if let app = AppDelegate.shared, let dock = app.windowDock(for: tabManager) {
-            DockPanelView(
-                store: dock,
-                isSidebarVisible: fileExplorerState.isVisible,
-                mode: fileExplorerState.mode,
-                rootDirectory: nil,
-                windowAppearance: windowAppearance,
-                rightSidebarOwnsInputFocus: fileExplorerState.rightSidebarOwnsInputFocus,
-                unreadSource: TerminalNotificationStore.shared.sidebarUnread
-            )
-            .id("dock.window.\(dock.workspaceId.uuidString)")
-        } else {
-            Color.clear
-        }
-    }
-
     private func selectMode(_ mode: RightSidebarMode) {
         fileExplorerState.mode = mode
-        if fileExplorerState.mode == .sessions {
+        if fileExplorerState.panelRegistry.descriptor(for: mode)?.behavior == .sessionIndex {
             sessionIndexStore.setCurrentDirectoryIfChanged(sessionIndexDirectory)
             if sessionIndexStore.entries.isEmpty {
                 sessionIndexStore.reload()

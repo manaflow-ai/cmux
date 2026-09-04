@@ -7125,6 +7125,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         openDiffViewerForFocusedWorkspace(for: tabManager, preferAgentContext: false)
     }
 
+    /// Opens the selected workspace resource in the shared diff viewer.
+    ///
+    /// Source Control rows pass an already status-authorized absolute path, so
+    /// the CLI receives the same workspace and a pathspec instead of opening a
+    /// whole-repository diff.
+    @discardableResult
+    func openDiffViewerForWorkspacePath(
+        _ path: String,
+        diffSource: GitFileDiffSource = .unstaged,
+        tabManager: TabManager?
+    ) -> Bool {
+        guard let workspace = tabManager?.selectedWorkspace,
+              !workspace.isRemoteWorkspace,
+              let cliURL = Bundle.main.resourceURL?.appendingPathComponent("bin/cmux"),
+              FileManager.default.isExecutableFile(atPath: cliURL.path) else {
+            return false
+        }
+        let cwd = workspace.resolvedWorkingDirectory()
+            ?? FileManager.default.homeDirectoryForCurrentUser.path
+        let normalizedPath = URL(fileURLWithPath: path).standardizedFileURL.path
+        let normalizedCwd = URL(fileURLWithPath: cwd).standardizedFileURL.path
+        let pathIsInWorkspace = normalizedCwd == "/"
+            ? normalizedPath.hasPrefix("/")
+            : normalizedPath == normalizedCwd || normalizedPath.hasPrefix(normalizedCwd + "/")
+        guard pathIsInWorkspace else {
+            return false
+        }
+        let socketPath = TerminalController.shared.activeSocketPath(
+            preferredPath: SocketControlSettings.socketPath()
+        )
+        return launchDiffViewerProcess(
+            cliURL: cliURL,
+            socketPath: socketPath,
+            cwd: cwd,
+            workspaceId: workspace.id,
+            surfaceId: workspace.focusedPanelId,
+            useLastTurnSource: false,
+            sessionId: nil,
+            filePath: normalizedPath,
+            diffSource: diffSource
+        )
+    }
+
     @discardableResult
     private func openDiffViewerForFocusedWorkspace(
         for tabManager: TabManager?,
@@ -7216,14 +7259,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         surfaceId: UUID?,
         useLastTurnSource: Bool,
         sessionId: String?,
-        focus: Bool = true
+        focus: Bool = true,
+        filePath: String? = nil,
+        diffSource: GitFileDiffSource = .unstaged
     ) -> Bool {
         let process = Process()
         process.executableURL = cliURL
         var arguments = [
             "--socket", socketPath,
             "diff",
-            useLastTurnSource ? "--last-turn" : "--unstaged",
+            useLastTurnSource ? "--last-turn" : diffSource.cliArgument,
             "--cwd", cwd,
             "--workspace", workspaceId.uuidString,
             "--focus", focus ? "true" : "false",
@@ -7233,6 +7278,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         }
         if useLastTurnSource, let sessionId {
             arguments.append(contentsOf: ["--session", sessionId])
+        }
+        if let filePath {
+            arguments.append(contentsOf: ["--file", filePath])
         }
         process.arguments = arguments
         var environment = ProcessInfo.processInfo.environment

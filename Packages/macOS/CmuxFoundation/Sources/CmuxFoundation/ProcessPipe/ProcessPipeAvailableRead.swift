@@ -1,4 +1,4 @@
-import Darwin
+internal import Darwin
 public import Foundation
 
 /// The outcome of one non-blocking read attempt against a pipe or socket
