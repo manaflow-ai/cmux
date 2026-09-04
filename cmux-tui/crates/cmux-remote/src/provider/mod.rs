@@ -133,11 +133,11 @@ impl SupportedClientAuthModes {
     pub fn supports(self, auth: AuthKind) -> bool {
         // Keep both enums exhaustive so new modes require an explicit trust-boundary decision.
         match (self, auth) {
-            (Self::DeviceOnly, AuthKind::Enrolled | AuthKind::Invitation) => true,
+            (Self::DeviceOnly, AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Grant) => true,
             (Self::DeviceOnly, AuthKind::Carrier) => false,
             (
                 Self::DeviceOrCarrier,
-                AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Carrier,
+                AuthKind::Enrolled | AuthKind::Invitation | AuthKind::Grant | AuthKind::Carrier,
             ) => true,
         }
     }
@@ -291,6 +291,7 @@ impl fmt::Display for ProviderError {
                 let auth = match auth {
                     AuthKind::Enrolled => "enrolled-device",
                     AuthKind::Invitation => "invitation",
+                    AuthKind::Grant => "signed-grant",
                     AuthKind::Carrier => "carrier",
                 };
                 write!(

@@ -562,6 +562,7 @@ impl ClientConnection {
         reconnect_config.expected_daemon = Some(self.daemon_public_key);
         reconnect_config.auth = match reconnect_config.auth {
             ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
+            ClientAuthMode::Grant { token } => ClientAuthMode::Grant { token },
             other => other,
         };
         let (link, daemon_key, daemon_resume) = establish_physical_links(
@@ -958,6 +959,7 @@ async fn establish_physical_links(
 
     let subsequent_auth = match config.auth {
         ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
+        ClientAuthMode::Grant { token } => ClientAuthMode::Grant { token },
         ref other => other.clone(),
     };
     let mut pending = FuturesUnordered::new();

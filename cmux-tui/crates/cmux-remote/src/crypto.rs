@@ -78,6 +78,10 @@ pub fn public_key_fingerprint(public: &[u8; 32]) -> String {
 pub enum ClientAuthMode {
     Enrolled,
     Invitation { id: String, secret: Zeroizing<[u8; 32]> },
+    /// A short-lived control-plane capability for a freshly cloned cloud VM.
+    /// The daemon verifies the signature and binds the claims to its local
+    /// instance id and the Noise client key. It never calls the provider.
+    Grant { token: String },
     Carrier,
 }
 
@@ -88,6 +92,7 @@ impl fmt::Debug for ClientAuthMode {
             Self::Invitation { id, .. } => {
                 formatter.debug_struct("Invitation").field("id", id).finish_non_exhaustive()
             }
+            Self::Grant { .. } => formatter.write_str("Grant"),
             Self::Carrier => formatter.write_str("Carrier"),
         }
     }
@@ -189,6 +194,7 @@ impl InboundAuthEvidence {
 pub struct AuthRequest {
     pub mode: AuthKind,
     pub invitation_id: Option<String>,
+    pub grant: Option<String>,
     pub device_public_key: [u8; 32],
     pub device_name: String,
     pub session: SessionId,
@@ -256,6 +262,7 @@ pub trait ServerAuthenticator: Send + Sync {
 pub enum AuthKind {
     Enrolled,
     Invitation,
+    Grant,
     Carrier,
 }
 
@@ -265,6 +272,7 @@ struct ClientPrelude {
     protocol: u8,
     auth: AuthKind,
     invitation_id: Option<String>,
+    grant: Option<String>,
     session: SessionId,
     lane: Lane,
     lanes: Vec<Lane>,
@@ -378,18 +386,20 @@ pub async fn initiate_secure_link(
     link: Box<dyn FrameLink>,
     config: ClientHandshake,
 ) -> Result<SecureLink, CryptoError> {
-    let (auth, invitation_id, psk) = match &config.auth {
-        ClientAuthMode::Enrolled => (AuthKind::Enrolled, None, None),
+    let (auth, invitation_id, grant, psk) = match &config.auth {
+        ClientAuthMode::Enrolled => (AuthKind::Enrolled, None, None, None),
         ClientAuthMode::Invitation { id, secret } => {
-            (AuthKind::Invitation, Some(id.clone()), Some(&**secret))
+            (AuthKind::Invitation, Some(id.clone()), None, Some(&**secret))
         }
-        ClientAuthMode::Carrier => (AuthKind::Carrier, None, None),
+        ClientAuthMode::Grant { token } => (AuthKind::Grant, None, Some(token.clone()), None),
+        ClientAuthMode::Carrier => (AuthKind::Carrier, None, None, None),
     };
     let prelude = ClientPrelude {
         name: HANDSHAKE_NAME.into(),
         protocol: REMOTE_PROTOCOL_VERSION,
         auth,
         invitation_id,
+        grant,
         session: config.session,
         lane: config.lane,
         lanes: config.lanes,
@@ -502,7 +512,7 @@ pub(crate) async fn verify_secure_link(
                     CryptoError::Unauthorized("unknown or expired invitation".into())
                 })?)
             }
-            AuthKind::Enrolled | AuthKind::Carrier => None,
+            AuthKind::Grant | AuthKind::Enrolled | AuthKind::Carrier => None,
         };
 
     let params: NoiseParams =
@@ -529,6 +539,7 @@ pub(crate) async fn verify_secure_link(
         request: AuthRequest {
             mode: prelude.auth,
             invitation_id: prelude.invitation_id,
+            grant: prelude.grant,
             device_public_key: remote_static,
             device_name: hello.device_name,
             session: prelude.session,

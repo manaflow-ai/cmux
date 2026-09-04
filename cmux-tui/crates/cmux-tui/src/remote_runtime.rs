@@ -1401,6 +1401,7 @@ fn client_auth_kind(auth: &ClientAuthMode) -> AuthKind {
     match auth {
         ClientAuthMode::Enrolled => AuthKind::Enrolled,
         ClientAuthMode::Invitation { .. } => AuthKind::Invitation,
+        ClientAuthMode::Grant { .. } => AuthKind::Grant,
         ClientAuthMode::Carrier => AuthKind::Carrier,
     }
 }
@@ -1408,6 +1409,7 @@ fn client_auth_kind(auth: &ClientAuthMode) -> AuthKind {
 fn followup_auth_kind(auth: &ClientAuthMode) -> AuthKind {
     match auth {
         ClientAuthMode::Invitation { .. } => AuthKind::Enrolled,
+        ClientAuthMode::Grant { .. } => AuthKind::Grant,
         other => client_auth_kind(other),
     }
 }
