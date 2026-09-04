@@ -547,6 +547,13 @@
           "descriptionKey": "schemaDescriptions.app.hideTabCloseButton",
           "description": "Hide tab close buttons in the pane tab bar."
         },
+        "tabBarVisibility": {
+          "type": "string",
+          "enum": ["always", "multiple-tabs"],
+          "default": "always",
+          "descriptionKey": "schemaDescriptions.app.tabBarVisibility",
+          "description": "Control when each pane's surface tab bar is shown. \"always\" shows it even when the pane has a single tab; \"multiple-tabs\" hides the bar until the pane has two or more tabs."
+        },
         "renameSelectsExistingName": {
           "type": "boolean",
           "default": true,
