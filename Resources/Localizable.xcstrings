@@ -127861,6 +127861,18 @@
         }
       }
     },
+    "machines.menu.copyName": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy Name" } } }
+    },
+    "machines.menu.copySlug": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy Slug" } } }
+    },
+    "machines.menu.copyID": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Copy ID" } } }
+    },
     "machines.menu.delete": {
       "extractionState": "manual",
       "localizations": {
@@ -128421,6 +128433,14 @@
           }
         }
       }
+    },
+    "machines.row.id": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "ID %@" } } }
+    },
+    "machines.row.slug": {
+      "extractionState": "manual",
+      "localizations": { "en": { "stringUnit": { "state": "translated", "value": "Slug %@" } } }
     },
     "machines.row.locked": {
       "extractionState": "manual",

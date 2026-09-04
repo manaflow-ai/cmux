@@ -64,10 +64,14 @@ export type VMHandle = {
   image: string; // the provider snapshot id the machine booted from
   createdAt: number;
   providerMetadata?: Record<string, unknown>;
+  /** Provider-assigned human-readable slug, when the provider supports one. */
+  providerSlug?: string;
 };
 
 export type CreateOptions = {
   image: string; // provider-specific template/snapshot identifier
+  /** User-facing name stored in provider metadata. It is separate from the provider slug. */
+  name?: string | null;
   providerMetadata?: Record<string, unknown>;
   /**
    * Name of a persistent volume to mount as the machine's home directory. Providers that
@@ -392,6 +396,8 @@ export interface VMProvider {
   readonly capabilities?: Partial<VmCapabilities>;
 
   create(options: CreateOptions): Promise<VMHandle>;
+  /** Merge provider metadata for an existing machine. */
+  updateMetadata?(vmId: string, metadata: Record<string, string>): Promise<void>;
   destroy(vmId: string): Promise<void>;
 
   /**

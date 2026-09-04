@@ -61,6 +61,24 @@ import {
   type CmuxTuiInvoke,
 } from "./cmuxTuiDaemon";
 
+const FREESTYLE_SLUG_WORDS = [
+  "amber", "brisk", "calm", "cedar", "clever", "coral", "cosmic", "dapper", "eager", "fern",
+  "frost", "gentle", "golden", "harbor", "jolly", "kind", "lunar", "meadow", "mellow", "mint",
+  "nimble", "pebble", "plucky", "quiet", "rainy", "river", "sandy", "solar", "spry", "sunny",
+  "tidy", "velvet", "vivid", "warm", "willow", "witty", "acorn", "breezy", "bright", "cloudy",
+  "dawn", "dreamy", "fuzzy", "happy", "hazy", "jasmine", "lucky", "maple", "merry", "moonlit",
+  "peach", "polite", "rosy", "snappy", "soft", "spark", "starry", "sweet",
+] as const;
+
+/** Generates a short, readable identifier for the Freestyle dashboard and CLI. */
+export function generateFreestyleSlug(): string {
+  const bytes = randomBytes(3);
+  return Array.from(bytes, (byte) => FREESTYLE_SLUG_WORDS[byte % FREESTYLE_SLUG_WORDS.length]).join("-");
+}
+
+export const FREESTYLE_SLUG_METADATA_KEY = "freestyleSlug";
+export const CMUX_NAME_METADATA_KEY = "cmuxName";
+
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
 // freestyle@0.2.x). This is the only Freestyle arm: the legacy 0.1.x platform
 // (SSH gateway, cmuxd-remote WebSocket PTY on 7777) has been removed,
@@ -815,13 +833,16 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const networkId = options.network?.id;
+          const slug = generateFreestyleSlug();
+          const name = options.name?.trim();
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
             displayName: "cmux Cloud VM",
+            slug,
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
-            metadata: { cmux: "cloud" },
+            metadata: { cmux: "cloud", ...(name ? { [CMUX_NAME_METADATA_KEY]: name } : {}) },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
             ...(tlsRules ? { tls: { rules: tlsRules } } : {}),
@@ -864,6 +885,7 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image,
             createdAt: Date.now(),
+            providerSlug: data.slug ?? slug,
             // The network id and addresses are persisted so listings can show a
             // machine's private IP (and an operator can trace it to its owner's
             // VPC) without a provider round trip. Attach still reads the live
@@ -871,6 +893,7 @@ export class FreestyleProvider implements VMProvider {
             // placed, never where to dial it.
             providerMetadata: {
               ...(options.providerMetadata ?? {}),
+              ...(name ? { [CMUX_NAME_METADATA_KEY]: name } : {}),
               ...(networkId ? { networkId } : {}),
               ...(freestyleNetworkAddressMetadata(data)),
             },
@@ -921,6 +944,14 @@ export class FreestyleProvider implements VMProvider {
         }
       },
     );
+  }
+
+  async updateMetadata(vmId: string, metadata: Record<string, string>): Promise<void> {
+    try {
+      await this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId).update({ metadata });
+    } catch (err) {
+      throw new ProviderError("freestyle", `updateMetadata(${vmId})`, err);
+    }
   }
 
   async getStatus(vmId: string): Promise<VMStatus> {
@@ -1064,9 +1095,11 @@ export class FreestyleProvider implements VMProvider {
         try {
           const fs = this.deps.client(CREATE_TIMEOUT_MS);
           const networkId = options?.network?.id;
+          const slug = generateFreestyleSlug();
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId,
             displayName: "cmux Cloud VM",
+            slug,
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId }) },
@@ -1097,6 +1130,7 @@ export class FreestyleProvider implements VMProvider {
             status: "running" as const,
             image: snapshotId,
             createdAt: Date.now(),
+            providerSlug: data.slug ?? slug,
             providerMetadata: {
               ...(options?.providerMetadata ?? {}),
               ...(networkId ? { networkId, ...freestyleNetworkAddressMetadata(data) } : {}),

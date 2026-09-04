@@ -41,6 +41,8 @@ struct MachineSnapshot: Equatable, Identifiable {
     let createdAt: Date?
     /// User-chosen label; nil when the machine has no label.
     let label: String?
+    /// Provider-generated slug, distinct from the stable machine id.
+    var slug: String? = nil
     /// Free-plan access window position; `.unrestricted` on paid plans.
     var freeAccess: FreeAccessState = .unrestricted
     /// Latest activity reading; nil until the first sample lands.
@@ -182,6 +184,7 @@ enum MachineSnapshotBuilder {
             activity: activity(fromStatus: summary.status),
             createdAt: createdAt,
             label: summary.displayName,
+            slug: summary.slug,
             freeAccess: freeAccess,
             stats: nil,
             privateAddress: summary.preferredPrivateAddress

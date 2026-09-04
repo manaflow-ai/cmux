@@ -36,12 +36,14 @@ export async function GET(
         }));
         return jsonResponse({
           id: vm.providerVmId,
+          slug: vm.slug,
           provider: vm.provider,
           image: vm.image,
           imageVersion: vm.imageVersion,
           status: vm.status,
           createdAt: vm.createdAt,
           displayName: vm.displayName,
+          name: vm.displayName,
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
@@ -106,6 +108,8 @@ export async function PATCH(
         }));
         return jsonResponse({
           id: vm.providerVmId,
+          slug: vm.slug,
+          name: vm.displayName,
           displayName: vm.displayName,
         });
       } catch (err) {

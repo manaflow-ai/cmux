@@ -757,10 +757,11 @@ struct CloudTreeMachineRowContent: View {
     /// about the machine. "Locked" stays — it explains a dead machine row.
     static func subtitle(_ machine: MachineSnapshot) -> String {
         var parts: [String] = []
-        if machine.label?.isEmpty == false {
-            // Labeled machines keep their address visible: the id is what CLI
-            // verbs and URLs use.
-            parts.append(machine.id)
+        // The stable provider id is always visible. The generated slug is a
+        // secondary convenience identifier and never replaces it.
+        parts.append(String(format: String(localized: "machines.row.id", defaultValue: "ID %@"), machine.id))
+        if let slug = machine.slug, !slug.isEmpty {
+            parts.append(String(format: String(localized: "machines.row.slug", defaultValue: "Slug %@"), slug))
         }
         parts.append(machine.kindLabel)
         if let createdAt = machine.createdAt {
@@ -781,6 +782,10 @@ struct CloudTreeMachineRowContent: View {
         // line the two-line card shows, dimmed after the name, then the
         // coderouter spend when the backend reports any.
         var parts: [String] = []
+        parts.append(String(format: String(localized: "machines.row.id", defaultValue: "ID %@"), machine.id))
+        if let slug = machine.slug, !slug.isEmpty {
+            parts.append(String(format: String(localized: "machines.row.slug", defaultValue: "Slug %@"), slug))
+        }
         if style.showsMachineStats, let stats = machine.stats, let line = statsLine(stats) {
             parts.append(line)
         }

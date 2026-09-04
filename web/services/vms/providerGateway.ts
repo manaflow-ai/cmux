@@ -31,6 +31,11 @@ import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors"
 export type VmProviderGatewayShape = {
   readonly create: (provider: ProviderId, options: CreateOptions) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly destroy: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
+  readonly updateMetadata?: (
+    provider: ProviderId,
+    vmId: string,
+    metadata: Record<string, string>,
+  ) => Effect.Effect<void, VmProviderOperationError>;
   /** Optional: delete a machine-owned persistent home volume after its machine is destroyed. */
   readonly deleteHomeVolume?: (
     provider: ProviderId,
@@ -170,6 +175,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     providerEffect(provider, "create", () => getProvider(provider).create(options)),
   destroy: (provider, vmId) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
+  updateMetadata: (provider, vmId, metadata) => {
+    const impl = getProvider(provider);
+    if (!impl.updateMetadata) return Effect.void;
+    return providerEffect(provider, "updateMetadata", () => impl.updateMetadata!(vmId, metadata));
+  },
   deleteHomeVolume: (provider, volumeName) =>
     providerEffect(provider, "deleteHomeVolume", async () => {
       const impl = getProvider(provider);
