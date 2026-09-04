@@ -428,12 +428,14 @@ extension MobileHostIrxRuntime {
         }
         guard generationToken == cleanupToken else { return }
         registry = nil
-        if let endpointSupervisor {
-            await endpointSupervisor.close()
-        }
+        let endpoint = endpointSupervisor
+        await endpoint?.deactivate()
         guard generationToken == cleanupToken else { return }
         endpointSupervisor = nil
+        let broker = brokerService
         brokerService = nil
+        await broker?.deactivate()
+        guard generationToken == cleanupToken else { return }
         localBinding = nil
         hadLiveDiscovery = false
         // Route ownership is explicit because the feature flag can change
