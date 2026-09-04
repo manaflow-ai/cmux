@@ -2908,6 +2908,7 @@ class TerminalController {
             "vm.base_reset",
             "vm.status",
             "vm.stats",
+            "vm.resize",
             "vm.rename",
             "vm.snapshot",
             "vm.fork",

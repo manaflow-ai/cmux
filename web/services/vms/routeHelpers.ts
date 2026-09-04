@@ -38,6 +38,7 @@ import {
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
+  isVmResizeInvalidError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
@@ -247,6 +248,7 @@ export type VmLifecyclePhase =
   | "fork"
   | "snapshot"
   | "resume"
+  | "resize"
   | "attach"
   | "ssh"
   | "network"
@@ -635,6 +637,23 @@ export async function vmWorkflowErrorResponse(
     return vmModelPlaneErrorResponse(workflowError);
   }
 
+  if (isVmResizeInvalidError(workflowError)) {
+    const requested = Math.round(workflowError.requestedMb / 1024);
+    const current = Math.round(workflowError.currentMb / 1024);
+    const max = Math.round(workflowError.maxMb / 1024);
+    return vmErrorResponse({
+      error: "vm_resize_invalid",
+      status: 400,
+      message: workflowError.reason === "below_current"
+        ? `Cloud VM disk can only grow. It is already ${current} GiB.`
+        : `Cloud VM disk cannot exceed ${max} GiB.`,
+      action: `Request a disk size between ${current} GiB and ${max} GiB.`,
+      phase: "resize",
+      retryable: false,
+      details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
+    });
+  }
+
   if (isVmPrivateNetworkUnavailableError(workflowError)) {
     return vmErrorResponse({
       error: "vm_private_network_unavailable",
@@ -891,6 +910,7 @@ function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("fork")) return "fork";
   if (operation.includes("snapshot")) return "snapshot";
   if (operation.includes("resume")) return "resume";
+  if (operation.includes("resize")) return "resize";
   if (operation.includes("exec")) return "exec";
   if (operation.includes("destroy")) return "destroy";
   if (operation.includes("getStatus")) return "status";

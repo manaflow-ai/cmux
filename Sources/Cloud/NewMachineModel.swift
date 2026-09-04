@@ -36,7 +36,7 @@ final class NewMachineModel {
     /// Memory sizes the backend accepts (`VM_MEMORY_OPTIONS_MB` in
     /// `web/services/vms/entitlements.ts`); the plan ceiling trims the tail.
     static let memoryOptionsMb: [Int] = [planMachineMemoryMb]
-    /// The plan machine (`PLAN_MACHINE_MEMORY_MB`): 20 GB, 5 vCPU, 200 GB disk,
+    /// The plan machine (`PLAN_MACHINE_MEMORY_MB`): 20 GB, 5 vCPU, 32 GB disk,
     /// the only size /pricing sells.
     static let planMachineMemoryMb = 20480
     /// Mirrors `maxMemoryMbForPlan`: the free machine is a full-size computer;
