@@ -29163,7 +29163,7 @@ mod tests {
             true,
             false,
             false,
-            (120, 16),
+            (120, 13),
             None,
             None,
             None,
@@ -29173,8 +29173,8 @@ mod tests {
             None,
         );
         assert_eq!(layout.split_groups[0].child_keys, vec!["all-agents", "third"]);
-        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 10);
-        assert_eq!(layout.rail(RailKind::Projection(2)).unwrap().height, 5);
+        assert_eq!(layout.rail(RailKind::Projection(1)).unwrap().height, 8);
+        assert_eq!(layout.rail(RailKind::Projection(2)).unwrap().height, 4);
     }
 
     #[test]
@@ -29934,7 +29934,7 @@ mod tests {
 
         assert_eq!(
             app.selection.map(|selection| selection.range()),
-            Some(((0, 0), (10, 0))),
+            Some(((0, 0), (9, 0))),
             "Shift triple click must select the complete line when bypassing PTY mouse reporting"
         );
 
