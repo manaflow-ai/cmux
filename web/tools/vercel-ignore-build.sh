@@ -11,9 +11,33 @@ if [[ -z "$previous_sha" ]] || ! git cat-file -e "${previous_sha}^{commit}" 2>/d
   exit 1
 fi
 
-# The web project reads these files outside its root during build generation.
+# Keep this list limited to files that can change the deployed web output. Test
+# files, local scripts, and documentation do not need a Vercel deployment.
 build_inputs=(
-  "."
+  "app/"
+  "data/"
+  "db/"
+  "i18n/"
+  "messages/"
+  "openapi/"
+  "orpc/"
+  "patches/"
+  "public/"
+  "services/"
+  "tools/"
+  "types/"
+  "bun.lock"
+  "bunfig.toml"
+  "instrumentation.ts"
+  "next-env.d.ts"
+  "next.config.ts"
+  "package.json"
+  "postcss.config.mjs"
+  "proxy.ts"
+  "security-headers.ts"
+  "tsconfig.json"
+  "tsconfig.next.json"
+  "vercel.json"
   "../.vercelignore"
   "../CHANGELOG.md"
   "../config/iroh/managed-relay-catalog.json"
