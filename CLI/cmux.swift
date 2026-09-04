@@ -4349,6 +4349,15 @@ struct CMUXCLI {
         if let mb = Int(key), mb >= 512 { return mb }
         return nil
     }
+    static func parseCloudVMDiskMb(_ raw: String) -> Int? {
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let number = normalized.hasSuffix("g") ? String(normalized.dropLast())
+            : normalized.hasSuffix("gb") ? String(normalized.dropLast(2))
+            : normalized.hasSuffix("gib") ? String(normalized.dropLast(3))
+            : normalized
+        guard let gib = Int(number), (4...256).contains(gib), gib % 4 == 0 else { return nil }
+        return gib * 1024
+    }
     /// `--base` / `--no-desktop` → shell-only; anything else (including `--desktop`
     /// and no flag) → a machine with a screen.
     static func parseCloudVMKindFlags(_ args: [String]) -> VMMachineKind {
@@ -5924,6 +5933,30 @@ struct CMUXCLI {
                     break
                 }
                 print(Self.formatVMStatsLine(id: vmId, payload: response))
+
+            case "resize":
+                let (diskOpt, remaining) = parseOption(rest, name: "--disk")
+                guard let vmId = remaining.first, let diskOpt else {
+                    throw CLIError(message: """
+                        Usage: cmux vm resize <id> --disk <GiB>
+
+                        Disk can grow in 4 GiB steps from 4 GiB to 256 GiB. It cannot shrink.
+                        """)
+                }
+                guard remaining.dropFirst().isEmpty, let diskMb = Self.parseCloudVMDiskMb(diskOpt) else {
+                    throw CLIError(message: "vm resize: disk must be 4-256 GiB in 4 GiB steps.")
+                }
+                let response = try client.sendV2(
+                    method: "vm.resize",
+                    params: ["id": vmId, "storage_mb": diskMb],
+                    responseTimeout: 120
+                )
+                if jsonOutput {
+                    print(jsonString(response))
+                } else {
+                    let actual = (response["disk_total_mb"] as? Int).map { $0 / 1024 } ?? diskMb / 1024
+                    print("OK \(vmId) disk=\(actual) GiB")
+                }
 
             case "base":
                 let baseAction = rest.first?.lowercased()
@@ -18686,7 +18719,7 @@ struct CMUXCLI {
                 defaultValue: "Publish VM ports on generated or custom domains."
             )
             return """
-            Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
+            Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
             Machines live on your private network with no public ports; run `cmux vpn up`
@@ -41119,7 +41152,7 @@ export default CMUXSessionRestore;
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())
           \(localizedCoderouterCommands())
-          vm <base|new|ls|domains|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|ssh> [args...]    (alias: cloud)
+          vm <base|new|ls|domains|tree|status|stats|resize|rename|snapshot|fork|restore|rm|run|route|agent|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|ssh> [args...]    (alias: cloud)
           remotes <list|add|remove> [--route <host:port>] [--tag <tag>] [--json]    (alias: remote)
           ai-accounts <list|upload|remove> [--team <id>] [--json]
           rpc <method> [json-params]

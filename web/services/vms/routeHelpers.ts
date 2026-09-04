@@ -38,6 +38,7 @@ import {
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
+  isVmResizeInvalidError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
   vmWorkflowErrorCause,
@@ -48,12 +49,15 @@ import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
 import {
   captureVmRequestOutcome,
+  isPolledVmOperation,
   reportVmErrorResponse,
   VM_ERROR_CODE_HEADER,
 } from "./observability";
 import {
+  annotateVmRequestBilling,
   runWithVmRequestContext,
   vmClientIdentityFromRequest,
+  vmIdFromRequestPath,
   type VmRequestContext,
 } from "./requestContext";
 import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy, vmUnsupportedOperationKey } from "./vmErrorMessages";
@@ -91,6 +95,7 @@ export async function withAuthedVmApiRoute(
     startedAtMs: performance.now(),
     client: vmClientIdentityFromRequest(request),
     vercelRequestId: request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+    vmId: vmIdFromRequestPath(request, route),
   };
   return runWithVmRequestContext(requestContext, () => withApiRouteSpan(
     request,
@@ -149,6 +154,14 @@ export async function withAuthedVmApiRoute(
         recordSpanTiming(span, "auth", authDurationMs);
         if (!user) return finalize(unauthorized());
         requestContext.userId = user.id;
+        // The caller's default billing scope. Routes that resolve entitlements
+        // refine it (a requested team, the normalized plan) through
+        // resolveVmAccountScope below.
+        annotateVmRequestBilling({
+          billingTeamId: user.billingTeamId,
+          billingCustomerType: user.billingCustomerType,
+          planId: user.billingPlanId ?? user.userBillingPlanId,
+        });
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
         if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
@@ -167,12 +180,6 @@ export async function withAuthedVmApiRoute(
       }
     },
   ));
-}
-
-const POLLED_OPERATIONS: ReadonlySet<string> = new Set(["list", "status", "stats", "list_sessions", "get_tunnel"]);
-
-function isPolledVmOperation(operation: string): boolean {
-  return POLLED_OPERATIONS.has(operation);
 }
 
 function scheduleTraceFlush(): void {
@@ -247,6 +254,7 @@ export type VmLifecyclePhase =
   | "fork"
   | "snapshot"
   | "resume"
+  | "resize"
   | "attach"
   | "ssh"
   | "network"
@@ -397,12 +405,14 @@ function resolveVmAccountScope(
 ): VmRouteAccountScope {
   const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
+    const entitlements = resolveVmEntitlements(user, process.env, {
+      requestedBillingTeamId,
+    });
+    annotateVmRequestBilling(entitlements);
     return {
       ok: true,
       requestedBillingTeamId,
-      entitlements: resolveVmEntitlements(user, process.env, {
-        requestedBillingTeamId,
-      }),
+      entitlements,
     };
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) {
@@ -633,6 +643,23 @@ export async function vmWorkflowErrorResponse(
 
   if (isVmModelPlaneError(workflowError)) {
     return vmModelPlaneErrorResponse(workflowError);
+  }
+
+  if (isVmResizeInvalidError(workflowError)) {
+    const requested = Math.round(workflowError.requestedMb / 1024);
+    const current = Math.round(workflowError.currentMb / 1024);
+    const max = Math.round(workflowError.maxMb / 1024);
+    return vmErrorResponse({
+      error: "vm_resize_invalid",
+      status: 400,
+      message: workflowError.reason === "below_current"
+        ? `Cloud VM disk can only grow. It is already ${current} GiB.`
+        : `Cloud VM disk cannot exceed ${max} GiB.`,
+      action: `Request a disk size between ${current} GiB and ${max} GiB.`,
+      phase: "resize",
+      retryable: false,
+      details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
+    });
   }
 
   if (isVmPrivateNetworkUnavailableError(workflowError)) {
@@ -891,6 +918,7 @@ function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("fork")) return "fork";
   if (operation.includes("snapshot")) return "snapshot";
   if (operation.includes("resume")) return "resume";
+  if (operation.includes("resize")) return "resize";
   if (operation.includes("exec")) return "exec";
   if (operation.includes("destroy")) return "destroy";
   if (operation.includes("getStatus")) return "status";

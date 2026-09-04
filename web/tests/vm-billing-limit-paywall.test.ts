@@ -90,8 +90,8 @@ describe("Cloud VM memory allowance", () => {
     expect(vcpusForMemoryMb(5000)).toBe(2);
   });
 
-  test("every machine is grown to a 200 GB disk unless an operator overrides it", () => {
-    expect(vmDiskMb({})).toBe(204800);
+  test("every machine starts with a 32 GB disk unless an operator overrides it", () => {
+    expect(vmDiskMb({})).toBe(32768);
     expect(vmDiskMb({ CMUX_VM_DISK_MB: "65536" })).toBe(65536);
     expect(() => vmDiskMb({ CMUX_VM_DISK_MB: "0" })).toThrow();
   });

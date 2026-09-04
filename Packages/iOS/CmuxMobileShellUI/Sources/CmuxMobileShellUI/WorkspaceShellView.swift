@@ -242,6 +242,13 @@ struct WorkspaceShellView: View {
         return store.workspaceListConnectionStatus
     }
 
+    private var workspaceListIsAuthoritative: Bool {
+        guard !isInitialConnectionLoading, !initialConnectionTimedOut else {
+            return false
+        }
+        return store.workspaceListIsAuthoritative
+    }
+
     private var canCreateWorkspaceOnForegroundConnection: Bool {
         store.connectionState == .connected
     }
@@ -702,7 +709,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForSelectionChange(
                 currentPath: compactNavigationPath,
                 selectedWorkspaceID: selectedWorkspaceID,
-                visibleWorkspaceIDs: Set(store.workspaces.map(\.id))
+                visibleWorkspaceIDs: Set(store.workspaces.map(\.id)),
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
@@ -720,7 +728,8 @@ struct WorkspaceShellView: View {
             compactNavigationPath = compactNavigationPolicy.pathForVisibleWorkspaceIDsChange(
                 currentPath: compactNavigationPath,
                 visibleWorkspaceIDs: Set(workspaceIDs),
-                selectedWorkspaceID: store.selectedWorkspaceID
+                selectedWorkspaceID: store.selectedWorkspaceID,
+                listIsAuthoritative: workspaceListIsAuthoritative
             )
             autoOpenSelectedWorkspaceForSoakIfNeeded()
         }
