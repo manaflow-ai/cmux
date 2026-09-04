@@ -43,8 +43,10 @@ extension CmuxTuiSnapshotParser {
             }
         }
         return byPort
-            .flatMap { port, addresses in
-                addresses.map { ListeningPortBinding(port: port, address: $0) }
+            .flatMap { entry in
+                entry.value.map { address in
+                    ListeningPortBinding(port: entry.key, address: address)
+                }
             }
             .sorted {
                 $0.port != $1.port ? $0.port < $1.port : $0.address < $1.address
