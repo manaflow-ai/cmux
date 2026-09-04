@@ -1194,15 +1194,24 @@ cmux_claude_reconcile_skill_links() {
 }
 
 cmux_claude_session_skill_root() {
-    local self_dir resource_dir root
+    local self_dir resource_dir root projection skill_file
     self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
     resource_dir="${self_dir%/bin}"
     root="$resource_dir/cmux-cua"
-    # The resource contains a .claude/skills projection (the document itself
-    # remains signed and shared with Codex). --add-dir is Claude's supported
-    # session-only discovery mechanism and does not touch user configuration.
-    [[ -f "$root/.claude/skills/cmux-cua/SKILL.md" ]] || return 1
-    printf '%s' "$root"
+    skill_file="$root/SKILL.md"
+    [[ -f "$skill_file" ]] || return 1
+
+    # Claude's --add-dir grants write access to the directory it names. Never
+    # point it at the app bundle: a development bundle is user-writable and an
+    # agent could mutate the signed resource. Project only the immutable skill
+    # document into a per-session read-only directory.
+    projection="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-session.XXXXXX")" || return 1
+    mkdir -p "$projection/.claude/skills/cmux-cua" || return 1
+    cp "$skill_file" "$projection/.claude/skills/cmux-cua/SKILL.md" || return 1
+    chmod 0555 "$projection" "$projection/.claude" \
+        "$projection/.claude/skills" "$projection/.claude/skills/cmux-cua" || return 1
+    chmod 0444 "$projection/.claude/skills/cmux-cua/SKILL.md" || return 1
+    printf '%s' "$projection"
 }
 
 claude_interactive_entry_flag() {

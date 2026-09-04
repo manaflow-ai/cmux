@@ -108,11 +108,11 @@ cmux_cua_skill_name_is() {
 }
 
 cmux_cua_skill_target_is_managed() {
-    # A resource suffix or app name alone is not ownership proof. Existing
-    # bundles must carry cmux's bundle identifier. Removed bundles are
-    # recognized only when both their channel name and their path match a
-    # cmux-owned install/build root; arbitrary user symlinks that happen to
-    # contain `cmux-cua` are left untouched.
+    # A resource suffix, app name, or dangling path alone is not ownership
+    # proof. A link is managed only when its existing bundle has cmux's bundle
+    # identifier, lives in a known cmux install/build root, and is owned by
+    # root or the current user. Removed bundles have no verifiable owner or
+    # identity and are deliberately preserved for manual review.
     local target="$1"
     local resource_name
     case "$target" in
@@ -124,6 +124,22 @@ cmux_cua_skill_target_is_managed() {
 
     local app_bundle="${target%/Contents/Resources/$resource_name}"
     [[ "$app_bundle" == *.app ]] || return 1
+    local home="${HOME:-}"
+    local app_owner
+    app_owner="$(/usr/bin/stat -f '%u' "$app_bundle" 2>/dev/null || true)"
+    [[ "$app_owner" == "0" || "$app_owner" == "$(/usr/bin/id -u)" ]] || return 1
+
+    case "$app_bundle" in
+        /Applications/cmux*.app|/Applications/Utilities/cmux*.app|\
+        "$home/Applications"/cmux*.app|\
+        "$home/Library/Developer/Xcode/DerivedData"/cmux-*/Build/Products/*/cmux*.app|\
+        /tmp/cmux-*/Build/Products/*/cmux*.app)
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+
     local info_plist="$app_bundle/Contents/Info.plist"
     if [[ -f "$info_plist" && -x /usr/libexec/PlistBuddy ]]; then
         local bundle_id
@@ -131,31 +147,6 @@ cmux_cua_skill_target_is_managed() {
         [[ "$bundle_id" == com.cmuxterm.* ]]
         return $?
     fi
-
-    local app_name="${app_bundle##*/}"
-    app_name="${app_name%.app}"
-    local tr_bin=/usr/bin/tr
-    [[ -x "$tr_bin" ]] || tr_bin=/bin/tr
-    app_name="$(printf '%s' "$app_name" | LC_ALL=C "$tr_bin" '[:upper:]' '[:lower:]')"
-    case "$app_name" in
-        cmux|cmux\ dev|cmux\ dev\ *|cmux\ nightly|cmux\ nightly\ *|\
-        cmux\ staging|cmux\ staging\ *|cmux\ release|cmux\ release\ *|\
-        cmux\ rc|cmux\ rc\ *) ;;
-        *) return 1 ;;
-    esac
-
-    # These are the only roots used by the checked-in distribution and reload
-    # workflows. Keep the home-derived patterns quoted so a space in HOME or in
-    # an app name cannot turn this into a broader filesystem match.
-    local home="${HOME:-}"
-    case "$app_bundle" in
-        /Applications/cmux*.app|/Applications/Utilities/cmux*.app|\
-        "$home/Applications"/cmux*.app|\
-        "$home/Library/Developer/Xcode/DerivedData"/cmux-*/Build/Products/*/cmux*.app|\
-        /tmp/cmux-*/Build/Products/*/cmux*.app)
-            return 0
-            ;;
-    esac
     return 1
 }
 

@@ -74,14 +74,6 @@ def run_wrapper(
     bundled_skill.mkdir()
     (bundled_skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
     (bundled_skill / "link-policy.sh").write_bytes(LINK_POLICY.read_bytes())
-    # The app resource carries a private .claude/skills projection so the
-    # wrapper can expose the signed skill through Claude's --add-dir contract
-    # without writing ~/.claude. Xcode copies this hidden resource with the
-    # existing cmux-cua folder.
-    session_skill = bundled_skill / ".claude" / "skills" / "cmux-cua"
-    session_skill.parent.mkdir(parents=True)
-    session_skill.symlink_to(bundled_skill, target_is_directory=True)
-
     project_skill = root / ".claude" / "skills" / "cmux-cua"
     if project_skill_collision:
         project_skill.mkdir(parents=True)
@@ -161,7 +153,7 @@ exit 1
         destination.symlink_to(preexisting_link_target)
     if preexisting_valid_cmux_link:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        old_skill = root / "cmux DEV old.app" / "Contents" / "Resources" / "cmux-cua"
+        old_skill = home / "Library" / "Developer" / "Xcode" / "DerivedData" / "cmux-fixture" / "Build" / "Products" / "Debug" / "cmux DEV old.app" / "Contents" / "Resources" / "cmux-cua"
         old_skill.mkdir(parents=True)
         (old_skill / "SKILL.md").write_text(
             "---\nname: cmux-cua\ndescription: Old cmux skill.\n---\n\nOld bundle.\n",
@@ -231,7 +223,7 @@ def add_dir_arg(args: list[str]) -> str | None:
     return None
 
 
-def test_claude_skill_is_session_scoped_without_global_install_by_default(
+def test_claude_preserves_unverified_dangling_link_by_default(
     failures: list[str],
 ) -> None:
     dangling = Path(
@@ -247,8 +239,8 @@ def test_claude_skill_is_session_scoped_without_global_install_by_default(
         failures,
     )
     expect(
-        not link.exists() and not link.is_symlink(),
-        f"default launch must not create a global Claude skill at {link}",
+        link.is_symlink() and os.readlink(link) == str(dangling),
+        f"unverified dangling link must be preserved at {link}",
         failures,
     )
     expect(
@@ -256,11 +248,8 @@ def test_claude_skill_is_session_scoped_without_global_install_by_default(
         f"expected no plugin-qualified session skill, got {args}",
         failures,
     )
-    expect(
-        add_dir_arg(args) == os.path.realpath(bundled_skill),
-        f"expected the signed skill through Claude's session root, got {args}",
-        failures,
-    )
+    session_root = add_dir_arg(args)
+    expect(session_root is None, f"unverified global link must suppress duplicate session discovery, got {args}", failures)
 
 
 def test_claude_default_is_session_scoped_without_global_mutation(
@@ -278,8 +267,8 @@ def test_claude_default_is_session_scoped_without_global_mutation(
         failures,
     )
     expect(
-        add_dir_arg(args) == os.path.realpath(bundled_skill),
-        f"default Claude launch must use the session-only skill root, got {args}",
+        add_dir_arg(args) is not None and add_dir_arg(args) != os.path.realpath(bundled_skill),
+        f"default Claude launch must use an external session-only skill root, got {args}",
         failures,
     )
     expect(
@@ -289,7 +278,7 @@ def test_claude_default_is_session_scoped_without_global_mutation(
     )
 
 
-def test_claude_cleans_cmux_link_without_recreating_global_skill(
+def test_claude_preserves_unverified_dangling_link_without_global_install(
     failures: list[str],
 ) -> None:
     dangling = Path("/Applications/cmux NIGHTLY old.app/Contents/Resources/cmux-cua")
@@ -303,18 +292,18 @@ def test_claude_cleans_cmux_link_without_recreating_global_skill(
         failures,
     )
     expect(
-        not link.exists() and not link.is_symlink(),
-        f"stale Claude link should be removed under the new default, got {link}",
+        link.is_symlink() and os.readlink(link) == str(dangling),
+        f"unverified dangling link must be preserved under the new default, got {link}",
         failures,
     )
     expect(
-        add_dir_arg(args) == os.path.realpath(bundled_skill),
-        f"stale-link cleanup must retain the session fallback, got {args}",
+        add_dir_arg(args) is None,
+        f"unverified dangling link must suppress a duplicate session row, got {args}",
         failures,
     )
 
 
-def test_claude_explicit_opt_in_retargets_managed_stale_link(
+def test_claude_explicit_opt_in_preserves_unverified_dangling_link(
     failures: list[str],
 ) -> None:
     dangling = Path("/Applications/cmux NIGHTLY old.app/Contents/Resources/cmux-cua")
@@ -329,8 +318,8 @@ def test_claude_explicit_opt_in_retargets_managed_stale_link(
         failures,
     )
     expect(
-        link.is_symlink() and os.path.realpath(link) == os.path.realpath(bundled_skill),
-        f"explicit opt-in should retarget only a managed stale link, got {link}",
+        link.is_symlink() and os.readlink(link) == str(dangling),
+        f"explicit opt-in must preserve an unverified dangling link, got {link}",
         failures,
     )
     expect(
@@ -351,14 +340,15 @@ def test_claude_session_add_dir_preserves_positional_prompt(
         failures,
     )
     expect(
-        any(
-            arg.startswith("--add-dir=")
-            and arg.split("=", 1)[1] == os.path.realpath(bundled_skill)
-            for arg in args
-        ),
+        any(arg.startswith("--add-dir=") for arg in args),
         f"session projection must use a single --add-dir=<path> token, got {args}",
         failures,
     )
+    session_root = add_dir_arg(args)
+    if session_root is not None:
+        projected = Path(session_root) / ".claude" / "skills" / "cmux-cua" / "SKILL.md"
+        expect(projected.is_file(), f"expected projected session skill at {projected}", failures)
+        expect((projected.stat().st_mode & 0o222) == 0, f"session projection must be read-only, got mode {oct(projected.stat().st_mode)}", failures)
     expect(
         "POSITIONAL=fix this\n" in result.stdout,
         f"Claude's variadic parser must preserve the positional prompt, got {result.stdout!r}",
@@ -384,11 +374,7 @@ def test_claude_home_ancestor_is_not_project_collision(
         f"managed global Claude link should be cleaned, got {link}",
         failures,
     )
-    expect(
-        add_dir_arg(args) == os.path.realpath(bundled_skill),
-        f"HOME ancestor must not disable Claude's session fallback, got {args}",
-        failures,
-    )
+    expect(add_dir_arg(args) is not None, f"HOME ancestor must not disable Claude session projection, got {args}", failures)
 
 
 def test_claude_collision_keeps_project_skill_and_avoids_second_row(
@@ -437,7 +423,7 @@ def test_claude_explicit_global_opt_in_remains_available(failures: list[str]) ->
     )
 
 
-def test_claude_migrates_legacy_computer_use_link(failures: list[str]) -> None:
+def test_claude_preserves_unverified_legacy_computer_use_link(failures: list[str]) -> None:
     legacy_target = Path(
         "/Applications/cmux DEV old.app/Contents/Resources/cmux-computer-use"
     )
@@ -452,13 +438,13 @@ def test_claude_migrates_legacy_computer_use_link(failures: list[str]) -> None:
     )
     legacy = link.parents[2] / ".agents" / "skills" / "cmux-computer-use"
     expect(
-        not legacy.exists() and not legacy.is_symlink(),
-        f"expected the cmux-owned legacy link removed, found {legacy}",
+        legacy.is_symlink() and os.readlink(legacy) == str(legacy_target),
+        f"unverified legacy link must be preserved, found {legacy}",
         failures,
     )
     expect(
         not link.exists() and not link.is_symlink(),
-        f"expected the global link removed after migration, got {link}",
+        f"canonical global link should remain absent after migration, got {link}",
         failures,
     )
     expect(
@@ -467,8 +453,8 @@ def test_claude_migrates_legacy_computer_use_link(failures: list[str]) -> None:
         failures,
     )
     expect(
-        add_dir_arg(args) == os.path.realpath(bundled_skill),
-        f"legacy migration must retain the session-only skill, got {args}",
+        add_dir_arg(args) is not None,
+        f"an unrelated-provider legacy link must not suppress Claude session discovery, got {args}",
         failures,
     )
 
@@ -514,8 +500,8 @@ def test_claude_global_skill_can_be_disabled_explicitly(failures: list[str]) -> 
         failures,
     )
     expect(
-        add_dir_arg(args) == os.path.realpath(bundled_skill),
-        f"explicit opt-out must retain the session-only skill, got {args}",
+        add_dir_arg(args) is not None,
+        f"explicit opt-out must retain the Claude session projection, got {args}",
         failures,
     )
 
@@ -621,15 +607,15 @@ def test_strict_mcp_config_skips_all_computer_use_sideloading(failures: list[str
 
 def main() -> int:
     failures: list[str] = []
-    test_claude_skill_is_session_scoped_without_global_install_by_default(failures)
+    test_claude_preserves_unverified_dangling_link_by_default(failures)
     test_claude_default_is_session_scoped_without_global_mutation(failures)
-    test_claude_cleans_cmux_link_without_recreating_global_skill(failures)
-    test_claude_explicit_opt_in_retargets_managed_stale_link(failures)
+    test_claude_preserves_unverified_dangling_link_without_global_install(failures)
+    test_claude_explicit_opt_in_preserves_unverified_dangling_link(failures)
     test_claude_session_add_dir_preserves_positional_prompt(failures)
     test_claude_home_ancestor_is_not_project_collision(failures)
     test_claude_collision_keeps_project_skill_and_avoids_second_row(failures)
     test_claude_explicit_global_opt_in_remains_available(failures)
-    test_claude_migrates_legacy_computer_use_link(failures)
+    test_claude_preserves_unverified_legacy_computer_use_link(failures)
     test_claude_leaves_user_owned_legacy_links_alone(failures)
     test_claude_global_skill_can_be_disabled_explicitly(failures)
     test_claude_leaves_user_owned_skill_links_alone(failures)

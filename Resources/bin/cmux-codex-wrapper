@@ -664,12 +664,10 @@ cmux_codex_read_inject_args() {
 CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
 CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED=0
 CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION=0
-if cmux_codex_global_skill_install_enabled \
-      && cmux_codex_computer_use_enabled_for_invocation "$@"; then
-    cmux_codex_reconcile_skill_links || true
-elif cmux_codex_computer_use_enabled_for_invocation "$@"; then
-    # The policy helper also performs opt-out migration. Do not call it for a
-    # disabled/strict invocation, which must remain fully inert.
+if cmux_codex_computer_use_enabled_for_invocation "$@"; then
+    # The policy helper performs both explicit installation and stale-link
+    # migration; it re-reads the opt-in flag itself. Disabled and strict
+    # invocations remain fully inert.
     cmux_codex_reconcile_skill_links || true
 fi
 

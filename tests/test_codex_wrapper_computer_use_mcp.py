@@ -591,7 +591,15 @@ exit 1
                     )
                 elif preexisting_valid_cmux_link:
                     old_skill = (
-                        tmp
+                        sandbox_home
+                        / "Library"
+                        / "Developer"
+                        / "Xcode"
+                        / "DerivedData"
+                        / "cmux-fixture"
+                        / "Build"
+                        / "Products"
+                        / "Debug"
                         / "cmux DEV old.app"
                         / "Contents"
                         / "Resources"
@@ -1041,16 +1049,17 @@ def test_codex_default_skill_path_is_picker_safe(failures: list[str]) -> None:
     )
 
 
-def test_codex_removes_cmux_owned_stale_link_by_default(failures: list[str]) -> None:
-    """Existing cmux-owned links are cleaned without recreating global state."""
+def test_codex_preserves_unverified_dangling_link_by_default(failures: list[str]) -> None:
+    """A dangling link has no verifiable ownership and remains untouched."""
     code, args, stderr, skill = run_wrapper(
         ["hello"],
         preexisting_cmux_link=True,
     )
     expect(code == 0, f"stale-link wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["exists"] is False and skill["is_symlink"] is False,
-        f"stale cmux link should be removed safely, got {skill}",
+        skill["is_symlink"] is True
+        and skill["target"] == "/Applications/cmux NIGHTLY old.app/Contents/Resources/cmux-cua",
+        f"unverified dangling link must be preserved safely, got {skill}",
         failures,
     )
     expect(
@@ -1065,7 +1074,7 @@ def test_codex_removes_cmux_owned_stale_link_by_default(failures: list[str]) -> 
     )
 
 
-def test_codex_explicit_opt_in_retargets_managed_stale_link(failures: list[str]) -> None:
+def test_codex_explicit_opt_in_preserves_unverified_dangling_link(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(
         ["hello"],
         preexisting_cmux_link=True,
@@ -1073,11 +1082,9 @@ def test_codex_explicit_opt_in_retargets_managed_stale_link(failures: list[str])
     )
     expect(code == 0, f"explicit stale-link wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["exists"] is True
-        and skill["is_symlink"] is True
-        and isinstance(skill["target"], str)
-        and skill["target"].endswith("/Contents/Resources/cmux-cua"),
-        f"explicit opt-in should retarget only a managed stale link, got {skill}",
+        skill["is_symlink"] is True
+        and skill["target"] == "/Applications/cmux NIGHTLY old.app/Contents/Resources/cmux-cua",
+        f"explicit opt-in must preserve an unverified dangling link, got {skill}",
         failures,
     )
     expect(
@@ -1112,16 +1119,16 @@ def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> No
     )
 
 
-def test_codex_cleans_deprecated_codex_home_link(failures: list[str]) -> None:
-    """The deprecated CODEX_HOME root cannot keep a stale duplicate alive."""
+def test_codex_preserves_unverified_codex_home_link(failures: list[str]) -> None:
+    """A dangling CODEX_HOME link has no ownership proof and remains intact."""
     code, args, stderr, skill = run_wrapper(
         ["hello"],
         preexisting_codex_home_cmux_link=True,
     )
     expect(code == 0, f"CODEX_HOME migration wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["codex_home_exists"] is False,
-        f"stale CODEX_HOME link should be removed, got {skill}",
+        skill["codex_home_exists"] is True and skill["codex_home_is_symlink"] is True,
+        f"unverified CODEX_HOME link must be preserved, got {skill}",
         failures,
     )
     expect(
@@ -1230,25 +1237,25 @@ def test_codex_preserves_unrelated_global_symlink_by_default(failures: list[str]
     )
 
 
-def test_codex_migrates_legacy_computer_use_link(failures: list[str]) -> None:
+def test_codex_preserves_unverified_legacy_computer_use_link(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(["hello"], preexisting_legacy_link=True)
     expect(code == 0, f"legacy-migration wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["legacy_present"] is False,
-        f"expected the cmux-owned legacy cmux-computer-use link removed, got {skill}",
+        skill["legacy_present"] is True,
+        f"unverified legacy cmux-computer-use link must be preserved, got {skill}",
         failures,
     )
 
 
-def test_codex_migrates_legacy_codex_cua_link(failures: list[str]) -> None:
+def test_codex_preserves_unverified_legacy_codex_cua_link(failures: list[str]) -> None:
     code, args, stderr, skill = run_wrapper(
         ["hello"],
         preexisting_legacy_codex_link=True,
     )
     expect(code == 0, f"legacy codex-cua wrapper exited {code}: {stderr}", failures)
     expect(
-        skill["legacy_codex_present"] is False,
-        f"expected the cmux-owned codex-cua alias removed, got {skill}",
+        skill["legacy_codex_present"] is True,
+        f"unverified codex-cua alias must be preserved, got {skill}",
         failures,
     )
     expect(
@@ -1258,7 +1265,7 @@ def test_codex_migrates_legacy_codex_cua_link(failures: list[str]) -> None:
     )
     expect(
         skill["exists"] is False and skill["is_symlink"] is False,
-        f"expected the global link removed after migration, got {skill}",
+        f"canonical global link should remain absent, got {skill}",
         failures,
     )
     expect(
@@ -1541,16 +1548,16 @@ def main() -> int:
     test_codex_gets_cmux_cua(failures)
     test_codex_default_does_not_mutate_global_or_fake_session_discovery(failures)
     test_codex_default_skill_path_is_picker_safe(failures)
-    test_codex_removes_cmux_owned_stale_link_by_default(failures)
-    test_codex_explicit_opt_in_retargets_managed_stale_link(failures)
+    test_codex_preserves_unverified_dangling_link_by_default(failures)
+    test_codex_explicit_opt_in_preserves_unverified_dangling_link(failures)
     test_codex_home_ancestor_is_not_project_collision(failures)
-    test_codex_cleans_deprecated_codex_home_link(failures)
+    test_codex_preserves_unverified_codex_home_link(failures)
     test_codex_collision_keeps_project_skill_and_one_picker_row(failures)
     test_codex_explicit_global_opt_in_still_installs_without_collision(failures)
     test_codex_explicit_global_opt_in_does_not_override_project_skill(failures)
     test_codex_preserves_unrelated_global_symlink_by_default(failures)
-    test_codex_migrates_legacy_computer_use_link(failures)
-    test_codex_migrates_legacy_codex_cua_link(failures)
+    test_codex_preserves_unverified_legacy_computer_use_link(failures)
+    test_codex_preserves_unverified_legacy_codex_cua_link(failures)
     test_codex_does_not_duplicate_user_owned_skill_path(failures)
     test_codex_global_skill_can_be_disabled_explicitly(failures)
     test_codex_computer_use_wrapper_is_a_pure_proxy(failures)
