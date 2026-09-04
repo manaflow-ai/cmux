@@ -55,10 +55,11 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
 
     /// Creates a scheduler with explicit per-turn work limits.
     ///
-    /// Up to `maximumVisitsPerDrain` focused or visible identities supplied to
+    /// Every focused or visible identity supplied to
     /// ``replacePendingWork(snapshot:prioritizedIDs:nextID:apply:abandon:completion:)``
-    /// are applied in the accepting turn. Remaining identities, including
-    /// skipped traversal entries, are visited through later main-actor turns.
+    /// is applied in the accepting turn. `maximumVisitsPerDrain` bounds only
+    /// the deferred registry traversal (including skipped entries), so visible
+    /// panes repaint together while offscreen work yields to later turns.
     ///
     /// - Parameters:
     ///   - maximumVisitsPerDrain: Maximum traversal visits in one scheduled
@@ -152,12 +153,9 @@ public final class TerminalConfigurationApplyScheduler<ID: Hashable, Snapshot> {
     private func drainImmediatePriority() {
         guard let snapshot, let apply else { return }
         let generation = workGeneration
-        var visits = 0
-        while prioritizedIndex < prioritizedIDs.count,
-              visits < maximumVisitsPerDrain {
+        while prioritizedIndex < prioritizedIDs.count {
             let id = prioritizedIDs[prioritizedIndex]
             prioritizedIndex += 1
-            visits += 1
             guard visitedIDs.insert(id).inserted else { continue }
             attempt(id, snapshot: snapshot, apply: apply)
             guard workGeneration == generation else { return }

@@ -6,10 +6,10 @@ private typealias Snapshot = TerminalConfigurationApplySchedulerTestSnapshot
 @Suite("Terminal configuration apply scheduler")
 struct TerminalConfigurationApplySchedulerTests {
     @Test @MainActor
-    func boundsImmediatePriorityBeforeYielding() {
+    func appliesEveryPrioritizedIdentityBeforeYielding() {
         let manualScheduler = ManualConfigurationApplyScheduler()
         let scheduler = TerminalConfigurationApplyScheduler<Int, Snapshot>(
-            maximumVisitsPerDrain: 2,
+            maximumVisitsPerDrain: 1,
             schedule: manualScheduler.schedule
         )
         let snapshot = Snapshot(id: 8)
@@ -29,7 +29,7 @@ struct TerminalConfigurationApplySchedulerTests {
             }
         )
 
-        #expect(applied == [1, 2])
+        #expect(applied == [1, 2, 3, 4])
         #expect(manualScheduler.pendingCount == 1)
         #expect(!didFinish)
 
