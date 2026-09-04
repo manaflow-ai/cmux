@@ -45,7 +45,6 @@ struct CmuxExtensionWorktreeCreationResult: Sendable {
         self.setupCommand = setupCommand
     }
 }
-
 /// Arguments for spawning a workspace in a freshly created worktree.
 ///
 /// A workspace closes the moment its main process exits, so the worktree

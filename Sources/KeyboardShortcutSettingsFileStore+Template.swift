@@ -233,6 +233,15 @@ extension CmuxSettingsFileStore {
                 ],
             ],
             [
+                "artifacts": [
+                    "enabled": LinksCaptureSettings.defaultEnabled,
+                    "ignoreHosts": LinksCaptureSettings.defaultIgnoreHosts,
+                    "includeFilePaths": LinksCaptureSettings.defaultIncludeFilePaths,
+                    "retentionLimit": LinksCaptureSettings.defaultRetentionLimit,
+                    "fetchTitles": LinksCaptureSettings.defaultFetchTitles,
+                ],
+            ],
+            [
                 "fileEditor": [
                     "wordWrap": FilePreviewWordWrapSettings.defaultEnabled,
                     "syntaxHighlighting": fileEditorSettings.catalog.syntaxHighlighting.defaultValue,

@@ -1,3 +1,4 @@
+import CmuxArtifacts
 import Foundation
 
 enum GlobalSearchIndexingLimits {
@@ -27,6 +28,59 @@ struct BrowserPagePayload: Decodable {
 
 @MainActor
 enum GlobalSearchDocuments {
+    /// Builds one bounded SQLite document for a durable Artifacts record.
+    ///
+    /// The workspace id is kept in the existing indexed columns and the
+    /// artifact UUID is encoded in the document id. This lets activation
+    /// resolve ownership without overloading a panel id or trusting a row
+    /// position.
+    static func artifactDocument(
+        for record: ArtifactRecord,
+        windowID: UUID? = nil
+    ) -> SearchIndexDocument? {
+        guard let workspaceID = record.ownership.workspaceID.flatMap(UUID.init(uuidString:)) else {
+            return nil
+        }
+        let resolvedWindowID = windowID ?? workspaceID
+        let title = firstNonEmpty(
+            record.title,
+            record.metadata["fileName"],
+            record.metadata["sourceSurfaceTitle"],
+            record.kind.rawValue
+        ) ?? String(localized: "artifactsPane.title", defaultValue: "Artifacts")
+        let location = firstNonEmpty(
+            record.ownership.workspaceTitle,
+            record.ownership.projectRoot,
+            record.metadata["sourcePath"]
+        ) ?? ""
+        let metadataText = record.metadata
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: "\n")
+        let text = cappedText([
+            record.kind.rawValue,
+            record.identityKey,
+            record.copyValue,
+            record.source.rawValue,
+            location,
+            metadataText,
+            record.inlineContent ?? ""
+        ].filter { !$0.isEmpty }.joined(separator: "\n"))
+        guard !text.isEmpty else { return nil }
+        return SearchIndexDocument(
+            id: SearchIndexDocument.artifactStableID(record.id),
+            windowID: resolvedWindowID,
+            workspaceID: workspaceID,
+            panelID: nil,
+            kind: .artifact,
+            title: title,
+            location: location,
+            anchor: record.id.uuidString,
+            text: text,
+            timestamp: record.lastSeenAt
+        )
+    }
+
     static func browseHit(for context: GlobalSearchPanelContext) -> SearchIndexHit {
         let kind: GlobalSearchKind
         switch context.panel.panelType {
@@ -35,7 +89,7 @@ enum GlobalSearchDocuments {
         case .markdown:
             kind = .markdown
         case .terminal, .filePreview, .rightSidebarTool, .customSidebar, .agentSession, .project,
-             .extensionBrowser, .simulator, .workspaceTodo, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
+             .extensionBrowser, .simulator, .workspaceTodo, .links, .notifications, .cloudVMLoading, .mobilePairing, .accountSignIn:
             kind = .title
         }
 

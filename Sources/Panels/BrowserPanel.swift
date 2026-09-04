@@ -2,6 +2,7 @@ import Foundation
 import CMUXMobileCore
 import CmuxCore
 import CmuxBrowser
+import CmuxArtifacts
 import CmuxFoundation
 import CmuxSettings
 import Combine
@@ -3633,6 +3634,13 @@ final class BrowserPanel: Panel, ObservableObject {
             guard let self else { return }
             if shouldEndActivity { self.endDownloadActivity() }
             self.applyBrowserDownloadEvent(type: "saved", downloadID: downloadID, filename: filename, path: destinationURL.path)
+            if let workspace = AppDelegate.shared?.workspaceFor(tabId: self.workspaceId) {
+                workspace.captureBrowserDownload(
+                    at: destinationURL,
+                    sourceURL: self.currentURL,
+                    title: self.pageTitle
+                )
+            }
             NotificationCenter.default.post(
                 name: .browserDownloadEventDidArrive,
                 object: self,

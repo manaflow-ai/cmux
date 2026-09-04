@@ -165,6 +165,41 @@ The spinner is compositor-driven (a Core Animation transform run by the render s
 
 `terminal.focusTextBoxOnNewTerminals` opens the TextBox and focuses it for foreground terminal sessions created from the app UI, such as new terminal workspaces, tabs, and splits. Terminals created through the cmux CLI/control socket do not auto-focus the TextBox, even when this setting is enabled, so background automation does not steal keyboard focus.
 
+## `artifacts`
+
+Controls the workspace and global Artifacts catalog. The legacy `links` section
+is still accepted and is migrated into the same catalog; it is not a second store.
+The right-sidebar Artifacts surface is an opt-in beta under Settings → Beta Features;
+that presentation gate is separate from `artifacts.enabled` capture consent.
+
+```json
+{
+  "artifacts": {
+    "enabled": true,
+    "ignoreHosts": "localhost:31034",
+    "includeFilePaths": false,
+    "retentionLimit": 500,
+    "fetchTitles": false
+  }
+}
+```
+
+- `enabled`: capture permitted URLs and explicitly saved workspace artifacts. Default: `true`.
+- `ignoreHosts`: comma-separated URL hosts skipped during terminal capture. Entries support `host`, exact `host:port`, and wildcard suffixes such as `*.example.com`. Default: `localhost:31034`.
+- `includeFilePaths`: allow explicitly authorized file paths emitted by terminals. Default: `false`.
+- `retentionLimit`: maximum Artifacts retained per workspace. Range: `10`-`10000`. Default: `500` (the shipped Links limit).
+- `fetchTitles`: fetch page titles for captured public http(s) URLs. Default: `false`, so capture performs no network requests unless explicitly enabled. Private and local hosts are never fetched.
+
+Artifacts are bounded by explicit authorization, path containment, sensitive-path
+filters, per-file/inline byte limits, age limits, and the catalog count cap. The
+catalog supports URL, HTML, text/code/JSON, images, PDFs, audio/video, directories,
+browser downloads, generated files, and manually saved values. Unsupported binary
+formats remain as safe file records without content indexing; adding specialized
+previewers is a follow-up.
+
+The old `links.*` keys and `links` session snapshot field remain decode aliases so
+existing data is imported once without loss or duplicate rows.
+
 ## Workspace terminal font size shortcuts
 
 Cmd+Ctrl+= and Cmd+Ctrl+- increase or decrease every terminal in the selected workspace by one point. Cmd+Ctrl+0 resets them to the current Ghostty font size. Hidden, hibernated, and Dock terminals change with visible terminals, and newly created terminals inherit the workspace size. Rebind them with `shortcuts.bindings.increaseWorkspaceTerminalFontSize`, `shortcuts.bindings.decreaseWorkspaceTerminalFontSize`, and `shortcuts.bindings.resetWorkspaceTerminalFontSize`.

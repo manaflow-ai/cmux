@@ -2270,6 +2270,22 @@
           "agentIdleReminder": "Notify when an agent has been idle waiting for your input (about 60s after a turn ends). Suppressed while background work from the last turn is still pending, so a running build or watcher does not trigger a false waiting alert.",
           "soundOverrides": "Sparse per-agent and per-alert-type notification sound overrides. Missing cells use notifications.sound.",
           "soundOverride": "A notification sound override. `default` uses notifications.sound, `none` disables playback, and the remaining values select a built-in or custom sound."
+        },
+        "links": {
+          "description": "Workspace Links panel capture settings.",
+          "enabled": "Capture URLs emitted by terminals into each workspace Links panel.",
+          "ignoreHosts": "Comma-separated hosts to skip during link ingest. Entries support host, host:port, and *.example.com wildcard suffixes.",
+          "includeFilePaths": "Include file:// URLs in captured link history.",
+          "retentionLimit": "Maximum captured links retained per workspace.",
+          "fetchTitles": "Fetch page titles for captured public http(s) links. Private and local hosts are never fetched."
+        },
+        "artifacts": {
+          "description": "Workspace and global Artifacts capture settings; links is retained as a migration alias.",
+          "enabled": "Capture permitted URLs and explicitly saved workspace artifacts.",
+          "ignoreHosts": "Comma-separated URL hosts ignored during terminal capture.",
+          "includeFilePaths": "Include explicitly authorized file paths emitted by terminals.",
+          "retentionLimit": "Maximum Artifacts retained per workspace.",
+          "fetchTitles": "Fetch titles for captured public URLs; local and private hosts are never fetched."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -2282,7 +2298,17 @@
       "shortcutsWhenBooleanKeys": "boolean keys. An unknown or absent key reads as false; the literals true and false are also accepted.",
       "shortcutsWhenTypedKeys": "typed keys for comparisons: the right sidebar's active mode (a string) plus pane and workspace counts (integers).",
       "shortcutsWhenOperators": "boolean operators, typed comparisons, regex match, and list membership. Comparisons bind tighter than && and ||.",
-      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:"
+      "shortcutsWhenExample": "For example, this makes Ctrl+1–9 select workspaces everywhere except when the right sidebar is focused (leaving Ctrl+1–5 free for the sidebar's mode switcher), and scopes surface selection to the Find sidebar when the workspace has multiple panes:",
+      "exampleLinksEnabled": "Capture terminal-emitted URLs into each workspace Links panel.",
+      "exampleLinksIgnoreHosts": "Comma-separated host ignore list. Supports host, host:port, and *.example.com.",
+      "exampleLinksIncludeFilePaths": "Include file:// URLs in link history.",
+      "exampleLinksRetentionLimit": "Maximum captured links retained per workspace.",
+      "exampleLinksFetchTitles": "Fetch titles for public http(s) links. Default false means no network requests."
+      ,"exampleArtifactsEnabled": "Capture permitted URLs and explicitly saved artifacts in the catalog."
+      ,"exampleArtifactsIgnoreHosts": "Comma-separated URL hosts ignored during terminal capture."
+      ,"exampleArtifactsIncludeFilePaths": "Include explicitly authorized file paths emitted by terminals."
+      ,"exampleArtifactsRetentionLimit": "Maximum Artifacts retained per workspace."
+      ,"exampleArtifactsFetchTitles": "Fetch titles for public URLs. Private and local hosts are never fetched."
     },
     "customCommands": {
       "title": "Custom Commands",

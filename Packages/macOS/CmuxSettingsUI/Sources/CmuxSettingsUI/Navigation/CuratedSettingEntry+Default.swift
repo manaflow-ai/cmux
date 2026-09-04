@@ -337,6 +337,17 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .betaFeatures, id: "dock", title: "Dock", synonyms: "dock right sidebar terminal controls tui beta unstable"),
             .init(
                 section: .betaFeatures,
+                id: "artifacts",
+                title: String(localized: "settings.betaFeatures.artifacts", defaultValue: "Artifacts"),
+                detailText: [
+                    String(localized: "settings.betaFeatures.artifacts.subtitleOn", defaultValue: "Shows Artifacts in the right sidebar with searchable workspace history and drag-and-drop records."),
+                    String(localized: "settings.betaFeatures.artifacts.subtitleOff", defaultValue: "Hides Artifacts from the right sidebar until you enable it here."),
+                ].joined(separator: " "),
+                paths: ["rightSidebar.beta.artifacts.enabled"],
+                synonyms: String(localized: "settings.search.alias.setting.betaFeatures.artifacts", defaultValue: "rightSidebar.beta.artifacts.enabled artifacts links urls files html workspace history search drag drop beta unstable")
+            ),
+            .init(
+                section: .betaFeatures,
                 id: "cloudMachines",
                 title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
                 detailText: [

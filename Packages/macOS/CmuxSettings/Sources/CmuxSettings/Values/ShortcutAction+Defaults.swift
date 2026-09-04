@@ -150,6 +150,7 @@ extension ShortcutAction {
         case .fileExplorerOpenSelection: return ShortcutStroke(key: "\r")
         case .fileExplorerOpenSelectionFinderAlias: return ShortcutStroke(key: "↓", command: true)
         case .openDiffViewer: return ShortcutStroke(key: "d", command: true, shift: true, control: true)
+        case .openLinksPanel: return ShortcutStroke(key: "l", command: true, shift: true, control: true)
         case .saveFilePreview: return ShortcutStroke(key: "s", command: true)
         case .openBrowser: return ShortcutStroke(key: "l", command: true, shift: true)
         case .focusBrowserAddressBar: return ShortcutStroke(key: "l", command: true)

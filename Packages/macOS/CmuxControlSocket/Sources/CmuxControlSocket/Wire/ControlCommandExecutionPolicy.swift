@@ -92,6 +92,11 @@ public enum ControlCommandExecutionPolicy: Sendable, Equatable {
         "feed.question.reply",
         "feed.exit_plan.reply",
         "browser.download.wait",
+        // Artifact catalog reads await the repository actor and must not hold
+        // the main actor while filtering a global result set.
+        "artifacts.list",
+        "artifacts.search",
+        "artifacts.add",
         "browser.profiles.list",
         "browser.profiles.create",
         "browser.profiles.rename",

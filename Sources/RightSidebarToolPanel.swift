@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import CmuxBrowser
 import CmuxAppKitSupportUI
 import SwiftUI
 
@@ -18,6 +19,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
     private var fileExplorerStoreStorage: FileExplorerStore?
     private var fileExplorerStateStorage: FileExplorerState?
     private var sessionIndexStoreStorage: SessionIndexStore?
+    private var artifactsTitleFetcherStorage: LinkTitleFetcher?
     private var workspaceObservationCancellable: AnyCancellable?
 
     init(workspace: Workspace, mode: RightSidebarMode) {
@@ -58,6 +60,13 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         return store
     }
 
+    var artifactsTitleFetcher: LinkTitleFetcher {
+        if let fetcher = artifactsTitleFetcherStorage { return fetcher }
+        let fetcher = LinkTitleFetcher(pageMetadataFetcher: BrowserPageMetadataService())
+        artifactsTitleFetcherStorage = fetcher
+        return fetcher
+    }
+
     var displayTitle: String { mode.label }
     var displayIcon: String? { mode.symbolName }
 
@@ -83,7 +92,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard let store = sessionIndexStoreStorage else { return }
             syncSessionIndexRoot(from: workspace, store: store)
-        case .feed, .dock, .machines, .customSidebar:
+        case .artifacts, .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -123,11 +132,16 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         workspace?.focusedPanelId == id
     }
 
+    var workspaceForArtifacts: Workspace? {
+        workspace
+    }
+
     func close() {
         fileExplorerContainerView = nil
         sessionIndexFocusAnchorView = nil
         fileExplorerStoreStorage?.applyWorkspaceRoot(.none)
         sessionIndexStoreStorage?.setCurrentDirectoryIfChanged(nil)
+        artifactsTitleFetcherStorage = nil
         workspaceObservationCancellable = nil
     }
 
@@ -141,7 +155,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
             guard let anchor = sessionIndexFocusAnchorView,
                   let window = anchor.window else { return }
             _ = window.makeFirstResponder(anchor)
-        case .feed, .dock, .machines, .customSidebar:
+        case .artifacts, .feed, .dock, .machines, .customSidebar:
             break
         }
     }
@@ -163,7 +177,7 @@ final class RightSidebarToolPanel: Panel, ObservableObject {
         case .sessions:
             guard sessionIndexFocusAnchorView?.ownsKeyboardFocus(responder) == true else { return nil }
             return .panel
-        case .feed, .dock, .machines, .customSidebar:
+        case .artifacts, .feed, .dock, .machines, .customSidebar:
             return nil
         }
     }
@@ -302,6 +316,17 @@ struct RightSidebarToolPanelView: View {
                 RightSidebarToolFocusAnchor(onViewChange: panel.attachSessionIndexFocusAnchor)
                     .frame(width: 0, height: 0)
             )
+        case .artifacts:
+            if let workspace = panel.workspaceForArtifacts {
+                ArtifactsPaneContent(
+                    workspace: workspace,
+                    artifactsState: workspace.artifactsState,
+                    titleFetcher: panel.artifactsTitleFetcher,
+                    isFocused: isFocused
+                )
+            } else {
+                Text(String(localized: "artifactsPane.workspaceUnavailable", defaultValue: "This workspace is no longer available."))
+            }
         case .feed, .dock, .machines, .customSidebar:
             EmptyView()
         }

@@ -15,6 +15,7 @@ import CmuxFoundation
 import Bonsplit
 import CMUXAgentLaunch
 import CmuxAgentChat
+import CmuxArtifacts
 import CmuxSettings
 import CmuxBrowser
 import CmuxCanvasUI
@@ -198,6 +199,8 @@ extension Workspace {
             environment: workspaceEnvironment.isEmpty ? nil : workspaceEnvironment
         )
         snapshot.captureTodoState(from: self)
+        snapshot.captureLinksState(from: self)
+        snapshot.captureArtifactsState(from: self)
         snapshot.dock = _dockSplit?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
@@ -329,6 +332,14 @@ extension Workspace {
         isMuted = snapshot.isMuted ?? false
         groupId = snapshot.groupId
         restoreTodoState(from: snapshot)
+        // A new Artifacts collection is authoritative during migration. The
+        // legacy links field is only imported when the snapshot predates that
+        // collection; reading both would double the occurrence counts.
+        if snapshot.restoredArtifacts.isEmpty {
+            restoreLinksState(from: snapshot, panelIDMap: oldToNewPanelIds)
+        } else {
+            restoreArtifactsState(from: snapshot, panelIDMap: oldToNewPanelIds)
+        }
 
         // Status entries and agent PIDs are ephemeral runtime state tied to running
         // processes (e.g. claude_code "Running"). Don't restore them across app
@@ -544,6 +555,7 @@ extension Workspace {
         var simulatorSnapshot: SessionSimulatorPanelSnapshot? = nil
         let agentSessionSnapshot: SessionAgentSessionPanelSnapshot?
         let projectSnapshot: SessionProjectPanelSnapshot?; var workspaceTodoSnapshot: SessionWorkspaceTodoPanelSnapshot? = nil
+        var linksSnapshot: SessionLinksPanelSnapshot? = nil
         var notificationsPanelSnapshot: SessionNotificationsPanelSnapshot? = nil
         switch panel.panelType {
         case .terminal:
@@ -803,6 +815,10 @@ extension Workspace {
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
             workspaceTodoSnapshot = SessionWorkspaceTodoPanelSnapshot()
+        case .links:
+            terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
+            rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
+            linksSnapshot = SessionLinksPanelSnapshot()
         case .notifications:
             terminalSnapshot = nil; browserSnapshot = nil; markdownSnapshot = nil; filePreviewSnapshot = nil
             rightSidebarToolSnapshot = nil; agentSessionSnapshot = nil; projectSnapshot = nil
@@ -845,6 +861,7 @@ extension Workspace {
             agentSession: agentSessionSnapshot,
             project: projectSnapshot,
             workspaceTodo: workspaceTodoSnapshot,
+            links: linksSnapshot,
             notificationsPanel: notificationsPanelSnapshot
         )
     }
@@ -2216,6 +2233,10 @@ extension Workspace {
             guard let todoPanel = newWorkspaceTodoSurface(inPane: paneId, focus: false) else { return nil }
             applySessionPanelMetadata(snapshot, toPanelId: todoPanel.id)
             return todoPanel.id
+        case .links:
+            guard let linksPanel = newWorkspaceLinksSurface(inPane: paneId, focus: false) else { return nil }
+            applySessionPanelMetadata(snapshot, toPanelId: linksPanel.id)
+            return linksPanel.id
         case .notifications:
             guard snapshot.notificationsPanel != nil,
                   let notificationsPanel = newNotificationsSurface(inPane: paneId, focus: false) else { return nil }
@@ -2599,6 +2620,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             let oldDirectory = oldValue.trimmingCharacters(in: .whitespacesAndNewlines)
             let newDirectory = currentDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
             guard oldDirectory != newDirectory else { return }
+            linksState.updateWorkingDirectory(newDirectory)
             scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
             // Notify the sidebar so anchor-cwd-driven group config (color,
             // icon, context menu, newWorkspacePlacement) refreshes even
@@ -3078,6 +3100,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     let sidebarAgentRuntimeObservation = WorkspaceSidebarAgentRuntimeObservationModel()
     /// Todo lifecycle state: manual status override + persisted checklist (all logic lives in `Workspace+Todos.swift`).
     let todoState = WorkspaceTodoState()
+    /// Unified artifact projection; `linksState` remains a source-compatible alias.
+    let linksState: WorkspaceLinksState
+    var artifactsState: WorkspaceArtifactsState { linksState }
     let sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel
     let nativeSSHConnectionBroker: NativeSSHConnectionBroker
     var restoredTerminalScrollbackByPanelId: [UUID: String] = [:]
@@ -3832,7 +3857,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         sidebarProcessTitleObservation: WorkspaceSidebarProcessTitleObservationModel? = nil,
         agentChatResumeIntentRecorder: any AgentChatResumeIntentRecording = AgentChatTranscriptResumeIntentRecorder(),
         nativeSSHConnectionBroker: NativeSSHConnectionBroker = NativeSSHConnectionBroker(),
-        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil
+        restorableAgentIndexProvider: (@MainActor () -> RestorableAgentSessionIndex?)? = nil,
+        artifactRepository: (any ArtifactStoring)? = nil
     ) {
         let tabDragTransferRegistry = tabDragTransferRegistry ?? TabDragTransferRegistry()
         let resolvedID = id ?? UUID()
@@ -3846,6 +3872,14 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.sidebarProcessTitleObservation = sidebarProcessTitleObservation ?? WorkspaceSidebarProcessTitleObservationModel()
         self.nativeSSHConnectionBroker = nativeSSHConnectionBroker
         self.settings = settings
+        let linkCatalog = SettingCatalog().artifacts
+        self.linksState = WorkspaceLinksState(
+            repository: artifactRepository,
+            workspaceID: resolvedID,
+            workingDirectory: workingDirectory,
+            retentionLimit: settings.value(for: linkCatalog.retentionLimit),
+            fetchTitlesEnabled: settings.value(for: linkCatalog.fetchTitles)
+        )
         self.closeTabWarningDefaults = closeTabWarningDefaults
         self.agentSessionAutoResumeDefaults = agentSessionAutoResumeDefaults
         self.agentChatResumeIntentRecorder = agentChatResumeIntentRecorder
@@ -4107,6 +4141,11 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             bonsplitController.selectTab(initialTabId)
         }
         tmuxLayoutSnapshot = bonsplitController.layoutSnapshot()
+        // The initial directory is assigned during initialization, so the
+        // property observer cannot update the artifact projection for us.
+        // Seed the same canonical capture context before the first artifact
+        // can be emitted.
+        linksState.updateWorkingDirectory(currentDirectory)
         scheduleExtensionSidebarProjectRootRefresh(for: currentDirectory)
 
         // Forward shared agent-index refreshes so the bonsplit tab-bar re-evaluates
@@ -10780,6 +10819,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         guard let sourcePanel = panels[panelId] else { return nil }
         surfaceTransferringPanelIds.insert(panelId)
         defer { surfaceTransferringPanelIds.remove(panelId) }
+        guard sourcePanel.panelType.allowsCrossContainerTransfer else { return nil }
         if let terminalPanel = sourcePanel as? TerminalPanel {
             terminalFontSizeChangeCoordinator?
                 .terminalWillLeaveWorkspace(

@@ -5,6 +5,7 @@ enum GlobalSearchKind: String, Codable, Sendable {
     case browser
     case markdown
     case title
+    case artifact
 
     var localizedLabel: String {
         switch self {
@@ -14,6 +15,8 @@ enum GlobalSearchKind: String, Codable, Sendable {
             return String(localized: "globalSearch.kind.markdown", defaultValue: "Markdown")
         case .title:
             return String(localized: "globalSearch.kind.title", defaultValue: "Title")
+        case .artifact:
+            return String(localized: "globalSearch.kind.artifact", defaultValue: "Artifact")
         }
     }
 }
@@ -65,6 +68,12 @@ struct SearchIndexDocument: Sendable, Equatable {
             subtype
         ].joined(separator: ":")
     }
+
+    /// Stable prefix used for artifact documents so activation never confuses
+    /// an artifact UUID with a panel UUID.
+    static func artifactStableID(_ artifactID: UUID) -> String {
+        "artifact:\(artifactID.uuidString)"
+    }
 }
 
 struct SearchIndexHit: Identifiable, Sendable, Equatable {
@@ -79,6 +88,12 @@ struct SearchIndexHit: Identifiable, Sendable, Equatable {
     let snippet: String
     let rank: Double
     let timestamp: Date
+
+    /// The catalog identity when this hit represents an Artifacts record.
+    var artifactID: UUID? {
+        guard kind == .artifact, id.hasPrefix("artifact:") else { return nil }
+        return UUID(uuidString: String(id.dropFirst("artifact:".count)))
+    }
 }
 
 enum SearchIndexError: LocalizedError {
@@ -181,6 +196,23 @@ actor SearchIndex {
         }
     }
 
+    /// Upserts a bounded batch in one SQLite transaction.
+    func upsert(_ documents: [SearchIndexDocument]) throws {
+        guard !documents.isEmpty else { return }
+        try Task.checkCancellation()
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for document in documents {
+                try Task.checkCancellation()
+                try upsert(document)
+            }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     func deletePanel(_ panelID: UUID) throws {
         try withStatement("DELETE FROM chunks WHERE panel_id = ?1") { statement in
             try bind(panelID.uuidString, at: 1, in: statement)
@@ -191,6 +223,14 @@ actor SearchIndex {
     func deleteDocument(id: String) throws {
         try withStatement("DELETE FROM chunks WHERE id = ?1") { statement in
             try bind(id, at: 1, in: statement)
+            try stepDone(statement)
+        }
+    }
+
+    /// Deletes documents of one search kind, preserving all other domains.
+    func delete(kind: GlobalSearchKind) throws {
+        try withStatement("DELETE FROM chunks WHERE kind = ?1") { statement in
+            try bind(kind.rawValue, at: 1, in: statement)
             try stepDone(statement)
         }
     }

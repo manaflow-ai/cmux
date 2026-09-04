@@ -86,6 +86,27 @@ final class TerminalSurfaceSpawnPolicyBridge: TerminalSurfaceSpawnPolicyProvidin
 /// drop/replay state by surface id (the legacy inline
 /// `ghostty_surface_set_pty_tee_cb` + `MobileTerminalByteTee.shared` calls).
 final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
+    private let linkCaptureSettingsGate: TerminalLinkCaptureSettingsGate
+    private let linkCaptureIngress: TerminalLinkCaptureIngress
+
+    @MainActor
+    init() {
+        self.linkCaptureSettingsGate = TerminalLinkCaptureSettingsGate()
+        self.linkCaptureIngress = TerminalLinkCaptureIngress { workspaceID, panelID in
+            guard let appDelegate = AppDelegate.shared else { return nil }
+            if let panelID {
+                guard let currentOwner = appDelegate.workspaceContainingPanel(
+                    panelId: panelID,
+                    preferredWorkspaceId: workspaceID
+                ) else {
+                    return nil
+                }
+                return currentOwner.workspace
+            }
+            return appDelegate.workspaceFor(tabId: workspaceID)
+        }
+    }
+
     /// Wraps the retained tee userdata; `release()` runs exactly where the
     /// surface released the legacy `Unmanaged` context.
     /// @unchecked Sendable: the Unmanaged box is exclusively owned by this
@@ -99,6 +120,7 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         }
 
         func release() {
+            context.takeUnretainedValue().prepareForRelease()
             context.release()
         }
     }
@@ -109,10 +131,13 @@ final class TerminalOutputByteTeeBridge: TerminalByteTeeBinding {
         workspaceID: UUID,
         surfaceID: UUID
     ) -> any TerminalByteTeeLease {
+        linkCaptureSettingsGate.refresh()
         let teeContext = Unmanaged.passRetained(TerminalOutputTeeContext(
             workspaceID: workspaceID,
             surfaceID: surfaceID,
-            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns
+            agentDefinitions: CmuxTaskManagerCodingAgentDefinition.builtIns,
+            linkCaptureSettingsGate: linkCaptureSettingsGate,
+            linkCaptureIngress: linkCaptureIngress
         ))
         ghostty_surface_set_pty_tee_cb(
             surface,

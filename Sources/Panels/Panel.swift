@@ -15,10 +15,15 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
     case project
     case extensionBrowser
     case workspaceTodo
+    case links
     case notifications
     case cloudVMLoading
     case mobilePairing
     case accountSignIn
+
+    /// User-facing Artifacts spelling. The persisted `links` case remains the
+    /// migration alias so existing session layouts decode without loss.
+    public static var artifacts: PanelType { .links }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
@@ -45,6 +50,10 @@ public enum PanelType: String, Codable, CaseIterable, Sendable {
         }
         if rawValue.lowercased() == Self.workspaceTodo.rawValue.lowercased() {
             self = .workspaceTodo
+            return
+        }
+        if rawValue.lowercased() == Self.links.rawValue.lowercased() {
+            self = .links
             return
         }
         if rawValue.lowercased() == Self.notifications.rawValue.lowercased() {

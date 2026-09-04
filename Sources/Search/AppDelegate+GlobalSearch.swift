@@ -1,4 +1,5 @@
 import AppKit
+import CmuxArtifacts
 import Foundation
 
 extension AppDelegate {
@@ -171,7 +172,9 @@ extension AppDelegate {
         let windowID = resolvedContext?.windowID ?? hit.windowID
         let workspaceID = resolvedContext?.workspaceID ?? hit.workspaceID
 
-        guard let tabManager = tabManagerFor(windowId: windowID),
+        let resolvedTabManager = tabManagerFor(windowId: windowID)
+            ?? (hit.kind == .artifact ? tabManagerFor(tabId: workspaceID) : nil)
+        guard let tabManager = resolvedTabManager,
               let workspace = tabManager.tabs.first(where: { $0.id == workspaceID }) else {
             NSSound.beep()
             return
@@ -180,6 +183,20 @@ extension AppDelegate {
         _ = focusMainWindow(windowId: windowID)
         tabManager.selectTab(workspace)
         TerminalController.shared.setActiveTabManager(tabManager)
+
+        if hit.kind == .artifact {
+            let artifactID = hit.artifactID
+            let repository = artifactRepository
+            Task { @MainActor [weak workspace] in
+                guard let workspace, let artifactID,
+                      let record = try? await repository.record(id: artifactID) else {
+                    NSSound.beep()
+                    return
+                }
+                _ = ArtifactActionRouter().open(record, from: workspace)
+            }
+            return
+        }
 
         if let panelID = hit.panelID, workspace.panels[panelID] != nil {
             tabManager.focusSurface(tabId: workspace.id, surfaceId: panelID)

@@ -479,10 +479,14 @@ enum AgentHibernationTrackingGate {
 enum RightSidebarBetaFeatureSettings {
     static let feedEnabledKey = "rightSidebar.beta.feed.enabled"
     static let dockEnabledKey = "rightSidebar.beta.dock.enabled"
+    static let artifactsEnabledKey = "rightSidebar.beta.artifacts.enabled"
     static let cloudMachinesEnabledKey = "cloud.beta.machines.enabled"
 
     static let defaultFeedEnabled = false
     static let defaultDockEnabled = false
+    // Keep the app-side availability fallback in lockstep with the settings
+    // catalog's Debug/release default; the catalog is the single declaration.
+    static let defaultArtifactsEnabled = BetaFeaturesCatalogSection().rightSidebarArtifacts.defaultValue
     static let defaultCloudMachinesEnabled = false
 
     nonisolated static func isFeedEnabled(defaults: UserDefaults = .standard) -> Bool {
@@ -493,6 +497,13 @@ enum RightSidebarBetaFeatureSettings {
     nonisolated static func isDockEnabled(defaults: UserDefaults = .standard) -> Bool {
         guard defaults.object(forKey: dockEnabledKey) != nil else { return defaultDockEnabled }
         return defaults.bool(forKey: dockEnabledKey)
+    }
+
+    nonisolated static func isArtifactsEnabled(defaults: UserDefaults = .standard) -> Bool {
+        let localValue = defaults.object(forKey: artifactsEnabledKey) == nil
+            ? defaultArtifactsEnabled
+            : defaults.bool(forKey: artifactsEnabledKey)
+        return localValue && CmuxFeatureFlags.offMainIsArtifactsUIEnabled
     }
 
     nonisolated static func isCloudMachinesEnabled(defaults: UserDefaults = .standard) -> Bool {
