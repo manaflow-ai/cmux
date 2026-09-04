@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { context as otelContext, trace, TraceFlags } from "@opentelemetry/api";
+import { context as otelContext, trace, TraceFlags, type Span } from "@opentelemetry/api";
 import { AsyncLocalStorageContextManager } from "@opentelemetry/context-async-hooks";
 import {
   BasicTracerProvider,
@@ -9,7 +9,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 
 import { buildCmuxTraceSampler, isPriorityPath, isPrioritySpan, isVmPrioritySpan } from "../services/observability/sampler";
-import { withApiRouteSpan } from "../services/telemetry";
+import { recordSpanError, withApiRouteSpan, withPrioritySpan } from "../services/telemetry";
 
 describe("buildCmuxTraceSampler", () => {
   const neverSample = buildCmuxTraceSampler({ CMUX_OTEL_BASE_SAMPLE_RATIO: "0" });
@@ -53,6 +53,9 @@ describe("buildCmuxTraceSampler", () => {
     expect(isPriorityPath("/v10/models")).toBe(false);
     expect(isPriorityPath("/api/coderouterx")).toBe(false);
     expect(isPrioritySpan("GET /api/coderouter/health", { "cmux.priority": false })).toBe(false);
+    expect(decideRoot("GET /api/admin/pro-users", { "http.route": "/api/admin/pro-users" })).toBe(
+      SamplingDecision.RECORD_AND_SAMPLED,
+    );
   });
 
   test("a client-sent sampled traceparent cannot bypass the ratio", () => {
@@ -110,6 +113,7 @@ describe("buildCmuxTraceSampler", () => {
     // Prefix semantics are intentional: /api/vm/... and /api/vm itself.
     expect(isVmPrioritySpan("GET", { "url.path": "/api/vm" })).toBe(true);
   });
+
 });
 
 describe("withApiRouteSpan re-rooting under head sampling", () => {
@@ -168,6 +172,94 @@ describe("withApiRouteSpan re-rooting under head sampling", () => {
         async () => new Response("{}", { status: 200 }),
       ));
     expect(exporter.getFinishedSpans().length).toBe(0);
+  });
+
+  test("explicit priority spans are kept and linked when the request is dropped", async () => {
+    exporter.reset();
+    await otelContext.with(unsampledParentContext(), () =>
+      withPrioritySpan(
+        "cmux-dashboard",
+        "cmux.dashboard.auth",
+        { "http.route": "/dashboard" },
+        async () => undefined,
+      ));
+    const spans = exporter.getFinishedSpans();
+    expect(spans.length).toBe(1);
+    expect(spans[0]?.name).toBe("cmux.dashboard.auth");
+    expect(spans[0]?.parentSpanContext).toBeUndefined();
+    expect(spans[0]?.links[0]?.context.traceId).toBe("1af7651916cd43dd8448eb211c80319c");
+  });
+
+  test("priority marker cannot be disabled by caller attributes", async () => {
+    exporter.reset();
+    await withPrioritySpan(
+      "cmux-dashboard",
+      "cmux.dashboard.auth",
+      { "cmux.priority": false },
+      async () => undefined,
+    );
+    expect(exporter.getFinishedSpans()[0]?.attributes["cmux.priority"]).toBe(true);
+  });
+
+  test("every span error sink redacts sensitive Error metadata", () => {
+    let recorded: unknown;
+    let status: unknown;
+    const attributes: Record<string, unknown> = {};
+    const span = {
+      recordException(exception: unknown) {
+        recorded = exception;
+      },
+      setStatus(value: unknown) {
+        status = value;
+      },
+      setAttributes(value: Record<string, unknown>) {
+        Object.assign(attributes, value);
+      },
+    } as unknown as Span;
+    const cause = Object.assign(new Error("cause Bearer cause-secret-token"), {
+      name: "Cause Bearer cause-name-secret",
+      code: "crt_0123456789abcdef0123456789abcdef",
+    });
+    const error = new Error("request failed Bearer super-secret-token", { cause });
+    error.name = "Top Bearer top-name-secret";
+    recordSpanError(span, error);
+    expect(recorded).toEqual({
+      name: "Top [redacted]",
+      message: "request failed [redacted]",
+      stack: expect.stringContaining("request failed [redacted]"),
+    });
+    expect(status).toEqual({ code: 2, message: "request failed [redacted]" });
+    expect(attributes).toMatchObject({
+      "cmux.error_name": "Top [redacted]",
+      "cmux.error_message": "request failed [redacted]",
+      "cmux.error_cause_chain": "Cause [redacted]: cause [redacted]",
+      "cmux.error_cause_code": "[redacted]",
+    });
+    expect(JSON.stringify({ recorded, status, attributes })).not.toContain("secret");
+  });
+
+  test("non-Error inputs are redacted in every span sink", () => {
+    let recorded: unknown;
+    let status: unknown;
+    const attributes: Record<string, unknown> = {};
+    const span = {
+      recordException(exception: unknown) {
+        recorded = exception;
+      },
+      setStatus(value: unknown) {
+        status = value;
+      },
+      setAttributes(value: Record<string, unknown>) {
+        Object.assign(attributes, value);
+      },
+    } as unknown as Span;
+    recordSpanError(span, "request failed Bearer primitive-secret-token");
+    expect(recorded).toBe("request failed [redacted]");
+    expect(status).toEqual({ code: 2, message: "request failed [redacted]" });
+    expect(attributes).toEqual({
+      "cmux.error_name": "NonError",
+      "cmux.error_message": "request failed [redacted]",
+    });
   });
 
   test("a vm route inside a sampled trace nests normally", async () => {
