@@ -466,6 +466,12 @@ The reconciler mirrors only the leased remote workspace and rejects events
 that name a local resource or an unknown revision. A remote agent never sends a
 host-layout mutation.
 
+Leases carry quotas for workspaces, surfaces, frame size, event rate, terminal
+output, and browser input. The host projection enforces them before allocating
+a pane or decoder. Remote events cannot steal host focus or create unbounded
+windows. Audit records contain only machine, session, workspace, action,
+request ID, result, and byte counts.
+
 Remote file and viewer commands execute in VM context:
 
 ~~~text

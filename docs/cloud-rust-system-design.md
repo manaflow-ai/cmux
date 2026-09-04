@@ -612,6 +612,13 @@ daemon. A remote agent never sends a direct host-layout mutation. The host
 reconciler mirrors only the leased remote workspace and refuses events that
 name a local resource or an unknown revision.
 
+The lease also carries quotas for workspace count, surface count, frame size,
+event rate, terminal output, and browser input. The host projection enforces
+the same limits before allocating a pane or decoder. Remote events never steal
+host focus or create an unbounded number of local windows. Redacted audit
+records contain the machine, session, workspace, action, request ID, result,
+and byte counts, never paths, content, cookies, or tokens.
+
 ### End-to-end agent flow
 
 1. `cloud vm create` claims a scrubbed warm machine and creates one initial
