@@ -27251,6 +27251,12 @@ impl App {
                         self.focus = FocusTarget::Pane;
                     }
                 }
+                if changed {
+                    // A profile switch replaces the complete sidebar
+                    // topology. Any pointer gesture or retained mouse input
+                    // from the old profile must die at that boundary.
+                    self.advance_pointer_focus_generation();
+                }
                 changed
             }
             SidebarPresentationCommand::SetViewVisible { profile, view, visible } => {
@@ -32589,6 +32595,46 @@ mod tests {
                 .iter()
                 .any(|row| row.target == SidebarActionTarget::CreateWorkspace(None))
         );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_switch_cancels_old_sidebar_pointer_interaction() {
+        let (mux, surface) = test_mux("sidebar-profile-pointer-boundary-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let workspace = app.tree.workspaces().first().expect("test workspace").id;
+        app.drag = Some(Drag::WorkspaceArm { workspace, at: (1, 1) });
+        app.defer_input(Event::Mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 1,
+            row: 1,
+            modifiers: KeyModifiers::NONE,
+        }));
+        app.pending_pointer_motion = Some(super::PendingPointerMotion {
+            event: MouseEvent {
+                kind: MouseEventKind::Moved,
+                column: 2,
+                row: 2,
+                modifiers: KeyModifiers::NONE,
+            },
+            destination: Some(surface.id),
+            focus_generation: app.pointer_focus_generation,
+            sequence: 99,
+        });
+        let generation = app.pointer_focus_generation;
+
+        app.activate_sidebar_profile(1);
+
+        assert_eq!(app.config.sidebar.active_profile, "focus");
+        assert!(app.drag.is_none(), "the old workspace gesture cannot cross profiles");
+        assert!(app.pending_pointer_motion.is_none());
+        assert_eq!(app.pointer_focus_generation, generation.wrapping_add(1));
+        assert!(!app
+            .deferred_input
+            .iter()
+            .any(|input| matches!(input.event, TerminalInput::Mouse(_))));
 
         mux.close_surface(surface.id).unwrap();
     }
