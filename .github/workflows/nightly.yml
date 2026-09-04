@@ -147,6 +147,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ needs.decide.outputs.head_sha }}
+          fetch-depth: 0
           submodules: recursive
 
       - name: Select Xcode
@@ -397,7 +398,13 @@ jobs:
       - name: Bundle the cmux-tui client
         run: |
           set -euo pipefail
-          ./scripts/install-cmux-tui-client.sh build-universal/Build/Products/Release/cmux.app
+          cmux_tui_commit="$(git log -1 --format=%H -- cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)"
+          test -n "$cmux_tui_commit"
+          ./scripts/install-cmux-tui-client.sh \
+            build-universal/Build/Products/Release/cmux.app \
+            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+            --expected-commit "$cmux_tui_commit" \
+            --require-capability wireguard-hub
 
       - name: Strip unsigned nightly app before transfer
         run: |
@@ -411,8 +418,8 @@ jobs:
           app="build-universal/Build/Products/Release/cmux.app"
           sysext="$(find "$app/Contents/Library/SystemExtensions" -mindepth 1 -maxdepth 1 -name '*.systemextension' -print -quit 2>/dev/null || true)"
           if [[ -z "$sysext" ]]; then
-            echo "::notice::No Cloud tunnel system extension is present; signing will use the wg-quick fallback"
-            exit 0
+            echo "::error::Cloud tunnel system extension is missing"
+            exit 1
           fi
           executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$sysext/Contents/Info.plist")"
           binary="$sysext/Contents/MacOS/$executable"

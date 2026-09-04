@@ -18524,10 +18524,11 @@ struct CMUXCLI {
             network. Terminal and metadata access uses a user-space WireGuard
             tunnel. Browser access uses the signed Network Extension tunnel.
 
-            On builds where the cmux app manages the tunnel (`cmux vpn status`
-            shows "Browser backend: Network Extension"), nothing here is required: the app
-            brings the tunnel up when you open a Cloud machine and takes it
-            down when no browser sessions remain. No sudo or password is used.
+            Terminal and metadata access starts automatically and does not need
+            system approval. The app starts the browser tunnel only when you
+            open a private Cloud URL. The first browser use can require macOS
+            approval. macOS can ask for Touch ID or an administrator password,
+            based on system policy. cmux does not run sudo.
 
             up      Start the browser tunnel now and keep it up until
                     `cmux vpn down`.
@@ -18570,9 +18571,10 @@ struct CMUXCLI {
             Usage: cmux \(command) <base|new|ls|domains|tree|status|stats|rename|snapshot|fork|restore|rm|run|route|agent|prompt|exec|push|pull|wait|shell|tui|desktop|open|ports|tools|handoff|promote-template|attach|ssh|ssh-info> [args...]
 
             Manage cloud VMs. `cloud` is an alias for `vm`. Requires `cmux auth login`.
-            Machines live on your private network with no public ports. The cmux app
-            brings the tunnel up when you open one; on builds without the app-managed
-            tunnel, run `cmux vpn up` once per boot instead (see `cmux help vpn`).
+            Machines live on your private network with no public ports. Terminal
+            and metadata access starts a user-space WireGuard tunnel automatically.
+            Opening a private Cloud URL starts the signed Network Extension tunnel
+            and can require one macOS approval. Missing tunnel support fails closed.
 
             Subcommands:
               ls                        List your cloud VMs.

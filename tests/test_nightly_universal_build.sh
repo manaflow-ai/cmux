@@ -332,10 +332,12 @@ for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
   fi
 done
 
-if grep -Fq 'signing will use the wg-quick fallback' "$WORKFLOW_FILE"; then
-  echo "FAIL: nightly must not ship without the Network Extension"
-  exit 1
-fi
+for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
+  if grep -Fq 'signing will use the wg-quick fallback' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must not ship without the Network Extension"
+    exit 1
+  fi
+done
 
 INSTALL_TUI_SCRIPT="$ROOT_DIR/scripts/install-cmux-tui-client.sh"
 for expected in '--expected-commit' '--require-capability' 'required cmux-tui capability is missing'; do
