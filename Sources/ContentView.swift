@@ -2115,14 +2115,7 @@ struct ContentView: View {
                     NSSound.beep()
                 }
             },
-            #if DEBUG
-            onCaptureScreenshot: {
-                Task.detached(priority: .userInitiated) {
-                    let response = TerminalController.captureFullDesktopScreenshot("titlebar")
-                    cmuxDebugLog("titlebar.captureScreenshot.result \(response)")
-                }
-            },
-            #endif
+            onCaptureScreenshot: triggerTitlebarFullDesktopScreenshot,
             visibilityMode: .alwaysVisible
         )
         .offset(y: -TitlebarControlsVisualMetrics.verticalLift)
@@ -11268,14 +11261,7 @@ struct VerticalTabsSidebar: View, Equatable {
                     NSSound.beep()
                 }
             },
-            #if DEBUG
-            onCaptureScreenshot: {
-                Task.detached(priority: .userInitiated) {
-                    let response = TerminalController.captureFullDesktopScreenshot("titlebar")
-                    cmuxDebugLog("titlebar.captureScreenshot.result \(response)")
-                }
-            }
-            #endif
+            onCaptureScreenshot: triggerTitlebarFullDesktopScreenshot
         )
     }
 

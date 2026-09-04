@@ -1012,9 +1012,7 @@ struct TitlebarControlsView: View {
     let onNewTab: () -> Void
     let onFocusHistoryBack: () -> Void
     let onFocusHistoryForward: () -> Void
-    #if DEBUG
     let onCaptureScreenshot: () -> Void
-    #endif
     let visibilityMode: TitlebarControlsVisibilityMode
     @ObservedObject private var popoverVisibilityState = NotificationsPopoverVisibilityState.shared
     @State private var appearanceRefreshTick = 0
@@ -1586,9 +1584,7 @@ struct HiddenTitlebarSidebarControlsView: View {
                 onNewTab: onNewTab,
                 onFocusHistoryBack: onFocusHistoryBack,
                 onFocusHistoryForward: onFocusHistoryForward,
-                #if DEBUG
                 onCaptureScreenshot: onCaptureScreenshot,
-                #endif
                 visibilityMode: .alwaysVisible
             )
             .frame(
@@ -1991,14 +1987,6 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
         let focusHistoryForward = {
             _ = prepareOriginatingAction()?.tabManager.navigateForward()
         }
-        #if DEBUG
-        let captureScreenshot = {
-            Task.detached(priority: .userInitiated) {
-                let response = TerminalController.captureFullDesktopScreenshot("titlebar")
-                cmuxDebugLog("titlebar.captureScreenshot.result \(response)")
-            }
-        }
-        #endif
         let rootView = TitlebarControlsView(
             unreadModel: notificationStore.sidebarUnread,
             layoutModel: layoutModel,
@@ -2008,9 +1996,7 @@ final class TitlebarControlsAccessoryViewController: NSTitlebarAccessoryViewCont
             onNewTab: newTab,
             onFocusHistoryBack: focusHistoryBack,
             onFocusHistoryForward: focusHistoryForward,
-            #if DEBUG
-            onCaptureScreenshot: captureScreenshot,
-            #endif
+            onCaptureScreenshot: triggerTitlebarFullDesktopScreenshot,
             visibilityMode: .alwaysVisible
         )
         hostingView = NonDraggableHostingView(

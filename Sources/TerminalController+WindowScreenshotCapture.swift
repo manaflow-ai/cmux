@@ -4,6 +4,17 @@ import ScreenCaptureKit
 import WebKit
 
 #if DEBUG
+func triggerTitlebarFullDesktopScreenshot() {
+    Task.detached(priority: .userInitiated) {
+        let response = TerminalController.captureFullDesktopScreenshot("titlebar")
+        cmuxDebugLog("titlebar.captureScreenshot.result \(response)")
+    }
+}
+#else
+func triggerTitlebarFullDesktopScreenshot() {}
+#endif
+
+#if DEBUG
 extension TerminalController {
     /// Captures the current desktop compositor output without activating,
     /// focusing, moving, or resizing any window. This is DEBUG-only because it
