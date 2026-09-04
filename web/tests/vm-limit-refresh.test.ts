@@ -293,9 +293,18 @@ describe("lazy active-limit provider refresh", () => {
       providerVmId: "provider-vm-legacy-resource-repair",
       providerMetadata: {},
     });
+    const staleValid = row({
+      id: "00000000-0000-4000-8000-000000000111",
+      status: "running",
+      providerVmId: "provider-vm-stale-valid-resource",
+      providerMetadata: {
+        cmuxResourceReservation: { vcpus: 1, memoryMb: 4096, diskMb: 32768 },
+      },
+    });
     let beginCalls = 0;
     let candidateInput: { userId?: string; billingTeamId?: string | null; limit: number } | undefined;
     let statsCalls = 0;
+    let statusCalls = 0;
     const reservations: unknown[] = [];
     const repo = {
       beginCreate: () => {
@@ -315,6 +324,11 @@ describe("lazy active-limit provider refresh", () => {
       legacyResourceReservationCandidates: (input: typeof candidateInput) => Effect.sync(() => {
         candidateInput = input;
         return [legacy];
+      }),
+      activeLimitCandidates: () => Effect.succeed([staleValid]),
+      markProviderObservedStatus: () => Effect.sync(() => {
+        statusCalls += 1;
+        return true;
       }),
       setResourceReservation: (input: unknown) => Effect.sync(() => {
         reservations.push(input);
@@ -352,6 +366,10 @@ describe("lazy active-limit provider refresh", () => {
           diskTotalMb: 65536,
         });
       },
+      getStatus: (_provider: string, providerVmId: string) => {
+        expect(providerVmId).toBe(staleValid.providerVmId);
+        return Effect.succeed("destroyed" as const);
+      },
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
       openAttach: () => Effect.fail(new Error("unused") as never),
       openSSH: () => Effect.fail(new Error("unused") as never),
@@ -382,6 +400,7 @@ describe("lazy active-limit provider refresh", () => {
       limit: 5,
     });
     expect(statsCalls).toBe(1);
+    expect(statusCalls).toBe(1);
     expect(reservations).toEqual([{
       id: legacy.id,
       reservation: { vcpus: 2, memoryMb: 8192, diskMb: 65536 },

@@ -516,6 +516,7 @@ describe("VM Effect workflows", () => {
     });
     const usageEvents: RecordedUsageEvent[] = [];
     const repo = testWorkflowRepo({ vm: source, usageEvents });
+    let snapshotFinished = false;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
       getStats: () => Effect.succeed({
@@ -523,11 +524,16 @@ describe("VM Effect workflows", () => {
         sampledAt: Date.now(),
         cpus: 16,
         memoryTotalMb: 32768,
-        diskTotalMb: 65536,
+        // A grow-only resize can finish while the provider snapshot runs. The
+        // event must capture the copy point, not the earlier read.
+        diskTotalMb: snapshotFinished ? 65536 : 32768,
       }),
-      snapshot: () => Effect.succeed({
-        id: "snapshot-with-resource-claim",
-        createdAt: Date.now(),
+      snapshot: () => Effect.sync(() => {
+        snapshotFinished = true;
+        return {
+          id: "snapshot-with-resource-claim",
+          createdAt: Date.now(),
+        };
       }),
     };
 
