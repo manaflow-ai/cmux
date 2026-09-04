@@ -45,18 +45,18 @@
  *
  * Daemon contract: the session daemon is cmux-tui (docs/cloud-cmux-tui-daemon.md).
  * The bake installs the pinned files.cmux.com build (sha256-verified, the same
- * install command the driver's attach-time heal uses) at /root/.cmux/bin/cmux-tui
+ * install command used by the provider recovery adapter) at /root/.cmux/bin/cmux-tui
  * and the cmux-tui-daemon systemd unit runs /usr/local/bin/cmux-devbox-boot,
  * which starts and supervises it. The bake proves the daemon answers on
- * [::]:1337, then parks it: a snapshot is a memory image, so a daemon left
- * running would give every machine the builder's Noise identity. The
- * supervisor binds the identity to the platform instance id (see the boot
- * script) and every machine created from the snapshot starts its own daemon,
- * with a fresh identity, within one supervisor tick of resume. The driver
- * (web/services/vms/drivers/freestyle.ts) therefore runs no install, start, or
- * readiness exec at create; it writes the model-plane env file and returns.
+ * [::]:1337 and snapshots it while it is listening. A snapshot is a memory
+ * image, so a clone initially inherits the builder process. The supervisor
+ * binds the identity to the platform instance id (see the boot script), stops
+ * an inherited process on mismatch, wipes its state, and starts a fresh daemon
+ * before a signed grant can authorize it. The driver therefore runs no
+ * install, start, or readiness exec at create and writes no guest env file.
  * The unit binds the listener dual-stack (CMUX_TUI_REMOTE_WS_BIND=[::]:1337)
- * because the driver routes attaches to the VM's stable public IPv6. The
+ * because the driver routes legacy public attaches to the VM's stable public IPv6; new
+ * private attaches use the VPC IPv4 route. The
  * daemon still runs as root until the driver adopts the ubuntu user for
  * sessions.
  *
@@ -88,7 +88,6 @@ import {
   devboxFileBytes,
   devboxGhosttyDebSha256,
   devboxGhosttyDebUrl,
-  devboxParkDaemonCommand,
   emitBakeResult,
   hasFlag,
   manifestEntrySkeleton,
@@ -387,8 +386,8 @@ try {
     );
   }
 
-  // The pinned cmux-tui build, installed with the driver's own command so the
-  // bake and the attach-time heal can never disagree about path or digest.
+  // The pinned cmux-tui build, installed with the provider's own command so
+  // the bake and recovery adapter can never disagree about path or digest.
   console.log(`cmux-tui pin: commit ${cmuxTuiSource.commit} sha256 ${cmuxTuiSource.sha256.slice(0, 12)}…`);
   await step("cmux-tui-install", cmuxTuiInstallCommand(cmuxTuiSource));
   await step(
@@ -397,6 +396,26 @@ try {
   );
 
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
+  // The image contains only the public verification key. The private signing
+  // key stays in the control plane and is never sent through Freestyle.
+  const cloudGrantKey = (() => {
+    const raw = process.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { current_kid?: unknown; keys?: unknown };
+      const currentKid = typeof parsed.current_kid === "string" ? parsed.current_kid : null;
+      const keys = Array.isArray(parsed.keys) ? parsed.keys : [];
+      const current = keys.find((entry) =>
+        entry && typeof entry === "object" &&
+        (entry as { kid?: unknown }).kid === currentKid,
+      ) as { spki_der_base64?: unknown } | undefined;
+      return typeof current?.spki_der_base64 === "string" && currentKid
+        ? { kid: currentKid, spki: current.spki_der_base64 }
+        : null;
+    } catch {
+      return null;
+    }
+  })();
   const service = [
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
@@ -405,11 +424,16 @@ try {
     "[Service]",
     "Type=simple",
     "User=root",
-    // Freestyle machines are reached at their stable public IPv6, so the
-    // daemon listens dual-stack ([::] accepts IPv4 too). cmux-devbox-boot
+    // Legacy Freestyle machines are reached at their stable public IPv6; new
+    // machines use VPC IPv4. The daemon listens dual-stack ([::] accepts IPv4
+    // too). cmux-devbox-boot
     // defaults to 0.0.0.0 for the container providers, whose runtimes may have
     // IPv6 disabled entirely.
     "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    ...(cloudGrantKey ? [
+      `Environment=CMUX_REMOTE_GRANT_KEY_ID=${cloudGrantKey.kid}`,
+      `Environment=CMUX_REMOTE_GRANT_PUBLIC_KEY_SPKI_BASE64=${cloudGrantKey.spki}`,
+    ] : []),
     // Pane shells inherit this PATH; /usr/local/bin carries the base's Node
     // and every pinned agent as symlinks, so no login shell is needed.
     "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -432,10 +456,9 @@ try {
     "cmux-tui-daemon-up",
     `for i in $(seq 1 30); do env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && echo daemon-up-bound-to-builder`,
   );
-  // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
-  // the machine's id equals the recorded bake id, its identity and session
-  // state are wiped, and a clone (different id) starts fresh within one tick.
-  await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
+  // Keep the daemon listening in the snapshot. A clone's supervisor compares
+  // the platform instance id, stops the inherited process, wipes its identity,
+  // and starts a fresh daemon before a signed grant can authorize a connection.
 
   await step(
     "ghost-text-smoke",

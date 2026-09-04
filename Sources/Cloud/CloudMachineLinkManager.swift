@@ -6,10 +6,10 @@ import Foundation
 /// control plane wakes a machine on attach — and torn down when the machine is deleted
 /// or the account signs out.
 ///
-/// Enrollment mirrors the pane path: the control plane mints the route (and, for a
-/// device this machine has not seen, an invitation); the link claims it while the
-/// manager approves the pending enrollment through the control plane and stores the
-/// device fingerprint beside the CLI's (`vm-tui-devices.json`).
+/// Private enrollment uses a short-lived signed grant returned with the route.
+/// The daemon verifies it locally, so a normal link does not run guest commands
+/// or wait for a control-plane approval. Public legacy routes keep the invitation
+/// path until those machines are replaced.
 actor CloudMachineLinkManager {
     struct LinkStatus: Sendable, Equatable {
         let state: SurfaceLinkState
@@ -98,7 +98,7 @@ actor CloudMachineLinkManager {
         cmuxDebugLog("cloud.link.connect machine=\(machineID)")
         #endif
         let task = Task<CloudMachineLink.Connected, Error> { [paths] in
-            let link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
+            var link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
             self.store(link: link, for: machineID)
             let client = await MainActor.run { VMClient.shared }
             guard let client else {
@@ -114,17 +114,39 @@ actor CloudMachineLinkManager {
                 approval = Task { await self.approveEnrollment(machineID: machineID, invitationID: invitation.invitationId, client: client) }
             }
             defer { approval?.cancel() }
+            let timeout = endpoint.invitation == nil ? connectTimeout : enrollingConnectTimeout
             do {
                 return try await link.connect(
                     route: endpoint.route,
                     session: endpoint.session,
                     invitationURI: endpoint.invitation?.uri,
-                    // Enrollment rides this same window (see enrollingConnectTimeout).
-                    timeout: endpoint.invitation == nil ? connectTimeout : enrollingConnectTimeout
+                    grant: endpoint.grant,
+                    timeout: timeout
                 )
             } catch {
+                // A signed grant identifies the private direct path. Only that
+                // path gets one recovery wake; healthy attaches never call the
+                // provider, and a failed public legacy link keeps its old error.
+                guard endpoint.grant != nil else {
+                    await link.disconnect()
+                    throw error
+                }
                 await link.disconnect()
-                throw error
+                do {
+                    try await client.resumeForAttach(id: machineID)
+                    link = CloudMachineLink(machineID: machineID, clientURL: clientURL, paths: paths)
+                    self.store(link: link, for: machineID)
+                    return try await link.connect(
+                        route: endpoint.route,
+                        session: endpoint.session,
+                        invitationURI: nil,
+                        grant: endpoint.grant,
+                        timeout: timeout
+                    )
+                } catch {
+                    await link.disconnect()
+                    throw error
+                }
             }
         }
         connecting[machineID] = task

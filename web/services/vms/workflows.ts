@@ -67,6 +67,7 @@ import {
   type VmRepositoryShape,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+import { signCloudVmGrant } from "./cloudGrant";
 
 export {
   homeVolumeNameForUser,
@@ -2085,27 +2086,37 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
-    yield* preflightResumeIfSuspended(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "attach",
-      { forceProviderProbe: true },
-    );
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "attach",
-      providers.openCmuxRemote(vm.provider, input.providerVmId, {
-        deviceFingerprint: input.deviceFingerprint,
-        clientCapabilities: input.clientCapabilities,
-        providerMetadata: vm.providerMetadata,
+    // The endpoint is a persisted VPC route. Do not probe or wake Freestyle
+    // here. The client dials the daemon directly; a dial failure calls the
+    // recovery endpoint, which is the only path allowed to resume a VM.
+    const providerEndpoint = yield* providers.openCmuxRemote(vm.provider, input.providerVmId, {
+      deviceFingerprint: input.deviceFingerprint,
+      clientCapabilities: input.clientCapabilities,
+      providerMetadata: vm.providerMetadata,
+    });
+    const endpoint = yield* Effect.try({
+      try: () => {
+        if (!providerEndpoint.networkAddresses) return providerEndpoint;
+        if (!input.deviceFingerprint) {
+          throw new Error("private cmux-tui attach requires the caller device fingerprint");
+        }
+        const grant = signCloudVmGrant({
+          vmId: input.providerVmId,
+          deviceFingerprint: input.deviceFingerprint,
+        });
+        return { ...providerEndpoint, grant: grant.token, expiresAtUnix: Math.min(providerEndpoint.expiresAtUnix, grant.expiresAtUnix) };
+      },
+      catch: (cause) => new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "signCmuxRemoteGrant",
+        cause,
       }),
-    );
-    yield* repo.recordLease({
+    });
+    // The lease is the durable revocation/audit record. The usage event is an
+    // independent ledger write, so do not add its database latency to the
+    // lease path. A lease failure still fails closed and runs provider cleanup;
+    // usage failure remains best effort as it was before.
+    const lease = repo.recordLease({
       vmId: vm.id,
       userId: input.userId,
       kind: "preview",
@@ -2121,7 +2132,7 @@ export function openVmCmuxRemote(input: {
         return cleanup.pipe(Effect.andThen(Effect.fail(err)));
       }),
     );
-    yield* repo.recordUsageEvent({
+    const usage = repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
@@ -2131,6 +2142,7 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
     }).pipe(Effect.catchAll(() => Effect.void));
+    yield* Effect.all([lease, usage], { concurrency: 2 });
     // Backfill: machines created before address recording learn their private
     // address on first attach, so "Copy IP Address" appears for them too.
     const learned = endpoint.networkAddresses;
@@ -2145,6 +2157,52 @@ export function openVmCmuxRemote(input: {
       }
     }
     return endpoint;
+  });
+}
+
+/**
+ * Recovery-only wake for a direct private attach. Initial attach never calls
+ * this function. The client uses it once after a dial failure, so Freestyle's
+ * pause/resume behavior stays transparent without adding a status probe to
+ * every healthy attach.
+ */
+export function resumeVmForAttach(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+}) {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    const vm = yield* requireAccessibleUserVm(input);
+    if (!providers.resume) {
+      return yield* Effect.fail(
+        new VmProviderOperationError({
+          provider: vm.provider,
+          operation: "resume",
+          cause: new Error("provider resume is not supported by this deployment"),
+        }),
+      );
+    }
+    // Reserve a team slot from the durable row before waking the provider.
+    // The provider adapter owns the actual pause/resume and guest readiness
+    // work. No status probe is needed on this recovery-only path.
+    const reserved = yield* reservePausedResumeIfTeam(repo, vm, input.providerVmId);
+    yield* resumeUntilRunning(providers, vm, input.providerVmId).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, input.providerVmId, reserved)),
+    );
+    yield* recordRunningTransition(
+      repo,
+      providers,
+      vm,
+      input.providerVmId,
+      new VmNotFoundError({ vmId: input.providerVmId }),
+    ).pipe(
+      Effect.tapError(() => rollbackPausedResumeReservation(repo, vm, input.providerVmId, reserved)),
+    );
+    if (reserved) yield* recordResumeUsageEvent(repo, vm, "attach");
+    return vmEntryFromRow(vm);
   });
 }
 

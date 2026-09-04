@@ -160,7 +160,9 @@ async function runCase(index) {
     const attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
       method: "POST",
       headers: { ...authHeaders, "content-type": "application/json" },
-      body: JSON.stringify(expectedTransport === "cmux-remote" ? { transport: "cmux-remote" } : { requireDaemon: true }),
+      body: JSON.stringify(expectedTransport === "cmux-remote"
+        ? { transport: "cmux-remote", deviceFingerprint: `stress-${project.stackLabel}-${suffix}` }
+        : { requireDaemon: true }),
     }, 45_000);
     attachDurationMs = Math.round(performance.now() - attachStartedAt);
     const attachText = await attach.text();

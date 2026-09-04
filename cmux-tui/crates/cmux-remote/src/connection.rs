@@ -562,6 +562,7 @@ impl ClientConnection {
         reconnect_config.expected_daemon = Some(self.daemon_public_key);
         reconnect_config.auth = match reconnect_config.auth {
             ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
+            ClientAuthMode::Grant { token } => ClientAuthMode::Grant { token },
             other => other,
         };
         let (link, daemon_key, daemon_resume) = establish_physical_links(
@@ -956,9 +957,10 @@ async fn establish_physical_links(
     let daemon_key = first.remote_static();
     let mut routes = vec![LinkRoute { lanes: first_lanes, link: Arc::new(first) }];
 
-    let subsequent_auth = match config.auth {
+    let subsequent_auth = match &config.auth {
         ClientAuthMode::Invitation { .. } => ClientAuthMode::Enrolled,
-        ref other => other.clone(),
+        ClientAuthMode::Grant { token } => ClientAuthMode::Grant { token: token.clone() },
+        other => other.clone(),
     };
     let mut pending = FuturesUnordered::new();
     for lanes in bindings.into_iter().skip(1) {

@@ -1451,11 +1451,12 @@ ROUTES:
   relay+ws:// | relay+wss:// | relay+https:// | relay+do://
 
 IDENTITY AND SESSION:
-  --invite-file PATH|-  --daemon FINGERPRINT
+  --invite-file PATH|-  --grant-file PATH  --daemon FINGERPRINT
   --device-name NAME  --session NAME
   --state-dir PATH  --local-socket PATH  --headless [--json]
 
   --invite-file avoids exposing the single-use invitation in process arguments.
+  --grant-file reads a short-lived cloud VM authorization grant from an owner-only file.
   Regular files must be owner-only; - reads one line from stdin.
 
 TRANSPORT:

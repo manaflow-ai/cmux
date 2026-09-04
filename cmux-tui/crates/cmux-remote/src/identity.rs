@@ -9,6 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use base64::Engine;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify, oneshot, watch};
 
@@ -30,6 +31,12 @@ const ENROLLMENT_RETRY_GRACE: Duration = Duration::from_secs(60);
 const MAX_INVITATION_RELAY_ROUTES: usize = 2;
 const MAX_RELAY_SLOT_BYTES: usize = 256;
 const MAX_RELAY_TICKET_BYTES: usize = 4 * 1024;
+const CLOUD_GRANT_SCOPE: &str = "cmux.cloud.attach";
+const CLOUD_GRANT_TYP: &str = "cmux-cloud-vm-grant+jwt";
+const CLOUD_GRANT_PUBLIC_KEY_ENV: &str = "CMUX_REMOTE_GRANT_PUBLIC_KEY_SPKI_BASE64";
+const CLOUD_GRANT_KEY_ID_ENV: &str = "CMUX_REMOTE_GRANT_KEY_ID";
+const CLOUD_GRANT_INSTANCE_FILE_ENV: &str = "CMUX_VM_INSTANCE_ID_FILE";
+const DEFAULT_CLOUD_GRANT_INSTANCE_FILE: &str = "/etc/cmux/daemon-instance-id";
 const MAX_RECORDED_CONNECTION_ATTEMPTS: usize = 4_096;
 const ENROLLMENT_URI_PREFIX: &str = "cmux://enroll/";
 const CLIENT_STATE_FILE: &str = "known-daemons.json";
@@ -960,12 +967,105 @@ pub struct AuthDatabase {
     daemon_name: String,
     identity: StaticIdentity,
     allow_carrier: bool,
+    cloud_grant_verifier: Option<CloudGrantVerifier>,
     state: Arc<Mutex<AuthState>>,
     persistence: Arc<PersistenceCoordinator>,
     pending_changed: Notify,
     #[cfg(test)]
     pending_wait_hooks: PendingWaitTestHooks,
     revocation_tx: watch::Sender<u64>,
+}
+
+#[derive(Clone)]
+struct CloudGrantVerifier {
+    key: VerifyingKey,
+    key_id: String,
+    instance_file: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudGrantHeader {
+    alg: String,
+    typ: String,
+    kid: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CloudGrantClaims {
+    jti: String,
+    iat: u64,
+    nbf: u64,
+    exp: u64,
+    scope: String,
+    vm_id: String,
+    device_fingerprint: String,
+}
+
+impl CloudGrantVerifier {
+    fn from_environment() -> Option<Self> {
+        let encoded = std::env::var(CLOUD_GRANT_PUBLIC_KEY_ENV).ok()?;
+        let der = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).ok()?;
+        // Ed25519 SubjectPublicKeyInfo is a fixed 12-byte prefix followed by
+        // the raw 32-byte public key. Reject every other encoding.
+        const SPKI_PREFIX: &[u8] = b"\x30\x2a\x30\x05\x06\x03\x2b\x65\x70\x03\x21\x00";
+        let raw = der.strip_prefix(SPKI_PREFIX)?;
+        let key = VerifyingKey::from_bytes(raw.try_into().ok()?).ok()?;
+        let key_id = std::env::var(CLOUD_GRANT_KEY_ID_ENV).ok()?.trim().to_owned();
+        if key_id.is_empty() {
+            return None;
+        }
+        let instance_file = std::env::var(CLOUD_GRANT_INSTANCE_FILE_ENV)
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(DEFAULT_CLOUD_GRANT_INSTANCE_FILE));
+        Some(Self { key, key_id, instance_file })
+    }
+
+    fn verify(
+        &self,
+        token: &str,
+        expected_device_fingerprint: &str,
+    ) -> Result<(), String> {
+        let parts = token.split('.').collect::<Vec<_>>();
+        if parts.len() != 3 || parts.iter().any(|part| part.is_empty()) {
+            return Err("cloud grant has an invalid shape".into());
+        }
+        let decode = |part: &str| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(part)
+                .map_err(|_| "cloud grant is not canonical base64url".to_string())
+        };
+        let header: CloudGrantHeader = serde_json::from_slice(&decode(parts[0])?)
+            .map_err(|_| "cloud grant header is invalid".to_string())?;
+        if header.alg != "EdDSA" || header.typ != CLOUD_GRANT_TYP || header.kid != self.key_id {
+            return Err("cloud grant header is not supported".into());
+        }
+        let signature_bytes = decode(parts[2])?;
+        let signature = Signature::from_slice(&signature_bytes)
+            .map_err(|_| "cloud grant signature is invalid".to_string())?;
+        self.key
+            .verify(format!("{}.{}", parts[0], parts[1]).as_bytes(), &signature)
+            .map_err(|_| "cloud grant signature is invalid".to_string())?;
+        let claims: CloudGrantClaims = serde_json::from_slice(&decode(parts[1])?)
+            .map_err(|_| "cloud grant claims are invalid".to_string())?;
+        let now = unix_time().map_err(|error| error.to_string())?;
+        if claims.jti.is_empty()
+            || claims.scope != CLOUD_GRANT_SCOPE
+            || claims.device_fingerprint != expected_device_fingerprint
+            || claims.nbf > now.saturating_add(30)
+            || claims.exp <= now
+            || claims.exp <= claims.nbf
+            || claims.exp.saturating_sub(claims.iat) > 300
+            || claims.iat > now.saturating_add(30)
+        {
+            return Err("cloud grant claims are expired or do not match this client".into());
+        }
+        let instance = fs::read_to_string(&self.instance_file)
+            .map_err(|_| "cloud grant instance identity is unavailable".to_string())?;
+        if instance.trim() != claims.vm_id {
+            return Err("cloud grant is for a different VM".into());
+        }
+        Ok(())
+    }
 }
 
 impl std::fmt::Debug for AuthDatabase {
@@ -976,6 +1076,7 @@ impl std::fmt::Debug for AuthDatabase {
             .field("daemon_name", &self.daemon_name)
             .field("daemon_fingerprint", &self.identity.fingerprint())
             .field("allow_carrier", &self.allow_carrier)
+            .field("cloud_grants", &self.cloud_grant_verifier.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -1032,6 +1133,7 @@ impl AuthDatabase {
             daemon_name,
             identity,
             allow_carrier,
+            cloud_grant_verifier: CloudGrantVerifier::from_environment(),
             state: Arc::new(Mutex::new(AuthState::from_persisted(persisted))),
             persistence,
             pending_changed: Notify::new(),
@@ -1155,6 +1257,9 @@ impl AuthDatabase {
         if device_id.starts_with("carrier:") {
             return self.allow_carrier;
         }
+        if device_id.starts_with("cloud-grant:") {
+            return self.cloud_grant_verifier.is_some();
+        }
         self.state
             .lock()
             .await
@@ -1169,6 +1274,10 @@ impl AuthDatabase {
     pub async fn grant_is_current(&self, grant: &AuthGrant) -> bool {
         if grant.device_id.starts_with("carrier:") {
             return self.allow_carrier;
+        }
+        if grant.device_id.starts_with("cloud-grant:") {
+            return grant.revocation_generation == *self.revocation_tx.borrow()
+                && self.cloud_grant_verifier.is_some();
         }
         let state = self.state.lock().await;
         grant.revocation_generation == state.revocation_generation
@@ -1567,6 +1676,23 @@ impl ServerAuthenticator for AuthDatabase {
                     device_id: fingerprint,
                     daemon_name: self.daemon_name.clone(),
                     revocation_generation: generation,
+                })
+            }
+            AuthKind::Grant => {
+                let verifier = self
+                    .cloud_grant_verifier
+                    .as_ref()
+                    .ok_or_else(|| "cloud grants are disabled on this daemon".to_string())?;
+                let fingerprint = public_key_fingerprint(&request.device_public_key);
+                let token = request
+                    .grant
+                    .as_deref()
+                    .ok_or_else(|| "cloud grant is missing".to_string())?;
+                verifier.verify(token, &fingerprint)?;
+                Ok(AuthGrant {
+                    device_id: format!("cloud-grant:{fingerprint}"),
+                    daemon_name: self.daemon_name.clone(),
+                    revocation_generation: *self.revocation_tx.borrow(),
                 })
             }
             AuthKind::Carrier
@@ -2394,6 +2520,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use cmux_remote_protocol::{Lane, SessionId};
+    use ed25519_dalek::{Signer, SigningKey};
     use zeroize::Zeroizing;
 
     use super::*;
@@ -2403,6 +2530,58 @@ mod tests {
     use crate::link::test_support;
 
     struct PersistenceReleaseGuard(Arc<PersistenceTestHooks>);
+
+    #[tokio::test]
+    async fn signed_cloud_grant_authorizes_only_matching_vm_and_device() {
+        let temp = tempfile::tempdir().unwrap();
+        let instance_file = temp.path().join("instance-id");
+        fs::write(&instance_file, "vm-123\n").unwrap();
+        let signing = SigningKey::from_bytes(&[7; 32]);
+        let database = AuthDatabase::load_or_create(temp.path().join("state"), "daemon", false).unwrap();
+        let verifier = CloudGrantVerifier {
+            key: signing.verifying_key(),
+            key_id: "test".into(),
+            instance_file,
+        };
+        // Keep the mutation explicit. No production constructor accepts a
+        // public key from an untrusted caller.
+        let mut database = database;
+        Arc::get_mut(&mut database).unwrap().cloud_grant_verifier = Some(verifier);
+        let client = StaticIdentity::generate().unwrap();
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"alg":"EdDSA","typ":"cmux-cloud-vm-grant+jwt","kid":"test"}"#);
+        let claims = serde_json::json!({
+            "jti": "grant-1",
+            "iat": unix_time().unwrap(),
+            "nbf": unix_time().unwrap(),
+            "exp": unix_time().unwrap() + 60,
+            "scope": CLOUD_GRANT_SCOPE,
+            "vm_id": "vm-123",
+            "device_fingerprint": public_key_fingerprint(&client.public_key()),
+        });
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&claims).unwrap());
+        let signing_input = format!("{header}.{payload}");
+        let signature = signing.sign(signing_input.as_bytes());
+        let token = format!(
+            "{signing_input}.{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes())
+        );
+        let request = AuthRequest {
+            mode: AuthKind::Grant,
+            invitation_id: None,
+            grant: Some(token),
+            device_public_key: client.public_key(),
+            device_name: "cloud-client".into(),
+            session: SessionId([1; 16]),
+            lane: Lane::Control,
+            lanes: vec![Lane::Control],
+            generation: 0,
+            inbound: InboundAuthEvidence::Network(NetworkPeer::Tcp),
+        };
+        let authorized = database.authorize(request).await.unwrap();
+        assert!(authorized.device_id.starts_with("cloud-grant:"));
+    }
 
     impl PersistenceReleaseGuard {
         fn new(hooks: Arc<PersistenceTestHooks>) -> Self {
@@ -3472,6 +3651,7 @@ mod tests {
         let invitation_request = AuthRequest {
             mode: AuthKind::Invitation,
             invitation_id: Some(invitation.id.clone()),
+            grant: None,
             device_public_key: client.public_key(),
             device_name: "phone".into(),
             session: SessionId([19; 16]),
@@ -3548,6 +3728,7 @@ mod tests {
         let request = AuthRequest {
             mode: AuthKind::Invitation,
             invitation_id: Some(invitation.id.clone()),
+            grant: None,
             device_public_key: client.public_key(),
             device_name: "phone".into(),
             session: SessionId([29; 16]),
@@ -3623,6 +3804,7 @@ mod tests {
                 .authorize(AuthRequest {
                     mode: AuthKind::Enrolled,
                     invitation_id: None,
+                    grant: None,
                     device_public_key: client.public_key(),
                     device_name: "laptop".into(),
                     session: SessionId([2; 16]),
@@ -3991,6 +4173,7 @@ mod tests {
         let request = AuthRequest {
             mode: AuthKind::Invitation,
             invitation_id: Some(invitation.id.clone()),
+            grant: None,
             device_public_key: client.public_key(),
             device_name: "notification-race".into(),
             session: SessionId([31; 16]),
@@ -4096,6 +4279,7 @@ mod tests {
         let request = AuthRequest {
             mode: AuthKind::Invitation,
             invitation_id: Some(invitation.id.clone()),
+            grant: None,
             device_public_key: client.public_key(),
             device_name: "cancelled-client".into(),
             session: SessionId([32; 16]),
@@ -4196,6 +4380,7 @@ mod tests {
         let request = AuthRequest {
             mode: AuthKind::Invitation,
             invitation_id: Some(invitation.id.clone()),
+            grant: None,
             device_public_key: StaticIdentity::generate().unwrap().public_key(),
             device_name: "cancelled".into(),
             session: SessionId([7; 16]),
@@ -4259,6 +4444,7 @@ mod tests {
         let request = AuthRequest {
             mode: AuthKind::Invitation,
             invitation_id: Some(invitation.id.clone()),
+            grant: None,
             device_public_key: client.public_key(),
             device_name: "phone".into(),
             session: SessionId([8; 16]),
@@ -4296,6 +4482,7 @@ mod tests {
         let request = AuthRequest {
             mode: AuthKind::Invitation,
             invitation_id: Some(invitation.id.clone()),
+            grant: None,
             device_public_key: client.public_key(),
             device_name: "phone".into(),
             session: SessionId([31; 16]),
@@ -4352,6 +4539,7 @@ mod tests {
             .authorize(AuthRequest {
                 mode: AuthKind::Enrolled,
                 invitation_id: None,
+                grant: None,
                 device_public_key: client.public_key(),
                 device_name: "laptop".into(),
                 session: SessionId([0; 16]),

@@ -598,6 +598,7 @@ struct VMCmuxRemoteEndpoint {
     let token: String
     let expiresAtUnix: Int64
     let session: String
+    let grant: String?
     let invitation: Invitation?
     /// The machine daemon's build identity, for naming a protocol mismatch.
     struct DaemonBuild {
@@ -1371,6 +1372,7 @@ actor VMClient {
             token: token,
             expiresAtUnix: expiresAtUnix,
             session: session,
+            grant: (obj["grant"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             invitation: invitation,
             daemonBuild: daemonBuild
         )
@@ -1632,6 +1634,19 @@ actor VMClient {
             diskTotalMb: int("diskTotalMb"),
             diskUsedMb: int("diskUsedMb")
         )
+    }
+
+    /// Wakes a Freestyle VM after a private direct route fails to dial. This
+    /// endpoint is recovery-only; healthy attaches never call it.
+    func resumeForAttach(id: String) async throws {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/resume",
+            jsonBody: [:],
+            timeoutSeconds: 180
+        )
+        try ensureOK(http, data: data)
     }
 
     func openPort(id: String, port: Int) async throws -> VMOpenPortEndpoint {

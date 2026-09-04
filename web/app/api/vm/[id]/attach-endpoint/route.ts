@@ -6,6 +6,7 @@ import {
   withAuthedVmApiRoute,
 } from "../../../../../services/vms/routeHelpers";
 import { setSpanAttributes } from "../../../../../services/telemetry";
+import { measureVmAsync, measureVmSync, VmTimingRecorder } from "../../../../../services/vms/timings";
 import { openAttachEndpoint, openVmCmuxRemote, runVmWorkflow } from "../../../../../services/vms/workflows";
 import {
   capabilityList,
@@ -18,14 +19,22 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  // Warm the Freestyle connection while the caller is being verified.
-  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",
     { "cmux.vm.operation": "open_attach" },
     "/api/vm/[id]/attach-endpoint failed",
-    async ({ user, span }) => {
+    async ({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
+      const timing = new VmTimingRecorder(span, "attach", { startedAt: routeStartedAtMs });
+      timing.record("auth", authDurationMs);
+      setResponseFinalizer((response) => {
+        timing.finish({ status: response.status });
+        try {
+          response.headers.set("Server-Timing", timing.serverTimingHeader());
+        } catch {
+          // Immutable passthrough responses still retain the span timings.
+        }
+      });
       const { id } = await params;
       const body = await parseLenientObjectBody(request);
       const requireDaemon = body.requireDaemon === true || body.require_daemon === true;
@@ -41,7 +50,7 @@ export async function POST(
         }, 400);
       }
       const sessionTitle = optionalString(body.title ?? body.sessionTitle ?? body.session_title);
-      const account = resolveVmRouteAccountScope(user, request);
+      const account = measureVmSync(timing, "account", () => resolveVmRouteAccountScope(user, request));
       if (!account.ok) return account.response;
       setSpanAttributes(span, { "cmux.vm.id": id });
       // Transport selection: "cmux-remote" is the cmux-tui remote daemon — the only
@@ -62,7 +71,7 @@ export async function POST(
         const clientCapabilities = capabilityList(body.clientCapabilities ?? body.client_capabilities);
         setSpanAttributes(span, { "cmux.vm.attach.transport": "cmux-remote" });
         try {
-          const endpoint = await runVmWorkflow(openVmCmuxRemote({
+          const endpoint = await measureVmAsync(timing, "workflow", () => runVmWorkflow(openVmCmuxRemote({
             userId: user.id,
             billingTeamId: account.entitlements.billingTeamId,
             teamIds: user.teamIds,
@@ -70,7 +79,7 @@ export async function POST(
             deviceFingerprint,
             clientCapabilities,
             callerPlanId: account.entitlements.planId,
-          }));
+          })));
           return jsonResponse(endpoint);
         } catch (err) {
           const response = vmResourceErrorResponse(err, id);
@@ -84,10 +93,14 @@ export async function POST(
           message: `Unknown attach transport "${transport}". Use "websocket" or "cmux-remote".`,
         }, 400);
       }
+      // Legacy provider transports still benefit from a warmed SDK client.
+      // Private cmux-tui attach has no Freestyle call, so do not spend a
+      // speculative request on its critical path.
+      preconnectFreestyle();
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
       try {
-        const endpoint = await runVmWorkflow(openAttachEndpoint({
+        const endpoint = await measureVmAsync(timing, "workflow", () => runVmWorkflow(openAttachEndpoint({
           userId: user.id,
           billingTeamId: account.entitlements.billingTeamId,
           callerPlanId: account.entitlements.planId,
@@ -95,7 +108,7 @@ export async function POST(
           providerVmId: id,
           sessionTitle,
           options: { requireDaemon, sessionId, attachmentId },
-        }));
+        })));
         setSpanAttributes(span, { "cmux.vm.attach.transport": endpoint.transport });
         return jsonResponse(endpoint);
       } catch (err) {

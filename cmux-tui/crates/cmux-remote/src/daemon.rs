@@ -817,7 +817,7 @@ impl RemoteDaemon {
                 drop(approval);
                 accepted
             }
-            AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
+            AuthKind::Grant | AuthKind::Carrier | AuthKind::Enrolled => tokio::time::timeout(
                 AUTHORIZATION_TIMEOUT,
                 authorize_secure_link(verified, &*self.auth),
             )
@@ -1811,6 +1811,7 @@ mod tests {
         AuthRequest {
             mode: AuthKind::Carrier,
             invitation_id: None,
+            grant: None,
             device_public_key: public_key,
             device_name: "carrier-client".into(),
             session: SessionId([91; 16]),
@@ -2256,6 +2257,7 @@ mod tests {
                     AuthRequest {
                         mode: AuthKind::Invitation,
                         invitation_id: Some(invitation_id),
+                        grant: None,
                         device_public_key: public_key,
                         device_name: "lane-count-client".into(),
                         session: SessionId([70; 16]),
@@ -2848,6 +2850,7 @@ mod tests {
                     AuthRequest {
                         mode: AuthKind::Invitation,
                         invitation_id: Some(invitation_id),
+                        grant: None,
                         device_public_key: identity.public_key(),
                         device_name: "two-session-client".into(),
                         session: SessionId([61; 16]),

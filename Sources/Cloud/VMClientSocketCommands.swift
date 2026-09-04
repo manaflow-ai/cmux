@@ -496,6 +496,9 @@ extension TerminalController {
                     "expires_at_unix": endpoint.expiresAtUnix,
                     "session": endpoint.session,
                 ]
+                if let grant = endpoint.grant {
+                    payload["grant"] = grant
+                }
                 if let build = endpoint.daemonBuild {
                     var raw: [String: Any] = [:]
                     if let commit = build.commit { raw["commit"] = commit }

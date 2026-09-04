@@ -112,7 +112,7 @@ const DAEMON_CHECKS: readonly string[] = [
   "test \"$(readlink /usr/local/bin/cmux-tui)\" = /root/.cmux/bin/cmux-tui && echo cmux-tui-symlink-ok",
   `test -s ${REMOTE_IDENTITY} && echo daemon-identity-present`,
   `test "$(cat /etc/cmux/daemon-instance-id)" = "$(${INSTANCE_ID})" && echo daemon-identity-bound-to-this-instance`,
-  `test -s /etc/cmux/bake-instance-id && test "$(cat /etc/cmux/bake-instance-id)" != "$(${INSTANCE_ID})" && echo builder-instance-differs`,
+  `test ! -e /etc/cmux/bake-instance-id && echo snapshot-daemon-contract-ok`,
   // The static model-plane env is baked; a shell with no boot env sources it.
   `test -s /etc/cmux/model-plane.env && grep -q "^export OPENAI_BASE_URL='https://" /etc/cmux/model-plane.env && ! grep -q crt_ /etc/cmux/model-plane.env && env -i HOME=/tmp/mp-verify bash -c '. /etc/cmux/agent-config.sh; printf %s "$OPENAI_BASE_URL"' | grep -q '^https://' && rm -rf /tmp/mp-verify && echo model-plane-env-baked`,
   "systemctl is-active cmux-tui-daemon >/dev/null && echo systemd-supervisor-active",
@@ -246,6 +246,18 @@ async function waitForBakedDaemon(provider: string, exec: Exec): Promise<number>
   throw new Error(`${provider}: baked cmux-tui daemon did not come up by itself`);
 }
 
+/** The daemon can report its session ready one tick before its identity files exist. */
+async function waitForDaemonIdentity(exec: Exec): Promise<string> {
+  const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const result = await exec(digest, 30_000);
+    const value = result.output.trim();
+    if (result.exitCode === 0 && /^[0-9a-f]{64}$/.test(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("baked cmux-tui daemon did not publish its per-machine identity after becoming ready");
+}
+
 const provider = process.argv[2] ?? "";
 const image = process.argv[3] ?? "";
 if (!image) {
@@ -320,13 +332,10 @@ if (provider === "freestyle") {
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
-      const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
-      const [a, b] = await Promise.all([exec(digest, 30_000), exec2(digest, 30_000)]);
-      const digestA = a.output.trim();
-      const digestB = b.output.trim();
-      if (a.exitCode !== 0 || b.exitCode !== 0 || digestA.length !== 64 || digestB.length !== 64) {
-        throw new Error(`could not read both daemon identities: ${a.output.slice(-200)} / ${b.output.slice(-200)}`);
-      }
+      const [digestA, digestB] = await Promise.all([
+        waitForDaemonIdentity(exec),
+        waitForDaemonIdentity(exec2),
+      ]);
       if (digestA === digestB) {
         throw new Error(`two machines from ${image} share one daemon identity (${digestA.slice(0, 12)}…)`);
       }

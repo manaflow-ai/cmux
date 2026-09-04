@@ -67,6 +67,7 @@ actor CloudMachineLink {
     private var process: Process?
     private var eventsProcess: Process?
     private var inviteFileURL: URL?
+    private var grantFileURL: URL?
     private var stderrTail: [String] = []
 
     /// One tick per daemon-side change (from `session current events`) or link state
@@ -84,7 +85,8 @@ actor CloudMachineLink {
     var isConnected: Bool { connected != nil && state == .connected }
 
     /// Spawns the headless client against `route` and waits for its local socket.
-    func connect(route: String, session: String, invitationURI: String?, timeout: Duration = .seconds(60)) async throws -> Connected {
+    /// A grant is written to an owner-only temporary file, never placed in argv.
+    func connect(route: String, session: String, invitationURI: String?, grant: String? = nil, timeout: Duration = .seconds(60)) async throws -> Connected {
         if let connected, state == .connected { return connected }
         try paths.ensureStateDir()
         var inviteFilePath: String?
@@ -96,13 +98,23 @@ actor CloudMachineLink {
             inviteFileURL = url
             inviteFilePath = url.path
         }
+        var grantFilePath: String?
+        if let grant, !grant.isEmpty {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-cloud-link-grant-\(UUID().uuidString.lowercased())")
+            try (grant + "\n").data(using: .utf8)!.write(to: url, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+            grantFileURL = url
+            grantFilePath = url.path
+        }
         let process = Process()
         process.executableURL = clientURL
         process.arguments = CloudTuiCommandLine.linkArguments(
             route: route,
             deviceName: CloudTuiClientPaths.deviceName(),
             stateDir: paths.stateDir.path,
-            inviteFilePath: inviteFilePath
+            inviteFilePath: inviteFilePath,
+            grantFilePath: grantFilePath
         )
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_REMOTE_STATE_DIR"] = paths.stateDir.path
@@ -124,6 +136,7 @@ actor CloudMachineLink {
             state = .error
             lastError = Self.errorText(error)
             removeInviteFile()
+            removeGrantFile()
             throw LinkError.spawnFailed(error.localizedDescription)
         }
         self.process = process
@@ -173,6 +186,7 @@ actor CloudMachineLink {
         connected = nil
         state = .unavailable
         removeInviteFile()
+        removeGrantFile()
         changesContinuation.finish()
     }
 
@@ -264,6 +278,7 @@ actor CloudMachineLink {
         process = nil
         connected = nil
         removeInviteFile()
+        removeGrantFile()
         if state != .unavailable {
             state = status == 0 ? .unavailable : .error
             lastError = status == 0 ? nil : LinkError.exited(status: status, output: stderrTail.joined(separator: "\n")).errorDescription
@@ -276,6 +291,13 @@ actor CloudMachineLink {
         if let inviteFileURL {
             try? FileManager.default.removeItem(at: inviteFileURL)
             self.inviteFileURL = nil
+        }
+    }
+
+    private func removeGrantFile() {
+        if let grantFileURL {
+            try? FileManager.default.removeItem(at: grantFileURL)
+            self.grantFileURL = nil
         }
     }
 }

@@ -48,6 +48,7 @@ import {
   openAttachEndpoint,
   openVmPort,
   openVmCmuxRemote,
+  resumeVmForAttach,
   openVmSession,
   revokeExpiredIdentityLeases,
   revokeUserIdentityLeasesForAccountDeletion,
@@ -311,6 +312,7 @@ describe("VM Effect workflows", () => {
       providerMetadata: { homeVolume: "cmux-home-user-workflow-exec-metadata" },
     });
     const repo = testWorkflowRepo({ vm });
+    const probeError = providerOperationError("getStatus", "provider status unavailable");
     let receivedOptions: unknown;
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
@@ -1419,7 +1421,7 @@ describe("VM Effect workflows", () => {
     });
   });
 
-  test("openVmCmuxRemote wakes a provider-paused VM even when its row still says running", async () => {
+  test("openVmCmuxRemote trusts the persisted route without a status probe", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000146",
       userId: "user-workflow-remote-stale-running",
@@ -1473,13 +1475,11 @@ describe("VM Effect workflows", () => {
     );
 
     expect(result).toEqual(endpoint);
-    expect(statusCalls).toBe(1);
-    expect(resumeCalls).toBe(1);
+    expect(statusCalls).toBe(0);
+    expect(resumeCalls).toBe(0);
     expect(attachCalls).toBe(1);
-    expect(callOrder).toEqual(["getStatus", "resume", "openCmuxRemote"]);
-    expect(observedStatuses).toEqual([
-      { id: vm.id, providerVmId: "provider-vm-remote-stale-running", status: "running" },
-    ]);
+    expect(callOrder).toEqual(["openCmuxRemote"]);
+    expect(observedStatuses).toEqual([]);
     expect(leases).toHaveLength(1);
     expect(usageEvents.find((event) => event.eventType === "vm.attach")).toMatchObject({
       eventType: "vm.attach",
@@ -1488,7 +1488,7 @@ describe("VM Effect workflows", () => {
     });
   });
 
-  test("openVmCmuxRemote fails closed when a stale running row cannot be probed", async () => {
+  test("openVmCmuxRemote does not probe a stale running row", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000147",
       userId: "user-workflow-remote-probe-fail",
@@ -1515,18 +1515,18 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
+    const result = await Effect.runPromise(
       openVmCmuxRemote({
         userId: "user-workflow-remote-probe-fail",
         providerVmId: "provider-vm-remote-probe-fail",
-      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(error).toBe(probeError);
-    expect(attachCalls).toBe(0);
+    expect(result.transport).toBe("cmux-remote");
+    expect(attachCalls).toBe(1);
   });
 
-  test("openVmCmuxRemote fails before attaching when the provider reports destroyed", async () => {
+  test("openVmCmuxRemote leaves destroyed detection to recovery and reconciliation", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000148",
       userId: "user-workflow-remote-destroyed",
@@ -1558,18 +1558,54 @@ describe("VM Effect workflows", () => {
         }),
     };
 
-    const error = await Effect.runPromise(
+    const result = await Effect.runPromise(
       openVmCmuxRemote({
         userId: "user-workflow-remote-destroyed",
         providerVmId: "provider-vm-remote-destroyed",
-      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
     );
 
-    expect(error).toBeInstanceOf(VmNotFoundError);
-    expect(attachCalls).toBe(0);
+    expect(result.transport).toBe("cmux-remote");
+    expect(attachCalls).toBe(1);
     expect(resumeCalls).toBe(0);
+    expect(observedStatuses).toEqual([]);
+  });
+
+  test("resumeVmForAttach wakes only after direct dial recovery", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000149",
+      userId: "user-workflow-remote-recovery",
+      providerVmId: "provider-vm-remote-recovery",
+      status: "paused",
+      billingTeamId: null,
+    });
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, observedStatuses });
+    let resumeCalls = 0;
+    let statusCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.sync(() => {
+        statusCalls += 1;
+        return "running" as const;
+      }),
+      resume: () => Effect.sync(() => {
+        resumeCalls += 1;
+        return testVmHandle({ providerVmId: "provider-vm-remote-recovery" });
+      }),
+    };
+
+    await Effect.runPromise(
+      resumeVmForAttach({
+        userId: "user-workflow-remote-recovery",
+        providerVmId: "provider-vm-remote-recovery",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(resumeCalls).toBe(1);
+    expect(statusCalls).toBe(0);
     expect(observedStatuses).toEqual([
-      { id: vm.id, providerVmId: "provider-vm-remote-destroyed", status: "destroyed" },
+      { id: "00000000-0000-4000-8000-000000000149", providerVmId: "provider-vm-remote-recovery", status: "running" },
     ]);
   });
 

@@ -214,6 +214,7 @@ try {
       }),
     });
     const createDurationMs = Math.round(performance.now() - createStartedAt);
+    const createServerTiming = create.headers.get("server-timing");
     const createText = await create.text();
     if (create.status !== 200) throw new Error(`POST /api/vm expected 200, got ${create.status}: ${createText}`);
     const created = JSON.parse(createText);
@@ -225,25 +226,36 @@ try {
 
     let attachTransport;
     let attachDurationMs;
+    let attachAttempts;
+    let attachStatuses;
+    let attachServerTiming;
     if (!skipAttach) {
       // Every cmux Cloud machine runs only the cmux-tui remote daemon.
       const expectedTransport = "cmux-remote";
-      const attachBody = { transport: "cmux-remote" };
+      const attachBody = {
+        transport: "cmux-remote",
+        deviceFingerprint: `smoke-${project.stackLabel}-${suffix}`,
+      };
       // First attach after create races the in-VM daemon boot; the API says
       // retryable with retryAfterSeconds and real clients loop. Retry 502s
       // within a bounded budget so the smoke measures the client contract,
       // not the race.
       const attachStartedAt = performance.now();
       const attachBudgetMs = 120_000;
+      const statuses = [];
+      let attempts = 0;
       let attach;
       let attachText;
       for (;;) {
+        attempts += 1;
         attach = await fetchWithTimeout(`${targetUrl}/api/vm/${encodeURIComponent(vmId)}/attach-endpoint`, {
           method: "POST",
           headers: { ...authHeaders, "content-type": "application/json" },
           body: JSON.stringify(attachBody),
         });
         attachText = await attach.text();
+        statuses.push(attach.status);
+        if (attach.status === 200) attachServerTiming = attach.headers.get("server-timing");
         if (attach.status !== 502) break;
         const elapsed = performance.now() - attachStartedAt;
         if (elapsed >= attachBudgetMs) break;
@@ -258,6 +270,8 @@ try {
         await new Promise((resolve) => setTimeout(resolve, Math.max(1, retryAfterSeconds) * 1000));
       }
       attachDurationMs = Math.round(performance.now() - attachStartedAt);
+      attachAttempts = attempts;
+      attachStatuses = statuses;
       if (attach.status !== 200) throw new Error(`POST attach-endpoint expected 200, got ${attach.status}: ${attachText}`);
       const attached = JSON.parse(attachText);
       if (attached.transport !== expectedTransport) {
@@ -350,7 +364,8 @@ try {
       createDurationMs,
       ...(skipAttach
         ? { attachSkipped: true }
-        : { attachTransport, attachDurationMs }),
+        : { attachTransport, attachDurationMs, attachAttempts, attachStatuses, ...(attachServerTiming ? { attachServerTiming } : {}) }),
+      ...(createServerTiming ? { createServerTiming } : {}),
       ...(edge ? { edge } : {}),
       destroyed: true,
       destroyDurationMs,
