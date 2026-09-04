@@ -320,7 +320,7 @@ struct ComputerUseUXTests {
             for: explicitPrompt
         ) else {
             #expect(
-                false,
+                Bool(false),
                 "an explicit $cmux-cua prompt must begin an intent turn"
             )
             return
@@ -337,7 +337,7 @@ struct ComputerUseUXTests {
         guard case .turnStarted(let ordinaryTurn) = ComputerUseIntentBoundary.observation(
             for: ordinaryPrompt
         ) else {
-            #expect(false, "an ordinary prompt must still be a lifecycle boundary")
+            #expect(Bool(false), "an ordinary prompt must still be a lifecycle boundary")
             return
         }
         #expect(ordinaryTurn.signal == nil)
@@ -352,7 +352,7 @@ struct ComputerUseUXTests {
             for: protectedAction
         ) else {
             #expect(
-                false,
+                Bool(false),
                 "a namespaced protected action must create an intent signal"
             )
             return
@@ -369,7 +369,7 @@ struct ComputerUseUXTests {
         guard case .request(let skillSignal) = ComputerUseIntentBoundary.observation(
             for: explicitSkill
         ) else {
-            #expect(false, "an explicitly executed cmux-cua skill must arm onboarding")
+            #expect(Bool(false), "an explicitly executed cmux-cua skill must arm onboarding")
             return
         }
         #expect(skillSignal.kind == .explicitSkill)
@@ -417,7 +417,7 @@ struct ComputerUseUXTests {
         )
         guard case .turnStarted(let turn) = ComputerUseIntentBoundary.observation(for: uiText)
         else {
-            #expect(false, "generic UI text must remain a prompt boundary")
+            #expect(Bool(false), "generic UI text must remain a prompt boundary")
             return
         }
         #expect(turn.signal == nil)
@@ -433,7 +433,7 @@ struct ComputerUseUXTests {
         guard case .turnStarted(let documentationTurn) = ComputerUseIntentBoundary.observation(
             for: documentationPrompt
         ) else {
-            #expect(false, "documentation requests must remain prompt boundaries")
+            #expect(Bool(false), "documentation requests must remain prompt boundaries")
             return
         }
         #expect(documentationTurn.signal == nil)
@@ -450,7 +450,7 @@ struct ComputerUseUXTests {
         guard case .turnStarted(let assistantTurn) = ComputerUseIntentBoundary.observation(
             for: assistantOnlyText
         ) else {
-            #expect(false, "assistant/UI text must not be treated as a user intent")
+            #expect(Bool(false), "assistant/UI text must not be treated as a user intent")
             return
         }
         #expect(assistantTurn.signal == nil)
@@ -466,7 +466,7 @@ struct ComputerUseUXTests {
         guard case .turnStarted(let naturalTurn) = ComputerUseIntentBoundary.observation(
             for: naturalPrompt
         ) else {
-            #expect(false, "an imperative Computer Use prompt must arm onboarding")
+            #expect(Bool(false), "an imperative Computer Use prompt must arm onboarding")
             return
         }
         #expect(naturalTurn.signal?.kind == .explicitPrompt)
@@ -489,9 +489,9 @@ struct ComputerUseUXTests {
             requestToken: "request:second"
         )
         var ledger = ComputerUseIntentBoundary.Ledger()
-        let firstClaim = try #require(
-            ledger.observe(.request(firstSignal))
-        )
+        let firstClaim = ledger.observe(.request(firstSignal))
+        #expect(firstClaim != nil)
+        guard let firstClaim else { return }
         #expect(ledger.observe(.request(firstSignal)) == nil)
         #expect(
             ledger.observe(.request(secondSignal)) == nil,
@@ -502,7 +502,9 @@ struct ComputerUseUXTests {
         #expect(ledger.observe(.request(secondSignal)) == nil)
 
         ledger.observe(.completed(session))
-        let nextClaim = try #require(ledger.observe(.request(secondSignal)))
+        let nextClaim = ledger.observe(.request(secondSignal))
+        #expect(nextClaim != nil)
+        guard let nextClaim else { return }
         #expect(nextClaim.signal == secondSignal)
     }
 
@@ -518,17 +520,17 @@ struct ComputerUseUXTests {
             requestToken: "turn:same"
         )
         var ledger = ComputerUseIntentBoundary.Ledger()
-        let first = try #require(
-            ledger.observe(
-                .turnStarted(
-                    ComputerUseIntentBoundary.TurnStart(
-                        session: session,
-                        token: "turn:same",
-                        signal: signal
-                    )
+        let first = ledger.observe(
+            .turnStarted(
+                ComputerUseIntentBoundary.TurnStart(
+                    session: session,
+                    token: "turn:same",
+                    signal: signal
                 )
             )
         )
+        #expect(first != nil)
+        guard let first else { return }
         ledger.finish(first, completion: .handled)
         #expect(
             ledger.observe(
@@ -543,17 +545,17 @@ struct ComputerUseUXTests {
             "duplicate prompt callbacks must not create another gate"
         )
         ledger.observe(.completed(session))
-        let next = try #require(
-            ledger.observe(
-                .turnStarted(
-                    ComputerUseIntentBoundary.TurnStart(
-                        session: session,
-                        token: "turn:same",
-                        signal: signal
-                    )
+        let next = ledger.observe(
+            .turnStarted(
+                ComputerUseIntentBoundary.TurnStart(
+                    session: session,
+                    token: "turn:same",
+                    signal: signal
                 )
             )
         )
+        #expect(next != nil)
+        guard let next else { return }
         #expect(next.signal == signal)
     }
 
@@ -1718,6 +1720,7 @@ struct ComputerUseUXTests {
         ) == .none)
     }
 
+    @MainActor
     @Test func completedOnboardingRemainsVisibleBeforeAutomaticDismissal() {
         #expect(ComputerUseOnboardingStep.complete.rawValue > ComputerUseOnboardingStep.screenRecording.rawValue)
         #expect(ComputerUseOnboardingWindowController.completionDismissDelay >= .seconds(2))

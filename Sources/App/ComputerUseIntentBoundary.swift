@@ -28,6 +28,16 @@ struct ComputerUseIntentBoundary {
         let sessionID: String
         let surfaceID: String?
 
+        init(
+            source: String,
+            sessionID: String,
+            surfaceID: String?
+        ) {
+            self.source = source
+            self.sessionID = sessionID
+            self.surfaceID = surfaceID
+        }
+
         init?(event: WorkstreamEvent) {
             guard
                 let source = Self.normalized(event.source),
