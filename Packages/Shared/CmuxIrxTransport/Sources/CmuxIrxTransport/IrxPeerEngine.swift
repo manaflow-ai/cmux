@@ -228,27 +228,24 @@ public actor IrxPeerEngine {
         Task { _ = try? await self.ensureSession(trigger: trigger) }
     }
 
-    /// Foreground resume: a session that has not proven liveness recently is
-    /// treated as a zombie (a suspension can kill the QUIC connection without
-    /// isClosed flipping) and replaced IMMEDIATELY — close + explicit redial —
-    /// instead of waiting out keepalive strike detection. Fresh sessions and
-    /// no-session states fall through to a normal warm-up.
+    /// Foreground resume: keep an admitted session until its connection
+    /// actually reports closed. The keepalive watcher is the sole authority
+    /// for declaring a live-looking QUIC session dead. Previously this method
+    /// replaced every session older than 15 seconds, which turned an ordinary
+    /// app-foreground event into a user-visible disconnect and redial.
     public func foregroundKick(staleAfter: Duration = .seconds(15)) {
         Task {
-            if let session = await self.currentSessionForKick() {
-                // Liveness evidence is a recent pong OR a recent admission: a
-                // just-established session has no pong yet and must not be
-                // executed as a zombie while its first keepalive is in flight
-                // (that exact race produced the foreground redial storm).
-                let now = ContinuousClock.now
-                let pongAge = (await session.connection.lastPongAt).map { now - $0 }
-                let sessionAge = session.establishedAtMonotonic.duration(to: now)
-                let liveness = pongAge.map { min($0, sessionAge) } ?? sessionAge
-                if liveness > staleAfter {
-                    self.record("foreground-stale-redial", [:])
-                    _ = try? await self.ensureSession(explicit: true, trigger: "foreground-stale")
-                    return
-                }
+            if let session = await self.currentSessionForKick(),
+               await !session.connection.isClosed
+            {
+                self.record(
+                    "foreground-session-retained",
+                    [
+                        "session": session.admit.session,
+                        "stale_after": String(describing: staleAfter),
+                    ]
+                )
+                return
             }
             _ = try? await self.ensureSession(trigger: "foreground")
         }

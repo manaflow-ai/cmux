@@ -11,6 +11,11 @@ public actor IrxRelayCredentialAutopilot {
     private let endpoint: IrxEndpointSupervisor
     private let journal: IrxJournal
     private var loop: Task<Void, Never>?
+    /// A cancelled refresh task can still return from an in-flight broker
+    /// request. The generation prevents that old task from rotating relay
+    /// credentials or invoking registration after a newer foreground loop
+    /// owns the lifecycle.
+    private var loopGeneration: UInt64 = 0
     /// Runs after every successful rotation. Hosts re-register here so their
     /// advertised relay hint (server-capped at a 1h lifetime) never expires.
     public var onRotation: (@Sendable () async -> Void)?
@@ -43,11 +48,14 @@ public actor IrxRelayCredentialAutopilot {
     /// Starts the refresh loop. Idempotent; cancelled by `stop()`.
     public func start() {
         guard loop == nil else { return }
-        loop = Task { await self.run() }
+        loopGeneration &+= 1
+        let generation = loopGeneration
+        loop = Task { await self.run(generation: generation) }
         journal.record("credential-autopilot", "started")
     }
 
     public func stop() {
+        loopGeneration &+= 1
         loop?.cancel()
         loop = nil
         journal.record("credential-autopilot", "stopped")
@@ -56,15 +64,18 @@ public actor IrxRelayCredentialAutopilot {
     /// Foreground/resume kick: restart the loop so a suspension can never
     /// leave a stale sleep deadline in charge of renewal.
     public func kick() {
+        loopGeneration &+= 1
+        let generation = loopGeneration
         loop?.cancel()
-        loop = Task { await self.run() }
+        loop = Task { await self.run(generation: generation) }
         journal.record("credential-autopilot", "kicked")
     }
 
-    private func run() async {
-        while !Task.isCancelled {
+    private func run(generation: UInt64) async {
+        while !Task.isCancelled && generation == loopGeneration {
             let now = Date()
             let credentials = await broker.cachedRelayCredentials()
+            guard generation == loopGeneration, !Task.isCancelled else { return }
             if let soonest = credentials.map({
                 IrxRelayCredentialPolicy.refreshDate(
                     for: $0, jitter: Double.random(in: 0...10))
@@ -75,13 +86,16 @@ public actor IrxRelayCredentialAutopilot {
                     ["until_refresh_s": String(Int(wait))]
                 )
                 try? await Task.sleep(for: .seconds(wait))
-                if Task.isCancelled { return }
+                if Task.isCancelled || generation != loopGeneration { return }
             }
             do {
                 let minted = try await broker.mintRelayCredentials()
+                guard generation == loopGeneration, !Task.isCancelled else { return }
                 await endpoint.rotateCredentials(minted)
+                guard generation == loopGeneration, !Task.isCancelled else { return }
                 await onRotation?()
             } catch {
+                if Task.isCancelled || generation != loopGeneration { return }
                 let expiry = credentials.map(\.expiresAt).max() ?? Date()
                 let delay = IrxRelayCredentialPolicy.retryDelay(expiresAt: expiry, now: Date())
                 journal.record(
@@ -92,6 +106,7 @@ public actor IrxRelayCredentialAutopilot {
                     ]
                 )
                 try? await Task.sleep(for: delay)
+                if Task.isCancelled || generation != loopGeneration { return }
             }
         }
     }
