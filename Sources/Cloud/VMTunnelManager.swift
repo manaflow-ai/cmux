@@ -299,10 +299,10 @@ struct VMTunnelManager: Sendable {
             deviceName: deviceName ?? CloudTuiClientPaths.deviceName()
         )
         // Route only this network's own prefixes. The platform's config routes
-        // all of 10.0.0.0/8 and fd00::/8, which is fine for one tunnel and
-        // fatal for two: a second tunnel could not install the same routes, so
-        // a dev build's tunnel and the production one could never be up
-        // together. Each network is a /24 (and a /64) the enrollment reports.
+        // all of 10.0.0.0/8 and fd00::/8, which is fine for one tunnel but
+        // overlaps unrelated account networks. Each network is a /24 (and a
+        // /64) the enrollment reports; `completedConfig` installs those as
+        // interface-scoped routes so a second build can use the same network.
         let allowedIPs = [endpoint.networkCidr, endpoint.networkCidrV6]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
