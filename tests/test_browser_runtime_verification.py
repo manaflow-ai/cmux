@@ -306,6 +306,11 @@ def test_ci_workflow_runs_for_every_pull_request() -> None:
     assert "\n    paths-ignore:" not in trigger
 
 
+def test_no_fallback_workflow_can_publish_the_required_ci_status_context() -> None:
+    fallback = ROOT / ".github" / "workflows" / "ci-status-fallback.yml"
+    assert not fallback.exists()
+
+
 def test_ci_status_remains_the_compile_aggregate_and_trusted_watcher_owns_browser_gate() -> None:
     workflow = CI_WORKFLOW.read_text(encoding="utf-8")
     status = workflow.split("\n  ci-status:\n", 1)[1]

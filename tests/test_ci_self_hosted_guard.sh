@@ -1197,6 +1197,18 @@ check_protected_workflow_runners() {
   echo "PASS: protected control-plane workflows stay pinned to GitHub-hosted ephemeral runners"
 }
 
+check_no_duplicate_ci_status_workflow() {
+  local duplicate
+  duplicate="$(grep -rlE '^([[:space:]]+name: ci-status|[[:space:]]+ci-status:)' \
+    "$ROOT_DIR/.github/workflows" | grep -v '/ci.yml$' || true)"
+  if [[ -n "$duplicate" ]]; then
+    echo "FAIL: only .github/workflows/ci.yml may publish the required ci-status context"
+    echo "$duplicate"
+    exit 1
+  fi
+  echo "PASS: no fallback workflow can publish the required ci-status context"
+}
+
 check_no_self_hosted_fleet_runners() {
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so Tart cutover and paid-provider fallback remain configuration
@@ -1316,6 +1328,7 @@ check_cla_guard_runner
 # ci.yml jobs
 check_no_bare_github_hosted_runners
 check_protected_workflow_runners
+check_no_duplicate_ci_status_workflow
 check_no_self_hosted_fleet_runners
 check_macos_runner "$CI_FILE" "app-host-unit-tests"
 check_macos_runner "$CI_FILE" "tests-build-and-lag"
