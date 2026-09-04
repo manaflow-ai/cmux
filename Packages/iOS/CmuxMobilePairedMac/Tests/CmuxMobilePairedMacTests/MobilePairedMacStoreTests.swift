@@ -379,6 +379,64 @@ import Testing
         )
     }
 
+    @Test func userAuthorizedRouteStaysVisibleWhenPresenceOmitsIt() async throws {
+        let (store, directory) = try makeStore()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let tailscale = try tailscaleRoute(host: "100.64.0.34")
+        let iroh = try irohRoute()
+
+        try await store.upsert(
+            macDeviceID: "scanned-mac",
+            displayName: "Scanned Mac",
+            routes: [tailscale, iroh],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date()
+        )
+        try await store.authorizeUserTailscaleRoutes(
+            macDeviceID: "scanned-mac",
+            instanceTag: nil,
+            stackUserID: "user-1",
+            teamID: nil,
+            routes: [tailscale]
+        )
+
+        // Presence commonly publishes only the authenticated Iroh route. The
+        // user-authorized Tailscale endpoint remains a visible dial option.
+        try await store.upsert(
+            macDeviceID: "scanned-mac",
+            displayName: "Scanned Mac",
+            routes: [iroh],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date().addingTimeInterval(1)
+        )
+        let retained = try #require(await store.activeMac(stackUserID: "user-1"))
+        #expect(retained.routes.contains(tailscale))
+        #expect(retained.routes.contains(iroh))
+
+        // A prior explicit removal still wins over the grant during later
+        // refreshes, so preserving user grants cannot resurrect a tombstoned
+        // endpoint.
+        #expect(try await store.removeRouteIfAuthorized(
+            macDeviceID: "scanned-mac",
+            route: tailscale,
+            condition: .unclaimed,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: Date().addingTimeInterval(2)
+        ))
+        try await store.upsert(
+            macDeviceID: "scanned-mac",
+            displayName: "Scanned Mac",
+            routes: [iroh],
+            markActive: true,
+            stackUserID: "user-1",
+            now: Date().addingTimeInterval(3)
+        )
+        #expect(!(try await store.activeMac(stackUserID: "user-1")?.routes.contains(tailscale) ?? false))
+    }
+
     @Test func userGrantRequiresExistingScopedRow() async throws {
         let (store, directory) = try makeStore()
         defer { try? FileManager.default.removeItem(at: directory) }
