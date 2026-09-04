@@ -9050,8 +9050,8 @@ mod unix {
             );
         }
 
-        fn poison_mutex<T>(mutex: &Mutex<T>) {
-            let _ = std::thread::scope(|scope| {
+        fn poison_mutex<T: Send>(mutex: &Mutex<T>) {
+            let _ = thread::scope(|scope| {
                 scope
                     .spawn(|| {
                         let _guard = mutex.lock().unwrap();
