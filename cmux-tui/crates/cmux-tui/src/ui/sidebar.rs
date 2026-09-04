@@ -12,23 +12,36 @@ use cmux_tui_core::Rect;
 use ratatui::Frame;
 use ratatui::style::{Color, Modifier, Style};
 use std::borrow::Cow;
+use unicode_width::UnicodeWidthStr;
 
 use super::{
     ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
 };
-use crate::app::{App, Hit, RailKind, WorkspaceRailSelection};
+use crate::app::{
+    App, Hit, RailKind, SidebarHiddenReason, WorkspaceRailSelection, sidebar_profile_token,
+};
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
 use crate::machine::{MachineRailSelection, MachineStatus};
 
-fn projection_empty_label(resource: SidebarResourceKind) -> &'static str {
+fn projection_empty_label(app: &App, spec: &crate::config::SidebarViewSpec) -> &'static str {
     let messages = &localization::catalog().sidebar;
+    let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
     match resource {
         SidebarResourceKind::Machines => messages.no_machines,
         SidebarResourceKind::Workspaces => messages.no_workspaces,
         SidebarResourceKind::Panes => messages.no_panes,
         SidebarResourceKind::Tabs => messages.no_tabs,
-        SidebarResourceKind::Agents => messages.no_agents,
+        SidebarResourceKind::Agents => {
+            let agents = app.session.agents();
+            if spec.filter.is_active() {
+                messages.no_matching_agents
+            } else if agents.is_empty() {
+                messages.no_agents
+            } else {
+                messages.no_active_agents
+            }
+        }
     }
 }
 
@@ -54,6 +67,160 @@ fn projection_detail<'a>(row: &'a crate::sidebar_projection::ProjectionRow) -> C
         detail = format!("{detail} · {}", row.subtitle);
     }
     Cow::Owned(detail)
+}
+
+/// Draw the shared profile strip above all native sidebar rails. Profile
+/// names stay in stable configuration order when they fit. At narrow widths
+/// the active profile remains visible and the overflow count opens the same
+/// management menu as the final ellipsis.
+pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
+    let Some(area) = app.sidebar_layout.presentation else { return };
+    if area.width < 2 || area.height == 0 {
+        return;
+    }
+    let palette = rail::RailPalette::for_app(app, app.sidebar_rail_focused());
+    rail::prepare(frame, area, palette);
+    let content_width = usize::from(area.width.saturating_sub(1));
+    if content_width == 0 {
+        return;
+    }
+
+    let hidden_count = app.sidebar_layout.hidden_views.len();
+    let manage = "⋯";
+    let hidden_reason = app.sidebar_layout.hidden_views.first().map(|hidden| hidden.reason);
+    let hidden_reasons_match = hidden_reason.is_some_and(|reason| {
+        app.sidebar_layout.hidden_views.iter().all(|hidden| hidden.reason == reason)
+    });
+    let hidden_marker = match hidden_reason.filter(|_| hidden_reasons_match) {
+        Some(SidebarHiddenReason::Explicit) => "×",
+        Some(SidebarHiddenReason::Width) => "↔",
+        Some(SidebarHiddenReason::Height) => "↕",
+        None => "!",
+    };
+    let hidden = (hidden_count > 0).then(|| format!("+{hidden_count}{hidden_marker}"));
+    let active_index = app
+        .config
+        .sidebar
+        .profiles
+        .iter()
+        .position(|profile| profile.id == app.config.sidebar.active_profile)
+        .unwrap_or_default();
+    let labels = app
+        .config
+        .sidebar
+        .profiles
+        .iter()
+        .enumerate()
+        .map(|(index, profile)| (index, app.sidebar_profile_display_name(profile)))
+        .collect::<Vec<_>>();
+    let all_profiles_width = labels
+        .iter()
+        .map(|(_, label)| UnicodeWidthStr::width(label.as_str()).saturating_add(2))
+        .sum::<usize>();
+    let base_tail_width =
+        hidden.as_ref().map_or(0, |value| UnicodeWidthStr::width(value.as_str()).saturating_add(1));
+    let profiles_fit =
+        all_profiles_width.saturating_add(base_tail_width).saturating_add(1) <= content_width;
+    let shown = if profiles_fit {
+        labels.iter().collect::<Vec<_>>()
+    } else {
+        labels.iter().filter(|(index, _)| *index == active_index).collect::<Vec<_>>()
+    };
+    let omitted = labels.len().saturating_sub(shown.len());
+    let profile_overflow = (omitted > 0).then(|| format!("+{omitted}"));
+    // Keep the active profile readable before adding the optional profile
+    // count. Hidden-view reasons and the management affordance are the
+    // stronger guarantees at narrow widths.
+    let active_name_width = labels
+        .iter()
+        .find(|(index, _)| *index == active_index)
+        .map_or(1, |(_, name)| UnicodeWidthStr::width(name.as_str()).max(1).min(6));
+    let mut tail_parts = Vec::new();
+    if let Some(hidden) = hidden.as_deref() {
+        tail_parts.push(hidden.to_string());
+    }
+    tail_parts.push(manage.to_string());
+    let required_without_overflow = tail_parts
+        .iter()
+        .map(|part| UnicodeWidthStr::width(part.as_str()))
+        .sum::<usize>()
+        .saturating_add(tail_parts.len().saturating_sub(1));
+    if let Some(profile_overflow) = profile_overflow
+        && !profiles_fit
+        && required_without_overflow
+            .saturating_add(1)
+            .saturating_add(UnicodeWidthStr::width(profile_overflow.as_str()))
+            .saturating_add(active_name_width)
+            <= content_width
+    {
+        tail_parts.insert(0, profile_overflow);
+    }
+    let mut tail = tail_parts.join(" ");
+    let mut tail_width = UnicodeWidthStr::width(tail.as_str());
+    if tail_width >= content_width {
+        // A normal sidebar is at least ten cells wide. This fallback keeps
+        // the management entrypoint and, when possible, the reason glyph
+        // usable even if a caller supplies a smaller frame.
+        tail =
+            hidden.map(|hidden| format!("{hidden} {manage}")).unwrap_or_else(|| manage.to_string());
+        tail_width = UnicodeWidthStr::width(tail.as_str()).min(content_width);
+        if tail_width >= content_width && content_width > 1 {
+            tail = manage.to_string();
+            tail_width = 1;
+        }
+    }
+    let profile_limit = content_width.saturating_sub(tail_width);
+    let mut x = area.x;
+    let mut used = 0usize;
+    for (index, label) in shown {
+        let selectable = labels.len() > 1;
+        let available = profile_limit.saturating_sub(2);
+        let fitted = if profiles_fit {
+            label.clone()
+        } else if available > 0 {
+            truncate(label, available)
+        } else if profile_limit > 0 {
+            truncate(label, profile_limit)
+        } else {
+            String::new()
+        };
+        let fitted_width = UnicodeWidthStr::width(fitted.as_str());
+        let padded = if profiles_fit || profile_limit >= fitted_width.saturating_add(2) {
+            format!(" {fitted} ")
+        } else {
+            fitted
+        };
+        let width = UnicodeWidthStr::width(padded.as_str());
+        if width == 0 || used.saturating_add(width) > profile_limit {
+            continue;
+        }
+        let style = if selectable && *index == active_index { palette.active } else { palette.dim };
+        if selectable && *index == active_index {
+            for column in x..x.saturating_add(width as u16) {
+                frame.buffer_mut()[(column, area.y)].set_symbol(" ").set_style(style);
+            }
+        }
+        frame.buffer_mut().set_stringn(x, area.y, &padded, width, style);
+        if selectable {
+            app.hits.push((
+                Rect { x, y: area.y, width: width as u16, height: 1 },
+                Hit::SidebarProfile {
+                    index: *index,
+                    token: sidebar_profile_token(&app.config.sidebar.profiles[*index].id),
+                },
+            ));
+        }
+        x = x.saturating_add(width as u16);
+        used = used.saturating_add(width);
+    }
+    if tail_width > 0 {
+        let tail_x = area.x.saturating_add((content_width - tail_width) as u16);
+        frame.buffer_mut().set_stringn(tail_x, area.y, &tail, tail_width, palette.dim);
+        app.hits.push((
+            Rect { x: tail_x, y: area.y, width: tail_width as u16, height: 1 },
+            Hit::SidebarPresentationMenu,
+        ));
+    }
 }
 
 /// The color of a workspace's unread indicator, or `None` when nothing is
@@ -419,8 +586,7 @@ pub fn draw_projection(app: &mut App, frame: &mut Frame, view_index: usize) {
     if rows.is_empty()
         && let Some(y) = viewport.body_y(rail::RowSpan::new(0, 1))
     {
-        let resource = spec.levels.last().copied().unwrap_or(SidebarResourceKind::Workspaces);
-        rail::button(frame, area, y, projection_empty_label(resource), false, palette);
+        rail::button(frame, area, y, projection_empty_label(app, &spec), false, palette);
     }
     for (row_index, row) in rows.iter().enumerate() {
         let span = row_spans[row_index];
@@ -840,6 +1006,13 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
     let focused = app.workspace_sidebar_focused();
+    let actions = app.workspace_sidebar_action_rows();
+    let actions_position = app.workspace_actions_position();
+    let body = app.files_body_rect(area);
+    let body_height = usize::from(body.height);
+    let top_action_rows = usize::from(body.y.saturating_sub(area.y + 1));
+    let bottom_action_rows = actions.len().saturating_sub(top_action_rows);
+    app.sidebar_files.set_viewport_height(body_height);
     let border = base
         .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
         .add_modifier(if focused { Modifier::BOLD } else { Modifier::empty() });
@@ -902,9 +1075,14 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         );
     }
 
-    let body_start = area.y + 1;
-    let body_height = height.saturating_sub(2) as usize;
+    let body_start = body.y;
+    let status_y = area.y.saturating_add(height.saturating_sub(1 + bottom_action_rows as u16));
+    let scroll_offset = app.sidebar_files.scroll_offset();
     let mut hits = Vec::new();
+    // Files is the workspace host in the native profile layout. Its header
+    // and blank/error body must therefore participate in the same focus
+    // contract as the Workspaces renderer, even when no file row exists.
+    hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Workspace)));
     if let Some(error) = listing_error {
         if body_height > 0 {
             buf.set_stringn(area.x, body_start, truncate(&error, content_w), content_w, dim);
@@ -914,10 +1092,11 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             buf.set_stringn(area.x, body_start, " No files", content_w, dim);
         }
     } else {
-        let offset = file_scroll_offset(selected, body_height, entries.len());
-        for (line, (name, is_dir)) in entries.iter().skip(offset).take(body_height).enumerate() {
+        for (line, (name, is_dir)) in
+            entries.iter().skip(scroll_offset).take(body_height).enumerate()
+        {
             let y = body_start + line as u16;
-            let row_index = offset + line;
+            let row_index = scroll_offset + line;
             let style = if row_index == selected { selected_style } else { base };
             if row_index == selected {
                 for x in area.x..area.x + content_width {
@@ -935,9 +1114,43 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         }
     }
 
+    if body_height > 0 && entries.len() > body_height {
+        let track =
+            Rect { x: area.x + width - 1, y: body_start, width: 1, height: body_height as u16 };
+        let thumb =
+            viewport_thumb_geometry(entries.len(), body_height, scroll_offset, track.height);
+        let state = if focused {
+            if app.dragging_files_scrollbar() {
+                ScrollbarState::Expanded
+            } else {
+                ScrollbarState::Highlighted
+            }
+        } else {
+            ScrollbarState::Idle
+        };
+        ScrollbarStyle::from_chrome(app.chrome).draw_thumb(
+            buf,
+            track,
+            thumb,
+            Style::default(),
+            state,
+        );
+        hits.push((
+            track,
+            Hit::FilesScrollbar { track, total_rows: entries.len(), visible_rows: body_height },
+        ));
+    }
+
+    if body_height > 0 {
+        hits.push((
+            Rect { x: area.x, y: body_start, width: content_width, height: body_height as u16 },
+            Hit::RailPad(RailKind::Workspace),
+        ));
+    }
+
     let mut input_cursor = None;
     if height > 1 {
-        let footer_y = area.y + height - 1;
+        let footer_y = status_y;
         if let Some((shown, cursor_col)) = filter_input {
             let input_width = content_width.saturating_sub(1);
             buf.set_stringn(area.x, footer_y, "/", 1, dim);
@@ -959,6 +1172,44 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
                 )
             };
             buf.set_stringn(area.x, footer_y, truncate(&footer, content_w), content_w, dim);
+        }
+        // The footer is part of the Files host, even when it only shows a
+        // count or an error. Consume clicks there so they cannot fall through
+        // to the pane and keep the host's focus contract complete.
+        hits.push((
+            Rect { x: area.x, y: footer_y, width: content_width, height: 1 },
+            Hit::RailPad(RailKind::Workspace),
+        ));
+    }
+    for (row, action) in actions.iter().enumerate() {
+        let y = match actions_position {
+            crate::config::ActionsPosition::Top => area.y + 1 + row as u16,
+            crate::config::ActionsPosition::Bottom => status_y + 1 + row as u16,
+        };
+        if y >= area.y.saturating_add(height) {
+            continue;
+        }
+        rail::action(
+            frame,
+            area,
+            y,
+            &action.label,
+            app.workspace_sidebar_focused()
+                && app.workspace_rail_selection.matches_action(action.target),
+            rail::RailPalette::for_app(app, app.workspace_sidebar_focused()),
+        );
+        match action.target {
+            crate::app::SidebarActionTarget::CreateWorkspace(mode) => {
+                hits.push((rail::row(area, y), Hit::CreateWorkspace { mode }));
+            }
+            crate::app::SidebarActionTarget::Run(_) => {
+                if let Some(view) = app.view_index_for_rail(RailKind::Workspace) {
+                    hits.push((
+                        rail::row(area, y),
+                        Hit::SidebarAction { view, action: action.target },
+                    ));
+                }
+            }
         }
     }
     hits.push((rail::divider(area), Hit::RailResize(RailKind::Workspace)));
@@ -989,11 +1240,4 @@ fn unread_summary(app: &App) -> Option<(usize, Color)> {
         }
     }
     highest.map(|(_, color)| (count, color))
-}
-
-fn file_scroll_offset(selected: usize, visible_height: usize, total: usize) -> usize {
-    if visible_height == 0 || total <= visible_height || selected < visible_height {
-        return 0;
-    }
-    (selected + 1).saturating_sub(visible_height).min(total - visible_height)
 }

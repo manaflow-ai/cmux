@@ -1058,7 +1058,7 @@ impl Default for Tabs {
 /// Sidebar behavior.
 #[derive(Debug, Clone)]
 pub struct Sidebar {
-    /// Built-in view used when `plugin` is unset. The default is the file browser.
+    /// Built-in view used when `plugin` is unset. The default is Workspaces.
     pub view: SidebarView,
     pub width: u16,
     pub compact_width: u16,
@@ -1098,10 +1098,8 @@ pub struct Agents {
 
 impl Default for Sidebar {
     fn default() -> Self {
-        let views = vec![
-            SidebarViewSpec::legacy(SidebarColumnKind::Machines, 22, 0),
-            SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0),
-        ];
+        let profiles = default_sidebar_profiles(22, 0, 22, 0);
+        let work = &profiles[0];
         Sidebar {
             view: SidebarView::Workspaces,
             width: 22,
@@ -1112,16 +1110,11 @@ impl Default for Sidebar {
                 SidebarColumn { kind: SidebarColumnKind::Workspaces, width: 22, max_width: 0 },
             ],
             columns_explicit: false,
-            layout: sidebar_layout_of_columns(&views),
-            views: views.clone(),
+            layout: work.layout.clone(),
+            views: work.views.clone(),
             views_explicit: false,
-            profiles: vec![SidebarProfileSpec {
-                id: "default".to_string(),
-                name: "Default".to_string(),
-                layout: sidebar_layout_of_columns(&views),
-                views,
-            }],
-            active_profile: "default".to_string(),
+            profiles,
+            active_profile: "work".to_string(),
             plugin: None,
             row_height: 2,
             row_gap: 1,
@@ -1129,6 +1122,65 @@ impl Default for Sidebar {
             workspace_label: "{name}".to_string(),
         }
     }
+}
+
+/// Built-in presentation profiles for users who have not supplied a native
+/// sidebar arrangement. Work keeps the workspace navigator and the live
+/// agent roster visible together. Focus gives the full height to Workspaces.
+fn default_sidebar_profiles(
+    machine_width: u16,
+    machine_max_width: u16,
+    workspace_width: u16,
+    workspace_max_width: u16,
+) -> Vec<SidebarProfileSpec> {
+    let machines =
+        SidebarViewSpec::legacy(SidebarColumnKind::Machines, machine_width, machine_max_width);
+    let workspaces = SidebarViewSpec::legacy(
+        SidebarColumnKind::Workspaces,
+        workspace_width,
+        workspace_max_width,
+    );
+    let agents = SidebarViewSpec {
+        id: "agents".to_string(),
+        levels: vec![SidebarResourceKind::Agents],
+        actions: Vec::new(),
+        actions_position: ActionsPosition::Bottom,
+        width: workspace_width,
+        max_width: workspace_max_width,
+        collapse_priority: 20,
+        scope: SidebarViewScope::All,
+        row_lines: 2,
+        sort: AgentSortMode::default(),
+        filter: AgentRowFilter::default(),
+    };
+    let work_views = vec![machines.clone(), workspaces.clone(), agents];
+    let work_layout = vec![
+        SidebarLayoutNode::Leaf(0),
+        SidebarLayoutNode::Split(SidebarSplitSpec {
+            id: "work-stack".to_string(),
+            dir: SidebarSplitDir::Vertical,
+            weights: vec![3, 2],
+            children: vec![SidebarLayoutNode::Leaf(1), SidebarLayoutNode::Leaf(2)],
+            width: workspace_width,
+            max_width: workspace_max_width,
+            collapse_priority: 30,
+        }),
+    ];
+    let focus_views = vec![machines, workspaces];
+    vec![
+        SidebarProfileSpec {
+            id: "work".to_string(),
+            name: "Work".to_string(),
+            views: work_views,
+            layout: work_layout,
+        },
+        SidebarProfileSpec {
+            id: "focus".to_string(),
+            name: "Focus".to_string(),
+            layout: sidebar_layout_of_columns(&focus_views),
+            views: focus_views,
+        },
+    ]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1683,7 +1735,6 @@ struct SidebarViewResolution<'a> {
     reserved_ids: HashSet<String>,
     legacy_kinds: HashSet<SidebarColumnKind>,
     views: Vec<SidebarViewSpec>,
-    split_counter: usize,
     machine_width: u16,
     machine_max_width: u16,
     workspace_width: u16,
@@ -1748,14 +1799,15 @@ fn resolve_sidebar_view_entry(
                 }
                 id.to_string()
             }
-            _ => loop {
-                state.split_counter += 1;
-                let candidate = format!("split-{}", state.split_counter);
-                if !state.ids.contains(&candidate) && !state.reserved_ids.contains(&candidate) {
-                    break candidate;
-                }
-            },
+            _ => stable_sidebar_split_id(view),
         };
+        if state.ids.contains(&id) || state.reserved_ids.contains(&id) {
+            crate::client_log::stderr_log!(
+                "config",
+                "cmux-tui: ignoring {owner} split group with a generated id collision; set an explicit id"
+            );
+            return None;
+        }
         let panes = view.panes.as_deref().unwrap_or_default();
         if panes.is_empty() {
             crate::client_log::stderr_log!(
@@ -1847,6 +1899,33 @@ fn collect_sidebar_view_ids(views: &[RawSidebarView], ids: &mut HashSet<String>)
     }
 }
 
+/// Derive a repeatable identity for an anonymous split from its semantic
+/// children. Child order is sorted in the signature so moving panes does not
+/// throw away a user's saved divider ratio. Two identical anonymous splits
+/// are intentionally rejected as ambiguous; users can disambiguate them with
+/// explicit ids.
+fn stable_sidebar_split_id(view: &RawSidebarView) -> String {
+    fn signature(view: &RawSidebarView) -> String {
+        if let Some(id) = view.id.as_deref().map(str::trim).filter(|id| !id.is_empty()) {
+            return format!("id:{id}");
+        }
+        if let Some(split) = view.split.as_deref() {
+            let mut children =
+                view.panes.as_deref().unwrap_or_default().iter().map(signature).collect::<Vec<_>>();
+            children.sort();
+            return format!("split:{}:[{}]", split.trim(), children.join(","));
+        }
+        format!("leaf:{}", view.levels.as_deref().unwrap_or_default().join(","))
+    }
+
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in signature(view).bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("split-{hash:016x}")
+}
+
 fn resolve_sidebar_view_specs(
     views: &[RawSidebarView],
     machine_width: u16,
@@ -1863,7 +1942,6 @@ fn resolve_sidebar_view_specs(
         reserved_ids,
         legacy_kinds: HashSet::new(),
         views: Vec::new(),
-        split_counter: 0,
         machine_width,
         machine_max_width,
         workspace_width,
@@ -2278,6 +2356,8 @@ pub enum Action {
     ToggleSidebar,
     ToggleSidebarCompact,
     ToggleSidebarView,
+    PrevSidebarProfile,
+    NextSidebarProfile,
     FocusSidebar,
     ProviderMenu,
     NewPaneRight,
@@ -2335,6 +2415,8 @@ pub(crate) enum ActionExecution {
     ToggleSidebar,
     ToggleSidebarCompact,
     ToggleSidebarView,
+    PrevSidebarProfile,
+    NextSidebarProfile,
     FocusSidebar,
     ProviderMenu,
     NewPaneRight,
@@ -2560,6 +2642,8 @@ define_named_action_definitions! {
     TOGGLE_SIDEBAR_DEFINITION => (Action::ToggleSidebar, "toggle-sidebar", "Show or hide sidebar", "サイドバーの表示を切り替え");
     TOGGLE_SIDEBAR_COMPACT_DEFINITION => (Action::ToggleSidebarCompact, "toggle-sidebar-compact", "Compact or expand sidebar", "サイドバーの幅を切り替え");
     TOGGLE_SIDEBAR_VIEW_DEFINITION => (Action::ToggleSidebarView, "toggle-sidebar-view", "Switch sidebar view", "サイドバー表示を切り替え");
+    PREV_SIDEBAR_PROFILE_DEFINITION => (Action::PrevSidebarProfile, "prev-sidebar-profile", "Previous sidebar layout", "前のサイドバーレイアウト");
+    NEXT_SIDEBAR_PROFILE_DEFINITION => (Action::NextSidebarProfile, "next-sidebar-profile", "Next sidebar layout", "次のサイドバーレイアウト");
     FOCUS_SIDEBAR_DEFINITION => (Action::FocusSidebar, "focus-sidebar", "Focus sidebar", "サイドバーにフォーカス");
     PROVIDER_MENU_DEFINITION => (Action::ProviderMenu, "provider-menu", "Machine provider menu", "マシンプロバイダーメニュー");
     NEW_PANE_RIGHT_DEFINITION => (Action::NewPaneRight, "new-pane-right", "New column to the right", "右に新しい列");
@@ -2714,7 +2798,7 @@ static SELECT_SCREEN_DEFINITIONS: [ActionDefinition; 10] = [
 /// The canonical action catalog. Presentation surfaces derive their labels
 /// and ordering from these named definitions instead of positional offsets.
 pub fn action_definitions() -> &'static [&'static ActionDefinition] {
-    static DEFINITIONS: [&ActionDefinition; 67] = [
+    static DEFINITIONS: [&ActionDefinition; 69] = [
         &SEND_PREFIX_DEFINITION,
         &NEW_TAB_DEFINITION,
         &NEW_BROWSER_TAB_DEFINITION,
@@ -2759,6 +2843,8 @@ pub fn action_definitions() -> &'static [&'static ActionDefinition] {
         &TOGGLE_SIDEBAR_DEFINITION,
         &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
         &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+        &PREV_SIDEBAR_PROFILE_DEFINITION,
+        &NEXT_SIDEBAR_PROFILE_DEFINITION,
         &FOCUS_SIDEBAR_DEFINITION,
         &PROVIDER_MENU_DEFINITION,
         &NEW_PANE_RIGHT_DEFINITION,
@@ -2966,6 +3052,18 @@ impl Action {
                 "frontend action adapter",
                 ActionExecution::ToggleSidebarView,
             ),
+            Action::PrevSidebarProfile => ActionMetadata::new(
+                "prev-sidebar-profile",
+                ActionClassification::PresentationOnly,
+                "frontend sidebar presentation reducer",
+                ActionExecution::PrevSidebarProfile,
+            ),
+            Action::NextSidebarProfile => ActionMetadata::new(
+                "next-sidebar-profile",
+                ActionClassification::PresentationOnly,
+                "frontend sidebar presentation reducer",
+                ActionExecution::NextSidebarProfile,
+            ),
             Action::FocusSidebar => ActionMetadata::new(
                 "focus-sidebar",
                 ActionClassification::PresentationOnly,
@@ -3143,6 +3241,8 @@ impl Action {
             Action::ToggleSidebar => &TOGGLE_SIDEBAR_DEFINITION,
             Action::ToggleSidebarCompact => &TOGGLE_SIDEBAR_COMPACT_DEFINITION,
             Action::ToggleSidebarView => &TOGGLE_SIDEBAR_VIEW_DEFINITION,
+            Action::PrevSidebarProfile => &PREV_SIDEBAR_PROFILE_DEFINITION,
+            Action::NextSidebarProfile => &NEXT_SIDEBAR_PROFILE_DEFINITION,
             Action::FocusSidebar => &FOCUS_SIDEBAR_DEFINITION,
             Action::ProviderMenu => &PROVIDER_MENU_DEFINITION,
             Action::NewPaneRight => &NEW_PANE_RIGHT_DEFINITION,
@@ -3366,6 +3466,8 @@ impl Default for Keys {
                 bind(KeyCode::Char('s'), Action::ToggleSidebar),
                 bind(KeyCode::Char('m'), Action::ToggleSidebarCompact),
                 bind(KeyCode::Char('e'), Action::ToggleSidebarView),
+                bind(KeyCode::Char('H'), Action::PrevSidebarProfile),
+                bind(KeyCode::Char('L'), Action::NextSidebarProfile),
                 bind(KeyCode::Char('S'), Action::FocusSidebar),
                 bind(KeyCode::Char('g'), Action::NewPaneRight),
                 bind(KeyCode::Char('U'), Action::UndoLayout),
@@ -4294,8 +4396,31 @@ pub fn load() -> Config {
             config.sidebar.views_explicit = true;
         }
     }
-    config.sidebar.profiles[0].views.clone_from(&config.sidebar.views);
-    config.sidebar.profiles[0].layout.clone_from(&config.sidebar.layout);
+    if config.sidebar.views_explicit {
+        // Explicit legacy columns and explicit native views keep their exact
+        // shape. They become one profile, so the built-in Work/Focus choices
+        // never appear to alter an existing user's configuration.
+        config.sidebar.profiles = vec![SidebarProfileSpec {
+            id: "default".to_string(),
+            name: "Default".to_string(),
+            views: config.sidebar.views.clone(),
+            layout: config.sidebar.layout.clone(),
+        }];
+        config.sidebar.active_profile = "default".to_string();
+    } else {
+        // Width settings remain authoritative for the built-in profiles.
+        // Rebuild them after raw settings resolve instead of retaining the
+        // hard-coded widths from `Sidebar::default`.
+        config.sidebar.profiles = default_sidebar_profiles(
+            config.machine_sidebar.width,
+            config.machine_sidebar.max_width,
+            config.sidebar.width,
+            config.sidebar.max_width,
+        );
+        config.sidebar.active_profile = "work".to_string();
+        config.sidebar.views = config.sidebar.profiles[0].views.clone();
+        config.sidebar.layout = config.sidebar.profiles[0].layout.clone();
+    }
     if let Some(raw_profiles) = raw.sidebar.profiles.as_ref() {
         if raw.sidebar.views.is_some() || raw.sidebar.columns.is_some() {
             crate::client_log::stderr_log!(
@@ -9192,6 +9317,10 @@ mod tests {
                 SidebarViewSpec::legacy(SidebarColumnKind::Tabs, 26, 40),
             ]
         );
+        assert_eq!(config.sidebar.active_profile, "default");
+        assert_eq!(config.sidebar.profiles.len(), 1);
+        assert_eq!(config.sidebar.profiles[0].views, config.sidebar.views);
+        assert_eq!(config.sidebar.profiles[0].layout, config.sidebar.layout);
         assert_eq!(
             config.machine_sidebar,
             MachineSidebar {
@@ -9356,6 +9485,10 @@ mod tests {
             config.sidebar.columns,
             vec![SidebarColumn { kind: SidebarColumnKind::Machines, width: 18, max_width: 0 }]
         );
+        assert_eq!(config.sidebar.active_profile, "default");
+        assert_eq!(config.sidebar.profiles.len(), 1);
+        assert_eq!(config.sidebar.profiles[0].views, config.sidebar.views);
+        assert_eq!(config.sidebar.profiles[0].layout, config.sidebar.layout);
     }
 
     #[test]
@@ -9408,6 +9541,11 @@ mod tests {
             config.sidebar.views.iter().map(|view| view.id.as_str()).collect::<Vec<_>>(),
             vec!["machines", "workspace-tree"]
         );
+        assert_eq!(config.sidebar.active_profile, "focused");
+        assert_eq!(
+            config.sidebar.profiles.iter().map(|profile| profile.id.as_str()).collect::<Vec<_>>(),
+            vec!["full", "focused"]
+        );
         assert!(config.sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Tabs)));
     }
 
@@ -9441,6 +9579,31 @@ mod tests {
                 .unwrap()
                 .actions,
             vec![SidebarActionSpec::plain(Action::NewWorkspace)]
+        );
+    }
+
+    #[test]
+    fn sidebar_view_only_keeps_builtin_profiles_and_changes_content_mode() {
+        let _guard = CONFIG_ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("cmux-sidebar-view-only-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cmux-tui.json");
+        std::fs::write(&path, r#"{"sidebar":{"view":"files"}}"#).unwrap();
+        let old = std::env::var_os("CMUX_MUX_CONFIG");
+        unsafe { std::env::set_var("CMUX_MUX_CONFIG", &path) };
+        let config = load();
+        restore_env_var("CMUX_MUX_CONFIG", old);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert_eq!(config.sidebar.view, SidebarView::Files);
+        assert_eq!(config.sidebar.active_profile, "work");
+        assert_eq!(config.sidebar.profiles.len(), 2);
+        assert!(
+            config.sidebar.profiles[0]
+                .views
+                .iter()
+                .any(|view| view.includes(SidebarResourceKind::Agents))
         );
     }
 
@@ -10237,21 +10400,23 @@ mod tests {
     }
 
     #[test]
-    fn generated_split_ids_reserve_explicit_ids_from_later_entries() {
+    fn anonymous_split_ids_are_stable_when_panes_reorder() {
         let mut group = raw_leaf("", &[]);
         group.levels = None;
         group.split = Some("vertical".to_string());
         group.panes = Some(vec![raw_leaf("ws", &["workspaces"]), raw_leaf("ag", &["agents"])]);
-        let later = raw_leaf("split-1", &["tabs"]);
-        let resolved = resolve_sidebar_view_specs(&[group, later], 22, 0, 22, 0, "sidebar", &[]);
+        let first =
+            resolve_sidebar_view_specs(std::slice::from_ref(&group), 22, 0, 22, 0, "sidebar", &[]);
+        group.panes.as_mut().unwrap().reverse();
+        let reordered =
+            resolve_sidebar_view_specs(std::slice::from_ref(&group), 22, 0, 22, 0, "sidebar", &[]);
 
-        assert_eq!(resolved.views.len(), 3);
-        match &resolved.layout[0] {
-            SidebarLayoutNode::Split(split) => assert_eq!(split.id, "split-2"),
+        let split_id = |resolved: &ResolvedSidebarViews| match &resolved.layout[0] {
+            SidebarLayoutNode::Split(split) => split.id.clone(),
             node => panic!("expected generated split, got {node:?}"),
-        }
-        assert_eq!(resolved.layout[1], SidebarLayoutNode::Leaf(2));
-        assert_eq!(resolved.views[2].id, "split-1");
+        };
+        assert_eq!(split_id(&first), split_id(&reordered));
+        assert!(split_id(&first).starts_with("split-"));
     }
 
     #[test]

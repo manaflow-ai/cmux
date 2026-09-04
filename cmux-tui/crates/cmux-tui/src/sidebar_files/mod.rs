@@ -28,6 +28,10 @@ pub struct FileBrowser {
     entries: Vec<FileEntry>,
     visible: Vec<usize>,
     selected: usize,
+    /// First visible row in the filtered list. Selection is independent from
+    /// this offset so wheel inspection never changes the Enter target.
+    scroll_offset: usize,
+    viewport_height: usize,
     show_hidden: bool,
     filter_mode: bool,
     query: TextInput,
@@ -44,6 +48,8 @@ impl FileBrowser {
             entries: Vec::new(),
             visible: Vec::new(),
             selected: 0,
+            scroll_offset: 0,
+            viewport_height: 0,
             show_hidden: false,
             filter_mode: false,
             query: TextInput::new(String::new()),
@@ -83,6 +89,28 @@ impl FileBrowser {
         self.selected
     }
 
+    pub fn scroll_offset(&self) -> usize {
+        self.scroll_offset
+    }
+
+    pub fn set_scroll_offset(&mut self, offset: usize) -> bool {
+        let before = self.scroll_offset;
+        self.scroll_offset = offset.min(self.max_scroll_offset());
+        self.scroll_offset != before
+    }
+
+    /// Tell the browser how many rows the renderer can show. A resize
+    /// re-reveals the selected entry, while steady-state frames preserve a
+    /// wheel-positioned viewport.
+    pub fn set_viewport_height(&mut self, height: usize) {
+        let changed = self.viewport_height != height;
+        self.viewport_height = height;
+        self.clamp_scroll_offset();
+        if changed {
+            self.ensure_selected_visible();
+        }
+    }
+
     pub fn show_hidden(&self) -> bool {
         self.show_hidden
     }
@@ -110,6 +138,20 @@ impl FileBrowser {
         } else {
             self.selected = index.min(self.visible.len() - 1);
         }
+        self.ensure_selected_visible();
+    }
+
+    /// Move the file viewport by a bounded wheel step. The selected entry is
+    /// deliberately unchanged, matching the other sidebar rails' separation
+    /// between inspection scroll and activation selection.
+    pub fn scroll_viewport(&mut self, delta: isize) -> bool {
+        if self.viewport_height == 0 || self.visible.is_empty() {
+            return false;
+        }
+        let before = self.scroll_offset;
+        let max_offset = self.max_scroll_offset();
+        self.scroll_offset = self.scroll_offset.saturating_add_signed(delta).min(max_offset);
+        self.scroll_offset != before
     }
 
     pub fn set_message(&mut self, message: impl Into<String>) {
@@ -249,6 +291,7 @@ impl FileBrowser {
         } else {
             self.selected = self.selected.saturating_add_signed(delta).min(self.visible.len() - 1);
         }
+        self.ensure_selected_visible();
     }
 
     fn selected_entry(&self) -> Option<FileEntry> {
@@ -272,6 +315,7 @@ impl FileBrowser {
     }
 
     fn activate_selected(&mut self) -> Option<FileCommand> {
+        self.ensure_selected_visible();
         let entry = self.selected_entry()?;
         if entry.is_dir() {
             self.navigation.navigate(entry.path);
@@ -283,6 +327,7 @@ impl FileBrowser {
     }
 
     fn cd_selected(&mut self) -> Option<FileCommand> {
+        self.ensure_selected_visible();
         let Some(entry) = self.selected_entry().filter(FileEntry::is_dir) else {
             self.set_message("select a directory to send cd");
             return None;
@@ -291,6 +336,7 @@ impl FileBrowser {
     }
 
     fn browser_selected(&mut self) -> Option<FileCommand> {
+        self.ensure_selected_visible();
         let Some(entry) = self.selected_entry().filter(|entry| !entry.is_dir()) else {
             self.set_message("select an .html or .md file to open");
             return None;
@@ -333,6 +379,35 @@ impl FileBrowser {
             .unwrap_or_else(|| {
                 if self.visible.is_empty() { 0 } else { self.selected.min(self.visible.len() - 1) }
             });
+        self.clamp_scroll_offset();
+        self.ensure_selected_visible();
+    }
+
+    fn max_scroll_offset(&self) -> usize {
+        if self.viewport_height == 0 {
+            0
+        } else {
+            self.visible.len().saturating_sub(self.viewport_height)
+        }
+    }
+
+    fn clamp_scroll_offset(&mut self) {
+        self.scroll_offset = self.scroll_offset.min(self.max_scroll_offset());
+    }
+
+    fn ensure_selected_visible(&mut self) {
+        if self.viewport_height == 0 || self.visible.is_empty() {
+            self.scroll_offset = 0;
+            return;
+        }
+        let end = self.scroll_offset.saturating_add(self.viewport_height);
+        if self.selected < self.scroll_offset {
+            self.scroll_offset = self.selected;
+        } else if self.selected >= end {
+            self.scroll_offset =
+                self.selected.saturating_add(1).saturating_sub(self.viewport_height);
+        }
+        self.clamp_scroll_offset();
     }
 }
 
@@ -467,6 +542,38 @@ mod tests {
         browser.handle_key(&key(KeyCode::Right));
         assert_eq!(browser.current_dir(), temp.join("docs"));
         assert!(!browser.filter_mode());
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn viewport_scroll_does_not_change_selection_and_keyboard_reveals_it() {
+        let temp = temp_dir("viewport");
+        for index in 0..12 {
+            write(temp.join(format!("file-{index:02}")), "").unwrap();
+        }
+        let mut browser = FileBrowser::new(temp.clone());
+        browser.set_viewport_height(3);
+        browser.select(1);
+        assert_eq!(browser.scroll_offset(), 0);
+
+        assert!(browser.scroll_viewport(3));
+        assert_eq!(browser.selected(), 1);
+        assert_eq!(browser.scroll_offset(), 3);
+
+        // A keyboard move reveals the selected row without changing the
+        // semantic target more than the requested one-row move.
+        browser.handle_key(&key(KeyCode::Up));
+        assert_eq!(browser.selected(), 0);
+        assert_eq!(browser.scroll_offset(), 0);
+
+        assert!(!browser.scroll_viewport(-1));
+        browser.select(11);
+        assert_eq!(browser.scroll_offset(), 9);
+        assert!(!browser.scroll_viewport(1));
+        browser.set_viewport_height(0);
+        assert_eq!(browser.scroll_offset(), 0);
+        assert!(!browser.scroll_viewport(3));
+
         fs::remove_dir_all(temp).unwrap();
     }
 

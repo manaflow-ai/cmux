@@ -7,7 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use cmux_tui_core::{PaneId, SurfaceId, WorkspaceId};
+use cmux_tui_core::{PaneId, ScreenId, SurfaceId, WorkspaceId};
 
 use crate::config::{
     AgentRowFilter, AgentSortMode, SidebarResourceKind, SidebarViewScope, SidebarViewSpec,
@@ -29,6 +29,8 @@ pub(crate) enum ProjectionTarget {
     Pane {
         workspace: usize,
         screen: usize,
+        workspace_id: WorkspaceId,
+        screen_id: ScreenId,
         pane: PaneId,
     },
     Surface {
@@ -47,7 +49,24 @@ impl ProjectionTarget {
     pub(crate) fn same_resource(self, other: Self) -> bool {
         match (self, other) {
             (Self::Workspace { id: left, .. }, Self::Workspace { id: right, .. }) => left == right,
-            (Self::Pane { pane: left, .. }, Self::Pane { pane: right, .. }) => left == right,
+            (
+                Self::Pane {
+                    workspace_id: left_workspace,
+                    screen_id: left_screen,
+                    pane: left_pane,
+                    ..
+                },
+                Self::Pane {
+                    workspace_id: right_workspace,
+                    screen_id: right_screen,
+                    pane: right_pane,
+                    ..
+                },
+            ) => {
+                left_workspace == right_workspace
+                    && left_screen == right_screen
+                    && left_pane == right_pane
+            }
             (
                 Self::Surface { surface: left, agent: left_agent, .. },
                 Self::Surface { surface: right, agent: right_agent, .. },
@@ -358,6 +377,8 @@ fn append_level(
                         target: ProjectionTarget::Pane {
                             workspace: workspace_index,
                             screen: screen_index,
+                            workspace_id: workspace.id,
+                            screen_id: screen.id,
                             pane: pane.id,
                         },
                     });
@@ -422,22 +443,25 @@ fn append_level(
                         }
                         for (tab_index, tab) in pane.tabs.iter().enumerate() {
                             let agent = agents.get(&tab.surface).copied();
-                            if agent_only
-                                && (agent.is_none()
-                                    || agent.is_some_and(|agent| agent.state == "unknown"))
-                            {
-                                continue;
-                            }
-                            if agent_only
-                                && let Some(agent) = agent
-                                && !agent_row_passes_filter(
+                            if agent_only {
+                                let Some(agent) = agent else { continue };
+                                // A bare Agents view is an active-work queue.
+                                // A state filter is an explicit request for a
+                                // lifecycle slice, so it may include terminal
+                                // or temporarily unknown records.
+                                if filter.states.is_empty()
+                                    && matches!(agent.state.as_str(), "done" | "unknown")
+                                {
+                                    continue;
+                                }
+                                if !agent_row_passes_filter(
                                     filter,
                                     agent.agent.as_deref(),
                                     &agent.state,
                                     seen_idle.contains(&agent.surface),
-                                )
-                            {
-                                continue;
+                                ) {
+                                    continue;
+                                }
                             }
                             let name = tab
                                 .name
@@ -963,7 +987,7 @@ mod tests {
         let rows =
             rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
 
-        assert_eq!(rows.len(), 3, "agents from every workspace appear");
+        assert_eq!(rows.len(), 2, "active agents from every workspace appear");
         let order: Vec<u64> = rows
             .iter()
             .map(|row| match row.target {
@@ -971,14 +995,22 @@ mod tests {
                 _ => panic!("agent rows target surfaces"),
             })
             .collect();
-        assert_eq!(order, vec![11, 22, 12], "unseen idle > working > everything else");
+        assert_eq!(order, vec![11, 22], "unseen idle > working");
         assert_eq!(rows[0].agent_state.as_deref(), Some("idle"));
         assert_eq!(rows[1].agent_state.as_deref(), Some("working"));
         assert_eq!(
             rows[1].subtitle, "beta",
             "a session-less agent names its workspace in an all sweep"
         );
-        assert_eq!(rows[2].agent_state.as_deref(), Some("done"));
+
+        // Terminal history is opt-in through the lifecycle filter. This is
+        // the same policy used by App::projection_rows, so a pure projection
+        // cannot accidentally reintroduce stale records.
+        all_spec.filter.states = vec!["done".into()];
+        let history =
+            rows(&all_spec, all_spec.sort, &tree, &agents, &HashSet::new(), 1, &HashSet::new());
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].agent_state.as_deref(), Some("done"));
     }
 
     #[test]

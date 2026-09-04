@@ -1,6 +1,7 @@
 # Data-driven presentation implementation plan
 
-Status: implementation plan for the proposed [cmux presentation system](sidebar-system-design.md).
+Status: the TUI composition compatibility slice is implemented. The shared
+provider registry and semantic frontend API remain proposed in this plan.
 
 The presentation system is the source of truth for how built-in views,
 authored sidebars, right-panel tools, Dock surfaces, and agent panels compose.
@@ -28,6 +29,13 @@ already project a small workspace context, and `cmux(method, params)` already
 reaches the dispatcher.
 
 These facts reduce duplication, but they do not make the system complete:
+
+- The TUI now has built-in Work and Focus profiles. Work stacks Workspaces and
+  Agents, and the shared strip, overflow reasons, Restore, profile keys, mouse
+  actions, and context menu use one profile-keyed reducer. Explicit legacy
+  columns, views, profiles, and sidebar plugins keep their existing shape.
+- This TUI reducer is frontend-local. It is not the future cross-frontend
+  provider registry, action receipt, or semantic agent API.
 
 - There is no provider catalog with stable provider and instance IDs.
 - Command names and parameters are not exposed as a scoped capability schema.

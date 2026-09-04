@@ -53,8 +53,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
-| `sidebar-next-profile` (proposed, unbound) | Select the next layout profile in the focused region |
-| `sidebar-previous-profile` (proposed, unbound) | Select the previous layout profile in the focused region |
+| `Ctrl-b H` (`prev-sidebar-profile`) | Select the previous sidebar layout |
+| `Ctrl-b L` (`next-sidebar-profile`) | Select the next sidebar layout |
 | `m` | Open the machine provider menu when the machine rail is focused |
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
@@ -99,13 +99,16 @@ When the built-in sidebar is focused, its divider becomes a bold accent rail. `T
 
 In the workspaces view, Up/Down move the selection and Enter activates it. A one-level `tabs` view follows the highlighted workspace. Multi-level views such as `workspaces → agents` are collapsible trees: Left collapses, Right expands, Space toggles, and Enter activates the exact workspace, pane, tab, or agent surface. Alt/Option with arrows or `hjkl` always navigates, so Alt-Left and Alt-Right traverse views instead of changing tree expansion. Right from the final view or Esc returns to the pane. Any normal prefixed command leaves sidebar focus and runs through the usual action table. In an agents view, `s` cycles the sort mode (priority, recency, name, agent, state) for this client only; the header's right-hand label follows, and an active config filter shows a `filtered` marker there. A configured sidebar plugin keeps its existing PTY forwarding behavior.
 
-When more than one layout profile is available, the target TUI shows a compact
-profile strip at the top of the region. `sidebar-next-profile` and
-`sidebar-previous-profile` change only the focused frontend region. The strip
-also exposes the Add and Manage actions, so a user does not need to know that
-profiles are stored in JSON. On a narrow terminal, an overflow marker names
-hidden views and the profile that contains them; it must not silently remove
-Agents or another low-priority view.
+When more than one layout profile is available in the native sidebar region,
+the TUI shows a compact profile strip at the top of the region. It remains
+visible when the workspace rail is showing Files.
+`prev-sidebar-profile` and `next-sidebar-profile` change only this TUI client.
+They are inactive while a sidebar plugin is active. The strip's ellipsis opens
+the same layout menu as a sidebar right-click. A single profile gains the row
+only when a view becomes hidden, and it does not show a selectable profile tab.
+On a narrow or short terminal, the strip shows the number of hidden views and a width,
+height, explicit, or mixed-reason glyph. The menu names each view, explains the
+reason, and offers Restore.
 
 When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, `m` opens the provider scope/actions menu when the provider offers one, and Esc returns to the active pane. Clicking a view's one-row top pad focuses it without activating a row. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
 
@@ -208,6 +211,8 @@ close-workspace
 toggle-sidebar
 toggle-sidebar-compact
 toggle-sidebar-view
+prev-sidebar-profile
+next-sidebar-profile
 focus-sidebar
 provider-menu
 new-pane-right
@@ -234,6 +239,11 @@ detach
 ```
 
 `rename-pane` is still accepted as an alias for `rename-tab`.
+
+`prev-sidebar-profile` and `next-sidebar-profile` cycle native layouts when
+more than one profile is configured. The default bindings are `H` and `L`.
+While Files is focused, plain arrows keep their file-navigation meaning;
+`Alt-Up`/`Alt-Down` and `Alt-k`/`Alt-j` move between stacked sidebar rails.
 
 ## Chord Format
 

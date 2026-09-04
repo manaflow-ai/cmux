@@ -128,7 +128,10 @@ The same provider can have several instances, for example:
 Instances have stable `instance_id` values. Their scope and local settings are
 stored once. Profiles reference instance IDs instead of copying full view
 definitions. This prevents duplicate configuration, ID collisions, and
-profile-switch bugs.
+profile-switch bugs. The TUI compatibility adapter includes the resource path,
+scope, filter, and sort in its local focus receipt when an older view ID is
+reused, so a profile switch cannot silently restore focus to a different
+semantic instance.
 
 ### Layout profile
 
@@ -393,7 +396,11 @@ flag is not a security boundary.
   normal precedence is restored window snapshot, project config, user config,
   built-in defaults. An explicit reset replaces the mounted state instead of
   merging stale values from lower-precedence sources.
-- A config reload is not a hidden migration of active windows.
+- A config reload is not a hidden migration of active windows. In the TUI,
+  Files/Workspaces content mode is frontend state per profile; a reload keeps a
+  runtime toggle unless the loaded `sidebar.view` value changed. A profile
+  without a visible Workspaces host falls back to Workspaces while retaining
+  the requested Files mode for a later profile return.
 - A hidden projection view may suspend its renderer and event subscriptions,
   while retaining its instance and presentation state. A Dock terminal may
   remain alive because its surface lifecycle requires it.
@@ -424,7 +431,14 @@ warnings for index-based references.
 Keep the existing split geometry solver. Replace durable leaf references with
 instance IDs, add the profile strip and overflow marker, and route keyboard,
 mouse, palette, and socket actions through one reducer. Add the default Work
-profile's compact Agents leaf for new configurations only.
+profile's bounded two-line Agents leaf for new configurations only.
+
+The current TUI change delivers the Work/Focus defaults, split, strip,
+overflow reasons, Restore, profile keys, mouse and context-menu actions, and
+one frontend-local reducer keyed by stable profile and view IDs. It preserves
+explicit legacy configuration. Palette and socket operations, durable registry
+instance IDs, and action receipts remain in later phases, so Phase 2 is not
+complete yet.
 
 ### Phase 3, desktop and Dock composition
 
