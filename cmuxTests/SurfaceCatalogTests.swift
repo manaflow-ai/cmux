@@ -257,6 +257,7 @@ struct SurfaceCatalogTests {
         let termTwo = try #require(CmuxTuiSnapshotParser.resources(from: initial).first { $0.id.key == "term_two" })
         let port = CmuxTuiSnapshotParser.portBrowser(machine: machine, port: 3000)
         catalog.replaceCloudState(initial, resources: [termOne, termTwo, port], info: provider.info)
+        #expect(catalog.hasResources(on: machine))
 
         let delta: [String: Any] = [
             "changes": [[
@@ -283,6 +284,37 @@ struct SurfaceCatalogTests {
         #expect(catalog.snapshot.resources(on: machine).contains(termTwo))
         #expect(catalog.snapshot.resources(on: machine).contains(port))
         #expect(catalog.cloudStates[machine]?.cursor == CloudVMCursor(generation: "g1", revision: 2))
+        #expect(catalog.hasResources(on: machine))
+    }
+
+    @Test("Cloud unavailable replacement keeps the reverse resource index exact")
+    func cloudUnavailableReplacementKeepsResourceIndexExact() throws {
+        let machine = SurfaceMachineID.cloud("vivid-newt")
+        let catalog = SurfaceCatalog()
+        let provider = FakeProvider(machine: machine)
+        catalog.register(provider)
+
+        let snapshot: [String: Any] = [
+            "cursor": ["generation": "g1", "revision": "1"],
+            "workspaces": [["id": "ws", "name": "main"]],
+            "screens": [],
+            "panes": [],
+            "tabs": [],
+            "terminals": [["id": "term", "tab_ids": [], "title": "shell", "lifecycle": "running"]],
+            "browsers": [],
+            "agents": [],
+        ]
+        let state = try #require(CmuxTuiSnapshotParser.state(fromSnapshot: snapshot, machine: machine))
+        let terminal = try #require(CmuxTuiSnapshotParser.resources(from: state).first)
+        catalog.replaceCloudState(state, resources: [terminal], info: provider.info)
+        #expect(catalog.hasResources(on: machine))
+
+        catalog.replaceUnavailableCloudState(on: machine, resources: [], info: provider.info)
+        #expect(catalog.snapshot.resources(on: machine).isEmpty)
+        #expect(!catalog.hasResources(on: machine))
+
+        catalog.replaceUnavailableCloudState(on: machine, resources: [terminal], info: provider.info)
+        #expect(catalog.hasResources(on: machine))
     }
 
     @Test func `Resource ID round trips through the wire form`() {
