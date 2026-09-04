@@ -1,4 +1,4 @@
-# cmux Cloud devbox terminfo lookup. TERMINFO takes precedence over a user's
-# ~/.terminfo and TERMINFO_DIRS keeps ncurses on the system overlay.
-export TERMINFO=/etc/terminfo
-export TERMINFO_DIRS=/etc/terminfo
+# cmux Cloud devbox terminfo lookup. Put the overlay first, then retain the
+# distro's compiled-in directories for TERM values cmux does not define.
+unset TERMINFO
+export TERMINFO_DIRS=/etc/terminfo:

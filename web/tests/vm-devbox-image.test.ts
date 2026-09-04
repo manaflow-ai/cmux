@@ -684,6 +684,6 @@ describe("devbox terminfo overlay", () => {
     expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeGreaterThan(0);
     expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeLessThan(dockerfile.indexOf("blesh-cache-seed"));
     expect(dockerfile).toContain("xterm-ghostty; do");
-    expect(readFileSync(path.join(templateDir, "cmux-terminfo.sh"), "utf8")).toContain("TERMINFO=/etc/terminfo");
+    expect(readFileSync(path.join(templateDir, "cmux-terminfo.sh"), "utf8")).toContain("TERMINFO_DIRS=/etc/terminfo:");
   });
 });
