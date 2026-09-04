@@ -272,7 +272,9 @@ struct OnboardingFlowView: View {
         var properties = eventProperties
         properties["connection_method"] = .string(method.rawValue)
         analytics.capture("ios_onboarding_connection_method_selected", properties)
-        onSelectConnectionMethod(method)
+        withAnimation(.smooth(duration: 0.25)) {
+            onSelectConnectionMethod(method)
+        }
     }
 
     private func startTailscalePairing() {
