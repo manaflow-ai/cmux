@@ -53,6 +53,14 @@ struct VMTunnelManagerTests {
     }
 
     @Test
+    func cloudAccessRevokeSendsTheDeviceIDInTheBody() throws {
+        let request = VMClient.cloudAccessRevocationRequest(deviceID: "mac physical/device")
+
+        #expect(request.path == "/api/vm/tunnel")
+        #expect(request.body["deviceId"] as? String == "mac physical/device")
+    }
+
+    @Test
     func completedConfigFillsTheBlankPrivateKeyLine() throws {
         let config = """
         [Interface]
