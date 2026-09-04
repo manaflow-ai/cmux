@@ -143,20 +143,20 @@ final class MainWindowVisibilityControllerTests: XCTestCase {
         XCTAssertFalse(deminiaturizedWindows.contains { $0 === miniaturizedWindow })
     }
 
-    func testShowApplicationWindowsStillRestoresMiniaturizedWindowsWhenNoHiddenTargetsWereCaptured() {
+    func testHiddenApplicationStillRestoresMiniaturizedWindowsWhenNoTargetsWereCaptured() {
         let miniaturizedWindow = makeWindow()
         defer { miniaturizedWindow.orderOut(nil) }
 
         var miniaturizedIds: Set<ObjectIdentifier> = [ObjectIdentifier(miniaturizedWindow)]
-        var deminiaturizedWindows: [NSWindow] = []
-        var madeKeyWindows: [NSWindow] = []
+        var deminiaturizedWindows: [NSWindow] = [], madeKeyWindows: [NSWindow] = []
         var activationCount = 0
 
         let controller = MainWindowVisibilityController(
             dependencies: .init(
                 isActivationSuppressed: { false },
                 setActiveMainWindow: { _ in },
-                isApplicationHidden: { false },
+                isApplicationHidden: { true },
+                unhideApplication: {},
                 activateRunningApplication: { _ in activationCount += 1 },
                 windowOperations: makeWindowOperations(
                     isMiniaturized: { miniaturizedIds.contains(ObjectIdentifier($0)) },

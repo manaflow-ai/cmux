@@ -293,8 +293,8 @@ final class MainWindowVisibilityController {
         consumeDismissedWindowRestoreTargets: Bool = true
     ) -> NSWindow? {
         let allWindows = uniqueWindows(allWindows)
-        let visibleOrMiniaturizedTargets = allWindows.filter { window in
-            dependencies.windowOperations.isVisible(window) || dependencies.windowOperations.isMiniaturized(window)
+        let visibleTargets = allWindows.filter { window in
+            dependencies.windowOperations.isVisible(window) && !dependencies.windowOperations.isMiniaturized(window)
         }
         let revealTargets: [NSWindow]
 
@@ -314,14 +314,16 @@ final class MainWindowVisibilityController {
             } else {
                 revealTargets = allWindows.filter { dependencies.windowOperations.isMiniaturized($0) }
             }
-        } else if !visibleOrMiniaturizedTargets.isEmpty {
-            revealTargets = visibleOrMiniaturizedTargets
+        } else if !visibleTargets.isEmpty {
+            revealTargets = visibleTargets
         } else {
             let dismissedTargets = dismissedWindowRestoreTargets.filter { dismissedWindow in
                 allWindows.contains { $0 === dismissedWindow }
             }
             dismissedWindowRestoreTargets.removeAll()
-            revealTargets = dismissedTargets
+            revealTargets = dismissedTargets.isEmpty
+                ? allWindows.filter { dependencies.windowOperations.isMiniaturized($0) }
+                : dismissedTargets
         }
 
         trace("show.begin", reason: reason, windows: revealTargets)
