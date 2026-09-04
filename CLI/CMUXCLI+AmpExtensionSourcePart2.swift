@@ -5,10 +5,9 @@ export default function (amp: PluginAPI) {
   const helpers = (amp as unknown as { helpers?: unknown }).helpers;
   // Amp executes plugin callbacks from the system plugin directory. The
   // managed wrapper captures the terminal's project directory explicitly;
-  // retain PWD for older launches and use the callback cwd only as a fallback.
+  // use that trusted value and fall back to the process cwd for older launches.
   const cwdFromEnv = (): string => firstString(
     process.env.CMUX_AGENT_LAUNCH_CWD,
-    process.env.PWD,
     process.cwd(),
   ) || process.cwd();
   const titleByThread = new Map<string, string>();
