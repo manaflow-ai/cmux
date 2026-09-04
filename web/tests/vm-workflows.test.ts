@@ -4984,7 +4984,7 @@ describe("destroyVm home volume cleanup", () => {
     expect(deletedVolumes).toEqual([volume]);
     expect(destroyedIds).toEqual([vm.id]);
     const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
-    expect(destroyedEvent?.metadata).toEqual({ homeVolume: volume, homeVolumeDeleted: true });
+    expect(destroyedEvent?.metadata).toEqual({ source: "user_request", homeVolume: volume, homeVolumeDeleted: true });
   });
 
   test("deletes a pre-marker per-machine volume recognized by its derived name", async () => {
@@ -5031,7 +5031,7 @@ describe("destroyVm home volume cleanup", () => {
     expect(provider.destroyedVmIds).toEqual(["noble-wren"]);
     expect(deletedVolumes).toEqual([]);
     const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
-    expect(destroyedEvent?.metadata).toBeUndefined();
+    expect(destroyedEvent?.metadata).toEqual({ source: "user_request" });
   });
 
   test("records the leak and still destroys the row when the volume delete fails", async () => {
@@ -5061,7 +5061,7 @@ describe("destroyVm home volume cleanup", () => {
     const leakEvent = usageEvents.find((event) => event.eventType === "vm.home_volume.delete_failed");
     expect(leakEvent?.metadata).toEqual({ homeVolume: volume, message: "volume still attached" });
     const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
-    expect(destroyedEvent?.metadata).toEqual({ homeVolume: volume, homeVolumeDeleted: false });
+    expect(destroyedEvent?.metadata).toEqual({ source: "user_request", homeVolume: volume, homeVolumeDeleted: false });
   });
 
   test("still deletes the volume and finalizes the row when afterProviderDestroy throws", async () => {
