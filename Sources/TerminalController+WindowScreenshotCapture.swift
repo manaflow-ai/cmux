@@ -60,6 +60,10 @@ extension TerminalController {
     }
 
     nonisolated func captureScreenshot(_ args: String) -> String {
+        if args.split(whereSeparator: \.isWhitespace).first == "full" {
+            let label = args.split(whereSeparator: \.isWhitespace).dropFirst().joined(separator: " ")
+            return Self.captureFullDesktopScreenshot(label)
+        }
         guard !Thread.isMainThread else {
             return "ERROR: screenshot must run off the main thread"
         }
