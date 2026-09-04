@@ -376,6 +376,82 @@ struct ProjectionRowsCache {
     rows: Arc<[ProjectionRow]>,
 }
 
+/// Identity and revision values that can change the native sidebar hit map.
+/// Display text and status fields are deliberately excluded. They repaint in
+/// place, while row order, row membership, and tab targets require an old
+/// pointer capture to be dropped.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SidebarTreePointerTopology {
+    workspace_revision: u64,
+    pane_revision: Option<u64>,
+    active_workspace: usize,
+    workspace_ids: Vec<WorkspaceId>,
+    screen_ids: Vec<ScreenId>,
+    pane_ids: Vec<PaneId>,
+    surface_ids: Vec<SurfaceId>,
+}
+
+fn sidebar_tree_pointer_topology(tree: &TreeView) -> SidebarTreePointerTopology {
+    let mut topology = SidebarTreePointerTopology {
+        workspace_revision: tree.workspace_revision,
+        pane_revision: tree.pane_revision,
+        active_workspace: tree.active_workspace,
+        workspace_ids: Vec::new(),
+        screen_ids: Vec::new(),
+        pane_ids: Vec::new(),
+        surface_ids: Vec::new(),
+    };
+    for workspace in tree.workspaces() {
+        topology.workspace_ids.push(workspace.id);
+        for screen in &workspace.screens {
+            topology.screen_ids.push(screen.id);
+            for pane in &screen.panes {
+                topology.pane_ids.push(pane.id);
+                topology.surface_ids.extend(pane.tabs.iter().map(|tab| tab.surface));
+            }
+        }
+    }
+    topology
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct MachineSidebarPointerTopology {
+    present: bool,
+    machine_keys: Vec<MachineKey>,
+    active_machine: Option<MachineKey>,
+    create: bool,
+    connect: bool,
+    recoverable_workspace_ids: Vec<String>,
+    workspace_creation_policy: Option<WorkspaceCreationPolicy>,
+}
+
+fn machine_sidebar_pointer_topology(ui: Option<&MachineUiState>) -> MachineSidebarPointerTopology {
+    let Some(ui) = ui else {
+        return MachineSidebarPointerTopology {
+            present: false,
+            machine_keys: Vec::new(),
+            active_machine: None,
+            create: false,
+            connect: false,
+            recoverable_workspace_ids: Vec::new(),
+            workspace_creation_policy: None,
+        };
+    };
+    MachineSidebarPointerTopology {
+        present: true,
+        machine_keys: ui.snapshot.machines.iter().map(|machine| machine.key).collect(),
+        active_machine: ui.snapshot.active,
+        create: ui.snapshot.capabilities.create,
+        connect: ui.snapshot.capabilities.connect,
+        recoverable_workspace_ids: ui
+            .recoverable_workspaces()
+            .into_iter()
+            .map(|workspace| workspace.id.clone())
+            .collect(),
+        workspace_creation_policy: ui.workspace_creation_policy(),
+    }
+}
+
 fn projection_focus_key(tree: &TreeView) -> ProjectionFocusKey {
     let Some(workspace) = tree.active_workspace() else { return ProjectionFocusKey::default() };
     let Some(screen) = workspace.active_screen_ref() else {
@@ -13680,6 +13756,7 @@ impl App {
     }
 
     fn apply_machine_ui_update(&mut self, mut update: MachineUiState) -> RenderAction {
+        let previous_machine_topology = machine_sidebar_pointer_topology(self.machine_ui.as_ref());
         if self.machine_ui.is_none()
             && self.machine_selection_intent.is_none()
             && self.machine_presented.is_none()
@@ -13906,6 +13983,9 @@ impl App {
         }
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
+        if previous_machine_topology != machine_sidebar_pointer_topology(self.machine_ui.as_ref()) {
+            self.invalidate_sidebar_pointer_topology();
+        }
         self.machine_pointer_context_cache = None;
         self.reconcile_workspace_rail_selection();
         if let Some(error) = guard_error {
@@ -15390,6 +15470,7 @@ impl App {
     }
 
     fn replace_tree(&mut self, mut tree: TreeView) {
+        let previous_sidebar_topology = sidebar_tree_pointer_topology(&self.tree);
         let previous_active = self.active_pane();
         let selected_workspace = self
             .tree
@@ -15410,6 +15491,9 @@ impl App {
         {
             tree = TreeView::default();
             self.quit = true;
+        }
+        if previous_sidebar_topology != sidebar_tree_pointer_topology(&tree) {
+            self.invalidate_sidebar_pointer_topology();
         }
         let live_browsers = tree
             .workspaces()
@@ -16798,7 +16882,41 @@ impl App {
         }
         self.sidebar_followed_surface = focused;
         let Some(cwd) = self.focused_surface_cwd() else { return false };
-        self.sidebar_files.follow_focused_cwd(&cwd)
+        let before = self.sidebar_files_pointer_topology();
+        let changed = self.sidebar_files.follow_focused_cwd(&cwd);
+        if changed && before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_topology();
+        }
+        changed
+    }
+
+    fn sidebar_files_pointer_topology(&self) -> u64 {
+        self.sidebar_files.pointer_topology_revision()
+    }
+
+    fn refresh_sidebar_files(&mut self) {
+        let before = self.sidebar_files_pointer_topology();
+        self.sidebar_files.refresh();
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_topology();
+        }
+    }
+
+    fn reroot_sidebar_files(&mut self, directory: PathBuf) {
+        let before = self.sidebar_files_pointer_topology();
+        self.sidebar_files.reroot(directory);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_topology();
+        }
+    }
+
+    fn handle_sidebar_files_key(&mut self, key: &KeyEvent) -> Option<FileCommand> {
+        let before = self.sidebar_files_pointer_topology();
+        let command = self.sidebar_files.handle_key(key);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_topology();
+        }
+        command
     }
 
     fn tick_sidebar_files(&mut self) -> bool {
@@ -16812,6 +16930,7 @@ impl App {
         // sessions; the event loop ticks up to ~33x/sec, so gate it behind the
         // same 2s refresh cadence as the directory reload.
         let now = Instant::now();
+        let before = self.sidebar_files_pointer_topology();
         let mut changed = false;
         if self.sidebar_files.refresh_due(now)
             && !self.sidebar_files.is_pinned()
@@ -16819,7 +16938,11 @@ impl App {
         {
             changed |= self.sidebar_files.follow_focused_cwd(&cwd);
         }
-        changed | self.sidebar_files.tick(now)
+        changed |= self.sidebar_files.tick(now);
+        if before != self.sidebar_files_pointer_topology() {
+            self.invalidate_sidebar_pointer_topology();
+        }
+        changed
     }
 
     fn write_window_title(&self, title: &str) -> anyhow::Result<()> {
@@ -17546,12 +17669,14 @@ impl App {
         }
         match &event {
             AppEvent::Mux(MuxEvent::LayoutChanged(_)) => {
+                self.invalidate_sidebar_pointer_topology();
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::NormalizedInput(input) if input.is_routable() => {
                 self.session.refresh_remote_tree_if_stale();
             }
             AppEvent::Mux(MuxEvent::TreeChanged) => {
+                self.invalidate_sidebar_pointer_topology();
                 if self.session.remote_tree_is_stale() {
                     self.session.refresh_remote_tree_if_stale();
                 } else {
@@ -17956,6 +18081,7 @@ impl App {
                 Ok(RenderAction::None)
             }
             AppEvent::Mux(MuxEvent::SurfaceExited(id)) => {
+                self.invalidate_sidebar_pointer_topology();
                 self.retire_surface_state(id);
                 self.remove_surface_from_cached_tree(id);
                 if self.surface_only == Some(id) {
@@ -18070,15 +18196,14 @@ impl App {
                     Ok(RenderAction::Paint)
                 }
             }
-            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => Ok(
-                if self
-                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Agent)
-                {
-                    RenderAction::Paint
-                } else {
-                    RenderAction::None
-                },
-            ),
+            AppEvent::Mux(MuxEvent::AgentChanged { surface, .. }) => {
+                // Agent rows have no native drag capture. Their paint-only
+                // refresh must not cancel a Files or Workspaces gesture in a
+                // neighboring rail.
+                let paint_requested = self
+                    .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Agent);
+                Ok(if paint_requested { RenderAction::Paint } else { RenderAction::None })
+            }
             AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
                 if self
                     .invalidate_projection_rows_for_surface(surface, ProjectionSurfaceChange::Title)
@@ -18862,6 +18987,28 @@ impl App {
     fn invalidate_pointer_topology(&mut self) {
         self.cancel_pointer_interaction();
         self.advance_pointer_focus_generation();
+    }
+
+    /// Native sidebar captures contain rendered row geometry. A tree, machine
+    /// catalog, or file-list update can replace that geometry before the next
+    /// frame. Cancel only those captures so pane, browser, and PTY gestures can
+    /// keep their established pass-through behavior.
+    fn invalidate_sidebar_pointer_topology(&mut self) {
+        if matches!(
+            self.drag,
+            Some(
+                Drag::TabArm { .. }
+                    | Drag::Tab { .. }
+                    | Drag::WorkspaceArm { .. }
+                    | Drag::Workspace { .. }
+                    | Drag::WorkspaceScrollbar { .. }
+                    | Drag::FilesScrollbar { .. }
+                    | Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+            )
+        ) {
+            self.invalidate_pointer_topology();
+        }
     }
 
     #[cfg(test)]
@@ -21992,7 +22139,7 @@ impl App {
                 let cwd = self
                     .focused_surface_cwd()
                     .unwrap_or_else(|| self.sidebar_files.fallback_cwd().to_path_buf());
-                self.sidebar_files.reroot(cwd);
+                self.reroot_sidebar_files(cwd);
                 self.sidebar_followed_surface = self.tree.active_surface();
                 return;
             }
@@ -23482,7 +23629,7 @@ impl App {
                     self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                     self.workspace_rail_follow_selection = true;
                 } else if !self.sync_sidebar_files_to_focus(true) {
-                    self.sidebar_files.refresh();
+                    self.refresh_sidebar_files();
                 }
             }
             self.menu = None;
@@ -23523,7 +23670,7 @@ impl App {
                 self.set_files_rail_selection(FilesRailSelection::File);
                 self.sidebar_followed_surface = None;
                 if !self.sync_sidebar_files_to_focus(true) {
-                    self.sidebar_files.refresh();
+                    self.refresh_sidebar_files();
                 }
             }
             SidebarView::Workspaces => {
@@ -23540,7 +23687,7 @@ impl App {
         // first Escape clears the query and the second one leaves the rail.
         if self.sidebar_files.filter_mode() {
             self.set_files_rail_selection(FilesRailSelection::File);
-            if let Some(command) = self.sidebar_files.handle_key(key) {
+            if let Some(command) = self.handle_sidebar_files_key(key) {
                 self.run_file_command(command);
             }
             return Ok(RenderAction::Draw);
@@ -23611,7 +23758,7 @@ impl App {
         ) {
             self.set_files_rail_selection(FilesRailSelection::File);
         }
-        if let Some(command) = self.sidebar_files.handle_key(key) {
+        if let Some(command) = self.handle_sidebar_files_key(key) {
             self.run_file_command(command);
         }
         Ok(RenderAction::Draw)
@@ -28746,9 +28893,8 @@ mod tests {
         SessionCompletion, SessionCompletionAction, SessionEventSender, ShortcutHelp,
         SidebarActionTarget, SidebarHiddenReason, SidebarHiddenView, SidebarLayout,
         SidebarPluginSyncClaim, SidebarPluginSyncState, SidebarRailScrollState,
-        SidebarSplitGroupPlacement,
-        SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop, StdoutLock,
-        SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
+        SidebarSplitGroupPlacement, SidebarWidthOverrides, StatusTemplateValues, StatusWorkerStop,
+        StdoutLock, SurfaceAttachClaimState, SurfaceResizeDecision, SurfaceResizeOwnership,
         TERMINAL_PAINT_CADENCE, TerminalInput, TerminalPaintPacer, TerminalPointerAdmission,
         TerminalPointerAdmissionResult, TerminalPointerEncoding, TextInput, Toast,
         VIEWPORT_ANIMATION_DURATION, ViewportMotion, ViewportPaneAreaProjection,
@@ -33485,9 +33631,7 @@ mod tests {
         // hit map until the next draw, so dispatch must validate its geometry
         // before accepting the drag.
         app.drag = None;
-        if let Some(SidebarLayoutNode::Split(split)) =
-            app.config.sidebar.layout.first_mut()
-        {
+        if let Some(SidebarLayoutNode::Split(split)) = app.config.sidebar.layout.first_mut() {
             split.weights = vec![3, 1];
         }
         app.sync_layout((100, 24));
@@ -44519,6 +44663,142 @@ mod tests {
             app.handle_left_drag(99, 10).unwrap();
             assert!(app.drag.is_none(), "{action:?} cannot continue an old drag");
         }
+    }
+
+    #[test]
+    fn tree_refresh_cancels_native_sidebar_capture_before_new_rows() {
+        let mux = Mux::new("tree-sidebar-pointer-boundary-test", SurfaceOptions::default());
+        mux.new_workspace(Some("first".into()), None).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.drag = Some(Drag::WorkspaceScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 8 },
+            total_rows: 12,
+            visible_rows: 8,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        mux.new_workspace(Some("second".into()), None).unwrap();
+        app.replace_tree(app.session.tree());
+
+        assert!(app.drag.is_none(), "tree row changes must release old sidebar captures");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn machine_catalog_refresh_cancels_native_sidebar_capture_before_new_rows() {
+        let mux = Mux::new("machine-sidebar-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.drag = Some(Drag::RailResize(RailKind::Machine));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let mut update = provider_machine_ui();
+        update.snapshot.machines.push(MachineDescriptor {
+            key: MachineKey(42),
+            id: "managed-42".into(),
+            name: "second".into(),
+            subtitle: "cloud".into(),
+            status: MachineStatus::Running,
+        });
+        app.apply_machine_ui_update(update);
+
+        assert!(app.drag.is_none(), "machine row changes must release old sidebar captures");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn files_refresh_cancels_native_sidebar_capture_before_new_rows() {
+        let temp = test_temp_dir("files-sidebar-pointer-boundary");
+        std::fs::write(temp.join("first.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-sidebar-pointer-boundary-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(4);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        std::fs::write(temp.join("second.txt"), "x").unwrap();
+        app.refresh_sidebar_files();
+
+        assert!(app.drag.is_none(), "file row changes must release old sidebar captures");
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_keyboard_scroll_cancels_native_sidebar_capture_before_new_rows() {
+        let temp = test_temp_dir("files-sidebar-keyboard-pointer-boundary");
+        for index in 0..5 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("files-sidebar-keyboard-pointer-boundary-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 2 },
+            total_rows: 5,
+            visible_rows: 2,
+            anchor_y: 1,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle_sidebar_files_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        app.handle_sidebar_files_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+
+        assert!(app.drag.is_none(), "keyboard scrolling must release old file captures");
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn agent_update_does_not_cancel_an_unrelated_files_capture() {
+        let temp = test_temp_dir("agent-files-pointer-scope");
+        for index in 0..4 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("agent-files-pointer-scope-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 2 },
+            total_rows: 4,
+            visible_rows: 2,
+            anchor_y: 1,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle(AppEvent::Mux(MuxEvent::AgentChanged {
+            surface: surface.id,
+            state: "working".into(),
+            source: "test".into(),
+            session: None,
+            agent: None,
+            updated_at_ms: 1,
+        }))
+        .unwrap();
+
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
     }
 
     #[test]

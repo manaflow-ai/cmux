@@ -1,6 +1,8 @@
 mod files;
 mod navigation;
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -42,6 +44,10 @@ pub struct FileBrowser {
     listing_error: Option<String>,
     message: Option<String>,
     last_refresh: Instant,
+    /// Monotonic identity for the rendered file rows and viewport geometry.
+    /// App-level pointer capture compares this value instead of rescanning
+    /// every visible path on each event-loop tick.
+    pointer_topology_revision: u64,
 }
 
 impl FileBrowser {
@@ -61,6 +67,7 @@ impl FileBrowser {
             listing_error: None,
             message: None,
             last_refresh: Instant::now(),
+            pointer_topology_revision: 0,
         };
         browser.reload_directory();
         browser
@@ -107,20 +114,32 @@ impl FileBrowser {
         self.scroll_offset = offset.min(self.max_scroll_offset());
         if self.scroll_offset != before {
             self.viewport_follows_selection = false;
+            self.bump_pointer_topology_revision();
         }
         self.scroll_offset != before
+    }
+
+    /// Identity of the file rows and viewport geometry used by native hit
+    /// testing. A changed value means an in-flight Files pointer capture no
+    /// longer has valid row metrics.
+    pub fn pointer_topology_revision(&self) -> u64 {
+        self.pointer_topology_revision
     }
 
     /// Tell the browser how many rows the renderer can show. A resize
     /// re-reveals the selected entry, while steady-state frames preserve a
     /// wheel-positioned viewport.
     pub fn set_viewport_height(&mut self, height: usize) {
+        let before_scroll = self.scroll_offset;
         let changed = self.viewport_height != height;
         self.viewport_height = height;
         self.clamp_scroll_offset();
         if changed {
             self.viewport_follows_selection = true;
             self.ensure_selected_visible();
+        }
+        if changed || self.scroll_offset != before_scroll {
+            self.bump_pointer_topology_revision();
         }
     }
 
@@ -146,6 +165,7 @@ impl FileBrowser {
     }
 
     pub fn select(&mut self, index: usize) {
+        let before_scroll = self.scroll_offset;
         if self.visible.is_empty() {
             self.selected = 0;
         } else {
@@ -153,6 +173,9 @@ impl FileBrowser {
         }
         self.viewport_follows_selection = true;
         self.ensure_selected_visible();
+        if self.scroll_offset != before_scroll {
+            self.bump_pointer_topology_revision();
+        }
     }
 
     /// Move the file viewport by a bounded wheel step. The selected entry is
@@ -167,6 +190,7 @@ impl FileBrowser {
         self.scroll_offset = self.scroll_offset.saturating_add_signed(delta).min(max_offset);
         if self.scroll_offset != before {
             self.viewport_follows_selection = false;
+            self.bump_pointer_topology_revision();
         }
         self.scroll_offset != before
     }
@@ -309,7 +333,7 @@ impl FileBrowser {
             self.selected = self.selected.saturating_add_signed(delta).min(self.visible.len() - 1);
         }
         self.viewport_follows_selection = true;
-        self.ensure_selected_visible();
+        self.ensure_selected_visible_tracked();
     }
 
     fn selected_entry(&self) -> Option<FileEntry> {
@@ -333,7 +357,7 @@ impl FileBrowser {
     }
 
     fn activate_selected(&mut self) -> Option<FileCommand> {
-        self.ensure_selected_visible();
+        self.ensure_selected_visible_tracked();
         let entry = self.selected_entry()?;
         if entry.is_dir() {
             self.navigation.navigate(entry.path);
@@ -345,7 +369,7 @@ impl FileBrowser {
     }
 
     fn cd_selected(&mut self) -> Option<FileCommand> {
-        self.ensure_selected_visible();
+        self.ensure_selected_visible_tracked();
         let Some(entry) = self.selected_entry().filter(FileEntry::is_dir) else {
             self.set_message("select a directory to send cd");
             return None;
@@ -354,7 +378,7 @@ impl FileBrowser {
     }
 
     fn browser_selected(&mut self) -> Option<FileCommand> {
-        self.ensure_selected_visible();
+        self.ensure_selected_visible_tracked();
         let Some(entry) = self.selected_entry().filter(|entry| !entry.is_dir()) else {
             self.set_message("select an .html or .md file to open");
             return None;
@@ -396,6 +420,7 @@ impl FileBrowser {
         self.last_refresh = Instant::now();
         let preserve_viewport = !self.viewport_follows_selection;
         self.apply_filter(selected_path.as_deref(), preserve_viewport);
+        let before_anchor_scroll = self.scroll_offset;
         if preserve_viewport
             && let Some(anchor) = viewport_anchor
             && let Some(offset) =
@@ -403,9 +428,15 @@ impl FileBrowser {
         {
             self.scroll_offset = offset.min(self.max_scroll_offset());
         }
+        // `apply_filter` tracks row identity. The anchor can additionally
+        // move the viewport after filtering, so account for that scalar here.
+        if self.scroll_offset != before_anchor_scroll {
+            self.bump_pointer_topology_revision();
+        }
     }
 
     fn apply_filter(&mut self, selected_path: Option<&Path>, preserve_viewport: bool) {
+        let topology_before = self.pointer_topology_fingerprint();
         self.visible = filtered_indices(&self.entries, self.query.as_str());
         let selected_survives = selected_path.and_then(|path| {
             self.visible.iter().position(|index| self.entries[*index].path == path)
@@ -418,6 +449,7 @@ impl FileBrowser {
             self.viewport_follows_selection = true;
             self.ensure_selected_visible();
         }
+        self.note_pointer_topology_change(topology_before);
     }
 
     fn max_scroll_offset(&self) -> usize {
@@ -445,6 +477,40 @@ impl FileBrowser {
                 self.selected.saturating_add(1).saturating_sub(self.viewport_height);
         }
         self.clamp_scroll_offset();
+    }
+
+    fn ensure_selected_visible_tracked(&mut self) {
+        let before_scroll = self.scroll_offset;
+        self.ensure_selected_visible();
+        if self.scroll_offset != before_scroll {
+            self.bump_pointer_topology_revision();
+        }
+    }
+
+    fn pointer_topology_fingerprint(&self) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        self.navigation.current_dir().hash(&mut hasher);
+        self.viewport_height.hash(&mut hasher);
+        self.scroll_offset.hash(&mut hasher);
+        self.visible.len().hash(&mut hasher);
+        for index in &self.visible {
+            if let Some(entry) = self.entries.get(*index) {
+                entry.path.hash(&mut hasher);
+                entry.is_dir().hash(&mut hasher);
+            }
+        }
+        hasher.finish()
+    }
+
+    fn note_pointer_topology_change(&mut self, before: u64) {
+        let after = self.pointer_topology_fingerprint();
+        if after != before {
+            self.bump_pointer_topology_revision();
+        }
+    }
+
+    fn bump_pointer_topology_revision(&mut self) {
+        self.pointer_topology_revision = self.pointer_topology_revision.wrapping_add(1);
     }
 }
 

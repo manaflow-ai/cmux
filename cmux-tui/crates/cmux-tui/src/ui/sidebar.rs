@@ -312,10 +312,8 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
     let Some(area) = app.machine_sidebar_area(frame.area().height) else { return };
     let Some(machine_ui) = app.machine_ui.as_ref() else { return };
     let machines = machine_ui.snapshot.machines.clone();
-    let connection_phases = machines
-        .iter()
-        .map(|machine| machine_ui.connection_phase(machine.key))
-        .collect::<Vec<_>>();
+    let connection_phases =
+        machines.iter().map(|machine| machine_ui.connection_phase(machine.key)).collect::<Vec<_>>();
     let active = app.selected_machine();
     let capabilities = machine_ui.snapshot.capabilities;
     let selection = machine_ui.selection;
