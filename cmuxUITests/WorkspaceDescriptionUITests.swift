@@ -116,6 +116,62 @@ final class WorkspaceDescriptionUITests: XCTestCase {
         assertSavedDescription(description, in: app)
     }
 
+    func testLeftAndRightMoveWorkspaceDescriptionCaret() {
+        let app = configuredApp()
+        launchAndEnsureForeground(app)
+        prepareTerminalFocusedWorkspace(app)
+
+        app.typeKey("e", modifierFlags: [.command, .shift])
+        let editor = requireDescriptionEditor(
+            in: app,
+            timeout: 5.0,
+            failureMessage: "Expected Cmd+Shift+E to open the workspace description editor before testing horizontal arrows"
+        )
+        clickDescriptionEditor(editor, in: app)
+
+        app.typeText("abc")
+        app.typeKey(XCUIKeyboardKey.leftArrow.rawValue, modifierFlags: [])
+        app.typeText("L")
+        app.typeKey(XCUIKeyboardKey.rightArrow.rawValue, modifierFlags: [])
+        app.typeText("R")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForNonExistence(editor, timeout: 5.0),
+            "Expected Enter to save and dismiss after horizontal caret navigation"
+        )
+        assertSavedDescription("abLcR", in: app)
+    }
+
+    func testUpAndDownMoveWorkspaceDescriptionCaretAcrossLines() {
+        let app = configuredApp()
+        launchAndEnsureForeground(app)
+        prepareTerminalFocusedWorkspace(app)
+
+        app.typeKey("e", modifierFlags: [.command, .shift])
+        let editor = requireDescriptionEditor(
+            in: app,
+            timeout: 5.0,
+            failureMessage: "Expected Cmd+Shift+E to open the workspace description editor before testing vertical arrows"
+        )
+        clickDescriptionEditor(editor, in: app)
+
+        app.typeText("11111")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [.shift])
+        app.typeText("22222")
+        app.typeKey(XCUIKeyboardKey.upArrow.rawValue, modifierFlags: [])
+        app.typeText("U")
+        app.typeKey(XCUIKeyboardKey.downArrow.rawValue, modifierFlags: [])
+        app.typeText("D")
+        app.typeKey(XCUIKeyboardKey.return.rawValue, modifierFlags: [])
+
+        XCTAssertTrue(
+            waitForNonExistence(editor, timeout: 5.0),
+            "Expected Enter to save and dismiss after vertical caret navigation"
+        )
+        assertSavedDescription("11111U\n22222D", in: app)
+    }
+
     func testSidebarRendersSavedDescriptionWithLineBreaks() {
         let app = configuredSidebarApp()
         launchAndActivate(app)
