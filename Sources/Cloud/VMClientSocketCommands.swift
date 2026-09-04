@@ -640,8 +640,14 @@ extension TerminalController {
             "provider": vm.provider,
             "image": vm.image,
             "kind": vm.resolvedKind.rawValue,
-            // What the provider can honor; agents skip Checkpoint/Fork the way the menus do.
-            "capabilities": ["snapshot": vm.capabilities.snapshot, "restore": vm.capabilities.restore, "fork": vm.capabilities.fork],
+            // What the provider can honor; the list response is authoritative and
+            // older action responses retain the model's compatibility defaults.
+            "capabilities": [
+                "snapshot": vm.capabilities.snapshot,
+                "restore": vm.capabilities.restore,
+                "fork": vm.capabilities.fork,
+                "ports": vm.capabilities.ports,
+            ],
             "status": vm.status,
             "createdAt": vm.createdAt,
         ]

@@ -16,12 +16,14 @@
         "snapshot": "この Cloud VM は保存済み状態に対応していません。",
         "restore": "この Cloud VM 種別では保存済み状態の復元に対応していません。",
         "fork": "この Cloud VM は新しい VM へのコピーに対応していません。",
+        "openPort": "この Cloud VM のプロバイダーはマシンのポートをプレビュー URL として公開できません。",
         "default": "この Cloud VM は要求された操作に対応していません。"
       },
       "action": {
         "snapshot": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "restore": "再試行しても解決しません。このマシン種別では作業が永続ホームボリュームに保存されます。",
         "fork": "再試行しても解決しません。`cmux vm new` で新しい VM を作成してください。",
+        "openPort": "再試行しても解決しません。マシン内から（`cmux vm exec`）アクセスするか、ポートを公開できるマシン種別を使ってください。",
         "default": "再試行しても解決しません。`cmux vm ls` でマシンを確認するか、問題が続く場合はサポートに連絡してください。"
       }
     },
@@ -3206,6 +3208,9 @@
     "metaTitle": "cmux Pro が有効になりました",
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
+    "purchaseComplete": "購入が完了しました",
+    "proLabel": "Pro プラン",
+    "dashboardLink": "ダッシュボードへ",
     "emailLabel": "購入メールアドレス",
     "whatUnlockedTitle": "利用できるようになった機能",
     "openCmux": "cmux を開く",
