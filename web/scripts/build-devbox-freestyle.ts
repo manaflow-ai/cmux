@@ -398,7 +398,7 @@ try {
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
   // The image contains only the public verification key. The private signing
   // key stays in the control plane and is never sent through Freestyle.
-  const cloudGrantPublicKeySpki = (() => {
+  const cloudGrantKey = (() => {
     const raw = process.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON;
     if (!raw) return null;
     try {
@@ -409,7 +409,9 @@ try {
         entry && typeof entry === "object" &&
         (entry as { kid?: unknown }).kid === currentKid,
       ) as { spki_der_base64?: unknown } | undefined;
-      return typeof current?.spki_der_base64 === "string" ? current.spki_der_base64 : null;
+      return typeof current?.spki_der_base64 === "string" && currentKid
+        ? { kid: currentKid, spki: current.spki_der_base64 }
+        : null;
     } catch {
       return null;
     }
@@ -427,7 +429,10 @@ try {
     // defaults to 0.0.0.0 for the container providers, whose runtimes may have
     // IPv6 disabled entirely.
     "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
-    ...(cloudGrantPublicKeySpki ? [`Environment=CMUX_REMOTE_GRANT_PUBLIC_KEY_SPKI_BASE64=${cloudGrantPublicKeySpki}`] : []),
+    ...(cloudGrantKey ? [
+      `Environment=CMUX_REMOTE_GRANT_KEY_ID=${cloudGrantKey.kid}`,
+      `Environment=CMUX_REMOTE_GRANT_PUBLIC_KEY_SPKI_BASE64=${cloudGrantKey.spki}`,
+    ] : []),
     // Pane shells inherit this PATH; /usr/local/bin carries the base's Node
     // and every pinned agent as symlinks, so no login shell is needed.
     "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
