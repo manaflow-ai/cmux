@@ -3,8 +3,8 @@ import { randomInt } from "node:crypto";
 /**
  * Three-word machine names (`sleepy-teal-otter`). The slug is generated once
  * per machine at create, never changes, and is unique among the owner's live
- * machines, so it can stand in for the provider id anywhere a person types a
- * machine address. `displayName` stays the free-text label people rename.
+ * machines. `displayName` stays the free-text label people rename, and the
+ * provider id remains the machine address for API and CLI operations.
  *
  * The grammar is deliberately narrow (lowercase ASCII words joined by single
  * hyphens) so the slug is safe in URLs, hostnames, shell arguments, and file

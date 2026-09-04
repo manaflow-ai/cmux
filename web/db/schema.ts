@@ -63,7 +63,7 @@ export const cloudVms = pgTable(
     displayName: text("display_name"),
     // Generated three-word name (`sleepy-teal-otter`, services/vms/vmNaming.ts).
     // Assigned once at create, never renamed, unique among the owner's live
-    // machines, so it doubles as a human-typable machine address. Rows created
+    // machines. The provider VM id remains the machine address. Rows created
     // before the column existed have none and show the provider id instead.
     slug: text("slug"),
     imageId: text("image_id").notNull(),
