@@ -403,6 +403,12 @@ extension CMUXCLI {
 
     // MARK: - Automatic bring-up
 
+    /// The same job the app installs from its Machines panel, which is the
+    /// path people actually take; `VMTunnelAutostart` in Sources/Cloud is the
+    /// reference definition. It is duplicated rather than shared because the
+    /// CLI target does not link the app's Cloud sources, so the label, paths
+    /// and script must be kept in step by hand.
+    ///
     /// launchd job that owns the tunnel once `cmux vpn install` has run.
     static let autostartLabel = "com.cmuxterm.vpn.autostart"
     static var autostartPlistPath: String { "/Library/LaunchDaemons/\(autostartLabel).plist" }

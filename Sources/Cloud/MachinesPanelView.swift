@@ -74,6 +74,7 @@ struct MachinesPanelView: View {
     @ViewBuilder
     private var authenticatedContent: some View {
         controlBar
+        MachinesTunnelBanner(backgroundColor: chromeBackgroundColor)
         if let plan = viewModel.plan, !plan.isPaidPlan, let text = plan.freeAccessBannerText {
             MachinesFreeAccessBanner(
                 text: text,
@@ -929,6 +930,99 @@ struct MachineRowActions {
             alert.beginSheetModal(for: window, completionHandler: respond)
         } else {
             respond(alert.runModal())
+        }
+    }
+}
+
+/// Offers to put this Mac on the Cloud VM private network, and disappears once
+/// it is on.
+///
+/// Cloud machines have no public inbound port, so nothing reaches them until
+/// the tunnel is up — which needs root, which the app cannot take on its own
+/// without a NetworkExtension entitlement. Turning it on installs a launchd
+/// job that owns the tunnel from then on, so this is asked once and never
+/// again, including across reboots. Before this existed the panel simply
+/// showed machines that would not connect, and the fix was a terminal command
+/// nobody could be expected to know.
+private struct MachinesTunnelBanner: View {
+    let backgroundColor: NSColor
+    @State private var isHovered = false
+    @State private var isWorking = false
+    @State private var errorText: String?
+    /// Re-read after the install so the banner can retire itself.
+    @State private var refreshToken = 0
+
+    private var tunnelReady: Bool {
+        _ = refreshToken
+        return VMTunnelAutostart.isInstalled() && VMTunnelManager().wgQuickInterfaceUp()
+    }
+
+    var body: some View {
+        if !tunnelReady {
+            Button {
+                turnOn()
+            } label: {
+                HStack(spacing: 5) {
+                    if isWorking {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "lock.shield")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    Text(errorText ?? String(
+                        localized: "machines.tunnel.banner",
+                        defaultValue: "Cloud machines need this Mac on their private network."
+                    ))
+                    .cmuxFont(size: 11)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    Spacer(minLength: 0)
+                    if !isWorking {
+                        Text(String(localized: "machines.tunnel.turnOn", defaultValue: "Turn On"))
+                            .cmuxFont(size: 11)
+                            .underline(isHovered)
+                    }
+                }
+                .foregroundColor(errorText == nil ? .secondary : Color.orange)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isWorking)
+            .onHover { isHovered = $0 }
+            .background(Color(nsColor: backgroundColor))
+            .help(String(
+                localized: "machines.tunnel.help",
+                defaultValue: "Asks for an administrator once, then keeps the tunnel up automatically — including after a restart."
+            ))
+            .accessibilityIdentifier("MachinesPanel.tunnelBanner")
+        }
+    }
+
+    private func turnOn() {
+        guard !isWorking else { return }
+        isWorking = true
+        errorText = nil
+        Task {
+            let manager = VMTunnelManager()
+            let configPath = manager.configURL.path
+            do {
+                // The config is written by enrollment. Without it the job would
+                // install and then no-op, which looks like it worked.
+                guard FileManager.default.fileExists(atPath: configPath) else {
+                    throw VMTunnelAutostart.InstallError.failed(String(
+                        localized: "machines.tunnel.notEnrolled",
+                        defaultValue: "This Mac is not enrolled yet. Open a cloud machine once, then try again."
+                    ))
+                }
+                try VMTunnelAutostart.installWithAdminPrompt(configPath: configPath)
+            } catch {
+                errorText = String(describing: error)
+            }
+            isWorking = false
+            refreshToken += 1
         }
     }
 }
