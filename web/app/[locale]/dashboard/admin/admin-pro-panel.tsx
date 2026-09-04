@@ -5,6 +5,7 @@ import { useFormatter, useTranslations } from "next-intl";
 import { useId, useRef, useState, type ReactNode } from "react";
 
 import { Modal } from "../../components/modal";
+import { AdminProList, type ProListSnapshotProps } from "./admin-pro-list";
 
 type GrantRecord = {
   readonly plan: string | null;
@@ -87,7 +88,7 @@ const primaryButtonClass =
 const dangerButtonClass =
   "border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground hover:border-foreground disabled:cursor-not-allowed disabled:opacity-50";
 
-export function AdminProPanel() {
+export function AdminProPanel({ initialSnapshot }: { initialSnapshot: ProListSnapshotProps | null }) {
   const t = useTranslations("dashboard.admin");
   const inputId = useId();
   const [query, setQuery] = useState("");
@@ -381,6 +382,16 @@ export function AdminProPanel() {
           </table>
         </ResultSection>
       ) : null}
+
+      <AdminProList
+        initialSnapshot={initialSnapshot}
+        onPickQuery={(value) => {
+          setQuery(value);
+          setNotice(null);
+          void runSearch(value);
+          if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+        }}
+      />
 
       <ConfirmDialog
         t={t}

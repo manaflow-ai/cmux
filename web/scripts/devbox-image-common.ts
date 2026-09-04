@@ -4,16 +4,21 @@
  * (verify-devbox-image.ts), and the promote step (promote-devbox-image.ts).
  *
  * The image source of truth is web/services/vms/images/devbox/: a plain
- * Dockerfile plus the files it COPYs. No daemon binary is baked: cmux-tui is
- * installed by the drivers at create time from the pinned files.cmux.com
- * manifest (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships
- * the cmux-devbox-boot supervisor.
+ * Dockerfile plus the files it COPYs (the desktop layer under desktop/). The
+ * pins the Freestyle replay installs (agent versions, the cua driver, the
+ * desktop apt packages, the Ghostty .deb) are read from the Dockerfile's ARG
+ * and ENV lines here, never kept as a second copy. No daemon binary is baked
+ * into the container image: cmux-tui is installed by the drivers at create
+ * time from the pinned files.cmux.com manifest
+ * (web/services/vms/drivers/cmuxTuiDaemon.ts); the image only ships the
+ * cmux-devbox-boot supervisor.
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { vmImageSizeRank, type VmImageSizeName } from "../services/vms/images/sizes";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const webRoot = path.resolve(__dirname, "..");
@@ -34,15 +39,18 @@ export const DEVBOX_TEMPLATE_FILES = [
 
 /**
  * The desktop layer (ported from the retired Blaxel cmux-devbox image): an
- * openbox/TigerVNC desktop with a tint2 dock, Ghostty, Chrome, Thunar and
- * noVNC on 6901. Baked by build-devbox-freestyle.ts (a full VM with
- * systemd); the container providers stay shell-only.
+ * openbox/TigerVNC desktop with a tint2 dock, Ghostty, Chrome, Thunar, the
+ * accessibility bus for computer-use, and noVNC on 6901
+ * (web/services/vms/images/desktop.ts is the contract). The Dockerfile bakes
+ * it and starts it from cmux-devbox-boot; build-devbox-freestyle.ts installs
+ * the same files and runs it from the cmux-desktop systemd unit.
  */
 export const devboxDesktopDir = path.join(devboxDir, "desktop");
 export const DEVBOX_DESKTOP_FILES = [
   "WALLPAPER.md",
   "cmux-desktop-boot",
   "cmux-desktop.service",
+  "desktop-env.sh",
   "ghostty-cmux.desktop",
   "google-chrome-cmux.desktop",
   "start-vnc.sh",
@@ -51,9 +59,67 @@ export const DEVBOX_DESKTOP_FILES = [
   "wallpaper.jpg",
 ] as const;
 
-/** Ghostty ships no upstream .deb; this community build is pinned by release tag. */
-export const DEVBOX_GHOSTTY_DEB_URL =
-  "https://github.com/mkasberg/ghostty-ubuntu/releases/download/1.3.1-0-ppa2/ghostty_1.3.1-0.ppa2_amd64_24.04.deb";
+export type DevboxDesktopInstall = {
+  /** The checked-in file, relative to the devbox template dir. */
+  readonly source: `desktop/${string}`;
+  /** Where the image carries it. */
+  readonly target: string;
+  readonly mode: number;
+};
+
+/**
+ * Where every desktop file lands in the image. The one map the Dockerfile's
+ * COPY lines, the Freestyle bake's file writes, and the verifier's
+ * byte-identity checks are all pinned to (tests/vm-devbox-desktop.test.ts),
+ * so a path can only change in one place.
+ */
+export const DEVBOX_DESKTOP_INSTALLS: readonly DevboxDesktopInstall[] = [
+  { source: "desktop/google-chrome-cmux.desktop", target: "/etc/cmux/apps/google-chrome-cmux.desktop", mode: 0o644 },
+  { source: "desktop/thunar-cmux.desktop", target: "/etc/cmux/apps/thunar-cmux.desktop", mode: 0o644 },
+  { source: "desktop/ghostty-cmux.desktop", target: "/etc/cmux/apps/ghostty-cmux.desktop", mode: 0o644 },
+  { source: "desktop/tint2rc", target: "/etc/cmux/tint2rc", mode: 0o644 },
+  { source: "desktop/wallpaper.jpg", target: "/usr/share/backgrounds/cmux/wallpaper.jpg", mode: 0o644 },
+  { source: "desktop/start-vnc.sh", target: "/usr/local/bin/start-vnc.sh", mode: 0o755 },
+  { source: "desktop/cmux-desktop-boot", target: "/usr/local/bin/cmux-desktop-boot", mode: 0o755 },
+  { source: "desktop/cmux-desktop.service", target: "/etc/systemd/system/cmux-desktop.service", mode: 0o644 },
+  { source: "desktop/desktop-env.sh", target: "/etc/cmux/desktop-env.sh", mode: 0o644 },
+];
+
+/**
+ * The desktop apt packages, from the Dockerfile's
+ * `ARG CMUX_IMAGE_DESKTOP_PACKAGES="..."` (a quoted list; Docker joins its
+ * continuation lines). The Freestyle bake installs exactly this list.
+ */
+export function devboxDesktopPackages(dockerfile = readDevboxDockerfile()): string[] {
+  const joined = dockerfile.replace(/\\\n/g, " ");
+  const match = /^ARG CMUX_IMAGE_DESKTOP_PACKAGES="([^"]+)"/m.exec(joined);
+  if (!match) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_DESKTOP_PACKAGES");
+  const packages = match[1].split(/\s+/).filter(Boolean);
+  if (packages.length === 0) throw new Error("devbox Dockerfile's CMUX_IMAGE_DESKTOP_PACKAGES is empty");
+  return packages;
+}
+
+/**
+ * Ghostty ships no upstream .deb; the Dockerfile pins a community build for
+ * Ubuntu 24.04 by release tag (`ARG CMUX_IMAGE_GHOSTTY_DEB_URL=`), and the
+ * Freestyle bake installs that exact file.
+ */
+export function devboxGhosttyDebUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_GHOSTTY_DEB_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_GHOSTTY_DEB_URL");
+  return url;
+}
+
+/**
+ * The SHA-256 of that .deb (`ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=`): both
+ * recipes verify the downloaded bytes against it before dpkg runs as root, so
+ * a moved or tampered release asset fails the bake instead of installing.
+ */
+export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");
+  return sha;
+}
 
 const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
   { arg: "CMUX_IMAGE_CLAUDE_CODE_VERSION", pkg: "@anthropic-ai/claude-code", binary: "claude" },
@@ -152,6 +218,36 @@ export function bakePreflight(options: { desktop?: boolean } = {}): { sha: strin
   return { sha: head, epoch };
 }
 
+/**
+ * The platform's name for the machine running the command: the Firecracker
+ * MMDS instance id (EC2-style token, then GET). Empty output means no metadata
+ * service (a container). cmux-devbox-boot keys the daemon identity on it.
+ */
+export const DEVBOX_INSTANCE_ID_COMMAND =
+  "curl -sf -m 2 -H \"X-aws-ec2-metadata-token: $(curl -sf -m 2 -X PUT http://169.254.169.254/latest/api/token -H 'X-metadata-token-ttl-seconds: 60')\" http://169.254.169.254/latest/meta-data/instance-id";
+
+/**
+ * Park the cmux-tui daemon on a machine about to be snapshotted: record this
+ * machine's instance id as the bake id (cmux-devbox-boot keeps the daemon
+ * stopped while the ids match), wait for the supervisor to stop it, wipe the
+ * identity and session state it produced, and prove nothing listens on 1337.
+ * Every machine created from the resulting snapshot has a different id, so
+ * its supervisor starts a daemon with a fresh identity within one tick.
+ * Run as root. Exits 0 only when the daemon is parked.
+ */
+export function devboxParkDaemonCommand(): string {
+  return [
+    `mkdir -p /etc/cmux && ${DEVBOX_INSTANCE_ID_COMMAND} > /etc/cmux/bake-instance-id && test -s /etc/cmux/bake-instance-id`,
+    // [s]tart: the pattern must not match the exec shell carrying this command line.
+    "for i in $(seq 1 30); do pgrep -f 'cmux-tui server [s]tart' >/dev/null || break; sleep 1; done",
+    "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
+    "systemctl is-active cmux-tui-daemon >/dev/null",
+    "rm -rf /root/.local/state/cmux/remote /root/.local/state/cmux-tui /etc/cmux/daemon-instance-id",
+    "! grep -qi ':0539 ' /proc/net/tcp6",
+    "echo daemon-parked-for-clones",
+  ].join(" && ");
+}
+
 export function defaultBakeTag(): string {
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "").replace("T", "-");
   return `devbox-${stamp}`;
@@ -192,6 +288,12 @@ export function bakeMetadata(
 
 export type DevboxProvider = "freestyle";
 export type DevboxImageKind = "desktop" | "base";
+export type DevboxImageSize = {
+  name: VmImageSizeName;
+  cpu: number;
+  memoryMb: number;
+  storageMb: number;
+};
 
 /** One `images[]` row of services/vms/images/manifest.json, as the bake scripts emit it. */
 export type DevboxManifestEntry = {
@@ -204,7 +306,12 @@ export type DevboxManifestEntry = {
   defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
+  /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
+  size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
+  /** The cmux-tui build baked at /root/.cmux/bin/cmux-tui (files.cmux.com manifest pin at bake time). Absent on images that installed it at create time. */
+  cmuxTuiCommit?: string;
+  cmuxTuiSha256?: string;
   /** The cmux commit whose devbox definition produced this image. */
   repoCommit?: string;
   builtAt: string;
@@ -298,16 +405,26 @@ export function writeImageManifest(manifest: DevboxImageManifest, file = imageMa
 export type PromoteImageOptions = {
   /** Kinds this image serves. Each gets its own entry flagged `defaultForKind`. */
   readonly kinds: readonly DevboxImageKind[];
+  /**
+   * Sized snapshots derived from the bake (derive-devbox-sizes.ts): one
+   * manifest entry per kind and size, each the default for that kind+size.
+   * Omitted: a single size-less entry per kind (a pre-ladder bake).
+   */
+  readonly sizes?: readonly { readonly imageId: string; readonly size: DevboxImageSize }[];
   /** Human-readable validation summary appended to `notes`. */
   readonly validationNotes?: string;
 };
 
+function sizeKey(entry: Pick<DevboxManifestEntry, "size">): string {
+  return entry.size?.name ?? "";
+}
+
 /**
  * Appends a verified image to the manifest as the default for every kind in
- * `kinds`, demoting the provider's previous defaults for those kinds. Pure:
- * returns a new manifest and never mutates the input. Existing entries are
- * only ever flag-flipped, never removed, so rollback stays a one-line
- * manifest change.
+ * `kinds` (and every size in `sizes`), demoting the provider's previous
+ * defaults for those kind+size pairs. Pure: returns a new manifest and never
+ * mutates the input. Existing entries are only ever flag-flipped, never
+ * removed, so rollback stays a one-line manifest change.
  */
 export function promoteImageManifestEntry(
   manifest: DevboxImageManifest,
@@ -324,32 +441,51 @@ export function promoteImageManifestEntry(
     throw new Error(`refusing to promote ${entry.imageId}: no kinds given`);
   }
   const kinds = [...new Set(options.kinds)];
+  const variants: Array<{ imageId: string; size?: DevboxImageSize }> =
+    options.sizes && options.sizes.length > 0
+      ? [...options.sizes].sort((a, b) => vmImageSizeRank(a.size.name) - vmImageSizeRank(b.size.name))
+      : [{ imageId: entry.imageId }];
   for (const kind of kinds) {
-    const clash = manifest.images.find((candidate) =>
-      candidate.provider === entry.provider &&
-      candidate.imageId === entry.imageId &&
-      (candidate.kind ?? "base") === kind
-    );
-    if (clash) {
-      throw new Error(
-        `refusing to promote ${entry.provider} ${entry.imageId}: already listed as ${clash.version} (${kind})`,
+    for (const variant of variants) {
+      const clash = manifest.images.find((candidate) =>
+        candidate.provider === entry.provider &&
+        candidate.imageId === variant.imageId &&
+        (candidate.kind ?? "base") === kind &&
+        sizeKey(candidate) === (variant.size?.name ?? "")
       );
+      if (clash) {
+        throw new Error(
+          `refusing to promote ${entry.provider} ${variant.imageId}: already listed as ${clash.version} (${kind}${variant.size ? `, ${variant.size.name}` : ""})`,
+        );
+      }
     }
   }
+  const promotedSizes = new Set<string>(variants.map((variant) => variant.size?.name ?? ""));
   const demoted = manifest.images.map((candidate) => {
     if (candidate.provider !== entry.provider) return candidate;
     const next: DevboxManifestEntry = { ...candidate };
-    if (next.defaultForKind && kinds.includes(next.kind ?? "base")) next.defaultForKind = false;
+    // A sized promotion demotes the provider's size-less defaults too: the
+    // ladder replaces the single-shape image, not just one row of it.
+    const sameSize = promotedSizes.has(sizeKey(next)) || (sizeKey(next) === "" && promotedSizes.size > 0);
+    if (next.defaultForKind && kinds.includes(next.kind ?? "base") && sameSize) next.defaultForKind = false;
     return next;
   });
   const notes = [entry.notes, options.validationNotes].filter(Boolean).join(" ");
-  const promoted = kinds.map((kind): DevboxManifestEntry => ({
-    ...entry,
-    version: kinds.length > 1 && kind !== kinds[0] ? `${entry.version}-${kind}` : entry.version,
-    kind,
-    defaultForKind: true,
-    ...(notes ? { notes } : {}),
-  }));
+  const promoted: DevboxManifestEntry[] = [];
+  for (const kind of kinds) {
+    for (const variant of variants) {
+      const suffix = [variant.size ? variant.size.name : "", kind !== kinds[0] ? kind : ""].filter(Boolean).join("-");
+      promoted.push({
+        ...entry,
+        version: suffix ? `${entry.version}-${suffix}` : entry.version,
+        imageId: variant.imageId,
+        kind,
+        defaultForKind: true,
+        ...(variant.size ? { size: variant.size } : {}),
+        ...(notes ? { notes } : {}),
+      });
+    }
+  }
   return { schemaVersion: manifest.schemaVersion, images: [...demoted, ...promoted] };
 }
 
@@ -370,17 +506,33 @@ export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
     if (entry.kind !== undefined && entry.kind !== "desktop" && entry.kind !== "base") {
       problems.push(`${entry.version}: kind ${String(entry.kind)} is not desktop|base`);
     }
+    if (entry.size !== undefined) {
+      const { name, cpu, memoryMb, storageMb } = entry.size;
+      if (vmImageSizeRank(name) < 0) problems.push(`${entry.version}: size ${String(name)} is not on the ladder`);
+      if (![cpu, memoryMb, storageMb].every((n) => Number.isInteger(n) && n > 0)) {
+        problems.push(`${entry.version}: size ${String(name)} needs positive integer cpu/memoryMb/storageMb`);
+      }
+    }
     if (entry.defaultForKind) {
       if (entry.validationStatus !== "passed") {
         problems.push(`${entry.version}: defaultForKind but validationStatus is ${entry.validationStatus}`);
       }
-      const key = `${entry.provider}/${entry.kind ?? "base"}`;
+      const key = `${entry.provider}/${entry.kind ?? "base"}${entry.size ? `/${entry.size.name}` : ""}`;
       defaults.set(key, [...(defaults.get(key) ?? []), entry]);
     }
   }
   const versions = manifest.images.map((entry) => `${entry.provider}/${entry.version}`);
   for (const dup of versions.filter((v, i) => versions.indexOf(v) !== i)) {
     problems.push(`${dup}: version listed more than once`);
+  }
+  const shapesByKind = new Map<string, Set<string>>();
+  for (const entry of manifest.images) {
+    if (!entry.defaultForKind) continue;
+    const key = `${entry.provider}/${entry.kind ?? "base"}`;
+    shapesByKind.set(key, new Set([...(shapesByKind.get(key) ?? []), entry.size ? "sized" : "size-less"]));
+  }
+  for (const [key, shapes] of shapesByKind) {
+    if (shapes.size > 1) problems.push(`${key}: defaults mix sized and size-less entries`);
   }
   for (const [key, entries] of defaults) {
     if (entries.length > 1) {

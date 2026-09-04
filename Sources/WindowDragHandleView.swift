@@ -813,6 +813,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
     case toggleSidebar
     case showNotifications
     case newTab
+    case newWorkspaceMenu
     case focusHistoryBack
     case focusHistoryForward
 
@@ -824,6 +825,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "titlebarControl.showNotifications"
         case .newTab:
             return "titlebarControl.newTab"
+        case .newWorkspaceMenu:
+            return "titlebarControl.newWorkspaceMenu"
         case .focusHistoryBack:
             return "titlebarControl.focusHistoryBack"
         case .focusHistoryForward:
@@ -839,6 +842,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return String(localized: "titlebar.notifications.accessibilityLabel", defaultValue: "Notifications")
         case .newTab:
             return String(localized: "titlebar.newWorkspace.accessibilityLabel", defaultValue: "New Workspace")
+        case .newWorkspaceMenu:
+            return String(localized: "titlebar.newWorkspace.menu.accessibilityLabel", defaultValue: "New Workspace Menu")
         case .focusHistoryBack:
             return String(localized: "menu.history.focusBack", defaultValue: "Focus Back")
         case .focusHistoryForward:
@@ -854,6 +859,8 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
             return "showNotifications"
         case .newTab:
             return "newTab"
+        case .newWorkspaceMenu:
+            return "newWorkspaceMenu"
         case .focusHistoryBack:
             return "focusHistoryBack"
         case .focusHistoryForward:
@@ -863,7 +870,7 @@ enum MinimalModeSidebarControlActionSlot: Int, CaseIterable {
 
     var acceptsContextMenu: Bool {
         switch self {
-        case .toggleSidebar, .newTab, .focusHistoryBack, .focusHistoryForward:
+        case .toggleSidebar, .newTab, .newWorkspaceMenu, .focusHistoryBack, .focusHistoryForward:
             return true
         case .showNotifications:
             return false

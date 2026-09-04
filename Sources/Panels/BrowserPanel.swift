@@ -2048,6 +2048,7 @@ final class BrowserPanel: Panel, ObservableObject {
     /// AppKit frame host.
     lazy var browserEngineController: BrowserPaneEngineController =
         makeBrowserEngineController()
+    private let surfaceSelectionReader = WebSurfaceSelectionReader()
     let viewportHostView = BrowserViewportHostView(frame: .zero)
     let viewportModel = BrowserViewportModel()
     var browserViewportHostRestorationTask: Task<Void, Never>?
@@ -3058,6 +3059,7 @@ final class BrowserPanel: Panel, ObservableObject {
 
         // Enable JavaScript
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        WebSurfaceSelectionReader.installTracking(in: configuration.userContentController)
         configuration.userContentController.addUserScript(
             WKUserScript(
                 source: BrowserFileSystemAccessBridge.scriptSource,
@@ -7497,6 +7499,19 @@ extension BrowserPanel {
             return try await evaluateChromiumJavaScript(script).anyValue
         }
         return try await webView.evaluateJavaScript(script)
+    }
+
+    func readSurfaceSelection() async -> SurfaceSelectionReadResult {
+        let url = preferredURLStringForOmnibar()
+        guard hasCommittedDocumentSinceWebViewReplacement ||
+                webView.backForwardList.currentItem != nil else {
+            return .snapshot(.none(kind: .browser, url: url))
+        }
+        return await surfaceSelectionReader.read(
+            webView: webView,
+            kind: .browser,
+            url: url
+        )
     }
 
     // MARK: - Find in Page

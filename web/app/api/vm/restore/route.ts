@@ -3,6 +3,7 @@ import { assertVmCreateEnabled } from "../../../../services/vms/config";
 import { defaultProviderId } from "../../../../services/vms/drivers";
 import { isVmCreateDisabledError } from "../../../../services/vms/errors";
 import { captureVmProvisionOutcome } from "../../../../services/vms/observability";
+import { vmModelPlaneGatewayFor } from "../../../../services/vms/modelPlaneGateway";
 import {
   jsonResponse,
   requestedVmTeamIdFromRequest,
@@ -117,6 +118,11 @@ export async function POST(request: Request): Promise<Response> {
           provider,
           snapshotId,
           idempotencyKey,
+          // The restored machine is a new row: it gets its own token and edge rule.
+          modelPlane: vmModelPlaneGatewayFor({
+            teamId: entitlements.billingTeamId,
+            stackUserId: user.id,
+          }),
           timing,
         }));
         return jsonResponse({

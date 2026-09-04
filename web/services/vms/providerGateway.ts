@@ -65,7 +65,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     port: number,
-  ) => Effect.Effect<{ url: string; token: string; openUrl: string; expiresAtMs?: number }, VmProviderOperationError>;
+  ) => Effect.Effect<
+    { url: string; token: string; openUrl: string; expiresAtMs?: number },
+    VmProviderOperationError | VmOperationUnsupportedError
+  >;
   readonly getStats?: (
     provider: ProviderId,
     vmId: string,
@@ -105,7 +108,7 @@ export type VmProviderGatewayShape = {
   readonly supportsPrivateNetworking?: (provider: ProviderId) => boolean;
   readonly ensureNetwork?: (
     provider: ProviderId,
-    options: { slug: string; displayName?: string },
+    options: { slug: string; displayName?: string; heal?: boolean },
   ) => Effect.Effect<ProviderNetwork, VmProviderOperationError>;
   readonly deleteNetwork?: (
     provider: ProviderId,
@@ -205,14 +208,18 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
-  openPort: (provider, vmId, port) =>
-    providerEffect(provider, "openPort", () => {
-      const impl = getProvider(provider);
-      if (!impl.openPort) {
-        throw new Error(`provider ${provider} does not support opening ports`);
-      }
-      return impl.openPort(vmId, port);
-    }),
+  openPort: (provider, vmId, port) => {
+    const impl = getProvider(provider);
+    if (!impl.openPort) {
+      // Keep the capability failure outside `providerEffect`: that adapter
+      // intentionally wraps provider failures as retryable service errors,
+      // while an absent method must reach the 501 non-retryable response.
+      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "openPort" }));
+    }
+    // Keep the method receiver intact: Freestyle's implementation reads its
+    // injected client/exec helpers through `this`.
+    return providerEffect(provider, "openPort", () => impl.openPort!(vmId, port));
+  },
   getStats: (provider, vmId) =>
     providerEffect(provider, "getStats", () => {
       const impl = getProvider(provider);

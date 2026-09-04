@@ -333,23 +333,10 @@ struct CmuxTuiSnapshotParser: Sendable {
 
     /// Listening TCP ports from `ss -ltn` / `netstat -ltn` output (what `cmux vm ports` runs).
     static func listeningPorts(fromSocketListing text: String) -> [Int] {
-        var seen = Set<Int>()
-        var ports: [Int] = []
-        for line in text.split(separator: "\n") {
-            let columns = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            guard columns.count >= 4 else { continue }
-            // `ss`: State Recv-Q Send-Q Local:Port …; `netstat`: Proto Recv-Q Send-Q Local:Port …
-            for column in columns.prefix(5) {
-                guard let colon = column.lastIndex(of: ":"), let port = Int(column[column.index(after: colon)...]),
-                      (1...65535).contains(port), seen.insert(port).inserted else { continue }
-                ports.append(port)
-                break
-            }
-        }
-        return ports.sorted()
+        Set(listeningPortBindings(fromSocketListing: text).map(\.port)).sorted()
     }
 
-    /// Ports the tree hides: the daemon and desktop transports the machine itself owns.
+    /// Transport ports reserved for the daemon and the machine's noVNC display.
     static let internalPorts: Set<Int> = [1337, 5901, 6901, 8080]
 
     static let desktopPort = 6901
@@ -384,17 +371,22 @@ struct CmuxTuiSnapshotParser: Sendable {
         return pool.filter { !($0.kind == .display && pointed.contains($0.id)) } + parsed
     }
 
-    /// A forwarded port, shown as a browser resource.
-    static func portBrowser(machine: SurfaceMachineID, port: Int) -> SurfaceResource {
+    /// A forwarded port, shown as a browser resource. `directURL`, when
+    /// given, is where opening it actually navigates — the machine's private
+    /// address over the WireGuard tunnel, never a provider port-forwarding
+    /// proxy (Freestyle's public platform has none for arbitrary ports). nil
+    /// only for a machine with no private-network address yet, which falls
+    /// back to the legacy provider-minted-endpoint path.
+    static func portBrowser(machine: SurfaceMachineID, port: Int, directURL: String? = nil) -> SurfaceResource {
         SurfaceResource(
-            id: SurfaceResourceID(machine: machine, kind: .browser, key: "port:\(port)"),
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: SurfaceResourceID.portKey(port)),
             title: ":\(port)",
             detail: nil,
             lifecycle: .running,
             agent: nil,
             remoteWorkspace: nil,
             port: port,
-            url: nil
+            url: directURL
         )
     }
 

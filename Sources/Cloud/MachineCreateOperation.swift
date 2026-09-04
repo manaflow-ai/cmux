@@ -3,7 +3,9 @@ import Foundation
 /// One create the person started from the sheet, alive from the moment the
 /// CLI run launches until the machine exists (then the real fleet row takes
 /// over) or the create fails (then the row stays, red, until retried or
-/// dismissed). Rendered by the Machines panel as a pending machine row.
+/// dismissed). A running operation can be cancelled from the row without
+/// waiting for the provider. Rendered by the Machines panel as a pending
+/// machine row.
 struct MachineCreateOperation: Identifiable, Equatable {
     enum Phase: Equatable {
         case running
@@ -15,6 +17,9 @@ struct MachineCreateOperation: Identifiable, Equatable {
     let id: UUID
     let request: MachineCreateRequest
     let startedAt: Date
+    /// Stable machine id emitted as soon as the provider creates it. This is
+    /// the only safe correlation key while the CLI is still opening the machine.
+    var createdMachineID: String? = nil
     var phase: Phase = .running
 
     var isRunning: Bool {
@@ -42,6 +47,28 @@ struct MachineCreateOperation: Identifiable, Equatable {
             parts.append(reason)
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// Whether the machine this create asked for is already a row of its own —
+    /// the fleet list returned it, or the catalog registered it while the CLI
+    /// is still opening it — so the stand-in must step aside instead of showing
+    /// the same machine twice ("troll · Creating…" above "troll"). Both named
+    /// and unnamed creates use the authoritative id emitted by the CLI, and
+    /// remain visible until that id appears in the fleet or catalog. Base setup
+    /// reopens an existing slot and a failed create stays red until retried or
+    /// dismissed, so neither is ever superseded.
+    func isSuperseded(by machines: [MachineSnapshot], catalogMachines: [SurfaceMachineInfo]) -> Bool {
+        guard isRunning, !request.isBaseSetup else { return false }
+        guard let createdMachineID, !createdMachineID.isEmpty else {
+            // A catalog row without the CLI's authoritative id cannot be
+            // correlated safely. Keep the stand-in visible until the progress
+            // marker arrives or the process exits.
+            return false
+        }
+        for machine in machines {
+            if machine.id == createdMachineID { return true }
+        }
+        return catalogMachines.contains { $0.id.cloudMachineID == createdMachineID }
     }
 
     /// The first line of CLI output that explains a failure: blank lines and
