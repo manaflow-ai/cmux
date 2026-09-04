@@ -246,6 +246,18 @@ async function waitForBakedDaemon(provider: string, exec: Exec): Promise<number>
   throw new Error(`${provider}: baked cmux-tui daemon did not come up by itself`);
 }
 
+/** The daemon can report its session ready one tick before its identity files exist. */
+async function waitForDaemonIdentity(exec: Exec): Promise<string> {
+  const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const result = await exec(digest, 30_000);
+    const value = result.output.trim();
+    if (result.exitCode === 0 && /^[0-9a-f]{64}$/.test(value)) return value;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("baked cmux-tui daemon did not publish its per-machine identity after becoming ready");
+}
+
 const provider = process.argv[2] ?? "";
 const image = process.argv[3] ?? "";
 if (!image) {
@@ -320,13 +332,10 @@ if (provider === "freestyle") {
     try {
       const exec2 = execFor(second.vm);
       await waitForBakedDaemon("freestyle", exec2);
-      const digest = `cat ${REMOTE_IDENTITY} ${MACHINE_SECRETS} | sha256sum | cut -c1-64`;
-      const [a, b] = await Promise.all([exec(digest, 30_000), exec2(digest, 30_000)]);
-      const digestA = a.output.trim();
-      const digestB = b.output.trim();
-      if (a.exitCode !== 0 || b.exitCode !== 0 || digestA.length !== 64 || digestB.length !== 64) {
-        throw new Error(`could not read both daemon identities: ${a.output.slice(-200)} / ${b.output.slice(-200)}`);
-      }
+      const [digestA, digestB] = await Promise.all([
+        waitForDaemonIdentity(exec),
+        waitForDaemonIdentity(exec2),
+      ]);
       if (digestA === digestB) {
         throw new Error(`two machines from ${image} share one daemon identity (${digestA.slice(0, 12)}…)`);
       }
