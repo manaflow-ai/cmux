@@ -12,6 +12,7 @@ struct TaskComposerSheet: View {
     @Environment(\.dismiss) var dismiss
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(MobileDisplaySettings.self) private var displaySettings
     @Bindable var store: CMUXMobileShellStore
 
     @State var prompt = ""
@@ -585,6 +586,7 @@ struct TaskComposerSheet: View {
             completedOperationRecovery: blockingCompletedOperationRecovery,
             attachments: attachments,
             showsAttachmentButton: showsAttachmentButton,
+            usesFullLiquidGlass: displaySettings.taskComposerFullLiquidGlass,
             optionsSheet: { optionsSheet },
             openDrafts: openDraftsAction,
             endEditing: resolveCompletedOperationRecoveryAfterEditing,

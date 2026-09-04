@@ -1,5 +1,14 @@
 import type { Span } from "@opentelemetry/api";
-import { recordSpanError, withApiRouteSpan, type MaybeAttributes } from "../telemetry";
+import { trace } from "@opentelemetry/api";
+import { after } from "next/server";
+import {
+  activeTraceIds,
+  forceFlushTraces,
+  recordSpanError,
+  spanTraceIds,
+  withApiRouteSpan,
+  type MaybeAttributes,
+} from "../telemetry";
 import {
   parseNativeStackTokens,
   unauthorized,
@@ -24,19 +33,44 @@ import {
   isVmDatabaseError,
   isVmFreeAccessExpiredError,
   isVmLimitExceededError,
+  isVmModelPlaneError,
   isVmNotFoundError,
   isVmOperationUnsupportedError,
   isVmPrivateNetworkUnavailableError,
   isVmProviderOperationError,
+  isVmResizeInvalidError,
+  isVmResizeInProgressError,
+  isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
+  isVmTunnelEnrollmentBusyError,
+  isVmTunnelEnrollmentUnavailableError,
   vmWorkflowErrorCause,
+  type VmModelPlaneError,
   type VmOperationUnsupportedError,
 } from "./errors";
 import { recordSpanTiming } from "./timings";
 import { authProviderErrorResponse } from "./authErrors";
-import { reportVmErrorResponse, VM_ERROR_CODE_HEADER } from "./observability";
-import { vmRequestLocale, vmRequiresProCopy, vmUnsupportedCopy } from "./vmErrorMessages";
+import {
+  captureVmRequestOutcome,
+  isPolledVmOperation,
+  reportVmErrorResponse,
+  VM_ERROR_CODE_HEADER,
+} from "./observability";
+import {
+  annotateVmRequestBilling,
+  runWithVmRequestContext,
+  vmClientIdentityFromRequest,
+  vmIdFromRequestPath,
+  type VmRequestContext,
+} from "./requestContext";
+import {
+  vmRequestLocale,
+  vmRequiresProCopy,
+  vmSharedResourceCopy,
+  vmUnsupportedCopy,
+  vmUnsupportedOperationKey,
+} from "./vmErrorMessages";
 import type { Locale } from "../../i18n/routing";
 
 /** Bearer + refresh token pair the mac app stashes in keychain. */
@@ -61,28 +95,63 @@ export async function withAuthedVmApiRoute(
   failureLog: string,
   handler: (context: AuthedVmRouteContext) => Promise<Response>,
 ): Promise<Response> {
-  return withApiRouteSpan(
+  const operation = typeof attributes["cmux.vm.operation"] === "string"
+    ? attributes["cmux.vm.operation"]
+    : "unknown";
+  const requestContext: VmRequestContext = {
+    route,
+    method: request.method,
+    operation,
+    startedAtMs: performance.now(),
+    client: vmClientIdentityFromRequest(request),
+    vercelRequestId: request.headers.get("x-vercel-id")?.slice(0, 120) ?? undefined,
+    vmId: vmIdFromRequestPath(request, route),
+  };
+  return runWithVmRequestContext(requestContext, () => withApiRouteSpan(
     request,
     route,
     { "cmux.subsystem": "vm-cloud", ...attributes },
     async (span) => {
+      const ids = spanTraceIds(span);
+      if (ids) {
+        requestContext.traceId = ids.traceId;
+        requestContext.spanId = ids.spanId;
+      }
       let responseFinalizer: ((response: Response) => void) | null = null;
       const setResponseFinalizer = (finalizer: ((response: Response) => void) | null) => {
         responseFinalizer = finalizer;
       };
       const finalize = (response: Response): Response => {
-        if (!responseFinalizer) return response;
+        if (responseFinalizer) {
+          try {
+            responseFinalizer(response);
+          } catch (err) {
+            recordSpanError(span, err);
+            console.error(`${failureLog}: response finalizer failed`, err);
+          }
+        }
+        // Every VM response, every route: outcome + latency to the span and
+        // PostHog, then a bounded span flush so an error-heavy instance cannot
+        // lose the trace the PostHog row points at.
         try {
-          responseFinalizer(response);
+          captureVmRequestOutcome({
+            context: requestContext,
+            response,
+            span,
+            durationMs: performance.now() - requestContext.startedAtMs,
+          });
         } catch (err) {
           recordSpanError(span, err);
-          console.error(`${failureLog}: response finalizer failed`, err);
+          console.error(`${failureLog}: outcome capture failed`, err);
+        }
+        if (response.status >= 400 || !isPolledVmOperation(operation)) {
+          scheduleTraceFlush();
         }
         return response;
       };
 
       try {
-        const routeStartedAtMs = performance.now();
+        const routeStartedAtMs = requestContext.startedAtMs;
         const bearer = parseBearer(request);
         const authStart = performance.now();
         let user: AuthedUser | null;
@@ -93,9 +162,18 @@ export async function withAuthedVmApiRoute(
         }
         const authDurationMs = performance.now() - authStart;
         recordSpanTiming(span, "auth", authDurationMs);
-        if (!user) return unauthorized();
+        if (!user) return finalize(unauthorized());
+        requestContext.userId = user.id;
+        // The caller's default billing scope. Routes that resolve entitlements
+        // refine it (a requested team, the normalized plan) through
+        // resolveVmAccountScope below.
+        annotateVmRequestBilling({
+          billingTeamId: user.billingTeamId,
+          billingCustomerType: user.billingCustomerType,
+          planId: user.billingPlanId ?? user.userBillingPlanId,
+        });
         const mutationForbidden = enforceBrowserMutationProtection(request, bearer);
-        if (mutationForbidden) return mutationForbidden;
+        if (mutationForbidden) return finalize(mutationForbidden);
         return finalize(await handler({ user, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }));
       } catch (err) {
         recordSpanError(span, err);
@@ -111,7 +189,19 @@ export async function withAuthedVmApiRoute(
         }));
       }
     },
-  );
+  ));
+}
+
+function scheduleTraceFlush(): void {
+  const flush = () => forceFlushTraces();
+  try {
+    // Past the response, inside the request lifecycle (Vercel keeps the
+    // function alive for `after` callbacks). Outside a request scope `after`
+    // throws; there is no batch exporter to flush there.
+    after(flush);
+  } catch {
+    // Not in a request scope (tests, scripts).
+  }
 }
 
 /**
@@ -119,10 +209,14 @@ export async function withAuthedVmApiRoute(
  * promise settles but turbopack reports "No response is returned from route handler").
  * Use `new Response(JSON.stringify(...), { ... })` explicitly instead.
  */
-export function jsonResponse(data: unknown, status = 200): Response {
+export function jsonResponse(
+  data: unknown,
+  status = 200,
+  headers: Readonly<Record<string, string>> = {},
+): Response {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...headers },
   });
 }
 
@@ -170,6 +264,7 @@ export type VmLifecyclePhase =
   | "fork"
   | "snapshot"
   | "resume"
+  | "resize"
   | "attach"
   | "ssh"
   | "network"
@@ -181,6 +276,10 @@ export type VmLifecyclePhase =
 
 export function vmErrorResponse(input: VmErrorResponseInput): Response {
   const retryAfterSeconds = normalizedRetryAfterSeconds(input.retryAfterSeconds);
+  // The trace id is the support reference: a user pastes it, an operator opens
+  // the exact Axiom trace, PostHog row and Sentry event. Safe to expose (random
+  // 128-bit id, no meaning outside our telemetry).
+  const traceId = activeTraceIds()?.traceId;
   const payload = {
     ...(input.extra ?? {}),
     ...(input.details ? { details: {
@@ -199,11 +298,13 @@ export function vmErrorResponse(input: VmErrorResponseInput): Response {
       severity: input.severity ?? (input.status >= 500 ? "warning" : "error"),
       retryable: input.retryable ?? false,
       ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
+      ...(traceId ? { traceId } : {}),
     },
     error: input.error,
     message: input.message,
     reason: input.reason ?? input.message,
     action: input.action,
+    ...(traceId ? { traceId } : {}),
   };
   const headers: Record<string, string> = {};
   if (retryAfterSeconds !== undefined) {
@@ -314,12 +415,14 @@ function resolveVmAccountScope(
 ): VmRouteAccountScope {
   const requestedBillingTeamId = options.requestedBillingTeamId ?? requestedVmTeamIdFromRequest(request);
   try {
+    const entitlements = resolveVmEntitlements(user, process.env, {
+      requestedBillingTeamId,
+    });
+    annotateVmRequestBilling(entitlements);
     return {
       ok: true,
       requestedBillingTeamId,
-      entitlements: resolveVmEntitlements(user, process.env, {
-        requestedBillingTeamId,
-      }),
+      entitlements,
     };
   } catch (err) {
     if (isVmBillingTeamResolutionError(err)) {
@@ -415,6 +518,50 @@ export function vmActiveLimitExceededResponse(input: {
   });
 }
 
+/** Translate a plan-wide resource pool rejection into a stable client error. */
+export async function vmSharedResourceLimitExceededResponse(
+  err: {
+    readonly resource: "vcpus" | "memoryMb" | "diskMb";
+    readonly used: number;
+    readonly requested: number;
+    readonly limit: number;
+    readonly phase?: VmLifecyclePhase;
+  },
+  phase: VmLifecyclePhase = err.phase ?? "create",
+  locale: Locale = "en",
+): Promise<Response> {
+  const resource = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "memory"
+      : "disk";
+  const unit = err.resource === "vcpus"
+    ? "vCPU"
+    : err.resource === "memoryMb"
+      ? "MB of memory"
+      : "MB of disk";
+  const copy = await vmSharedResourceCopy(locale, {
+    resource,
+    oversized: err.requested > err.limit,
+  });
+  return vmErrorResponse({
+    error: "vm_shared_resource_limit_exceeded",
+    status: 409,
+    message: copy.message,
+    action: copy.action,
+    phase,
+    retryable: false,
+    details: {
+      resource: err.resource,
+      used: err.used,
+      requested: err.requested,
+      limit: err.limit,
+      unit,
+      shared: true,
+    },
+  });
+}
+
 export type VmCreateLikeOperation = "fork" | "restore";
 
 /**
@@ -422,14 +569,15 @@ export type VmCreateLikeOperation = "fork" | "restore";
  * Operation-specific retry guidance stays at the route boundary, while the response
  * shape and billing errors remain centralized here.
  */
-export function vmCreateLikeErrorResponse(
+export async function vmCreateLikeErrorResponse(
   err: unknown,
   input: {
     readonly operation: VmCreateLikeOperation;
     readonly planId: string;
     readonly retryAction: string;
+    readonly locale?: Locale;
   },
-): Response | null {
+): Promise<Response | null> {
   if (isVmCreateInProgressError(err)) {
     return vmErrorResponse({
       error: "vm_create_in_progress",
@@ -455,6 +603,9 @@ export function vmCreateLikeErrorResponse(
       retryAction: input.retryAction,
     });
   }
+  if (isVmSharedResourceLimitExceededError(err)) {
+    return vmSharedResourceLimitExceededResponse(err, input.operation, input.locale ?? "en");
+  }
   if (input.operation === "restore" && isVmSnapshotNotFoundError(err)) {
     return vmErrorResponse({
       error: "vm_snapshot_not_found",
@@ -474,10 +625,80 @@ export function vmCreateLikeErrorResponse(
       details: { amount: err.amount },
     });
   }
+  if (isVmModelPlaneError(err)) {
+    return vmModelPlaneErrorResponse(err, input.operation);
+  }
+  return null;
+}
+
+/**
+ * The machine could not be wired to coderouter, so no provider machine was
+ * created. Every model-plane failure is a coderouter outage (retry); there
+ * is no plan gate on the model plane.
+ */
+export function vmModelPlaneErrorResponse(
+  _err: VmModelPlaneError,
+  phase: "create" | VmCreateLikeOperation = "create",
+): Response {
+  return vmErrorResponse({
+    error: "vm_model_plane_unavailable",
+    status: 503,
+    message: "cmux could not connect this Cloud VM to coderouter, so no machine was created.",
+    reason: "coderouter is unavailable.",
+    action: "coderouter is unavailable; retry in a minute. If it keeps failing, contact support.",
+    phase,
+    retryable: true,
+    retryAfterSeconds: 30,
+    displayTitle: "coderouter is unavailable",
+    displayMessage: "Retrying is safe. cmux could not mint this machine's coderouter access.",
+    details: { retryable: true },
+  });
+}
+
+/** Translate private-network tunnel enrollment failures into the public VM error contract. */
+function vmTunnelErrorResponse(error: unknown): Response | null {
+  if (isVmTunnelNotFoundError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_not_found",
+      status: 404,
+      message: "This computer is not enrolled on your Cloud VM network.",
+      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
+      phase: "network",
+      retryable: false,
+      details: { deviceFingerprint: error.deviceFingerprint },
+    });
+  }
+
+  if (isVmTunnelEnrollmentBusyError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_busy",
+      status: 409,
+      message: "This computer is already being enrolled on the Cloud VM network.",
+      action: "Retry the same enrollment request after the current request finishes.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: error.retryAfterSeconds,
+    });
+  }
+
+  if (isVmTunnelEnrollmentUnavailableError(error)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_unavailable",
+      status: 503,
+      message: "Cloud VM network enrollment is temporarily unavailable.",
+      action: "Retry after the Cloud VM service has completed its database upgrade.",
+      reason: error.reason,
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 30,
+    });
+  }
+
   return null;
 }
 
 /** Translate a normalized workflow failure into the public VM error contract. */
+// oxlint-disable-next-line complexity -- Centralized dispatch preserves the public error precedence contract.
 export async function vmWorkflowErrorResponse(
   err: unknown,
   options: { readonly locale?: Locale } = {},
@@ -521,6 +742,43 @@ export async function vmWorkflowErrorResponse(
     });
   }
 
+  if (isVmModelPlaneError(workflowError)) {
+    return vmModelPlaneErrorResponse(workflowError);
+  }
+
+  if (isVmSharedResourceLimitExceededError(workflowError)) {
+    return vmSharedResourceLimitExceededResponse(workflowError, workflowError.phase ?? "create", options.locale ?? "en");
+  }
+
+  if (isVmResizeInvalidError(workflowError)) {
+    const requested = Math.round(workflowError.requestedMb / 1024);
+    const current = Math.round(workflowError.currentMb / 1024);
+    const max = Math.round(workflowError.maxMb / 1024);
+    return vmErrorResponse({
+      error: "vm_resize_invalid",
+      status: 400,
+      message: workflowError.reason === "below_current"
+        ? `Cloud VM disk can only grow. It is already ${current} GiB.`
+        : `Cloud VM disk cannot exceed ${max} GiB.`,
+      action: `Request a disk size between ${current} GiB and ${max} GiB.`,
+      phase: "resize",
+      retryable: false,
+      details: { requestedGiB: requested, currentGiB: current, maxGiB: max },
+    });
+  }
+
+  if (isVmResizeInProgressError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_resize_in_progress",
+      status: 409,
+      message: "A disk resize is already running for this Cloud VM.",
+      action: "Wait for the current resize to finish, then retry.",
+      phase: "resize",
+      retryable: true,
+      retryAfterSeconds: 5,
+    });
+  }
+
   if (isVmPrivateNetworkUnavailableError(workflowError)) {
     return vmErrorResponse({
       error: "vm_private_network_unavailable",
@@ -538,17 +796,8 @@ export async function vmWorkflowErrorResponse(
     });
   }
 
-  if (isVmTunnelNotFoundError(workflowError)) {
-    return vmErrorResponse({
-      error: "vm_tunnel_not_found",
-      status: 404,
-      message: "This computer is not enrolled on your Cloud VM network.",
-      action: "Enroll it with POST /api/vm/tunnel, then bring the WireGuard tunnel up.",
-      phase: "network",
-      retryable: false,
-      details: { deviceFingerprint: workflowError.deviceFingerprint },
-    });
-  }
+  const tunnelResponse = vmTunnelErrorResponse(workflowError);
+  if (tunnelResponse) return tunnelResponse;
 
   if (isVmCreateDisabledError(workflowError)) {
     return vmErrorResponse({
@@ -662,10 +911,7 @@ async function vmUnsupportedOperationResponse(
   locale: Locale,
 ): Promise<Response> {
   const phase = vmPhaseForOperation(error.operation);
-  const copy = await vmUnsupportedCopy(
-    phase === "snapshot" || phase === "restore" || phase === "fork" ? phase : "default",
-    locale,
-  );
+  const copy = await vmUnsupportedCopy(vmUnsupportedOperationKey(error.operation), locale);
   return vmErrorResponse({
     error: "vm_operation_unsupported",
     status: 501,
@@ -780,6 +1026,7 @@ function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("fork")) return "fork";
   if (operation.includes("snapshot")) return "snapshot";
   if (operation.includes("resume")) return "resume";
+  if (operation.includes("resize")) return "resize";
   if (operation.includes("exec")) return "exec";
   if (operation.includes("destroy")) return "destroy";
   if (operation.includes("getStatus")) return "status";
@@ -950,4 +1197,26 @@ function allowedBrowserOrigins(): Set<string> {
 function normalizedOptionalString(value: string | null | undefined): string | null {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+/**
+ * Run best-effort work once the response has been sent. Vercel keeps the
+ * function alive for `after` callbacks; outside a request scope (tests, a
+ * plain Node server) `after` throws, and the work runs detached instead.
+ * Failures are logged, never surfaced to the response that already left.
+ */
+export function runAfterResponse(work: () => Promise<void>): void {
+  const guarded = () => work().catch((err) => console.error("[VM] deferred work failed", err));
+  let mode: "after" | "detached" = "after";
+  try {
+    after(guarded);
+  } catch (err) {
+    // Next throws E91 when the platform gave it no `waitUntil`. Detached work
+    // then dies the moment the function is frozen, so say so where it can be
+    // seen: a log line before the response and an attribute on the request span.
+    mode = "detached";
+    console.warn(`[VM] after() unavailable, running deferred work detached: ${err instanceof Error ? err.message : String(err)}`);
+    void guarded();
+  }
+  trace.getActiveSpan()?.setAttribute("cmux.after_response.mode", mode);
 }

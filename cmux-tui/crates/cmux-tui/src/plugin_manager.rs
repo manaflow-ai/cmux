@@ -498,6 +498,7 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(test)]
 fn is_sensitive_env_name(name: &str) -> bool {
     let name = name.to_ascii_uppercase();
     name.contains("TOKEN")
@@ -1068,12 +1069,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn plugin_build_command_terminates_after_timeout() {
-        let mut command = std::process::Command::new("sh");
+        let mut command = Command::new("sh");
         command.args(["-c", "while :; do :; done"]);
-        let started = std::time::Instant::now();
-        let error = run_plugin_build_command(&mut command, std::time::Duration::from_millis(20))
+        let started = Instant::now();
+        let error = run_plugin_build_command(&mut command, Duration::from_millis(20))
             .expect_err("a busy build must time out");
-        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(2));
         assert!(error.to_string().contains("timed out"));
     }
 }

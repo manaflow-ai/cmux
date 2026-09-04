@@ -3,18 +3,16 @@ import { describe, expect, mock, test } from "bun:test";
 import {
   __test as analyticsTest,
   captureCoderouterEvent,
+  captureCoderouterRawBatch,
 } from "../services/coderouter/analytics";
 import {
-  coderouterTeamAnalyticsId,
-  coderouterUserAnalyticsId,
-} from "../services/coderouter/analyticsIdentity";
-import { __test as usageTest } from "../services/coderouter/responseUsage";
+  __test as usageTest,
+  isStreamingResponse,
+} from "../services/coderouter/responseUsage";
 
-const scopeSecret = "test-only-scope-secret-at-least-32-bytes";
-const isolatedConfig = () => ({
-  ingestHost: "https://coderouter.i.posthog.test",
-  projectKey: "phc_coderouter_only",
-  scopeSecret,
+const config = () => ({
+  ingestHost: "https://posthog.test",
+  projectKey: "phc_cmux_test",
 });
 
 function collector() {
@@ -30,7 +28,7 @@ function collector() {
     fetch: posthogFetch as typeof fetch,
     defer: (task: Promise<unknown>) => deferred.push(task),
     enabled: () => true,
-    isolatedConfig,
+    config,
   };
   return {
     bodies,
@@ -41,7 +39,7 @@ function collector() {
 }
 
 describe("coderouter analytics", () => {
-  test("sends content-free AI Observability usage only to the isolated project", async () => {
+  test("does not send model usage to PostHog", async () => {
     const captured = collector();
     captureCoderouterEvent(
       {
@@ -68,54 +66,11 @@ describe("coderouter analytics", () => {
     );
 
     await Promise.all(captured.deferred);
-    expect(captured.urls).toEqual([
-      "https://coderouter.i.posthog.test/batch/",
-    ]);
-    const payload = JSON.parse(captured.bodies[0]!) as {
-      api_key: string;
-      batch: Array<{
-        event: string;
-        distinct_id: string;
-        properties: Record<string, unknown>;
-      }>;
-    };
-    const event = payload.batch[0]!;
-    expect(payload.api_key).toBe("phc_coderouter_only");
-    expect(event.event).toBe("$ai_generation");
-    expect(event.distinct_id).toBe(
-      coderouterTeamAnalyticsId("team-raw", scopeSecret),
-    );
-    expect(event.properties).toMatchObject({
-      $process_person_profile: false,
-      $geoip_disable: true,
-      $ai_model: "gpt-5.6-terra",
-      $ai_provider: "openai",
-      $ai_input_tokens: 8,
-      $ai_cache_read_input_tokens: 3,
-      $ai_output_tokens: 2,
-      coderouter_total_tokens: 10,
-      product: "coderouter",
-      schema_version: 3,
-      service_version: "coderouter-web-v1",
-    });
-    const serialized = captured.bodies[0]!;
-    for (const raw of [
-      "team-raw",
-      "stack-user-raw",
-      "secret prompt",
-      "secret output",
-      "crt_secret",
-      "buyer@example.com",
-      "acct_secret",
-      "private.example",
-      "authorization secret",
-      "private-customer-label",
-    ]) {
-      expect(serialized).not.toContain(raw);
-    }
+    expect(captured.urls).toEqual([]);
+    expect(captured.bodies).toEqual([]);
   });
 
-  test("routes ops events only to isolated config and HMACs team and user separately", async () => {
+  test("keys ops events by the Stack user and forwards only the closed schema", async () => {
     const captured = collector();
     captureCoderouterEvent(
       {
@@ -145,37 +100,28 @@ describe("coderouter analytics", () => {
       }>;
     };
     const event = payload.batch[0]!;
-    const teamScope = coderouterTeamAnalyticsId("raw-team-id", scopeSecret);
-    const userScope = coderouterUserAnalyticsId(
-      "raw-stack-user-id",
-      scopeSecret,
-    );
-    expect(payload.api_key).toBe("phc_coderouter_only");
-    expect(event.distinct_id).toBe(teamScope);
+    expect(payload.api_key).toBe("phc_cmux_test");
+    expect(event.distinct_id).toBe("raw-stack-user-id");
     expect(event.properties).toMatchObject({
       provider: "codex",
       source: "native_api",
       already_exists: false,
-      coderouter_team_scope: teamScope,
-      coderouter_user_scope: userScope,
-      $process_person_profile: false,
+      user_id: "raw-stack-user-id",
+      team_id: "raw-team-id",
       $geoip_disable: true,
     });
     expect(Object.keys(event.properties).sort()).toEqual([
       "$geoip_disable",
       "$insert_id",
-      "$process_person_profile",
       "already_exists",
-      "coderouter_team_scope",
-      "coderouter_user_scope",
       "product",
       "provider",
       "schema_version",
       "service_version",
       "source",
+      "team_id",
+      "user_id",
     ]);
-    expect(captured.bodies[0]).not.toContain("raw-stack-user-id");
-    expect(captured.bodies[0]).not.toContain("raw-team-id");
     expect(captured.bodies[0]).not.toContain("raw-account-id");
     expect(captured.bodies[0]).not.toContain("Personal account");
     expect(captured.bodies[0]).not.toContain("raw-token");
@@ -183,13 +129,13 @@ describe("coderouter analytics", () => {
     expect(captured.bodies[0]).not.toContain("free-form error");
   });
 
-  test("fails closed for usage and ops when isolated configuration is missing", () => {
+  test("fails closed for usage and ops when the project key is missing", () => {
     const defer = mock(() => {});
     const dependencies = {
       fetch,
       defer,
       enabled: () => true,
-      isolatedConfig: () => null,
+      config: () => null,
     };
 
     captureCoderouterEvent(
@@ -211,52 +157,47 @@ describe("coderouter analytics", () => {
     expect(defer).not.toHaveBeenCalled();
   });
 
-  test("retains zero-token failures as separate route-health events", async () => {
+  test("drops zero-token completions and unauthenticated events keep no person", async () => {
     const captured = collector();
     captureCoderouterEvent(
       {
-        event: "coderouter_route_health",
-        teamId: "team-1",
-        properties: {
-          provider: "codex",
-          agent: "pi",
-          outcome: "no_usable_account",
-          failure_stage: "account_selection",
-          status: 503,
-          duration_ms: 734,
-          attempt_count: 0,
-          refresh_retry_count: 0,
-          response_streamed: false,
-          request_id: "must-not-leak",
-        },
-      },
-      captured.dependencies,
-    );
-    captureCoderouterEvent(
-      {
         event: "coderouter_model_request_completed",
+        userId: "stack-user-1",
         teamId: "team-1",
         properties: { provider: "codex", total_tokens: 0 },
       },
       captured.dependencies,
     );
-
+    captureCoderouterEvent(
+      {
+        event: "coderouter_auth_rejected",
+        properties: { surface: "responses", reason: "invalid_route_token", request_id: "must-not-leak" },
+      },
+      captured.dependencies,
+    );
     await Promise.all(captured.deferred);
     expect(captured.bodies).toHaveLength(1);
     const event = JSON.parse(captured.bodies[0]!).batch[0];
-    expect(event.event).toBe("coderouter_route_health");
+    expect(event.event).toBe("coderouter_auth_rejected");
+    expect(event.distinct_id).toBe("coderouter-server");
     expect(event.properties).toMatchObject({
-      provider: "codex",
-      agent: "pi",
-      outcome: "no_usable_account",
-      failure_stage: "account_selection",
-      status_class: "5xx",
-      latency_bucket: "500_1999ms",
-      attempt_bucket: "0",
-      refresh_bucket: "0",
-      response_streamed: false,
+      surface: "responses",
+      reason: "invalid_route_token",
+      $process_person_profile: false,
     });
     expect(captured.bodies[0]).not.toContain("must-not-leak");
+  });
+
+  test("keeps token and VM usage out of PostHog", () => {
+    expect(
+      analyticsTest.eventProperties("coderouter_auth_rejected", {
+        surface: "responses",
+        reason: "vm_mismatch",
+      }),
+    ).toEqual({ surface: "responses", reason: "vm_mismatch" });
+    const captured = collector();
+    captureCoderouterEvent({ event: "coderouter_model_request_completed", userId: "u", teamId: "t", properties: { total_tokens: 10, vm_id: "vm-1" } }, captured.dependencies);
+    expect(captured.bodies).toHaveLength(0);
   });
 
   test("rejects invalid enum values and bounds numeric dimensions", () => {
@@ -267,58 +208,33 @@ describe("coderouter analytics", () => {
       }),
     ).toBeNull();
     expect(
-      analyticsTest.eventProperties("coderouter_route_health", {
-        provider: "codex",
-        agent: "pi",
-        outcome: "success",
-        failure_stage: "none",
-        status: Number.POSITIVE_INFINITY,
+      analyticsTest.eventProperties("coderouter_account_status_viewed", {
+        account_count: Number.POSITIVE_INFINITY,
         duration_ms: -1,
-        attempt_count: 99_999,
-        refresh_retry_count: Number.NaN,
       }),
-    ).toMatchObject({
-      status_class: "unknown",
-      latency_bucket: "unknown",
-      attempt_bucket: "0",
-      refresh_bucket: "0",
-    });
+    ).toMatchObject({ account_count_bucket: "0", latency_bucket: "unknown" });
   });
 
-  test("uses keyed, domain-separated team and user pseudonyms", () => {
-    const team = coderouterTeamAnalyticsId("same-raw-id", scopeSecret);
-    const user = coderouterUserAnalyticsId("same-raw-id", scopeSecret);
-    expect(team).not.toBe(user);
-    expect(team).not.toContain("same-raw-id");
-    expect(user).not.toContain("same-raw-id");
-    expect(team).not.toBe(
-      coderouterTeamAnalyticsId(
-        "same-raw-id",
-        "a-different-test-scope-secret-32-bytes",
-      ),
-    );
-  });
-
-  test("pre-calculates versioned long-context API-equivalent cost", () => {
-    const properties = analyticsTest.aiUsageProperties(
-      {
-        provider: "codex",
-        model: "gpt-5.6-terra",
-        input_tokens: 300_000,
-        cached_input_tokens: 0,
-        output_tokens: 100_000,
-        total_tokens: 400_000,
-      },
-      "coderouter-team-test",
-    );
-    expect(properties).not.toBeNull();
-    expect(properties!.$ai_total_cost_usd).toBe(3.75);
-    expect(properties!.coderouter_priced_tokens).toBe(400_000);
-    expect(properties!.coderouter_unpriced_tokens).toBe(0);
+  test("does not calculate or transmit PostHog token costs", () => {
+    const captured = collector();
+    captureCoderouterEvent({ event: "coderouter_model_request_completed", userId: "u", teamId: "t", properties: { input_tokens: 300_000, output_tokens: 100_000, total_tokens: 400_000 } }, captured.dependencies);
+    expect(captured.bodies).toHaveLength(0);
   });
 });
 
 describe("streaming model usage extraction", () => {
+  test("classifies streaming from the response media type, not body presence", () => {
+    expect(isStreamingResponse(new Response("{}", {
+      headers: { "content-type": "application/json" },
+    }))).toBe(false);
+    expect(isStreamingResponse(new Response("data: {}\n\n", {
+      headers: { "content-type": "text/event-stream; charset=utf-8" },
+    }))).toBe(true);
+    expect(isStreamingResponse(new Response("{}", {
+      headers: { "content-type": "application/x-ndjson" },
+    }))).toBe(true);
+  });
+
   test("extracts token counts without retaining prompt or output properties", () => {
     const usage = usageTest.usageFromTail(
       [
@@ -345,4 +261,68 @@ describe("streaming model usage extraction", () => {
       usageTest.usageFromTail('{"usage":{"input_tokens":"many"}}'),
     ).toBeNull();
   });
+});
+
+describe("coderouter raw trace batch", () => {
+  test("keeps only schema keys, keys by the Stack user, and defaults the identity", async () => {
+    const captured = collector();
+    captureCoderouterRawBatch(
+      [
+        {
+          event: "$ai_trace",
+          userId: "stack-user-raw",
+          teamId: "team-raw",
+          timestamp: "2026-09-03T00:00:00.000Z",
+          properties: {
+            $ai_trace_id: "req-1",
+            $ai_latency: 0.5,
+            coderouter_outcome: "success",
+            trace_id: "0af7651916cd43dd8448eb211c80319c",
+            prompt: "secret prompt",
+            authorization: "Bearer crt_secret",
+            email: "buyer@example.com",
+          },
+        },
+        {
+          event: "$exception",
+          properties: {
+            $exception_fingerprint: "coderouter.rds:codex",
+            $exception_level: "error",
+            $exception_list: [{ type: "Error", value: "message redacted" }],
+          },
+        },
+      ],
+      captured.dependencies,
+    );
+    await Promise.all(captured.deferred);
+    expect(captured.urls).toEqual(["https://posthog.test/batch/"]);
+    const body = JSON.parse(captured.bodies[0]!) as {
+      api_key: string;
+      batch: Array<{ event: string; distinct_id: string; timestamp: string; properties: Record<string, unknown> }>;
+    };
+    expect(body.api_key).toBe("phc_cmux_test");
+    expect(body.batch.map((entry) => entry.event)).toEqual(["$exception"]);
+    const exception = body.batch[0]!;
+    expect(exception.distinct_id).toBe("coderouter-server");
+    expect(exception.properties.$process_person_profile).toBe(false);
+    expect(exception.properties.$exception_list).toEqual([
+      { type: "Error", value: "message redacted" },
+    ]);
+  });
+
+  test("is a no-op when disabled or unconfigured", async () => {
+    const captured = collector();
+    captureCoderouterRawBatch(
+      [{ event: "$ai_trace", properties: { $ai_trace_id: "x" } }],
+      { ...captured.dependencies, enabled: () => false },
+    );
+    captureCoderouterRawBatch(
+      [{ event: "$ai_trace", properties: { $ai_trace_id: "x" } }],
+      { ...captured.dependencies, config: () => null },
+    );
+    captureCoderouterRawBatch([], captured.dependencies);
+    await Promise.all(captured.deferred);
+    expect(captured.urls).toEqual([]);
+  });
+
 });

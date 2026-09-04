@@ -10,9 +10,7 @@ import { captureCoderouterEvent } from "../../../../services/coderouter/analytic
 
 
 export async function GET(request: Request): Promise<Response> {
-  const resolved = await resolveSubrouterRequestContext(request, {
-    permission: "use-or-manage",
-  });
+  const resolved = await resolveSubrouterRequestContext(request);
   if (!resolved.ok) return resolved.response;
   const context = resolved.value;
 
@@ -35,9 +33,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const resolved = await resolveSubrouterRequestContext(request, {
-    permission: "manage",
-  });
+  const resolved = await resolveSubrouterRequestContext(request);
   if (!resolved.ok) return resolved.response;
   const context = resolved.value;
 

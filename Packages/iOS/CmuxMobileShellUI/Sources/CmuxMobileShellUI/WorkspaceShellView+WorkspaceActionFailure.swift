@@ -2,9 +2,12 @@ import CmuxMobileShell
 import CmuxMobileSupport
 import CmuxMobileToast
 import Foundation
+import OSLog
 import SwiftUI
 
-enum WorkspaceActionToastAction {
+nonisolated private let workspaceActionFailureLog = Logger(subsystem: "dev.cmux.ios", category: "workspace-action")
+
+enum WorkspaceActionToastAction: Equatable {
     case createWorkspace
     case createWorkspaceInGroup
     case createWorkspaceGroup
@@ -30,34 +33,9 @@ extension WorkspaceShellView {
         action: WorkspaceActionToastAction
     ) {
         guard case let .failure(failure) = result else { return }
-        let title = Self.workspaceActionFailureTitle(action: action)
-        let reason = Self.workspaceActionFailureReasonText(failure)
-        guard toasts.isEnabled else {
-            // The shelved toast presenter falls back to the legacy dismissible
-            // bottom banner, with the same title and reason joined into its
-            // single-line message.
-            withAnimation(.snappy(duration: 0.2)) {
-                workspaceActionToast = WorkspaceActionToastContent(
-                    message: String.localizedStringWithFormat(
-                        L10n.string(
-                            "mobile.workspaceAction.failure.legacyFormat",
-                            defaultValue: "%1$@: %2$@"
-                        ),
-                        title,
-                        reason
-                    )
-                )
-            }
-            return
-        }
-        toasts.present(.failure(
-            reason,
-            title: title,
-            // One key per action: a repeat of the same failed action re-bumps
-            // the visible toast (even if the reason changed) instead of
-            // queueing near-duplicates.
-            coalescingKey: "workspaceAction.failure.\(action)"
-        ))
+        // Workspace mutations are best-effort from mobile. Keep failures in
+        // diagnostics without interrupting the workspace UI.
+        workspaceActionFailureLog.debug("Ignoring action failure: \(String(describing: action), privacy: .public), \(String(describing: failure), privacy: .private)")
     }
 
     func dismissWorkspaceActionToast() {
