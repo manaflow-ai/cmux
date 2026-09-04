@@ -144,6 +144,7 @@ struct MachinesPanelView: View {
             // and the Files header icon.
             .padding(.leading, 4)
             Spacer(minLength: 4)
+            MachinesTunnelMenu()
             cloudAgentMenu
             MachinesChromeIconButton(
                 symbolName: "arrow.clockwise",
@@ -1075,6 +1076,109 @@ private struct MachinesTunnelSetupCard: View {
                 cmuxDebugLog("vpn.autostart.setup_failed error=\(String(reflecting: error))")
                 errorText = (error as? VMTunnelAutostart.InstallError)?.description
                     ?? VMTunnelAutostart.InstallError.failed.description
+            }
+        }
+    }
+}
+
+/// The private network's controls: what it is doing, and how to stop it.
+///
+/// Setup is offered once by ``MachinesTunnelSetupCard`` and then goes away, so
+/// without this there was no way to see whether the tunnel was on, reconnect a
+/// broken one, or turn the whole thing off again short of a terminal. Turning
+/// it off is a real need: the tunnel routes a private range on someone's Mac
+/// and installs a launchd job, and anyone can reasonably want that gone.
+private struct MachinesTunnelMenu: View {
+    @State private var workingTask: Task<Void, Never>?
+    @State private var refreshToken = 0
+
+    private var manager: VMTunnelManager { VMTunnelManager() }
+
+    private var isInstalled: Bool {
+        _ = refreshToken
+        return CmuxVPNAutostart(interfaceName: manager.interfaceName).isInstalled()
+    }
+
+    private var isUp: Bool {
+        _ = refreshToken
+        return manager.wgQuickInterfaceUp()
+    }
+
+    var body: some View {
+        Menu {
+            Section(statusText) {
+                Button(String(localized: "machines.tunnel.menu.reconnect", defaultValue: "Reconnect")) {
+                    reconnect()
+                }
+                .disabled(workingTask != nil || !isInstalled)
+                Button(String(localized: "machines.tunnel.menu.turnOff", defaultValue: "Turn Off Private Network…")) {
+                    turnOff()
+                }
+                .disabled(workingTask != nil || !isInstalled)
+            }
+            Divider()
+            // The interface name distinguishes production from staging and dev
+            // tunnels, which matters the moment someone has more than one.
+            Text(String(
+                format: String(localized: "machines.tunnel.menu.interface", defaultValue: "Interface: %@"),
+                manager.interfaceName
+            ))
+        } label: {
+            Image(systemName: isUp ? "lock.shield.fill" : "lock.shield")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(isUp ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                .frame(width: 22, height: 20)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help(statusText)
+        .accessibilityIdentifier("MachinesPanel.tunnelMenu")
+        .onAppear { refreshToken += 1 }
+        .onDisappear {
+            workingTask?.cancel()
+            workingTask = nil
+        }
+    }
+
+    private var statusText: String {
+        if !isInstalled {
+            return String(localized: "machines.tunnel.menu.notSetUp", defaultValue: "Private network: not set up")
+        }
+        return isUp
+            ? String(localized: "machines.tunnel.menu.connected", defaultValue: "Private network: connected")
+            : String(localized: "machines.tunnel.menu.off", defaultValue: "Private network: not connected")
+    }
+
+    /// Re-applies the current enrollment. The job's own script takes the
+    /// tunnel down and back up, so this is also the repair for a tunnel left
+    /// carrying a stale peer.
+    private func reconnect() {
+        run { try VMTunnelAutostart.install(
+            interfaceName: manager.interfaceName,
+            userConfigPath: manager.configURL.path
+        ) }
+    }
+
+    private func turnOff() {
+        run { try VMTunnelAutostart.uninstall(interfaceName: manager.interfaceName) }
+    }
+
+    /// Both actions prompt for an administrator and block on a privileged
+    /// shell, so they leave the main actor.
+    private func run(_ work: @escaping @Sendable () throws -> Bool) {
+        guard workingTask == nil else { return }
+        workingTask = Task { @MainActor in
+            defer {
+                workingTask = nil
+                refreshToken += 1
+            }
+            let result: Result<Bool, Error> = await Task.detached(priority: .userInitiated) {
+                do { return .success(try work()) } catch { return .failure(error) }
+            }.value
+            if case .failure(let error) = result {
+                cmuxDebugLog("vpn.autostart.menu_failed error=\(String(reflecting: error))")
             }
         }
     }
