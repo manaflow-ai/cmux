@@ -136,6 +136,7 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
           models: { "model-1": { name: "Model One" } },
         },
       }),
+      resolveProviderURL: async (value: string) => new URL(value),
       ...overrides,
     };
   }
@@ -221,6 +222,29 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     );
     expect(response.status).toBe(401);
     expect(authenticated).toEqual([]);
+  });
+
+  test("rejects a provider hostname when DNS resolves it to a private address", async () => {
+    const response = await proxyOpenCodeRequest(
+      new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLI_TOKEN}`,
+          "x-coderouter-route-token": CLI_TOKEN,
+        },
+        body: "{}",
+      }),
+      "go",
+      ["chat"],
+      dependencies([], {
+        resolveProviderURL: async (value: string) => __test.resolveProviderURL(
+          value,
+          async () => [{ address: "100.64.0.1", family: 4 }],
+        ),
+      }),
+    );
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_provider" });
   });
 
   test("propagates caller cancellation to the OpenCode upstream", async () => {
