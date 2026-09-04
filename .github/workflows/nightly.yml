@@ -340,6 +340,44 @@ jobs:
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
+      # A fast branch dogfood build only needs the arm64 client that is bundled
+      # in this macOS app. Building it here avoids waiting for the full
+      # cross-platform R2 artifact matrix. Main and release keep the immutable
+      # manifest path below, so their machine and distribution artifacts stay
+      # complete.
+      - name: Install Zig for fast cmux-tui client
+        if: env.NIGHTLY_FAST_BUILD == 'true'
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Build fast arm64 cmux-tui client
+        if: env.NIGHTLY_FAST_BUILD == 'true'
+        working-directory: cmux-tui
+        env:
+          CMUX_TUI_DISTRIBUTION_VERSION: 0.0.0-nightly-${{ needs.decide.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          unset CMUX_GHOSTTY_SRC
+          CMUX_TUI_BUILD_COMMIT="$(git -C .. rev-parse HEAD)"
+          CMUX_TUI_GHOSTTY_COMMIT="$(git -C ../ghostty rev-parse HEAD)"
+          export CMUX_TUI_BUILD_COMMIT CMUX_TUI_GHOSTTY_COMMIT
+          cargo build -p cmux-tui --bin cmux-tui --release --locked --target aarch64-apple-darwin
+          binary="target/aarch64-apple-darwin/release/cmux-tui"
+          test -x "$binary"
+          probe="$($binary remote-probe --json)"
+          PROBE="$probe" EXPECTED_COMMIT="$CMUX_TUI_BUILD_COMMIT" python3 - <<'PY'
+          import json
+          import os
+
+          probe = json.loads(os.environ["PROBE"])
+          expected = os.environ["EXPECTED_COMMIT"]
+          if probe.get("build_identity") != expected:
+              raise SystemExit(
+                  f"cmux-tui build identity {probe.get('build_identity')!r} != {expected!r}"
+              )
+          if "wireguard-hub" not in probe.get("capabilities", []):
+              raise SystemExit("fast cmux-tui client lacks wireguard-hub capability")
+          PY
+
       - name: Cache Swift packages
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -398,13 +436,22 @@ jobs:
       - name: Bundle the cmux-tui client
         run: |
           set -euo pipefail
-          cmux_tui_commit="$(git log -1 --format=%H -- cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)"
-          test -n "$cmux_tui_commit"
-          ./scripts/install-cmux-tui-client.sh \
-            build-universal/Build/Products/Release/cmux.app \
-            --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
-            --expected-commit "$cmux_tui_commit" \
-            --require-capability wireguard-hub
+          app="build-universal/Build/Products/Release/cmux.app"
+          if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then
+            local_client="$GITHUB_WORKSPACE/cmux-tui/target/aarch64-apple-darwin/release/cmux-tui"
+            test -x "$local_client"
+            CMUX_TUI_CLIENT_LOCAL="$local_client" \
+              ./scripts/install-cmux-tui-client.sh "$app" \
+              --require-capability wireguard-hub
+          else
+            cmux_tui_commit="$(git log -1 --format=%H -- cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml)"
+            test -n "$cmux_tui_commit"
+            ./scripts/install-cmux-tui-client.sh \
+              "$app" \
+              --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
+              --expected-commit "$cmux_tui_commit" \
+              --require-capability wireguard-hub
+          fi
 
       - name: Strip unsigned nightly app before transfer
         run: |
