@@ -559,6 +559,7 @@ jobs:
       - name: Database behavior tests
         env:
           CMUX_DB_TEST: "1"
+          CMUX_DB_TEST_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
           DIRECT_DATABASE_URL: postgres://cmux:cmux@localhost:5432/cmux_test
         run: bun run test:db:behavior

@@ -993,7 +993,10 @@ const tunnelEnrollmentRepositoryMethods: Pick<
           ],
           // A crashed request leaves an expired lease. Only that lease may be
           // replaced; a live owner remains authoritative on every instance.
-          setWhere: sql`${cloudVmTunnelEnrollmentLocks.expiresAt} <= ${now}`,
+          // Raw SQL fragments bypass Drizzle's timestamp column mapper. Pass
+          // the wire representation explicitly or postgres.js receives a
+          // Date object with no type serializer and rejects the query.
+          setWhere: sql`${cloudVmTunnelEnrollmentLocks.expiresAt} <= ${now.toISOString()}::timestamptz`,
           set: {
             ownerToken: input.ownerToken,
             expiresAt: input.expiresAt,
