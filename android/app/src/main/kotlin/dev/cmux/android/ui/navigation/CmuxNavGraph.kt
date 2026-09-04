@@ -36,14 +36,14 @@ object Routes {
 @Composable
 fun CmuxNavGraph() {
     val navController = rememberNavController()
+    val startupViewModel: StartupViewModel = hiltViewModel()
 
     NavHost(
         navController = navController,
         startDestination = Routes.STARTUP,
     ) {
         composable(Routes.STARTUP) {
-            val viewModel: StartupViewModel = hiltViewModel()
-            val destination by viewModel.destination.collectAsStateWithLifecycle()
+            val destination by startupViewModel.destination.collectAsStateWithLifecycle()
 
             LaunchedEffect(destination) {
                 when (destination) {
@@ -71,7 +71,8 @@ fun CmuxNavGraph() {
         composable(Routes.SIGN_IN) {
             SignInScreen(
                 onSignedIn = {
-                    navController.navigate(Routes.PAIRING) {
+                    // Re-run startup logic (auto-connects in debug, navigates to workspaces)
+                    navController.navigate(Routes.STARTUP) {
                         popUpTo(Routes.SIGN_IN) { inclusive = true }
                     }
                 }
