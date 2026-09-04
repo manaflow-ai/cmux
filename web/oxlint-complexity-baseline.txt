@@ -1,74 +1,72 @@
 # Grandfathered Oxlint complexity findings.
-# Each entry is `<path relative to web/>`, a tab, and the exact diagnostic
-# message. The checker also accepts the legacy form with a numeric function
-# span between the path and message, and ignores that unstable span. This list
-# may only shrink. Never add an entry for new code. Fix the function or use a
-# narrowly scoped, reviewed inline suppression when the complexity is
-# intentional.
-app/[locale]/(landing)/deeplink/[kind]/page.tsx	2321	function `invalidParams` has a complexity of 32. Maximum allowed is 20.
-app/[locale]/(landing)/docs/changelog/changelog-release.tsx	4820	function `ChangelogRelease` has a complexity of 22. Maximum allowed is 20.
-app/[locale]/dashboard/admin/admin-pro-panel.tsx	11925	function `AdminProPanel` has a complexity of 21. Maximum allowed is 20.
-app/[locale]/dashboard/billing/page.tsx	4503	async function `DashboardBillingPage` has a complexity of 26. Maximum allowed is 20.
-app/[locale]/posthog.tsx	2647	async function has a complexity of 21. Maximum allowed is 20.
-app/api/account/route.ts	13639	async function `DELETE` has a complexity of 46. Maximum allowed is 20.
-app/api/account/route.ts	3388	async function `deleteVaultRowsAndObjectsForAccountLocked` has a complexity of 21. Maximum allowed is 20.
-app/api/account/route.ts	4158	async function `resolveUserBillingForAccountDeletion` has a complexity of 21. Maximum allowed is 20.
-app/api/analytics/events/route.ts	5230	async function `POST` has a complexity of 24. Maximum allowed is 20.
-app/api/devices/route-classification.ts	1612	function `manualRoutesAreValid` has a complexity of 24. Maximum allowed is 20.
-app/api/devices/route.ts	10403	async function `POST` has a complexity of 22. Maximum allowed is 20.
-app/api/enterprise/contact/route.ts	4044	async function has a complexity of 21. Maximum allowed is 20.
-app/api/freestyle/forward-auth/route.ts	3241	async function `handleForwardAuthRequest` has a complexity of 24. Maximum allowed is 20.
-app/api/relay/token/route.ts	5287	async function `handleRelayTokenRequest` has a complexity of 27. Maximum allowed is 20.
-app/api/stripe/founders-welcome/route.ts	5842	async function has a complexity of 41. Maximum allowed is 20.
-app/api/stripe/webhook/route.ts	6504	async function `processStripeEvent` has a complexity of 39. Maximum allowed is 20.
-app/api/support/contact/route.ts	4070	async function has a complexity of 22. Maximum allowed is 20.
-app/api/vm/[id]/attach-endpoint/route.ts	3657	async function has a complexity of 21. Maximum allowed is 20.
-app/api/vm/route.ts	18836	async function has a complexity of 68. Maximum allowed is 20.
-app/handler/after-sign-in/handler.ts	5622	async function `GET` has a complexity of 44. Maximum allowed is 20.
-app/handler/app-session-handoff/route.ts	2461	async function `POST` has a complexity of 25. Maximum allowed is 20.
-app/lib/browser-nightly-download.ts	1907	function `verifiedAssetLocation` has a complexity of 26. Maximum allowed is 20.
-app/lib/direct-dev-backend-origin.ts	1258	function `directDevBackendOrigin` has a complexity of 22. Maximum allowed is 20.
-proxy.ts	12094	function `middleware` has a complexity of 69. Maximum allowed is 20.
-services/admin/proGrants.ts	5104	async function `applyPendingEmailGrants` has a complexity of 21. Maximum allowed is 20.
-services/apns/payload.ts	1557	function `buildApnsPayload` has a complexity of 21. Maximum allowed is 20.
-services/apns/pushDeliveryService.ts	7311	async function `executePushDeliveryWithTargets` has a complexity of 26. Maximum allowed is 20.
-services/apns/routePolicy.ts	3618	function `parsePushPayload` has a complexity of 42. Maximum allowed is 20.
-services/apns/sender.ts	3110	async function `sendApnsNotificationReliably` has a complexity of 27. Maximum allowed is 20.
-services/billing/pro.ts	3241	async function `resolveProPlanStatus` has a complexity of 25. Maximum allowed is 20.
-services/billing/purchase.ts	10931	async function `recordFoundersCheckoutCompletion` has a complexity of 42. Maximum allowed is 20.
-services/billing/purchase.ts	3314	async function `claimPendingProBilling` has a complexity of 27. Maximum allowed is 20.
-services/billing/purchase.ts	5568	async function `recordProCheckoutCompletionByEmail` has a complexity of 34. Maximum allowed is 20.
-services/billing/purchase.ts	7356	async function `applySubscriptionUpdate` has a complexity of 31. Maximum allowed is 20.
-services/billing/purchase.ts	9328	async function `recordCheckoutCompletion` has a complexity of 48. Maximum allowed is 20.
-services/billing/recovery.ts	3027	async function `findPaidBillingPurchaseByEmail` has a complexity of 21. Maximum allowed is 20.
-services/billing/recovery.ts	6486	async function `findLocalPurchase` has a complexity of 29. Maximum allowed is 20.
-services/client-config/posthogFlags.ts	2101	function `normalizePostHogFlagsResponse` has a complexity of 22. Maximum allowed is 20.
-services/coderouter/analytics.ts	3293	function `eventProperties` has a complexity of 30. Maximum allowed is 20.
-services/coderouter/claudeProxy.ts	7491	async function `routeWithFailover` has a complexity of 25. Maximum allowed is 20.
-services/coderouter/claudeUpstream.ts	1774	function `parseClaudeUpstreamInput` has a complexity of 23. Maximum allowed is 20.
-services/coderouter/codexProxy.ts	11410	async function `proxyCodexRequestWith` has a complexity of 48. Maximum allowed is 20.
-services/coderouter/opencodeProxy.ts	9714	async function `proxyOpenCodeRequest` has a complexity of 35. Maximum allowed is 20.
-services/coderouter/requestTelemetry.ts	3482	function `traceEvents` has a complexity of 26. Maximum allowed is 20.
-services/iroh/crypto.ts	2128	function `validatePairGrantClaims` has a complexity of 24. Maximum allowed is 20.
-services/iroh/crypto.ts	2189	function `validateEndpointAttestationClaims` has a complexity of 31. Maximum allowed is 20.
-services/iroh/model.ts	910	function `classifyIpv4` has a complexity of 34. Maximum allowed is 20.
-services/iroh/repository.ts	14164	async function has a complexity of 33. Maximum allowed is 20.
-services/iroh/repository.ts	3801	async function has a complexity of 25. Maximum allowed is 20.
-services/iroh/repository.ts	4807	async function has a complexity of 27. Maximum allowed is 20.
-services/iroh/routeHandler.ts	4213	async function `handleIrohRoute` has a complexity of 21. Maximum allowed is 20.
-services/relay/http.ts	3117	function `relayErrorResponse` has a complexity of 21. Maximum allowed is 20.
-services/subrouter/accountInput.ts	2220	function `validateAccountInput` has a complexity of 24. Maximum allowed is 20.
-services/subrouter/hostedClient.ts	1313	function `parseCredentialLease` has a complexity of 22. Maximum allowed is 20.
-services/vms/auth.ts	3121	async function `authedUserFromStackUser` has a complexity of 27. Maximum allowed is 20.
-services/vms/auth.ts	3156	async function `verifyRequest` has a complexity of 24. Maximum allowed is 20.
-services/vms/drivers/freestyle.ts	3992	async function has a complexity of 28. Maximum allowed is 20.
-services/vms/observability.ts	2966	function `captureVmProvisionOutcome` has a complexity of 24. Maximum allowed is 20.
-services/vms/observability.ts	4118	function `captureVmRequestOutcome` has a complexity of 38. Maximum allowed is 20.
-services/vms/providerErrors.ts	1191	function `isProviderNotFoundError` has a complexity of 24. Maximum allowed is 20.
-services/vms/providerErrors.ts	1247	function `isProviderIdentityNotFoundError` has a complexity of 22. Maximum allowed is 20.
-services/vms/reaper.ts	4933	generator function has a complexity of 21. Maximum allowed is 20.
-services/vms/reaper.ts	5808	generator function has a complexity of 27. Maximum allowed is 20.
-services/vms/repository.ts	5979	async function has a complexity of 43. Maximum allowed is 20.
-services/vms/repository.ts	6226	async function has a complexity of 31. Maximum allowed is 20.
-services/vms/routeHelpers.ts	2199	function `vmErrorResponse` has a complexity of 22. Maximum allowed is 20.
-services/vms/routeHelpers.ts	7877	async function `vmWorkflowErrorResponse` has a complexity of 29. Maximum allowed is 20.
+# Each entry is `<path relative to web/>`, a tab, the function start offset in
+# bytes, another tab, and the exact diagnostic message. This list may only
+# shrink. Never add an entry for new code. Fix the function or use a narrowly
+# scoped, reviewed inline suppression when the complexity is intentional.
+app/[locale]/(landing)/deeplink/[kind]/page.tsx	4236	function `invalidParams` has a complexity of 32. Maximum allowed is 20.
+app/[locale]/(landing)/docs/changelog/changelog-release.tsx	417	function `ChangelogRelease` has a complexity of 22. Maximum allowed is 20.
+app/[locale]/dashboard/admin/admin-pro-panel.tsx	3693	function `AdminProPanel` has a complexity of 21. Maximum allowed is 20.
+app/[locale]/dashboard/billing/page.tsx	1633	async function `DashboardBillingPage` has a complexity of 26. Maximum allowed is 20.
+app/[locale]/posthog.tsx	3926	async function has a complexity of 21. Maximum allowed is 20.
+app/api/account/route.ts	4845	async function `DELETE` has a complexity of 46. Maximum allowed is 20.
+app/api/account/route.ts	35898	async function `deleteVaultRowsAndObjectsForAccountLocked` has a complexity of 21. Maximum allowed is 20.
+app/api/account/route.ts	43378	async function `resolveUserBillingForAccountDeletion` has a complexity of 21. Maximum allowed is 20.
+app/api/analytics/events/route.ts	2425	async function `POST` has a complexity of 24. Maximum allowed is 20.
+app/api/devices/route-classification.ts	10633	function `manualRoutesAreValid` has a complexity of 24. Maximum allowed is 20.
+app/api/devices/route.ts	5501	async function `POST` has a complexity of 22. Maximum allowed is 20.
+app/api/enterprise/contact/route.ts	1624	async function has a complexity of 21. Maximum allowed is 20.
+app/api/freestyle/forward-auth/route.ts	4550	async function `handleForwardAuthRequest` has a complexity of 24. Maximum allowed is 20.
+app/api/relay/token/route.ts	4669	async function `handleRelayTokenRequest` has a complexity of 27. Maximum allowed is 20.
+app/api/stripe/founders-welcome/route.ts	3732	async function has a complexity of 41. Maximum allowed is 20.
+app/api/stripe/webhook/route.ts	5642	async function `processStripeEvent` has a complexity of 39. Maximum allowed is 20.
+app/api/support/contact/route.ts	1211	async function has a complexity of 22. Maximum allowed is 20.
+app/api/vm/[id]/attach-endpoint/route.ts	960	async function has a complexity of 21. Maximum allowed is 20.
+app/api/vm/route.ts	7705	async function has a complexity of 68. Maximum allowed is 20.
+app/handler/after-sign-in/handler.ts	11209	async function `GET` has a complexity of 44. Maximum allowed is 20.
+app/handler/app-session-handoff/route.ts	5797	async function `POST` has a complexity of 25. Maximum allowed is 20.
+app/lib/browser-nightly-download.ts	6975	function `verifiedAssetLocation` has a complexity of 26. Maximum allowed is 20.
+app/lib/direct-dev-backend-origin.ts	365	function `directDevBackendOrigin` has a complexity of 22. Maximum allowed is 20.
+proxy.ts	902	function `middleware` has a complexity of 69. Maximum allowed is 20.
+services/admin/proGrants.ts	31936	async function `applyPendingEmailGrants` has a complexity of 21. Maximum allowed is 20.
+services/apns/payload.ts	3469	function `buildApnsPayload` has a complexity of 21. Maximum allowed is 20.
+services/apns/pushDeliveryService.ts	5090	async function `executePushDeliveryWithTargets` has a complexity of 26. Maximum allowed is 20.
+services/apns/routePolicy.ts	4498	function `parsePushPayload` has a complexity of 42. Maximum allowed is 20.
+services/apns/sender.ts	15982	async function `sendApnsNotificationReliably` has a complexity of 27. Maximum allowed is 20.
+services/billing/pro.ts	7219	async function `resolveProPlanStatus` has a complexity of 25. Maximum allowed is 20.
+services/billing/purchase.ts	17756	async function `recordFoundersCheckoutCompletion` has a complexity of 42. Maximum allowed is 20.
+services/billing/purchase.ts	42859	async function `claimPendingProBilling` has a complexity of 27. Maximum allowed is 20.
+services/billing/purchase.ts	28905	async function `recordProCheckoutCompletionByEmail` has a complexity of 34. Maximum allowed is 20.
+services/billing/purchase.ts	63636	async function `applySubscriptionUpdate` has a complexity of 31. Maximum allowed is 20.
+services/billing/purchase.ts	8175	async function `recordCheckoutCompletion` has a complexity of 48. Maximum allowed is 20.
+services/billing/recovery.ts	4550	async function `findPaidBillingPurchaseByEmail` has a complexity of 21. Maximum allowed is 20.
+services/billing/recovery.ts	8402	async function `findLocalPurchase` has a complexity of 29. Maximum allowed is 20.
+services/client-config/posthogFlags.ts	2624	function `normalizePostHogFlagsResponse` has a complexity of 22. Maximum allowed is 20.
+services/coderouter/analytics.ts	10038	function `eventProperties` has a complexity of 30. Maximum allowed is 20.
+services/coderouter/claudeProxy.ts	13915	async function `routeWithFailover` has a complexity of 25. Maximum allowed is 20.
+services/coderouter/claudeUpstream.ts	7162	function `parseClaudeUpstreamInput` has a complexity of 23. Maximum allowed is 20.
+services/coderouter/codexProxy.ts	5393	async function `proxyCodexRequestWith` has a complexity of 48. Maximum allowed is 20.
+services/coderouter/opencodeProxy.ts	5262	async function `proxyOpenCodeRequest` has a complexity of 35. Maximum allowed is 20.
+services/coderouter/requestTelemetry.ts	10652	function `traceEvents` has a complexity of 26. Maximum allowed is 20.
+services/iroh/crypto.ts	19127	function `validatePairGrantClaims` has a complexity of 24. Maximum allowed is 20.
+services/iroh/crypto.ts	21257	function `validateEndpointAttestationClaims` has a complexity of 31. Maximum allowed is 20.
+services/iroh/model.ts	17057	function `classifyIpv4` has a complexity of 34. Maximum allowed is 20.
+services/iroh/repository.ts	10660	async function has a complexity of 33. Maximum allowed is 20.
+services/iroh/repository.ts	24956	async function has a complexity of 25. Maximum allowed is 20.
+services/iroh/repository.ts	34996	async function has a complexity of 27. Maximum allowed is 20.
+services/iroh/routeHandler.ts	1445	async function `handleIrohRoute` has a complexity of 21. Maximum allowed is 20.
+services/relay/http.ts	3725	function `relayErrorResponse` has a complexity of 21. Maximum allowed is 20.
+services/subrouter/accountInput.ts	617	function `validateAccountInput` has a complexity of 24. Maximum allowed is 20.
+services/subrouter/hostedClient.ts	13900	function `parseCredentialLease` has a complexity of 22. Maximum allowed is 20.
+services/vms/auth.ts	25644	async function `authedUserFromStackUser` has a complexity of 27. Maximum allowed is 20.
+services/vms/auth.ts	16248	async function `verifyRequest` has a complexity of 24. Maximum allowed is 20.
+services/vms/drivers/freestyle.ts	49509	async function has a complexity of 28. Maximum allowed is 20.
+services/vms/observability.ts	19500	function `captureVmProvisionOutcome` has a complexity of 24. Maximum allowed is 20.
+services/vms/observability.ts	8980	function `captureVmRequestOutcome` has a complexity of 38. Maximum allowed is 20.
+services/vms/providerErrors.ts	1033	function `isProviderNotFoundError` has a complexity of 24. Maximum allowed is 20.
+services/vms/providerErrors.ts	2233	function `isProviderIdentityNotFoundError` has a complexity of 22. Maximum allowed is 20.
+services/vms/reaper.ts	10646	generator function has a complexity of 21. Maximum allowed is 20.
+services/vms/reaper.ts	15904	generator function has a complexity of 27. Maximum allowed is 20.
+services/vms/repository.ts	39988	async function has a complexity of 43. Maximum allowed is 20.
+services/vms/repository.ts	32113	async function has a complexity of 31. Maximum allowed is 20.
+services/vms/routeHelpers.ts	8695	function `vmErrorResponse` has a complexity of 22. Maximum allowed is 20.
+services/vms/routeHelpers.ts	21384	async function `vmWorkflowErrorResponse` has a complexity of 29. Maximum allowed is 20.

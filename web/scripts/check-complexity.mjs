@@ -113,9 +113,10 @@ function baselineEntries(text) {
   for (const line of text.split("\n").map((line) => line.trimEnd())) {
     if (!line || line.startsWith("#")) continue;
     const fields = line.split("\t");
-    if (fields.length < 2 || !fields[0]) fail(`invalid baseline entry: ${line}`);
-    const message = fields.length >= 3 && /^\d+$/.test(fields[1]) ? fields.slice(2).join("\t") : fields.slice(1).join("\t");
-    const key = `${fields[0]}\t${message}`;
+    if (fields.length < 3 || !fields[0] || !/^\d+$/.test(fields[1])) {
+      fail(`invalid baseline entry (expected path, numeric offset, message): ${line}`);
+    }
+    const key = `${fields[0]}\t${fields[1]}\t${fields.slice(2).join("\t")}`;
     entries.set(key, (entries.get(key) ?? 0) + 1);
   }
   return entries;
@@ -205,7 +206,9 @@ function runOxlint(repoRoot, files) {
 
 function diagnosticKey(diagnostic) {
   const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
-  return `${filename}\t${String(diagnostic.message ?? "")}`;
+  const offset = diagnostic.labels?.[0]?.span?.offset;
+  const location = Number.isInteger(offset) ? offset : "unknown";
+  return `${filename}\t${location}\t${String(diagnostic.message ?? "")}`;
 }
 
 const { base, head, files: explicitFiles } = parseArgs();
