@@ -41,32 +41,41 @@ fun PairingScannerScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         when (val s = state) {
             is PairingState.Idle, is PairingState.Scanning -> {
-                CameraQrScanner(
-                    onQrDetected = { viewModel.onQrCodeScanned(it) },
-                    modifier = Modifier.fillMaxSize(),
-                )
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        "Scan the QR code in cmux Pairing settings",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
+                if (BuildConfig.DEBUG) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                        ) {
+                            CircularProgressIndicator()
+                            DebugUrlInput(
+                                accessToken = viewModel.debugAccessToken,
+                                onSubmit = { url, port -> viewModel.onQrCodeScanned(url, port) },
+                                onDirectConnect = { port -> viewModel.connectDirect(port) },
+                            )
+                        }
+                    }
+                } else {
+                    CameraQrScanner(
+                        onQrDetected = { viewModel.onQrCodeScanned(it) },
+                        modifier = Modifier.fillMaxSize(),
                     )
-                    if (BuildConfig.DEBUG) {
-                        DebugUrlInput(
-                            accessToken = viewModel.debugAccessToken,
-                            onSubmit = { url, port -> viewModel.onQrCodeScanned(url, port) },
-                            onDirectConnect = { port -> viewModel.connectDirect(port) },
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            "Scan the QR code in cmux Pairing settings",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
-                }
-                if (state is PairingState.Idle) {
-                    LaunchedEffect(Unit) { viewModel.startScanning() }
+                    if (state is PairingState.Idle) {
+                        LaunchedEffect(Unit) { viewModel.startScanning() }
+                    }
                 }
             }
             is PairingState.Connecting -> {
