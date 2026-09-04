@@ -9,6 +9,7 @@ extension CmuxVaultAgentRegistration {
         if self == Self.builtInAntigravity { return .antigravity }
         if self == Self.builtInGrok { return .grok }
         if self == Self.builtInKimi { return .kimi }
+        if self == Self.builtInVibe { return .vibe }
         return nil
     }
 }
