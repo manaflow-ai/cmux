@@ -47,7 +47,13 @@ extension EnvironmentValues {
     }
 }
 
-private enum WorkspaceRootToolbarSizing {
+/// Geometry shared by every regular-width toolbar control. Keeping this in one
+/// contract prevents the system toolbar from giving the two-line picker a
+/// different glass height from the icon controls beside it.
+enum WorkspaceRootToolbarSizing {
+    static let controlHeight: CGFloat = 44
+    static let pickerHorizontalPadding: CGFloat = 14
+    static let pickerVerticalPadding: CGFloat = 5
     static let minimumPickerWidth: CGFloat = 98
     static let maximumPickerWidth: CGFloat = 124
     private static let nonPickerWidth: CGFloat = 277
@@ -98,6 +104,14 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
             Button(action: openSettings) {
                 MobileWorkspaceSettingsIcon()
             }
+            .frame(
+                minWidth: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil,
+                minHeight: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil
+            )
             .accessibilityLabel(L10n.string("mobile.workspaces.settings", defaultValue: "Settings"))
             .accessibilityIdentifier("MobileWorkspaceSettingsMenu")
         }
@@ -119,11 +133,24 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                 )
             )
             .equatable()
+            .frame(
+                minHeight: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil
+            )
         }
         ToolbarItem(id: "workspace-list-devices", placement: .topBarLeading) {
             Button(action: openDevices) {
                 Image(systemName: "desktopcomputer")
             }
+            .frame(
+                minWidth: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil,
+                minHeight: horizontalSizeClass == .regular
+                    ? WorkspaceRootToolbarSizing.controlHeight
+                    : nil
+            )
             .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
             .accessibilityIdentifier("MobileWorkspaceDevicesButton")
         }

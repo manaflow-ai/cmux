@@ -95,12 +95,13 @@ private extension View {
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.plain)
+                .frame(minHeight: WorkspaceRootToolbarSizing.controlHeight)
                 .glassEffect(.regular.interactive(), in: .capsule)
         } else {
             self
                 .buttonStyle(.plain)
                 .padding(.horizontal, 12)
-                .frame(minHeight: 38)
+                .frame(minHeight: WorkspaceRootToolbarSizing.controlHeight)
                 .background(.thinMaterial, in: Capsule())
         }
     }
@@ -110,12 +111,18 @@ private extension View {
         if #available(iOS 26.0, *) {
             self
                 .buttonStyle(.plain)
-                .frame(width: 44, height: 44)
+                .frame(
+                    width: WorkspaceRootToolbarSizing.controlHeight,
+                    height: WorkspaceRootToolbarSizing.controlHeight
+                )
                 .glassEffect(.regular.interactive(), in: .capsule)
         } else {
             self
                 .buttonStyle(.plain)
-                .frame(minWidth: 44, minHeight: 44)
+                .frame(
+                    minWidth: WorkspaceRootToolbarSizing.controlHeight,
+                    minHeight: WorkspaceRootToolbarSizing.controlHeight
+                )
                 .background(.thinMaterial, in: Capsule())
         }
     }
