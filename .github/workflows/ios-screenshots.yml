@@ -6,10 +6,28 @@ name: iOS App Store screenshots
 # the CMUX_UITEST_MOCK_DATA hook, so no Apple signing is needed to shoot; only
 # the optional upload-to-ASC step needs the App Store Connect API key.
 #
-# During the CI pause this runs only on explicit dispatch. Upload to App Store
-# Connect additionally requires upload=true.
+# Manual dispatch remains available for review runs. Stable releases call this
+# workflow as a reusable job, which captures the release tag and publishes the
+# raw and composed screenshot artifacts without uploading to ASC.
 
 on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Branch or SHA to capture from
+        required: false
+        type: string
+        default: ""
+      languages:
+        description: "Comma-separated App Store locales (app is localized in en-US, ja)"
+        required: false
+        type: string
+        default: "en-US,ja"
+      upload:
+        description: "Upload captured screenshots to the com.cmux.app App Store listing"
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       ref:
