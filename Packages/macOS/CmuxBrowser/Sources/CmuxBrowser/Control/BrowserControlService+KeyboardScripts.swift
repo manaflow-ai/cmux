@@ -1,6 +1,11 @@
-/// JavaScript generation for canonical browser keyboard events.
+/// Compatibility JavaScript generation for browser keyboard events.
 extension BrowserControlService {
-    /// Builds the browser script for one keyboard automation action.
+    /// Builds the fallback script for one keyboard automation action.
+    ///
+    /// The macOS host normally replays canonical keys through WebKit's native
+    /// input boundary so browser default actions receive trusted events. This
+    /// script remains for opaque key tokens that cannot be represented by a
+    /// platform key event and for callers that only need page-level handlers.
     ///
     /// - Parameters:
     ///   - action: Whether to press, hold down, or release the key.
