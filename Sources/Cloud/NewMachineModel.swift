@@ -82,11 +82,13 @@ final class NewMachineModel {
     static let legacyPlanMachineMemoryMb = 20480
     /// Mirrors `maxMemoryMbForPlan`: development and paid plans may use the
     /// largest supported base image unless an operator sets a lower ceiling.
+    /// The pricing page separately describes the 5 vCPU / 20 GB RAM / 200 GB
+    /// disk pool shared across a paid plan's Cloud VMs.
     static func maxMemoryMb(planId: String?) -> Int {
         _ = planId
         return memoryOptionsMb.max() ?? planMachineMemoryMb
     }
-    /// Mirrors `defaultMemoryMbForPlan`: the plan machine, never above the max.
+    /// Mirrors `defaultMemoryMbForPlan`: the provider sizing profile, never above the max.
     static func defaultMemoryMb(planId: String?) -> Int {
         min(planMachineMemoryMb, maxMemoryMb(planId: planId))
     }

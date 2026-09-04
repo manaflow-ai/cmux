@@ -4238,14 +4238,12 @@ class TabManager: ObservableObject {
               let tab = tabs.first(where: { $0.id == selectedTabId }),
               let focusedPanelId = tab.focusedPanelId else { return nil }
         tab.clearSplitZoom()
-        let inheritedEngine = tab.browserPanel(for: focusedPanelId)?.engineKind
         return newBrowserSplit(
             tabId: selectedTabId,
             fromPanelId: focusedPanelId,
             orientation: direction.orientation,
             insertFirst: direction.insertFirst,
-            url: url,
-            engine: inheritedEngine
+            url: url
         )
     }
 
@@ -4488,9 +4486,7 @@ class TabManager: ObservableObject {
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
         focus: Bool = true,
-        initialDividerPosition: CGFloat? = nil,
-        engine: BrowserEngineKind? = nil,
-        chromiumStorageID: UUID? = nil
+        initialDividerPosition: CGFloat? = nil
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -4501,8 +4497,6 @@ class TabManager: ObservableObject {
             url: url,
             preferredProfileID: preferredProfileID,
             focus: focus,
-            engine: engine,
-            chromiumStorageID: chromiumStorageID,
             initialDividerPosition: initialDividerPosition
         )?.id
     }
@@ -4512,18 +4506,14 @@ class TabManager: ObservableObject {
         tabId: UUID,
         inPane paneId: PaneID,
         url: URL? = nil,
-        preferredProfileID: UUID? = nil,
-        engine: BrowserEngineKind? = nil,
-        chromiumStorageID: UUID? = nil
+        preferredProfileID: UUID? = nil
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return nil }
         return tab.newBrowserSurface(
             inPane: paneId,
             url: url,
-            preferredProfileID: preferredProfileID,
-            engine: engine,
-            chromiumStorageID: chromiumStorageID
+            preferredProfileID: preferredProfileID
         )?.id
     }
 
@@ -4540,8 +4530,7 @@ class TabManager: ObservableObject {
         url: URL? = nil,
         preferSplitRight: Bool = false,
         preferredProfileID: UUID? = nil,
-        insertAtEnd: Bool = false,
-        engine: BrowserEngineKind? = nil
+        insertAtEnd: Bool = false
     ) -> UUID? {
         guard BrowserAvailabilitySettings.isEnabled() else { return nil }
         guard let workspace = tabs.first(where: { $0.id == tabId }) else { return nil }
@@ -4556,8 +4545,7 @@ class TabManager: ObservableObject {
                    url: url,
                    focus: true,
                    insertAtEnd: insertAtEnd,
-                   preferredProfileID: preferredProfileID,
-                   engine: engine
+                   preferredProfileID: preferredProfileID
                ) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
                 return browserPanel.id
@@ -4584,8 +4572,7 @@ class TabManager: ObservableObject {
                    orientation: .horizontal,
                    url: url,
                    preferredProfileID: preferredProfileID,
-                   focus: true,
-                   engine: engine
+                   focus: true
                ) {
                 rememberFocusedSurface(tabId: tabId, surfaceId: browserPanel.id)
                 return browserPanel.id
@@ -4598,8 +4585,7 @@ class TabManager: ObservableObject {
                   url: url,
                   focus: true,
                   insertAtEnd: insertAtEnd,
-                  preferredProfileID: preferredProfileID,
-                  engine: engine
+                  preferredProfileID: preferredProfileID
               ) else {
             return nil
         }
@@ -4612,8 +4598,7 @@ class TabManager: ObservableObject {
     func openBrowser(
         url: URL? = nil,
         preferredProfileID: UUID? = nil,
-        insertAtEnd: Bool = false,
-        engine: BrowserEngineKind? = nil
+        insertAtEnd: Bool = false
     ) -> UUID? {
         guard let tabId = selectedTabId else { return nil }
         return openBrowser(
@@ -4621,8 +4606,7 @@ class TabManager: ObservableObject {
             url: url,
             preferSplitRight: false,
             preferredProfileID: preferredProfileID,
-            insertAtEnd: insertAtEnd,
-            engine: engine
+            insertAtEnd: insertAtEnd
         )
     }
 
@@ -4906,9 +4890,7 @@ class TabManager: ObservableObject {
                inPane: originalPane,
                url: snapshot.url,
                focus: true,
-               preferredProfileID: snapshot.profileID,
-               engine: snapshot.engine ?? .webkit,
-               chromiumStorageID: snapshot.chromiumStorageID
+               preferredProfileID: snapshot.profileID
            ) {
             let tabCount = workspace.bonsplitController.tabs(inPane: originalPane).count
             let maxIndex = max(0, tabCount - 1)
@@ -4927,9 +4909,7 @@ class TabManager: ObservableObject {
                orientation: orientation,
                insertFirst: snapshot.fallbackSplitInsertFirst,
                url: snapshot.url,
-               preferredProfileID: snapshot.profileID,
-               engine: snapshot.engine ?? .webkit,
-               chromiumStorageID: snapshot.chromiumStorageID
+               preferredProfileID: snapshot.profileID
            )?.id {
             return browserPanelId
         }
@@ -4941,9 +4921,7 @@ class TabManager: ObservableObject {
             inPane: focusedPane,
             url: snapshot.url,
             focus: true,
-            preferredProfileID: snapshot.profileID,
-            engine: snapshot.engine ?? .webkit,
-            chromiumStorageID: snapshot.chromiumStorageID
+            preferredProfileID: snapshot.profileID
         )?.id
     }
 

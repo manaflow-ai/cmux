@@ -22,6 +22,11 @@
       "title": "Потрібен cmux Pro",
       "message": "Для Cloud VM потрібен план cmux Pro.",
       "action": "Перейдіть на cmux Pro на {upgradeUrl}, щоб створювати Cloud VM."
+    },
+    "sharedResource": {
+      "message": "Спільний пул ресурсу {resource} для Cloud VM заповнений.",
+      "action": "Видаліть невикористану Cloud VM і повторіть спробу.",
+      "oversizedAction": "Запитайте менший розмір {resource} Cloud VM, який поміщається у спільний пул."
     }
   },
   "billingRecovery": {

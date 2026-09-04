@@ -37,6 +37,37 @@ fn seed_workspace(registry: &mut WorkspaceRegistry, key: &str) {
         .unwrap();
 }
 
+#[cfg(windows)]
+#[test]
+fn registry_opens_and_persists_under_a_long_windows_state_root() {
+    use std::os::windows::ffi::OsStrExt;
+
+    let mut root = temp_root("windows-long-state-root");
+    while root.as_os_str().encode_wide().count() + 1 + 120 < 423 {
+        root.push("x".repeat(120));
+    }
+    let remaining = 423 - root.as_os_str().encode_wide().count() - 1;
+    assert!((1..=255).contains(&remaining));
+    root.push("x".repeat(remaining));
+    assert_eq!(root.as_os_str().encode_wide().count(), 423);
+
+    let fixture_root = platform::normalize_filesystem_path(root.clone());
+    fs::create_dir_all(&fixture_root).unwrap();
+    let machine_id = MachinePublicId::random().unwrap();
+    fs::write(fixture_root.join(MACHINE_ID_FILE), format!("{}\n", machine_id.as_str())).unwrap();
+    let pepper = ResourceEffectPepper::random().unwrap();
+    fs::write(fixture_root.join(RESOURCE_EFFECT_PEPPER_FILE), pepper.0.as_ref()).unwrap();
+
+    let mut registry = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    seed_workspace(&mut registry, "persisted");
+    drop(registry);
+
+    let reopened = WorkspaceRegistry::open(&root, "long-state-path").unwrap();
+    assert_eq!(reopened.snapshot().unwrap().workspaces[0].key, "persisted");
+    drop(reopened);
+    fs::remove_dir_all(fixture_root).unwrap();
+}
+
 #[test]
 fn interrupted_staged_workspace_keeps_reserved_public_id_without_early_publication() {
     let root = temp_root("interrupted-workspace-public-id");
@@ -4534,8 +4565,6 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_before =
-        formatted.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0)).unwrap();
     drop(formatted);
 
     let reopened = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4548,16 +4577,20 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_normalization = reopened
-        .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
-        .unwrap();
     assert_ne!(canonical_definition, definition_before);
     assert_eq!(
         canonical_definition.split_whitespace().collect::<Vec<_>>().join(" "),
         "CREATE UNIQUE INDEX live_resource_browser_view ON resource_tabs(content_id) WHERE content_kind = 'browser' AND deleted_revision IS NULL"
     );
-    assert!(schema_version_after_normalization > schema_version_before);
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened.connection).unwrap());
+    reopened
+        .connection
+        .execute(
+            "CREATE INDEX browser_view_normalization_sentinel
+             ON resource_tabs(created_revision)",
+            [],
+        )
+        .unwrap();
     drop(reopened);
 
     let reopened_again = WorkspaceRegistry::open(&root, "session").unwrap();
@@ -4570,12 +4603,18 @@ fn current_schema_canonicalizes_equivalent_formatted_browser_view_predicate_once
             |row| row.get::<_, String>(0),
         )
         .unwrap();
-    let schema_version_after_second_open = reopened_again
+    let sentinel_count = reopened_again
         .connection
-        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'browser_view_normalization_sentinel'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
         .unwrap();
     assert_eq!(definition_after_second_open, canonical_definition);
-    assert_eq!(schema_version_after_second_open, schema_version_after_normalization);
+    assert_eq!(sentinel_count, 1, "resource_tabs was normalized more than once");
+    assert!(!resource_tabs_needs_multiview_normalization(&reopened_again.connection).unwrap());
     drop(reopened_again);
     fs::remove_dir_all(root).unwrap();
 }
@@ -5738,4 +5777,39 @@ fn schema_preflight_failures_defer_to_authoritative_open() {
     assert!(preflight_unsupported_schema(&database).is_none());
 
     fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+fn long_database_descendant_is_normalized_even_when_root_is_short() {
+    let root = PathBuf::from(format!(r"C:\{}", "r".repeat(230)));
+    let session_dir = root.join(session_storage_component("session"));
+    let normalized_session = crate::platform::normalize_filesystem_path(session_dir);
+    assert!(normalized_session.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let resetter_session = PersistentSessionStateResetter::new(root.clone()).session_dir("session");
+    assert!(resetter_session.to_string_lossy().starts_with(r"\\?\C:\"));
+    let terminal_hosts = crate::terminal_host_runtime::terminal_host_root(&root, "session");
+    assert!(terminal_hosts.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let database = root.join(session_storage_component("session")).join(WORKSPACE_REGISTRY_FILE);
+    let normalized = crate::platform::normalize_filesystem_path(database);
+    assert!(normalized.to_string_lossy().starts_with(r"\\?\C:\"));
+
+    let guard_dir = root.join(SESSION_GUARD_DIR);
+    let guard_lock = session_guard_lock_path(&guard_dir, "session");
+    let coordinator = session_guard_coordinator_path(&guard_dir);
+    let waiter_dir = session_guard_coordinator_waiter_dir(&coordinator);
+    for path in [
+        crate::platform::normalize_filesystem_path(guard_dir),
+        guard_lock,
+        coordinator,
+        waiter_dir,
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(MACHINE_ID_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_LOCK_FILE)),
+        crate::platform::normalize_filesystem_path(root.join(RESOURCE_EFFECT_PEPPER_FILE)),
+    ] {
+        assert!(path.to_string_lossy().starts_with(r"\\?\C:\"), "{}", path.display());
+    }
 }

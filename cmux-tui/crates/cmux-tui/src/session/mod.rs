@@ -171,6 +171,13 @@ pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
         .is_some_and(remote::RemoteRequestError::is_transport_failure)
 }
 
+pub(crate) fn is_expected_remote_shutdown(error: &anyhow::Error) -> bool {
+    matches!(
+        error.downcast_ref::<remote::RemoteRequestError>(),
+        Some(remote::RemoteRequestError::DaemonShutdown)
+    )
+}
+
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<remote::RemoteRequestError>()
@@ -695,7 +702,7 @@ impl Session {
     pub fn daemon_shutdown_requested(&self) -> bool {
         match self {
             Session::Local(mux) => mux.daemon_shutdown_requested(),
-            Session::Remote(_) => false,
+            Session::Remote(remote) => remote.daemon_shutdown_requested(),
         }
     }
     pub fn invalidate_remote_tree(&self) {
