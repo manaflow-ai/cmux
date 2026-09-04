@@ -21,6 +21,8 @@ export {
   PLAN_SHARED_RESOURCE_CAPACITY,
   DEFAULT_VM_RESOURCE_RESERVATION,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
+  VM_RESOURCE_FORK_PENDING_METADATA_KEY,
+  vmResourceForkPendingFromMetadata,
   sharedResourceCapacityForMaxActiveVms,
   firstExceededSharedResource,
   sharedResourceUsage,

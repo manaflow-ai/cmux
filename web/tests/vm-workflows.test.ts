@@ -164,18 +164,23 @@ describe("VM Effect workflows", () => {
       providerMetadata: {},
     });
     let reservation: unknown;
-    let beginInput: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean } | undefined;
+    let beginInput: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean; forkMinimumResourceReservation?: unknown } | undefined;
     let finalizedReservation: unknown;
     const repo = {
       ...testWorkflowRepo({ vm: source }),
-      beginCreate: (input: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean }) => {
+      beginCreate: (input: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean; forkMinimumResourceReservation?: unknown }) => {
         beginInput = input;
         reservation = input.resourceReservation;
         return Effect.succeed({
           inserted: true,
           vm: {
             ...pendingFork,
-            providerMetadata: { cmuxResourceReservation: input.resourceReservation },
+            providerMetadata: {
+              cmuxResourceReservation: input.resourceReservation,
+              ...(input.forkMinimumResourceReservation === undefined
+                ? {}
+                : { cmuxResourceForkPending: input.forkMinimumResourceReservation }),
+            },
           },
         });
       },
@@ -220,6 +225,7 @@ describe("VM Effect workflows", () => {
 
     expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 });
     expect(beginInput?.reserveSharedResourceHeadroom).toBe(true);
+    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 16, memoryMb: 32768, diskMb: 65536 });
   });
 
@@ -243,18 +249,23 @@ describe("VM Effect workflows", () => {
       providerMetadata: {},
     });
     let reservation: unknown;
-    let beginInput: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean } | undefined;
+    let beginInput: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean; forkMinimumResourceReservation?: unknown } | undefined;
     let finalizedReservation: unknown;
     const repo = {
       ...testWorkflowRepo({ vm: source }),
-      beginCreate: (input: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean }) => {
+      beginCreate: (input: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean; forkMinimumResourceReservation?: unknown }) => {
         beginInput = input;
         reservation = input.resourceReservation;
         return Effect.succeed({
           inserted: true,
           vm: {
             ...pendingFork,
-            providerMetadata: { cmuxResourceReservation: input.resourceReservation },
+            providerMetadata: {
+              cmuxResourceReservation: input.resourceReservation,
+              ...(input.forkMinimumResourceReservation === undefined
+                ? {}
+                : { cmuxResourceForkPending: input.forkMinimumResourceReservation }),
+            },
           },
         });
       },
@@ -299,6 +310,7 @@ describe("VM Effect workflows", () => {
 
     expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 });
     expect(beginInput?.reserveSharedResourceHeadroom).toBe(true);
+    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 });
   });
 
@@ -322,18 +334,23 @@ describe("VM Effect workflows", () => {
       providerMetadata: {},
     });
     let reservation: unknown;
-    let beginInput: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean } | undefined;
+    let beginInput: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean; forkMinimumResourceReservation?: unknown } | undefined;
     let finalizedReservation: unknown;
     const repo = {
       ...testWorkflowRepo({ vm: source }),
-      beginCreate: (input: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean }) => {
+      beginCreate: (input: { resourceReservation?: unknown; reserveSharedResourceHeadroom?: boolean; forkMinimumResourceReservation?: unknown }) => {
         beginInput = input;
         reservation = input.resourceReservation;
         return Effect.succeed({
           inserted: true,
           vm: {
             ...pendingFork,
-            providerMetadata: { cmuxResourceReservation: input.resourceReservation },
+            providerMetadata: {
+              cmuxResourceReservation: input.resourceReservation,
+              ...(input.forkMinimumResourceReservation === undefined
+                ? {}
+                : { cmuxResourceForkPending: input.forkMinimumResourceReservation }),
+            },
           },
         });
       },
@@ -378,6 +395,7 @@ describe("VM Effect workflows", () => {
 
     expect(reservation).toEqual({ vcpus: 5, memoryMb: 20 * 1024, diskMb: 200 * 1024 });
     expect(beginInput?.reserveSharedResourceHeadroom).toBe(true);
+    expect(beginInput?.forkMinimumResourceReservation).toEqual({ vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 });
     expect(finalizedReservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
   });
 

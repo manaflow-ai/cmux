@@ -90,6 +90,15 @@ export const VM_RESOURCE_RESIZE_PENDING_METADATA_KEY = "cmuxResourceResizePendin
 export const VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY = "cmuxResourceResizeUnconfirmed";
 /** Internal marker that postpones a legacy resource read until a later pass. */
 export const VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY = "cmuxResourceReconcileRetry";
+/** Internal marker for a native fork claim awaiting provider-confirmed shape. */
+export const VM_RESOURCE_FORK_PENDING_METADATA_KEY = "cmuxResourceForkPending";
+
+/** Read the minimum source shape stored on a pending native fork marker. */
+export function vmResourceForkPendingFromMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): VmResourceReservation | null {
+  return resourceReservationFromValue(metadata?.[VM_RESOURCE_FORK_PENDING_METADATA_KEY]);
+}
 
 /** vCPUs a machine of `memoryMb` gets: one per 4 GB, rounded up. */
 export function vcpusForMemoryMb(memoryMb: number): number {
@@ -114,15 +123,19 @@ export function vmResourceReservationForCreate(input: {
     });
     // A resolver can provide both the caller's requested memory and the baked
     // image selected to satisfy it. CPU and memory stay logical entitlement
-    // claims, while disk must match the image that the provider actually boots.
+    // claims. The provider grows a small baked image to the documented starting
+    // disk, so the reservation must include that minimum too.
     if (input.memoryMb !== undefined) {
       return normalizeResourceReservation({
         vcpus: vcpusForMemoryMb(input.memoryMb),
         memoryMb: input.memoryMb,
-        diskMb: imageReservation.diskMb,
+        diskMb: Math.max(VM_DISK_MB_DEFAULT, imageReservation.diskMb),
       });
     }
-    return imageReservation;
+    return {
+      ...imageReservation,
+      diskMb: Math.max(VM_DISK_MB_DEFAULT, imageReservation.diskMb),
+    };
   }
   const memoryMb = input.memoryMb ?? PLAN_MACHINE_MEMORY_MB;
   return normalizeResourceReservation({

@@ -34,7 +34,12 @@ import {
   type VMResizeOptions,
   type VMStatus,
 } from "./types";
-import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
+import {
+  PLAN_MACHINE_MEMORY_MB,
+  VM_DISK_MB_DEFAULT,
+  vcpusForMemoryMb,
+  vmDiskMb,
+} from "../machineSpec";
 import {
   DEVBOX_DESKTOP_NOVNC_PORT,
   DEVBOX_DESKTOP_START_SCRIPT,
@@ -833,16 +838,26 @@ export class FreestyleProvider implements VMProvider {
           });
           try {
             if (options.imageSize) {
-              // One snapshot per size: the machine already boots at the
-              // provider sizing profile, so nothing is read back and nothing
-              // is grown.
+              // One snapshot per CPU/memory size: preserve that baked shape,
+              // then grow only storage when the image is below the documented
+              // 32 GB starting disk.
               setSpanAttributes(span, {
                 "cmux.vm.image_size": options.imageSize.name,
                 "cmux.vm.resources.cpu": options.imageSize.cpu,
                 "cmux.vm.resources.memory_mb": options.imageSize.memoryMb,
-                "cmux.vm.resources.storage_mb": options.imageSize.storageMb,
-                "cmux.vm.resize.requested": false,
               });
+              await this.growToRequestedSize(
+                fs,
+                vm,
+                vmId,
+                undefined,
+                span,
+                {
+                  cpu: options.imageSize.cpu,
+                  memory: options.imageSize.memoryMb,
+                  storage: Math.max(VM_DISK_MB_DEFAULT, options.imageSize.storageMb, vmDiskMb()),
+                },
+              );
             } else {
               // A size-less image boots at its snapshot's resources and only a
               // grow-only resize raises them. Size first so the daemon comes
@@ -896,9 +911,10 @@ export class FreestyleProvider implements VMProvider {
     vmId: string,
     memoryMb: number | undefined,
     span: Parameters<typeof setSpanAttributes>[0],
+    targetResources?: VmResources,
   ): Promise<void> {
     const current = (await fs.vms.get(vmId)).resources;
-    const target = freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
+    const target = targetResources ?? freestyleTargetResources(memoryMb ?? PLAN_MACHINE_MEMORY_MB);
     const request = freestyleResizeRequest(current, target);
     setSpanAttributes(span, {
       "cmux.vm.resources.cpu": target.cpu,

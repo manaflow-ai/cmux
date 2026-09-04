@@ -33,11 +33,13 @@ import {
   VM_DISK_MB_STEP,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
+  VM_RESOURCE_FORK_PENDING_METADATA_KEY,
   hasVmResourceReservationMetadata,
   sharedResourceCapacityForMaxActiveVms,
   vmResourceReconcileRetryFromMetadata,
   vmResourceReservationForCreate,
   vmResourceReservationFromMetadata,
+  vmResourceForkPendingFromMetadata,
   vmResourceResizePendingFromMetadata,
   vmResourceResizeUnconfirmedFromMetadata,
   vmProviderResourceSize,
@@ -191,6 +193,9 @@ const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
 // Ten concurrent waves of this batch must leave time for status reconciliation
 // in a short-lived cron invocation, even when a provider is fully hung.
 const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
+// Provider stats are advisory on request paths. A stalled provider must not
+// keep a snapshot or fork HTTP request open indefinitely.
+const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -1001,6 +1006,10 @@ export function snapshotVm(input: {
     // falls back to the conservative shared-pool claim for each unknown field.
     const snapshotStats = providers.getStats
       ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
+        Effect.timeoutFail({
+          duration: FOREGROUND_PROVIDER_STATS_TIMEOUT,
+          onTimeout: () => new Error(`snapshot stats timed out for ${vm.providerVmId ?? input.providerVmId}`),
+        }),
         Effect.map((stats) => ({
           vcpus: vmProviderResourceSize("vcpus", stats.cpus),
           memoryMb: vmProviderResourceSize("memoryMb", stats.memoryTotalMb),
@@ -1153,6 +1162,10 @@ function resourceReservationForFork(
   } satisfies VmResourceReservation;
   if (!providers.getStats) return Effect.succeed(unknownShape);
   return providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
+    Effect.timeoutFail({
+      duration: FOREGROUND_PROVIDER_STATS_TIMEOUT,
+      onTimeout: () => new Error(`fork source stats timed out for ${source.providerVmId ?? providerVmId}`),
+    }),
     Effect.map((stats) => {
       return {
         vcpus: vmProviderResourceSize("vcpus", stats.cpus) ?? unknownShape.vcpus,
@@ -1161,6 +1174,73 @@ function resourceReservationForFork(
       } satisfies VmResourceReservation;
     }),
     Effect.catchAll(() => Effect.succeed(unknownShape)),
+  );
+}
+
+function reservationFromProviderStats(
+  stats: { readonly cpus?: unknown; readonly memoryTotalMb?: unknown; readonly diskTotalMb?: unknown },
+  fallback: VmResourceReservation,
+  minimum: VmResourceReservation = fallback,
+): VmResourceReservation {
+  return {
+    vcpus: Math.max(minimum.vcpus, vmProviderResourceSize("vcpus", stats.cpus) ?? fallback.vcpus),
+    memoryMb: Math.max(minimum.memoryMb, vmProviderResourceSize("memoryMb", stats.memoryTotalMb) ?? fallback.memoryMb),
+    diskMb: Math.max(minimum.diskMb, vmProviderResourceSize("diskMb", stats.diskTotalMb) ?? fallback.diskMb),
+  };
+}
+
+/** Replace a native fork's temporary headroom claim after the copy is measured. */
+function finalizeNativeForkReservation(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  input: {
+    readonly vm: CloudVmRow;
+    readonly providerVmId: string;
+    readonly fallbackReservation: VmResourceReservation;
+    readonly minimumReservation: VmResourceReservation;
+    readonly sharedResourceCapacity: VmResourceReservation;
+  },
+): Effect.Effect<void, VmWorkflowError, never> {
+  const setReservation = repo.setResourceReservation;
+  const getStats = providers.getStats;
+  if (!setReservation || !getStats) return Effect.void;
+  // beginCreate may expand the requested floor to the remaining headroom. Read
+  // that exact marker back from the returned row so the replacement is a CAS,
+  // even when another adapter computes a different temporary claim.
+  const expectedReservation = vmResourceReservationFromMetadata(
+    input.vm.providerMetadata,
+    input.fallbackReservation,
+  );
+  return getStats(input.vm.provider, input.providerVmId).pipe(
+    Effect.timeoutFail({
+      duration: FOREGROUND_PROVIDER_STATS_TIMEOUT,
+      onTimeout: () => new Error(`fork copy stats timed out for ${input.providerVmId}`),
+    }),
+    Effect.map((stats) => reservationFromProviderStats(
+      stats,
+      input.fallbackReservation,
+      input.minimumReservation,
+    )),
+    // A successful provider fork is still usable when its first stats read is
+    // unavailable. Keep the temporary claim and let the bounded reconciler
+    // replace it later; never release capacity on an unconfirmed shape.
+    Effect.catchAll(() => Effect.succeed(null)),
+    Effect.flatMap((reservation) => {
+      if (!reservation) return Effect.void;
+      return setReservation({
+        id: input.vm.id,
+        expectedReservation,
+        reservation,
+        sharedResourceCapacity: input.sharedResourceCapacity,
+      }).pipe(
+        Effect.flatMap((replaced) => replaced
+          ? Effect.void
+          : Effect.fail(new VmDatabaseError({
+            operation: "replaceForkResourceReservation",
+            cause: new Error("fork reservation generation changed before finalization"),
+          }))),
+      );
+    }),
   );
 }
 
@@ -1201,16 +1281,23 @@ export function forkVm(input: {
       { forceProviderProbe: true },
     );
 
-    // A pre-policy VM can have a larger disk than the metadata fallback. Read
-    // it before cloning so the new row cannot undercount the shared disk pool.
-    const sourceReservation = yield* resourceReservationForFork(
-      providers,
-      source,
-      input.providerVmId,
-      input.billingPlanId,
-    );
+    const nativeFork = source.provider === "freestyle" && providers.fork !== undefined;
+    // Native forks are serialized with source resizes by the create
+    // transaction's temporary headroom claim. Do not read source stats first:
+    // that read would race a resize before the claim is acquired.
+    const sourceHasReservation = hasVmResourceReservationMetadata(source.providerMetadata);
+    const nativeForkReservation = isPaidVmPlan(input.billingPlanId)
+      ? sourceHasReservation
+        ? vmResourceReservationFromMetadata(source.providerMetadata)
+        : {
+          vcpus: PLAN_SHARED_VCPU,
+          memoryMb: PLAN_SHARED_MEMORY_MB,
+          diskMb: PLAN_SHARED_DISK_MB,
+        }
+      : undefined;
 
-    if (source.provider === "freestyle" && providers.fork) {
+    if (nativeFork) {
+      const sourceReservation = nativeForkReservation ?? DEFAULT_VM_RESOURCE_RESERVATION;
       const create = yield* beginCreateWithLazyProviderRefresh(repo, providers, {
         userId: input.userId,
         billingTeamId: input.billingTeamId,
@@ -1222,6 +1309,10 @@ export function forkVm(input: {
           ? {
             resourceReservation: sourceReservation,
             sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
+            reserveSharedResourceHeadroom: true,
+            forkMinimumResourceReservation: sourceHasReservation
+              ? sourceReservation
+              : { vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 },
           }
           : {}),
         // The helper uses the plan to reconcile legacy rows before its shared
@@ -1299,17 +1390,30 @@ export function forkVm(input: {
         ),
       );
 
-      const running = yield* measureVmEffect(
-        input.timing,
-        "mark_running",
-        repo.markCreateRunning({
-          id: create.vm.id,
-          providerVmId: handle.providerVmId,
-          image: source.imageId,
-          imageVersion: source.imageVersion,
-          providerMetadata: handle.providerMetadata ?? source.providerMetadata,
-        }),
-      ).pipe(
+      const running = yield* Effect.gen(function* () {
+        if (isPaidVmPlan(input.billingPlanId)) {
+          yield* finalizeNativeForkReservation(repo, providers, {
+            vm: create.vm,
+            providerVmId: handle.providerVmId,
+            fallbackReservation: sourceReservation,
+            minimumReservation: sourceHasReservation
+              ? sourceReservation
+              : { vcpus: 1, memoryMb: 4 * 1024, diskMb: 16 * 1024 },
+            sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
+          });
+        }
+        return yield* measureVmEffect(
+          input.timing,
+          "mark_running",
+          repo.markCreateRunning({
+            id: create.vm.id,
+            providerVmId: handle.providerVmId,
+            image: source.imageId,
+            imageVersion: source.imageVersion,
+            providerMetadata: handle.providerMetadata ?? source.providerMetadata,
+          }),
+        );
+      }).pipe(
         Effect.catchAll((err) =>
           Effect.gen(function* () {
             yield* rollbackProviderCreate(providers, source.provider, handle);
@@ -1364,6 +1468,12 @@ export function forkVm(input: {
       providerVmId: input.providerVmId,
       name: input.name,
     });
+    // Snapshotting establishes the copy point for providers without a native
+    // fork. Read the source shape after that point so a concurrent grow cannot
+    // understate the copied machine's claim.
+    const sourceReservation = isPaidVmPlan(input.billingPlanId)
+      ? yield* resourceReservationForFork(providers, source, input.providerVmId, input.billingPlanId)
+      : undefined;
     const fork = yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -1373,9 +1483,7 @@ export function forkVm(input: {
       provider: source.provider,
       image: snapshot.id,
       imageVersion: null,
-      ...(isPaidVmPlan(input.billingPlanId)
-        ? { resourceReservation: sourceReservation }
-        : {}),
+      ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
       timing: input.timing,
@@ -1408,19 +1516,32 @@ function beginCreateWithLazyProviderRefresh(
     readonly timing?: VmTimingSink;
   } & Parameters<VmRepositoryShape["beginCreate"]>[0],
 ): Effect.Effect<BeginCreateResult, VmWorkflowError, never> {
-  // Construct the repository effect lazily. Provider status refresh remains a
-  // bounded retry after a limit conflict; legacy resource migration runs in
-  // the background reconcile cron instead of on every create.
+  // Construct the repository effect lazily. A count conflict refreshes provider
+  // statuses. A shared-resource conflict repairs the scoped legacy claims that
+  // can otherwise make an account wait for the background batch. An impossible
+  // requested dimension is returned directly, because no refresh can change it.
   const beginCreate = Effect.suspend(() =>
     measureVmEffect(input.timing, "begin_create", repo.beginCreate(input))
   );
   return beginCreate.pipe(
     Effect.catchAll((err) => {
       if (!isVmLimitExceededError(err) && !isVmSharedResourceLimitExceededError(err)) return Effect.fail(err);
+      if (isVmSharedResourceLimitExceededError(err) && err.requested > err.limit) return Effect.fail(err);
+      const reconcile = isVmSharedResourceLimitExceededError(err)
+        ? reconcileLegacyResourceReservations(repo, providers, {
+          userId: input.userId,
+          billingTeamId: input.billingTeamId,
+          // A team cannot have more live rows than its entitlement. Use that
+          // allowance for the synchronous repair so all of its legacy rows are
+          // considered before retrying, while retaining the global batch cap
+          // for cron work.
+          limit: Math.max(LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT, input.maxActiveVms ?? LEGACY_RESOURCE_RECONCILE_BATCH_LIMIT),
+        })
+        : refreshActiveLimitProviderStatuses(repo, providers, input);
       return measureVmEffect(
         input.timing,
         "limit_reconcile",
-        refreshActiveLimitProviderStatuses(repo, providers, input),
+        reconcile,
       ).pipe(
         Effect.catchAll(() => Effect.void),
         Effect.andThen(Effect.suspend(() =>
@@ -1500,13 +1621,18 @@ function reconcileLegacyResourceCandidate(
     VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
   );
   const unconfirmed = vmResourceResizeUnconfirmedFromMetadata(metadata);
+  const hasForkPendingMarker = Object.prototype.hasOwnProperty.call(
+    metadata,
+    VM_RESOURCE_FORK_PENDING_METADATA_KEY,
+  );
+  const forkMinimumReservation = vmResourceForkPendingFromMetadata(metadata);
   const retry = vmResourceReconcileRetryFromMetadata(metadata);
   // The repository filters these rows in SQL. Keep this second boundary for
   // alternate adapters and stale replicas.
   if (retry && retry.nextAttemptAtMs > Date.now()) return Effect.void;
   // A malformed control marker has no safe generation to clear. Keep it and
   // retry later instead of releasing a newer claim by accident.
-  if (hasPendingMarker && !pending || hasUnconfirmedMarker && !unconfirmed) {
+  if (hasPendingMarker && !pending || hasUnconfirmedMarker && !unconfirmed || hasForkPendingMarker && !forkMinimumReservation) {
     return deferLegacyResourceCandidate(repo, vm);
   }
   // A live pending resize still has an owner that can confirm it. Do not read
@@ -1530,6 +1656,28 @@ function reconcileLegacyResourceCandidate(
       const diskMb = vmProviderResourceSize("diskMb", stats.diskTotalMb);
       if (diskMb === null) return deferLegacyResourceCandidate(repo, vm);
       const existing = vmResourceReservationFromMetadata(metadata);
+      if (hasForkPendingMarker && forkMinimumReservation) {
+        // The temporary headroom claim is larger than the copied VM by design.
+        // Replace each valid dimension with the measured shape while retaining
+        // the source claim as a floor. An invalid dimension keeps its full
+        // temporary hold so a partial provider response cannot undercount.
+        const observedVcpus = vmProviderResourceSize("vcpus", stats.cpus);
+        const observedMemoryMb = vmProviderResourceSize("memoryMb", stats.memoryTotalMb);
+        const reservation = {
+          vcpus: observedVcpus === null
+            ? existing.vcpus
+            : Math.max(forkMinimumReservation.vcpus, observedVcpus),
+          memoryMb: observedMemoryMb === null
+            ? existing.memoryMb
+            : Math.max(forkMinimumReservation.memoryMb, observedMemoryMb),
+          diskMb: Math.max(forkMinimumReservation.diskMb, diskMb),
+        };
+        return setReservation({
+          id: vm.id,
+          reservation,
+          expectedReservation: existing,
+        }).pipe(Effect.asVoid);
+      }
       if (pending && diskMb < pending.requestedDiskMb) {
         // A worker can die after reserving headroom but before provider I/O.
         // After the recovery window, retain a maximum claim until stats prove

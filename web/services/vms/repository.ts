@@ -46,6 +46,7 @@ import {
   VM_DISK_MB_DEFAULT,
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
+  VM_RESOURCE_FORK_PENDING_METADATA_KEY,
   VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
   VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
@@ -201,6 +202,10 @@ export type VmRepositoryShape = {
     /** Provider resources reserved against the plan-wide pool. */
     readonly resourceReservation?: VmResourceReservation;
     readonly sharedResourceCapacity?: VmResourceReservation;
+    /** Hold every remaining pool dimension while a provider-side clone runs. */
+    readonly reserveSharedResourceHeadroom?: boolean;
+    /** Minimum source shape retained when a temporary fork claim is recovered. */
+    readonly forkMinimumResourceReservation?: VmResourceReservation;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmSharedResourceLimitExceededError>;
   readonly beginBaseOpen: (input: {
     readonly userId: string;
@@ -270,11 +275,15 @@ export type VmRepositoryShape = {
   readonly setResourceReservation?: (input: {
     readonly id: string;
     readonly reservation: VmResourceReservation;
+    /** Replace this exact temporary claim, used by native fork finalization. */
+    readonly expectedReservation?: VmResourceReservation;
+    /** Recheck the replacement against the shared pool while holding the team lock. */
+    readonly sharedResourceCapacity?: VmResourceReservation;
     /** Clear a pending resize only when this generation owns it. */
     readonly expectedResizeOperationId?: string;
     /** Clear an unconfirmed resize only when this generation owns it. */
     readonly expectedResizeUnconfirmedOperationId?: string;
-  }) => Effect.Effect<boolean, VmDatabaseError>;
+  }) => Effect.Effect<boolean, VmDatabaseError | VmSharedResourceLimitExceededError>;
   readonly reservePausedResume: (input: {
     readonly id: string;
     readonly userId: string;
@@ -653,6 +662,18 @@ function validResourceReservationMarkerSql() {
     and ${boundedPositiveInteger(field("diskMb"))}`;
 }
 
+/** Compare a control-plane reservation marker field by field for CAS updates. */
+function resourceReservationMarkerEqualsSql(expected: VmResourceReservation) {
+  const markerKey = sql.raw(`'${VM_RESOURCE_RESERVATION_METADATA_KEY}'`);
+  const marker = sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${markerKey}`;
+  const field = (key: "vcpus" | "memoryMb" | "diskMb") =>
+    sql<string | null>`${marker}->>${sql.raw(`'${key}'`)}`;
+  return sql`
+    ${field("vcpus")} = ${String(expected.vcpus)}
+    and ${field("memoryMb")} = ${String(expected.memoryMb)}
+    and ${field("diskMb")} = ${String(expected.diskMb)}`;
+}
+
 async function reservedResourceTotals(
   tx: CloudDbTransaction,
   input: {
@@ -700,9 +721,17 @@ function resourceReservationForInput(
 function reservationMetadataForInput(
   reservation: VmResourceReservation | undefined,
   sharedResourceCapacity: VmResourceReservation | undefined,
+  reserveSharedResourceHeadroom = false,
+  forkMinimumReservation?: VmResourceReservation,
 ): Record<string, unknown> {
   if (reservation || sharedResourceCapacity) {
-    return reservationMetadata(resourceReservationForInput(reservation));
+    const metadata = reservationMetadata(resourceReservationForInput(reservation));
+    return reserveSharedResourceHeadroom
+      ? {
+        ...metadata,
+        [VM_RESOURCE_FORK_PENDING_METADATA_KEY]: forkMinimumReservation ?? resourceReservationForInput(reservation),
+      }
+      : metadata;
   }
   return {};
 }
@@ -712,6 +741,55 @@ function sharedResourceCapacityForInput(
   capacity: VmResourceReservation | undefined,
 ): VmResourceReservation {
   return capacity ?? sharedResourceCapacityForMaxActiveVms(maxActiveVms);
+}
+
+async function checkedSharedResourceReservation(
+  tx: CloudDbTransaction,
+  input: {
+    readonly userId: string;
+    readonly billingTeamId: string;
+    readonly maxActiveVms: number | null;
+    readonly resourceReservation?: VmResourceReservation;
+    readonly sharedResourceCapacity?: VmResourceReservation;
+    readonly excludeVmId?: string;
+    readonly phase?: "create" | "resize";
+    readonly reserveSharedResourceHeadroom?: boolean;
+  },
+): Promise<VmResourceReservation | null> {
+  // The shared pool is supplied explicitly by paid-plan workflows. Keep the
+  // repository compatible with the controlled free-provisioning escape hatch
+  // and with legacy callers that only use the active-count entitlement.
+  if (input.resourceReservation === undefined && input.sharedResourceCapacity === undefined) return null;
+  const reservation = resourceReservationForInput(input.resourceReservation);
+  const capacity = sharedResourceCapacityForInput(input.maxActiveVms, input.sharedResourceCapacity);
+  const used = await reservedResourceTotals(tx, {
+    userId: input.userId,
+    billingTeamId: input.billingTeamId,
+    excludeVmId: input.excludeVmId,
+  });
+  const exceeded = firstExceededSharedResource({ used, requested: reservation, capacity });
+  if (exceeded) {
+    throw new VmSharedResourceLimitExceededError({
+      kind: "shared_resources",
+      billingTeamId: input.billingTeamId,
+      phase: input.phase,
+      resource: exceeded.resource,
+      used: exceeded.used,
+      requested: exceeded.requested,
+      limit: exceeded.limit,
+    });
+  }
+  if (!input.reserveSharedResourceHeadroom) return reservation;
+  // A native provider clone runs outside this transaction. Claim the complete
+  // remaining pool while it copies the source so a concurrent create or resize
+  // cannot consume capacity needed by the copy's final measured shape. The
+  // requested shape remains a floor, and the capacity check above guarantees
+  // every computed headroom value is non-negative.
+  return {
+    vcpus: Math.max(reservation.vcpus, capacity.vcpus - used.vcpus),
+    memoryMb: Math.max(reservation.memoryMb, capacity.memoryMb - used.memoryMb),
+    diskMb: Math.max(reservation.diskMb, capacity.diskMb - used.diskMb),
+  };
 }
 
 async function assertSharedResourceCapacity(
@@ -726,28 +804,7 @@ async function assertSharedResourceCapacity(
     readonly phase?: "create" | "resize";
   },
 ): Promise<void> {
-  // The shared pool is supplied explicitly by paid-plan workflows. Keep the
-  // repository compatible with the controlled free-provisioning escape hatch
-  // and with legacy callers that only use the active-count entitlement.
-  if (input.resourceReservation === undefined && input.sharedResourceCapacity === undefined) return;
-  const reservation = resourceReservationForInput(input.resourceReservation);
-  const capacity = sharedResourceCapacityForInput(input.maxActiveVms, input.sharedResourceCapacity);
-  const used = await reservedResourceTotals(tx, {
-    userId: input.userId,
-    billingTeamId: input.billingTeamId,
-    excludeVmId: input.excludeVmId,
-  });
-  const exceeded = firstExceededSharedResource({ used, requested: reservation, capacity });
-  if (!exceeded) return;
-  throw new VmSharedResourceLimitExceededError({
-    kind: "shared_resources",
-    billingTeamId: input.billingTeamId,
-    phase: input.phase,
-    resource: exceeded.resource,
-    used: exceeded.used,
-    requested: exceeded.requested,
-    limit: exceeded.limit,
-  });
+  await checkedSharedResourceReservation(tx, input);
 }
 
 function reservationMetadata(reservation: VmResourceReservation): Record<string, unknown> {
@@ -761,6 +818,7 @@ function providerMetadataPatchForPersistence(
   return Object.fromEntries(
     Object.entries(metadata ?? {}).filter(([key]) =>
       key !== VM_RESOURCE_RESERVATION_METADATA_KEY &&
+      key !== VM_RESOURCE_FORK_PENDING_METADATA_KEY &&
       key !== VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY &&
       key !== VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
@@ -1158,13 +1216,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 limit,
               });
             }
-            await assertSharedResourceCapacity(tx, {
+            const persistedReservation = await checkedSharedResourceReservation(tx, {
               userId: input.userId,
               billingTeamId: input.billingTeamId,
               maxActiveVms: input.maxActiveVms,
               resourceReservation: input.resourceReservation,
               sharedResourceCapacity: input.sharedResourceCapacity,
               phase: "create",
+              reserveSharedResourceHeadroom: input.reserveSharedResourceHeadroom,
             });
 
             const [vm] = await tx
@@ -1179,8 +1238,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 status: "provisioning",
                 idempotencyKey,
                 providerMetadata: reservationMetadataForInput(
-                  input.resourceReservation,
+                  persistedReservation ?? input.resourceReservation,
                   input.sharedResourceCapacity,
+                  input.reserveSharedResourceHeadroom,
+                  input.forkMinimumResourceReservation ?? input.resourceReservation,
                 ),
                 slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
@@ -1803,6 +1864,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             or(
               sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}`,
               sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}`,
+              sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_FORK_PENDING_METADATA_KEY}`,
               sql`not coalesce((${validResourceReservationMarkerSql()}), false)`,
             ),
           ),
@@ -1816,6 +1878,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         if (retry && retry.nextAttemptAtMs > nowMs) return false;
         return Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_PENDING_METADATA_KEY) ||
           Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY) ||
+          Object.prototype.hasOwnProperty.call(row.providerMetadata ?? {}, VM_RESOURCE_FORK_PENDING_METADATA_KEY) ||
           !hasVmResourceReservationMetadata(row.providerMetadata);
       });
     }),
@@ -1854,56 +1917,102 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     }),
 
   setResourceReservation: (input) =>
-    dbEffect("setResourceReservation", async () => {
-      const db = cloudDb();
-      return await db.transaction(async (tx) => {
-        const [initial] = await tx
-          .select({ userId: cloudVms.userId, billingTeamId: cloudVms.billingTeamId })
-          .from(cloudVms)
-          .where(eq(cloudVms.id, input.id))
-          .limit(1);
-        if (!initial) return false;
-        const lockKey = initial.billingTeamId?.trim() || `user:${initial.userId}`;
-        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
+    Effect.tryPromise({
+      try: async () => {
+        const db = cloudDb();
+        return await db.transaction(async (tx) => {
+          const [initial] = await tx
+            .select({
+              userId: cloudVms.userId,
+              billingTeamId: cloudVms.billingTeamId,
+              status: cloudVms.status,
+            })
+            .from(cloudVms)
+            .where(eq(cloudVms.id, input.id))
+            .limit(1);
+          if (!initial) return false;
+          if (!(LIVE_VM_RESOURCE_STATUSES as readonly string[]).includes(initial.status)) return false;
+          const lockKey = initial.billingTeamId?.trim() || `user:${initial.userId}`;
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`);
 
-        if (input.expectedResizeOperationId !== undefined && input.expectedResizeUnconfirmedOperationId !== undefined) {
-          throw new Error("resource repair cannot target two resize generations");
-        }
-        // A normal legacy repair must not lower an in-flight resize. A pending
-        // or unconfirmed repair is a compare-and-set on its generation, so a
-        // stale provider read cannot clear a newer marker.
-        const resizeMarkerPredicate = input.expectedResizeOperationId !== undefined
-          ? sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${input.expectedResizeOperationId}`
-          : input.expectedResizeUnconfirmedOperationId !== undefined
-            ? sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${sql.raw(`'${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}'`)}->>'operationId' = ${input.expectedResizeUnconfirmedOperationId}
-              and not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})`
-            : sql`not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})
-              and not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY})`;
-        const markerPredicate = input.expectedResizeOperationId === undefined && input.expectedResizeUnconfirmedOperationId === undefined
-          ? sql`not coalesce((${validResourceReservationMarkerSql()}), false)`
-          : sql`true`;
-        const rows = await tx
-          .update(cloudVms)
-          .set({
-            // Keep provider metadata and the control-plane claim in one JSON
-            // document without allowing a stale read to drop other fields.
-            providerMetadata: sql`(
-              coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
-              || ${reservationMetadataJsonb(input.reservation)}
-            ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
-              #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
-              #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
-            updatedAt: new Date(),
-          })
-          .where(and(
-            eq(cloudVms.id, input.id),
-            inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
-            resizeMarkerPredicate,
-            markerPredicate,
-          ))
-          .returning({ id: cloudVms.id });
-        return rows.length > 0;
-      });
+          if (input.expectedResizeOperationId !== undefined && input.expectedResizeUnconfirmedOperationId !== undefined) {
+            throw new Error("resource repair cannot target two resize generations");
+          }
+          if (input.expectedReservation !== undefined &&
+            (input.expectedResizeOperationId !== undefined || input.expectedResizeUnconfirmedOperationId !== undefined)) {
+            throw new Error("resource replacement cannot target a resize generation");
+          }
+          // A normal legacy repair must not lower an in-flight resize. A pending
+          // or unconfirmed repair is a compare-and-set on its generation, so a
+          // stale provider read cannot clear a newer marker. A native fork uses
+          // the same compare-and-set shape for its temporary headroom claim.
+          const resizeMarkerPredicate = input.expectedResizeOperationId !== undefined
+            ? sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${sql.raw(`'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'`)}->>'operationId' = ${input.expectedResizeOperationId}`
+            : input.expectedResizeUnconfirmedOperationId !== undefined
+              ? sql`coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)->${sql.raw(`'${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}'`)}->>'operationId' = ${input.expectedResizeUnconfirmedOperationId}
+                and not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})`
+              : input.expectedReservation !== undefined
+                ? sql`not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})
+                  and not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY})`
+                : sql`not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY})
+                  and not (coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY})`;
+          const markerPredicate = input.expectedReservation !== undefined
+            ? resourceReservationMarkerEqualsSql(input.expectedReservation)
+            : input.expectedResizeOperationId === undefined && input.expectedResizeUnconfirmedOperationId === undefined
+              ? sql`not coalesce((${validResourceReservationMarkerSql()}), false)`
+              : sql`true`;
+
+          if (input.sharedResourceCapacity) {
+            const used = await reservedResourceTotals(tx, {
+              userId: initial.userId,
+              billingTeamId: initial.billingTeamId,
+              excludeVmId: input.id,
+            });
+            const exceeded = firstExceededSharedResource({
+              used,
+              requested: input.reservation,
+              capacity: input.sharedResourceCapacity,
+            });
+            if (exceeded) {
+              throw new VmSharedResourceLimitExceededError({
+                kind: "shared_resources",
+                billingTeamId: initial.billingTeamId ?? initial.userId,
+                phase: "create",
+                resource: exceeded.resource,
+                used: exceeded.used,
+                requested: exceeded.requested,
+                limit: exceeded.limit,
+              });
+            }
+          }
+
+          const rows = await tx
+            .update(cloudVms)
+            .set({
+              // Keep provider metadata and the control-plane claim in one JSON
+              // document without allowing a stale read to drop other fields.
+              providerMetadata: sql`(
+                coalesce(${cloudVms.providerMetadata}, '{}'::jsonb)
+                || ${reservationMetadataJsonb(input.reservation)}
+              ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
+                #- '{${sql.raw(VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY)}}'
+                #- '{${sql.raw(VM_RESOURCE_FORK_PENDING_METADATA_KEY)}}'
+                #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,
+              updatedAt: new Date(),
+            })
+            .where(and(
+              eq(cloudVms.id, input.id),
+              inArray(cloudVms.status, LIVE_VM_RESOURCE_STATUSES),
+              resizeMarkerPredicate,
+              markerPredicate,
+            ))
+            .returning({ id: cloudVms.id });
+          return rows.length > 0;
+        });
+      },
+      catch: (cause) => isVmSharedResourceLimitExceededError(cause)
+        ? cause
+        : new VmDatabaseError({ operation: "setResourceReservation", cause }),
     }),
 
   reservePausedResume: (input) =>
