@@ -137,6 +137,56 @@ import UIKit
         )
     }
 
+    @Test func concurrentAgentUpdatesWaitForScrollToFinishAndApplyTheLatestSnapshot() {
+        let initialWorkspace = preview(
+            id: "workspace-1",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
+        )
+        var firstAgentUpdate = initialWorkspace
+        firstAgentUpdate.previewText = "Agent A is still working"
+        var latestAgentUpdate = firstAgentUpdate
+        latestAgentUpdate.previewText = "Agent B finished"
+
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(workspaces: [initialWorkspace])
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+        let routeBeforeScrollUpdates = coordinator.lastPayloadApplyRoute
+
+        coordinator.scrollViewWillBeginDragging(tableView)
+        coordinator.update(
+            configuration: configuration(workspaces: [firstAgentUpdate]),
+            in: tableView
+        )
+        coordinator.update(
+            configuration: configuration(workspaces: [latestAgentUpdate]),
+            in: tableView
+        )
+
+        #expect(
+            coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates,
+            "Agent-session updates must not reconfigure cells while UIKit is tracking the pan."
+        )
+
+        coordinator.scrollViewDidEndDragging(tableView, willDecelerate: true)
+        #expect(
+            coordinator.lastPayloadApplyRoute == routeBeforeScrollUpdates,
+            "A decelerating list still owns the frame budget after the finger lifts."
+        )
+
+        coordinator.scrollViewDidEndDecelerating(tableView)
+        #expect(
+            coordinator.lastPayloadApplyRoute
+                == .reconfiguredInPlace(["workspace.workspace-1"]),
+            "The latest update from the concurrent sessions should apply once scrolling settles."
+        )
+        #expect(
+            coordinator.configuration.workspacesByID[initialWorkspace.id]?.previewText
+                == latestAgentUpdate.previewText
+        )
+    }
+
     @Test func descriptionArrivalChangesRowHeightThroughTableReload() {
         // A durable description adds a text line, changing the row's height
         // key: this payload change must keep riding the snapshot apply so
