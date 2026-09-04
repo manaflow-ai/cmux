@@ -30,7 +30,7 @@
         "snapshot": "This Cloud VM does not support saved VM state.",
         "restore": "This Cloud VM kind does not support restoring saved VM state.",
         "fork": "This Cloud VM does not support copying to a new VM.",
-        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
+        "openPort": "This Cloud VM cannot expose machine ports as preview URLs.",
         "default": "This Cloud VM does not support the requested operation."
       },
       "action": {
@@ -45,6 +45,11 @@
       "title": "cmux Pro required",
       "message": "Cloud VMs require a cmux Pro plan.",
       "action": "Upgrade to cmux Pro at {upgradeUrl} to create Cloud VMs."
+    },
+    "sharedResource": {
+      "message": "The shared Cloud VM {resource} pool is full.",
+      "action": "Delete an unused Cloud VM, then retry.",
+      "oversizedAction": "Request a smaller Cloud VM {resource} size that fits within the shared pool."
     }
   },
   "ios": {
@@ -800,7 +805,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, each with 8 GB RAM and 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
+        "Up to 50 Cloud VMs, all sharing a total pool of 5 vCPU, 20 GB RAM, and 200 GB disk; each VM starts at 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -898,10 +903,10 @@
           "enterprise": "Custom"
         },
         {
-          "label": "Cloud VM size",
+          "label": "Resources shared across Cloud VMs",
           "free": "false",
-          "pro": "8 GB RAM, 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
-          "team": "8 GB RAM, 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
+          "pro": "5 vCPU, 20 GB RAM, 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
+          "team": "Per user: 5 vCPU, 20 GB RAM, and 200 GB disk total; default VM size 8 GB RAM and 32 GB disk, with sizes from 4 to 64 GB RAM available as capacity allows",
           "enterprise": "Custom"
         },
         {
@@ -980,7 +985,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with configurable 4, 8, 16, 24, 32, or 64 GB of RAM and 16, 32, 64, 96, or 128 GB of disk."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro includes up to 50 machines sharing a total pool of 5 vCPU, 20 GB of RAM, and 200 GB of disk. Team includes up to 50 machines per user, with the same shared pool for each user. The default VM size is 8 GB RAM and 32 GB disk; sizes from 4 to 64 GB RAM are available as capacity allows. New VM disks start at 32 GB and can grow within the shared pool."
         },
         {
           "q": "What is cmux Vault?",
@@ -993,7 +998,7 @@
         },
         {
           "q": "How does billing work?",
-          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user, with no metering or overages. The terminal and local agents stay free."
+          "a": "Pro is $50/mo, or $40/mo when billed annually (a 20% savings). Team is $60/user/mo, or $48/user/mo when billed annually. Paid plans include up to 50 Cloud VMs per user. Each user's VMs share a total of 5 vCPU, 20 GB of RAM, and 200 GB of disk, with no metering or overages. The terminal and local agents stay free."
         },
         {
           "q": "Can I self-host the cloud?",
@@ -2210,9 +2215,6 @@
           "textBoxSubmitActionBackgroundColorHex": "Action color metadata as RGB or RGBA hex. The submit button fill stays white and only changes opacity between enabled and disabled states."
         },
         "browser": {
-          "defaultEngine": "Rendering engine for newly-created embedded browser panes. Auto follows the system default browser; explicit WebKit or Chromium choices override it. Chromium runs out of process.",
-          "chromiumExtensionDirectories": "Newline-separated absolute paths to unpacked Chromium extension directories loaded into new Chromium panes.",
-          "remoteDebuggingPort": "Loopback-only Chromium CDP port. Zero disables external CDP attachment; otherwise use a port from 1024 through 65535.",
           "defaultSearchEngine": "Default search engine for non-URL browser address bar queries. Use custom with customSearchEngineURLTemplate for arbitrary providers.",
           "customSearchEngineName": "Display name used when defaultSearchEngine is custom.",
           "customSearchEngineURLTemplate": "Search URL used when defaultSearchEngine is custom. Include the query placeholder or %s for the encoded query. If omitted, cmux appends q= to the URL.",
@@ -2236,7 +2238,12 @@
           "snappingEnabled": "Snap pane drags and resizes to neighbor edges and the pane gap. Hold Command to suspend snapping for one gesture."
         },
         "fileEditor": {
-          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally."
+          "wordWrap": "Wrap long lines at the editor's right edge instead of scrolling horizontally.",
+          "syntaxHighlighting": "Color source tokens in the built-in file editor.",
+          "lineNumbers": "Show a line-number gutter in the built-in file editor.",
+          "indentGuides": "Draw vertical indent guides in the built-in file editor.",
+          "currentLineHighlight": "Highlight the caret's line when the selection is empty.",
+          "tabWidth": "Width of a tab stop, in columns, for indentation and indent guides."
         },
         "sidebar": {
           "notificationMessageLineLimit": "Maximum lines shown for the latest notification below each workspace title.",

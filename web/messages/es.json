@@ -22,6 +22,11 @@
       "title": "Se requiere cmux Pro",
       "message": "Las Cloud VM requieren un plan cmux Pro.",
       "action": "Actualiza a cmux Pro en {upgradeUrl} para crear Cloud VM."
+    },
+    "sharedResource": {
+      "message": "El grupo compartido de recursos {resource} de Cloud VM está lleno.",
+      "action": "Elimina una Cloud VM que no uses y vuelve a intentarlo.",
+      "oversizedAction": "Solicita un tamaño {resource} menor para la Cloud VM que quepa en el grupo compartido."
     }
   },
   "billingRecovery": {
@@ -1183,6 +1188,14 @@
         "shortcuts": {
           "when": "Predicados de contexto opcionales por acción (cláusulas `when` al estilo de VS Code), indexados por el id de acción de cmux. Cada valor es una expresión booleana sobre claves de contexto, combinada con !, &&, || y paréntesis. Claves booleanas: sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Las claves tipadas admiten comparaciones: la cadena sidebarMode (files, find, sessions, feed o dock) y los enteros paneCount y workspaceCount. Los operadores de comparación son ==, !=, =~ (expresión regular), <, <=, >, >= e `in [a, b]`; una clave desconocida o ausente se evalúa como false. También se aceptan los literales booleanos true y false; `key == false` equivale a `!key`. El atajo de la acción solo se activa (y solo entra en conflicto con otros atajos) cuando la cláusula se cumple. Ejemplos: { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } selecciona espacios de trabajo con Ctrl+1–9 en todas partes excepto cuando la barra lateral derecha tiene el foco; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limita una asignación a la barra lateral de búsqueda cuando el espacio de trabajo tiene varios paneles.",
           "showModifierHoldHints": "Muestra chips de sugerencias de atajos mientras mantienes pulsado Cmd o Control."
+        },
+        "fileEditor": {
+          "wordWrap": "Ajusta las líneas largas al borde derecho del editor en lugar de desplazarlas horizontalmente.",
+          "syntaxHighlighting": "Colorea los tokens del código en el editor de archivos integrado.",
+          "lineNumbers": "Muestra un margen con números de línea en el editor de archivos integrado.",
+          "indentGuides": "Dibuja guías verticales de sangría en el editor de archivos integrado.",
+          "currentLineHighlight": "Resalta la línea del cursor cuando no hay selección.",
+          "tabWidth": "Ancho de un tabulador, en columnas, para la sangría y las guías de sangría."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

@@ -43,6 +43,9 @@
       <FileRef
          location = "group:CmuxSyncStore">
       </FileRef>
+      <FileRef
+         location = "group:CmuxSyntaxHighlighting">
+      </FileRef>
    </Group>
    <Group
       location = "container:Packages/iOS"
@@ -133,9 +136,6 @@
          location = "group:CmuxCanvasUI">
       </FileRef>
       <FileRef
-         location = "group:CmuxCEF">
-      </FileRef>
-      <FileRef
          location = "group:CmuxCommandPalette">
       </FileRef>
       <FileRef
@@ -155,6 +155,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxFeedback">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxFilePreviewCore">
       </FileRef>
       <FileRef
          location = "group:CmuxFoundation">

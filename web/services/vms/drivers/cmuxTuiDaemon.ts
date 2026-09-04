@@ -460,10 +460,10 @@ function cmuxTuiBackingDaemonInvocation(
 /**
  * The daemon command every provider's supervisor runs. Launch cwd = the persistent
  * home so new terminals open there. `remoteWsBind` defaults to the IPv4 wildcard
- * the container providers' proxies dial; Freestyle machines are reached at
- * their public IPv6 and pass a dual-stack `[::]` bind instead (a container with
- * IPv6 disabled cannot bind `[::]` at all, so dual-stack is per-provider, not the
- * default).
+ * the container providers' proxies dial; Freestyle machines are reached at a
+ * private VPC address by default, or their public IPv6 on the legacy path, and
+ * pass a dual-stack `[::]` bind instead (a container with IPv6 disabled cannot
+ * bind `[::]` at all, so dual-stack is per-provider, not the default).
  *
  * Without a layout the daemon (and so every terminal pane it spawns) runs as root
  * with HOME=/root — the model the Freestyle driver uses. With a layout the

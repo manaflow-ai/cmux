@@ -271,7 +271,7 @@ export function pricingActionClassName(
   const sizeClass =
     size === "compact"
       ? "px-3 py-1.5 text-xs"
-      : "px-5 py-2.5 text-[15px]";
+      : "min-h-12 px-5 py-3 text-[15px]";
   if (variant === "primary") {
     return `${base} ${sizeClass} bg-foreground transition-opacity hover:opacity-85`;
   }

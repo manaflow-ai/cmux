@@ -62086,6 +62086,108 @@
         }
       }
     },
+    "mobile.screenshot.notification.reply.action": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Implemented the fix and opened the PR. Ready for your review — reply to continue."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修正を実装して PR を作成しました。レビューできます。返信して続行してください。"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Message the agent…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントにメッセージ…"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.send": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "送信"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux エージェント"
+          }
+        }
+      }
+    },
+    "mobile.screenshot.notification.reply.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude finished in workspace ~"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude がワークスペース ~ で完了しました"
+          }
+        }
+      }
+    },
     "mobile.screenshot.notification.title": {
       "extractionState": "manual",
       "localizations": {
@@ -83080,13 +83182,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running %@. Update it to %@ or later."
+            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac は %@ を実行しています。%@ 以降にアップデートしてください。"
+            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
           }
         }
       }
@@ -83148,13 +83250,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running %@. Update it to %@ or later."
+            "value": "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この Mac は %@ を実行しています。%@ 以降にアップデートしてください。"
+            "value": "この Mac は cmux %@ を実行しています。この Mac の cmux を %@ 以降にアップデートしてください。"
           }
         }
       }
@@ -83494,13 +83596,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running cmux %1$@, but this version of the app requires cmux %2$@ or newer on the Mac."
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to %2$@ or newer to connect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacはcmux %1$@を実行していますが、このバージョンのアプリにはMac版cmux %2$@以降が必要です。"
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmuxを%2$@以降にアップデートしてください。"
           }
         }
       }
@@ -83511,13 +83613,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running an older version of cmux. This version of the app requires cmux %1$@ or newer on the Mac."
+            "value": "This Mac is running an older version of cmux. Update cmux on this Mac to %1$@ or newer to connect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacは古いバージョンのcmuxを実行しています。このバージョンのアプリにはMac版cmux %1$@以降が必要です。"
+            "value": "このMacは古いバージョンのcmuxを実行しています。接続するには、このMacのcmuxを%1$@以降にアップデートしてください。"
           }
         }
       }
@@ -83528,13 +83630,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This Mac is running cmux %1$@, but this version of the app needs a newer cmux Nightly (%2$@ or later)."
+            "value": "This Mac is running cmux %1$@. Update cmux on this Mac to Nightly %2$@ or later to connect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このMacはcmux %1$@を実行していますが、このバージョンのアプリにはより新しいcmux Nightly（%2$@以降）が必要です。"
+            "value": "このMacはcmux %1$@を実行しています。接続するには、このMacのcmux Nightlyを%2$@以降にアップデートしてください。"
           }
         }
       }
@@ -83562,13 +83664,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This version of the app needs a newer cmux Nightly on this Mac (%1$@ or later)."
+            "value": "This Mac needs a newer cmux Nightly. Update cmux on this Mac to %1$@ or later to connect."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このバージョンのアプリには、このMacでより新しいcmux Nightly（%1$@以降）が必要です。"
+            "value": "このMacのcmux Nightlyを%1$@以降にアップデートして接続してください。"
           }
         }
       }
