@@ -619,8 +619,7 @@ enum AgentResumeCommandBuilder {
             observedPermissionMode: observedPermissionMode
         )
     }
-
-    private static func forkArguments(
+    static func forkArguments(
         kind: RestorableAgentKind,
         sessionId: String,
         launchCommand: AgentLaunchCommandSnapshot?,
@@ -628,37 +627,35 @@ enum AgentResumeCommandBuilder {
         customRegistration: CmuxVaultAgentRegistration?,
         observedPermissionMode: String? = nil
     ) -> [String]? {
-        let forkArgv = AgentForkArgv()
-        switch forkArgv.launcherResolution(
-            launcher: launchCommand?.launcher,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? []
-        ) {
-        case .resolved(let argv):
-            return argv
-        case .passthrough:
-            break
-        }
-
-        if case .custom = kind {
-            guard let customRegistration else { return nil }
-            let arguments = customForkArguments(
-                registration: customRegistration,
-                sessionId: sessionId,
-                launchCommand: launchCommand,
-                workingDirectory: workingDirectory
+        let customTemplate = customRegistration?.forkCommand.map { command in
+            AgentForkRequest.CustomTemplate(
+                command: command,
+                defaultExecutable: customRegistration?.defaultExecutable ?? kind.rawValue,
+                sessionDirectory: normalized(customRegistration?.sessionDirectory).map {
+                    ($0 as NSString).expandingTildeInPath
+                }
             )
-            return arguments.isEmpty ? nil : arguments
         }
-
-        return forkArgv.builtInKind(
+        return AgentForkRequest(
             kind: kind.rawValue,
-            sessionId: sessionId,
-            executablePath: launchCommand?.executablePath,
-            arguments: launchCommand?.arguments ?? [],
-            observedPermissionMode: observedPermissionMode
-        )
+            checkpointID: sessionId,
+            launchCommand: launchCommand.map {
+                AgentLaunchCommand(
+                    launcher: $0.launcher,
+                    executablePath: $0.executablePath,
+                    arguments: $0.arguments,
+                    workingDirectory: $0.workingDirectory,
+                    environment: $0.environment,
+                    verificationHome: $0.verificationHome,
+                    capturedAt: $0.capturedAt,
+                    source: $0.source
+                )
+            },
+            workingDirectory: workingDirectory,
+            observedPermissionMode: observedPermissionMode,
+            isCustomKind: kind.customAgentID != nil,
+            customTemplate: customTemplate
+        ).forkArguments()
     }
 
     private static func customResumeArguments(
@@ -676,22 +673,6 @@ enum AgentResumeCommandBuilder {
         )
     }
 
-    private static func customForkArguments(
-        registration: CmuxVaultAgentRegistration,
-        sessionId: String,
-        launchCommand: AgentLaunchCommandSnapshot?,
-        workingDirectory: String?
-    ) -> [String] {
-        guard let forkCommand = normalized(registration.forkCommand) else { return [] }
-        return customTemplateArguments(
-            template: forkCommand,
-            registration: registration,
-            sessionId: sessionId,
-            launchCommand: launchCommand,
-            workingDirectory: workingDirectory
-        )
-    }
-
     private static func customTemplateArguments(
         template: String,
         registration: CmuxVaultAgentRegistration,
@@ -699,8 +680,6 @@ enum AgentResumeCommandBuilder {
         launchCommand: AgentLaunchCommandSnapshot?,
         workingDirectory: String?
     ) -> [String] {
-        let templateParts = splitShellWords(template)
-        guard !templateParts.isEmpty else { return [] }
         let original = commandParts(
             launchCommand: launchCommand,
             fallbackExecutable: registration.defaultExecutable
@@ -708,95 +687,13 @@ enum AgentResumeCommandBuilder {
         let sessionDirectory = normalized(registration.sessionDirectory).map {
             ($0 as NSString).expandingTildeInPath
         }
-        let replacements: [String: String] = [
-            "sessionId": sessionId,
-            "sessionPath": sessionId,
-            "executable": original.executable,
-            "cwd": normalized(workingDirectory ?? launchCommand?.workingDirectory) ?? "",
-            "sessionDir": sessionDirectory ?? "",
-        ]
-        var resolved: [String] = []
-        for part in templateParts {
-            guard let value = resolveTemplatePart(part, replacements: replacements) else { return [] }
-            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return [] }
-            resolved.append(trimmed)
-        }
-        return resolved
-    }
-
-    private static func resolveTemplatePart(
-        _ part: String,
-        replacements: [String: String]
-    ) -> String? {
-        var resolved = ""
-        var searchStart = part.startIndex
-        while let opening = part[searchStart...].range(of: "{{") {
-            resolved.append(contentsOf: part[searchStart..<opening.lowerBound])
-            guard let closing = part[opening.upperBound...].range(of: "}}") else {
-                resolved.append(contentsOf: part[opening.lowerBound...])
-                return resolved
-            }
-            let key = String(part[opening.upperBound..<closing.lowerBound])
-            if let replacement = replacements[key] {
-                if replacement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    return nil
-                }
-                resolved += replacement
-            } else {
-                resolved.append(contentsOf: part[opening.lowerBound..<closing.upperBound])
-            }
-            searchStart = closing.upperBound
-        }
-        resolved.append(contentsOf: part[searchStart...])
-        return resolved
-    }
-
-    private static func splitShellWords(_ command: String) -> [String] {
-        enum Quote {
-            case single
-            case double
-        }
-
-        var words: [String] = []
-        var current = ""
-        var quote: Quote?
-        var escaping = false
-
-        func finishWord() {
-            guard !current.isEmpty else { return }
-            words.append(current)
-            current = ""
-        }
-
-        for character in command {
-            if escaping {
-                current.append(character)
-                escaping = false
-                continue
-            }
-            if character == "\\" {
-                escaping = true
-                continue
-            }
-            switch (quote, character) {
-            case (.single, "'"), (.double, "\""):
-                quote = nil
-            case (nil, "'"):
-                quote = .single
-            case (nil, "\""):
-                quote = .double
-            case (nil, " "), (nil, "\t"), (nil, "\n"):
-                finishWord()
-            default:
-                current.append(character)
-            }
-        }
-        if escaping {
-            current.append("\\")
-        }
-        finishWord()
-        return words
+        return AgentLaunchTemplateRenderer().arguments(
+            template: template,
+            executable: original.executable,
+            sessionID: sessionId,
+            workingDirectory: workingDirectory ?? launchCommand?.workingDirectory,
+            sessionDirectory: sessionDirectory
+        ) ?? []
     }
 
     private static func resumeWithOption(

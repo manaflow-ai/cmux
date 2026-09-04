@@ -234,7 +234,7 @@ struct MacComputerRow: View {
         return String(
             format: L10n.string(
                 "computers.version.outdated.detail",
-                defaultValue: "This Mac is running %@. Update it to %@ or later."
+                defaultValue: "This Mac is running cmux %@. Update cmux on this Mac to %@ or later."
             ),
             installed,
             required

@@ -451,26 +451,26 @@ struct FileDropOverlayViewTests {
         let leftDown = try #require(Self.mouseEvent(type: .leftMouseDown, location: leftPoint, window: window))
         let rightDown = try #require(Self.mouseEvent(type: .rightMouseDown, location: rightPoint, window: window))
         let rightDrag = try #require(Self.mouseEvent(type: .rightMouseDragged, location: leftPoint, window: window))
-        let middleDown = try Self.otherMouseEvent(
+        let middleDown = try #require(try Self.otherMouseEvent(
             type: .otherMouseDown,
             location: leftPoint,
             window: window,
             buttonNumber: 2
-        )
-        let middleDrag = try Self.otherMouseEvent(
+        ))
+        let middleDrag = try #require(try Self.otherMouseEvent(
             type: .otherMouseDragged,
             location: rightPoint,
             window: window,
             buttonNumber: 2
-        )
+        ))
         let leftUp = try #require(Self.mouseEvent(type: .leftMouseUp, location: rightPoint, window: window))
         let rightUp = try #require(Self.mouseEvent(type: .rightMouseUp, location: leftPoint, window: window))
-        let middleUp = try Self.otherMouseEvent(
+        let middleUp = try #require(try Self.otherMouseEvent(
             type: .otherMouseUp,
             location: rightPoint,
             window: window,
             buttonNumber: 2
-        )
+        ))
 
         overlay.mouseDown(with: leftDown)
         overlay.rightMouseDown(with: rightDown)
@@ -521,15 +521,30 @@ struct FileDropOverlayViewTests {
             fatalError("Unsupported event type \(type)")
         }
         let mouseButton = try #require(CGMouseButton(rawValue: UInt32(buttonNumber)))
+        // Quartz mouse events use a top-left global origin while AppKit's
+        // `NSEvent` helpers use a bottom-left origin. Normalize the synthetic
+        // point before bridging it so the resulting `locationInWindow` matches
+        // the left/right events above and the overlay can hit-test the target.
+        let quartzLocation = NSPoint(
+            x: location.x,
+            y: Self.quartzY(forAppKitScreenY: location.y)
+        )
         let cgEvent = try #require(
             CGEvent(
                 mouseEventSource: nil,
                 mouseType: cgEventType,
-                mouseCursorPosition: location,
+                mouseCursorPosition: quartzLocation,
                 mouseButton: mouseButton
             )
         )
         cgEvent.setIntegerValueField(.mouseEventButtonNumber, value: Int64(buttonNumber))
         return try #require(NSEvent(cgEvent: cgEvent))
+    }
+
+    private static func quartzY(forAppKitScreenY y: CGFloat) -> CGFloat {
+        let displayMaxY = NSScreen.screens.first { $0.frame.contains(NSPoint(x: 0, y: y)) }?.frame.maxY
+            ?? NSScreen.main?.frame.maxY
+            ?? y
+        return displayMaxY - y
     }
 }

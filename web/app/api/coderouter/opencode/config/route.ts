@@ -1,10 +1,8 @@
 import { openCodeClientConfig } from "../../../../../services/coderouter/opencodeProxy";
+import { coderouterControlRoute } from "../../../../../services/coderouter/requestTelemetry";
 
-
-export async function GET(request: Request): Promise<Response> {
-  try {
-    return await openCodeClientConfig(request);
-  } catch {
-    return Response.json({ error: "coderouter_unavailable" }, { status: 503 });
-  }
-}
+export const GET = coderouterControlRoute(
+  "opencode_config",
+  "/api/coderouter/opencode/config",
+  (request) => openCodeClientConfig(request),
+);
