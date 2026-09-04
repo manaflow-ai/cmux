@@ -286,18 +286,6 @@ cmux_codex_reconcile_skill_links() {
     CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION="$CMUX_CUA_SKILL_PROJECT_COLLISION"
 }
 
-cmux_codex_computer_use_skill_path() {
-    # Derive the skill only from this wrapper's own app bundle. Do not consult
-    # project directories or user-global configuration: the path is scoped to
-    # the cmux build that launched this Codex process.
-    local self_dir resource_dir skill_path
-    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
-    resource_dir="${self_dir%/bin}"
-    skill_path="$resource_dir/cmux-cua/SKILL.md"
-    [[ -f "$skill_path" ]] || return 1
-    printf '%s' "$skill_path"
-}
-
 cmux_codex_computer_use_app_enabled() {
     # The shell shim normally refreshes this authority before every invocation,
     # but the wrapper can also be launched directly (or through an older shim).
