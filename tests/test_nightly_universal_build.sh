@@ -287,13 +287,14 @@ if ! awk '
   /^  close-nightly-failure-issue:/ { job="close"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
   job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
+  job == "report" && /refresh-compilation-cache/ { saw_report_cache=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
   job == "report" && /nightly-failure/ { saw_report_label=1 }
   job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
-  END { exit !(saw_report_gate && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
+  END { exit !(saw_report_gate && saw_report_cache && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: a failing main nightly must open a nightly-failure issue and a successful publish must close it"
+  echo "FAIL: cache refresh and publish failures must reach the nightly-failure issue, and a successful publish must close it"
   exit 1
 fi
 
