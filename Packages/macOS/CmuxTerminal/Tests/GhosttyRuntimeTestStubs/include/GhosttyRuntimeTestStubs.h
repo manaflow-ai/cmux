@@ -24,6 +24,10 @@ typedef void (*ghostty_font_size_action_cb)(
     bool current_adjusted);
 
 bool ghostty_surface_clear_selection(void *surface);
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    void *result);
 
 void *ghostty_config_new(void);
 void ghostty_config_free(void *config);
