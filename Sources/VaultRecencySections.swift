@@ -160,16 +160,19 @@ struct VaultSessionFilter: Equatable, Sendable {
 
 // MARK: - Row accessory
 
-/// Extra display facts a recency/search row shows beyond the base
-/// `SessionEntry` (which stays a pure disk-index record).
+/// Extra display facts a Vault row shows beyond the base `SessionEntry`
+/// (which stays a pure disk-index record). Live status is present in every
+/// grouping; folder/branch detail is recency-only.
 struct VaultSessionRowAccessory: Equatable, Sendable {
     let liveStatus: VaultSessionLiveStatus
     let detail: String?
+    /// Retained for Vault socket/API consumers; compact rows do not render it.
     let messageCount: Int?
 
-    /// True when the row renders a second (subtitle) line. The table height
-    /// calculator must agree with `SessionRow`'s layout on this.
-    var hasSubtitle: Bool { detail != nil || messageCount != nil }
+    /// True when the row renders a second (subtitle) line. Message counts are
+    /// intentionally omitted from the compact row, so the table height
+    /// calculator must agree with `SessionRow`'s detail-only layout.
+    var hasSubtitle: Bool { detail != nil }
 
     nonisolated static func detailText(for entry: SessionEntry) -> String? {
         var parts: [String] = []
@@ -185,7 +188,8 @@ struct VaultSessionRowAccessory: Equatable, Sendable {
     nonisolated static func make(
         for entry: SessionEntry,
         liveKeys: Set<String>,
-        now: Date
+        now: Date,
+        includeDetail: Bool = true
     ) -> VaultSessionRowAccessory {
         VaultSessionRowAccessory(
             liveStatus: VaultSessionLiveStatus.derive(
@@ -193,7 +197,7 @@ struct VaultSessionRowAccessory: Equatable, Sendable {
                 lastActivity: entry.modified,
                 now: now
             ),
-            detail: detailText(for: entry),
+            detail: includeDetail ? detailText(for: entry) : nil,
             messageCount: entry.messageCount
         )
     }
@@ -257,12 +261,14 @@ enum VaultRecencySections {
         }
     }
 
-    /// Accessory map for a batch of rows (also used by the search results
-    /// section so both surfaces render identical row chrome).
+    /// Accessory map for a batch of rows. Recency includes folder/branch
+    /// detail; Agent and Folder groupings pass `includeDetail: false` so they
+    /// keep a compact single line while still sharing the status circle.
     nonisolated static func accessories(
         for entries: [SessionEntry],
         liveKeys: Set<String>,
-        now: Date
+        now: Date,
+        includeDetail: Bool = true
     ) -> [String: VaultSessionRowAccessory] {
         var accessories: [String: VaultSessionRowAccessory] = [:]
         accessories.reserveCapacity(entries.count)
@@ -270,7 +276,8 @@ enum VaultRecencySections {
             accessories[entry.id] = VaultSessionRowAccessory.make(
                 for: entry,
                 liveKeys: liveKeys,
-                now: now
+                now: now,
+                includeDetail: includeDetail
             )
         }
         return accessories

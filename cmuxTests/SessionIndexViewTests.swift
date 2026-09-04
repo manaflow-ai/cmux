@@ -404,6 +404,12 @@ struct SessionIndexViewTests {
                 "agent:claude",
                 "agent:grok"
             ])
+            #expect(sections.allSatisfy { section in
+                section.entries.allSatisfy { entry in
+                    let accessory = section.accessories[entry.id]
+                    return accessory != nil && accessory?.detail == nil && accessory?.hasSubtitle == false
+                }
+            })
         }
     }
 
@@ -440,6 +446,12 @@ struct SessionIndexViewTests {
                 "dir:/project-a",
                 "dir:/project-c"
             ])
+            #expect(sections.allSatisfy { section in
+                section.entries.allSatisfy { entry in
+                    let accessory = section.accessories[entry.id]
+                    return accessory != nil && accessory?.detail == nil && accessory?.hasSubtitle == false
+                }
+            })
         }
     }
 

@@ -920,8 +920,9 @@ private struct SectionGapDropDelegate: DropDelegate {
 
 private struct SessionRow: View, Equatable {
     let entry: SessionEntry
-    /// Extra display facts for recency/search rows (status dot, folder/branch
-    /// subtitle, message count); nil in agent/folder groupings.
+    /// Extra display facts (status for the compact circle; recency rows also
+    /// carry a folder/branch subtitle). Agent and Folder rows still receive
+    /// live status so every Vault grouping uses the same indicator.
     var accessory: VaultSessionRowAccessory?
     let isPreviewPresented: Bool
     let beginSessionDrag: SessionDragBeginAction
@@ -958,41 +959,21 @@ private struct SessionRow: View, Equatable {
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 8)
-                if isActive {
-                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                        .fill(Color.green)
-                        .frame(width: 6, height: 6)
-                        .help(Self.activeSessionLabel)
-                        .accessibilityLabel(Text(Self.activeSessionLabel))
-                } else if let accessory {
-                    Circle()
-                        .fill(accessory.liveStatus.dotColor)
-                        .frame(width: 6, height: 6)
-                        .help(accessory.liveStatus.label)
-                        .accessibilityLabel(Text(accessory.liveStatus.label))
-                }
+                SessionStatusIndicator(
+                    isInPane: isActive,
+                    liveStatus: accessory?.liveStatus
+                )
                 Text(relativeTime(entry.modified))
                     .cmuxFont(size: 12, monospacedDigit: true)
                     .foregroundColor(.secondary.opacity(0.65))
                     .fixedSize()
             }
-            if let accessory, accessory.hasSubtitle {
-                HStack(spacing: 6) {
-                    if let detail = accessory.detail {
-                        Text(detail)
-                            .cmuxFont(size: 11)
-                            .foregroundColor(.secondary.opacity(0.75))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer(minLength: 8)
-                    if let count = accessory.messageCount {
-                        Text(Self.messageCountText(count))
-                            .cmuxFont(size: 11, monospacedDigit: true)
-                            .foregroundColor(.secondary.opacity(0.6))
-                            .fixedSize()
-                    }
-                }
+            if let accessory, let detail = accessory.detail {
+                Text(detail)
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary.opacity(0.75))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 // Match the title's leading edge: 20-point icon frame plus
                 // the six-point primary-line spacing.
                 .padding(.leading, 26)
@@ -1020,27 +1001,6 @@ private struct SessionRow: View, Equatable {
                 isActive: isActive
             )
         }
-    }
-
-    private static let activeSessionLabel = String(
-        localized: "sessionIndex.status.activeInPane",
-        defaultValue: "Active in pane"
-    )
-
-    static func messageCountText(_ count: Int) -> String {
-        if count == 1 {
-            return String(
-                localized: "sessionIndex.row.messageCount.one",
-                defaultValue: "1 msg"
-            )
-        }
-        return String.localizedStringWithFormat(
-            String(
-                localized: "sessionIndex.row.messageCount.other",
-                defaultValue: "%lld msgs"
-            ),
-            Int64(count)
-        )
     }
 
     private var rowBackground: some View {
@@ -1074,6 +1034,26 @@ private struct SessionRow: View, Equatable {
 
     private func absoluteTime(_ date: Date) -> String {
         SessionIndexView.absoluteFormatter.string(from: date)
+    }
+}
+
+/// The session list uses one restrained, binary status treatment everywhere:
+/// a green circle for active work and a semantic gray circle for history that
+/// is not currently active. Keeping the shape in one view prevents the
+/// in-pane and indexed-session paths from diverging again.
+private struct SessionStatusIndicator: View {
+    let model: SessionIndexStatusIndicatorModel
+
+    init(isInPane: Bool, liveStatus: VaultSessionLiveStatus?) {
+        self.model = .make(isInPane: isInPane, liveStatus: liveStatus)
+    }
+
+    var body: some View {
+        Circle()
+            .fill(model.isActive ? Color.green : Color.secondary.opacity(0.55))
+            .frame(width: 6, height: 6)
+            .help(model.label)
+            .accessibilityLabel(Text(model.label))
     }
 }
 
@@ -2562,6 +2542,7 @@ struct SectionPopoverView: View {
                         ForEach(loadedRows) { row in
                             PopoverRow(
                                 entry: row.entry,
+                                accessory: section.accessories[row.entry.id],
                                 beginSessionDrag: beginSessionDrag,
                                 onOpen: onOpen.map { open in
                                     { entry in
@@ -2790,6 +2771,7 @@ struct SectionPopoverView: View {
 
 private struct PopoverRow: View, Equatable {
     let entry: SessionEntry
+    var accessory: VaultSessionRowAccessory?
     let beginSessionDrag: SessionDragBeginAction
     let onOpen: ((SessionEntry) -> Void)?
     let onFocus: ((SessionEntry) -> Void)?
@@ -2799,7 +2781,9 @@ private struct PopoverRow: View, Equatable {
     @State private var isHovered: Bool = false
 
     static func == (lhs: PopoverRow, rhs: PopoverRow) -> Bool {
-        lhs.entry == rhs.entry && lhs.isActive == rhs.isActive
+        lhs.entry == rhs.entry
+            && lhs.accessory == rhs.accessory
+            && lhs.isActive == rhs.isActive
     }
 
     fileprivate static func flatten(_ s: String) -> String {
@@ -2841,13 +2825,10 @@ private struct PopoverRow: View, Equatable {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            if isActive {
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(Color.green)
-                    .frame(width: 6, height: 6)
-                    .help(String(localized: "sessionIndex.status.activeInPane", defaultValue: "Active in pane"))
-                    .accessibilityLabel(Text(String(localized: "sessionIndex.status.activeInPane", defaultValue: "Active in pane")))
-            }
+            SessionStatusIndicator(
+                isInPane: isActive,
+                liveStatus: accessory?.liveStatus
+            )
             modifiedText
         }
         .padding(.horizontal, 12)

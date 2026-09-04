@@ -144,10 +144,10 @@ struct IndexSection: Identifiable, Equatable {
     /// This is a presentation snapshot supplied by `SessionIndexView`; the
     /// store itself remains independent of the tab manager.
     let activeEntryIDs: Set<String>
-    /// Extra per-row display facts (live status, folder/branch detail) keyed
-    /// by `SessionEntry.id`. Populated for Recent projections, including
-    /// Recent search results; Agent and Folder sections keep their compact row
-    /// treatment.
+    /// Extra per-row display facts (live status, and for Recent rows
+    /// folder/branch detail) keyed by `SessionEntry.id`. Every grouping gets
+    /// live status so the compact circle is the same in Recent, Agent, Folder,
+    /// and search. Agent and Folder omit the detail subtitle.
     let accessories: [String: VaultSessionRowAccessory]
 
     init(
@@ -244,8 +244,9 @@ final class SessionIndexStore: ObservableObject {
             case .agent:
                 backfillAgentOrderFromEntries()
             case .recency:
-                refreshLiveSessionKeys()
+                break
             }
+            refreshLiveSessionKeys()
         }
     }
 
@@ -267,7 +268,7 @@ final class SessionIndexStore: ObservableObject {
     }
 
     /// Join keys of sessions with a currently-running agent process. Refreshed
-    /// on reload and on entering the recency grouping — no timers.
+    /// on reload and on grouping changes — no timers.
     @Published private(set) var liveSessionKeys: Set<String> = []
 
     /// Persisted order for agent sections.
@@ -387,13 +388,20 @@ final class SessionIndexStore: ObservableObject {
                     : lhsLatest > rhsLatest
             }
             let orderedAgents = agentOrder + unknownAgents
+            let now = Date()
             sections = orderedAgents.compactMap { agent in
                 guard let entries = buckets[agent.rawValue], !entries.isEmpty else { return nil }
                 return IndexSection(
                     key: .agent(agent),
                     title: agent.displayName,
                     icon: .agent(agent),
-                    entries: entries
+                    entries: entries,
+                    accessories: VaultRecencySections.accessories(
+                        for: entries,
+                        liveKeys: liveSessionKeys,
+                        now: now,
+                        includeDetail: false
+                    )
                 )
             }
         case .directory:
@@ -413,16 +421,24 @@ final class SessionIndexStore: ObservableObject {
                     let rMax = buckets[rhs]?.map(\.modified).max() ?? .distantPast
                     return lMax == rMax ? lhs < rhs : lMax > rMax
                 }
+            let now = Date()
             sections = (directoryOrder + unknownSorted)
                 .filter { buckets[$0] != nil }
                 .map { path in
-                    IndexSection(
+                    let entries = buckets[path] ?? []
+                    return IndexSection(
                         key: .directory(path.isEmpty ? nil : path),
                         title: directoryDisplayName(path),
                         icon: .folder,
-                        entries: buckets[path] ?? []
-                )
-            }
+                        entries: entries,
+                        accessories: VaultRecencySections.accessories(
+                            for: entries,
+                            liveKeys: liveSessionKeys,
+                            now: now,
+                            includeDetail: false
+                        )
+                    )
+                }
         }
         return sections
     }

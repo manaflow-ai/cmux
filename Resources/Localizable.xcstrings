@@ -923,6 +923,20 @@
         "ja": { "stringUnit": { "state": "translated", "value": "ペインでアクティブ" } }
       }
     },
+    "sessionIndex.status.activeIndicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Active" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アクティブ" } }
+      }
+    },
+    "sessionIndex.status.inactiveIndicator": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Inactive" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "非アクティブ" } }
+      }
+    },
     "sessionIndex.sort.lastActivity": {
       "extractionState": "manual",
       "localizations": {
@@ -977,27 +991,6 @@
       "localizations": {
         "en": { "stringUnit": { "state": "translated", "value": "Results" } },
         "ja": { "stringUnit": { "state": "translated", "value": "結果" } }
-      }
-    },
-    "sessionIndex.row.messageCount": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "variations": { "plural": { "one": { "stringUnit": { "state": "translated", "value": "%lld msg" } }, "other": { "stringUnit": { "state": "translated", "value": "%lld msgs" } } } } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
-      }
-    },
-    "sessionIndex.row.messageCount.one": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "1 msg" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "1件" } }
-      }
-    },
-    "sessionIndex.row.messageCount.other": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "%lld msgs" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "%lld件" } }
       }
     },
     "sessionIndex.group.recency": {

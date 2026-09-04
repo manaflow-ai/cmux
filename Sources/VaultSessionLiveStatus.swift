@@ -35,12 +35,69 @@ enum VaultSessionLiveStatus: Equatable, Sendable {
         }
     }
 
-    var dotColor: Color {
+    /// The compact session list intentionally communicates a binary state.
+    /// An idle process remains available to the Live filter, but it is not
+    /// currently doing work and therefore uses the inactive treatment here.
+    var isActiveForIndicator: Bool {
+        self == .live
+    }
+
+    /// Accessibility/help copy for the same binary state shown by the dot.
+    /// Keep this separate from ``label`` because the latter still describes
+    /// the richer live/idle/ended state used by the filter and socket API.
+    var indicatorLabel: String {
         switch self {
-        case .live: return .green
-        case .idle: return .orange
-        case .exited: return Color.secondary.opacity(0.4)
+        case .live:
+            return String(
+                localized: "sessionIndex.status.activeIndicator",
+                defaultValue: "Active"
+            )
+        case .idle, .exited:
+            return String(
+                localized: "sessionIndex.status.inactiveIndicator",
+                defaultValue: "Inactive"
+            )
         }
+    }
+
+    var dotColor: Color {
+        isActiveForIndicator ? .green : Color.secondary.opacity(0.55)
+    }
+}
+
+/// Compact Vault-row chrome: one green or gray circle, regardless of grouping.
+struct SessionIndexStatusIndicatorModel: Equatable, Sendable {
+    let isActive: Bool
+    let label: String
+
+    /// In-pane sessions stay active even if the process looks idle. Indexed
+    /// rows without a pane use live status when present, otherwise inactive.
+    nonisolated static func make(
+        isInPane: Bool,
+        liveStatus: VaultSessionLiveStatus?
+    ) -> SessionIndexStatusIndicatorModel {
+        if isInPane {
+            return SessionIndexStatusIndicatorModel(
+                isActive: true,
+                label: String(
+                    localized: "sessionIndex.status.activeInPane",
+                    defaultValue: "Active in pane"
+                )
+            )
+        }
+        if let liveStatus, liveStatus.isActiveForIndicator {
+            return SessionIndexStatusIndicatorModel(
+                isActive: true,
+                label: liveStatus.indicatorLabel
+            )
+        }
+        return SessionIndexStatusIndicatorModel(
+            isActive: false,
+            label: String(
+                localized: "sessionIndex.status.inactiveIndicator",
+                defaultValue: "Inactive"
+            )
+        )
     }
 }
 

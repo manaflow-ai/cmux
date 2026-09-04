@@ -31,8 +31,8 @@ final class SessionIndexTableRowHeightCalculator {
                 verticalPadding: 8,
                 environment: environment
             )
-            // Recent rows can carry a second subtitle line (folder · branch,
-            // message count); agree with SessionRow's layout.
+            // Recent rows can carry a second subtitle line (folder · branch);
+            // agree with SessionRow's detail-only layout.
             let subtitleHeight = lineHeight(
                 baseFontSize: 11,
                 minimumContentHeight: 0,

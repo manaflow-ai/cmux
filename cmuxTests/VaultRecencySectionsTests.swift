@@ -226,6 +226,41 @@ struct VaultRecencySectionsTests {
     }
 
     @Test
+    func messageCountAloneDoesNotCreateACompactRowSubtitle() {
+        let entry = makeEntry(
+            id: "count-only",
+            cwd: nil,
+            modified: now,
+            messageCount: 12
+        )
+        let accessory = build([entry]).first?.accessories[entry.id]
+        #expect(accessory?.messageCount == 12)
+        #expect(accessory?.detail == nil)
+        #expect(accessory?.hasSubtitle == false)
+    }
+
+    @Test
+    func compactGroupingAccessoriesOmitFolderDetail() {
+        let entry = makeEntry(
+            id: "compact",
+            cwd: "/Users/dev/projects/cmux",
+            branch: "main",
+            modified: now,
+            messageCount: 4
+        )
+        let accessory = VaultRecencySections.accessories(
+            for: [entry],
+            liveKeys: [],
+            now: now,
+            includeDetail: false
+        )[entry.id]
+        #expect(accessory?.liveStatus == .exited)
+        #expect(accessory?.detail == nil)
+        #expect(accessory?.hasSubtitle == false)
+        #expect(accessory?.messageCount == 4)
+    }
+
+    @Test
     func emptyInputProducesNoSections() {
         #expect(build([]).isEmpty)
     }
