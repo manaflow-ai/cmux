@@ -964,7 +964,9 @@ public actor MobileIrxRuntimeComposition {
             macDeviceID: macDeviceID,
             instanceTag: instanceTag
         )
-        let peers = deviceListBox.current?.entries.compactMap { peerHex, entry in
+        let peers = deviceListBox.current?.entries.compactMap { pair in
+            let peerHex = pair.key
+            let entry = pair.value
             guard let deviceID = entry.deviceID else { return nil }
             let candidate = CmxMacAppInstanceIdentity(
                 macDeviceID: deviceID,
