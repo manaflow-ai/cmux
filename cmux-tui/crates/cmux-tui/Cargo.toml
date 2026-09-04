@@ -52,7 +52,7 @@ uuid.workspace = true
 wait-timeout.workspace = true
 
 [target.'cfg(unix)'.dependencies]
-cmux-remote = { workspace = true, default-features = false }
+cmux-remote.workspace = true
 cmux-remote-protocol.workspace = true
 tokio.workspace = true
 # Machine spend readout: one small JSON GET every few minutes from inside a

@@ -73,7 +73,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
 cmux-remote-protocol = { path = "crates/cmux-remote-protocol" }
-cmux-remote = { path = "crates/cmux-remote" }
+cmux-remote = { path = "crates/cmux-remote", default-features = false }
 cmux-tui-machine-agent-protocol = { path = "crates/cmux-tui-machine-agent-protocol" }
 cmux-tui-machine-protocol = { path = "crates/cmux-tui-machine-protocol" }
 anyhow = "1"
