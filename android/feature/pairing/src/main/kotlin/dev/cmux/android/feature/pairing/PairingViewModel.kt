@@ -10,6 +10,7 @@ import dev.cmux.android.core.pairing.AttachTicketDecoder
 import dev.cmux.android.core.pairing.PairedMacStore
 import dev.cmux.android.core.rpc.MobileCoreRpcSession
 import dev.cmux.android.core.transport.TcpByteTransport
+import dev.cmux.android.feature.pairing.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,8 +39,22 @@ class PairingViewModel @Inject constructor(
     private val _state = MutableStateFlow<PairingState>(PairingState.Idle)
     val state: StateFlow<PairingState> = _state.asStateFlow()
 
+    /** In DEBUG builds, the current Stack Auth access token for use with mobile-dev-auth.sh. */
+    val debugAccessToken: String? get() = if (BuildConfig.DEBUG) tokenStore.getAccessToken() else null
+
     fun startScanning() {
         _state.value = PairingState.Scanning
+    }
+
+    /** DEBUG: connect directly to the emulator host without scanning a QR code. */
+    fun connectDirect(port: Int = DEFAULT_PORT) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val ticket = AttachTicket(
+                routes = listOf(AttachRoute(AttachRoute.RouteKind.LOOPBACK, EMULATOR_HOST, port)),
+                macUserId = null,
+            )
+            connectAndPair(ticket, debugPortOverride = port)
+        }
     }
 
     fun onQrCodeScanned(rawUrl: String, debugPortOverride: Int? = null) {

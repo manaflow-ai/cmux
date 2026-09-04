@@ -9,7 +9,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -52,7 +54,11 @@ fun PairingScannerScreen(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     if (BuildConfig.DEBUG) {
-                        DebugUrlInput(onSubmit = { url, port -> viewModel.onQrCodeScanned(url, port) })
+                        DebugUrlInput(
+                            accessToken = viewModel.debugAccessToken,
+                            onSubmit = { url, port -> viewModel.onQrCodeScanned(url, port) },
+                            onDirectConnect = { port -> viewModel.connectDirect(port) },
+                        )
                     }
                 }
                 if (state is PairingState.Idle) {
@@ -91,10 +97,49 @@ fun PairingScannerScreen(
 }
 
 @Composable
-private fun DebugUrlInput(onSubmit: (String, Int?) -> Unit) {
+private fun DebugUrlInput(
+    accessToken: String?,
+    onSubmit: (String, Int?) -> Unit,
+    onDirectConnect: (Int) -> Unit,
+) {
     var url by remember { mutableStateOf("") }
     var portText by remember { mutableStateOf("") }
+    val clipboardManager = LocalClipboardManager.current
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // Token display — copy this then run: CMUX_TAG=<tag> ./scripts/mobile-dev-auth.sh <token>
+        if (accessToken != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "[DEBUG] Token: ${accessToken.take(12)}…",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedButton(onClick = { clipboardManager.setText(AnnotatedString(accessToken)) }) {
+                    Text("Copy")
+                }
+            }
+        }
+        // Direct connect — skips QR, connects to 10.0.2.2 on the given port
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = portText,
+                onValueChange = { portText = it.filter { c -> c.isDigit() } },
+                modifier = Modifier.weight(1f),
+                label = { Text("[DEBUG] Port (emulator)") },
+                singleLine = true,
+                placeholder = { Text("58465") },
+            )
+            Button(onClick = {
+                onDirectConnect(portText.toIntOrNull() ?: 58465)
+            }) { Text("Connect") }
+        }
+        // Fallback: paste raw QR URL
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -106,28 +151,12 @@ private fun DebugUrlInput(onSubmit: (String, Int?) -> Unit) {
                 label = { Text("[DEBUG] Paste QR URL") },
                 singleLine = true,
             )
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = portText,
-                onValueChange = { portText = it.filter { c -> c.isDigit() } },
-                modifier = Modifier.weight(1f),
-                label = { Text("[DEBUG] Port override (emulator)") },
-                singleLine = true,
-                placeholder = { Text("e.g. 61654") },
-            )
-            Button(
+            OutlinedButton(
                 onClick = {
-                    if (url.isNotBlank()) {
-                        val port = portText.toIntOrNull()
-                        onSubmit(url.trim(), port)
-                    }
+                    if (url.isNotBlank()) onSubmit(url.trim(), portText.toIntOrNull())
                 },
                 enabled = url.isNotBlank(),
-            ) { Text("Connect") }
+            ) { Text("QR") }
         }
     }
 }
