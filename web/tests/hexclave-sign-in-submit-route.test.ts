@@ -193,7 +193,13 @@ describe("sign-in submit route", () => {
       }),
     });
 
-    expect((await POST(request)).status).toBe(403);
+    const response = await POST(request);
+    // A navigation never gets a JSON literal: it lands on the localized
+    // recovery page, and the reason stays in a header for the logs.
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location") ?? "").pathname)
+      .toBe("/handler/auth-error");
+    expect(response.headers.get("x-cmux-auth-refused")).toBe("cross_origin");
     expect(calls).toHaveLength(0);
   });
 });

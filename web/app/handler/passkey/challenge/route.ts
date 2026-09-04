@@ -6,6 +6,11 @@ import { authErrorKeyForCode } from "../../../../services/auth/hexclave/errorCod
 import { hexclaveClientConfig } from "../../../../services/auth/hexclave/config";
 import { isSameOriginFormPost } from "../../../../services/auth/hexclave/formRequest";
 
+/**
+ * The one auth endpoint that answers JSON. It is only ever reached by the
+ * passkey island's `fetch`, never by a navigation, so there is no visitor to
+ * show a page to.
+ */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const origin = requestOrigin(request);
   const config = hexclaveClientConfig();

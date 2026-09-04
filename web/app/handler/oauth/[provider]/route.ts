@@ -6,6 +6,7 @@ import {
   oauthAuthorizeURL,
 } from "../../../../services/auth/hexclave/auth";
 import { hexclaveClientConfig } from "../../../../services/auth/hexclave/config";
+import { refuseFormPost } from "../../../../services/auth/hexclave/formFailure";
 import { failSignIn } from "../../../../services/auth/hexclave/completeSignIn";
 import {
   formString,
@@ -37,9 +38,9 @@ export async function POST(
 ): Promise<NextResponse> {
   const origin = requestOrigin(request);
   const config = hexclaveClientConfig();
-  if (!config) return NextResponse.json({ error: "not_configured" }, { status: 404 });
+  if (!config) return refuseFormPost(origin, "not_configured");
   if (!isSameOriginFormPost(request, origin)) {
-    return NextResponse.json({ error: "cross_origin" }, { status: 403 });
+    return refuseFormPost(origin, "cross_origin");
   }
 
   const { provider } = await context.params;

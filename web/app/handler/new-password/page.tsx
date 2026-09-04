@@ -1,14 +1,12 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 
-import { verifyPasswordResetCode } from "../../../services/auth/hexclave/auth";
 import { hexclaveClientConfig } from "../../../services/auth/hexclave/config";
-import {
-  authErrorKeyForCode,
-  parseAuthErrorKey,
-} from "../../../services/auth/hexclave/errorCodes";
+import { parseAuthErrorKey } from "../../../services/auth/hexclave/errorCodes";
+import { readResetCodeCookie } from "../../../services/auth/hexclave/resetCode";
 import { authPageHref, safeReturnToPath } from "../../../services/auth/hexclave/returnTo";
 import { AuthCard, AuthError } from "../components/auth-card";
 import { authErrorMessage, firstParam } from "../components/auth-error-message";
@@ -19,25 +17,34 @@ export const instant = false;
 
 export async function generateMetadata(): Promise<Metadata> {
   const intl = await authIntl();
-  // Neutral on purpose: this route also renders the expired-link state, and
-  // metadata is produced before the code is checked.
+  // Neutral on purpose: this route also renders the expired-link and finished
+  // states, and metadata is produced before either is known.
   return { title: intl.t("forgotTitle"), robots: { index: false, follow: false } };
 }
 
-export default async function PasswordResetPage({
+/**
+ * Chooses the new password. Reached only from `/handler/password-reset`, which
+ * has already checked the emailed code and parked it in an httpOnly cookie, so
+ * nothing on this page or in its address is a credential.
+ */
+export default async function NewPasswordPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await connection();
-  const config = hexclaveClientConfig();
-  if (!config) notFound();
+  if (!hexclaveClientConfig()) notFound();
 
-  const [params, intl] = await Promise.all([searchParams, authIntl()]);
+  const [params, intl, cookieStore] = await Promise.all([
+    searchParams,
+    authIntl(),
+    cookies(),
+  ]);
   const rawReturnTo = firstParam(params.after_auth_return_to);
   const returnTo = rawReturnTo ? safeReturnToPath(rawReturnTo) : null;
-  const code = firstParam(params.code);
+  const reportedError = parseAuthErrorKey(firstParam(params.error));
   const done = firstParam(params.done) === "1";
+  const hasCode = Boolean(readResetCodeCookie(cookieStore));
 
   const backToSignIn = (
     <Link
@@ -61,19 +68,7 @@ export default async function PasswordResetPage({
     );
   }
 
-  // The link's code is checked before the form renders, so an expired link
-  // says so immediately instead of after the visitor has picked a password.
-  const reportedError = parseAuthErrorKey(firstParam(params.error));
-  const linkError = !code || !isResetCodeShaped(code)
-    ? "invalidCode"
-    // A reported form error means this code was accepted moments ago. Checking
-    // it again on every rejected password would spend the code's limited
-    // attempts on a visitor who is only retyping.
-    : reportedError
-      ? null
-      : await checkResetCode(config, code);
-
-  if (linkError) {
+  if (!hasCode) {
     return (
       <AuthCard
         intl={intl}
@@ -94,9 +89,8 @@ export default async function PasswordResetPage({
       footer={backToSignIn}
     >
       <AuthError message={authErrorMessage(intl, reportedError)} />
-      <form method="post" action="/handler/password-reset/submit">
+      <form method="post" action="/handler/new-password/submit">
         <HiddenReturnTo value={returnTo} />
-        <input type="hidden" name="code" value={code ?? ""} />
         <TextField
           name="password"
           type="password"
@@ -114,17 +108,4 @@ export default async function PasswordResetPage({
       </form>
     </AuthCard>
   );
-}
-
-async function checkResetCode(
-  config: NonNullable<ReturnType<typeof hexclaveClientConfig>>,
-  code: string,
-) {
-  const result = await verifyPasswordResetCode(config, code);
-  return result.ok ? null : authErrorKeyForCode(result.error.code, "invalidCode");
-}
-
-/** The API defines a reset code as exactly 45 URL-safe characters. */
-function isResetCodeShaped(code: string): boolean {
-  return /^[A-Za-z0-9_-]{45}$/u.test(code);
 }

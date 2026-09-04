@@ -7,6 +7,7 @@ import {
   signInWithPassword,
 } from "../../../../services/auth/hexclave/auth";
 import { hexclaveClientConfig } from "../../../../services/auth/hexclave/config";
+import { refuseFormPost } from "../../../../services/auth/hexclave/formFailure";
 import { authErrorKeyForCode } from "../../../../services/auth/hexclave/errorCodes";
 import {
   completeSignIn,
@@ -32,9 +33,9 @@ const SIGN_IN_PATH = "/handler/sign-in";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const origin = requestOrigin(request);
   const config = hexclaveClientConfig();
-  if (!config) return NextResponse.json({ error: "not_configured" }, { status: 404 });
+  if (!config) return refuseFormPost(origin, "not_configured");
   if (!isSameOriginFormPost(request, origin)) {
-    return NextResponse.json({ error: "cross_origin" }, { status: 403 });
+    return refuseFormPost(origin, "cross_origin");
   }
 
   const form = await request.formData();

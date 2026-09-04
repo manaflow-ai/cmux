@@ -7,6 +7,7 @@ import {
   completeSignIn,
   failSignIn,
 } from "../../../../services/auth/hexclave/completeSignIn";
+import { refuseFormPost } from "../../../../services/auth/hexclave/formFailure";
 import { authErrorKeyForCode } from "../../../../services/auth/hexclave/errorCodes";
 import {
   formString,
@@ -29,9 +30,9 @@ const OTP_PATH = "/handler/otp";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const origin = requestOrigin(request);
   const config = hexclaveClientConfig();
-  if (!config) return NextResponse.json({ error: "not_configured" }, { status: 404 });
+  if (!config) return refuseFormPost(origin, "not_configured");
   if (!isSameOriginFormPost(request, origin)) {
-    return NextResponse.json({ error: "cross_origin" }, { status: 403 });
+    return refuseFormPost(origin, "cross_origin");
   }
 
   const form = await request.formData();

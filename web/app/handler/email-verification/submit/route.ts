@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requestOrigin } from "../../../lib/request-origin";
 import { verifyEmailCode } from "../../../../services/auth/hexclave/auth";
 import { hexclaveClientConfig } from "../../../../services/auth/hexclave/config";
+import { refuseFormPost } from "../../../../services/auth/hexclave/formFailure";
 import {
   formString,
   isSameOriginFormPost,
@@ -14,9 +15,9 @@ const VERIFICATION_PATH = "/handler/email-verification";
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const origin = requestOrigin(request);
   const config = hexclaveClientConfig();
-  if (!config) return NextResponse.json({ error: "not_configured" }, { status: 404 });
+  if (!config) return refuseFormPost(origin, "not_configured");
   if (!isSameOriginFormPost(request, origin)) {
-    return NextResponse.json({ error: "cross_origin" }, { status: 403 });
+    return refuseFormPost(origin, "cross_origin");
   }
 
   const form = await request.formData();

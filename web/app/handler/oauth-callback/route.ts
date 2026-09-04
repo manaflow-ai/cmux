@@ -7,6 +7,7 @@ import {
   completeSignIn,
   failSignIn,
 } from "../../../services/auth/hexclave/completeSignIn";
+import { refuseFormPost } from "../../../services/auth/hexclave/formFailure";
 import { authErrorKeyForCode } from "../../../services/auth/hexclave/errorCodes";
 import {
   clearOAuthHandoffCookie,
@@ -27,7 +28,7 @@ const SIGN_IN_PATH = "/handler/sign-in";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const origin = requestOrigin(request);
   const config = hexclaveClientConfig();
-  if (!config) return NextResponse.json({ error: "not_configured" }, { status: 404 });
+  if (!config) return refuseFormPost(origin, "not_configured");
 
   const secure = secureCookiesForRequest(request);
   const params = request.nextUrl.searchParams;

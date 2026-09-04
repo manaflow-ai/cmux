@@ -13,6 +13,7 @@ import {
   readOAuthHandoff,
   setOAuthHandoffCookie,
 } from "../services/auth/hexclave/oauthState";
+import { isResetCodeShaped } from "../services/auth/hexclave/resetCode";
 import { safeReturnToPath } from "../services/auth/hexclave/returnTo";
 import { NextResponse } from "next/server";
 
@@ -190,5 +191,27 @@ describe("emailed single-use codes are never spent by a GET", () => {
     expect("GET" in verification).toBe(false);
     expect(typeof magicLink.POST).toBe("function");
     expect(typeof verification.POST).toBe("function");
+  });
+});
+
+describe("password reset credentials never travel in a URL", () => {
+  test("only a well-formed code is accepted before the cookie is written", () => {
+    expect(isResetCodeShaped("a".repeat(45))).toBe(true);
+    expect(isResetCodeShaped("a".repeat(44))).toBe(false);
+    expect(isResetCodeShaped("a".repeat(46))).toBe(false);
+    expect(isResetCodeShaped(`${"a".repeat(44)}!`)).toBe(false);
+    expect(isResetCodeShaped("")).toBe(false);
+  });
+
+  test("the form and its submit handler are on a route with no code in it", async () => {
+    const form = await import("../app/handler/new-password/page");
+    const submit = await import("../app/handler/new-password/submit/route");
+    const link = await import("../app/handler/password-reset/route");
+
+    // The emailed link is the only address that ever carries the code, and it
+    // is a redirector, not a page.
+    expect(typeof link.GET).toBe("function");
+    expect(typeof form.default).toBe("function");
+    expect(typeof submit.POST).toBe("function");
   });
 });
