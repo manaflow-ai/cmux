@@ -1,3 +1,4 @@
+import AppKit
 import Bonsplit
 import CmuxTerminal
 import CmuxWorkspaces
@@ -66,6 +67,8 @@ extension DockSplitStore {
 
         // Internal Dock drag. A center drop onto the source pane is a no-op.
         if zone == .center, sourcePane == paneId { return true }
+        let focusWindow = NSApp.keyWindow ?? NSApp.mainWindow
+        noteKeyboardFocusIntent(window: focusWindow)
         let movedTab = TabID(uuid: tabId)
         let didMove: Bool
         switch zone {
@@ -81,6 +84,16 @@ extension DockSplitStore {
             didMove = bonsplitController.splitPane(paneId, orientation: .vertical, movingTab: movedTab, insertFirst: false) != nil
         }
         if didMove {
+            // Bonsplit's moving-tab split emits only didSplitPane, so the moved
+            // panel needs an explicit focus transaction after the split callback
+            // has repaired any source-pane placeholder.
+            if zone != .center,
+               let movedPanel = panel(for: movedTab) {
+                focusPanelFromDockInteraction(
+                    movedPanel.id,
+                    window: focusWindow
+                )
+            }
             scheduleDockPortalReconcile(reason: "dock.portalPaneDrop")
         }
         return didMove
@@ -94,17 +107,24 @@ extension DockSplitStore {
         guard let launch = entry.resumeLaunch else { return false }
         switch destination {
         case .insert(let paneId, _):
-            return newSurface(
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            guard let panelId = newSurface(
                 kind: .terminal,
                 inPane: paneId,
                 workingDirectory: launch.workingDirectory,
                 initialInput: launch.initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
-                focus: true
-            ) != nil
+                focus: false
+            ) else { return false }
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
         case .split(let paneId, let orientation, let insertFirst):
             let sourcePanelId = selectedPanelForPaneDrop(in: paneId)?.panelId
-            return newSplit(
+            noteKeyboardFocusIntent(window: NSApp.keyWindow ?? NSApp.mainWindow)
+            guard let panelId = newSplit(
                 kind: .terminal,
                 orientation: orientation,
                 insertFirst: insertFirst,
@@ -112,8 +132,13 @@ extension DockSplitStore {
                 workingDirectory: launch.workingDirectory,
                 initialInput: launch.initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
-                focus: true
-            ) != nil
+                focus: false
+            ) else { return false }
+            focusPanelFromDockInteraction(
+                panelId,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
+            return true
         }
     }
 
@@ -189,7 +214,10 @@ extension DockSplitStore {
             }
         }
         if focus, let finalPanel = openedPanels.last {
-            focusPanelFromDockInteraction(finalPanel.id, window: nil)
+            focusPanelFromDockInteraction(
+                finalPanel.id,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
         } else {
             restoreDockPaneSelection(previousFocus)
         }
@@ -215,7 +243,10 @@ extension DockSplitStore {
             return nil
         }
         if focus {
-            focusPanel(panel.id)
+            focusPanelFromDockInteraction(
+                panel.id,
+                window: NSApp.keyWindow ?? NSApp.mainWindow
+            )
         } else {
             restoreDockPaneSelection(previousFocus)
         }
