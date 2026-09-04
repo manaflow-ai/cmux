@@ -13,7 +13,7 @@ import type {
   VMHandle,
   VMStatus,
 } from "./drivers";
-import { isProviderId, vmCapabilitiesFor } from "./drivers";
+import { defaultProviderId, isProviderId, vmCapabilitiesFor } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -105,6 +105,10 @@ export type VmEntry = {
   readonly displayName: string | null;
   /** Generated three-word name (services/vms/vmNaming.ts); null on rows older than the column. */
   readonly slug: string | null;
+  /** Most recent provider status observation, in epoch milliseconds. */
+  readonly providerStatusObservedAt: number | null;
+  /** Most recent attempted provider status check, in epoch milliseconds. */
+  readonly providerStatusCheckedAt: number | null;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -176,7 +180,24 @@ export type VmProviderStatusReconcileResult = {
   readonly destroyed: number;
   readonly skipped: number;
   readonly skippedNoGetStatus: boolean;
+  /** Report-only provider/control-plane inventory comparisons, when supported. */
+  readonly inventory?: readonly VmProviderInventoryReconcileResult[];
 };
+
+export type VmProviderInventoryReconcileResult = {
+  readonly provider: ProviderId;
+  readonly scanned: number;
+  readonly unknownProviderVmIds: readonly string[];
+  readonly missingProviderVmIds: readonly string[];
+  /** Provider labels that still differ after the bounded repair attempt. */
+  readonly displayNameDriftProviderVmIds?: readonly string[];
+  readonly providerComplete: boolean;
+  readonly databaseComplete: boolean;
+  readonly skippedReason?: "no_list_api" | "provider_error" | "database_error";
+};
+
+const VM_INVENTORY_BATCH_LIMIT = 200;
+const VM_INVENTORY_REPORT_ID_LIMIT = 50;
 
 export async function runVmWorkflow<A>(
   program: Effect.Effect<A, VmWorkflowError, VmRepository | VmProviderGateway | VmBillingGateway>,
@@ -224,25 +245,54 @@ export function getVm(input: {
     const getStatus = providers.getStatus;
     if (!getStatus) return vmEntryFromRow(vm);
 
+    const probe = yield* claimProviderStatusProbe(repo, vm, providerVmId);
+    if (!probe.claimed) {
+      const current = yield* requireUserVm(input).pipe(Effect.catchAll(() => Effect.succeed(vm)));
+      return vmEntryFromRow(current);
+    }
+
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
-          ? Effect.succeed("destroyed" as const)
-          : Effect.fail(err),
+        Effect.gen(function* () {
+          // Keep the claim for a provider-not-found observation so the
+          // tombstone write can use the same compare-and-set token. Release
+          // only errors that do not produce a usable observation.
+          if (isProviderNotFoundError(err)) return "destroyed" as const;
+          yield* releaseProviderStatusProbe(repo, vm, providerVmId, probe.token);
+          return yield* Effect.fail(err);
+        }),
       ),
     );
-    if (providerStatus !== "creating") {
-      const dbStatus = observedDbStatus(vm, providerStatus);
-      if (dbStatus !== vm.status) {
-        const didUpdate = yield* repo.markProviderObservedStatus({
-          id: vm.id,
-          providerVmId,
-          status: dbStatus,
-        });
-        if (didUpdate) return vmEntryFromRow({ ...vm, status: dbStatus, updatedAt: new Date() });
-      }
+    const observedAt = new Date();
+    // `creating` is a valid provider response even though the control-plane
+    // enum has no separate resuming state. Persist the observation time while
+    // retaining the existing lifecycle status.
+    const dbStatus = providerStatus === "creating"
+      ? vm.status
+      : observedDbStatus(vm, providerStatus);
+    const statusChanged = dbStatus !== vm.status;
+    const didUpdate = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: dbStatus,
+      observedAt,
+      probeToken: probe.token,
+    }).pipe(Effect.tapError(() => releaseProviderStatusProbe(repo, vm, providerVmId, probe.token)));
+    if (didUpdate) {
+      return vmEntryFromRow({
+        ...vm,
+        status: dbStatus,
+        providerStatusObservedAt: observedAt,
+        providerStatusCheckedAt: observedAt,
+        updatedAt: statusChanged ? new Date() : vm.updatedAt,
+      });
     }
-    return vmEntryFromRow(vm);
+    // A newer claimant may have committed while this provider call was in
+    // flight. Re-read the control-plane row so the response does not expose
+    // the superseded caller's stale lifecycle state. The fallback preserves
+    // the old behavior if the row disappears between the two reads.
+    const current = yield* requireUserVm(input).pipe(Effect.catchAll(() => Effect.succeed(vm)));
+    return vmEntryFromRow(current);
   });
 }
 
@@ -257,8 +307,31 @@ export function renameVm(input: {
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
+    const didUpdate = yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
+    if (!didUpdate) return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+
+    // The database is the source of truth for the user-facing label. Sync the
+    // provider's cosmetic copy with a bounded retry, but do not turn a
+    // successful control-plane rename into a failed request when the provider
+    // is briefly unavailable. The next inventory pass can expose any drift.
+    if (providers.updateDisplayName) {
+      // Clearing the optional human label restores the stable slug on the
+      // provider instead of creating a permanent empty-label drift.
+      const providerDisplayName = input.displayName ?? vm.slug;
+      yield* providers.updateDisplayName(vm.provider, input.providerVmId, providerDisplayName).pipe(
+        Effect.retry({ times: 2 }),
+        Effect.catchAll((err) =>
+          Effect.sync(() => {
+            console.warn(
+              `[vm] provider display-name sync failed for ${input.providerVmId}; database value remains authoritative`,
+              errorMessage(err.cause),
+            );
+          }),
+        ),
+      );
+    }
     return vmEntryFromRow({ ...vm, displayName: input.displayName, updatedAt: new Date() });
   });
 }
@@ -270,25 +343,32 @@ export function reconcileVmProviderStatuses(input: {
 } = {}): Effect.Effect<VmProviderStatusReconcileResult, VmWorkflowError, VmRepository | VmProviderGateway> {
   return Effect.gen(function* () {
     const providers = yield* VmProviderGateway;
+    const repo = yield* VmRepository;
     const getStatus = providers.getStatus;
     if (!getStatus) {
+      const inventory = yield* reconcileProviderInventories(repo, providers, input.limit);
       return {
         checked: 0,
         updated: 0,
         destroyed: 0,
         skipped: 0,
         skippedNoGetStatus: true,
+        ...(inventory.length > 0 ? { inventory } : {}),
       };
     }
 
-    const repo = yield* VmRepository;
     const candidates = yield* repo.reconciliationCandidates({
       limit: boundedVmStatusReconcileLimit(input.limit),
     });
-    const outcomes = yield* Effect.forEach(
+    // Claim all rows before starting provider calls. This keeps the compare-
+    // and-set fence while allowing the provider requests themselves to run
+    // concurrently, even when the test or production database pool is small.
+    const outcomes = yield* reconcileObservedProviderStatuses(
+      repo,
+      getStatus,
       candidates,
-      (vm) => reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_cron", input.modelPlane),
-      { concurrency: 10 },
+      "provider_status_cron",
+      input.modelPlane,
     );
     // Network heal moved here from the create path: re-create the members
     // rule of every owner network this batch touches if it went missing.
@@ -316,12 +396,14 @@ export function reconcileVmProviderStatuses(input: {
       else if (outcome === "destroyed") destroyed += 1;
       else if (outcome === "skipped") skipped += 1;
     }
+    const inventory = yield* reconcileProviderInventories(repo, providers, input.limit, candidates);
     return {
       checked: candidates.length,
       updated,
       destroyed,
       skipped,
       skippedNoGetStatus: false,
+      ...(inventory.length > 0 ? { inventory } : {}),
     };
   });
 }
@@ -875,6 +957,7 @@ function reopenBaseIfProviderDeleted(
             id: existing.id,
             providerVmId,
             status: "destroyed",
+            observedAt: new Date(),
           });
           if (!markedDestroyed) {
             return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -1241,19 +1324,18 @@ function refreshActiveLimitProviderStatuses(
     // The repository applies the limit in SQL. Keep a second boundary here so
     // alternate repository implementations cannot turn this request path into
     // an unbounded provider sweep.
-    yield* Effect.forEach(candidates.slice(0, VM_STATUS_RECONCILE_BATCH_LIMIT), (vm) => {
-      const providerVmId = vm.providerVmId;
-      if (!providerVmId) return Effect.void;
-      // Provider-agnostic on purpose: the cron reconcile path already refreshes
-      // every provider, and this lazy refresh used to skip everything except
-      // Freestyle, so a stale `running` row blocked creates for up to a
-      // full cron interval. Candidates are `running` rows only, so the
-      // gateway's "running" fallback for a driver without getStatus is a
-      // harmless no-op rather than a wrong transition.
-      return reconcileObservedProviderStatus(repo, getStatus, vm, "provider_status_refresh", input.modelPlane).pipe(
-        Effect.asVoid,
-      );
-    }, { concurrency: 10, discard: true });
+    // Provider-agnostic on purpose: the cron reconcile path already refreshes
+    // every provider, and this lazy refresh used to skip everything except
+    // Freestyle, so a stale `running` row blocked creates for up to a full
+    // cron interval. Candidates are `running` rows only, so the gateway's
+    // "running" fallback for a driver without getStatus is a harmless no-op.
+    yield* reconcileObservedProviderStatuses(
+      repo,
+      getStatus,
+      candidates.slice(0, VM_STATUS_RECONCILE_BATCH_LIMIT),
+      "provider_status_refresh",
+      input.modelPlane,
+    ).pipe(Effect.asVoid);
   });
 }
 
@@ -1277,31 +1359,266 @@ function observedDbStatus(
 
 type ProviderStatusReconcileOutcome = "updated" | "destroyed" | "unchanged" | "skipped";
 
-function reconcileObservedProviderStatus(
+function reconcileProviderInventories(
+  repo: VmRepositoryShape,
+  providers: VmProviderGatewayShape,
+  requestedLimit: number | undefined,
+  candidates: readonly CloudVmRow[] = [],
+): Effect.Effect<readonly VmProviderInventoryReconcileResult[], VmWorkflowError> {
+  const listVms = providers.listVms;
+  const listReferences = repo.listProviderVmReferences;
+  if (!listVms || !listReferences) return Effect.succeed([]);
+
+  const providerIds = new Set<ProviderId>([defaultProviderId()]);
+  for (const candidate of candidates) {
+    if (isProviderId(candidate.provider)) providerIds.add(candidate.provider);
+  }
+  const limit = Math.max(1, Math.min(Math.floor(requestedLimit ?? VM_INVENTORY_BATCH_LIMIT), VM_INVENTORY_BATCH_LIMIT));
+
+  return Effect.forEach(
+    [...providerIds],
+    (provider) => Effect.gen(function* () {
+      const providerResult = yield* listVms(provider, { limit }).pipe(
+        Effect.map((page) => ({ kind: "ok" as const, page })),
+        Effect.catchAll((err) => {
+          console.warn(`[vm] provider inventory scan failed for ${provider}`, errorMessage(err.cause));
+          return Effect.succeed({ kind: "error" as const });
+        }),
+      );
+      if (providerResult.kind === "error") {
+        return {
+          provider,
+          scanned: 0,
+          unknownProviderVmIds: [],
+          missingProviderVmIds: [],
+          providerComplete: false,
+          databaseComplete: false,
+          skippedReason: "provider_error" as const,
+        };
+      }
+      if (providerResult.page === null) {
+        return {
+          provider,
+          scanned: 0,
+          unknownProviderVmIds: [],
+          missingProviderVmIds: [],
+          providerComplete: false,
+          databaseComplete: false,
+          skippedReason: "no_list_api" as const,
+        };
+      }
+
+      const databaseResult = yield* listReferences({ provider, limit }).pipe(
+        Effect.map((page) => ({ kind: "ok" as const, page })),
+        Effect.catchAll((err) => {
+          console.warn(`[vm] database inventory scan failed for ${provider}`, errorMessage(err.cause));
+          return Effect.succeed({ kind: "error" as const });
+        }),
+      );
+      if (databaseResult.kind === "error") {
+        return {
+          provider,
+          scanned: providerResult.page.vms.length,
+          unknownProviderVmIds: [],
+          missingProviderVmIds: [],
+          providerComplete: providerResult.page.complete,
+          databaseComplete: false,
+          skippedReason: "database_error" as const,
+        };
+      }
+
+      const providerIdsSeen = new Set(providerResult.page.vms.map((vm) => vm.providerVmId));
+      const databaseIdsSeen = new Set(databaseResult.page.rows.map((row) => row.providerVmId));
+      const databaseRowsById = new Map(
+        databaseResult.page.rows.map((row) => [row.providerVmId, row] as const),
+      );
+      const unknownProviderVmIds = providerResult.page.vms
+        .map((vm) => vm.providerVmId)
+        .filter((id) => !databaseIdsSeen.has(id))
+        .slice(0, VM_INVENTORY_REPORT_ID_LIMIT);
+      // A missing row is safe to report only when both sides were fully read.
+      // Partial provider pages are common on larger accounts, and treating one
+      // page as the whole inventory would create false orphan alerts.
+      const missingProviderVmIds = providerResult.page.complete && databaseResult.page.complete
+        ? databaseResult.page.rows
+          .map((row) => row.providerVmId)
+          .filter((id) => !providerIdsSeen.has(id))
+          .slice(0, VM_INVENTORY_REPORT_ID_LIMIT)
+        : [];
+
+      // A rename is a database mutation first, so a transient provider failure
+      // must not make the request fail. Repair the cosmetic provider copy on
+      // the next inventory pass and report only ids that remain out of sync.
+      const updateDisplayName = providers.updateDisplayName;
+      const displayNameDriftCandidates = providerResult.page.vms.filter((providerVm) => {
+        const row = databaseRowsById.get(providerVm.providerVmId);
+        if (!row || providerVm.displayName === undefined) return false;
+        return providerVm.displayName !== (row.displayName ?? row.slug ?? null);
+      });
+      const displayNameDriftProviderVmIds = yield* Effect.forEach(
+        displayNameDriftCandidates,
+        (providerVm) => {
+          const row = databaseRowsById.get(providerVm.providerVmId);
+          const expectedDisplayName = row?.displayName ?? row?.slug ?? null;
+          if (!row || !updateDisplayName) return Effect.succeed(providerVm.providerVmId);
+          return updateDisplayName(provider, providerVm.providerVmId, expectedDisplayName).pipe(
+            Effect.retry({ times: 2 }),
+            Effect.map(() => null as string | null),
+            Effect.catchAll((err) =>
+              Effect.sync(() => {
+                console.warn(
+                  `[vm] provider display-name repair failed for ${providerVm.providerVmId}`,
+                  errorMessage(err.cause),
+                );
+                return providerVm.providerVmId;
+              }),
+            ),
+          );
+        },
+        { concurrency: 4 },
+      ).pipe(
+        Effect.map((ids) => ids.filter((id): id is string => id !== null).slice(0, VM_INVENTORY_REPORT_ID_LIMIT)),
+      );
+
+      if (
+        unknownProviderVmIds.length > 0 ||
+        missingProviderVmIds.length > 0 ||
+        displayNameDriftProviderVmIds.length > 0
+      ) {
+        console.warn("[vm] provider/control-plane inventory drift", {
+          provider,
+          unknownProviderVmIds,
+          missingProviderVmIds,
+          displayNameDriftProviderVmIds,
+          providerComplete: providerResult.page.complete,
+          databaseComplete: databaseResult.page.complete,
+        });
+      }
+      return {
+        provider,
+        scanned: providerResult.page.vms.length,
+        unknownProviderVmIds,
+        missingProviderVmIds,
+        ...(displayNameDriftProviderVmIds.length > 0 ? { displayNameDriftProviderVmIds } : {}),
+        providerComplete: providerResult.page.complete,
+        databaseComplete: databaseResult.page.complete,
+      };
+    }),
+    { concurrency: 4 },
+  );
+}
+
+type ProviderStatusProbeLease = {
+  readonly token: string;
+  readonly claimed: boolean;
+};
+
+type ClaimedProviderStatusProbe = {
+  readonly vm: CloudVmRow;
+  readonly providerVmId: string;
+  readonly token: string;
+};
+
+/**
+ * Claim a status read before calling the provider. The database token is a
+ * compare-and-set fence: a later request can replace it, and an older
+ * response then cannot write its stale state. Older repository test doubles do
+ * not have the optional claim method, so they keep the pre-fence behavior.
+ */
+function claimProviderStatusProbe(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+): Effect.Effect<ProviderStatusProbeLease, VmDatabaseError> {
+  const token = randomUUID();
+  if (!repo.claimProviderStatusProbe) return Effect.succeed({ token, claimed: true });
+  return repo.claimProviderStatusProbe({ id: vm.id, providerVmId, token }).pipe(
+    Effect.map((claimed) => ({ token, claimed })),
+  );
+}
+
+function releaseProviderStatusProbe(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+  providerVmId: string,
+  token: string,
+): Effect.Effect<void, never> {
+  if (!repo.releaseProviderStatusProbe) return Effect.void;
+  return repo.releaseProviderStatusProbe({ id: vm.id, providerVmId, token }).pipe(
+    Effect.catchAll(() => Effect.void),
+  );
+}
+
+function claimProviderStatusForVm(
+  repo: VmRepositoryShape,
+  vm: CloudVmRow,
+): Effect.Effect<ClaimedProviderStatusProbe | null, never> {
+  const providerVmId = vm.providerVmId;
+  if (!providerVmId || isRetiredProviderRow(vm)) return Effect.succeed(null);
+  return claimProviderStatusProbe(repo, vm, providerVmId).pipe(
+    Effect.map((probe) => probe.claimed ? { vm, providerVmId, token: probe.token } : null),
+    Effect.catchAll(() => Effect.succeed(null)),
+  );
+}
+
+/**
+ * Claim the complete batch before making provider calls. Claim queries can be
+ * serialized by a small database pool, but the network calls then start from
+ * one already-fenced batch and retain their configured concurrency.
+ */
+function reconcileObservedProviderStatuses(
   repo: VmRepositoryShape,
   getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
-  vm: CloudVmRow,
+  vms: readonly CloudVmRow[],
+  usageEventSource: string,
+  modelPlane?: VmModelPlaneRevoker,
+): Effect.Effect<readonly ProviderStatusReconcileOutcome[], never> {
+  return Effect.gen(function* () {
+    const claims = yield* Effect.forEach(vms, (vm) => claimProviderStatusForVm(repo, vm), { concurrency: 10 });
+    return yield* Effect.forEach(
+      claims,
+      (claim) => claim
+        ? reconcileClaimedProviderStatus(repo, getStatus, claim, usageEventSource, modelPlane)
+        : Effect.succeed("skipped" as const),
+      { concurrency: 10 },
+    );
+  });
+}
+
+function reconcileClaimedProviderStatus(
+  repo: VmRepositoryShape,
+  getStatus: NonNullable<VmProviderGatewayShape["getStatus"]>,
+  claim: ClaimedProviderStatusProbe,
   usageEventSource: string,
   modelPlane?: VmModelPlaneRevoker,
 ): Effect.Effect<ProviderStatusReconcileOutcome, never> {
+  const { vm, providerVmId, token } = claim;
   return Effect.gen(function* () {
-    const providerVmId = vm.providerVmId;
-    if (!providerVmId || isRetiredProviderRow(vm)) return "skipped" as const;
     const providerStatus = yield* getStatus(vm.provider, providerVmId).pipe(
       Effect.catchAll((err) =>
-        isProviderNotFoundError(err)
-          ? Effect.succeed("destroyed" as const)
-          : Effect.succeed(null),
+        Effect.gen(function* () {
+          if (isProviderNotFoundError(err)) return "destroyed" as const;
+          yield* releaseProviderStatusProbe(repo, vm, providerVmId, token);
+          return null;
+        }),
       ),
     );
-    if (!providerStatus || providerStatus === "creating") return "skipped" as const;
-    const dbStatus = observedDbStatus(vm, providerStatus);
-    if (dbStatus === vm.status) return "unchanged" as const;
+    if (!providerStatus) return "skipped" as const;
+    const observedAt = new Date();
+    const dbStatus = providerStatus === "creating"
+      ? vm.status
+      : observedDbStatus(vm, providerStatus);
+    const statusChanged = dbStatus !== vm.status;
     const didUpdate = yield* repo.markProviderObservedStatus({
       id: vm.id,
       providerVmId,
       status: dbStatus,
-    }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+      observedAt,
+      probeToken: token,
+    }).pipe(
+      Effect.tapError(() => releaseProviderStatusProbe(repo, vm, providerVmId, token)),
+      Effect.catchAll(() => Effect.succeed(false)),
+    );
     if (!didUpdate) return "skipped" as const;
     if (dbStatus === "destroyed") {
       yield* revokeModelPlane(modelPlane, vm.id);
@@ -1318,7 +1635,7 @@ function reconcileObservedProviderStatus(
       }).pipe(Effect.catchAll(() => Effect.void));
       return "destroyed" as const;
     }
-    return "updated" as const;
+    return statusChanged ? "updated" as const : "unchanged" as const;
   });
 }
 
@@ -1522,6 +1839,7 @@ function preflightResumeIfSuspended(
         id: vm.id,
         providerVmId,
         status: "destroyed",
+        observedAt: new Date(),
       }).pipe(Effect.catchAll(() => Effect.succeed(false)));
       return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
     }
@@ -1547,6 +1865,7 @@ function preflightResumeIfSuspended(
         id: vm.id,
         providerVmId,
         status: "running",
+        observedAt: new Date(),
       });
       if (!recorded) {
         return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -1562,6 +1881,7 @@ function preflightResumeIfSuspended(
           id: vm.id,
           providerVmId,
           status: "running",
+          observedAt: new Date(),
         });
         if (!recorded) {
           return yield* Effect.fail(new VmNotFoundError({ vmId: providerVmId }));
@@ -1614,6 +1934,7 @@ function withResumeOnSuspendedAfterFailure<A>(
             id: vm.id,
             providerVmId,
             status: "running",
+            observedAt: new Date(),
           }).pipe(Effect.catchAll(() => Effect.succeed(false)));
           if (!recorded) return yield* Effect.fail(originalError);
           return yield* op;
@@ -1660,6 +1981,7 @@ function recordRunningTransition<E extends VmWorkflowError>(
       id: vm.id,
       providerVmId,
       status: "running",
+      observedAt: new Date(),
     }).pipe(
       Effect.tapError(() => rollbackPause()),
     );
@@ -2880,6 +3202,8 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
     slug: row.slug ?? null,
+    providerStatusObservedAt: row.providerStatusObservedAt?.getTime() ?? null,
+    providerStatusCheckedAt: row.providerStatusCheckedAt?.getTime() ?? null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
   };

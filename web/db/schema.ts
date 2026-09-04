@@ -72,6 +72,13 @@ export const cloudVms = pgTable(
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Provider observations have their own clock. `updatedAt` describes a
+    // control-plane mutation and must not be used to schedule probes.
+    providerStatusObservedAt: timestamp("provider_status_observed_at", { withTimezone: true }),
+    providerStatusCheckedAt: timestamp("provider_status_checked_at", { withTimezone: true }),
+    // A short-lived fence for concurrent status probes. The newest claimant
+    // owns the write, so a slow older response cannot roll state backward.
+    providerStatusProbeToken: text("provider_status_probe_token"),
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
@@ -90,6 +97,9 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_billing_team_slug_live_unique")
       .on(table.billingTeamId, table.slug)
       .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
+    index("cloud_vms_provider_status_checked_idx")
+      .on(table.providerStatusCheckedAt, table.id)
+      .where(sql`${table.providerVmId} is not null and ${table.status} <> 'destroyed'`),
   ],
 );
 

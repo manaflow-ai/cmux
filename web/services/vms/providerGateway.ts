@@ -19,6 +19,8 @@ import {
   type VMHandle,
   type VMVolumeInventory,
   type VMVolumeListOptions,
+  type VMInventory,
+  type VMListOptions,
   type VMStatus,
   type VMStats,
   type VMResizeOptions,
@@ -42,6 +44,17 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     options?: VMVolumeListOptions,
   ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
+  /** Optional bounded VM inventory. `null` means the driver has no list API. */
+  readonly listVms?: (
+    provider: ProviderId,
+    options: VMListOptions,
+  ) => Effect.Effect<VMInventory | null, VmProviderOperationError>;
+  /** Cosmetic provider label sync. The database remains authoritative. */
+  readonly updateDisplayName?: (
+    provider: ProviderId,
+    vmId: string,
+    displayName: string | null,
+  ) => Effect.Effect<void, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
@@ -190,6 +203,16 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       if (!impl.listVolumes) return [];
       return await impl.listVolumes(options);
     }),
+  listVms: (provider, options) => {
+    const impl = getProvider(provider);
+    if (!impl.listVms) return Effect.succeed(null);
+    return providerEffect(provider, "listVms", () => impl.listVms!(options));
+  },
+  updateDisplayName: (provider, vmId, displayName) => {
+    const impl = getProvider(provider);
+    if (!impl.updateDisplayName) return Effect.void;
+    return providerEffect(provider, "updateDisplayName", () => impl.updateDisplayName!(vmId, displayName));
+  },
   getStatus: (provider, vmId) =>
     providerEffect(provider, "getStatus", async () => {
       const driver = getProvider(provider);

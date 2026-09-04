@@ -43,6 +43,12 @@ export async function GET(
           createdAt: vm.createdAt,
           displayName: vm.displayName,
           slug: vm.slug,
+          ...(vm.providerStatusObservedAt === null
+            ? {}
+            : { providerStatusObservedAt: vm.providerStatusObservedAt }),
+          ...(vm.providerStatusCheckedAt === null
+            ? {}
+            : { providerStatusCheckedAt: vm.providerStatusCheckedAt }),
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

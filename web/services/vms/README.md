@@ -70,6 +70,18 @@ Create idempotency is enforced by the partial unique index on `(user_id, idempot
 
 Active VM limits are enforced inside the same Postgres transaction that inserts the create row. The transaction takes a billing-team advisory lock before counting active VMs, so two concurrent creates for the same team cannot both pass the free-plan limit.
 
+Provider state synchronization is deliberately pull-based. A status read claims a
+short-lived database fence, records the observation time even when the status did
+not change, and only the current claimant may write the result. The reconcile cron
+runs every ten minutes with a bounded, fair queue ordered by the last provider
+check, so user mutations do not keep older machines out of the queue. Rename writes
+the database first because it is authoritative, then updates the provider's
+cosmetic label with two retries. A provider outage leaves a correct cmux label;
+later inventory checks retry the cosmetic repair and report ids that still differ.
+When a provider exposes a bounded VM list, the cron compares provider ids with live
+database ids and reports unknown or missing rows. It never deletes or adopts a row
+from an incomplete page.
+
 ## Image manifest and rollback
 
 Known-good images are recorded in `services/vms/images/manifest.json`. Each entry records the

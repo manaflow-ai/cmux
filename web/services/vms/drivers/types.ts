@@ -12,6 +12,31 @@ export function isProviderId(value: unknown): value is ProviderId {
 
 export type VMStatus = "creating" | "running" | "paused" | "destroyed";
 
+/** One provider VM in a bounded inventory response. */
+export type VMInventoryEntry = {
+  readonly providerVmId: string;
+  readonly status: VMStatus;
+  readonly slug: string | null;
+  readonly displayName: string | null;
+  readonly createdAt: number | null;
+};
+
+/** A provider inventory page. A partial page must never be used to infer missing VMs. */
+export type VMInventoryPage = {
+  readonly vms: readonly VMInventoryEntry[];
+  readonly totalCount: number | null;
+  readonly complete: boolean;
+  readonly nextOffset: number | null;
+};
+
+export type VMListOptions = {
+  /** Maximum number of provider records to read in one control-plane run. */
+  readonly limit: number;
+  readonly offset?: number;
+};
+
+export type VMInventory = VMInventoryPage;
+
 /// A point-in-time reading of one machine. Sleeping machines are never woken for a
 /// reading: they report `asleep` with only their provisioned memory.
 export type VMStats = {
@@ -418,6 +443,12 @@ export interface VMProvider {
 
   /** Optional provider volume inventory used by the report-only VM reaper. */
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
+
+  /** Optional bounded VM inventory used to report provider/control-plane drift. */
+  listVms?(options?: VMListOptions): Promise<VMInventory>;
+
+  /** Update the provider's cosmetic label. The cmux database remains authoritative. */
+  updateDisplayName?(vmId: string, displayName: string | null): Promise<void>;
 
   getStatus?(vmId: string): Promise<VMStatus>;
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a

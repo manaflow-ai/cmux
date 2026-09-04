@@ -72,6 +72,12 @@ type RecordedLease = Parameters<VmRepositoryShape["recordLease"]>[0];
 type ObservedStatusUpdate = Parameters<VmRepositoryShape["markProviderObservedStatus"]>[0];
 type LeaseRevocationRetry = Parameters<NonNullable<VmRepositoryShape["markLeaseRevocationRetry"]>>[0];
 
+function observedStatusShape(update: ObservedStatusUpdate) {
+  const { observedAt, ...shape } = update;
+  void observedAt;
+  return shape;
+}
+
 function databaseURL() {
   const url = process.env.DIRECT_DATABASE_URL ?? process.env.DATABASE_URL;
   if (!url) {
@@ -290,9 +296,10 @@ describe("VM Effect workflows", () => {
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
     expect(callOrder).toEqual(["getStatus", "resume", "exec"]);
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses.map(observedStatusShape)).toEqual([
       { id: vm.id, providerVmId: "provider-vm-exec-resume", status: "running" },
     ]);
+    expect(observedStatuses[0]?.observedAt).toBeInstanceOf(Date);
     expect(usageEvents).toHaveLength(2); // the paused row's resume is accounted, then the exec
     expect(usageEvents.find((event) => event.eventType === "vm.exec")).toMatchObject({
       eventType: "vm.exec",
@@ -1407,9 +1414,10 @@ describe("VM Effect workflows", () => {
     expect(attachCalls).toBe(1);
     expect(statusCalls).toBe(1);
     expect(resumeCalls).toBe(1);
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses.map(observedStatusShape)).toEqual([
       { id: vm.id, providerVmId: "provider-vm-attach-resume", status: "running" },
     ]);
+    expect(observedStatuses[0]?.observedAt).toBeInstanceOf(Date);
     expect(leases).toHaveLength(1);
     expect(usageEvents).toHaveLength(2); // the paused row's resume is accounted, then the attach
     expect(usageEvents.find((event) => event.eventType === "vm.attach")).toMatchObject({
@@ -1477,9 +1485,10 @@ describe("VM Effect workflows", () => {
     expect(resumeCalls).toBe(1);
     expect(attachCalls).toBe(1);
     expect(callOrder).toEqual(["getStatus", "resume", "openCmuxRemote"]);
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses.map(observedStatusShape)).toEqual([
       { id: vm.id, providerVmId: "provider-vm-remote-stale-running", status: "running" },
     ]);
+    expect(observedStatuses[0]?.observedAt).toBeInstanceOf(Date);
     expect(leases).toHaveLength(1);
     expect(usageEvents.find((event) => event.eventType === "vm.attach")).toMatchObject({
       eventType: "vm.attach",
@@ -1568,9 +1577,10 @@ describe("VM Effect workflows", () => {
     expect(error).toBeInstanceOf(VmNotFoundError);
     expect(attachCalls).toBe(0);
     expect(resumeCalls).toBe(0);
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses.map(observedStatusShape)).toEqual([
       { id: vm.id, providerVmId: "provider-vm-remote-destroyed", status: "destroyed" },
     ]);
+    expect(observedStatuses[0]?.observedAt).toBeInstanceOf(Date);
   });
 
   test("openAttachEndpoint fails when resumed status persistence fails", async () => {
@@ -1755,9 +1765,10 @@ describe("VM Effect workflows", () => {
     // pause race without a third provider call after the running resume handle.
     expect(statusCalls).toBe(2);
     expect(resumeCalls).toBe(1);
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses.map(observedStatusShape)).toEqual([
       { id: vm.id, providerVmId: "provider-vm-attach-race", status: "running" },
     ]);
+    expect(observedStatuses[0]?.observedAt).toBeInstanceOf(Date);
     expect(leases).toHaveLength(1);
     expect(usageEvents).toHaveLength(1);
   });
@@ -1855,9 +1866,10 @@ describe("VM Effect workflows", () => {
     expect(result.exitCode).toBe(0);
     expect(execCalls).toBe(1);
     expect(statusCalls).toBe(2);
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses.map(observedStatusShape)).toEqual([
       { id: vm.id, providerVmId: "provider-vm-exec-settle", status: "running" },
     ]);
+    expect(observedStatuses[0]?.observedAt).toBeInstanceOf(Date);
   });
 
   test("exec waits out a concurrent resume (creating) without resuming or recording", async () => {
@@ -1910,9 +1922,10 @@ describe("VM Effect workflows", () => {
     expect(statusCalls).toBe(2);
     // The waiter persists the observed running state itself in case the
     // resuming caller dies before its own durable write.
-    expect(observedStatuses).toEqual([
+    expect(observedStatuses.map(observedStatusShape)).toEqual([
       { id: vm.id, providerVmId: "provider-vm-exec-concurrent", status: "running" },
     ]);
+    expect(observedStatuses[0]?.observedAt).toBeInstanceOf(Date);
   });
 
   dbTest("does not block create when usage event recording fails", async () => {
@@ -4723,6 +4736,9 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     idempotencyKey: "usage-events",
     createdAt: now,
     updatedAt: now,
+    providerStatusObservedAt: null,
+    providerStatusCheckedAt: null,
+    providerStatusProbeToken: null,
     destroyedAt: null,
     failureCode: null,
     failureMessage: null,

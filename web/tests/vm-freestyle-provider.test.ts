@@ -265,6 +265,61 @@ describe("Freestyle platform contract", () => {
     expect(mapFreestyleState("paused")).toBe("paused");
     expect(mapFreestyleState("stopped")).toBe("paused");
   });
+
+  test("fails closed for a provider state the adapter does not understand", () => {
+    expect(() => mapFreestyleState("powering_off" as never)).toThrow("unknown VM state");
+  });
+
+  test("maps a bounded provider VM inventory and reports pagination", async () => {
+    const updates: unknown[] = [];
+    const client = {
+      vms: {
+        list: async (options: { limit?: number; offset?: number }) => ({
+          vms: [{
+            id: VM_ID,
+            state: "running" as const,
+            slug: "bright-blue-otter",
+            displayName: "Build box",
+            createdAt: "2026-09-04T00:00:00.000Z",
+          }],
+          totalCount: 2,
+          runningCount: 1,
+          startingCount: 0,
+          pausingCount: 0,
+          pausedCount: 0,
+          stoppedCount: 1,
+          requested: options,
+        }),
+        ref: () => ({
+          update: async (options: unknown) => {
+            updates.push(options);
+            return {};
+          },
+        }),
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({
+      client: () => client,
+      resolveDaemonSource: async () => ({ url: "https://files.cmux.com/x", sha256: "0".repeat(64), commit: "x", builtAt: null }),
+    });
+
+    const page = await provider.listVms({ limit: 1 });
+    await provider.updateDisplayName(VM_ID, null);
+
+    expect(page).toEqual({
+      vms: [{
+        providerVmId: VM_ID,
+        status: "running",
+        slug: "bright-blue-otter",
+        displayName: "Build box",
+        createdAt: Date.parse("2026-09-04T00:00:00.000Z"),
+      }],
+      totalCount: 2,
+      complete: false,
+      nextOffset: 1,
+    });
+    expect(updates).toEqual([{ displayName: "" }]);
+  });
 });
 
 describe("FreestyleProvider create with edge rules", () => {

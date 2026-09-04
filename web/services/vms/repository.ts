@@ -48,6 +48,16 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
   readonly provider: ProviderId;
   readonly providerVmId: string;
 };
+export type CloudVmProviderReference = {
+  readonly provider: string;
+  readonly providerVmId: string;
+  readonly displayName: string | null;
+  readonly slug: string | null;
+};
+export type CloudVmProviderReferencePage = {
+  readonly rows: readonly CloudVmProviderReference[];
+  readonly complete: boolean;
+};
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
@@ -222,6 +232,23 @@ export type VmRepositoryShape = {
   readonly reconciliationCandidates: (input: {
     readonly limit: number;
   }) => Effect.Effect<CloudVmRow[], VmDatabaseError>;
+  /** Bounded control-plane IDs for provider inventory comparison. */
+  readonly listProviderVmReferences?: (input: {
+    readonly provider: ProviderId;
+    readonly limit: number;
+  }) => Effect.Effect<CloudVmProviderReferencePage, VmDatabaseError>;
+  /** Claim the right to complete one provider status probe. */
+  readonly claimProviderStatusProbe?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly token: string;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  /** Release a probe claim after a provider error without changing lifecycle state. */
+  readonly releaseProviderStatusProbe?: (input: {
+    readonly id: string;
+    readonly providerVmId: string;
+    readonly token: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   /** Live VM rows that currently claim a persistent home volume. */
   readonly listLiveHomeVolumeNames?: (input: {
     readonly provider: ProviderId;
@@ -242,6 +269,10 @@ export type VmRepositoryShape = {
     readonly id: string;
     readonly providerVmId: string;
     readonly status: CloudVmStatus;
+    /** Time at which the provider response was received. */
+    readonly observedAt?: Date;
+    /** Probe fence. Older or superseded responses are rejected. */
+    readonly probeToken?: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
   readonly setDisplayName: (input: {
     readonly id: string;
@@ -362,6 +393,9 @@ type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["tran
 
 /** Statuses whose rows hold their slug (mirrors the partial unique index). */
 const SLUG_LIVE_STATUSES = ["provisioning", "running", "paused"] as const;
+
+/** A provider probe that outlives this window may be superseded safely. */
+export const VM_PROVIDER_STATUS_PROBE_LEASE_MS = 30_000;
 
 /**
  * Picks the new row's three-word name inside the create transaction. Takes
@@ -1226,6 +1260,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             status: "running",
             failureCode: null,
             failureMessage: null,
+            // The provider create response is the first successful status
+            // observation for this row. Seed both clocks so the first cron
+            // pass does not treat a newly created machine as never checked.
+            providerStatusObservedAt: now,
+            providerStatusCheckedAt: now,
+            providerStatusProbeToken: null,
             updatedAt: now,
           })
           .where(eq(cloudVms.id, input.vmId))
@@ -1441,8 +1481,93 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         .select()
         .from(cloudVms)
         .where(and(ne(cloudVms.status, "destroyed"), isNotNull(cloudVms.providerVmId)))
-        .orderBy(asc(cloudVms.updatedAt))
+        // `updated_at` changes for user mutations and is therefore a poor
+        // scheduler. A successful or failed probe advances checked_at, so a
+        // large fleet gets a fair round-robin even when states do not change.
+        // Fairness comes first: never-observed rows are eligible before rows
+        // with a check timestamp. Keep the old updated-at order within that
+        // group so an initial sweep remains deterministic and preserves the
+        // oldest-row behavior callers already rely on.
+        .orderBy(
+          sql`${cloudVms.providerStatusCheckedAt} asc nulls first`,
+          asc(cloudVms.updatedAt),
+          asc(cloudVms.id),
+        )
         .limit(input.limit);
+    }),
+
+  listProviderVmReferences: (input) =>
+    dbEffect("listProviderVmReferences", async () => {
+      const db = cloudDb();
+      const limit = Math.max(1, Math.min(Math.floor(input.limit), 200));
+      const rows = await db
+        .select({
+          provider: cloudVms.provider,
+          providerVmId: cloudVms.providerVmId,
+          displayName: cloudVms.displayName,
+          slug: cloudVms.slug,
+        })
+        .from(cloudVms)
+        .where(and(
+          eq(cloudVms.provider, input.provider),
+          inArray(cloudVms.status, ["provisioning", "running", "paused"]),
+          isNotNull(cloudVms.providerVmId),
+        ))
+        .orderBy(asc(cloudVms.id))
+        .limit(limit + 1);
+      const complete = rows.length <= limit;
+      return {
+        rows: rows.slice(0, limit).flatMap((row) =>
+          typeof row.providerVmId === "string"
+            ? [{
+              provider: row.provider,
+              providerVmId: row.providerVmId,
+              displayName: row.displayName,
+              slug: row.slug,
+            }]
+            : []),
+        complete,
+      };
+    }),
+
+  claimProviderStatusProbe: (input) =>
+    dbEffect("claimProviderStatusProbe", async () => {
+      const db = cloudDb();
+      const claimedAt = new Date();
+      const leaseCutoff = new Date(claimedAt.getTime() - VM_PROVIDER_STATUS_PROBE_LEASE_MS);
+      const claimed = await db
+        .update(cloudVms)
+        .set({
+          providerStatusProbeToken: input.token,
+          providerStatusCheckedAt: claimedAt,
+        })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          ne(cloudVms.status, "destroyed"),
+          // A live token suppresses duplicate provider calls. A crashed or
+          // timed-out caller becomes claimable after the bounded lease.
+          or(
+            isNull(cloudVms.providerStatusProbeToken),
+            isNull(cloudVms.providerStatusCheckedAt),
+            lt(cloudVms.providerStatusCheckedAt, leaseCutoff),
+          ),
+        ))
+        .returning({ id: cloudVms.id });
+      return claimed.length > 0;
+    }),
+
+  releaseProviderStatusProbe: (input) =>
+    dbEffect("releaseProviderStatusProbe", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVms)
+        .set({ providerStatusProbeToken: null })
+        .where(and(
+          eq(cloudVms.id, input.id),
+          eq(cloudVms.providerVmId, input.providerVmId),
+          eq(cloudVms.providerStatusProbeToken, input.token),
+        ));
     }),
 
   listLiveHomeVolumeNames: (input) =>
@@ -1511,20 +1636,32 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markProviderObservedStatus: (input) =>
     dbEffect("markProviderObservedStatus", async () => {
       const db = cloudDb();
+      const observedAt = input.observedAt ?? new Date();
+      const conditions = [
+        eq(cloudVms.id, input.id),
+        eq(cloudVms.providerVmId, input.providerVmId),
+        ne(cloudVms.status, "destroyed"),
+      ];
+      if (input.probeToken) {
+        conditions.push(eq(cloudVms.providerStatusProbeToken, input.probeToken));
+      }
       const updated = await db
         .update(cloudVms)
         .set({
           status: input.status,
-          destroyedAt: input.status === "destroyed" ? new Date() : null,
-          updatedAt: new Date(),
+          destroyedAt: input.status === "destroyed" ? observedAt : null,
+          // Every lifecycle write advances the scheduler clock. Only a caller
+          // that has a live provider response may advance the observation
+          // clock, so a rollback or reservation does not claim fresh provider
+          // knowledge.
+          providerStatusCheckedAt: observedAt,
+          ...(input.observedAt ? { providerStatusObservedAt: observedAt } : {}),
+          // A direct lifecycle mutation also fences an in-flight probe. A
+          // probe write clears its own token below; both paths are idempotent.
+          providerStatusProbeToken: null,
+          updatedAt: sql`case when ${cloudVms.status} is distinct from ${input.status} then now() else ${cloudVms.updatedAt} end`,
         })
-        .where(
-          and(
-            eq(cloudVms.id, input.id),
-            eq(cloudVms.providerVmId, input.providerVmId),
-            ne(cloudVms.status, "destroyed"),
-          ),
-        )
+        .where(and(...conditions))
         .returning({ id: cloudVms.id });
       return updated.length > 0;
     }),
@@ -1543,6 +1680,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markCreateRunning: (input) =>
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
+      const now = new Date();
       const [vm] = await db
         .update(cloudVms)
         .set({
@@ -1553,7 +1691,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           status: "running",
           failureCode: null,
           failureMessage: null,
-          updatedAt: new Date(),
+          providerStatusObservedAt: now,
+          providerStatusCheckedAt: now,
+          providerStatusProbeToken: null,
+          updatedAt: now,
         })
         .where(eq(cloudVms.id, input.id))
         .returning();
@@ -1613,12 +1754,16 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markDestroyed: (id) =>
     dbEffect("markDestroyed", async () => {
       const db = cloudDb();
+      const now = new Date();
       await db
         .update(cloudVms)
         .set({
           status: "destroyed",
-          destroyedAt: new Date(),
-          updatedAt: new Date(),
+          destroyedAt: now,
+          providerStatusObservedAt: now,
+          providerStatusCheckedAt: now,
+          providerStatusProbeToken: null,
+          updatedAt: now,
         })
         .where(eq(cloudVms.id, id));
     }),

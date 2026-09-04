@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import * as Effect from "effect/Effect";
 import postgres, { type Sql } from "postgres";
 import { closeCloudDbForTests } from "../db/client";
-import { VmRepository, VmRepositoryLive } from "../services/vms/repository";
+import { VmRepository, VmRepositoryLive, VM_PROVIDER_STATUS_PROBE_LEASE_MS } from "../services/vms/repository";
 import { VM_SLUG_PATTERN } from "../services/vms/vmNaming";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -39,6 +39,16 @@ function beginCreate(input: { userId: string; billingTeamId: string; idempotency
         maxActiveVms: null,
         idempotencyKey: input.idempotencyKey,
       });
+    }).pipe(Effect.provide(VmRepositoryLive)),
+  );
+}
+
+function claimProbe(input: { id: string; providerVmId: string; token: string }) {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const repo = yield* VmRepository;
+      if (!repo.claimProviderStatusProbe) throw new Error("probe claim is not implemented");
+      return yield* repo.claimProviderStatusProbe(input);
     }).pipe(Effect.provide(VmRepositoryLive)),
   );
 }
@@ -83,5 +93,21 @@ describe("cloud VM slugs", () => {
     await insert("running");
 
     await sql!`delete from cloud_vms where billing_team_id = ${team}`;
+  });
+
+  dbTest("provider probes suppress duplicates and reclaim an expired fence", async () => {
+    const id = crypto.randomUUID();
+    const providerVmId = `provider-probe-${id}`;
+    const team = `team-probe-${Date.now()}`;
+    await sql!`insert into cloud_vms (id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id, image_id, status, slug, provider_status_checked_at, provider_status_probe_token)
+      values (${id}, 'user-probe', ${team}, 'pro', 'freestyle', ${providerVmId}, 'test-image', 'running', ${`probe-cloud-vm-${id.replaceAll("-", "")}`}, now(), 'held')`;
+
+    expect(await claimProbe({ id, providerVmId, token: "new-token" })).toBe(false);
+    await sql!`update cloud_vms set provider_status_checked_at = now() - (${VM_PROVIDER_STATUS_PROBE_LEASE_MS + 1} * interval '1 millisecond') where id = ${id}`;
+    expect(await claimProbe({ id, providerVmId, token: "new-token" })).toBe(true);
+
+    const [row] = await sql!<{ token: string | null }[]>`select provider_status_probe_token as token from cloud_vms where id = ${id}`;
+    expect(row?.token).toBe("new-token");
+    await sql!`delete from cloud_vms where id = ${id}`;
   });
 });

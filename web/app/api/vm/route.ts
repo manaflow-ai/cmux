@@ -145,6 +145,12 @@ export async function GET(request: Request): Promise<Response> {
         // Generated three-word name; clients show it when no displayName is
         // set. Null on rows created before names were assigned.
         slug: entry.slug,
+        ...(entry.providerStatusObservedAt === null
+          ? {}
+          : { providerStatusObservedAt: entry.providerStatusObservedAt }),
+        ...(entry.providerStatusCheckedAt === null
+          ? {}
+          : { providerStatusCheckedAt: entry.providerStatusCheckedAt }),
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".

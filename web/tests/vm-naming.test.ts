@@ -61,6 +61,7 @@ describe("isVmSlug", () => {
       expect(isVmSlug(bad)).toBe(false);
     }
     expect(isVmSlug("sleepy-teal-otter")).toBe(true);
+    expect(isVmSlug("legacy-cloud-vm-00000000000040008000000000sync")).toBe(true);
   });
 });
 
