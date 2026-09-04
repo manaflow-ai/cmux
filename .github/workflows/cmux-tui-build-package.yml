@@ -478,6 +478,13 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Test Windows path normalization
+        working-directory: cmux-tui
+        shell: bash
+        run: >-
+          cargo test --release --locked --target x86_64-pc-windows-gnu
+          -p cmux-tui-core --lib normalize_long_windows
+
       - name: Verify long Windows state path
         shell: bash
         run: |

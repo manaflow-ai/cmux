@@ -1494,6 +1494,27 @@ mod tests {
         assert_eq!(normalized, path, "{text}");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_relative_failures_preserve_original_spelling() {
+        let parent = vec!["segment"; 36].join(r"\");
+        for path in [
+            PathBuf::from(format!(r"{parent}\..\state")),
+            PathBuf::from(format!(r"{parent}\state.")),
+        ] {
+            let normalized = normalize_filesystem_path(path.clone());
+            assert_eq!(normalized, path, "{}", normalized.display());
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_root_relative_paths_preserve_current_drive_semantics() {
+        let path = PathBuf::from(format!(r"\{}\state", "segment".repeat(42)));
+        let normalized = normalize_filesystem_path(path.clone());
+        assert_eq!(normalized, path, "{}", normalized.display());
+    }
+
     #[test]
     fn normalize_windows_paths_preserves_drive_relative_and_rooted_controls() {
         let drive_relative = PathBuf::from(r"C:state");
@@ -1577,6 +1598,34 @@ mod tests {
         let text = normalized.to_string_lossy();
         assert!(text.starts_with(r"\\?\C:\"), "{text}");
         assert!(text.ends_with(r"\state data.v1"), "{text}");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_long_windows_file_with_trailing_separator_keeps_directory_requirement() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-path-separator-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let deep_parent = root.join(vec!["segment"; 30].join(r"\"));
+        let normalized_parent = normalize_filesystem_path(deep_parent.clone());
+        std::fs::create_dir_all(&normalized_parent).unwrap();
+
+        let file = deep_parent.join("state.bin");
+        let normalized_file = normalize_filesystem_path(file.clone());
+        std::fs::write(&normalized_file, b"state").unwrap();
+
+        let with_separator = PathBuf::from(format!(r"{}\", file.display()));
+        let normalized_with_separator = normalize_filesystem_path(with_separator);
+        let text = normalized_with_separator.to_string_lossy().into_owned();
+        let metadata = std::fs::metadata(&normalized_with_separator);
+
+        let _ = std::fs::remove_file(normalized_file);
+        let _ = std::fs::remove_dir_all(normalize_filesystem_path(root));
+
+        assert!(text.ends_with(r"\"), "{text}");
+        assert!(metadata.is_err(), "a trailing separator opened a regular file: {text}");
     }
 
     #[cfg(windows)]
