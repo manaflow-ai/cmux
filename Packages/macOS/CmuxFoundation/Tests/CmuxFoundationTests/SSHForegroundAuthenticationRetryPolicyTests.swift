@@ -518,7 +518,12 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
             .compactMap { Int32($0) }
         waitForProcessesToExit(processIDs)
 
-        #expect(process.terminationStatus == 0)
+        try? stderrCapture.handle.synchronize()
+        let cleanupStderr = (try? String(contentsOf: stderrCapture.url, encoding: .utf8)) ?? ""
+        #expect(
+            process.terminationStatus == 0,
+            "Cleanup shell terminated with reason=\(process.terminationReason.rawValue) status=\(process.terminationStatus); stderr=\(cleanupStderr)"
+        )
         #expect(processIDs.count == 25)
         // The helper has one shared two-second discovery budget plus a bounded
         // force pass. Keep a wall-clock assertion so a per-node timeout or a
