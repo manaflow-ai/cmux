@@ -1210,32 +1210,46 @@ extension CMUXCLI {
 
         lines.append("  " + String(localized: "cli.vm.tree.workspaces", defaultValue: "workspaces/"))
         // Remote workspaces, in cmux-tui index order: the machine payload lists them all
-        // (so an empty workspace still shows), terminals fill them in.
-        var workspaces: [(id: String, name: String, index: Int, focused: Bool, terminals: [[String: Any]])] = []
+        // (so an empty workspace still shows), and resource views fill their layout.
+        var workspaces: [(
+            id: String,
+            name: String,
+            index: Int,
+            focused: Bool,
+            terminals: [[String: Any]],
+            browsers: [[String: Any]],
+            displays: [[String: Any]]
+        )] = []
         // Terminal views can be numerous; keep membership assignment O(1)
         // instead of scanning every workspace for every view.
         var workspaceIndexByID: [String: Int] = [:]
         for raw in (machine["remote_workspaces"] as? [[String: Any]]) ?? [] {
             guard let workspaceId = raw["id"] as? String, !workspaceId.isEmpty else { continue }
-            let index = workspaces.count
-            if workspaceIndexByID[workspaceId] == nil {
-                workspaceIndexByID[workspaceId] = index
+            if let index = workspaceIndexByID[workspaceId] {
+                // A defensive merge keeps malformed/replayed machine lists from
+                // rendering the same workspace twice.
+                if workspaces[index].name.isEmpty {
+                    workspaces[index].name = (raw["name"] as? String) ?? ""
+                }
+                workspaces[index].focused = workspaces[index].focused || (raw["focused"] as? Bool) == true
+            } else {
+                workspaceIndexByID[workspaceId] = workspaces.count
+                workspaces.append((
+                    id: workspaceId,
+                    name: (raw["name"] as? String) ?? "",
+                    index: vmTreeNumber(raw["index"]).map { Int($0) } ?? Int.max,
+                    focused: (raw["focused"] as? Bool) == true,
+                    terminals: [],
+                    browsers: [],
+                    displays: []
+                ))
             }
-            workspaces.append((
-                id: workspaceId,
-                name: (raw["name"] as? String) ?? "",
-                index: vmTreeNumber(raw["index"]).map { Int($0) } ?? Int.max,
-                focused: (raw["focused"] as? Bool) == true,
-                terminals: []
-            ))
         }
-        for terminal in terminals {
-            // Every workspace with a view of the terminal (deduped). A zero-view
-            // terminal is kept for the final Terminals section below, never made
-            // into an empty-id pseudo-workspace. Older apps send only
-            // `remote_workspace`.
+        for resource in resources {
+            // Every workspace view contributes a pointer row. The sidebar uses
+            // this same partition: terminals, daemon browsers, then displays.
             var workspacePayloads: [[String: Any]?] = []
-            if let views = terminal["remote_views"] as? [[String: Any]] {
+            if let views = resource["remote_views"] as? [[String: Any]] {
                 var seen = Set<String>()
                 for view in views {
                     guard let workspace = view["workspace"] as? [String: Any],
@@ -1245,27 +1259,36 @@ extension CMUXCLI {
                 }
             } else {
                 // Only pre-multi-view payloads fall back to this field. An
-                // explicit empty `remote_views` is authoritative: the terminal
-                // has no workspace layout and belongs only in Terminals.
-                workspacePayloads = [terminal["remote_workspace"] as? [String: Any]]
+                // explicit empty `remote_views` is authoritative.
+                workspacePayloads = [resource["remote_workspace"] as? [String: Any]]
             }
             for workspace in workspacePayloads {
                 guard let workspaceId = workspace?["id"] as? String, !workspaceId.isEmpty else { continue }
                 if let index = workspaceIndexByID[workspaceId] {
-                    workspaces[index].terminals.append(terminal)
+                    switch resource["kind"] as? String {
+                    case "terminal": workspaces[index].terminals.append(resource)
+                    case "browser": workspaces[index].browsers.append(resource)
+                    case "display", "screen": workspaces[index].displays.append(resource)
+                    default: break
+                    }
                 } else {
                     workspaceIndexByID[workspaceId] = workspaces.count
+                    let kind = resource["kind"] as? String
                     workspaces.append((
                         id: workspaceId,
                         name: (workspace?["name"] as? String) ?? "",
                         index: vmTreeNumber(workspace?["index"]).map { Int($0) } ?? Int.max,
                         focused: (workspace?["focused"] as? Bool) == true,
-                        terminals: [terminal]
+                        terminals: kind == "terminal" ? [resource] : [],
+                        browsers: kind == "browser" ? [resource] : [],
+                        displays: kind == "display" || kind == "screen" ? [resource] : []
                     ))
                 }
             }
         }
-        workspaces.sort { $0.index < $1.index }
+        workspaces.sort {
+            $0.index != $1.index ? $0.index < $1.index : $0.id < $1.id
+        }
         // The link state decides what an empty workspace list means: a machine that is
         // asleep, still connecting, or whose link failed has workspaces the tree simply
         // cannot see yet, and hiding that behind "none yet" hides the failure.
@@ -1302,15 +1325,30 @@ extension CMUXCLI {
             for terminal in workspace.terminals {
                 lines.append("      " + vmTreeResourceCell(terminal, openHint: "cmux vm open \(id)/\(workspaceId)", addressKey: "key"))
             }
+            for browser in workspace.browsers {
+                lines.append("      " + vmTreeResourceCell(browser, openHint: "cmux surface open", showFullKey: true))
+            }
+            for display in workspace.displays {
+                lines.append("      " + vmTreeResourceCell(display, openHint: "cmux surface open", showFullKey: true))
+            }
         }
         // Ports come before displays, matching the Cloud sidebar's group order.
-        let ports = browsers.compactMap { browser -> (Int, [String: Any])? in
-            guard let port = vmTreeNumber(browser["port"]).map({ Int($0) }) else { return nil }
-            return (port, browser)
-        }.sorted { $0.0 < $1.0 }
+        let ports = browsers.compactMap { browser -> (Int, String, [String: Any])? in
+            // Snapshot parsing folds localhost browser views into the provider's
+            // canonical `port:<n>` resource. Non-port daemon browsers remain
+            // workspace-only and therefore do not enter this section.
+            guard let key = browser["key"] as? String,
+                  key.hasPrefix("port:"),
+                  let port = Int(key.dropFirst("port:".count)),
+                  (1...65_535).contains(port),
+                  key == "port:\(port)" else { return nil }
+            return (port, key, browser)
+        }.sorted { lhs, rhs in
+            lhs.0 != rhs.0 ? lhs.0 < rhs.0 : lhs.1 < rhs.1
+        }
         if !ports.isEmpty {
             lines.append("  " + String(localized: "cli.vm.tree.ports", defaultValue: "ports/"))
-            for (port, browser) in ports {
+            for (port, _, browser) in ports {
                 let label = (browser["detail"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 let open = (browser["open"] as? Bool) == true
                 var cell = "    \(port)\(label.map { "  \($0)" } ?? "")  (cmux vm open \(id):port/\(port))"

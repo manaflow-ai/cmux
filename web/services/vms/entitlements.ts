@@ -1,12 +1,19 @@
 import type { AuthedUser } from "./auth";
 import type { BillingCustomerType } from "./billingGateway";
-import { TEAM_PLAN_ID, isPaidPlanId } from "../billing/pro";
+import {
+  isDevelopmentProAccessEnabled,
+  PRO_PLAN_ID,
+  TEAM_PLAN_ID,
+  isPaidPlanId,
+} from "../billing/pro";
 import { PAID_MAX_ACTIVE_VMS_DEFAULT, PLAN_MACHINE_MEMORY_MB } from "./machineSpec";
 
 export {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   PLAN_MACHINE_MEMORY_MB,
   VM_DISK_MB_DEFAULT,
+  VM_DISK_MB_MAX,
+  VM_DISK_MB_STEP,
   VM_MEMORY_MB_PER_VCPU,
   vcpusForMemoryMb,
   vmDiskMb,
@@ -50,6 +57,14 @@ export function resolveVmEntitlements(
   options: VmEntitlementOptions = {},
 ): VmEntitlements {
   const billing = resolveBillingContext(user, options);
+  if (!user.isAnonymous && isDevelopmentProAccessEnabled(env)) {
+    return {
+      planId: PRO_PLAN_ID,
+      billingCustomerType: billing.billingCustomerType,
+      billingTeamId: billing.billingTeamId,
+      maxActiveVms: maxActiveVmsForPlan(PRO_PLAN_ID, env, { seats: billing.billingSeats }),
+    };
+  }
   const configuredDefaultPlan = env.CMUX_VM_DEFAULT_PLAN;
   // A deployment-wide default is useful for local/demo fixtures, but it must
   // never grant a paid entitlement to an account with no billing metadata in
@@ -130,7 +145,7 @@ function resolveBillingContext(
 
 /**
  * Machine sizes a person can pick, as memory in MB. Every plan sells exactly
- * the plan machine (5 vCPU / 20 GB / 200 GB), so this is one entry: the
+ * the plan machine (5 vCPU / 20 GB / 32 GB), so this is one entry: the
  * pricing copy promises that size, and a smaller machine would fall short of
  * it. vCPUs follow memory (vcpusForMemoryMb). Kept as a list so a future
  * size tier is one entry, not a new concept.
