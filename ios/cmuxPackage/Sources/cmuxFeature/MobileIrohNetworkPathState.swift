@@ -20,6 +20,10 @@ actor MobileIrohNetworkPathState {
         reachability: any ReachabilityProviding,
         onPathChange: @escaping @Sendable () async -> Void = {}
     ) {
+        // The owning composition cancels this task during sign-out. Check the
+        // caller's cancellation state inside the actor as well, so a queued
+        // start cannot run after `stop()` won the actor ordering.
+        guard !Task.isCancelled else { return }
         observationTask?.cancel()
         observationTask = Task { [weak self] in
             for await _ in reachability.pathChanges() {
