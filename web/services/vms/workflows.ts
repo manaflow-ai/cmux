@@ -48,6 +48,7 @@ import { isVmFreeAccessExpired, maxActiveVmsForPlan, vmFreeAccessWindowDays } fr
 import { networkSlugForUser, privateNetworkUnavailableReason, resolveOwnerNetwork } from "./privateNetwork";
 import { isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
+import { CMUX_NAME_METADATA_KEY, FREESTYLE_SLUG_METADATA_KEY } from "./drivers/freestyle";
 import {
   PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
   VmRepository,
@@ -100,6 +101,7 @@ export type VmEntry = {
   readonly status: CloudVmStatus;
   readonly createdAt: number;
   readonly displayName: string | null;
+  readonly slug: string | null;
   /** The machine's address on its owner's private network, when it has one. */
   readonly addressIpv4: string | null;
   readonly addressIpv6: string | null;
@@ -243,7 +245,13 @@ export function renameVm(input: {
 }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
+    if (providers.updateMetadata) {
+      yield* providers.updateMetadata(vm.provider as ProviderId, vm.providerVmId, {
+        [CMUX_NAME_METADATA_KEY]: input.displayName ?? "",
+      });
+    }
     yield* repo.setDisplayName({ id: vm.id, displayName: input.displayName });
     return vmEntryFromRow({ ...vm, displayName: input.displayName, updatedAt: new Date() });
   });
@@ -393,6 +401,8 @@ export function createVm(input: {
   readonly perMachineHome?: boolean;
   /** Runtime memory requested by the caller, in MB. Providers may ignore it. */
   readonly memoryMb?: number;
+  /** Optional custom name stored in provider metadata. */
+  readonly displayName?: string | null;
   /** See CreateOptions.imageSize: a sized ladder image boots at its shape and is never resized. */
   readonly imageSize?: CreateOptions["imageSize"];
   /**
@@ -497,6 +507,7 @@ export function createVm(input: {
       "provider_create",
       providers.create(input.provider, {
         image: input.image,
+        name: input.displayName,
         providerMetadata: create.vm.providerMetadata,
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
@@ -544,7 +555,10 @@ export function createVm(input: {
         providerVmId: handle.providerVmId,
         image: handle.image,
         imageVersion: input.imageVersion ?? null,
-        providerMetadata: handle.providerMetadata ?? create.vm.providerMetadata,
+        providerMetadata: {
+          ...(handle.providerMetadata ?? create.vm.providerMetadata ?? {}),
+          ...(handle.providerSlug ? { [FREESTYLE_SLUG_METADATA_KEY]: handle.providerSlug } : {}),
+        },
       }),
     ).pipe(
       Effect.catchAll((err) =>
@@ -2772,6 +2786,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
   const metadata = row.providerMetadata ?? {};
   const addressIpv4 = metadata["networkIpv4"];
   const addressIpv6 = metadata["networkIpv6"];
+  const slug = metadata[FREESTYLE_SLUG_METADATA_KEY];
   return {
     providerVmId: row.providerVmId,
     provider: row.provider,
@@ -2780,6 +2795,7 @@ function vmEntryFromRow(row: CloudVmRow): VmEntry {
     status: row.status,
     createdAt: row.createdAt.getTime(),
     displayName: row.displayName ?? null,
+    slug: typeof slug === "string" && slug ? slug : null,
     addressIpv4: typeof addressIpv4 === "string" && addressIpv4 ? addressIpv4 : null,
     addressIpv6: typeof addressIpv6 === "string" && addressIpv6 ? addressIpv6 : null,
   };

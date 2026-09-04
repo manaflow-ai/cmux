@@ -163,6 +163,7 @@ extension TerminalController {
                 return v2Error(id: id, code: "invalid_params", message: error.message)
             }
             let provider = Self.socketWorkerString(params["provider"])
+            let name = Self.socketWorkerString(params["name"])
             let idempotencyKey = Self.socketWorkerString(params["idempotency_key"])
             guard let idempotencyKey, !idempotencyKey.isEmpty else {
                 return v2Error(
@@ -175,7 +176,7 @@ extension TerminalController {
             let perMachineHome = Self.socketWorkerBool(params["per_machine_home"]) ?? false
             let memoryMb = Self.socketWorkerInt(params["memory_mb"])
             return v2VmCall(id: id) {
-                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
+                let vm = try await VMClient.shared.create(image: image, kind: kind, provider: provider, name: name, persistentHome: persistentHome, perMachineHome: perMachineHome, memoryMb: memoryMb, idempotencyKey: idempotencyKey)
                 return Self.socketWorkerVMSummaryPayload(vm)
             }
         case "vm.base_open":
@@ -653,7 +654,9 @@ extension TerminalController {
         ]
         if let displayName = vm.displayName, !displayName.isEmpty {
             payload["displayName"] = displayName
+            payload["name"] = displayName
         }
+        if let slug = vm.slug, !slug.isEmpty { payload["slug"] = slug }
         if let freeAccessExpiresAt = vm.freeAccessExpiresAt {
             payload["freeAccessExpiresAt"] = freeAccessExpiresAt
         }

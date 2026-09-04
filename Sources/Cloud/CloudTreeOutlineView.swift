@@ -716,6 +716,13 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())
             items.append(item(String(localized: "machines.menu.rename", defaultValue: "Rename\u{2026}")) { actions.promptRename(id, machine.label) })
+            if let name = machine.label, !name.isEmpty {
+                items.append(item(String(localized: "machines.menu.copyName", defaultValue: "Copy Name")) { [nodeActions] in nodeActions.copyToPasteboard(name) })
+            }
+            if let slug = machine.slug, !slug.isEmpty {
+                items.append(item(String(localized: "machines.menu.copySlug", defaultValue: "Copy Slug")) { [nodeActions] in nodeActions.copyToPasteboard(slug) })
+            }
+            items.append(item(String(localized: "machines.menu.copyID", defaultValue: "Copy ID")) { [nodeActions] in nodeActions.copyToPasteboard(id) })
             if let address = machine.privateAddress {
                 items.append(item(String(localized: "machines.menu.copyIPAddress", defaultValue: "Copy IP Address")) { [nodeActions] in nodeActions.copyToPasteboard(address) })
             }

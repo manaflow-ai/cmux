@@ -50,7 +50,7 @@ struct NewMachineSheet: View {
                 GridRow {
                     label(String(localized: "machines.new.name.label", defaultValue: "Name"))
                     TextField(
-                        String(localized: "machines.new.name.placeholder", defaultValue: "Optional label"),
+                        String(localized: "machines.new.name.placeholder", defaultValue: "Optional custom name"),
                         text: $model.name
                     )
                     .textFieldStyle(.roundedBorder)

@@ -129,6 +129,7 @@ export async function GET(request: Request): Promise<Response> {
         : 0;
       const vms = entries.map((entry) => ({
         id: entry.providerVmId,
+        slug: entry.slug,
         provider: entry.provider,
         status: entry.status,
         image: entry.image,
@@ -139,6 +140,7 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        name: entry.displayName,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
@@ -250,6 +252,25 @@ export async function POST(request: Request): Promise<Response> {
             message: `\`kind\` must be one of ${VM_IMAGE_KINDS.join(", ")} when provided.`,
             action: "Remove `kind` to use the default Cloud VM image, or pass `desktop` or `base`.",
             details: { field: "kind", allowedKinds: VM_IMAGE_KINDS },
+          });
+        }
+        if (candidate.name !== undefined && candidate.name !== null && typeof candidate.name !== "string") {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`name` must be a printable string when provided.",
+            action: "Omit `name`, or send a short custom VM name.",
+            details: { field: "name" },
+          });
+        }
+        const customName = typeof candidate.name === "string" ? candidate.name.trim() : null;
+        if (customName && (customName.length > 64 || /[\u0000-\u001f\u007f]/.test(customName))) {
+          return vmErrorResponse({
+            error: "vm_invalid_request",
+            status: 400,
+            message: "`name` must be a printable string of at most 64 characters.",
+            action: "Send a shorter custom VM name.",
+            details: { field: "name" },
           });
         }
         if (candidate.provider !== undefined) {
@@ -486,6 +507,7 @@ export async function POST(request: Request): Promise<Response> {
             image,
             imageVersion: imageSelection.imageVersion,
             provider,
+            displayName: customName || null,
             idempotencyKey,
             persistentHome: candidate.persistentHome === true,
             perMachineHome: candidate.perMachineHome === true,
@@ -546,6 +568,9 @@ export async function POST(request: Request): Promise<Response> {
         setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
         return jsonResponse({
           id: created.providerVmId,
+          slug: created.slug,
+          name: created.displayName,
+          displayName: created.displayName,
           provider: created.provider,
           image: created.image,
           imageVersion: created.imageVersion,

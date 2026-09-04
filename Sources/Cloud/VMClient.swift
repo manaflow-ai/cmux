@@ -283,6 +283,8 @@ struct VMSummary {
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
+    /// Provider-generated three-word slug, distinct from the stable provider id.
+    var slug: String?
     /// When the free plan's access window closes for this machine (epoch ms);
     /// nil on paid plans or when the window is disabled server-side.
     var freeAccessExpiresAt: Int64?
@@ -730,6 +732,7 @@ actor VMClient {
             let createdAt = (dict["createdAt"] as? Int64)
                 ?? Int64((dict["createdAt"] as? Double) ?? 0)
             var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(dict["base"]))
+            summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.kind = Self.decodeKind(dict["kind"])
             summary.capabilities = VMCapabilities(json: dict["capabilities"])
             if let label = dict["displayName"] as? String, !label.isEmpty {
@@ -1045,11 +1048,12 @@ actor VMClient {
 
     /// Creates a machine. `kind` asks the backend for its desktop or shell image;
     /// `image` is the explicit override (`vm new --image`) and wins server-side.
-    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
+    func create(image: String? = nil, kind: VMMachineKind? = nil, provider: String? = nil, name: String? = nil, persistentHome: Bool = false, perMachineHome: Bool = false, memoryMb: Int? = nil, idempotencyKey: String) async throws -> VMSummary {
         var body: [String: Any] = [:]
         if let image { body["image"] = image }
         if let kind { body["kind"] = kind.rawValue }
         if let provider { body["provider"] = provider }
+        if let name, !name.isEmpty { body["name"] = name }
         if persistentHome { body["persistentHome"] = true }
         if perMachineHome { body["perMachineHome"] = true }
         if let memoryMb { body["memoryMb"] = memoryMb }
@@ -1082,6 +1086,8 @@ actor VMClient {
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        summary.displayName = (obj["name"] as? String) ?? (obj["displayName"] as? String)
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(json: obj["capabilities"])
         return summary
@@ -1147,9 +1153,10 @@ actor VMClient {
         let rawStatus = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         summary.kind = Self.decodeKind(obj["kind"])
         summary.capabilities = VMCapabilities(json: obj["capabilities"])
-        if let label = obj["displayName"] as? String, !label.isEmpty {
+        if let label = (obj["name"] as? String) ?? (obj["displayName"] as? String), !label.isEmpty {
             summary.displayName = label
         }
         return summary

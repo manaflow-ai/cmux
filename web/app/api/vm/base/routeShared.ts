@@ -130,12 +130,15 @@ export async function runBaseRoute(input: {
 
   return jsonResponse({
     id: entry.providerVmId,
+    slug: entry.slug,
     provider: entry.provider,
     image: entry.image,
     imageVersion: entry.imageVersion,
     kind: imageSelection.kind,
     status: entry.status,
     createdAt: entry.createdAt,
+    name: entry.displayName,
+    displayName: entry.displayName,
     base: {
       id: entry.baseId,
       name: entry.baseName,
