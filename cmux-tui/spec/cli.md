@@ -393,6 +393,34 @@ long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
 
+### Host projection boundary
+
+The local `browser` and `projection` scopes address the machine that owns the
+session. They do not create a path from a Cloud VM into a host filesystem or
+host browser profile. A remote agent may project a VM browser or VM file to a
+local viewer, but the projection is one-way and returns no host state.
+
+The Cloud extension uses explicit host actions:
+
+```text
+cmux host present <opaque-handle|https-url>
+cmux host present --pick file|video
+cmux host share <opaque-handle> --machine <machine-id>
+```
+
+`host present` returns a receipt only. The remote principal cannot use that
+receipt with `browser snapshot`, `browser get`, `browser screenshot`,
+`surface.read`, clipboard, accessibility, or raw operation calls. `host share`
+requires a local user-selected handle and transfers a bounded immutable copy.
+The VM never supplies a host path.
+
+Host presentation rejects `file:`, `data:`, script, custom, loopback,
+link-local, and private-network URLs, including subresources, WebSockets,
+WebRTC, redirects, and DNS rebinding. It uses a fresh viewer profile with no
+host cookies. Existing host browser tabs,
+profiles, and raw browser automation endpoints are not Cloud resources and have
+no first-release command path.
+
 ## Local sidebar plugins
 
 `sidebar plugin` commands read and write local plugin installation state. They

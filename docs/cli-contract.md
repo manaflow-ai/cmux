@@ -43,6 +43,27 @@ Swift keeps desktop-only responsibilities: window and pane composition,
 macOS keychain and NetworkExtension integration, and explicit human approval.
 Linux, Windows, npm, PyPI, and Cloud guest workflows must not depend on Swift.
 
+### Cloud to host boundary
+
+Cloud commands treat every VM process as untrusted. A remote command may ask
+the desktop to present a user-selected local item, but it cannot name an
+arbitrary host path or use the resulting viewer as a data source.
+
+The first-release host actions are:
+
+```text
+cmux host present <opaque-handle|https-url>
+cmux host present --pick file|video
+cmux host share <opaque-handle> --machine <machine-id>
+```
+
+`host present` opens a safe local viewer and returns a receipt without file
+bytes, DOM, pixels, cookies, clipboard, accessibility state, or a usable host
+surface ID. `host share` is a local user action that sends one bounded copy to
+the selected VM. `file:`, `data:`, script, custom, loopback, link-local, and
+private-network URLs are rejected. Existing host browser profiles and raw
+browser control are not Cloud targets in the first release.
+
 ## Global Invocation
 
 | Form | Contract |

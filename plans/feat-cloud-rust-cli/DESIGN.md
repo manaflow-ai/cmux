@@ -82,6 +82,10 @@ requirement without making package tests depend on a user's DNS service.
     and secure handoff library are shared by standalone `coderouter` and
     `cmux coderouter`. Command, TTY, keyring, config, and process frontends
     remain separate.
+18. A Cloud VM may request one-way host presentation of a user-selected file,
+    video, or URL. Host file readback and control of an existing host browser
+    are disabled in the first release. Host sharing is an explicit local action
+    with a short-lived, bounded handle.
 
 ## Ownership and dependency graph
 
@@ -94,6 +98,7 @@ requirement without making package tests depend on a user's DNS service.
 | Secure agent handoff | public coderouter-core handoff library | CodeRouter contract |
 | CLI frontend | cmux-tui/src/cli/cloud and command dispatch | Contract, client |
 | Remote data plane | cmux-remote, cmux-terminal-client | Contract, enrollment |
+| Host projection bridge | local host broker and native viewer adapters | Auth, remote session, local approval policy |
 | Private network | cmux-wg and Swift NetworkExtension bridge | Auth, grants, route API |
 | Backend facade | web/app/api, web/services/vms, CodeRouter services | Contract fixtures |
 | Guest runtime | image manifest, daemon supervisor, adapters | Action checks, machine principal |
@@ -110,6 +115,7 @@ C0 schema and errors
 → C3 fast machine catalog and operations
 → C4 create, base, snapshot, fork, restore
 → C5 remote sessions, terminal, exec, transfer
+→ C5a host presentation and share boundary
 → C6 VPN, private routes, ports, domains
 → C7 project environments and layouts
 → C8 agents and CodeRouter
@@ -407,6 +413,60 @@ Acceptance:
 - Interactive input, resize, signal, and close are independently testable.
 - Exact argv survives shells and platforms without accidental expansion.
 - File transfer cannot exceed declared size, time, or cancellation limits.
+
+## C5a. Host presentation and share boundary
+
+Implement a narrow host broker. Do not mount the host socket, filesystem, or
+browser profile into a Cloud machine. Every VM process is hostile, even when
+the user launched the agent.
+
+Implement these typed actions:
+
+~~~text
+cmux host present <handle|https-url>
+cmux host present --pick file|video
+cmux host share <handle> --machine <machine>
+~~~
+
+`host.present` lets a VM ask the local cmux app to show a user-selected file,
+video, or approved URL. `--pick file|video` opens a local picker and returns a
+pending approval until the user chooses an item. It returns a receipt only.
+The receipt cannot address
+the resulting host surface, read its DOM or pixels, inspect its path, or use
+clipboard and accessibility operations. Reuse the existing viewer construction
+and receipt plumbing, but keep host read and control authority in a separate
+namespace.
+
+`host.share` is the only first-release path for a Cloud agent to analyze a host
+file. A local user selects the item. The host creates an opaque handle bound to
+the account, machine, session, file identity, digest, size, MIME type, and
+expiry. The broker canonicalizes the path, rejects unsafe symlinks and active
+file types, and streams one bounded immutable copy. It never accepts a raw host
+path from the VM.
+
+Host URL presentation accepts only the approved URL policy. Reject `file:`,
+`data:`, script, custom, loopback, link-local, and private-network destinations,
+including subresources, WebSockets, WebRTC, redirects, and DNS rebinding. Use a
+fresh viewer profile with no host cookies. Do not expose a raw browser
+automation endpoint.
+
+Do not implement `host.control` in this slice. If a later release needs it, use
+a disposable browser process and profile, one origin-scoped lease, no existing
+tabs or cookies, no file or private-network URLs, no clipboard or keychain,
+quarantined downloads, and local approval for navigation, form submission, and
+permission prompts.
+
+Acceptance:
+
+- A hostile VM can request `host.present` only for a granted handle or allowed
+  URL and receives no host content or addressable host surface ID.
+- A `file:///Users/...` request, path traversal, symlink escape, private URL,
+  redirect, and DNS rebinding fail before a viewer opens.
+- A user-selected share transfers only the declared byte range and expires or
+  revokes when the machine or session ends.
+- Replayed, cross-session, and cross-team handles fail with stable errors.
+- A VM cannot invoke host browser snapshot, eval, screenshot, cookies, storage,
+  clipboard, accessibility, or shell operations through the bridge.
 
 ## C6. VPN, private routes, ports, and domains
 

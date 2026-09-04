@@ -273,8 +273,11 @@ tree is push-updated, never polled. VNC display and forwarded-port rows are
 backend catalog resources outside a workspace's terminal layout; their
 open verbs use the shared `surface.project` path (with `vm.desktop_open` /
 `vm.port_open` as the CLI equivalents) and the same tokened browser-pane flow.
+Those rows are displays owned by the Cloud machine. They do not grant the VM
+access to a local Mac browser, file, clipboard, or accessibility surface.
 
-Socket methods (the CLI, the sidebar tree, and agents all go through them):
+Socket methods (the CLI, the sidebar tree, and agents use these for remote
+machine resources):
 
 | Method | Params | Result |
 | --- | --- | --- |
@@ -291,7 +294,7 @@ CLI addresses are the tree's lines: `cmux vm tree`, then
 `cmux-tui attach --terminal <term_…>` against the link socket, so one remote
 terminal renders in one pane with no session chrome.
 
-Agents route work with the same primitives: `cmux vm route` prints the machine
+Agents route work with the same remote primitives: `cmux vm route` prints the machine
 `vm run` would choose (sticky per directory → idle pool machine → sleeper →
 provision) without running anything; `cmux vm agent --agent <claude|codex|opencode|pi>
 -- <prompt>` starts the agent as a detached terminal in the chosen machine's
@@ -305,18 +308,21 @@ Claude Code, Codex, OpenCode, and Pi.
 
 ## Surface catalog
 
-Terminals, VNC screens and browsers are *resources*; panes and workspaces are
-*projections* of them. On the Mac, `SurfaceCatalog` (`Sources/Surfaces/`) is the
-one owner of resource identities (`<machine>/<kind>/<key>`, machine = `local` or
-a cloud machine id) and projections (resource, workspace, panel). Adapters push
-resources in: `LocalSurfaceAdapter` (this Mac's terminals and browsers) and one
-`CmuxTuiSurfaceAdapter` per cloud machine (its cmux-tui workspaces/terminals
+Terminals, VNC screens and Cloud browsers are *resources*; panes and
+workspaces are *projections* of them. On the Mac, `SurfaceCatalog`
+(`Sources/Surfaces/`) is the one owner of resource identities
+(`<machine>/<kind>/<key>`, machine = `local` or a Cloud machine ID) and
+projections (resource, workspace, panel). Adapters push resources in:
+`LocalSurfaceAdapter` (this Mac's trusted terminals and browsers) and one
+`CmuxTuiSurfaceAdapter` per Cloud machine (its cmux-tui workspaces/terminals
 from the headless link, its noVNC screen `display:1`, its forwarded ports).
-`catalog.project(resource, into:)` is the single open path, the sidebar tree,
-drag and drop, the CLI and agents all go through it, so an already-open
-resource is focused instead of duplicated, a closed pane never destroys a
-remote resource, and restored panes re-project when their adapter reports the
-resource again.
+`catalog.project(resource, into:)` is the single local open path for trusted
+desktop clients. A Cloud agent cannot enumerate or project `machine:local`
+resources. A remote request enters the host broker as a typed `host.present` or
+`host.share` action, with a user-selected opaque handle and an expiring local
+grant. The resulting host viewer is write-only from the VM's authority
+namespace. This preserves code reuse for placement and receipts without
+sharing host read or control authority.
 
 Socket (worker lane, like `vm.*`):
 
@@ -325,6 +331,13 @@ Socket (worker lane, like `vm.*`):
 | `surface.catalog` | `{machine?: "local"\|<id>, refresh?}` | `{machines: [{id, local, name, status, image, has_desktop, memory_mb, disk_mb, link_state, link_error, cpu_percent, memory_used_mb, disk_used_mb}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent?, remote_workspace?, port?, url?, open, open_surface_ids, open_workspace_ids}], projections: [{resource, workspace_id, surface_id}]}` |
 | `surface.project` | `{resource, workspace_id?, pane_id?, direction?: left\|right\|up\|down, tab_index?, placement?: split\|tab, focus? (true), reuse? (true)}` | `{surface_id, workspace_id, reused, resource}` — `pane_id` + `direction` splits that pane on that side; `pane_id` + `tab_index`/`placement: tab` tabs into it; else the workspace's focused pane |
 | `surface.new_terminal` | `{machine, command?: [string], cwd?, name?, remote_workspace_id?, open? (true), + the destination params}` | `{resource, terminal_id, machine, remote_workspace_id, workspace_id?, surface_id?}` |
+
+`surface.catalog` with `machine: local` is a desktop-only operation. A Cloud
+principal cannot use it to enumerate host files or host browser tabs. A
+`surface.project` result for a Cloud resource may create a local display, but
+the remote principal receives no host surface ID or readback authority. Host
+file and URL requests use the `host.present` and `host.share` actions described
+in the system security contract.
 
 The `vm.tree`, `vm.terminal_open`, `vm.terminal_new`, `vm.desktop_open`,
 `vm.port_open` and `vm.link_socket` verbs keep their shapes and are wrappers

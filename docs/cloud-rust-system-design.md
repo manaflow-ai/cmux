@@ -46,6 +46,7 @@ that contract.
 | Data plane | Live terminals, workspaces, processes, events, and computer-use traffic use cmux-remote and its negotiated transports. | Rebuilding the data protocol in the HTTP client creates a second session implementation and loses replay and reconnect guarantees. |
 | Network access | System WireGuard, userspace WireGuard, public port publication, and machine-to-machine grants are separate paths. | Calling all of them VPN or treating a public URL as a tunnel makes security and failure states ambiguous. |
 | OS integration | Rust owns tunnel protocol, route policy, grants, and userspace WireGuard. Small native adapters call macOS NetworkExtension and platform keyring APIs. | Forcing privileged OS APIs into Rust would add unsafe FFI or a root helper. Keeping broad Cloud behavior in Swift would preserve the split. The native boundary is limited to OS facilities and has no Cloud policy. |
+| Host projection | A Cloud VM may request a local presentation of an explicitly selected file, video, or URL. The first release does not grant host-file readback or control of an existing host browser. | Reusing the normal browser surface RPC would let a compromised VM use the host as a confused deputy. One-way presentation keeps the useful human handoff while preserving the host data boundary. |
 | Team scope | Login identifies a person. A selected team is explicit, persisted, and shown in every team-scoped mutation. | Inferring a team from the last response is convenient until a user has two teams. Silent cross-team mutations are unacceptable. |
 | Long work | Mutations return an operation receipt when they can outlive one HTTP request. wait, watch, and cancel operate on that receipt. | A synchronous create endpoint is simple until the backend must resume a sleeping machine or reaches its request limit. Hidden background work is harder to recover than an explicit operation. |
 | Machine creation latency | `cloud vm create` first claims a scrubbed warm machine for the requested region, size, image family, and persistence profile. The warm path targets p50 under 3 seconds to daemon-ready and p95 under 10 seconds. A cold path returns an operation immediately; the Rust client follows it by default so the command still returns a ready machine. `--no-wait` returns the operation for callers that want asynchronous control. | Always booting a new machine gives a clean mental model but makes every agent wait on image startup. A warm pool adds quota and scrubbing work, so the service must measure claim latency, discard unhealthy machines, and never reuse state across owners. Making cold waits implicit can surprise an interactive user, so progress, a bounded default deadline, and `--no-wait` are required. |
@@ -120,6 +121,12 @@ Stable resources and lifecycle:
 Every resource ID is opaque and stable. A display name is a selector only. A
 name that matches more than one resource returns selector.ambiguous with all
 candidate IDs. The client never picks one by recency, sort order, or focus.
+
+Host file handles, host browser profiles, and host viewer surfaces are local
+resources. They are never Cloud resources, never included in the machine graph,
+and never addressable by a VM resource ID. A Cloud response may return a
+presentation receipt, but it must not return a host path or a host surface ID
+that can be used for readback.
 
 Every mutable resource has a server revision. Mutations may include
 expected_revision; a stale value returns revision_conflict without a partial
@@ -388,6 +395,87 @@ enrollment are implementation details.
 - File transfer and exec responses have bounded sizes and explicit
   cancellation.
 
+### Host projection trust boundary
+
+Every process in a Cloud machine is treated as hostile. A machine or agent
+principal proves session identity, not user intent. A compromised agent process
+must not gain the user's local file, browser, clipboard, keychain, or shell
+authority by calling a cmux verb.
+
+Host interaction has three typed actions with different data directions:
+
+| Action | Direction | First-release policy |
+| --- | --- | --- |
+| `host.present` | VM request to local UI | Allowed for a user-selected opaque file handle or an approved URL. The host opens a safe viewer and returns only a receipt. No content, DOM, screenshot, cookie, title-derived path, or clipboard data returns to the VM. |
+| `host.share` | Local UI to VM | Explicit user action. The user selects one file, then cmux creates a short-lived handle and streams a bounded immutable copy. Recursive directory sharing is deferred. The VM never supplies a host path. |
+| `host.control` | VM input and readback of local UI | Disabled in the first release. A later implementation requires a disposable browser process, an isolated profile, origin and network policy, and a visible local approval. |
+
+`host.present` is a display side effect, not a browser or file attachment. A
+presentation receipt cannot be used with `browser.snapshot`, `browser.get`,
+`browser.screenshot`, `surface.read`, clipboard, or accessibility operations.
+The host broker uses a separate authority namespace for this rule. Reusing
+surface creation and receipt code is correct; reusing host surface read or
+control authority is a security defect.
+
+The wire request is typed and bounded:
+
+~~~json
+{
+  "action_id": "host.present",
+  "request_id": "req_...",
+  "machine_id": "machine_...",
+  "session_id": "session_...",
+  "target": { "handle": "local_..." },
+  "expires_at": "...",
+  "nonce": "..."
+}
+~~~
+
+The target is either an opaque handle issued by the local user, a user-mediated
+file picker request, or an approved `https` URL. A picker request tells the
+local UI to ask the user to choose a file or video; it never returns the chosen
+path or bytes to the VM. A URL supplied by a VM needs local approval unless its
+origin is already in a local presentation policy. Raw host paths, `file:` URLs,
+`data:` URLs, script URLs, custom schemes, loopback addresses, link-local
+addresses, and private network ranges are rejected before a viewer opens. The
+same policy applies to subresources, WebSockets, WebRTC, every redirect, and
+each DNS resolution, so a public hostname cannot reach a local service through
+rebinding.
+
+The local broker resolves a handle through a security-scoped bookmark or an
+open file descriptor. It canonicalizes the path, rejects traversal and unsafe
+symlinks, checks the file type, and opens only a bounded preview format. It
+never launches an arbitrary application from a VM request. Scripts, executable
+bundles, archives with automatic extraction, active documents, and executable
+HTML are denied or rendered as inert text.
+Remote media is rendered in a sandboxed viewer. A crafted video or document is
+still untrusted input and must not run in the host shell.
+
+The local UI shows the source machine, session, action, and target before a
+remote URL presentation, `host.share`, or `host.control` grant. A presentation
+grant may be remembered for selected handles or URL origins, but it expires
+with the session and can be revoked from one local control. Approval text comes
+from the host policy, not from the agent's explanation. Every decision records
+a request ID, source machine, action, target class, byte count, and result
+without recording raw paths, content, cookies, or tokens.
+
+The safe composition is:
+
+1. A remote agent uses the VM browser for web research and VM-local files.
+2. cmux may project that VM resource into a local viewer. The data direction is
+   VM to host display, and the VM does not receive host state.
+3. To show a host file or video, the user first selects it and grants
+   `host.present`. To let the agent analyze it, the user performs `host.share`
+   with a bounded copy. Recursive directory sharing is not a first-release
+   action.
+4. A request to control an existing host browser is denied. A future isolated
+   browser handoff is a separate product with a separate approval and audit
+   path.
+
+If the implementation cannot prove that a host presentation surface has no
+remote readback, the host presentation feature must be disabled. A visible
+local browser tab is not a security boundary.
+
 ## CLI design
 
 ### Grammar and global options
@@ -539,6 +627,8 @@ cloud domains list|zones|verify|publish|access|rm
 
 cloud desktop open|status
 cloud browser open|navigate|snapshot|input|close
+host present [<handle|https-url>|--pick file|video]
+host share <handle> --machine <machine>
 cloud event stream|read
 cloud notification list|read|ack
 cloud usage team|machine|agent
@@ -554,6 +644,9 @@ Top-level coderouter and vpn remain because they can serve local and Cloud
 clients. cloud network reports the Cloud route used by a command. vpn controls
 the local machine's system tunnel. They are not aliases. Action checks are
 automatic; `cloud doctor` is for diagnosis after a failure, not a setup step.
+`host` is local-only. A Cloud agent reaches it through the host broker, never
+through the local socket or a raw filesystem/browser API. `present` is
+one-way display; `share` is an explicit local-to-VM transfer.
 
 ### Domain command compatibility
 
@@ -926,7 +1019,24 @@ Desktop machines expose a VNC/noVNC display as a resource outside a terminal
 workspace. Browser surfaces and forwarded ports use the same surface.project
 operation as terminals. The CLI can inspect and control them headlessly when
 the machine response reports `desktop_ready` or `browser_ready` for that
-specific action.
+specific action. This applies to a browser owned by that Cloud machine. A host
+browser profile is not a Cloud browser resource. Remote browser projection is
+one-way VM-to-host display by default; host file URLs, host cookies, host
+clipboard, host accessibility state, and host browser control are not part of
+the projection contract.
+
+The user-facing split is explicit:
+
+~~~text
+cmux browser open <url> --machine <machine>   # browse inside the VM
+cmux host present <handle>                    # show a selected host item
+cmux host share <handle> --machine <machine>  # copy a selected item to the VM
+~~~
+
+These spellings describe the contract; they do not permit a VM to invent a
+host path. `cmux open` in a VM resolves VM paths. A host target requires an
+opaque handle and a local grant. There is no first-release `--host` browser
+control flag and no raw browser automation endpoint crossing this boundary.
 
 Notifications are durable machine events. An agent can emit cmux notify inside
 a VM without a Mac attached. A reconnecting client drains by cursor and
@@ -1128,4 +1238,10 @@ The design is complete only when these behavior-level checks pass:
    cross their declared policy boundaries;
 11. a closed laptop can receive a durable event and a later client can drain and
    acknowledge it;
-12. the final JSON receipt explains what happened without exposing secrets.
+12. a hostile VM cannot read host files, host browser state, screenshots,
+   clipboard, or keychain data through a `host.present` request;
+13. `host.share` transfers only a user-selected, bounded handle and expires or
+   revokes with the session;
+14. host URL requests reject local schemes, private destinations, redirects to
+   private destinations, and DNS rebinding;
+15. the final JSON receipt explains what happened without exposing secrets.
