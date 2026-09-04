@@ -7,7 +7,7 @@ import {
   createClaudeModelsProxy,
   type ClaudeProxyDependencies,
 } from "../services/coderouter/claudeProxy";
-import type { ClaudeUpstream } from "../services/coderouter/claudeUpstream";
+import type { ClaudeSelection, ClaudeUpstream } from "../services/coderouter/claudeUpstream";
 import type { RouteTokenAuthResult } from "../services/coderouter/routeTokenAuth";
 import {
   bedrockInvokeBody,
@@ -16,6 +16,11 @@ import {
   encodeAwsEventStreamMessage,
 } from "../services/coderouter/bedrock";
 import { usageFromText } from "../services/coderouter/claudeUsage";
+import {
+  newCoderouterRequestContext,
+  runWithCoderouterRequest,
+  type CoderouterOutcome,
+} from "../services/coderouter/requestTelemetry";
 import { signAwsRequest } from "../services/coderouter/awsSigV4";
 
 type FetchCall = { url: string; init: RequestInit & { duplex?: string } };
@@ -68,6 +73,17 @@ const dependencies: ClaudeProxyDependencies = {
 };
 
 const messages = createClaudeMessagesProxy(dependencies);
+
+/**
+ * Runs one messages call inside a coderouter request context and returns the
+ * terminal outcome the proxy recorded (what the PostHog `$ai_trace` and the
+ * ClickHouse route row carry).
+ */
+async function routed(request: Request): Promise<{ response: Response; outcome: CoderouterOutcome | undefined }> {
+  const context = newCoderouterRequestContext({ request, surface: "messages", route: "/v1/messages" });
+  const response = await runWithCoderouterRequest(context, () => messages(request));
+  return { response, outcome: context.outcome };
+}
 const countTokens = createClaudeCountTokensProxy(dependencies);
 const models = createClaudeModelsProxy(dependencies);
 
@@ -186,22 +202,20 @@ beforeEach(() => {
 describe("claude proxy auth", () => {
   test("rejects a missing route token in the Anthropic error shape", async () => {
     authResult = { ok: false, reason: "missing_route_token" };
-    const response = await messages(messagesRequest());
+    const { response, outcome } = await routed(messagesRequest());
     expect(response.status).toBe(401);
     const body = await response.json();
     expect(body).toMatchObject({ type: "error", error: { type: "authentication_error" } });
     expect(body.error.message).toContain("route token");
     expect(fetchCalls).toHaveLength(0);
-    expect(events.map((event) => event.event)).toEqual([
-      "coderouter_auth_rejected",
-      "coderouter_route_health",
-    ]);
+    expect(events.map((event) => event.event)).toEqual(["coderouter_auth_rejected"]);
     expect(events[0]?.properties).toEqual({ surface: "messages", reason: "missing_route_token" });
-    expect(events[1]?.properties).toMatchObject({
+    expect(outcome).toMatchObject({
       provider: "claude",
       agent: "claude",
       outcome: "unauthorized",
-      failure_stage: "auth",
+      failureStage: "auth",
+      status: 401,
     });
   });
 
@@ -216,7 +230,7 @@ describe("claude proxy auth", () => {
 
   test("returns 503 when the team has no Claude upstream", async () => {
     upstream = null;
-    const response = await messages(messagesRequest());
+    const { response, outcome } = await routed(messagesRequest());
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
       type: "error",
@@ -225,9 +239,9 @@ describe("claude proxy auth", () => {
         message: "No Claude upstream account is configured for this team. Add one with `cmux coderouter claude add` or at coderouter.dev.",
       },
     });
-    expect(events.at(-1)?.properties).toMatchObject({
-      outcome: "provider_unavailable",
-      failure_stage: "provider_config",
+    expect(outcome).toMatchObject({
+      outcome: "no_usable_account",
+      failureStage: "provider_config",
     });
   });
 });
@@ -266,7 +280,10 @@ describe("claude proxy direct Anthropic upstreams", () => {
     const response = await messages(messagesRequest());
     await response.text();
     const usage = events.find((event) => event.event === "coderouter_model_request_completed");
-    expect(usage).toEqual({
+    const { duration_ms: usageDurationMs, request_id: usageRequestId, ...usageProperties } = usage?.properties ?? {};
+    expect(typeof usageDurationMs).toBe("number");
+    expect(usageRequestId).toBe("unscoped");
+    expect({ ...usage, properties: usageProperties }).toEqual({
       event: "coderouter_model_request_completed",
       teamId: "team-1",
       properties: {
@@ -279,17 +296,14 @@ describe("claude proxy direct Anthropic upstreams", () => {
         output_tokens: 42,
         total_tokens: 157,
         vm_id: "vm-1",
+        // Trace linkage for the PostHog `$ai_generation`: the ledger request
+        // id shared with the ClickHouse route row, latency to stream end, the
+        // upstream status and whether the body streamed.
+        status: 200,
+        response_streamed: true,
       },
     });
-    const health = events.find((event) => event.event === "coderouter_route_health");
-    expect(health?.properties).toMatchObject({
-      provider: "claude",
-      outcome: "success",
-      failure_stage: "none",
-      status: 200,
-      response_streamed: true,
-      vm_id: "vm-1",
-    });
+    expect(usageRequestId).toBe("unscoped");
   });
 
   test("omits vm_id for an unbound CLI token", async () => {
@@ -327,11 +341,11 @@ describe("claude proxy direct Anthropic upstreams", () => {
         { type: "error", error: { type: "overloaded_error", message: "Overloaded" } },
         { status: 529, headers: { "retry-after": "3" } },
       );
-    const response = await messages(messagesRequest());
+    const { response, outcome } = await routed(messagesRequest());
     expect(response.status).toBe(529);
     expect(response.headers.get("retry-after")).toBe("3");
     expect((await response.json()).error.type).toBe("overloaded_error");
-    expect(events.at(-1)?.properties).toMatchObject({ outcome: "upstream_error", status: 529 });
+    expect(outcome).toMatchObject({ outcome: "upstream_error", status: 529 });
   });
 
   test("count_tokens and models forward to the matching Anthropic paths", async () => {
@@ -573,7 +587,7 @@ describe("claude proxy failover across accounts", () => {
       () => Response.json({ id: "msg_2", model: "claude-sonnet-4-5", usage: { input_tokens: 3, output_tokens: 4 } }),
     ];
     upstreamResponse = () => responses.shift()!();
-    const response = await messages(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
+    const { response, outcome } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
     expect(response.status).toBe(200);
     expect(fetchCalls).toHaveLength(2);
     expect((fetchCalls[0]!.init.headers as Headers).get("x-api-key")).toBe(apiKeyUpstream.secret.kind === "anthropic_api_key" ? apiKeyUpstream.secret.apiKey : "");
@@ -582,8 +596,7 @@ describe("claude proxy failover across accounts", () => {
     expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 17_000, failureCode: "rate_limited" }]);
     await response.text();
     expect(touched).toEqual(["acct-api-2"]);
-    const health = events.find((event) => event.event === "coderouter_route_health");
-    expect(health?.properties).toMatchObject({ outcome: "success", attempt_count: 2, upstream_account_id: "acct-api-2" });
+    expect(outcome).toMatchObject({ outcome: "success", attempts: 2, upstreamAccountId: "acct-api-2" });
   });
 
   test("a rejected credential cools the account down for fifteen minutes", async () => {
@@ -602,12 +615,11 @@ describe("claude proxy failover across accounts", () => {
     upstream = apiKeyUpstream;
     moreAccounts = [secondApiKey];
     upstreamResponse = () => Response.json({ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, { status: 529 });
-    const response = await messages(messagesRequest());
+    const { response, outcome } = await routed(messagesRequest());
     expect(response.status).toBe(529);
     expect(fetchCalls).toHaveLength(2);
     expect(cooldowns.map((entry) => entry.failureCode)).toEqual(["upstream_unavailable", "upstream_unavailable"]);
-    const health = events.find((event) => event.event === "coderouter_route_health");
-    expect(health?.properties).toMatchObject({ outcome: "upstream_error", failure_stage: "upstream_response", attempt_count: 2 });
+    expect(outcome).toMatchObject({ outcome: "upstream_error", failureStage: "upstream_response", attempts: 2 });
   });
 
   test("answers 503 with retry-after when every account is cooling down", async () => {
@@ -616,12 +628,11 @@ describe("claude proxy failover across accounts", () => {
     (dependencies as { select: ClaudeProxyDependencies["select"] }).select = async () =>
       ({ kind: "exhausted", total: 2, retryAfterSeconds: 42 });
     try {
-      const response = await messages(messagesRequest());
+      const { response, outcome } = await routed(messagesRequest());
       expect(response.status).toBe(503);
       expect(response.headers.get("retry-after")).toBe("42");
       expect((await response.json()).error.type).toBe("overloaded_error");
-      const health = events.find((event) => event.event === "coderouter_route_health");
-      expect(health?.properties).toMatchObject({ outcome: "no_usable_account", failure_stage: "account_selection", attempt_count: 0 });
+      expect(outcome).toMatchObject({ outcome: "no_usable_account", failureStage: "account_selection", attempts: 0 });
     } finally {
       (dependencies as { select: ClaudeProxyDependencies["select"] }).select = original;
     }
@@ -651,6 +662,89 @@ describe("claude proxy failover across accounts", () => {
     expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_transport" }]);
   });
 
+  test("bounds all Claude upstream header waits to one request budget", async () => {
+    const candidates = [
+      apiKeyUpstream,
+      secondApiKey,
+      { ...secondApiKey, accountId: "acct-api-3" },
+      { ...secondApiKey, accountId: "acct-api-4" },
+      { ...secondApiKey, accountId: "acct-api-5" },
+    ];
+    const selected: string[] = [];
+    let logicalNow = 0;
+    const bounded = createClaudeMessagesProxy({
+      ...dependencies,
+      select: async (_teamId, input) => {
+        const excluded = new Set(input.excludedAccountIds ?? []);
+        const candidate = candidates.find((entry) => !excluded.has(entry.accountId));
+        if (!candidate) return { kind: "exhausted", total: candidates.length, retryAfterSeconds: 1 };
+        selected.push(candidate.accountId);
+        return { kind: "selected", upstream: candidate, total: candidates.length, healthy: 1 };
+      },
+      fetch: (async () => {
+        // Advance a deterministic clock as each simulated header wait elapses.
+        logicalNow += 120;
+        return Response.json({ error: "upstream unavailable" }, { status: 503 });
+      }) as typeof fetch,
+    }, {
+      now: () => logicalNow,
+      upstreamHeadersBudgetMs: 200,
+      upstreamHeadersTimeoutMs: 120,
+    });
+
+    const response = await bounded(messagesRequest());
+
+    expect(response.status).toBe(503);
+    expect(selected).toEqual(["acct-api-1", "acct-api-2"]);
+  });
+
+  test("bounds account selection to the request failover deadline and aborts it", async () => {
+    let selectionSignal: AbortSignal | undefined;
+    const bounded = createClaudeMessagesProxy({
+      ...dependencies,
+      select: async (_teamId, input) => {
+        selectionSignal = input.signal;
+        return await new Promise<ClaudeSelection>(() => undefined);
+      },
+    }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const started = performance.now();
+    const result = await routedWith(bounded, messagesRequest());
+
+    expect(result.response.status).toBe(503);
+    expect(result.outcome).toMatchObject({
+      outcome: "provider_unavailable",
+      failureStage: "account_selection",
+    });
+    expect(selectionSignal).toBeDefined();
+    expect(selectionSignal?.aborted).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
+  test("passes the request deadline signal to Claude cooldown writes", async () => {
+    let cooldownSignal: AbortSignal | undefined;
+    const cooldown: ClaudeProxyDependencies["cooldown"] = async (...args) => {
+      cooldownSignal = (args as readonly unknown[])[3] as AbortSignal | undefined;
+      return await new Promise<void>(() => undefined);
+    };
+    upstreamResponse = () => new Response("{}", { status: 429 });
+    const bounded = createClaudeMessagesProxy({ ...dependencies, cooldown }, {
+      now: () => 0,
+      upstreamHeadersBudgetMs: 30,
+      upstreamHeadersTimeoutMs: 10,
+    });
+
+    const { response } = await routedWith(bounded, messagesRequest());
+
+    expect(response.status).toBe(429);
+    expect(cooldownSignal).toBeDefined();
+    expect(cooldownSignal?.aborted).toBe(true);
+  });
+
   test("usage rows name the account that served the request", async () => {
     upstream = apiKeyUpstream;
     upstreamResponse = () => Response.json({ id: "msg_5", model: "claude-sonnet-4-5", usage: { input_tokens: 5, output_tokens: 6 } });
@@ -660,6 +754,15 @@ describe("claude proxy failover across accounts", () => {
     expect(usage?.properties).toMatchObject({ upstream_kind: "anthropic_api_key", upstream_account_id: "acct-api-1" });
   });
 });
+
+async function routedWith(
+  proxy: (request: Request) => Promise<Response>,
+  request: Request,
+): Promise<{ response: Response; outcome: CoderouterOutcome | undefined }> {
+  const context = newCoderouterRequestContext({ request, surface: "messages", route: "/v1/messages" });
+  const response = await runWithCoderouterRequest(context, () => proxy(request));
+  return { response, outcome: context.outcome };
+}
 
 describe("bedrock helpers", () => {
   test("maps Anthropic ids, dated ids and latest aliases", () => {
