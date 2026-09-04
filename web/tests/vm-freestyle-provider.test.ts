@@ -401,6 +401,30 @@ describe("Freestyle attach route source", () => {
     expect(freestyleRouteAddressesFromMetadata({ networkId: "vpc-1" })).toBeNull();
     expect(freestyleRouteAddressesFromMetadata(undefined)).toBeNull();
   });
+
+  test("private attach returns the persisted route without provider reads or guest exec", async () => {
+    let providerReads = 0;
+    let guestExecs = 0;
+    const vm = {
+      data: async () => {
+        providerReads += 1;
+        throw new Error("private attach must not read provider state");
+      },
+      exec: async () => {
+        guestExecs += 1;
+        throw new Error("private attach must not execute in the guest");
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    const endpoint = await provider.openCmuxRemote(VM_ID, {
+      providerMetadata: { networkIpv4: "10.0.0.5" },
+    });
+    expect(endpoint.route).toBe("ws://10.0.0.5:1337/v1/link");
+    expect(endpoint.invitation).toBeUndefined();
+    expect(providerReads).toBe(0);
+    expect(guestExecs).toBe(0);
+  });
 });
 
 describe("Freestyle client configuration", () => {
