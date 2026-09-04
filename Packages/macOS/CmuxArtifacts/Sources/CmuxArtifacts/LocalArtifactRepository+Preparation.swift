@@ -155,7 +155,7 @@ extension LocalArtifactRepository {
         ownership: ArtifactOwnership,
         requireDirectory: Bool
     ) throws -> URL {
-        guard !pathPolicy.hasSymlinkComponent(sourceURL) else {
+        guard !pathPolicy.hasFinalSymlink(sourceURL) else {
             throw ArtifactStoreError.unauthorizedPath(sourceURL.path)
         }
         let canonical = pathPolicy.canonicalURL(sourceURL)

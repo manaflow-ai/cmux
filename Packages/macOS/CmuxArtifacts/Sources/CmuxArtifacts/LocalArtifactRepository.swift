@@ -258,7 +258,7 @@ public actor LocalArtifactRepository: ArtifactStoring {
             }
             let url = paths.payloads.appendingPathComponent(relativePath)
             guard paths.contains(url), isRegularFile(url), !isSymlink(url),
-                  !pathPolicy.hasSymlinkComponent(url) else {
+                  !pathPolicy.hasFinalSymlink(url) else {
                 throw ArtifactStoreError.unauthorizedPath(url.path)
             }
             return url

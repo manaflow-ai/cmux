@@ -52,6 +52,17 @@ public struct ArtifactPathPolicy: Sendable {
         return false
     }
 
+    /// Returns whether the final path entry itself is a symbolic link.
+    ///
+    /// System locations such as `/var` are legitimate intermediate symlinks on
+    /// macOS, so callers that need to reject an imported file should inspect
+    /// the final entry separately rather than rejecting every ancestor.
+    public func hasFinalSymlink(_ url: URL) -> Bool {
+        var status = stat()
+        return lstat(url.standardizedFileURL.path, &status) == 0
+            && (status.st_mode & S_IFMT) == S_IFLNK
+    }
+
     /// Returns a safe relative path when a path is inside a root.
     public func relativePath(of url: URL, under root: URL) -> String? {
         let candidate = canonicalURL(url).path
