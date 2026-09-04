@@ -296,6 +296,16 @@ if ! awk '
   exit 1
 fi
 
+if ! awk '
+  /^      - name: Codesign apps/ { sign_line=NR }
+  /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
+  /^      - name: Notarize app ticket through final DMG/ { notarize_line=NR }
+  END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must smoke-launch the signed app before paying the Apple notarization wait"
+  exit 1
+fi
+
 RELEASE_WORKFLOW_FILE="$ROOT_DIR/.github/workflows/release.yml"
 if ! awk '
   /^      - name: Strip release binaries/ { strip_line=NR }
@@ -303,6 +313,16 @@ if ! awk '
   END { exit !(strip_line && verify_line && strip_line < verify_line) }
 ' "$RELEASE_WORKFLOW_FILE"; then
   echo "FAIL: release must reject a stub Cloud tunnel engine before signing and notarization"
+  exit 1
+fi
+
+if ! awk '
+  /^      - name: Codesign app/ { sign_line=NR }
+  /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
+  /^      - name: Notarize app/ { notarize_line=NR }
+  END { exit !(sign_line && smoke_line && notarize_line && sign_line < smoke_line && smoke_line < notarize_line) }
+' "$RELEASE_WORKFLOW_FILE"; then
+  echo "FAIL: release must smoke-launch the signed app before paying the Apple notarization wait"
   exit 1
 fi
 

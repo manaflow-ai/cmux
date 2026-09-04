@@ -820,6 +820,15 @@ jobs:
               "$APPLE_SIGNING_IDENTITY"
           done
 
+      - name: Smoke launch signed app before notarization
+        run: |
+          set -euo pipefail
+          # Catch macOS policy failures before the Apple ticket wait and DMG
+          # work. Direct execution is isolated from the runner's Dock state.
+          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
+            ./scripts/smoke-launch-macos-app.sh \
+            "build-universal/Build/Products/Release/cmux NIGHTLY.app"
+
       - name: Notarize app ticket through final DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
