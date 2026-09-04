@@ -5,6 +5,30 @@ latency evidence, and privacy-safe observability. Never paste route tokens,
 OAuth credentials, request bodies, email addresses, or provider-account IDs
 into tickets, logs, Sentry, PostHog, or ClickHouse.
 
+## Rust Cloud client boundary
+
+CodeRouter is the model plane. The machine, workspace, and agent adapter are
+the compute plane. Rust must expose both through stable IDs and receipts, but
+must not combine their credentials or failure states.
+
+The Rust command contract is defined in
+[docs/cloud-rust-system-design.md](cloud-rust-system-design.md) and staged in
+[plans/feat-cloud-rust-cli/DESIGN.md](../plans/feat-cloud-rust-cli/DESIGN.md):
+
+~~~text
+cmux coderouter status
+cmux coderouter session open|close|status
+cmux coderouter account list|add|enable|disable|remove|clear
+cmux coderouter usage team|machine|agent
+cmux cloud agent run|get|wait|logs|stop|resume
+~~~
+
+The existing Swift commands remain compatibility entrypoints until these Rust
+commands produce equivalent JSON, authorization, retry, and usage behavior.
+The guest receives only edge-injected, short-lived route authority. It never
+receives a user's Stack or provider refresh token. A model route cannot grant
+machine creation, destruction, snapshot, billing, or team-account authority.
+
 ## Access
 
 Hosted coderouter and Subrouter are open to every signed-in user in every

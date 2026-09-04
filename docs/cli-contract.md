@@ -23,6 +23,26 @@ written around user-visible behavior so the implementation can change behind it.
   documents JSON as the scripting interface.
 - Keep hidden/internal commands available until their callers have migrated.
 
+## Rust Cloud migration boundary
+
+The Swift parser is a compatibility surface while Rust becomes the
+authoritative Cloud client. The shared contract is
+[the Cloud Rust system design](cloud-rust-system-design.md), with execution
+sequenced in
+[the Rust Cloud CLI plan](../plans/feat-cloud-rust-cli/DESIGN.md).
+
+Swift Cloud commands must call the same typed API and render the same response
+and error envelopes. They must not create a second Cloud state store, infer a
+team from a previous response, or keep provider credentials. During the
+compatibility window, existing vm, cloud, auth, coderouter, VPN, and domain
+names remain valid. A command is not migrated when Swift only starts a Rust
+subprocess; it is migrated when Rust owns its model, authorization, retry,
+operation, and JSON behavior.
+
+Swift keeps desktop-only responsibilities: window and pane composition,
+macOS keychain and NetworkExtension integration, and explicit human approval.
+Linux, Windows, npm, PyPI, and Cloud guest workflows must not depend on Swift.
+
 ## Global Invocation
 
 | Form | Contract |
@@ -321,6 +341,36 @@ VM subcommands:
 | `vm ports <id>` | Show listening TCP ports inside the VM. |
 | `vm handoff <id>` | Print a short attach handoff block. |
 | `vm promote-template <id>` | Promote the VM into a reusable template. |
+
+Cloud domain compatibility:
+
+The Rust migration preserves the existing Cloud domain verbs and flow from
+[the public-domain design](../plans/feat-cloud-vm-public-urls/DESIGN.md).
+The Swift and Rust frontends must accept this same surface:
+
+~~~text
+cmux cloud domains [list]
+cmux cloud domains zones
+cmux cloud domains verify <domain>
+cmux cloud domains publish <vm> <port> [--domain <hostname>]
+  [--access personal|team|public] [--team <team-id>]
+cmux cloud domains access <hostname> <personal|team|public> [--team <team-id>]
+cmux cloud domains rm <hostname>
+~~~
+
+list is the default and accepts ls. zones accepts custom. rm accepts remove
+and delete. cmux vm domains is an alias. verify is zone-only and prints the
+labelled DNS checklist on the first call; the user updates DNS and repeats
+the same command. publish defaults to personal access and mints the same
+friendly generated hostname when no domain is supplied. A custom domain must
+be a verified base zone or one-label child in the preferred flow. A publish
+request made before verification reserves a durable pending publication and
+creates no serving rule; repeating verify completes it. access and rm use the
+publication hostname. Human output starts with the URL and includes
+verification and health guidance. JSON remains stable. The access page has
+sign-in and denial states, with no request-access workflow. rm keeps the
+shipped one-command, no-prompt behavior during migration; backend ownership
+and cleanup checks still run before success.
 
 Remotes subcommands:
 

@@ -2,6 +2,14 @@
 
 Status: v1 shipped in the CLI (`cmux vm run`); this doc records the design and the path to the control-plane version that pairs with cmux-coderouter.
 
+The router is a policy primitive used by the Rust Cloud client. Its work-key,
+pool, health, lease, and failover rules must return the stable machine,
+operation, and verification records defined in
+[the Cloud Rust system design](../cloud-rust-system-design.md). The existing
+Swift vm run path is a compatibility caller, not a second routing policy.
+Implementation order and acceptance gates are in
+[the Rust Cloud CLI plan](../../plans/feat-cloud-rust-cli/DESIGN.md).
+
 ## Goal
 
 An agent (Claude Code, Codex, or any open-source-model harness) should be able to say *"run this in the cloud"* and never think about machines: no ids, no capacity, no setup. The router picks the computer, provisions when needed, keeps warm state where the work is, and meters usage — the same way cmux-coderouter makes model credentials invisible behind a `crk_` key.

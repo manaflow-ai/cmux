@@ -20,6 +20,18 @@ Every publication has exactly one access mode:
 
 There are no viewer grants, access requests, approvals, or per-domain share lists. A person either satisfies the current publication policy or does not.
 
+## Rust parity requirement
+
+This design is the source of truth for the public domain verbs and user flow
+used by the Rust Cloud client. Rust must preserve the command names, defaults,
+aliases, output order, DNS checklist, and access-page states below. The desktop
+and Swift commands are compatibility callers of the same backend behavior.
+The broader Rust ownership and migration plan is in
+[docs/cloud-rust-system-design.md](../../docs/cloud-rust-system-design.md).
+The rm command keeps its shipped one-command, no-prompt behavior during this
+compatibility window; safety comes from exact owner and hostname checks plus
+ordered provider cleanup.
+
 The unauthorized browser states are deliberately small:
 
 - signed out: **You don't have access** and **Sign in to cmux to view this site.**;

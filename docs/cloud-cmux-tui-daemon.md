@@ -7,6 +7,24 @@ cmux-tui terminal, the macOS app renders it through the Ghostty manual-IO
 surface, and any cmux-tui terminal (cloud, ssh, local) can be attached by
 dragging it out of the right pane.
 
+## System boundary
+
+The daemon is the Cloud data-plane component. It owns authenticated remote
+links, workspaces, terminals, processes, event lanes, replay cursors, and
+terminal snapshots. It does not own account login, team policy, billing,
+provider lifecycle, DNS, TLS, or CodeRouter account management.
+
+Those control-plane responsibilities belong to the Rust Cloud client and the
+versioned contract in
+[docs/cloud-rust-system-design.md](cloud-rust-system-design.md). The desktop
+app may project the same resources into panes, but a Cloud CLI or agent can
+use the control and data planes without opening the app. Every attach token
+or route is scoped by the control plane to a stable machine, session, and
+capability generation before the daemon accepts it.
+
+The implementation sequence and compatibility obligations are in
+[plans/feat-cloud-rust-cli/DESIGN.md](../plans/feat-cloud-rust-cli/DESIGN.md).
+
 ## Why replace cmuxd-remote
 
 `daemon/remote/cmd/cmuxd-remote` speaks an ad-hoc protocol on `/terminal`: a

@@ -5,6 +5,37 @@ tree uses the same resource hierarchy and operation catalog as the handwritten
 SDKs. The private protocol-v12 command set is available only through the
 explicit `raw command` escape.
 
+## Cloud control-plane extension
+
+This document defines the local cmux protocol and its resource operations.
+Cloud lifecycle and account operations use the versioned Cloud contract in
+[docs/cloud-rust-system-design.md](../../docs/cloud-rust-system-design.md)
+and the staged implementation plan in
+[plans/feat-cloud-rust-cli/DESIGN.md](../../plans/feat-cloud-rust-cli/DESIGN.md).
+They share opaque resource IDs, revisions, capabilities, errors, operations,
+and receipts with this local contract, but they do not require a local socket
+or a desktop app.
+
+The target Rust command grammar is:
+
+~~~text
+cmux cloud <resource> <action>
+cmux vm <action>                 # compatibility alias
+~~~
+
+The current public scope list is not a claim that Cloud control-plane
+commands are implemented. Add a scope only with its schema fixture, backend
+mapping, capability gate, JSON output, exit behavior, and a headless
+acceptance test. The remote daemon remains the data-plane owner for live
+terminal, workspace, process, and event traffic.
+
+The domain scope is an intentional compatibility exception to generic
+resource nesting. Use cloud domains with the verbs list, zones, verify,
+publish, access, and rm. Do not substitute singular cloud domain commands or
+make publication a port-open alias. Preserve the URL-first output, labelled
+DNS checklist, generated-name default, access modes, and sign-in or denial
+flow documented in the shared domain contract.
+
 ## Process modes
 
 These modes start or connect a TUI process. They do not send a public resource

@@ -24,6 +24,34 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 - No separate AWS app server is required for the current version.
 - A separate `manaflow/cmux-staging` Vercel project exists for staging.
 
+## Rust parity gate
+
+Backend readiness is necessary but does not make Cloud usable from npm, PyPI,
+or a guest. The Rust client and backend must converge on the contract in
+[docs/cloud-rust-system-design.md](cloud-rust-system-design.md), with the
+vertical slices tracked in
+[plans/feat-cloud-rust-cli/DESIGN.md](../plans/feat-cloud-rust-cli/DESIGN.md).
+Before a Cloud command is marked ready, the backend must provide:
+
+- a versioned facade and generated request and response fixtures;
+- explicit team scope, machine principal scope, and capability payloads;
+- idempotency lookup, operation receipts, cancellation tombstones, and
+  stale-provider reconciliation;
+- stable error codes, request and trace IDs, absolute-deadline behavior, and
+  event cursors;
+- cleanup for leases, ports, private routes, publications, sessions, and
+  provider resources;
+- redacted usage references for billing and CodeRouter attribution;
+- a readiness report that proves the guest daemon and requested capabilities;
+- the existing domains list, zones, verify, publish, access, and rm verbs,
+  including URL-first output, labelled DNS instructions, generated-name
+  defaults, and the sign-in or denial flow;
+- a package and hosted behavior check that does not open the desktop app.
+
+Provider SDKs, DNS, TLS, billing, and secret custody stay in backend
+services. Adding a web route without a Rust fixture, capability gate, and
+headless acceptance test is an incomplete slice.
+
 ## Current Blockers
 
 - [x] Create AWS IAM migration roles trusted by GitHub OIDC for the two Cloud VM environments.
