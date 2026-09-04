@@ -202,9 +202,7 @@ pub(crate) fn rows(
     let agent_order = if spec.includes(SidebarResourceKind::Agents) {
         let mut order = agents
             .iter()
-            .map(|agent| {
-                (agent.surface, (agent_attention(&agent.state), agent.updated_at_ms))
-            })
+            .map(|agent| (agent.surface, (agent_attention(&agent.state), agent.updated_at_ms)))
             .collect::<HashMap<_, _>>();
         let mut indexed = tree
             .workspaces()
@@ -686,9 +684,7 @@ mod tests {
         state.reconcile_selection(&initial);
 
         let mut moved_tree = tree.clone();
-        moved_tree.workspaces_mut()[0].screens[0].panes[0]
-            .tabs
-            .insert(0, tab(7, "moved before"));
+        moved_tree.workspaces_mut()[0].screens[0].panes[0].tabs.insert(0, tab(7, "moved before"));
         let reordered = rows(
             &spec,
             &moved_tree,
