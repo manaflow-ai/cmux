@@ -27,8 +27,8 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
 
 /**
  * A private-network or tunnel operation on a deployment that does not serve
- * one — the provider has no `privateNetworking`, or
- * `CMUX_VM_PRIVATE_NETWORK_ENABLED=0` has rolled the feature back.
+ * one. The provider has no `privateNetworking`, or the fail-closed private
+ * network switch has disabled the operation.
  *
  * Distinct from {@link VmOperationUnsupportedError} because the caller's next
  * move is different: this is a deployment that will not give *any* caller a
@@ -44,7 +44,7 @@ export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundErr
   readonly deviceFingerprint: string;
 }> {}
 
-/** A remote revoke blocked this exact Stack login from enrolling the Mac again. */
+/** A remote revoke blocked this Stack login, or any older login on the same Mac. */
 export class VmAccessGrantRevokedError extends Data.TaggedError("VmAccessGrantRevokedError")<{
   readonly stackSessionId: string;
 }> {}

@@ -1,5 +1,5 @@
 import Foundation
 
 struct CloudPrivateNetworkNoopGate: CloudPrivateNetworkGate {
-    func prepareForPrivateNetworkUse(_ use: CloudPrivateNetworkUse) async {}
+    func requirePrivateNetworkUse(_ use: CloudPrivateNetworkUse) async throws {}
 }

@@ -16,7 +16,7 @@ extension CloudTunnelCoordinator {
         switch backend {
         case .networkExtension(let extensionBundleIdentifier):
             controller = NetworkExtensionTunnelController(providerBundleIdentifier: extensionBundleIdentifier)
-        case .wgQuick:
+        case .unavailable:
             controller = CloudTunnelInertController()
         }
         return CloudTunnelCoordinator(

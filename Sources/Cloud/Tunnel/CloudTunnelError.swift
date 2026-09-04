@@ -26,7 +26,7 @@ enum CloudTunnelError: Error, CustomStringConvertible, Equatable {
         case .backendUnavailable:
             return String(
                 localized: "cloudTunnel.error.backendUnavailable",
-                defaultValue: "This cmux build does not include the app-managed tunnel. Use `cmux vpn up` (wg-quick) instead."
+                defaultValue: "This cmux build does not include the signed Network Extension required for browser access."
             )
         case .notSignedIn:
             return String(

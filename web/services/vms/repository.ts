@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -12,6 +12,7 @@ import {
   cloudVmLeases,
   cloudVmNetworks,
   cloudVmAccessGrants,
+  cloudVmAccessGrantSessions,
   cloudVmSessions,
   cloudVmTunnels,
   cloudVms,
@@ -51,6 +52,7 @@ export type CloudVmAccessLeaseRow = CloudVmLeaseRow & {
 export type CloudVmSessionRow = typeof cloudVmSessions.$inferSelect;
 export type CloudVmNetworkRow = typeof cloudVmNetworks.$inferSelect;
 export type CloudVmAccessGrantRow = typeof cloudVmAccessGrants.$inferSelect;
+export type CloudVmAccessGrantSessionRow = typeof cloudVmAccessGrantSessions.$inferSelect;
 export type CloudVmTunnelRow = typeof cloudVmTunnels.$inferSelect;
 export type CloudVmLeaseKind = typeof cloudVmLeases.$inferInsert.kind;
 export type CloudVmStatus = CloudVmRow["status"];
@@ -114,9 +116,11 @@ export type VmRepositoryShape = {
     readonly accessGrantId?: string;
     readonly deviceId?: string;
   }) => Effect.Effect<CloudVmAccessGrantRow | null, VmDatabaseError>;
-  readonly findRevokedAccessGrantSession?: (input: {
+  readonly findBlockingRevokedAccessGrant?: (input: {
     readonly userId: string;
+    readonly deviceId: string;
     readonly stackSessionId: string;
+    readonly sessionIssuedAt: Date;
   }) => Effect.Effect<CloudVmAccessGrantRow | null, VmDatabaseError>;
   readonly listUserAccessGrants?: (userId: string) => Effect.Effect<CloudVmAccessGrantRow[], VmDatabaseError>;
   readonly upsertAccessGrant?: (input: {
@@ -129,8 +133,14 @@ export type VmRepositoryShape = {
     readonly cmuxVersion?: string | null;
     readonly cmuxBuild?: string | null;
     readonly cmuxChannel?: string | null;
-    readonly stackSessionId?: string | null;
   }) => Effect.Effect<CloudVmAccessGrantRow, VmDatabaseError>;
+  readonly upsertAccessGrantSession?: (input: {
+    readonly accessGrantId: string;
+    readonly userId: string;
+    readonly stackSessionId: string;
+    readonly sessionIssuedAt: Date;
+  }) => Effect.Effect<void, VmDatabaseError>;
+  readonly listAccessGrantSessionIds?: (accessGrantId: string) => Effect.Effect<string[], VmDatabaseError>;
   readonly renameAccessGrant?: (input: {
     readonly id: string;
     readonly userId: string;
@@ -604,20 +614,30 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
       return row ?? null;
     }),
 
-  findRevokedAccessGrantSession: (input) =>
-    dbEffect("findRevokedAccessGrantSession", async () => {
+  findBlockingRevokedAccessGrant: (input) =>
+    dbEffect("findBlockingRevokedAccessGrant", async () => {
       const db = cloudDb();
-      const [row] = await db
-        .select()
+      const [result] = await db
+        .select({ accessGrant: cloudVmAccessGrants })
         .from(cloudVmAccessGrants)
+        .leftJoin(
+          cloudVmAccessGrantSessions,
+          eq(cloudVmAccessGrantSessions.accessGrantId, cloudVmAccessGrants.id),
+        )
         .where(and(
           eq(cloudVmAccessGrants.userId, input.userId),
-          eq(cloudVmAccessGrants.stackSessionId, input.stackSessionId),
           isNotNull(cloudVmAccessGrants.revokedAt),
+          or(
+            eq(cloudVmAccessGrantSessions.stackSessionId, input.stackSessionId),
+            and(
+              eq(cloudVmAccessGrants.deviceId, input.deviceId),
+              gte(cloudVmAccessGrants.revokedAt, input.sessionIssuedAt),
+            ),
+          ),
         ))
         .orderBy(desc(cloudVmAccessGrants.revokedAt))
         .limit(1);
-      return row ?? null;
+      return result?.accessGrant ?? null;
     }),
 
   listUserAccessGrants: (userId) =>
@@ -649,7 +669,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
           cmuxVersion: input.cmuxVersion ?? null,
           cmuxBuild: input.cmuxBuild ?? null,
           cmuxChannel: input.cmuxChannel ?? null,
-          stackSessionId: input.stackSessionId ?? null,
           lastControlPlaneAt: now,
         })
         .onConflictDoUpdate({
@@ -663,7 +682,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
             cmuxVersion: input.cmuxVersion ?? null,
             cmuxBuild: input.cmuxBuild ?? null,
             cmuxChannel: input.cmuxChannel ?? null,
-            stackSessionId: input.stackSessionId ?? null,
             lastControlPlaneAt: now,
             updatedAt: now,
           },
@@ -671,6 +689,35 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         .returning();
       if (!row) throw new Error("upsertAccessGrant returned no row");
       return row;
+    }),
+
+  upsertAccessGrantSession: (input) =>
+    dbEffect("upsertAccessGrantSession", async () => {
+      const db = cloudDb();
+      const now = new Date();
+      await db
+        .insert(cloudVmAccessGrantSessions)
+        .values({
+          accessGrantId: input.accessGrantId,
+          userId: input.userId,
+          stackSessionId: input.stackSessionId,
+          sessionIssuedAt: input.sessionIssuedAt,
+          lastSeenAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [cloudVmAccessGrantSessions.accessGrantId, cloudVmAccessGrantSessions.stackSessionId],
+          set: { sessionIssuedAt: input.sessionIssuedAt, lastSeenAt: now },
+        });
+    }),
+
+  listAccessGrantSessionIds: (accessGrantId) =>
+    dbEffect("listAccessGrantSessionIds", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .select({ stackSessionId: cloudVmAccessGrantSessions.stackSessionId })
+        .from(cloudVmAccessGrantSessions)
+        .where(eq(cloudVmAccessGrantSessions.accessGrantId, accessGrantId));
+      return rows.map((row) => row.stackSessionId);
     }),
 
   renameAccessGrant: (input) =>

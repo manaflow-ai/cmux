@@ -131,13 +131,6 @@ describe("Freestyle platform contract", () => {
     ]);
   });
 
-  test("firewall without a network: inbound 1337 opens publicly, as before", () => {
-    expect(freestyleFirewallRules({ publicDaemonIngress: true })).toEqual([
-      { action: "allow", source: {}, destination: { public: true } },
-      { action: "allow", source: { public: true }, destination: { port: 1337, protocol: "tcp" } },
-    ]);
-  });
-
   test("network firewall: one members-reach-each-other rule, nothing else", () => {
     // No port/protocol matcher: members reach each other on ALL ports. The
     // same rule is re-created by the reuse-path heal if deleted out of band.
@@ -189,9 +182,9 @@ describe("Freestyle platform contract", () => {
     ).toThrow("no address");
   });
 
-  test("cmux-remote route without a network is the public IPv6, as before", () => {
-    expect(freestyleCmuxRemoteRoute({ publicIpv6: "2602:f75c:0:1::2a" }, VM_ID)).toBe(
-      "ws://[2602:f75c:0:1::2a]:1337/v1/link",
+  test("cmux-remote route without a private network fails closed", () => {
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "2602:f75c:0:1::2a" }, VM_ID)).toThrow(
+      "not attached to a private network",
     );
     // The deprecated `networks` alias still resolves for older responses.
     expect(
@@ -200,13 +193,13 @@ describe("Freestyle platform contract", () => {
         VM_ID,
       ),
     ).toBe("ws://[fd7a:115c:a1e0::b]:1337/v1/link");
-    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: null }, VM_ID)).toThrow("public IPv6");
-    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("public IPv6");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: null }, VM_ID)).toThrow("private network");
+    expect(() => freestyleCmuxRemoteRoute({ publicIpv6: "  " }, VM_ID)).toThrow("private network");
   });
 
   test("daemon health requires a v6-table listener; start installs the dual-stack override", () => {
     // 0x0539 = 1337; a 0.0.0.0-bound daemon appears only in /proc/net/tcp and
-    // is unreachable at the public IPv6, so it must be restarted.
+    // cannot accept a private IPv6 connection, so it must be restarted.
     expect(freestyleDaemonHealthyCommand()).toContain("/proc/net/tcp6");
     expect(freestyleDaemonHealthyCommand()).toContain(":0539 ");
     const start = freestyleStartDaemonCommand();
@@ -380,9 +373,25 @@ describe("Freestyle platform contract", () => {
 });
 
 describe("FreestyleProvider create with edge rules", () => {
+  test("fails closed when create has no private network", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await expect(providerWith(fake).create({ image: "sh-devbox" })).rejects.toThrow(
+      "create requires a private network",
+    );
+    expect(fake.creates).toHaveLength(0);
+  });
+
+  test("fails closed when restore has no private network", async () => {
+    const fake = fakeFreestyle({ probeExit: 0 });
+    await expect(providerWith(fake).restore("snap-1")).rejects.toThrow(
+      "restore requires a private network",
+    );
+    expect(fake.creates).toHaveLength(0);
+  });
+
   test("creates persistent machines with idle pausing disabled", async () => {
     const fake = fakeFreestyle({ probeExit: 0 });
-    await providerWith(fake).create({ image: "sh-devbox" });
+    await providerWith(fake).create({ image: "sh-devbox", network: { id: "vpc_1" } });
 
     expect(fake.creates[0]).toMatchObject({
       // Cloud machines keep their durable box available until the user
@@ -397,16 +406,16 @@ describe("FreestyleProvider create with edge rules", () => {
     const handle = await providerWith(fake).create({
       image: "sh-devbox",
       edgeRules: [EDGE_RULE],
+      network: { id: "vpc_1" },
     });
     expect(handle.providerVmId).toBe(VM_ID);
     expect(fake.creates).toHaveLength(1);
     expect(fake.creates[0]).toMatchObject({
       snapshotId: "sh-devbox",
-      // No network given, so the daemon port stays publicly reachable.
-      firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: true }) },
+      firewall: { rules: freestyleFirewallRules() },
+      vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
-    expect(fake.creates[0]).not.toHaveProperty("vpcs");
     // The token reaches the platform create call and nothing else.
     expect(JSON.stringify(fake.execs)).not.toContain("crt_");
     expect(JSON.stringify(fake.writes)).not.toContain("crt_");
@@ -423,7 +432,7 @@ describe("FreestyleProvider create with edge rules", () => {
       network: { id: "vpc_1" },
     });
     expect(fake.creates[0]).toMatchObject({
-      firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: false }) },
+      firewall: { rules: freestyleFirewallRules() },
       vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
@@ -433,7 +442,7 @@ describe("FreestyleProvider create with edge rules", () => {
 
   test("omits the tls block and the probe when no rules are given", async () => {
     const fake = fakeFreestyle({ probeExit: 1 });
-    await providerWith(fake).create({ image: "sh-devbox" });
+    await providerWith(fake).create({ image: "sh-devbox", network: { id: "vpc_1" } });
     expect(fake.creates[0]).not.toHaveProperty("tls");
     expect(fake.execs.some((command) => command.includes("/api/coderouter/vm-usage/self"))).toBe(false);
     expect(fake.writes).toEqual([]);
@@ -443,11 +452,16 @@ describe("FreestyleProvider create with edge rules", () => {
 
   test("restore passes the rule inline and writes nothing into the guest", async () => {
     const ok = fakeFreestyle({ probeExit: 0 });
-    const restored = await providerWith(ok).restore("snap-1", { edgeRules: [EDGE_RULE] });
+    const restored = await providerWith(ok).restore("snap-1", {
+      edgeRules: [EDGE_RULE],
+      network: { id: "vpc_1" },
+    });
     expect(restored.image).toBe("snap-1");
     expect(ok.creates[0]).toMatchObject({
       snapshotId: "snap-1",
       idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
+      firewall: { rules: freestyleFirewallRules() },
+      vpcs: [{ vpcId: "vpc_1", ipv4: true, ipv6: true }],
       tls: { rules: freestyleEdgeRules([EDGE_RULE]) },
     });
     expect(ok.writes).toEqual([]);

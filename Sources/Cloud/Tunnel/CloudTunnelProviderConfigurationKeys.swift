@@ -11,7 +11,7 @@ import Foundation
 /// wg-quick config, private key included, may travel through it: the
 /// extension runs as root and has no access to the user's home directory or
 /// keychain, and the preference store is at least as protected as the 0600
-/// file the app keeps for the wg-quick fallback.
+/// file the app keeps for the user-space tunnel.
 enum CloudTunnelProviderConfigurationKeys {
     /// The completed wg-quick config text (`[Interface]` with `PrivateKey`
     /// filled in, plus the `[Peer]` section the control plane issued).

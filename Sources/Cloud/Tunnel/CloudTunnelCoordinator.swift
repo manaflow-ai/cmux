@@ -8,20 +8,18 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app", category:
 ///
 /// The policy, in one place:
 ///
-/// - **Off until Cloud is used.** Nothing happens at launch. The first
-///   private-network use (``prepareForPrivateNetworkUse(_:)``, reached through
-///   every endpoint-minting ``VMClient`` call) enrolls this Mac, saves the VPN
-///   configuration, and starts the tunnel. The caller waits a bounded
-///   readiness budget so the dial that follows finds the route in place, then
-///   proceeds either way.
+/// - **Off until a Cloud browser is opened.** Terminal and metadata traffic
+///   uses ``CloudWireGuardHub``. Browser navigation calls
+///   ``requirePrivateNetworkUse(_:)``, saves the VPN configuration, and waits
+///   until the system route is ready. It fails closed on error.
 /// - **Idle stop.** While up, an idle timer restarts on every Cloud use. When
 ///   it fires and no consumer is live (``CloudTunnelConsumerSource``), the
 ///   tunnel stops. `cmux vpn up` pins it until `cmux vpn down`.
 /// - **Stops with the session.** Sign-out, revoke, and app termination stop it.
 /// - macOS never auto-connects it: no NetworkExtension on-demand rules are set.
 ///
-/// On the wg-quick backend every method is a no-op or a status read, so an
-/// unentitled build behaves exactly as before this coordinator existed.
+/// An unavailable backend rejects browser navigation before a private URL is
+/// loaded. It does not run a command-line fallback.
 actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
     let backend: CloudTunnelBackend
     private let controller: any CloudTunnelControlling
@@ -77,7 +75,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         if isInFailureBackoff {
             // The last start just failed; a burst of dials must not re-run
             // enrollment, activation, and the configuration save each time.
-            logger.debug("Cloud use during the failure backoff; the dial proceeds without a retry")
+            logger.debug("Legacy non-browser preparation arrived during the failure backoff")
             return
         }
         logger.info("Cloud use (\(use.purpose.rawValue, privacy: .public)) for \(use.machineID, privacy: .public): bringing the tunnel up")
@@ -85,7 +83,7 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
             try await withDeadline(timing.readinessBudget) { try await self.ensureUp() }
             restartIdleTimer()
         } catch CloudTunnelError.deadlineExceeded {
-            logger.notice("tunnel not up within the readiness budget; the dial proceeds without waiting")
+            logger.notice("legacy non-browser preparation timed out")
         } catch is CancellationError {
             // The caller gave up on its endpoint (its request failed or was
             // cancelled); the start itself carries on for the next use.
@@ -94,13 +92,29 @@ actor CloudTunnelCoordinator: CloudPrivateNetworkGate {
         }
     }
 
+    /// Browser navigation must not race or bypass the Network Extension. The
+    /// pane stays on its connecting screen until this returns successfully.
+    func requirePrivateNetworkUse(_ use: CloudPrivateNetworkUse) async throws {
+        guard case .networkExtension = backend else {
+            throw CloudTunnelError.backendUnavailable(backend.unavailableReason ?? .entitlementMissing)
+        }
+        if state == .up {
+            restartIdleTimer()
+            return
+        }
+        clearFailureBackoff()
+        logger.info("Cloud browser use for \(use.machineID, privacy: .public): requiring the tunnel")
+        try await ensureUp()
+        restartIdleTimer()
+    }
+
     // MARK: - Explicit control (`cmux vpn up|down|revoke`, sign-out, quit)
 
     /// Start the tunnel and keep it up until ``requestDown()``. An explicit
     /// request always retries, backoff or not.
     func requestUp(pin: Bool) async throws {
         guard case .networkExtension = backend else {
-            throw CloudTunnelError.backendUnavailable(backend.fallbackReason ?? .entitlementMissing)
+            throw CloudTunnelError.backendUnavailable(backend.unavailableReason ?? .entitlementMissing)
         }
         if pin { isPinned = true }
         clearFailureBackoff()

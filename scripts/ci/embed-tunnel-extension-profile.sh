@@ -4,13 +4,10 @@
 # grants the packet-tunnel system-extension capability.
 #
 # Usage:
-#   scripts/ci/embed-tunnel-extension-profile.sh <app-path> <expected-app-id> <profile-base64|"">
+#   scripts/ci/embed-tunnel-extension-profile.sh <app-path> <expected-app-id> <profile-base64>
 #
-# An empty base64 argument is not an error: until the Apple portal work is done
-# there is no profile, and the release ships with the wg-quick fallback
-# (scripts/sign-cmux-bundle.sh removes the extension when the app's own profile
-# does not grant the capability). A non-empty profile that fails verification is
-# an error, because a wrong profile would ship an extension macOS refuses to load.
+# Missing or invalid signing material is an error. Nightly and Stable must not
+# ship a browser path that cannot start its Network Extension.
 set -euo pipefail
 
 if [[ $# -ne 3 ]]; then
@@ -24,8 +21,8 @@ PROFILE_BASE64="$3"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 
 if [[ -z "$PROFILE_BASE64" ]]; then
-  echo "::notice::No Cloud tunnel extension provisioning profile provided; this build ships without the app-managed tunnel (cmux vpn up / wg-quick fallback)."
-  exit 0
+  echo "error: missing Cloud tunnel extension provisioning profile" >&2
+  exit 1
 fi
 
 if [[ ! -d "$SYSTEM_EXTENSIONS_DIR" ]]; then

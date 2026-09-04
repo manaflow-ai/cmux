@@ -4362,9 +4362,8 @@ struct CMUXCLI {
         VMMachineKind.resolved(kind: response["kind"], image: response["image"]).hasDesktop
     }
 
-    /// `vm shell <id>` and `vm open <id>`: the shared cloud open path (vmOpenShell — the
-    /// machine's cmux-tui remote daemon, legacy transports only for deployments without it,
-    /// docs/cloud-cmux-tui-daemon.md), then the screen beside the shell for desktop machines.
+    /// `vm shell <id>` and `vm open <id>`: the shared cloud open path through the
+    /// machine's cmux-tui remote daemon, then the screen beside the shell for desktop machines.
     func openVMShellWithDesktop(
         vmId: String,
         windowRaw: String?,
@@ -4400,8 +4399,8 @@ struct CMUXCLI {
 
     /// Shows the VM's desktop (noVNC) as a browser pane. One path for every entrypoint —
     /// `vm desktop`, `vm open <m>:desktop`, the split beside `vm shell`, and the sidebar
-    /// tree — through the app's `vm.desktop_open`, which mints the tokened URL, opens the
-    /// pane in the named workspace (else beside the person), and reports the surface.
+    /// tree — through the app's `vm.desktop_open`, which loads the machine's private URL
+    /// after the browser Network Extension is ready and reports the surface.
     /// Returns false when the machine has no desktop.
     @discardableResult
     func openVMDesktopSplit(
@@ -13059,9 +13058,9 @@ struct CMUXCLI {
         )
     }
 
-    /// Open an interactive cmux-managed shell on a cloud VM. The managed Cloud VM path requires
-    /// cmuxd-remote WebSocket attach so reconnects, mobile attach, and notification fanout all
-    /// use the same session primitive. SSH remains an explicit manual fallback.
+    /// Open an interactive cmux-managed shell on a Cloud VM. Automatic opens use
+    /// cmux-tui through the app's user-space WireGuard hub. `cmux vm ssh` is a
+    /// separate explicit diagnostic command.
     func logVMTiming(
         _ stage: String,
         vmID: String,
@@ -13141,13 +13140,10 @@ struct CMUXCLI {
             return nil
         }
 
-        // Every cloud entrypoint lands here, and the machine's cmux-tui remote daemon is
-        // the session for all of them: `vm new`, `vm shell`, `vm fork`, `vm restore`,
-        // Base (sidebar cloud button, `vm base open|reset`), and the Machines panel.
-        // The websocket/SSH transports below remain only for deployments whose control
-        // plane reports no cmux-tui at all; a cmux-tui-only machine never reaches them.
+        // Every automatic Cloud entrypoint uses the cmux-tui daemon over the
+        // user-space WireGuard hub. There is no public WebSocket or SSH fallback.
         let attachInfoStartedAt = Date()
-        if let opened = try openVMShellViaCmuxTuiIfAvailable(
+        let opened = try openVMTuiWorkspace(
             vmId: id,
             windowRaw: windowRaw,
             options: VMTuiOpenOptions(
@@ -13157,120 +13153,39 @@ struct CMUXCLI {
                 focus: focus
             ),
             client: client
-        ) {
-            logVMTiming("attach_info", vmID: id, transport: "cmux-remote", startedAt: attachInfoStartedAt)
-            let payload: [String: Any] = [
-                "ok": true,
-                "vm_id": id,
-                "workspace_id": opened.workspaceId,
-                "workspace_ref": opened.workspaceRef ?? NSNull(),
-                "window_id": opened.windowId ?? NSNull(),
-                "transport": "cmux-remote",
-                "session": opened.session,
-                "enrolling": opened.enrolling,
-                "terminal_id": opened.terminalId ?? NSNull(),
-                "remote_workspace_id": opened.remoteWorkspaceId ?? NSNull(),
-                "surface_id": opened.terminalSurfaceId ?? NSNull(),
-            ]
-            if jsonOutput {
-                print(jsonString(formatIDs(payload, mode: idFormat)))
-            } else {
-                let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? opened.workspaceId
-                var line = "OK workspace=\(workspaceHandle) transport=cmux-remote"
-                if let terminalId = opened.terminalId, !terminalId.isEmpty {
-                    line += " terminal=\(terminalId)"
-                }
-                print(line)
-                // The pane is one terminal in the machine's session; it survives the pane
-                // and this is how to get back to it (same address the Cloud tree shows).
-                if let terminalId = opened.terminalId, let remoteWorkspaceId = opened.remoteWorkspaceId,
-                   !terminalId.isEmpty, !remoteWorkspaceId.isEmpty {
-                    print(String(
-                        format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@"),
-                        id, remoteWorkspaceId, terminalId
-                    ))
-                }
-            }
-            return VMOpenedWorkspace(workspaceId: opened.workspaceId, terminalSurfaceId: opened.terminalSurfaceId)
-        }
-        let response: [String: Any]
-        do {
-            response = try defaultFreestyleAttachInfoWithRetryIfNeeded(
-                vmID: id,
-                usesDefaultFreestyleSSHD: true,
-                client: client
-            )
-        } catch let error as CLIError where error.vmBackendCode == Self.vmAttachTransportUnsupportedCode
-            || error.message.contains(Self.vmAttachTransportUnsupportedCode) {
-            // The control plane said the daemon was unavailable a moment ago and now
-            // says the machine is cmux-tui only: name the real fix instead of an attach
-            // error nobody can act on.
-            throw CLIError(
-                message: String(
-                    format: String(
-                        localized: "cli.vm.attach.cmuxTuiOnly",
-                        defaultValue: "%1$@ attaches only through its cmux-tui daemon. Run `cmux vm tui %1$@`; if that reports no client, install one with `curl -fsSL https://cmux.com/tui/install-static.sh | sh` or point CMUX_TUI_CLIENT at a binary."
-                    ),
-                    id
-                ),
-                vmBackendCode: error.vmBackendCode
-            )
-        }
-        let transport = (response["transport"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased() ?? "ssh"
-        logVMTiming("attach_info", vmID: id, transport: transport, startedAt: attachInfoStartedAt)
-        if transport == "websocket" {
-            let endpoint = try parseVMPtyWebSocketEndpoint(response)
-            guard endpoint.daemon != nil else {
-                throw CLIError(
-                    message: """
-                        This Cloud VM image does not support interactive attach in this cmux build.
-
-                        What to do:
-                          Update cmux, then create a fresh VM with `cmux vm new`.
-                          If this keeps happening, contact support with the VM id.
-
-                        Details:
-                          Interactive attach is not available for this VM image.
-                        """
-                )
-            }
-            let workspaceId = try runVMPtyWebSocketWorkspace(
-                id: id,
-                endpoint: endpoint,
-                workspaceName: workspaceName,
-                windowRaw: windowRaw,
-                targetWorkspaceId: targetWorkspaceId,
-                shouldPinWorkspaceToTop: shouldPinWorkspaceToTop,
-                focus: focus,
-                client: client,
-                jsonOutput: jsonOutput,
-                idFormat: idFormat
-            )
-            return VMOpenedWorkspace(workspaceId: workspaceId, terminalSurfaceId: nil)
-        }
-        let options = try vmSSHOptions(
-            fromAttachInfo: response,
-            workspaceName: workspaceName,
-            windowRaw: windowRaw,
-            client: client,
-            remoteRelayPort: generateRemoteRelayPort(),
-            pinWorkspaceToTop: shouldPinWorkspaceToTop,
-            focus: focus
         )
-        let relayID = UUID().uuidString.lowercased()
-        let relayToken = try randomHex(byteCount: 32)
-        try runSSHWithOptions(
-            options,
-            relayID: relayID,
-            relayToken: relayToken,
-            client: client,
-            jsonOutput: jsonOutput,
-            idFormat: idFormat,
-            vmIDForSplitAttach: id
-        )
-        return nil
+        logVMTiming("attach_info", vmID: id, transport: "cmux-remote", startedAt: attachInfoStartedAt)
+        let payload: [String: Any] = [
+            "ok": true,
+            "vm_id": id,
+            "workspace_id": opened.workspaceId,
+            "workspace_ref": opened.workspaceRef ?? NSNull(),
+            "window_id": opened.windowId ?? NSNull(),
+            "transport": "cmux-remote",
+            "session": opened.session,
+            "enrolling": opened.enrolling,
+            "terminal_id": opened.terminalId ?? NSNull(),
+            "remote_workspace_id": opened.remoteWorkspaceId ?? NSNull(),
+            "surface_id": opened.terminalSurfaceId ?? NSNull(),
+        ]
+        if jsonOutput {
+            print(jsonString(formatIDs(payload, mode: idFormat)))
+        } else {
+            let workspaceHandle = formatHandle(payload, kind: "workspace", idFormat: idFormat) ?? opened.workspaceId
+            var line = "OK workspace=\(workspaceHandle) transport=cmux-remote"
+            if let terminalId = opened.terminalId, !terminalId.isEmpty {
+                line += " terminal=\(terminalId)"
+            }
+            print(line)
+            if let terminalId = opened.terminalId, let remoteWorkspaceId = opened.remoteWorkspaceId,
+               !terminalId.isEmpty, !remoteWorkspaceId.isEmpty {
+                print(String(
+                    format: String(localized: "cli.vm.agent.reattach", defaultValue: "Reattach: cmux vm open %1$@/%2$@/%3$@"),
+                    id, remoteWorkspaceId, terminalId
+                ))
+            }
+        }
+        return VMOpenedWorkspace(workspaceId: opened.workspaceId, terminalSurfaceId: opened.terminalSurfaceId)
     }
 
     private func runPersistentBaseOpenCommand(
@@ -18603,40 +18518,28 @@ struct CMUXCLI {
             """
         case "vpn":
             return """
-            Usage: cmux vpn <up|down|status|revoke|hosts>
+            Usage: cmux vpn <up|down|status|revoke>
 
             The WireGuard tunnel between this Mac and your private Cloud VM
-            network. Cloud machines have no public ports, so `cmux vm` attach,
-            exec, and port verbs need this tunnel up.
+            network. Terminal and metadata access uses a user-space WireGuard
+            tunnel. Browser access uses the signed Network Extension tunnel.
 
             On builds where the cmux app manages the tunnel (`cmux vpn status`
-            shows "Backend: app-managed"), nothing here is required: the app
+            shows "Browser backend: Network Extension"), nothing here is required: the app
             brings the tunnel up when you open a Cloud machine and takes it
-            down when no Cloud sessions remain. No sudo, no wg-quick.
+            down when no browser sessions remain. No sudo or password is used.
 
-            up      App-managed: start the tunnel now and keep it up until
-                    `cmux vpn down`. wg-quick: enroll this Mac (first run),
-                    run `sudo wg-quick up`, and sync internal hostnames;
-                    install with `brew install wireguard-tools`.
+            up      Start the browser tunnel now and keep it up until
+                    `cmux vpn down`.
             down    Take the tunnel down. Enrollment is kept.
             status  Show tunnel state, config path, and backend.
-            revoke  Take the tunnel down, unenroll this Mac, and clear its
-                    internal hostnames. The server deletes its side, so the
-                    saved config stops working.
-            hosts   Write every machine's <name>.internal into /etc/hosts (a
-                    managed block; your own entries are untouched), so
-                    http://<name>.internal:<port> resolves system-wide. Needs
-                    sudo on every backend. wg-quick `up` already runs this;
-                    call it again after `cmux vm new` to pick up a machine
-                    created since.
+            revoke  Stop both tunnel roles and remove this Mac's Cloud access.
 
             `on` and `off` are aliases for `up` and `down`.
 
-            The cmux app writes a build-scoped config to
-            ~/.cmuxterm/wireguard/<interface>.conf with the private key generated
-            on this Mac; the key never leaves it. Stable production keeps the
-            legacy cmux.conf name, while nightly and tagged DEV builds use their
-            own interface and credential files so they can run together.
+            Each role has its own key, generated on this Mac. The private keys
+            never leave this Mac. Signed builds fail closed if the browser
+            Network Extension is absent. There is no privileged fallback.
             """
         case "auth":
             return """

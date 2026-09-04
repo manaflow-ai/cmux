@@ -69,10 +69,12 @@ export async function DELETE(
         userId: user.id,
         accessGrantId: id,
       }));
-      if (result.revoked && result.stackSessionId) {
+      if (result.revoked && result.stackSessionIds.length > 0) {
         const stackUser = await getStackServerApp().getUser({ tokenStore: request });
         if (stackUser?.id === user.id) {
-          await stackUser.revokeSession(result.stackSessionId);
+          await Promise.allSettled(
+            result.stackSessionIds.map((sessionId) => stackUser.revokeSession(sessionId)),
+          );
         }
       }
       return jsonResponse({ revoked: result.revoked });

@@ -1,12 +1,9 @@
 import Foundation
 
 struct CloudTunnelAppConsumers: CloudTunnelConsumerSource {
-    let cloudWorkspaceCount: @MainActor @Sendable () -> Int
-    let connectedLinkCount: @Sendable () async -> Int
+    let cloudBrowserCount: @MainActor @Sendable () -> Int
 
     func liveConsumerCount() async -> Int {
-        let workspaces = await cloudWorkspaceCount()
-        let links = await connectedLinkCount()
-        return workspaces + links
+        await cloudBrowserCount()
     }
 }

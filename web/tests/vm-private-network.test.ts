@@ -12,6 +12,7 @@ import {
   tunnelSlugForDevice,
 } from "../services/vms/privateNetwork";
 import {
+  VmAccessGrantRevokedError,
   VmPrivateNetworkUnavailableError,
   VmTunnelNotFoundError,
 } from "../services/vms/errors";
@@ -105,7 +106,6 @@ function accessGrantRow(overrides: Partial<CloudVmAccessGrantRow> = {}): CloudVm
     cmuxVersion: "0.65.0",
     cmuxBuild: "103",
     cmuxChannel: "nightly",
-    stackSessionId: "session-1",
     createdAt: new Date(),
     updatedAt: new Date(),
     lastControlPlaneAt: new Date(),
@@ -184,9 +184,11 @@ function testRepo(options: {
       }),
     deleteNetwork: () => Effect.void,
     findAccessGrant: () => Effect.succeed(accessGrantRow()),
-    findRevokedAccessGrantSession: () => Effect.succeed(null),
+    findBlockingRevokedAccessGrant: () => Effect.succeed(null),
     listUserAccessGrants: () => Effect.succeed([accessGrantRow()]),
     upsertAccessGrant: () => Effect.succeed(accessGrantRow()),
+    upsertAccessGrantSession: () => Effect.void,
+    listAccessGrantSessionIds: () => Effect.succeed(["session-1"]),
     renameAccessGrant: () => Effect.succeed(accessGrantRow()),
     listAccessGrantTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     revokeAccessGrant: () => Effect.succeed(true),
@@ -290,25 +292,27 @@ describe("resolveOwnerNetwork", () => {
     expect(gatewayCalls.ensureNetwork).toBe(0);
   });
 
-  test("returns null (does not fail) when the provider has no private networking", async () => {
-    const network = await Effect.runPromise(
+  test("fails closed when the provider has no private networking", async () => {
+    const error = await Effect.runPromise(
       resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
         Effect.provide(layerFor(testRepo(), testGateway({ supports: false }))),
+        Effect.flip,
       ),
     );
-    expect(network).toBeNull();
+    expect(error).toBeInstanceOf(VmPrivateNetworkUnavailableError);
   });
 
-  test("returns null when the rollback flag disables private networking", async () => {
+  test("fails closed when the private-network kill switch is off", async () => {
     const prior = process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
     process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = "0";
     try {
-      const network = await Effect.runPromise(
+      const error = await Effect.runPromise(
         resolveOwnerNetwork({ userId: "user-1", provider: "freestyle" }).pipe(
           Effect.provide(layerFor(testRepo(), testGateway())),
+          Effect.flip,
         ),
       );
-      expect(network).toBeNull();
+      expect(error).toBeInstanceOf(VmPrivateNetworkUnavailableError);
     } finally {
       if (prior === undefined) delete process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED;
       else process.env.CMUX_VM_PRIVATE_NETWORK_ENABLED = prior;
@@ -320,6 +324,18 @@ describe("enrollVmTunnel", () => {
   test("first enrollment creates a provider tunnel keyed to the device", async () => {
     const gatewayCalls = newGatewayCalls();
     const repoCalls = newRepoCalls();
+    const issuedAt = new Date("2026-09-03T12:00:00Z");
+    const recordedSessions: Array<{ stackSessionId: string; sessionIssuedAt: Date }> = [];
+    const repo = {
+      ...testRepo({ calls: repoCalls }),
+      upsertAccessGrantSession: (input: { stackSessionId: string; sessionIssuedAt: Date }) =>
+        Effect.sync(() => {
+          recordedSessions.push({
+            stackSessionId: input.stackSessionId,
+            sessionIssuedAt: input.sessionIssuedAt,
+          });
+        }),
+    } as VmRepositoryShape;
     const tunnel = await Effect.runPromise(
       enrollVmTunnel({
         userId: "user-1",
@@ -328,9 +344,11 @@ describe("enrollVmTunnel", () => {
         deviceFingerprint: "device-1",
         tunnelPurpose: "browser",
         deviceName: "Test Mac",
+        stackSessionId: "session-stable",
+        sessionIssuedAt: issuedAt,
         clientPublicKey: CLIENT_KEY,
       }).pipe(
-        Effect.provide(layerFor(testRepo({ calls: repoCalls }), testGateway({ calls: gatewayCalls }))),
+        Effect.provide(layerFor(repo, testGateway({ calls: gatewayCalls }))),
       ),
     );
     expect(tunnel.created).toBe(true);
@@ -339,6 +357,37 @@ describe("enrollVmTunnel", () => {
     expect(gatewayCalls.createTunnel).toHaveLength(1);
     expect(gatewayCalls.createTunnel[0]?.networkId).toBe(NETWORK.id);
     expect(repoCalls.inserts).toBe(1);
+    expect(recordedSessions).toEqual([{
+      stackSessionId: "session-stable",
+      sessionIssuedAt: issuedAt,
+    }]);
+  });
+
+  test("a login issued before physical Mac revoke cannot create its first tunnel later", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repo = {
+      ...testRepo(),
+      findBlockingRevokedAccessGrant: () => Effect.succeed(accessGrantRow({
+        revokedAt: new Date("2026-09-03T13:00:00Z"),
+      })),
+    } as VmRepositoryShape;
+    const error = await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "nightly-first-use",
+        tunnelPurpose: "terminal",
+        stackSessionId: "session-nightly-never-enrolled",
+        sessionIssuedAt: new Date("2026-09-03T12:00:00Z"),
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(
+        Effect.provide(layerFor(repo, testGateway({ calls: gatewayCalls }))),
+        Effect.flip,
+      ),
+    );
+    expect(error).toBeInstanceOf(VmAccessGrantRevokedError);
+    expect(gatewayCalls.createTunnel).toHaveLength(0);
   });
 
   test("re-enrolling with the same key is idempotent: no create, no rotate", async () => {
@@ -510,13 +559,13 @@ describe("Cloud VM access grant revocation", () => {
         cmuxVersion: "0.65.0",
         cmuxBuild: "103",
         cmuxChannel: "nightly",
-        stackSessionId: "session-1",
         createdAt: new Date(),
         updatedAt: new Date(),
         lastControlPlaneAt: new Date(),
         revokedAt: null,
       }),
       listAccessGrantTunnels: () => Effect.succeed(rows),
+      listAccessGrantSessionIds: () => Effect.succeed(["session-stable", "session-nightly"]),
       revokeTunnel: (id: string) => Effect.sync(() => {
         revoked.push(id);
         return true;
@@ -538,7 +587,7 @@ describe("Cloud VM access grant revocation", () => {
     );
 
     expect(result.revoked).toBe(true);
-    expect(result.stackSessionId).toBe("session-1");
+    expect(result.stackSessionIds).toEqual(["session-stable", "session-nightly"]);
     expect(deleted).toEqual(["tun-userspace", "tun-vpn"]);
     expect(revoked).toEqual(rows.map((row) => row.id));
   });

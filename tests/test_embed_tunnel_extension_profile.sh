@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Behavior of scripts/ci/embed-tunnel-extension-profile.sh: no profile is a
-# no-op notice, a matching profile lands in the extension bundle, and a profile
+# Behavior of scripts/ci/embed-tunnel-extension-profile.sh: no profile fails
+# closed, a matching profile lands in the extension bundle, and a profile
 # for the wrong App ID or without the capability is rejected.
 set -euo pipefail
 
@@ -36,9 +36,10 @@ profile_plist() {
 PLIST
 }
 
-# 1. Empty secret: notice, no file, exit 0.
-out="$("$SCRIPT" "$APP" "7WLXT3NR37.com.cmuxterm.app.tunnel" "")"
-[[ "$out" == *"::notice::"* ]] || { echo "FAIL: expected a notice for the empty profile" >&2; exit 1; }
+# 1. Empty secret: fail closed, no file.
+if "$SCRIPT" "$APP" "7WLXT3NR37.com.cmuxterm.app.tunnel" "" >/dev/null 2>&1; then
+  echo "FAIL: accepted an empty tunnel profile" >&2; exit 1
+fi
 [[ ! -e "$SYSEXT/Contents/embedded.provisionprofile" ]] || { echo "FAIL: no profile should be embedded" >&2; exit 1; }
 
 # 2. Matching profile lands in the extension.

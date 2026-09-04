@@ -121,7 +121,7 @@ class TerminalController {
     static let shared = TerminalController()
     /// The app-managed Cloud tunnel, set by the AppDelegate composition root
     /// next to `VMClient.bootstrap`. Nil only before startup finishes; the
-    /// `vm.tunnel_*` socket verbs report the wg-quick backend until then.
+    /// `vm.tunnel_*` socket verbs report browser access as unavailable until then.
     var cloudTunnel: CloudTunnelCoordinator?
 #if DEBUG
     nonisolated let windowScreenshotCaptureCoordinator =
@@ -2944,7 +2944,6 @@ class TerminalController {
             "vm.tunnel_up",
             "vm.tunnel_down",
             "vm.tunnel_wait",
-            "vm.tunnel_applied",
             "surface.catalog",
             "surface.project",
             "surface.new_terminal",

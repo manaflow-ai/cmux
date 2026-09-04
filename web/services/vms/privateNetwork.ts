@@ -41,7 +41,7 @@ export type VmTunnelDescriptor = {
   readonly tunnelPurpose: "terminal" | "browser";
   readonly deviceName: string | null;
   /**
-   * A complete `wg-quick` config with a blank `PrivateKey` line. The client
+   * WireGuard configuration text with a blank `PrivateKey` line. The client
    * fills that line in from its own keystore; the server has never seen the
    * key and cannot reconstruct it.
    */
@@ -127,17 +127,23 @@ export function privateNetworkUnavailableReason(
   return null;
 }
 
-type PrivateNetworkingGateway = {
+type PrivateNetworkGateway = {
   readonly ensureNetwork: NonNullable<VmProviderGatewayShape["ensureNetwork"]>;
+};
+
+type PrivateNetworkingGateway = PrivateNetworkGateway & {
   readonly createTunnel: NonNullable<VmProviderGatewayShape["createTunnel"]>;
   readonly getTunnel: NonNullable<VmProviderGatewayShape["getTunnel"]>;
   readonly rotateTunnelKey: NonNullable<VmProviderGatewayShape["rotateTunnelKey"]>;
   readonly deleteTunnel: NonNullable<VmProviderGatewayShape["deleteTunnel"]>;
 };
 
-type PrivateNetworkingRepo = {
+type PrivateNetworkRepo = {
   readonly findNetwork: NonNullable<VmRepositoryShape["findNetwork"]>;
   readonly upsertNetwork: NonNullable<VmRepositoryShape["upsertNetwork"]>;
+};
+
+type PrivateNetworkingRepo = PrivateNetworkRepo & {
   readonly findTunnel: NonNullable<VmRepositoryShape["findTunnel"]>;
   readonly listUserTunnels: NonNullable<VmRepositoryShape["listUserTunnels"]>;
   readonly insertTunnel: NonNullable<VmRepositoryShape["insertTunnel"]>;
@@ -147,9 +153,11 @@ type PrivateNetworkingRepo = {
 
 type PrivateAccessRepo = PrivateNetworkingRepo & {
   readonly findAccessGrant: NonNullable<VmRepositoryShape["findAccessGrant"]>;
-  readonly findRevokedAccessGrantSession: NonNullable<VmRepositoryShape["findRevokedAccessGrantSession"]>;
+  readonly findBlockingRevokedAccessGrant: NonNullable<VmRepositoryShape["findBlockingRevokedAccessGrant"]>;
   readonly listUserAccessGrants: NonNullable<VmRepositoryShape["listUserAccessGrants"]>;
   readonly upsertAccessGrant: NonNullable<VmRepositoryShape["upsertAccessGrant"]>;
+  readonly upsertAccessGrantSession: NonNullable<VmRepositoryShape["upsertAccessGrantSession"]>;
+  readonly listAccessGrantSessionIds: NonNullable<VmRepositoryShape["listAccessGrantSessionIds"]>;
   readonly renameAccessGrant: NonNullable<VmRepositoryShape["renameAccessGrant"]>;
   readonly listAccessGrantTunnels: NonNullable<VmRepositoryShape["listAccessGrantTunnels"]>;
   readonly revokeAccessGrant: NonNullable<VmRepositoryShape["revokeAccessGrant"]>;
@@ -161,18 +169,32 @@ type PrivateAccessRepo = PrivateNetworkingRepo & {
  * older test doubles compile; the live layers always provide them, so a null
  * here means "this composition has no private networking", not an error.
  */
-function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkingGateway | null {
+function privateNetworkGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkGateway | null {
   if (!gateway.supportsPrivateNetworking?.(provider)) return null;
-  const { ensureNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
-  if (!ensureNetwork || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
+  const { ensureNetwork } = gateway;
+  if (!ensureNetwork) return null;
+  return { ensureNetwork };
+}
+
+function privateNetworkingGateway(gateway: VmProviderGatewayShape, provider: ProviderId): PrivateNetworkingGateway | null {
+  const network = privateNetworkGateway(gateway, provider);
+  const { createTunnel, getTunnel, rotateTunnelKey, deleteTunnel } = gateway;
+  if (!network || !createTunnel || !getTunnel || !rotateTunnelKey || !deleteTunnel) return null;
+  const { ensureNetwork } = network;
   return { ensureNetwork, createTunnel, getTunnel, rotateTunnelKey, deleteTunnel };
 }
 
+function privateNetworkRepo(repo: VmRepositoryShape): PrivateNetworkRepo | null {
+  const { findNetwork, upsertNetwork } = repo;
+  if (!findNetwork || !upsertNetwork) return null;
+  return { findNetwork, upsertNetwork };
+}
+
 function privateNetworkingRepo(repo: VmRepositoryShape): PrivateNetworkingRepo | null {
-  const { findNetwork, upsertNetwork, findTunnel, listUserTunnels, insertTunnel, updateTunnel, revokeTunnel } = repo;
-  if (!findNetwork || !upsertNetwork || !findTunnel || !listUserTunnels || !insertTunnel || !updateTunnel || !revokeTunnel) {
-    return null;
-  }
+  const network = privateNetworkRepo(repo);
+  const { findTunnel, listUserTunnels, insertTunnel, updateTunnel, revokeTunnel } = repo;
+  if (!network || !findTunnel || !listUserTunnels || !insertTunnel || !updateTunnel || !revokeTunnel) return null;
+  const { findNetwork, upsertNetwork } = network;
   return { findNetwork, upsertNetwork, findTunnel, listUserTunnels, insertTunnel, updateTunnel, revokeTunnel };
 }
 
@@ -180,24 +202,29 @@ function privateAccessRepo(repo: VmRepositoryShape): PrivateAccessRepo | null {
   const networking = privateNetworkingRepo(repo);
   const {
     findAccessGrant,
-    findRevokedAccessGrantSession,
+    findBlockingRevokedAccessGrant,
     listUserAccessGrants,
     upsertAccessGrant,
+    upsertAccessGrantSession,
+    listAccessGrantSessionIds,
     renameAccessGrant,
     listAccessGrantTunnels,
     revokeAccessGrant,
   } = repo;
   if (
-    !networking || !findAccessGrant || !findRevokedAccessGrantSession
-    || !listUserAccessGrants || !upsertAccessGrant || !renameAccessGrant
+    !networking || !findAccessGrant || !findBlockingRevokedAccessGrant
+    || !listUserAccessGrants || !upsertAccessGrant || !upsertAccessGrantSession
+    || !listAccessGrantSessionIds || !renameAccessGrant
     || !listAccessGrantTunnels || !revokeAccessGrant
   ) return null;
   return {
     ...networking,
     findAccessGrant,
-    findRevokedAccessGrantSession,
+    findBlockingRevokedAccessGrant,
     listUserAccessGrants,
     upsertAccessGrant,
+    upsertAccessGrantSession,
+    listAccessGrantSessionIds,
     renameAccessGrant,
     listAccessGrantTunnels,
     revokeAccessGrant,
@@ -207,26 +234,30 @@ function privateAccessRepo(repo: VmRepositoryShape): PrivateAccessRepo | null {
 /**
  * The account's network, provisioning it on first use.
  *
- * Returns null — rather than failing — when private networking is unavailable,
- * because the caller for that path is machine creation: a deployment with the
- * feature rolled back must still create machines, just publicly reachable ones.
- * Callers that genuinely need a network (tunnel enrollment) use
- * {@link requireOwnerNetwork} instead.
+ * Fails closed when private networking is unavailable. Cloud machines must not
+ * be created with public ingress as a degraded path.
  */
 export function resolveOwnerNetwork(input: {
   readonly userId: string;
   readonly provider: ProviderId;
 }): Effect.Effect<
-  CloudVmNetworkRow | null,
-  VmDatabaseError | import("./errors").VmProviderOperationError,
+  CloudVmNetworkRow,
+  VmDatabaseError | VmPrivateNetworkUnavailableError | import("./errors").VmProviderOperationError,
   VmRepository | VmProviderGateway
 > {
   return Effect.gen(function* () {
     const gateway = yield* VmProviderGateway;
-    const providers = privateNetworkingGateway(gateway, input.provider);
-    const repo = privateNetworkingRepo(yield* VmRepository);
-    if (!providers || !repo) return null;
-    if (privateNetworkUnavailableReason(input.provider, true)) return null;
+    const providers = privateNetworkGateway(gateway, input.provider);
+    const repo = privateNetworkRepo(yield* VmRepository);
+    const reason = privateNetworkUnavailableReason(input.provider, !!providers);
+    if (!providers || !repo || reason) {
+      return yield* Effect.fail(
+        new VmPrivateNetworkUnavailableError({
+          provider: input.provider,
+          reason: reason ?? "the VM repository composition has no private-network state",
+        }),
+      );
+    }
     const existing = yield* repo.findNetwork(input.userId, input.provider);
     if (existing) return existing;
 
@@ -249,7 +280,7 @@ export function resolveOwnerNetwork(input: {
   });
 }
 
-/** {@link resolveOwnerNetwork}, failing rather than returning null when the feature is off. */
+/** Compatibility name for callers that need the owner's mandatory network. */
 export function requireOwnerNetwork(input: {
   readonly userId: string;
   readonly provider: ProviderId;
@@ -259,26 +290,7 @@ export function requireOwnerNetwork(input: {
   VmRepository | VmProviderGateway
 > {
   return Effect.gen(function* () {
-    const gateway = yield* VmProviderGateway;
-    const reason = privateNetworkUnavailableReason(
-      input.provider,
-      !!privateNetworkingGateway(gateway, input.provider),
-    );
-    if (reason) {
-      return yield* Effect.fail(
-        new VmPrivateNetworkUnavailableError({ provider: input.provider, reason }),
-      );
-    }
-    const network = yield* resolveOwnerNetwork(input);
-    if (!network) {
-      return yield* Effect.fail(
-        new VmPrivateNetworkUnavailableError({
-          provider: input.provider,
-          reason: "Cloud VM private networking is disabled for this environment",
-        }),
-      );
-    }
-    return network;
+    return yield* resolveOwnerNetwork(input);
   });
 }
 
@@ -309,6 +321,7 @@ export function enrollVmTunnel(input: {
   readonly cmuxBuild?: string | null;
   readonly cmuxChannel?: string | null;
   readonly stackSessionId?: string | null;
+  readonly sessionIssuedAt?: Date | null;
   readonly clientPublicKey: string;
 }) {
   return Effect.gen(function* () {
@@ -316,10 +329,12 @@ export function enrollVmTunnel(input: {
     const repo = yield* requirePrivateAccessRepo(input.provider);
     const network = yield* requireOwnerNetwork({ userId: input.userId, provider: input.provider });
     const clientPublicKey = input.clientPublicKey.trim();
-    if (input.stackSessionId) {
-      const revokedSession = yield* repo.findRevokedAccessGrantSession({
+    if (input.stackSessionId && input.sessionIssuedAt) {
+      const revokedSession = yield* repo.findBlockingRevokedAccessGrant({
         userId: input.userId,
+        deviceId: input.deviceId,
         stackSessionId: input.stackSessionId,
+        sessionIssuedAt: input.sessionIssuedAt,
       });
       if (revokedSession) {
         return yield* Effect.fail(new VmAccessGrantRevokedError({
@@ -337,8 +352,15 @@ export function enrollVmTunnel(input: {
       cmuxVersion: input.cmuxVersion,
       cmuxBuild: input.cmuxBuild,
       cmuxChannel: input.cmuxChannel,
-      stackSessionId: input.stackSessionId,
     });
+    if (input.stackSessionId && input.sessionIssuedAt) {
+      yield* repo.upsertAccessGrantSession({
+        accessGrantId: accessGrant.id,
+        userId: input.userId,
+        stackSessionId: input.stackSessionId,
+        sessionIssuedAt: input.sessionIssuedAt,
+      });
+    }
 
     const existing = yield* repo.findTunnel({
       userId: input.userId,
@@ -480,8 +502,9 @@ export function revokeVmAccessGrant(input: {
       accessGrantId: input.accessGrantId,
       deviceId: input.deviceId,
     });
-    if (!grant) return { revoked: false, stackSessionId: null } as const;
+    if (!grant) return { revoked: false, stackSessionIds: [] as string[] } as const;
     const gateway = yield* VmProviderGateway;
+    const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
     const tunnels = yield* repo.listAccessGrantTunnels(grant.id);
     for (const tunnel of tunnels) {
       if (gateway.deleteTunnel) {
@@ -490,7 +513,7 @@ export function revokeVmAccessGrant(input: {
       yield* repo.revokeTunnel(tunnel.id);
     }
     const revoked = yield* repo.revokeAccessGrant(grant.id);
-    return { revoked, stackSessionId: grant.stackSessionId } as const;
+    return { revoked, stackSessionIds } as const;
   });
 }
 

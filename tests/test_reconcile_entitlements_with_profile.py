@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Behavior tests for scripts/reconcile-entitlements-with-profile.py.
 
-A release signed before the Apple portal grants the Cloud tunnel capability must
-still launch: the tunnel entitlements are dropped from the effective plist and
-the summary says so. Once the profile grants them, they pass through untouched.
+The helper can describe a profile that lacks the Cloud tunnel capability.
+Release signing uses that result to stop before it can ship a half-authorized
+Network Extension. A capable profile passes through unchanged.
 """
 import json
 import plistlib

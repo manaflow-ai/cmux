@@ -8,12 +8,11 @@ that includes the Cloud tunnel capability
 (`com.apple.developer.networking.networkextension` with
 `packet-tunnel-provider-systemextension` plus
 `com.apple.developer.system-extension.install`) — and this script produces the
-*effective* entitlements for one signing run. When the profile does not (yet)
-grant the tunnel, the tunnel feature set is removed and release signing drops
-the extension, so the app degrades to the wg-quick path. When the profile does
-grant the tunnel, the two hardened-runtime relaxations that macOS rejects in a
-container app carrying a packet-tunnel system extension are removed from the
-app signature.
+*effective* entitlements for one signing run. When the profile does not grant
+the tunnel, the summary reports that mismatch and release signing stops. When
+the profile grants the tunnel, the two hardened-runtime relaxations that macOS
+rejects in a container app carrying a packet-tunnel system extension are
+removed from the app signature.
 
 Usage:
   reconcile-entitlements-with-profile.py --entitlements cmux.release.entitlements \
@@ -180,7 +179,7 @@ def main(argv: list[str]) -> int:
             print(
                 f"::warning::Cloud tunnel entitlements dropped from {args.entitlements.name} because {reason}: "
                 + ", ".join(summary["dropped"])
-                + ". The app will fall back to `cmux vpn up` (wg-quick). Enable Network Extensions + System Extension on the App ID and regenerate the profile to ship the app-managed tunnel.",
+                + ". Release signing must stop. Enable Network Extensions + System Extension on the App ID and regenerate the profile.",
                 file=sys.stderr,
             )
     for key in summary["missing_restricted"]:

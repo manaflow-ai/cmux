@@ -266,8 +266,6 @@ export const cloudVmAccessGrants = pgTable(
     cmuxVersion: text("cmux_version"),
     cmuxBuild: text("cmux_build"),
     cmuxChannel: text("cmux_channel"),
-    /** Stack refresh-token id. Remote revoke also revokes this login session. */
-    stackSessionId: text("stack_session_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     lastControlPlaneAt: timestamp("last_control_plane_at", { withTimezone: true }).notNull().defaultNow(),
@@ -278,7 +276,29 @@ export const cloudVmAccessGrants = pgTable(
       .on(table.userId, table.deviceId)
       .where(sql`${table.revokedAt} is null`),
     index("cloud_vm_access_grants_user_idx").on(table.userId),
-    index("cloud_vm_access_grants_session_idx").on(table.userId, table.stackSessionId),
+  ],
+);
+
+/** Every Stack login session seen from one physical Mac. */
+export const cloudVmAccessGrantSessions = pgTable(
+  "cloud_vm_access_grant_sessions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    accessGrantId: uuid("access_grant_id")
+      .notNull()
+      .references(() => cloudVmAccessGrants.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    stackSessionId: text("stack_session_id").notNull(),
+    /** `iat` from the verified Stack access token. */
+    sessionIssuedAt: timestamp("session_issued_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("cloud_vm_access_grant_sessions_grant_session_unique")
+      .on(table.accessGrantId, table.stackSessionId),
+    index("cloud_vm_access_grant_sessions_user_session_idx")
+      .on(table.userId, table.stackSessionId),
   ],
 );
 
