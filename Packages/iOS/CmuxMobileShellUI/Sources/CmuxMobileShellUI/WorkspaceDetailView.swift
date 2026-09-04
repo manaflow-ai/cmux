@@ -210,6 +210,22 @@ struct WorkspaceDetailView: View {
             // terminal surface, which has no system scroll view.
             .mobilePinnedNavigationBar()
             .trackBarPresence(barPresence)
+            #if DEBUG
+            // A stable UI-test seam for the retained detail identity and its
+            // live connection presentation. Toolbar accessibility changes
+            // shape when its menu enables during recovery, so it cannot prove
+            // that the same workspace detail stayed mounted.
+            .overlay(alignment: .topLeading) {
+                Color.clear
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+                    .accessibilityElement()
+                    .accessibilityIdentifier(
+                        "MobileWorkspaceDetail-\(workspace.id.rawValue)"
+                    )
+                    .accessibilityValue(String(describing: effectiveConnectionStatus))
+            }
+            #endif
             .toolbar { workspaceDetailToolbar }
             .task(id: workspace.rpcWorkspaceID.rawValue) {
                 await store.refreshMobileBrowserPanels(workspaceID: workspace.rpcWorkspaceID.rawValue)

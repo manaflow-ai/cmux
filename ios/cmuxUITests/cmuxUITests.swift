@@ -1604,29 +1604,27 @@ final class cmuxUITests: XCTestCase {
         try openSelectedWorkspaceIfNeeded(app)
         let terminalSurface = app.otherElements["MobileTerminalSurface"]
         let backButton = app.buttons["MobileWorkspaceBackButton"]
-        let titleMenu = app.buttons["MobileWorkspaceTitleMenu"]
+        let detailState = app.descendants(matching: .any)[
+            "MobileWorkspaceDetail-workspace-main"
+        ]
         XCTAssertTrue(terminalSurface.waitForExistence(timeout: 6))
         XCTAssertTrue(backButton.waitForExistence(timeout: 4))
-        XCTAssertTrue(titleMenu.waitForExistence(timeout: 4))
-        let selectedWorkspaceTitle = titleMenu.label
+        XCTAssertTrue(detailState.waitForExistence(timeout: 4))
+        let selectedWorkspaceIdentity = detailState.identifier
         let selectedTerminalRows = terminalRows(in: app)
-        XCTAssertFalse(selectedWorkspaceTitle.isEmpty)
+        XCTAssertEqual(selectedWorkspaceIdentity, "MobileWorkspaceDetail-workspace-main")
         XCTAssertFalse(selectedTerminalRows.isEmpty)
 
         server.stop()
         serverIsRunning = false
 
-        let connectionStatus = app.descendants(matching: .any)[
-            "MobileTerminalMacConnectionStatus"
-        ]
-        XCTAssertTrue(connectionStatus.waitForExistence(timeout: 12))
         let disconnected = XCTNSPredicateExpectation(
             predicate: NSPredicate(
-                format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@",
-                "Reconnecting",
-                "Disconnected"
+                format: "value == %@ OR value == %@",
+                "reconnecting",
+                "unavailable"
             ),
-            object: connectionStatus
+            object: detailState
         )
         XCTAssertEqual(
             XCTWaiter.wait(for: [disconnected], timeout: 12),
@@ -1643,8 +1641,8 @@ final class cmuxUITests: XCTestCase {
             "Transport recovery must not pop the selected workspace detail."
         )
         XCTAssertEqual(
-            workspaceTitleElement(in: app).label,
-            selectedWorkspaceTitle,
+            detailState.identifier,
+            selectedWorkspaceIdentity,
             "Transport recovery must retain the selected workspace identity."
         )
         XCTAssertEqual(
