@@ -22495,34 +22495,34 @@ mod tests {
             }
         });
 
-        let append = |event: &str, key: &str| {
+        let append = |event: &str, key: &str, session_id: &str| {
             let ingress = crate::agent_hooks::agent_hook_journal_ingress(
                 "claude",
                 event,
                 Some(&terminal_id.to_string()),
-                serde_json::json!({"session_id":"native-1"}),
+                serde_json::json!({"session_id":session_id}),
             )
             .unwrap();
             mux.append_journal_ingress(&ingress, "test", key).unwrap();
         };
 
-        append("SessionStart", "hook-1");
+        append("SessionStart", "hook-1", "native-1");
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
         assert_eq!(records[0].source, AgentSource::Hook);
 
-        append("UserPromptSubmit", "hook-2");
+        append("UserPromptSubmit", "hook-2", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Working);
 
-        append("PermissionRequest", "hook-3");
+        append("PermissionRequest", "hook-3", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Blocked);
 
-        append("Stop", "hook-4");
+        append("Stop", "hook-4", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // Child-agent events carry no top-level lifecycle transition.
-        append("SubagentStart", "hook-5");
+        append("SubagentStart", "hook-5", "native-1");
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // A socket report cannot downgrade a hook-owned record.
@@ -22530,9 +22530,9 @@ mod tests {
         assert_eq!(mux.list_agents(Some(surface_id), None)[0].state, AgentState::Idle);
 
         // An exited agent leaves the roster; a fresh one starts clean.
-        append("SessionEnd", "hook-6");
+        append("SessionEnd", "hook-6", "native-1");
         assert!(mux.list_agents(Some(surface_id), None).is_empty());
-        append("SessionStart", "hook-7");
+        append("SessionStart", "hook-7", "native-2");
         let records = mux.list_agents(Some(surface_id), None);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].state, AgentState::Idle);
