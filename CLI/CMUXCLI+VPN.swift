@@ -230,14 +230,26 @@ extension CMUXCLI {
                 defaultValue: "Updating /etc/hosts with your machines' internal names (sudo may prompt)…"
             ))
         }
-        // One sudo invocation does the copy, ownership/mode, and cache flush,
-        // so a cached credential from `vpn up`'s wg-quick call covers this too
-        // instead of prompting a second time.
-        let script = "cp '\(tempURL.path)' '\(hostsPath)' && chown root:wheel '\(hostsPath)' && chmod 644 '\(hostsPath)' && dscacheutil -flushcache; killall -HUP mDNSResponder 2>/dev/null || true"
-        let status = runInteractiveProcess(executablePath: "/usr/bin/sudo", arguments: ["/bin/sh", "-c", script])
+        // One sudo invocation does the copy and ownership/mode changes, so a
+        // cached credential from `vpn up`'s wg-quick call covers this too
+        // instead of prompting a second time. Cache invalidation does not
+        // require privilege and runs as separate argv-based commands below.
+        let status = runInteractiveProcess(
+            executablePath: "/usr/bin/sudo",
+            arguments: [
+                "/usr/sbin/install",
+                "-o", "root",
+                "-g", "wheel",
+                "-m", "644",
+                tempURL.path,
+                hostsPath,
+            ]
+        )
         guard status == 0 else {
             throw CLIError(message: "Updating /etc/hosts failed (exit \(status)). Check the output above.")
         }
+        _ = runInteractiveProcess(executablePath: "/usr/bin/dscacheutil", arguments: ["-flushcache"])
+        _ = runInteractiveProcess(executablePath: "/usr/bin/killall", arguments: ["-HUP", "mDNSResponder"])
         if jsonOutput {
             print(jsonString(["hosts_changed": true, "machine_count": entries.count]))
         } else if !quiet {

@@ -1,6 +1,20 @@
 {
   "billingRecovery": {
-    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
+    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",
+    "metaTitle": "Founder 購入を接続",
+    "metaDescription": "Founder 購入時のメールアドレスを使って cmux アカウントを作成または復元します。",
+    "eyebrow": "Founder アクセス",
+    "title": "Founder 購入を接続",
+    "body": "Founder 購入時に使ったメールアドレスを入力してください。その購入に紐づく cmux アカウントを作成または復元するための安全なサインインリンクを送信します。",
+    "differentEmail": "別のメールアドレスで cmux アカウントをすでにお持ちですか？Founder のウェルカムメールに返信してください。両方のアドレスを確認して、安全にアクセスを移行します。",
+    "formAriaLabel": "Founder 購入を接続",
+    "emailLabel": "購入時のメールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "submit": "サインインリンクを送信",
+    "submitting": "送信中…",
+    "success": "購入またはアカウントが見つかった場合は、メールで次の手順をお知らせします。",
+    "error": "リクエストを送信できませんでした。しばらくしてから再試行してください。",
+    "backToHome": "cmux に戻る"
   },
   "vmDesktop": {
     "invalidTitle": "このデスクトップリンクは無効です",
@@ -752,6 +766,7 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "alreadyPaid": "購入済みですか？購入を接続する",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
@@ -785,7 +800,7 @@
       "featuresLead": "Free のすべてに加えて:",
       "features": [
         "分離されたリモートサンドボックスの Cloud VM 上で動くクラウドエージェント",
-        "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 32 GB ディスク",
+        "最大 50 台の Cloud VM、各 8 GB RAM / 32 GB ディスク（標準）。4～64 GB RAM のサイズを利用できます",
         "ワークスペースは無制限",
         "cmux iOS アプリとメールサポート"
       ],
@@ -885,8 +900,8 @@
         {
           "label": "Cloud VM のサイズ",
           "free": "false",
-          "pro": "5 vCPU / 20 GB RAM / 32 GB ディスク",
-          "team": "5 vCPU / 20 GB RAM / 32 GB ディスク",
+          "pro": "8 GB RAM / 32 GB ディスク（標準）。4～64 GB RAM のサイズを利用できます",
+          "team": "8 GB RAM / 32 GB ディスク（標準）。4～64 GB RAM のサイズを利用できます",
           "enterprise": "カスタム"
         },
         {
@@ -965,7 +980,7 @@
         },
         {
           "q": "Cloud VM とは何ですか?",
-          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシン（各 5 vCPU / 20 GB RAM / 32 GB ディスク）を利用できます。"
+          "a": "クラウド上の永続的な Linux マシンで、使い捨て（cattle）ではなくペットです。Zen of cmux のとおり、マシンはソリューションではなくプリミティブです。ファイル、インストールしたツール、状態はそのまま保持され、その上に構築したものはあなたのものです。エージェントはそこでリポジトリをクローンし、コマンドを実行し、プルリクエストを開くため、お使いの Mac には触れません。Pro と Team ではユーザーごとに最大 50 台のマシンを利用でき、RAM は 4、8、16、24、32、64 GB、ディスクは 16、32、64、96、128 GB から選べます。"
         },
         {
           "q": "cmux Vault とは何ですか?",
@@ -2118,6 +2133,9 @@
           "textBoxSubmitActionBackgroundColorHex": "アクション色のメタデータを RGB または RGBA の 16 進数で指定します。送信ボタンの塗りは白のままで、有効状態と無効状態では不透明度だけが変わります。"
         },
         "browser": {
+          "defaultEngine": "新しく作成する組み込みブラウザペインのレンダリングエンジンです。「自動」はシステムのデフォルトブラウザに従い、WebKit または Chromium を明示指定できます。Chromium は別プロセスで実行されます。",
+          "chromiumExtensionDirectories": "新しい Chromium ペインで読み込む、展開済み Chromium 拡張機能ディレクトリの絶対パスを改行区切りで指定します。",
+          "remoteDebuggingPort": "ループバック専用の Chromium CDP ポートです。0 にすると外部からの CDP 接続を無効にし、それ以外は 1024〜65535 のポートを指定します。",
           "defaultSearchEngine": "ブラウザのアドレスバーでURLではない入力に使う既定の検索エンジンです。任意のプロバイダには custom と customSearchEngineURLTemplate を使います。",
           "customSearchEngineName": "defaultSearchEngine が custom のときに使う表示名です。",
           "customSearchEngineURLTemplate": "defaultSearchEngine が custom のときに使う検索URLです。エンコード済み検索語にはクエリ用プレースホルダーまたは %s を含めます。省略すると cmux が URL に q= を追加します。",
@@ -3208,7 +3226,7 @@
     "metaTitle": "cmux Pro が有効になりました",
     "title": "cmux Pro が有効になりました",
     "body": "{email} のアカウントを作成またはアップグレードしました。cmux を開くか、サインイン方法を追加できます。",
-    "purchaseComplete": "購入が完了しました",
+    "purchaseComplete": "準備ができました",
     "proLabel": "Pro プラン",
     "dashboardLink": "ダッシュボードへ",
     "emailLabel": "購入メールアドレス",

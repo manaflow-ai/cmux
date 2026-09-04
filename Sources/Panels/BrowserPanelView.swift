@@ -725,6 +725,9 @@ struct BrowserPanelView: View {
             isVisibleInUI && isCurrentPaneOwner,
             reason: "view.onAppear"
         )
+        if panel.isChromiumBacked, panel.shouldRenderWebView {
+            panel.startChromiumIfNeeded(initialURL: panel.currentURL)
+        }
         panel.refreshAppearanceDrivenColors()
         panel.setBrowserThemeMode(browserThemeMode)
         applyPendingAddressBarFocusRequestIfNeeded()
@@ -834,6 +837,9 @@ struct BrowserPanelView: View {
 
     private func handleRenderWebViewChange() {
         refreshBrowserChromeStyle()
+        if panel.isChromiumBacked, panel.shouldRenderWebView {
+            panel.startChromiumIfNeeded(initialURL: panel.currentURL)
+        }
         if panel.isShowingNewTabPage {
             refreshEmptyStateImportBrowsers()
         }
@@ -1836,37 +1842,48 @@ struct BrowserPanelView: View {
 
         return Group {
             if panel.shouldRenderWebView {
-                WebViewRepresentable(
-                    panel: panel,
-                    paneId: paneId,
-                    shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
-                    useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
-                    shouldFocusWebView: isFocused && !addressBarFocused,
-                    isPanelFocused: isFocused,
-                    portalZPriority: portalPriority,
-                    paneDropZone: paneDropZone,
-                    paneOwnershipOverride: paneOwnershipOverride,
-                    searchOverlay: panel.searchState.map { searchState in
-                        BrowserPortalSearchOverlayConfiguration(
-                            panelId: panel.id,
-                            searchState: searchState,
-                            focusRequestGeneration: panel.searchFocusRequestGeneration,
-                            canApplyFocusRequest: { generation in
-                                canApplyBrowserFindFieldFocusRequest(generation)
-                            },
-                            onNext: { panel.findNext() },
-                            onPrevious: { panel.findPrevious() },
-                            onClose: { panel.hideFind() },
-                            onFieldDidFocus: { panel.noteFindFieldFocused() }
+                Group {
+                    if panel.isChromiumBacked {
+                        ChromiumBrowserHostRepresentable(
+                            panel: panel,
+                            isVisibleInUI: isVisibleInUI,
+                            isCurrentPaneOwner: isCurrentPaneOwner
                         )
-                    },
-                    designComposer: BrowserPortalDesignComposerConfiguration(
-                        panelId: panel.id,
-                        controller: panel.designModeController
-                    ),
-                    omnibarSuggestions: portalOmnibarSuggestions,
-                    paneTopChromeHeight: chromeState.isOmnibarVisible ? addressBarHeight : 0
-                )
+                            .accessibilityIdentifier("BrowserChromiumSurface")
+                    } else {
+                        WebViewRepresentable(
+                        panel: panel,
+                        paneId: paneId,
+                        shouldAttachWebView: isVisibleInUI && isCurrentPaneOwner && !useLocalInlineDeveloperToolsHosting,
+                        useLocalInlineHosting: useLocalInlineDeveloperToolsHosting,
+                        shouldFocusWebView: isFocused && !addressBarFocused,
+                        isPanelFocused: isFocused,
+                        portalZPriority: portalPriority,
+                        paneDropZone: paneDropZone,
+                        paneOwnershipOverride: paneOwnershipOverride,
+                        searchOverlay: panel.searchState.map { searchState in
+                            BrowserPortalSearchOverlayConfiguration(
+                                panelId: panel.id,
+                                searchState: searchState,
+                                focusRequestGeneration: panel.searchFocusRequestGeneration,
+                                canApplyFocusRequest: { generation in
+                                    canApplyBrowserFindFieldFocusRequest(generation)
+                                },
+                                onNext: { panel.findNext() },
+                                onPrevious: { panel.findPrevious() },
+                                onClose: { panel.hideFind() },
+                                onFieldDidFocus: { panel.noteFindFieldFocused() }
+                            )
+                        },
+                        designComposer: BrowserPortalDesignComposerConfiguration(
+                            panelId: panel.id,
+                            controller: panel.designModeController
+                        ),
+                        omnibarSuggestions: portalOmnibarSuggestions,
+                        paneTopChromeHeight: chromeState.isOmnibarVisible ? addressBarHeight : 0
+                        )
+                    }
+                }
                 .accessibilityIdentifier("BrowserWebViewSurface")
                 // Keep the host stable for normal pane churn, but force a remount when
                 // BrowserPanel replaces its underlying WKWebView after process termination
@@ -2002,7 +2019,8 @@ struct BrowserPanelView: View {
         if AppDelegate.shared?.focusedBrowserAddressBarPanelId() == panel.id {
             return true
         }
-        let fieldWindow = panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        let fieldWindow = panel.browserChromeWindow
+            ?? NSApp.keyWindow ?? NSApp.mainWindow
         if let field = browserOmnibarField(panelId: panel.id, in: fieldWindow),
            field.currentEditor() != nil {
             return true
@@ -2074,14 +2092,15 @@ struct BrowserPanelView: View {
         // Navigation-triggered omnibar blur can still be unwinding when Cmd+F opens
         // the browser find bar. Once find is visible, any delayed omnibar-exit
         // handoff must not reclaim first responder for WebKit.
-        panel.webView.window === window &&
+        panel.browserChromeWindow === window &&
             isPanelFocusedInModel() &&
             panel.searchState == nil
     }
 
 #if DEBUG
     private func browserFocusWindow() -> NSWindow? {
-        panel.webView.window ?? NSApp.keyWindow ?? NSApp.mainWindow
+        panel.browserContentWindow
+            ?? NSApp.keyWindow ?? NSApp.mainWindow
     }
 
     private func browserFocusResponderDescription(_ responder: NSResponder?) -> String {
@@ -2093,7 +2112,12 @@ struct BrowserPanelView: View {
         let window = browserFocusWindow()
         let firstResponder = window?.firstResponder
         let firstResponderType = browserFocusResponderDescription(firstResponder)
-        let webResponder = browserFocusResponderChainContains(firstResponder, target: panel.webView) ? 1 : 0
+        let contentResponder = panel.isChromiumBacked
+            ? panel.chromiumContentView
+            : panel.webView
+        let webResponder = contentResponder.map {
+            browserFocusResponderChainContains(firstResponder, target: $0)
+        } == true ? 1 : 0
         var line =
             "browser.focus.trace event=\(event) panel=\(panel.id.uuidString.prefix(5)) " +
             "panelFocused=\(isFocused ? 1 : 0) addrFocused=\(addressBarFocused ? 1 : 0) " +
@@ -2119,7 +2143,8 @@ struct BrowserPanelView: View {
     private func isCommandPaletteVisibleForPanelWindow() -> Bool {
         guard let app = AppDelegate.shared else { return false }
 
-        if let window = panel.webView.window, app.isCommandPaletteVisible(for: window) {
+        let contentWindow = panel.browserChromeWindow
+        if let window = contentWindow, app.isCommandPaletteVisible(for: window) {
             return true
         }
 
@@ -2141,7 +2166,7 @@ struct BrowserPanelView: View {
 
     private func commandPaletteVisibilityNotificationMatchesPanelWindow(_ notification: Notification) -> Bool {
         if let notificationWindow = notification.object as? NSWindow,
-           panel.webView.window === notificationWindow {
+           panel.browserChromeWindow === notificationWindow {
             return true
         }
 
@@ -2370,7 +2395,8 @@ struct BrowserPanelView: View {
         isBrowserImportHintPopoverPresented = false
         DispatchQueue.main.async {
             BrowserDataImportCoordinator.shared.presentImportDialog(
-                defaultDestinationProfileID: panel.profileID
+                defaultDestinationProfileID: panel.profileID,
+                defaultDestinationEngine: panel.engineKind
             )
         }
     }
@@ -2379,7 +2405,8 @@ struct BrowserPanelView: View {
         isBrowserProfileMenuPresented = false
         DispatchQueue.main.async {
             BrowserDataImportCoordinator.shared.presentImportDialog(
-                defaultDestinationProfileID: panel.profileID
+                defaultDestinationProfileID: panel.profileID,
+                defaultDestinationEngine: panel.engineKind
             )
         }
     }
@@ -2435,7 +2462,7 @@ struct BrowserPanelView: View {
             return
         }
         // If a real navigation is underway (e.g. open_browser https://...), don't steal focus.
-        guard !panel.webView.isLoading else {
+        guard !panel.isLoading else {
 #if DEBUG
             logBrowserFocusState(event: "addressBarFocus.autoFocus.skip", detail: "reason=webview_loading")
 #endif
@@ -2951,6 +2978,21 @@ struct BrowserPanelView: View {
         }
         if effects.shouldBlurToWebView {
             hideSuggestions()
+            if panel.isChromiumBacked {
+                setAddressBarFocused(false, reason: "effects.blurToChromium")
+                Task { @MainActor [panel] in
+                    // This handoff is deferred until after the omnibar resigns
+                    // first responder. Re-check the panel and find-bar state
+                    // so a stale task cannot steal focus after a pane switch or
+                    // while browser find is presented.
+                    if let window = panel.browserChromeWindow,
+                       shouldApplyAddressBarExitFallback(in: window) {
+                        _ = panel.requestExplicitWebViewFocus()
+                    }
+                    NotificationCenter.default.post(name: .browserDidExitAddressBar, object: panel.id)
+                }
+                return
+            }
             // This transition is stateful: drop omnibar focus suppression before
             // attempting responder handoff so WKWebView can actually become first responder.
             panel.endSuppressWebViewFocusForAddressBar()
