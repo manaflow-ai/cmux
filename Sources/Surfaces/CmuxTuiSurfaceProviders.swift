@@ -68,6 +68,13 @@ final class CmuxTuiSurfaceProviderRegistry {
         while true {
             if let inFlight = refreshInFlight {
                 let listed = await inFlight.value
+                // The owner normally clears the slot below, but a forced waiter
+                // can resume first. Clear the completed flight while it is still
+                // ours so the forced caller starts its required fresh pass instead
+                // of repeatedly awaiting the same completed task.
+                if refreshInFlight == inFlight {
+                    refreshInFlight = nil
+                }
                 // A scheduled refresh can share the result. A forced caller
                 // must run one fresh pass after it, but never concurrently.
                 if !force { return listed }
@@ -217,6 +224,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// display row gets a pane that is already navigating.
     private var endpoints = SurfacePortEndpointCache()
     private var endpointPrefetch: Task<Void, Never>?
+    /// Invalidates a canceled prefetch so an older task cannot clear a replacement.
+    private var endpointPrefetchGeneration: UInt64 = 0
     /// Panels this provider created (or replaced) in this process. A projection whose
     /// panel is not here came back from a restored session as a placeholder shell.
     var materializedPanels: Set<UUID> = []
@@ -259,6 +268,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.summary = summary
         if !supportsPortPreviews {
             portsCache = nil
+            endpointPrefetchGeneration &+= 1
             endpointPrefetch?.cancel()
             endpointPrefetch = nil
         }
@@ -273,6 +283,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         changeWatcher = nil
         refreshDebounce?.cancel()
         refreshDebounce = nil
+        endpointPrefetchGeneration &+= 1
         endpointPrefetch?.cancel()
         endpointPrefetch = nil
         for session in manualMirrorSessions.values { session.stop() }
@@ -856,10 +867,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
               endpointPrefetch == nil,
               endpoints.openURL(port: port) == nil,
               VMClient.shared != nil else { return }
+        endpointPrefetchGeneration &+= 1
+        let prefetchGeneration = endpointPrefetchGeneration
         endpointPrefetch = Task { [weak self] in
             guard let self, self.lifecycleGeneration == generation else { return }
             _ = try? await self.endpoint(port: port, desktop: true)
-            guard self.lifecycleGeneration == generation else { return }
+            guard self.lifecycleGeneration == generation,
+                  self.endpointPrefetchGeneration == prefetchGeneration else { return }
             self.endpointPrefetch = nil
         }
     }
