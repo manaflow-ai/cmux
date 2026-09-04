@@ -309,11 +309,11 @@ Terminals, VNC screens and browsers are *resources*; panes and workspaces are
 *projections* of them. On the Mac, `SurfaceCatalog` (`Sources/Surfaces/`) is the
 one owner of resource identities (`<machine>/<kind>/<key>`, machine = `local` or
 a cloud machine id) and projections (resource, workspace, panel). Adapters push
-resources in: `LocalSurfaceProvider` (this Mac's terminals and browsers) and one
-`CmuxTuiSurfaceProvider` per cloud machine (its cmux-tui workspaces/terminals
+resources in: `LocalSurfaceAdapter` (this Mac's terminals and browsers) and one
+`CmuxTuiSurfaceAdapter` per cloud machine (its cmux-tui workspaces/terminals
 from the headless link, its noVNC screen `display:1`, its forwarded ports).
-`catalog.project(resource, into:)` is the single open path — the sidebar tree,
-drag and drop, the CLI and agents all go through it — so an already-open
+`catalog.project(resource, into:)` is the single open path, the sidebar tree,
+drag and drop, the CLI and agents all go through it, so an already-open
 resource is focused instead of duplicated, a closed pane never destroys a
 remote resource, and restored panes re-project when their adapter reports the
 resource again.
