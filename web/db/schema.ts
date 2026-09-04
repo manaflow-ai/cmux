@@ -61,12 +61,24 @@ export const cloudVms = pgTable(
     // User-chosen label shown in machine lists. The provider VM id stays the
     // machine's address (URLs, CLI verbs); this is display-only.
     displayName: text("display_name"),
+    // Generated three-word name (`sleepy-teal-otter`, services/vms/vmNaming.ts).
+    // Assigned once at create, never renamed, unique among the owner's live
+    // machines, so it doubles as a human-typable machine address. Rows created
+    // before the column existed have none and show the provider id instead.
+    slug: text("slug"),
     imageId: text("image_id").notNull(),
     imageVersion: text("image_version"),
     status: vmStatus("status").notNull().default("provisioning"),
     idempotencyKey: text("idempotency_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Provider observations have their own clock. `updatedAt` describes a
+    // control-plane mutation and must not be used to schedule probes.
+    providerStatusObservedAt: timestamp("provider_status_observed_at", { withTimezone: true }),
+    providerStatusCheckedAt: timestamp("provider_status_checked_at", { withTimezone: true }),
+    // A short-lived fence for concurrent status probes. The newest claimant
+    // owns the write, so a slow older response cannot roll state backward.
+    providerStatusProbeToken: text("provider_status_probe_token"),
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
     failureCode: text("failure_code"),
     failureMessage: text("failure_message"),
@@ -81,6 +93,13 @@ export const cloudVms = pgTable(
     uniqueIndex("cloud_vms_provider_vm_id_unique")
       .on(table.provider, table.providerVmId)
       .where(sql`${table.providerVmId} is not null`),
+    // Live rows only: a destroyed or failed machine releases its name.
+    uniqueIndex("cloud_vms_billing_team_slug_live_unique")
+      .on(table.billingTeamId, table.slug)
+      .where(sql`${table.billingTeamId} is not null and ${table.slug} is not null and ${table.status} in ('provisioning', 'running', 'paused')`),
+    index("cloud_vms_provider_status_checked_idx")
+      .on(table.providerStatusCheckedAt, table.id)
+      .where(sql`${table.providerVmId} is not null and ${table.status} <> 'destroyed'`),
   ],
 );
 

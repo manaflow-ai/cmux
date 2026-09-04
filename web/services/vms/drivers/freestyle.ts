@@ -29,6 +29,8 @@ import {
   type SnapshotRef,
   type VmEdgeRule,
   type VMHandle,
+  type VMInventory,
+  type VMListOptions,
   type VMPrivateNetworking,
   type VMProvider,
   type VMResizeOptions,
@@ -488,8 +490,22 @@ export function mapFreestyleState(state: VmData["state"] | null | undefined): VM
     case "stopped":
       return "paused";
     default:
-      return "running";
+      // A new provider state is not safe to treat as running. Failing closed
+      // keeps active-limit accounting and attach decisions conservative until
+      // the adapter understands the new state.
+      throw new ProviderError("freestyle", `unknown VM state ${JSON.stringify(state)}`);
   }
+}
+
+function mapFreestyleInventory(data: VmData): VMInventory["vms"][number] {
+  const parsedCreatedAt = typeof data.createdAt === "string" ? Date.parse(data.createdAt) : NaN;
+  return {
+    providerVmId: data.id,
+    status: mapFreestyleState(data.state),
+    slug: data.slug ?? null,
+    displayName: data.displayName ?? null,
+    createdAt: Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : null,
+  };
 }
 
 /**
@@ -818,7 +834,7 @@ export class FreestyleProvider implements VMProvider {
           const networkId = options.network?.id;
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
-            displayName: "cmux Cloud VM",
+            displayName: options.displayName ?? "cmux Cloud VM",
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
@@ -919,6 +935,55 @@ export class FreestyleProvider implements VMProvider {
         } catch (err) {
           if (isNotFound(err)) return; // already gone; destroy is idempotent
           throw new ProviderError("freestyle", `destroy(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  async listVms(options: VMListOptions = { limit: 200 }): Promise<VMInventory> {
+    const limit = Math.max(1, Math.min(Math.floor(options.limit), 200));
+    const offset = Math.max(0, Math.floor(options.offset ?? 0));
+    return withVmSpan(
+      "cmux.vm.provider.list_vms",
+      {
+        "cmux.vm.provider": "freestyle",
+        "cmux.vm.operation": "list_vms",
+        "cmux.vm.inventory.limit": limit,
+        "cmux.vm.inventory.offset": offset,
+      },
+      async () => {
+        try {
+          // The provider account can also contain operator-created machines.
+          // Restrict the comparison to rows created by this control plane so
+          // those machines are not reported as cmux orphans.
+          const page = await this.deps.client().vms.list({ limit, offset, metadata: "cmux:cloud" });
+          const vms = page.vms.map(mapFreestyleInventory);
+          const totalCount = Number.isFinite(page.totalCount) ? page.totalCount : null;
+          const complete = totalCount === null ? vms.length < limit : offset + vms.length >= totalCount;
+          return {
+            vms,
+            totalCount,
+            complete,
+            nextOffset: complete ? null : offset + vms.length,
+          };
+        } catch (err) {
+          throw new ProviderError("freestyle", "listVms()", err);
+        }
+      },
+    );
+  }
+
+  async updateDisplayName(vmId: string, displayName: string | null): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.update_display_name",
+      spanAttributes(vmId, "update_display_name"),
+      async () => {
+        try {
+          // Freestyle uses an empty string to clear a label. The generated
+          // cmux slug remains the provider identity and is never changed here.
+          await this.deps.client().vms.ref(vmId).update({ displayName: displayName ?? "" });
+        } catch (err) {
+          throw new ProviderError("freestyle", `updateDisplayName(${vmId})`, err);
         }
       },
     );
