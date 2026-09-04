@@ -109,7 +109,7 @@ describe("Cloud VM publication access card", () => {
         view="invalid"
       />,
     );
-    expect(html).toContain("This access link isn&#x27;t valid");
+    expect(html).toContain("You don&#x27;t have access");
     expect(html).toContain("Return to the shared site and try again.");
     expect(html).not.toContain("prickly-lavender-minnow.cmux.sh");
     expect(html).not.toContain("<a ");

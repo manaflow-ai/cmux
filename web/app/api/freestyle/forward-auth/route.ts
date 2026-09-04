@@ -1,4 +1,9 @@
 import { env } from "../../../env";
+import {
+  POSTHOG_HOST,
+  POSTHOG_PROJECT_KEY,
+  isAnalyticsTestRun,
+} from "../../../../services/analytics/iosEventPolicy";
 import { enforceNativeIngressRateLimit } from "../../../../services/nativeIngressRateLimit";
 import {
   beginPublicationAuthorization,
@@ -165,7 +170,14 @@ export async function handleForwardAuthRequest(
     });
 
     if (evaluation.kind === "allow") return response(null, 204);
-    if (evaluation.kind === "not_found") return response(null, 404);
+    if (evaluation.kind === "not_found") {
+      // A stale provider rule must not expose a provider JSON error page. Send
+      // the browser to the same CMUX-owned deny surface used by invalid links.
+      // This is a redirect only, with no transaction or other auth artifact.
+      const location = new URL("/cloud/access", authPageOrigin).toString();
+      capturePublicationError("publication_not_found", request);
+      return redirectResponse(location, "publication_not_found");
+    }
     if (evaluation.kind === "unauthorized") return response(null, 401);
 
     // Minting a transaction is the one write an anonymous request can cause;
@@ -198,6 +210,7 @@ export async function handleForwardAuthRequest(
     return new Response(null, { status: 302, headers });
   } catch (error) {
     console.error("Cloud VM publication forward auth failed", describeAuthError(error));
+    capturePublicationError("forward_auth_error", request);
     return response(null, isAuthArtifactError(error) ? 400 : 503);
   }
 }
@@ -285,6 +298,44 @@ function response(body: BodyInit | null, status: number): Response {
   return new Response(body, {
     status,
     headers: { "cache-control": "no-store" },
+  });
+}
+
+function redirectResponse(location: string, reason: string): Response {
+  return new Response(null, {
+    status: 302,
+    headers: {
+      "cache-control": "no-store",
+      location,
+      "x-cmux-publication-deny": reason,
+    },
+  });
+}
+
+/** Fire-and-forget telemetry. It must never add latency or change auth behavior. */
+function capturePublicationError(reason: string, request: Request): void {
+  if (isAnalyticsTestRun()) return;
+  const method = request.headers.get("x-forwarded-method")?.trim().toUpperCase() || "unknown";
+  const ruleId = request.headers.get("x-freestyle-tls-rule-id")?.trim() || "unknown";
+  void fetch(`${POSTHOG_HOST}/capture/`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      api_key: POSTHOG_PROJECT_KEY,
+      event: "cmux_cloud_publication_error",
+      distinct_id: `publication-edge:${ruleId}`,
+      properties: {
+        reason,
+        method,
+        provider_tls_rule_id_present: ruleId !== "unknown",
+      },
+      timestamp: new Date().toISOString(),
+    }),
+  }).catch((error) => {
+    console.error("cloud.publication.posthog_failed", {
+      reason,
+      error: error instanceof Error ? error.message : String(error),
+    });
   });
 }
 

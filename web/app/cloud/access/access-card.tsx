@@ -63,7 +63,7 @@ export function PublicationAccessCard({
         />
 
         <h1 className="mt-6 text-balance text-2xl font-semibold leading-tight tracking-[-0.03em]">
-          {invalid ? messages.invalidTitle : messages.title}
+          {messages.title}
         </h1>
 
         {hostname && !invalid ? (
