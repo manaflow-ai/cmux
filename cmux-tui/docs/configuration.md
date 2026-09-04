@@ -62,11 +62,17 @@ Tabs are numbered by default. A recognized agent program can appear after the nu
 
 ## Sidebar
 
+The cross-frontend meaning of a view, instance, layout profile, region, and
+frontend-local presentation state is defined in the
+[presentation system](../../docs/sidebar-system-design.md). The configuration
+below documents the current TUI format and its compatibility behavior. It is
+not a second identity model.
+
 The built-in sidebar defaults to the workspace list. Set `"sidebar": {"view": "files"}` for the yazi-style file browser. `Tab` toggles the built-in view while the sidebar is focused, and the configurable `toggle-sidebar-view` action toggles it from anywhere. A configured `sidebar.plugin` still replaces either built-in view.
 
 `sidebar.views` is an ordered list of native resource projections, with no fixed column count. Each view has a stable `id`, a `levels` path, and optional native `actions`. A one-level path renders a list. Multi-level paths such as `workspaces → agents` and `workspaces → panes → tabs` render collapsible trees in one column. Nesting is optional. Valid resources are `machines`, `workspaces`, `panes`, `tabs`, and `agents`. Flat pane, tab, and agent views follow the highlighted workspace. Omit a resource to hide it.
 
-`sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices.
+`sidebar.profiles` names multiple view lists, and `sidebar.profile` selects the startup layout. Right-click anywhere and open **Sidebar → Layouts** to switch profiles without reconnecting machines. The same menu can hide or restore an individual view for the current session. Runtime visibility changes are keyed by profile and view ID, so switching away and back restores that profile's session-local choices. The target registry model gives each mounted view a stable instance ID and makes the active profile visible in a compact profile strip when more than one layout is available. The context menu remains a management path, not the only discovery path.
 
 Actions use the same stable IDs and execution path as keyboard commands, including `new-workspace`, `new-tab`, and `new-pane-smart`. An entry may also be an object `{"action": "new-workspace", "label": "new"}` to rename its button, and `"command:<id>"` pins a user command from the top-level `commands` section as a button. `actions_position: "top"` mounts the buttons at the view's top instead of the bottom edge. A view rooted at `workspaces` inherits `new-workspace`, including provider-specific isolated and shared choices. Set `"actions": []` to hide every pinned action, or provide an ordered list to replace the preset. Machine creation and connection actions remain capability-driven by the selected provider.
 
@@ -85,7 +91,15 @@ Flat one-level `tabs` and `agents` views accept `"scope": "all"`. An `all`-scope
 }
 ```
 
-Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. Panes of a split behave the same way vertically: when a column gets too short, its lowest-priority panes hide until space returns. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
+For new configurations, the target default **Work** layout mounts a compact
+Agents view below Workspaces. It stays visible when empty so a user can find
+the feature and understand its scope. A configuration that explicitly defines
+`sidebar.views` or `sidebar.profiles` remains authoritative and is not changed
+by an upgrade. Choose a Workspaces-only layout when the extra context is not
+useful. This preserves existing terminal space while fixing the discoverability
+failure for new agent-driven sessions.
+
+Every view has an independent width and drag handle. Lower `collapse_priority` values hide first when the terminal must preserve 40 pane columns. A hidden view needs four additional columns before it returns, which prevents resize-boundary flicker. Panes of a split behave the same way vertically: when a column gets too short, its lowest-priority panes hide until space returns. The target behavior adds an overflow marker with the hidden view ID and restore action; silent pruning is not acceptable. `sidebar.columns` remains a compatibility alias for one-level machine, workspace, and tab views; `sidebar.views` wins when both are present.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
@@ -97,9 +111,9 @@ Every view has an independent width and drag handle. Lower `collapse_priority` v
 | `sidebar.profiles` | array of profile objects | unset | Named layouts available from every context menu; overrides top-level `sidebar.views` and `sidebar.columns` |
 | `sidebar.profiles[].id` | string | required | Stable unique profile identity |
 | `sidebar.profiles[].name` | string | profile ID | Display name in the layout picker |
-| `sidebar.profiles[].views` | array of view objects | required | Ordered projections using the same schema as `sidebar.views` |
+| `sidebar.profiles[].views` | array of view objects | required | Ordered projections using the same schema as `sidebar.views`; the compatibility adapter converts them to stable view instances |
 | `sidebar.views` | array of view objects | unset | Ordered native lists and trees; omission preserves the machine-plus-workspace default |
-| `sidebar.views[].id` | string | required | Stable unique identity for focus, collapse, scroll, and width state |
+| `sidebar.views[].id` | string | required | Stable compatibility identity for focus, collapse, scroll, and width state; new registry APIs use a separate stable instance ID |
 | `sidebar.views[].levels` | array of strings | required | Resource path, such as `["agents"]`, `["workspaces", "agents"]`, or `["workspaces", "panes", "tabs"]` |
 | `sidebar.views[].actions` | array of action IDs | resource preset | Ordered native actions pinned below the resource rows; `[]` hides them |
 | `sidebar.views[].width` | integer | resource default | Initial width, clamped to 10 through 60 |

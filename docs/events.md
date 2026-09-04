@@ -269,6 +269,27 @@ fields describe the command result; they are not separate event-stream payloads:
 }
 ```
 
+## Presentation events (proposed)
+
+Sidebar, right-panel, Dock, and pane-mounted providers use the shared
+[presentation system](sidebar-system-design.md). A provider subscribes to the
+resource and event categories in its descriptor. The host coalesces changes by
+revision and reports the provider or view-instance ID with the resulting
+snapshot. A hidden provider may suspend its renderer, but the region still
+reports that it is hidden or suspended and why.
+
+Future presentation events will use stable opaque IDs and structured payloads,
+for example `presentation.profile.changed`, `presentation.view.mounted`,
+`presentation.view.visibility_changed`, and `presentation.action.completed`.
+These names are proposed only. They must not be added to the implemented
+event catalog until ordering, replay, permission, redaction, and disconnect
+behavior have conformance fixtures.
+
+The event stream is evidence of a state transition, not a replacement for a
+snapshot. A consumer bootstraps from a bounded snapshot, records its revision,
+then subscribes from that revision. An action result carries an operation ID
+and receipt status so a lost event cannot make a client repeat a mutation.
+
 Surface and pane:
 
 | Name | Trigger |

@@ -2,6 +2,29 @@
 
 This document specifies the mux-side sidebar and journal plugin contracts.
 
+The shared placement, identity, action, and lifecycle model is defined in the
+[cmux presentation system](../../docs/sidebar-system-design.md). The plugin
+contracts below describe producers and workers. They do not define a private
+navigation model.
+
+## Presentation contributions
+
+New sidebar plugins contribute a provider descriptor and may create view
+instances in the placements declared by that descriptor. A provider ID is
+stable and namespaced; an instance ID identifies one concrete scope and mount.
+Profiles reference instances, and the same instance can be mounted in more
+than one region with independent presentation state.
+
+The descriptor declares resource and event dependencies, actions and parameter
+schemas, attention queries, minimum size, trust requirements, renderer kind,
+and lifecycle behavior. The host uses those declarations for catalog
+discovery, capability checks, event fan-out, and narrow-terminal overflow.
+
+The current `sidebar.plugin` executable remains a compatibility replacement
+for the built-in TUI view. It is not composable by itself and must not be the
+default contract for new plugins. A replacement plugin still receives the
+legacy PTY lifecycle below while the registry adapter is introduced.
+
 ## Sidebar Plugins
 
 A sidebar plugin is an executable terminal program. The mux server starts it inside a PTY and the TUI renders that PTY in the sidebar using the same Ghostty VT surface pipeline used by pane PTYs.
@@ -126,6 +149,13 @@ sidebar PTY and it does not add agent code to cmux core. Core owns process
 supervision, environment setup, journal admission, and roster reduction. The
 plugin owns process-group discovery, screen sampling, manifest rules, and
 agent-specific interpretation.
+
+Its output is a resource adapter, not a sidebar row format. The TUI Agents
+view, macOS subagents panel, Dock-adjacent view, and mobile panel consume the
+canonical agent resource described in the
+[presentation system](../../docs/sidebar-system-design.md#agent-system).
+Producer identity, evidence, timestamps, and generation fences must survive a
+view switch or a renderer restart.
 
 Core still accepts the old `detected` source and `ScreenDetect` native event
 only when replaying journals written before this boundary existed. Current core

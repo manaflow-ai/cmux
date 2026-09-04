@@ -2,6 +2,14 @@
 
 Dock is the cmux right sidebar rendered as a full panel container. It uses the **same surface and split system as the main content area** — terminals *and* browsers, tiled with the same split affordances — just docked on the right. Each Dock terminal runs in its own Ghostty-backed surface, so TUIs keep normal keyboard behavior such as arrow keys, `j` / `k`, and `Ctrl-C`. Dock browsers share the same browser stack as main-area browser panes (cookies, profile, devtools, navigation).
 
+Dock is one `dock-right` region in the shared
+[presentation system](sidebar-system-design.md). The region uses the same
+stable provider, instance, profile, action, and receipt identities as the TUI
+sidebar and the macOS right-panel modes. Its leaves remain interactive
+terminal or browser surfaces, not lightweight resource rows. This distinction
+lets an agent discover and move a Dock item without pretending that a live PTY
+is a static list view.
+
 Dock is useful for project dashboards, git views, logs, queues, local services, test watchers, dev servers, custom TUIs, and reference web pages. Feed can be added as one optional terminal with `cmux feed tui --opentui`, but Dock is not limited to Feed.
 
 Every cmux window has its own independent Dock. Multiple windows can show their Docks side by side, and closing a window closes its Dock terminals and browsers with it. Dock state is part of the normal cmux session snapshot, so quitting or installing an update preserves each workspace Dock and each window Dock.
@@ -21,6 +29,11 @@ The Dock toolbar `+` menu and an empty Dock pane offer the same New Terminal / N
 After a Dock has been saved in a session, cmux restores that snapshot instead of seeding it again. Restore includes the split and tab layout, divider positions, tab order and selection, terminal session metadata and agent resume state, and browser navigation, zoom, profile, developer tools, and mute state. An intentionally empty saved Dock also stays empty after relaunch.
 
 When a Dock pane has keyboard focus, the standard creation/split shortcuts act on the Dock instead of the main content area: New Browser (Cmd+Shift+L), New Surface (Cmd+T), and Split Right / Split Down (Cmd+D / Cmd+Shift+D) create or split inside the focused Dock pane. When the main area is focused, the same shortcuts behave as usual.
+
+The Dock's `+`, context menu, command palette, and future semantic
+`frontend.presentation.invoke` route all dispatch the same typed actions. A
+restored Dock profile is scoped to its frontend window. It never changes a
+global active workspace or profile for another window.
 
 ## CLI / socket
 
@@ -147,4 +160,6 @@ The product name is **Dock**. A single entry is a **Dock control**. Suggested la
 
 > Bring your team's TUIs into the cmux Dock.
 
-Other names that still fit the feature: **TUI Dock**, **Command Dock**, **Control Dock**, **Deck**, and **Sidecar**.
+Other names that still fit the feature: **TUI Dock**, **Command Dock**,
+**Control Dock**, and **Sidecar**. Do not use **Deck** as a new semantic
+primitive. Layout profiles already cover that concept across regions.

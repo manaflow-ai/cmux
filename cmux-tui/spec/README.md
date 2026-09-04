@@ -29,6 +29,7 @@ high-level SDKs:
 | [`cli.md`](cli.md) | Noun-first public CLI |
 | [`bindings.md`](bindings.md) | Seven handwritten SDK facades and generated raw layers |
 | [`plugins.md`](plugins.md) | Sidebar and userland agent plugin contracts |
+| [`../../docs/sidebar-system-design.md`](../../docs/sidebar-system-design.md) | Cross-frontend provider, instance, region, layout, action, and agent presentation model |
 
 The operation catalog is authoritative for every operation's class, selector
 scopes, parameter presence, result type, structured errors, stream items, and

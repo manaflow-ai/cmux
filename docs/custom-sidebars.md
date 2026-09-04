@@ -1,5 +1,10 @@
 # Custom sidebars: vibe-code your own cmux sidebar
 
+The cross-frontend placement and identity model is defined in the
+[cmux presentation system](sidebar-system-design.md). This guide explains the
+authoring syntax. The host treats each file as a view provider and each open
+copy as a separate view instance.
+
 cmux lets you build your own sidebar UI by writing a small SwiftUI-style file.
 It is interpreted at runtime (no Xcode, no build step, no signing), renders as
 native SwiftUI in the real sidebar, hot-reloads on save, binds to live cmux
@@ -18,6 +23,38 @@ before choosing an executable or opening a repository.
 
 It is a beta, on by default. Turn it off in **Settings → Custom Sidebars**
 (`customSidebars.beta.enabled`). While off, custom sidebars do not appear.
+
+## Placement model
+
+The left sidebar, right tool panel, Dock, and a normal pane are different
+regions. A custom file may declare which regions it supports. Selecting a file
+does not automatically mount it everywhere. The host creates a stable
+`provider_id` for the source and a separate `instance_id` for each mount, so
+the same file can show current-workspace Agents on the left and all-workspaces
+Agents on the right without sharing scroll, filter, or focus state.
+
+The target **Add view** action is the normal way to mount a provider beside
+built-in views. The old `sidebar.plugin` replacement mode remains for compatibility,
+but it is not the composition model for new sidebars. If a provider is hidden
+because of width, trust, or a failed worker, the region shows the reason and a
+restore action.
+
+Current single-file sidebars use host defaults for their provider descriptor.
+The planned manifest lets an author declare placements, scope fields,
+dependencies, actions, minimum size, and trust requirements without changing
+the view body. Until that manifest is implemented, the host treats a custom
+file as read-only data plus explicitly granted `cmux(...)` actions and reports
+unsupported placement or capability requests as errors.
+
+### If a view is missing (target behavior)
+
+Use the region's **Add view** action first. In a compatibility build, use the
+sidebar toggle context menu or `cmux sidebar select <name>`. If the provider is not listed,
+check that custom sidebars are enabled and inspect the semantic catalog. If it
+is listed but not painted, the catalog or region overflow notice identifies
+whether the cause is an explicit hidden setting, a narrow region, missing
+trust, a suspended worker, or a provider error. A missing row is not evidence
+that the provider has no data.
 
 ## If you are an agent building this for someone
 
@@ -53,11 +90,18 @@ Write a named file (the name becomes the menu label; use short kebab-case):
     ~/.config/cmux/sidebars/<name>.swift     # interpreted Swift
     ~/.config/cmux/sidebars/<name>.json      # declarative JSON (simpler, static)
 
-Each file shows up as an option in the **sidebar toggle button's right-click
-menu** and can also open as a normal Bonsplit pane tab. Pick it from the menu
-for the left sidebar, or run `cmux sidebar open <name>` to show it in a pane;
-edit the file and save and it hot-reloads. If several extensions share a base
-name, `.js` wins over `.swift`, which wins over `.json`.
+Target behavior: each file is discoverable from the region's **Add view** menu,
+the command palette, and the semantic provider catalog. The context menu
+remains useful for local management, but it is not the only route. A file can also open as a
+normal Bonsplit pane tab. Pick it from the menu for the left sidebar, or run
+`cmux sidebar open <name>` to show it in a pane; edit the file and save and it
+hot-reloads. If several extensions share a base name, `.js` wins over `.swift`,
+which wins over `.json`.
+
+Until the registry lands, released builds may expose only the sidebar toggle
+context menu and the existing `cmux sidebar select` and `cmux sidebar open`
+commands. That compatibility gap is why a provider can currently exist without
+an obvious Agents or Add view entry.
 
 The same files also work as **right-sidebar panels** (extensions next to
 Files/Find/Vault): `cmux right-sidebar set custom <name>` selects one and adds
@@ -232,7 +276,9 @@ Then validate and open it as a Bonsplit pane:
 
 `cmux sidebar select <name>` still previews a custom sidebar in the left
 sidebar picker. Use `cmux sidebar open <name>` when you want the sidebar as a
-normal pane tab that can live in a right-side split.
+normal pane tab that can live in a right-side split. New automation should
+target the provider and instance IDs returned by the presentation catalog,
+not the display name or menu index.
 
 ## Quick start
 
@@ -258,7 +304,14 @@ with:
 
     cmux sidebar open mine
 
-## Live data you can bind to (read-only, refreshes ~1s)
+## Live data you can bind to (read-only, current runtime)
+
+The current compatibility context refreshes about once a second. The target
+presentation contract is dependency-driven: a provider receives only changes
+for the resources and event categories in its descriptor. Clock values may
+still update locally once a second. Every context value should eventually
+carry `source`, `revision`, `updated_at`, `stale`, and bounded error metadata so
+an agent can tell fresh data from a delayed or unavailable source.
 
 - `workspaces` — array, one per workspace. Always present: `id`, `title`,
   `selected` (Bool), `pinned` (Bool), `index` (Int), `directory`, `ports`
@@ -379,6 +432,25 @@ it runs that cmux command through the same dispatcher as the `cmux` CLI:
 
     Button(action: { cmux("workspace.select", workspace_id: w.id) }) { ... }
     ...onTapGesture { cmux("surface.focus", surface_id: t.id) }
+
+This syntax is a compatibility entry point. New providers should declare
+semantic action IDs in their provider descriptor and use the host action
+reducer. Keyboard, mouse, command palette, CLI, drag, and an autonomous agent
+must receive the same receipt for the same action. A receipt identifies the
+operation, whether it was accepted or completed, whether state changed, and
+the resulting revision. It must not be inferred from a tap callback.
+
+Use `cmux capabilities` to inspect the currently implemented dispatcher. A
+provider does not receive every method automatically. Sensitive methods such
+as authentication changes, browser evaluation, machine deletion, and broad
+filesystem access require an explicit trust grant. A denied method returns a
+structured capability error.
+
+The proposed semantic agent routes are documented in
+[the presentation system](sidebar-system-design.md#agent-facing-contract):
+catalog, bounded snapshot, invoke with an operation ID, and wait for a
+revision or event. They are not implemented until they appear in the public
+operation catalog and SDKs.
 
 Use real method and parameter names. Common ones: `workspace.select`
 (`workspace_id`), `surface.focus` (`surface_id`), `workspace.reorder`

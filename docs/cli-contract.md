@@ -541,6 +541,21 @@ Custom sidebar commands:
 | `sidebar select <name>` | Validate and activate one custom sidebar in the sidebar picker. |
 | `sidebar open <name>` | Validate and open one custom sidebar as a normal Bonsplit pane tab, preferring the right-side split from the focused surface. |
 
+Proposed presentation commands:
+
+| Command | Contract |
+| --- | --- |
+| `presentation catalog --json` | List provider, instance, profile, region, action, permission, and attention descriptors. |
+| `presentation snapshot <region> --json` | Return a bounded semantic tree with stable target IDs, source revisions, staleness, errors, and cursors. |
+| `presentation invoke <action> --target <id> --operation <id> --json` | Invoke one catalog action and return an idempotent receipt. |
+| `presentation wait --operation <id> --revision <rev> --json` | Wait for an operation, revision, event predicate, or attention change. |
+
+These commands are design targets, not implemented CLI routes. They become
+normative only after the corresponding public operation schemas, inventory
+entries, SDK facades, permission checks, and behavior fixtures land. Existing
+`sidebar` and `right-sidebar` commands remain compatibility aliases during the
+migration.
+
 Docs topics:
 
 | Command | Contract |

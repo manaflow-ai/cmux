@@ -5,6 +5,13 @@ document records the data source decision, the t3code-inspired presentation,
 and the follow-up plan for dragging an agent out of the panel into a terminal
 pane.
 
+The long-term placement and identity contract is the
+[cmux presentation system](sidebar-system-design.md). This panel is an Agents
+view provider mounted in the `secondary-sidebar-right` region. The same
+provider can mount in the TUI left region, Dock-adjacent pane, or mobile panel
+with a different instance scope. Provider identity, instance identity, region,
+revision, attention reason, and source evidence must remain separate.
+
 ## What t3code does (reference UI)
 
 t3code (pingdotgg/t3code) renders subagents in a dedicated right-panel surface,
@@ -82,6 +89,12 @@ matches, because workspace ids are re-minted across relaunches while the
 panel binding stays authoritative (same rule the mobile chat list applies in
 `Sources/TerminalController+MobileChat.swift`).
 
+This is the current desktop adapter, not a second canonical agent store. The
+target contract normalizes this registry, TUI userland detector events, hook
+events, and remote adapters into one agent resource with stable IDs and
+provenance. Views consume that resource. They do not re-run process scans or
+interpret producer-specific payloads.
+
 ## Data-context keys (shipped)
 
 `workspaces[i].agents` (omitted when empty), most recent first, capped at 24
@@ -139,6 +152,18 @@ t3code's presentation adapted to the cmux JS sidebar runtime:
 - Row tap selects the workspace and focuses the agent's terminal surface
   (`workspace.select` + `surface.focus`).
 
+The shipped panel is discoverable as an example and as a custom right-panel
+choice. The target built-in Agents provider is visible from the region's Add
+view action and is included in the default Work profile for new configurations
+with a compact empty state. An explicit legacy layout remains unchanged. This
+addresses the current “the Agents pane is missing” failure without injecting a
+new pane into an existing user's saved layout.
+
+Every row must expose the same semantic actions through the panel, TUI,
+palette, CLI, and agent API: focus the hosting surface, open or inspect the
+transcript, mark seen, and copy the stable agent ID. Drag is an optional visual
+shortcut for `agent.open`; it is not a separate behavior.
+
 ## Follow-up: drag an agent row into a terminal pane to view it
 
 Goal: drag a row out of the panel and drop it on a pane to open that agent's
@@ -191,3 +216,9 @@ the panel.
   when the drag follow-up lands, `tabs[k].subagentDepth` / `parentThreadId`
   from `TerminalSurface.startupEnvironmentValue(_:)` would let the panel
   indent teams children under their parent.
+
+The semantic catalog, bounded snapshot, invoke receipt, and wait route are
+defined as proposed in [the presentation system](sidebar-system-design.md#agent-facing-contract).
+They are required before an autonomous agent can rely on this panel without
+pixel inspection. A status dot alone is not sufficient evidence of a blocked
+or completed session.

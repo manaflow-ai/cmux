@@ -1,5 +1,11 @@
 # Mouse
 
+Sidebar behavior follows the shared
+[presentation system](../../docs/sidebar-system-design.md). A split shows
+views together, a profile strip changes the arrangement, and context menus
+manage mounts. All three use the same semantic actions as keyboard, palette,
+CLI, and agent control.
+
 ## Click Targets
 
 The files sidebar view (`sidebar.view = "files"`) shows the focused pane's cwd, one row per directory/file, and a count or filter footer. A single click selects a file row. Crossterm's mouse events do not expose an existing double-click concept here, so clicks do not open or descend; use Enter or Right while the sidebar is focused. Toggle to the workspaces view with focused-sidebar `Tab` or the `toggle-sidebar-view` action.
@@ -50,6 +56,13 @@ Drag a rail border to resize that rail for the current TUI session. Dragging the
 Right-click a pane for rename tab, close tab, new pane, new tab, new browser tab, browser actions when applicable, split right, split down, close pane, maximize/restore, and ID copying. New pane runs the same smart-layout action as `Alt-n`. Every right-click menu, including blank status-bar space, contains Show/Hide Sidebar. When an inner PTY app enables mouse tracking, right-click is forwarded to the app; hold Shift while right-clicking to open the cmux menu.
 
 Right-click anywhere inside the sidebar, including its top pad, empty space, file rows, projected tree rows, and divider, for show/hide, compact/full, and focus actions. Workspace rows also include rename, close, and copy-ID actions. Tab and agent rows rename the exact surface represented by that row. Switching between files and workspaces remains a keyboard action (`Ctrl-b e` by default) and is not in the context menu. Right-click a status-bar screen for its screen actions plus Show/Hide Sidebar.
+
+When the profile strip or Add view affordance is present, its context menu also
+offers mount, unmount, move, split, duplicate, rename, reset, scope, filter,
+sort, and provider-details actions. The menu shows why a view is hidden or
+suspended and offers Restore. It must dispatch the same stable instance and
+operation IDs used by the keyboard, command palette, CLI, and semantic agent
+API. A menu entry that only changes a local index is a compatibility bug.
 
 Each context menu includes Keyboard shortcuts, which opens the same modal as `Ctrl-b ?`. The modal has a visible `[Esc close]` button and a terminal-style scrollbar when its rows overflow, with wheel, track-click, and thumb-drag control. Every menu action with a configured key shows the resolved shortcut on the right. Remapped prefix and action keys appear immediately, and unbound actions omit the shortcut.
 

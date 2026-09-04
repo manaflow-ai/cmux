@@ -8,6 +8,13 @@ Rich frontends consume the server's authoritative render state: draw runs, place
 
 The complete command schemas are in [`commands.md`](commands.md), event schemas and scoping are in [`events.md`](events.md), and styled-cell details are in [`render.md`](render.md).
 
+Sidebar, right-panel, Dock, and pane composition follows the shared
+[presentation system](../../docs/sidebar-system-design.md). A frontend should
+keep the resource graph and terminal attachment logic separate from its local
+region state. For agent control, use the proposed presentation catalog,
+snapshot, invoke, and wait contract when available. Do not derive provider or
+row identity from layout indexes or terminal pixels.
+
 ## 1. Connect
 
 For a local native frontend, connect to the Unix socket described in [`transports.md`](transports.md#unix-socket). Send each JSON request followed by `\n`, split incoming bytes on `\n`, and ignore blank lines.

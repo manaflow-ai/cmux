@@ -1,5 +1,10 @@
 # Keyboard
 
+Sidebar composition follows the shared
+[presentation system](../../docs/sidebar-system-design.md). Splits are for
+simultaneous views, layout profiles are for workflow changes, and keyboard,
+mouse, palette, CLI, and agent actions must use one semantic action path.
+
 ## Prefix Model
 
 `cmux-tui` uses a tmux-style prefix. The default prefix is `Ctrl-b`. After the prefix, the next key is interpreted as a mux command. Pressing the prefix twice sends a literal `Ctrl-b` to the active surface.
@@ -48,6 +53,8 @@ These defaults come from `Keys::default`.
 | `Ctrl-b m` | Toggle the sidebar between compact and full width; shows it when hidden |
 | `Ctrl-b e` | Toggle the built-in sidebar between files and workspaces |
 | `Ctrl-b S` | Focus the built-in sidebar or configured sidebar plugin; a prefixed command returns focus to the pane |
+| `sidebar-next-profile` (proposed, unbound) | Select the next layout profile in the focused region |
+| `sidebar-previous-profile` (proposed, unbound) | Select the previous layout profile in the focused region |
 | `m` | Open the machine provider menu when the machine rail is focused |
 | `Ctrl-b g` | Append a two-thirds-width terminal to the right |
 | `Ctrl-b U` | Undo the latest structural layout action on the focused screen |
@@ -91,6 +98,14 @@ Workspace navigation follows tmux's outer session lane: `(` and `)` move backwar
 When the built-in sidebar is focused, its divider becomes a bold accent rail. `Tab` toggles files/workspaces without leaving sidebar focus. In the files view, Up/Down and Ctrl-J/Ctrl-K move the selection, Right descends into a directory, Enter descends or opens a file in a new `$EDITOR` tab, and Left or `h` goes to the parent when the machine rail is absent. `c` sends a safely quoted `cd` to the focused pane, `o` opens `.html` and `.md` files in a browser tab, `.` toggles dotfiles, `/` enters filter mode, and `~` follows the focused pane cwd again. Esc clears a nonempty filter before leaving filter mode.
 
 In the workspaces view, Up/Down move the selection and Enter activates it. A one-level `tabs` view follows the highlighted workspace. Multi-level views such as `workspaces → agents` are collapsible trees: Left collapses, Right expands, Space toggles, and Enter activates the exact workspace, pane, tab, or agent surface. Alt/Option with arrows or `hjkl` always navigates, so Alt-Left and Alt-Right traverse views instead of changing tree expansion. Right from the final view or Esc returns to the pane. Any normal prefixed command leaves sidebar focus and runs through the usual action table. In an agents view, `s` cycles the sort mode (priority, recency, name, agent, state) for this client only; the header's right-hand label follows, and an active config filter shows a `filtered` marker there. A configured sidebar plugin keeps its existing PTY forwarding behavior.
+
+When more than one layout profile is available, the target TUI shows a compact
+profile strip at the top of the region. `sidebar-next-profile` and
+`sidebar-previous-profile` change only the focused frontend region. The strip
+also exposes the Add and Manage actions, so a user does not need to know that
+profiles are stored in JSON. On a narrow terminal, an overflow marker names
+hidden views and the profile that contains them; it must not silently remove
+Agents or another low-priority view.
 
 When the optional machine rail is visible, `Ctrl-b S` enters through the first view containing workspaces. Alt/Option-Left or Alt/Option-`h` at the left pane boundary enters the rightmost visible view. Left or `h` and Right or `l` traverse the ordered native views. Up/Down or `k`/`j` changes the selected machine, Enter connects to it, `m` opens the provider scope/actions menu when the provider offers one, and Esc returns to the active pane. Clicking a view's one-row top pad focuses it without activating a row. Clicking a machine, workspace, pane, tab, or agent activates it and returns keyboard input to the latest terminal. Sidebar views swallow other unprefixed keys instead of forwarding them to a remote terminal.
 
