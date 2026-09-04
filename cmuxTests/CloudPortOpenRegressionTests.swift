@@ -245,6 +245,16 @@ struct CloudPortOpenRegressionTests {
             stdout: "State Recv-Q Send-Q Local Address:Port Peer Address:Port\n",
             stderr: ""
         )) == [])
+        let bindings = """
+        State Recv-Q Send-Q Local Address:Port Peer Address:Port
+        LISTEN 0 128 127.0.0.1:8000 0.0.0.0:*
+        LISTEN 0 128 0.0.0.0:9000 0.0.0.0:*
+        LISTEN 0 128 [::1]:9100 [::]:*
+        """
+        #expect(CmuxTuiSurfaceProvider.ports(
+            from: VMExecResult(exitCode: 0, stdout: bindings, stderr: ""),
+            privateAddress: "10.0.0.7"
+        ) == [9000])
         let previous = [discoveredPort(8000, in: workspace)]
         let retained = CmuxTuiSurfaceProvider.portResources(
             machine: machine,

@@ -7,14 +7,14 @@
         "snapshot": "此云端虚拟机不支持保存的虚拟机状态。",
         "restore": "此云端虚拟机类型不支持恢复保存的虚拟机状态。",
         "fork": "此云端虚拟机不支持复制到新的虚拟机。",
-        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
+        "openPort": "此 Cloud VM 的提供商无法将机器端口公开为预览 URL。",
         "default": "此云端虚拟机不支持请求的操作。"
       },
       "action": {
         "snapshot": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
         "restore": "请勿重试。此机器类型的工作内容会保存在持久化主目录卷中。",
         "fork": "请勿重试。请使用 `cmux vm new` 创建新的虚拟机。",
-        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
+        "openPort": "请勿重试。请在机器内部使用 `cmux vm exec` 访问服务，或使用支持开放端口的机器类型。",
         "default": "请勿重试。使用 `cmux vm ls` 查看虚拟机；如果你认为这是错误，请联系支持团队。"
       }
     },

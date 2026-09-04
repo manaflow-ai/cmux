@@ -65,7 +65,10 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
     port: number,
-  ) => Effect.Effect<{ url: string; token: string; openUrl: string; expiresAtMs?: number }, VmProviderOperationError>;
+  ) => Effect.Effect<
+    { url: string; token: string; openUrl: string; expiresAtMs?: number },
+    VmProviderOperationError | VmOperationUnsupportedError
+  >;
   readonly getStats?: (
     provider: ProviderId,
     vmId: string,
@@ -205,16 +208,17 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
     }),
   exec: (provider, vmId, command, options) =>
     providerEffect(provider, "exec", () => getProvider(provider).exec(vmId, command, options)),
-  openPort: (provider, vmId, port) =>
-    providerEffect(provider, "openPort", () => {
-      const impl = getProvider(provider);
-      if (!impl.openPort) {
-        // Keep unsupported capabilities typed so clients do not retry a
-        // permanently unavailable preview operation as a transient 502.
-        throw new VmOperationUnsupportedError({ provider, operation: "openPort" });
-      }
-      return impl.openPort(vmId, port);
-    }),
+  openPort: (provider, vmId, port) => {
+    const impl = getProvider(provider);
+    const openPort = impl.openPort;
+    if (!openPort) {
+      // Keep the capability failure outside `providerEffect`: that adapter
+      // intentionally wraps provider failures as retryable service errors,
+      // while an absent method must reach the 501 non-retryable response.
+      return Effect.fail(new VmOperationUnsupportedError({ provider, operation: "openPort" }));
+    }
+    return providerEffect(provider, "openPort", () => openPort(vmId, port));
+  },
   getStats: (provider, vmId) =>
     providerEffect(provider, "getStats", () => {
       const impl = getProvider(provider);

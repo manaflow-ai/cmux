@@ -7,14 +7,14 @@
         "snapshot": "Cloud VM នេះមិនគាំទ្រស្ថានភាព VM ដែលបានរក្សាទុកទេ។",
         "restore": "ប្រភេទ Cloud VM នេះមិនគាំទ្រការស្ដារស្ថានភាព VM ដែលបានរក្សាទុកទេ។",
         "fork": "Cloud VM នេះមិនគាំទ្រការចម្លងទៅ VM ថ្មីទេ។",
-        "openPort": "This Cloud VM's provider cannot expose machine ports as preview URLs.",
+        "openPort": "អ្នកផ្តល់សេវារបស់ Cloud VM នេះមិនអាចបង្ហាញច្រករបស់ម៉ាស៊ីនជាអាសយដ្ឋាន URL មើលជាមុនបានទេ។",
         "default": "Cloud VM នេះមិនគាំទ្រប្រតិបត្តិការដែលបានស្នើទេ។"
       },
       "action": {
         "snapshot": "កុំ​ព្យាយាម​ម្តងទៀត។ ការងារលើប្រភេទម៉ាស៊ីននេះត្រូវបានរក្សាទុកក្នុង home volume អចិន្ត្រៃយ៍។",
         "restore": "កុំ​ព្យាយាម​ម្តងទៀត។ ការងារលើប្រភេទម៉ាស៊ីននេះត្រូវបានរក្សាទុកក្នុង home volume អចិន្ត្រៃយ៍។",
         "fork": "កុំ​ព្យាយាម​ម្តងទៀត។ បង្កើត VM ថ្មីដោយប្រើ `cmux vm new`។",
-        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
+        "openPort": "កុំ​ព្យាយាម​ម្តងទៀត។ ចូលប្រើសេវាពីក្នុងម៉ាស៊ីនដោយប្រើ `cmux vm exec` ឬប្រើប្រភេទម៉ាស៊ីនដែលអាចបើកច្រកបាន។",
         "default": "កុំ​ព្យាយាម​ម្តងទៀត។ ដំណើរការ `cmux vm ls` ឬទាក់ទងជំនួយ ប្រសិនបើអ្នកគិតថានេះជាកំហុស។"
       }
     },

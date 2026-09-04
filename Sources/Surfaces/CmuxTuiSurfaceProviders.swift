@@ -296,7 +296,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // survive a provider update that can no longer open them.
             scannedPorts = []
         } else if isAwake, let client = VMClient.shared {
-            scannedPorts = await ports(client: client, force: force, generation: generation)
+            scannedPorts = await ports(
+                client: client,
+                force: force,
+                generation: generation,
+                privateAddress: summary.preferredPrivateAddress
+            )
         } else {
             // A cached scan is still useful while a sleeping machine wakes;
             // nil means there has never been a trustworthy scan.
@@ -314,9 +319,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             privateAddress: summary.preferredPrivateAddress
         ))
         guard isAwake, let client = VMClient.shared else {
-            resources.append(contentsOf: resourcesToPreserveAfterPortScan.filter { previous in
-                !resources.contains(where: { $0.id == previous.id })
-            })
+            appendMissingResources(resourcesToPreserveAfterPortScan, to: &resources)
             info = Self.info(
                 from: summary,
                 linkState: .asleep,
@@ -367,9 +370,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // authoritative empty session. Keep the last resource values;
                 // an explicit `{workspaces: [], terminals: []}` still clears
                 // them on the next branch above.
-                resources.append(contentsOf: resourcesToPreserveAfterPortScan.filter { previous in
-                    !resources.contains(where: { $0.id == previous.id })
-                })
+                appendMissingResources(resourcesToPreserveAfterPortScan, to: &resources)
             }
             let needsSurfaceIDRefresh = !manualMirrorSessions.isEmpty
                 && (manualMirrorSurfaceIDsSocketPath != connected.socketPath
@@ -409,9 +410,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             // Keep cached terminal/browser rows addressable while the link is
             // reconnecting. Ports were already scanned above; this merge is
             // only for resources the failed session read could not refresh.
-            resources.append(contentsOf: resourcesToPreserveAfterPortScan.filter { previous in
-                !resources.contains(where: { $0.id == previous.id })
-            })
+            appendMissingResources(resourcesToPreserveAfterPortScan, to: &resources)
             let status = await links.status(machineID: machineID)
             linkState = status?.state ?? .error
             var text = status?.error ?? CloudMachineLink.errorText(error)
@@ -740,6 +739,19 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         )
     }
 
+    /// Appends preserved resources without repeatedly scanning the growing
+    /// snapshot array. Refresh fallback paths run on the main actor, so keeping
+    /// this linear is important for machines with many remote views.
+    private func appendMissingResources(
+        _ preserved: [SurfaceResource],
+        to resources: inout [SurfaceResource]
+    ) {
+        var knownIDs = Set(resources.map(\.id))
+        for resource in preserved where knownIDs.insert(resource.id).inserted {
+            resources.append(resource)
+        }
+    }
+
     /// The tokened wrapper URL the control plane mints for a port; the desktop adds the
     /// noVNC query the `cmux vm desktop` recipe uses.
     /// What the connecting/failure screen calls the pane: "<machine> · Desktop" or "<machine>:<port>".
@@ -805,7 +817,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// Probes the machine's listening ports. A failed probe returns nil so the
     /// caller can preserve the last complete catalog rather than treating a
     /// transient transport failure as an authoritative empty result.
-    private func ports(client: VMClient, force: Bool, generation: UInt64) async -> [Int]? {
+    private func ports(
+        client: VMClient,
+        force: Bool,
+        generation: UInt64,
+        privateAddress: String?
+    ) async -> [Int]? {
         if !force, let cached = portsCache, Date.now.timeIntervalSince(cached.at) < portsTTL {
             return cached.ports
         }
@@ -813,7 +830,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         guard let result = try? await client.exec(id: machineID, command: command, timeoutMs: 10_000), result.exitCode == 0 else {
             return nil
         }
-        guard let ports = Self.ports(from: result) else { return nil }
+        guard let ports = Self.ports(from: result, privateAddress: privateAddress) else { return nil }
         guard generation == refreshGeneration else { return nil }
         portsCache = (ports, Date.now)
         return ports

@@ -1,6 +1,73 @@
 import CmuxFoundation
 import Foundation
 
+extension CmuxTuiSnapshotParser {
+    /// One local socket binding from `ss -ltn` or `netstat -ltn`.
+    struct ListeningPortBinding: Hashable, Sendable {
+        let port: Int
+        let address: String
+
+        /// Loopback-only listeners cannot be reached through a machine's
+        /// private network address. A port with any wildcard/non-loopback
+        /// binding remains reachable even if another process also binds loopback.
+        var isLoopbackOnly: Bool {
+            let normalized = address
+                .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+                .split(separator: "%", maxSplits: 1, omittingEmptySubsequences: true)
+                .first
+                .map(String.init)
+                .map { $0.lowercased() } ?? ""
+            if normalized == "localhost" || normalized == "::1" { return true }
+            let octets = normalized.split(separator: ".")
+            return octets.count == 4 && octets[0] == "127"
+        }
+    }
+
+    /// Parses local address/port pairs while retaining the bind address for
+    /// providers that open services directly over a private network.
+    static func listeningPortBindings(fromSocketListing text: String) -> [ListeningPortBinding] {
+        var byPort: [Int: Set<String>] = [:]
+        for line in text.split(separator: "\n") {
+            let columns = line.split(whereSeparator: { $0 == " " || $0 == "\t" })
+            guard columns.count >= 4 else { continue }
+            // `ss`: State Recv-Q Send-Q Local:Port …; `netstat`: Proto Recv-Q
+            // Send-Q Local:Port … . The first numeric port in the local prefix
+            // is the local endpoint; peer ports are intentionally ignored.
+            for column in columns.prefix(5) {
+                guard let colon = column.lastIndex(of: ":"),
+                      let port = Int(column[column.index(after: colon)...]),
+                      (1...65_535).contains(port) else { continue }
+                let address = String(column[..<colon])
+                byPort[port, default: []].insert(address)
+                break
+            }
+        }
+        return byPort
+            .flatMap { port, addresses in
+                addresses.map { ListeningPortBinding(port: port, address: $0) }
+            }
+            .sorted {
+                $0.port != $1.port ? $0.port < $1.port : $0.address < $1.address
+            }
+    }
+
+    /// Whether a listener is reachable through a private machine address.
+    /// Kept pure so the provider can apply it before publishing a resource.
+    static func reachableListeningPorts(
+        fromSocketListing text: String,
+        privateAddress: String?
+    ) -> [Int] {
+        var loopbackOnlyByPort: [Int: Bool] = [:]
+        for binding in listeningPortBindings(fromSocketListing: text) {
+            loopbackOnlyByPort[binding.port] =
+                (loopbackOnlyByPort[binding.port] ?? true) && binding.isLoopbackOnly
+        }
+        return loopbackOnlyByPort.keys
+            .filter { privateAddress == nil || loopbackOnlyByPort[$0] == false }
+            .sorted()
+    }
+}
+
 extension SurfaceResourceID {
     /// The numeric port encoded by the canonical cloud forwarded-port identity.
     /// Snapshot browser views that visit localhost are normalized to this key so
@@ -157,11 +224,12 @@ extension SurfaceCatalog {
     ) -> [SurfaceResource] {
         let refreshedIDs = Set(refreshed.map(\.id))
         let previousIDs = Set(previous.map(\.id))
+        let projectedResourceIDs = Set(projections.map(\.resource))
         var result = refreshed
         for candidate in snapshot.resources(on: machine)
         where candidate.id.isForwardedPort && !refreshedIDs.contains(candidate.id) {
             let wasAddedDuringRefresh = !previousIDs.contains(candidate.id)
-            let remainsProjected = !projections(of: candidate.id).isEmpty
+            let remainsProjected = projectedResourceIDs.contains(candidate.id)
             guard wasAddedDuringRefresh || remainsProjected else { continue }
             result.append(candidate)
         }
@@ -173,9 +241,12 @@ extension CmuxTuiSurfaceProvider {
     /// Converts one port-probe result into a complete scan. A non-zero exit is
     /// incomplete (the command or transport was unavailable); a successful
     /// header-only listing is authoritative and intentionally returns `[]`.
-    nonisolated static func ports(from result: VMExecResult) -> [Int]? {
+    nonisolated static func ports(from result: VMExecResult, privateAddress: String? = nil) -> [Int]? {
         guard result.exitCode == 0 else { return nil }
-        return CmuxTuiSnapshotParser.listeningPorts(fromSocketListing: result.stdout)
+        return CmuxTuiSnapshotParser.reachableListeningPorts(
+            fromSocketListing: result.stdout,
+            privateAddress: privateAddress
+        )
             .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0) }
     }
 

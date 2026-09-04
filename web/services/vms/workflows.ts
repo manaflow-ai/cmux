@@ -13,7 +13,7 @@ import type {
   VMHandle,
   VMStatus,
 } from "./drivers";
-import { isProviderId } from "./drivers";
+import { isProviderId, vmCapabilitiesFor } from "./drivers";
 import {
   VmBillingGateway,
   VmBillingGatewayLive,
@@ -1920,7 +1920,11 @@ export function openVmPort(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireAccessibleUserVm(input);
-    if (!providers.openPort) {
+    // The live gateway always exposes an `openPort` adapter, even when the
+    // selected driver does not. Check the driver capability before the resume
+    // preflight so an unsupported request cannot wake a paused VM or record a
+    // misleading resume event.
+    if (!providers.openPort || !vmCapabilitiesFor(vm.provider).ports) {
       return yield* Effect.fail(
         new VmOperationUnsupportedError({
           provider: vm.provider,
