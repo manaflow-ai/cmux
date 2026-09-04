@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { requestOrigin } from "../../../lib/request-origin";
 import { initiatePasskeyAuthentication } from "../../../../services/auth/hexclave/auth";
+import { authErrorKeyForCode } from "../../../../services/auth/hexclave/errorCodes";
 import { hexclaveClientConfig } from "../../../../services/auth/hexclave/config";
 import { isSameOriginFormPost } from "../../../../services/auth/hexclave/formRequest";
 
@@ -18,7 +19,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     new URL(origin).hostname,
   );
   if (!result.ok) {
-    return NextResponse.json({ error: result.error.code }, { status: 502 });
+    // The island only needs to know the attempt failed. Passing the upstream
+    // code through would put auth-service internals on the page.
+    return NextResponse.json(
+      { error: authErrorKeyForCode(result.error.code, "passkeyFailed") },
+      { status: 502 },
+    );
   }
   return NextResponse.json({
     options_json: result.value.optionsJSON,

@@ -1,11 +1,29 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 const ORIGIN = "https://cmux.test";
 
+// Restored in afterAll: these assignments would otherwise follow the process
+// into every later suite Bun runs in it.
+const ENVIRONMENT_KEYS = [
+  "NEXT_PUBLIC_STACK_PROJECT_ID",
+  "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
+  "STACK_API_BASE_URL",
+] as const;
+const previousEnvironment = Object.fromEntries(
+  ENVIRONMENT_KEYS.map((key) => [key, process.env[key]]),
+);
 process.env.NEXT_PUBLIC_STACK_PROJECT_ID = "project-1";
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY = "pck_test";
 process.env.STACK_API_BASE_URL = "https://api.hexclave.test";
+
+afterAll(() => {
+  for (const key of ENVIRONMENT_KEYS) {
+    const previous = previousEnvironment[key];
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+  }
+});
 
 const { POST } = await import("../app/handler/sign-in/submit/route");
 

@@ -1,4 +1,9 @@
-import { hexclaveClientRequest, type HexclaveResult } from "./client";
+import {
+  HEXCLAVE_REQUEST_TIMEOUT_MS,
+  hexclaveClientRequest,
+  TRANSPORT_FAILURE_CODE,
+  type HexclaveResult,
+} from "./client";
 import type { HexclaveClientConfig } from "./config";
 import type { HexclaveSessionTokens } from "./session";
 
@@ -189,21 +194,35 @@ export async function exchangeOAuthCode(
     readonly codeVerifier: string;
   },
 ): Promise<HexclaveResult<HexclaveOAuthExchange>> {
-  const response = await fetch(`${config.apiBaseURL}/api/v1/auth/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    cache: "no-store",
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      client_id: config.projectId,
-      client_secret: config.publishableClientKey,
-      code: input.code,
-      redirect_uri: input.redirectURI,
-      code_verifier: input.codeVerifier,
-    }),
-  });
-
-  const text = await response.text();
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(`${config.apiBaseURL}/api/v1/auth/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      cache: "no-store",
+      signal: AbortSignal.timeout(HEXCLAVE_REQUEST_TIMEOUT_MS),
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: config.projectId,
+        client_secret: config.publishableClientKey,
+        code: input.code,
+        redirect_uri: input.redirectURI,
+        code_verifier: input.codeVerifier,
+      }),
+    });
+    text = await response.text();
+  } catch (cause) {
+    // The visitor is mid-redirect from the provider. A transport failure here
+    // must land on the sign-in page, not on an unhandled server error.
+    return {
+      ok: false,
+      error: {
+        code: TRANSPORT_FAILURE_CODE,
+        message: cause instanceof Error ? cause.message : String(cause),
+      },
+    };
+  }
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(text) as Record<string, unknown>;

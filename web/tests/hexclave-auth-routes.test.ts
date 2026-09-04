@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 import { authErrorKeyForCode, parseAuthErrorKey } from
@@ -172,5 +172,23 @@ describe("OAuth handoff cookie", () => {
     const response = NextResponse.next();
     clearOAuthHandoffCookie(response, true);
     expect(response.cookies.get(oauthHandoffCookieName(true))?.value).toBe("");
+  });
+});
+
+describe("emailed single-use codes are never spent by a GET", () => {
+  test("the magic-link and verification callbacks expose no GET handler", async () => {
+    const magicLink = await import(
+      "../app/handler/magic-link-callback/submit/route"
+    );
+    const verification = await import(
+      "../app/handler/email-verification/submit/route"
+    );
+
+    // A mail scanner or link preview fetches these URLs before the person
+    // does. Only the confirmation POST may redeem the code.
+    expect("GET" in magicLink).toBe(false);
+    expect("GET" in verification).toBe(false);
+    expect(typeof magicLink.POST).toBe("function");
+    expect(typeof verification.POST).toBe("function");
   });
 });

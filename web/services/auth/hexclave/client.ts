@@ -16,6 +16,18 @@ export type HexclaveResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: HexclaveKnownError };
 
+/**
+ * One bound for a whole call, including reading the body.
+ *
+ * Nothing here streams, and a stalled call would otherwise hold its auth route
+ * until Vercel's function ceiling. Enough concurrent stalls would then starve
+ * sign-in for everyone.
+ */
+export const HEXCLAVE_REQUEST_TIMEOUT_MS = 10_000;
+
+/** Not a Hexclave code: this app's marker for a call that never landed. */
+export const TRANSPORT_FAILURE_CODE = "HEXCLAVE_TRANSPORT_FAILURE";
+
 export class HexclaveRequestError extends Error {
   constructor(
     readonly status: number,
@@ -62,19 +74,36 @@ export async function hexclaveClientRequest<T>({
   if (refreshToken) headers["X-Hexclave-Refresh-Token"] = refreshToken;
   if (body !== undefined) headers["Content-Type"] = "application/json";
 
-  const response = await fetch(
-    `${config.apiBaseURL}${HEXCLAVE_API_VERSION_PATH}${path}`,
-    {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      cache: "no-store",
-    },
-  );
+  let response: Response;
+  let text: string;
+  try {
+    response = await fetch(
+      `${config.apiBaseURL}${HEXCLAVE_API_VERSION_PATH}${path}`,
+      {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+        cache: "no-store",
+        signal: AbortSignal.timeout(HEXCLAVE_REQUEST_TIMEOUT_MS),
+      },
+    );
+    text = await response.text();
+  } catch (cause) {
+    // A DNS, TLS, or timeout failure is not a bug in this request, and every
+    // caller already turns a result into the localized recovery redirect.
+    // An unexpected HTTP status still throws below, so a broken upstream is
+    // reported rather than quietly rendered as a friendly message.
+    return {
+      ok: false,
+      error: {
+        code: TRANSPORT_FAILURE_CODE,
+        message: cause instanceof Error ? cause.message : String(cause),
+      },
+    };
+  }
 
   const knownErrorCode = response.headers.get("x-hexclave-known-error") ??
     response.headers.get("x-stack-known-error");
-  const text = await response.text();
 
   if (knownErrorCode) {
     return {

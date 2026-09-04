@@ -64,11 +64,14 @@ export default async function PasswordResetPage({
   // The link's code is checked before the form renders, so an expired link
   // says so immediately instead of after the visitor has picked a password.
   const reportedError = parseAuthErrorKey(firstParam(params.error));
-  const linkError = code
-    ? reportedError
+  const linkError = !code || !isResetCodeShaped(code)
+    ? "invalidCode"
+    // A reported form error means this code was accepted moments ago. Checking
+    // it again on every rejected password would spend the code's limited
+    // attempts on a visitor who is only retyping.
+    : reportedError
       ? null
-      : await checkResetCode(config, code)
-    : "invalidCode";
+      : await checkResetCode(config, code);
 
   if (linkError) {
     return (
@@ -119,4 +122,9 @@ async function checkResetCode(
 ) {
   const result = await verifyPasswordResetCode(config, code);
   return result.ok ? null : authErrorKeyForCode(result.error.code, "invalidCode");
+}
+
+/** The API defines a reset code as exactly 45 URL-safe characters. */
+function isResetCodeShaped(code: string): boolean {
+  return /^[A-Za-z0-9_-]{45}$/u.test(code);
 }

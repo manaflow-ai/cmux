@@ -36,27 +36,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return response;
   };
 
+  // The handoff is read before anything else, and every failure below keeps
+  // the cookie unless the state matched. Otherwise a forged callback could
+  // cancel a sign-in attempt the visitor has running in another tab.
+  const state = params.get("state");
+  const handoff = state ? readOAuthHandoff(request, state, secure) : null;
+  if (!handoff) {
+    // No matching handoff means this callback did not start in this browser.
+    // Treat it as an expired attempt rather than exchanging a code someone
+    // else obtained.
+    return failSignIn(origin, SIGN_IN_PATH, { error: "expiredCode" });
+  }
+
   const upstreamErrorCode = params.get("errorCode");
   if (upstreamErrorCode) {
     return clear(
       failSignIn(origin, SIGN_IN_PATH, {
         error: authErrorKeyForCode(upstreamErrorCode),
+        returnTo: handoff.returnTo,
       }),
     );
   }
 
   const code = params.get("code");
-  const state = params.get("state");
-  if (!code || !state) {
+  if (!code) {
     return clear(failSignIn(origin, SIGN_IN_PATH, { error: "unexpected" }));
-  }
-
-  const handoff = readOAuthHandoff(request, state, secure);
-  if (!handoff) {
-    // A missing or mismatched handoff means this callback did not start in
-    // this browser. Treat it as an expired attempt rather than exchanging a
-    // code someone else obtained.
-    return clear(failSignIn(origin, SIGN_IN_PATH, { error: "expiredCode" }));
   }
 
   const result = await exchangeOAuthCode(config, {
@@ -68,6 +72,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return clear(
       failSignIn(origin, SIGN_IN_PATH, {
         error: authErrorKeyForCode(result.error.code),
+        returnTo: handoff.returnTo,
       }),
     );
   }
