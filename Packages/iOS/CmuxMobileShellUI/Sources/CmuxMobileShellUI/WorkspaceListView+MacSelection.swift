@@ -336,6 +336,10 @@ private struct WorkspaceMacTitlePickerLabel: View {
             }
         }
         .foregroundStyle(.primary)
+        // The regular iPad toolbar label carries a title and a connection
+        // status line. Give both lines breathing room inside the system glass
+        // capsule without changing the compact iPhone picker height.
+        .padding(.vertical, usesCompactLabelTreatment ? 0 : 4)
         .frame(width: width, alignment: .center)
         .clipped()
         .contentShape(Rectangle())

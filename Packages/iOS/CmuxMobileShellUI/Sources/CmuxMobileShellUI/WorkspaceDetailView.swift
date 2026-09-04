@@ -49,6 +49,10 @@ struct WorkspaceDetailView: View {
     /// Regular-width split owner action. Compact navigation leaves this nil
     /// and continues to use its existing back-button/system-toolbar path.
     var toggleSidebar: (() -> Void)? = nil
+    /// The regular-width split owner shows this action in the detail bar only
+    /// while the sidebar column is hidden. When visible, the sidebar toolbar
+    /// owns the same action instead.
+    var showsSidebarToggle = false
     @Environment(BrowserSurfaceStore.self) var browserStore
     @Environment(BrowserStreamStore.self) var browserStreamStore
     @Environment(MobileSimulatorStreamStore.self) var simulatorStreamStore

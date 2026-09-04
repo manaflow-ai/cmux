@@ -836,7 +836,8 @@ struct WorkspaceShellView: View {
                 createWorkspace: createWorkspaceIfConnected,
                 canCreateWorkspaceForSelection: canCreateWorkspaceForSelection,
                 safeAreaContext: splitColumnVisibility == .detailOnly ? .fullWidth : .splitSidebarVisible,
-                toggleSidebar: toggleSplitSidebar
+                toggleSidebar: toggleSplitSidebar,
+                showsSidebarToggle: splitColumnVisibility == .detailOnly
             )
         }
         .navigationSplitViewStyle(.balanced)
@@ -874,15 +875,19 @@ struct WorkspaceShellView: View {
             }
         }
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                WorkspaceSidebarToggleButton(action: toggleSplitSidebar)
+            }
+        }
+        .toolbar {
             rootToolbarContent
         }
         .toolbar {
             splitSidebarBottomBar(unreadCount: unreadCount)
         }
-        // NavigationSplitView supplies its own sidebar toggle in the sidebar
-        // navigation bar. The detail column owns the stable, non-animating
-        // toggle in `workspaceOwnedTopBar`, so keeping the default here shows
-        // two controls for the same action on iPad.
+        // Keep NavigationSplitView's synthesized control out of the toolbar.
+        // The shared custom action is owned by this sidebar while open and by
+        // the detail bar after the sidebar is hidden.
         .toolbar(removing: .sidebarToggle)
         .searchable(
             text: splitSearchText,
@@ -1639,7 +1644,8 @@ struct WorkspaceShellView: View {
         canCreateWorkspaceForSelection: Bool,
         safeAreaContext: MobileTerminalSafeAreaContext = .fullWidth,
         backButtonConfiguration: WorkspaceBackButtonConfiguration? = nil,
-        toggleSidebar: (() -> Void)? = nil
+        toggleSidebar: (() -> Void)? = nil,
+        showsSidebarToggle: Bool = false
     ) -> some View {
         WorkspaceDetailContainer(
             store: store,
@@ -1653,7 +1659,8 @@ struct WorkspaceShellView: View {
             safeAreaContext: safeAreaContext,
             backButtonConfiguration: backButtonConfiguration,
             signOut: signOut,
-            toggleSidebar: toggleSidebar
+            toggleSidebar: toggleSidebar,
+            showsSidebarToggle: showsSidebarToggle
         )
     }
 }

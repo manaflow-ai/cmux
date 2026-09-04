@@ -11,17 +11,8 @@ extension WorkspaceDetailView {
     /// detail column's layout and only changes its available title width.
     var workspaceOwnedTopBar: some View {
         HStack(spacing: 13) {
-            if let toggleSidebar {
-                Button(action: toggleSidebar) {
-                    Image(systemName: "sidebar.left")
-                        .frame(width: 22, height: 22)
-                }
-                .accessibilityLabel(
-                    L10n.string("mobile.sidebar.toggle", defaultValue: "Show or Hide Sidebar")
-                )
-                .accessibilityIdentifier("MobileSplitSidebarToggle")
-                .ownedBarGlassButton()
-                .fixedSize()
+            if showsSidebarToggle, let toggleSidebar {
+                WorkspaceSidebarToggleButton(action: toggleSidebar)
             }
 
             if backButtonConfiguration != nil {
@@ -78,6 +69,26 @@ extension WorkspaceDetailView {
     }
 }
 
+/// A single shared split-view action. Its owner moves between the sidebar
+/// toolbar and the detail bar as the sidebar column changes, so both placements
+/// have the same hit target and accessibility identity.
+struct WorkspaceSidebarToggleButton: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "sidebar.left")
+                .frame(width: 22, height: 22)
+        }
+        .accessibilityLabel(
+            L10n.string("mobile.sidebar.toggle", defaultValue: "Show or Hide Sidebar")
+        )
+        .accessibilityIdentifier("MobileSplitSidebarToggle")
+        .ownedBarSidebarGlassButton()
+        .fixedSize()
+    }
+}
+
 private extension View {
     @ViewBuilder
     func ownedBarGlassButton() -> some View {
@@ -90,6 +101,21 @@ private extension View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 12)
                 .frame(minHeight: 38)
+                .background(.thinMaterial, in: Capsule())
+        }
+    }
+
+    @ViewBuilder
+    func ownedBarSidebarGlassButton() -> some View {
+        if #available(iOS 26.0, *) {
+            self
+                .buttonStyle(.plain)
+                .frame(width: 44, height: 44)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        } else {
+            self
+                .buttonStyle(.plain)
+                .frame(minWidth: 44, minHeight: 44)
                 .background(.thinMaterial, in: Capsule())
         }
     }
