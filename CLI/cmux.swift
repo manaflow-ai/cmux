@@ -3278,7 +3278,7 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        let payload = capabilityWrappedCommand(command) + "\n"
+        let payload = capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n"
         try writeAllNonBlocking(
             Data(payload.utf8),
             deadline: operationDeadline,
@@ -3353,6 +3353,36 @@ final class SocketClient {
         return response
     }
 
+    private static func automationEnvelopeCommand(_ command: String) -> String {
+        guard !command.hasPrefix("__cmux_automation_origin "),
+              let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
+              !ruleID.isEmpty else {
+            return command
+        }
+        let origin = automationOriginPayload(ruleID: ruleID)
+        guard let data = try? JSONSerialization.data(withJSONObject: origin, options: []),
+              let encoded = String(data: data, encoding: .utf8) else {
+            return command
+        }
+        return "__cmux_automation_origin \(Data(encoded.utf8).base64EncodedString()) \(command)"
+    }
+
+    /// Builds the automation-origin envelope shared by v1 and v2 requests.
+    private static func automationOriginPayload(ruleID: String) -> [String: Any] {
+        let rawChain = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_CHAIN"] ?? ruleID
+        let chain: [String]
+        if let data = rawChain.data(using: .utf8),
+           let decoded = try? JSONSerialization.jsonObject(with: data) as? [String] {
+            chain = decoded.filter { !$0.isEmpty }
+        } else {
+            chain = rawChain.split(separator: ",").map(String.init).filter { !$0.isEmpty }
+        }
+        return [
+            "rule_id": ruleID,
+            "chain": chain.isEmpty ? [ruleID] : chain
+        ]
+    }
+
     func sendOneWay(command: String, writeTimeout: TimeInterval) throws {
         if relayEndpoint != nil, socketFD < 0 {
             try connect()
@@ -3371,7 +3401,7 @@ final class SocketClient {
 
         do {
             try writeAllNonBlocking(
-                Data((capabilityWrappedCommand(command) + "\n").utf8),
+                Data((capabilityWrappedCommand(Self.automationEnvelopeCommand(command)) + "\n").utf8),
                 deadline: Date.now.addingTimeInterval(writeTimeout),
                 timeoutMessage: "Command timed out",
                 failureMessage: "Failed to write to socket"
@@ -4038,11 +4068,15 @@ final class SocketClient {
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil
     ) throws -> [String: Any] {
-        let request: [String: Any] = [
+        var request: [String: Any] = [
             "id": UUID().uuidString,
             "method": method,
             "params": params
         ]
+        if let ruleID = ProcessInfo.processInfo.environment["CMUX_AUTOMATION_RULE_ID"],
+           !ruleID.isEmpty {
+            request["automation_origin"] = Self.automationOriginPayload(ruleID: ruleID)
+        }
         guard JSONSerialization.isValidJSONObject(request) else {
             throw CLIError(message: "Failed to encode v2 request")
         }
@@ -5265,6 +5299,15 @@ struct CMUXCLI {
             return
         }
 
+        // Automation tests are deliberately offline: they validate the
+        // checked-in rule and synthetic event without opening a socket or
+        // executing actions. The live engine uses the identical matcher when
+        // handling real events.
+        if command == "automation", commandArgs.first?.lowercased() == "test" {
+            try runAutomationOfflineTest(commandArgs: Array(commandArgs.dropFirst()), jsonOutput: jsonOutput)
+            return
+        }
+
         // If the argument is a path (not a known command), open a workspace there.
         if shouldOpenAsPathArgument(command), explicitSocketPath == nil {
             try openPath(command)
@@ -5643,6 +5686,9 @@ struct CMUXCLI {
         let capturesSocketErrorsInsideCommand = ["claude-hook", "codex-hook", "feed-hook", "hooks"].contains(command) // Backwards compatibility aliases stay hidden from help.
         do {
         switch command {
+        case "automation":
+            try runAutomationCommand(commandArgs: commandArgs, client: client, jsonOutput: jsonOutput)
+
         case "__sidebar_footer_icon_balance":
             let response = try sendV1Command("__sidebar_footer_icon_balance", client: client)
             print(response)
@@ -18716,6 +18762,8 @@ struct CMUXCLI {
               cmux events --cursor-file ~/.cache/cmux/events.seq --reconnect
               cmux events --after 42 --name feed.item.received
             """
+        case "automation":
+            return CMUXCLI.automationUsage()
         case "vpn":
             return """
             Usage: cmux vpn <up|down|status|revoke|hosts>
@@ -41196,6 +41244,7 @@ export default CMUXSessionRestore;
           version
           capabilities
           events [--after <seq>] [--cursor-file <path>] [--name <event>] [--category <category>] [--reconnect] [--limit <n>] [--no-ack] [--no-heartbeat]
+          automation <list|show|test|enable|disable|logs|reload> [args]
           auth <status|login|logout>
           login | logout                                      (aliases for auth login/logout)
           \(localizedCoderouterAliases())

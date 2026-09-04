@@ -6464,7 +6464,8 @@ extension TabManager {
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex = .empty,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex? = nil,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionTabManagerSnapshot {
         panelTitleUpdateCoalescer.flushNow()
         let restorableTabs = tabs
@@ -6475,7 +6476,9 @@ extension TabManager {
                 $0.sessionSnapshot(
                     includeScrollback: includeScrollback,
                     restorableAgentIndex: restorableAgentIndex,
-                    surfaceResumeBindingIndex: surfaceResumeBindingIndex
+                    surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+                    downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
                 )
             }
         let selectedWorkspaceIndex = selectedTabId.flatMap { selectedTabId in
