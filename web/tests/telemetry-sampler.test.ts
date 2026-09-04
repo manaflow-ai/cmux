@@ -9,7 +9,7 @@ import {
 } from "@opentelemetry/sdk-trace-base";
 
 import { buildCmuxTraceSampler, isPriorityPath, isPrioritySpan, isVmPrioritySpan } from "../services/observability/sampler";
-import { withApiRouteSpan } from "../services/telemetry";
+import { withApiRouteSpan, withPrioritySpan } from "../services/telemetry";
 
 describe("buildCmuxTraceSampler", () => {
   const neverSample = buildCmuxTraceSampler({ CMUX_OTEL_BASE_SAMPLE_RATIO: "0" });
@@ -53,6 +53,9 @@ describe("buildCmuxTraceSampler", () => {
     expect(isPriorityPath("/v10/models")).toBe(false);
     expect(isPriorityPath("/api/coderouterx")).toBe(false);
     expect(isPrioritySpan("GET /api/coderouter/health", { "cmux.priority": false })).toBe(false);
+    expect(decideRoot("GET /api/admin/pro-users", { "http.route": "/api/admin/pro-users" })).toBe(
+      SamplingDecision.RECORD_AND_SAMPLED,
+    );
   });
 
   test("a client-sent sampled traceparent cannot bypass the ratio", () => {
@@ -110,6 +113,7 @@ describe("buildCmuxTraceSampler", () => {
     // Prefix semantics are intentional: /api/vm/... and /api/vm itself.
     expect(isVmPrioritySpan("GET", { "url.path": "/api/vm" })).toBe(true);
   });
+
 });
 
 describe("withApiRouteSpan re-rooting under head sampling", () => {
@@ -168,6 +172,22 @@ describe("withApiRouteSpan re-rooting under head sampling", () => {
         async () => new Response("{}", { status: 200 }),
       ));
     expect(exporter.getFinishedSpans().length).toBe(0);
+  });
+
+  test("explicit priority spans are kept and linked when the request is dropped", async () => {
+    exporter.reset();
+    await otelContext.with(unsampledParentContext(), () =>
+      withPrioritySpan(
+        "cmux-dashboard",
+        "cmux.dashboard.auth",
+        { "http.route": "/dashboard" },
+        async () => undefined,
+      ));
+    const spans = exporter.getFinishedSpans();
+    expect(spans.length).toBe(1);
+    expect(spans[0]?.name).toBe("cmux.dashboard.auth");
+    expect(spans[0]?.parentSpanContext).toBeUndefined();
+    expect(spans[0]?.links[0]?.context.traceId).toBe("1af7651916cd43dd8448eb211c80319c");
   });
 
   test("a vm route inside a sampled trace nests normally", async () => {
