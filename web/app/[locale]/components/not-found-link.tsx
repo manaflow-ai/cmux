@@ -10,17 +10,23 @@ export function NotFoundLink({
   href,
   action,
   className,
+  target,
+  rel,
   children,
 }: {
   href: string;
-  action: "home" | "docs" | "support";
+  action: "home" | "docs" | "support" | "discord" | "github";
   className?: string;
+  target?: React.HTMLAttributeAnchorTarget;
+  rel?: string;
   children: React.ReactNode;
 }) {
   return (
     <a
       href={href}
       className={className}
+      target={target}
+      rel={rel}
       onClick={() =>
         posthog.capture(
           "cmuxterm_404_action_clicked",
@@ -28,7 +34,7 @@ export function NotFoundLink({
             action,
             location: "not_found",
             target: href,
-            from: window.location.pathname,
+            from: "not_found",
           },
           { transport: "sendBeacon", send_instantly: true },
         )

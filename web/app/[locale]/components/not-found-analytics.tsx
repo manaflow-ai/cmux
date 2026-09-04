@@ -15,8 +15,7 @@ export function NotFoundAnalytics({ locale }: { locale: string }) {
     if (captured.current) return;
     captured.current = true;
     posthog.set_config({ before_send: (event) => event });
-    const path = window.location.pathname;
-    const properties = { location: "not_found", locale, path };
+    const properties = { location: "not_found", locale };
     posthog.capture("$pageview", { $current_url: window.location.href });
     posthog.capture("cmuxterm_404_viewed", properties);
   }, [locale]);

@@ -6,13 +6,18 @@ import { ThemeBootstrapScript } from "./[locale]/theme-bootstrap-script";
 import { NotFoundDownloadLink } from "./[locale]/components/not-found-download-link";
 import { NotFoundAnalytics } from "./[locale]/components/not-found-analytics";
 import { NotFoundLink } from "./[locale]/components/not-found-link";
+import { NotFoundTerminal } from "./[locale]/components/not-found-terminal";
 
 const themeBootstrapScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark")}catch(e){}})()`;
 
-export const metadata: Metadata = {
-  title: "Page not found | cmux",
-  description: "The requested cmux page could not be found.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const locale = await getLocale();
+  const t = await getTranslations({ locale, namespace: "notFoundPage" });
+  return {
+    title: t("metaTitle"),
+    description: t("metaDescription"),
+  };
+}
 
 function localizedHref(locale: Locale, path: string) {
   return locale === routing.defaultLocale ? path : `/${locale}${path}`;
@@ -93,36 +98,18 @@ export default async function NotFound() {
               </div>
             </div>
 
-            <div
-              aria-hidden="true"
-              className="overflow-hidden rounded-xl border border-border bg-background shadow-2xl shadow-black/5 dark:shadow-black/30"
-            >
-              <div className="flex h-11 items-center gap-2 border-b border-border px-4">
-                <span className="h-2.5 w-2.5 rounded-full bg-border" />
-                <span className="h-2.5 w-2.5 rounded-full bg-border" />
-                <span className="h-2.5 w-2.5 rounded-full bg-border" />
-                <span className="ml-2 font-mono text-[11px] text-muted">
-                  {t("terminalTitle")}
-                </span>
-              </div>
-              <div className="min-h-56 p-5 font-mono text-[13px] leading-7 sm:p-6 sm:text-sm">
-                <p>
-                  <span className="text-[var(--cmux-product-blue-on-background)]">
-                    ~
-                  </span>{" "}
-                  <span className="text-muted">$</span> {t("terminalCommand")}
-                </p>
-                <p className="text-muted">{t("terminalError")}</p>
-                <p className="text-muted">{t("terminalHint")}</p>
-                <p className="mt-5 flex items-center gap-2">
-                  <span className="text-[var(--cmux-product-blue-on-background)]">
-                    ~
-                  </span>{" "}
-                  <span className="text-muted">$</span>
-                  <span className="animate-blink inline-block h-4 w-1.5 bg-foreground" />
-                </p>
-              </div>
-            </div>
+            <NotFoundTerminal
+              title={t("terminalTitle")}
+              command={t("terminalCommand")}
+              welcome={t("terminalWelcome")}
+              docsLabel={t("terminalDocs")}
+              discordLabel={t("terminalDiscord")}
+              githubLabel={t("terminalGithub")}
+              emailLabel={t("terminalEmail")}
+              supportLabel={t("supportAction")}
+              docsHref={docsHref}
+              supportHref={supportHref}
+            />
           </section>
 
           <footer className="flex items-center justify-between border-t border-border pt-5 text-xs text-muted">
