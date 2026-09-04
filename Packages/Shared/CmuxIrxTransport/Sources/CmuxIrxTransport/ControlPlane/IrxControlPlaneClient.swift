@@ -351,7 +351,9 @@ public actor IrxControlPlaneClient {
         generation: UInt64,
         socket: URLSessionWebSocketTask
     ) async {
-        guard generation == loopGeneration, !Task.isCancelled else { return }
+        guard generation == loopGeneration, self.socket === socket, !Task.isCancelled else {
+            return
+        }
         guard let probe = try? decoder.decode(TypeProbe.self, from: data) else {
             journal.record("control-plane", "frame-unparseable")
             return
@@ -408,7 +410,9 @@ public actor IrxControlPlaneClient {
                     "control-plane", "passes-received",
                     ["rev": String(fact.rev), "count": String(credentials.count)]
                 )
+                guard generation == loopGeneration, self.socket === socket else { return }
                 if await handlers.onRelayPasses(credentials) {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     // Relay credentials are a revisioned control-plane fact.
                     // Ack only after the consumer accepted and persisted them.
                     await acknowledge(rev: fact.rev, on: socket, generation: generation)
@@ -423,9 +427,11 @@ public actor IrxControlPlaneClient {
                         "relay": fact.payload.homeRelayURL,
                     ]
                 )
+                guard generation == loopGeneration, self.socket === socket else { return }
                 if await handlers.onHintUpdate(
                     fact.payload.endpointID, fact.payload.homeRelayURL)
                 {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     // Hint updates are independently revisioned when delivered
                     // outside a directory snapshot; ack after applying them.
                     await acknowledge(rev: fact.rev, on: socket, generation: generation)
@@ -447,17 +453,21 @@ public actor IrxControlPlaneClient {
                 )
                 var applied = false
                 if let fact = try? decoder.decode(CTLDirectory.self, from: data) {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     applied = await handlers.onDirectory(fact.payload)
                 } else {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     applied = await handlers.onDirectory(
                         Self.legacyDirectoryPayload(from: listFact))
                 }
                 for binding in listFact.payload.bindings {
                     if let relay = binding.homeRelayURL {
+                        guard generation == loopGeneration, self.socket === socket else { return }
                         applied = await handlers.onHintUpdate(binding.endpointID, relay) && applied
                     }
                 }
                 if let onDirectoryFact = handlers.onDirectoryFact {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     applied = await onDirectoryFact(listFact) && applied
                 }
                 // Directory delivery is itself a revisioned fact. Ack only
@@ -476,6 +486,7 @@ public actor IrxControlPlaneClient {
                     ]
                 )
                 if let issuedAt = stamp.issuedAt {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     await handlers.onFreshness?(stamp.rev, issuedAt)
                 }
             case "snapshot_complete":
@@ -485,6 +496,7 @@ public actor IrxControlPlaneClient {
                 journal.record(
                     "control-plane", "snapshot-complete", ["rev": String(fact.rev)]
                 )
+                guard generation == loopGeneration, self.socket === socket else { return }
                 await handlers.onSnapshotComplete(fact.rev)
                 // The server may extend snapshot_complete with issuedAt as a
                 // lease re-stamp; handle it defensively alongside `current`.
@@ -492,6 +504,7 @@ public actor IrxControlPlaneClient {
                     IrxCtlFreshnessStamp.self, from: data),
                     let issuedAt = stamp.issuedAt
                 {
+                    guard generation == loopGeneration, self.socket === socket else { return }
                     await handlers.onFreshness?(stamp.rev, issuedAt)
                 }
             case "error":
