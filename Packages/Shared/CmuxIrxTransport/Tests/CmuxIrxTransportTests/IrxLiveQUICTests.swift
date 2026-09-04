@@ -66,6 +66,55 @@ enum IrxLiveTestSupport {
 
 @Suite("live QUIC", .serialized)
 struct IrxLiveQUICTests {
+    @Test("closing a control transport releases its owner without closing the session")
+    func controlTransportReleasesOwner() async throws {
+        let journal = IrxLiveTestSupport.journal()
+        let server = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 1)
+        let client = try await IrxLiveTestSupport.bindLoopback(
+            seed: IrxLiveTestSupport.identitySeed(), remoteBiCredit: 0)
+        let serverTask = Task { () -> IrxConnection? in
+            guard let incoming = await server.acceptNext() else { return nil }
+            let accepting = try await incoming.accept()
+            let connection = try await accepting.connect()
+            let irx = IrxConnection(
+                connection: connection, role: .acceptor, journal: journal)
+            guard await IrxAdmission.performServer(
+                connection: irx,
+                judgment: IrxLiveTestSupport.fixedJudgment(accepting: "good-grant"),
+                journal: journal
+            ) != nil else {
+                return nil
+            }
+            return irx
+        }
+
+        let connection = try await client.connect(
+            addr: IrxLiveTestSupport.loopbackAddr(of: server), alpn: IrxProtocol.alpnData)
+        let irx = IrxConnection(connection: connection, role: .dialer, journal: journal)
+        let (_, control) = try await IrxAdmission.performClient(
+            connection: irx, grantJWS: "good-grant", journal: journal)
+        let releaseProbe = IrxControlReleaseProbe()
+        let transport = IrxControlByteTransport(
+            closeCode: .explicitRedial,
+            establish: { (irx, control) },
+            onClose: { await releaseProbe.record() }
+        )
+
+        try await transport.connect()
+        await transport.close()
+        await transport.close()
+
+        #expect(await releaseProbe.count == 1)
+        #expect(await !irx.isClosed)
+
+        let serverConnection = try #require(try await serverTask.value)
+        await irx.close(code: .userRequested, origin: .local)
+        await serverConnection.close(code: .userRequested, origin: .local)
+        try? await server.close()
+        try? await client.close()
+    }
+
     @Test("admission admits a valid grant in one round trip and lanes carry raw bytes")
     func admissionAndLanes() async throws {
         let journal = IrxLiveTestSupport.journal()
@@ -238,5 +287,13 @@ struct IrxLiveQUICTests {
         serverLoop.cancel()
         try? await server.close()
         try? await client.close()
+    }
+}
+
+private actor IrxControlReleaseProbe {
+    private(set) var count = 0
+
+    func record() {
+        count += 1
     }
 }
