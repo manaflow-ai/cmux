@@ -4,7 +4,7 @@ import Foundation
 extension TerminalController {
     /// Adds one explicitly authorized URL, file, HTML, or text value.
     nonisolated func v2ArtifactsAdd(params: [String: Any]) async -> V2CallResult {
-        guard v2UUID(params, "workspace_id") != nil else {
+        guard let workspaceID = v2UUID(params, "workspace_id") else {
             return .err(
                 code: "not_found",
                 message: String(localized: "artifacts.cli.noWorkspace", defaultValue: "No workspace is available for Artifacts"),
@@ -12,8 +12,7 @@ extension TerminalController {
             )
         }
         let workspace: Workspace? = await MainActor.run {
-            guard let tabManager = self.v2ResolveTabManager(params: params) else { return nil }
-            return self.v2ResolveWorkspace(params: params, tabManager: tabManager)
+            self.artifactsWorkspace(id: workspaceID)
         }
         guard let workspace else {
             return .err(
@@ -126,6 +125,13 @@ extension TerminalController {
             )
         }
         return .ok(["workspace_id": workspace.id.uuidString, "surface": "artifacts"])
+    }
+
+    @MainActor
+    private func artifactsWorkspace(id: UUID) -> Workspace? {
+        let routing: [String: Any] = ["workspace_id": id.uuidString]
+        guard let tabManager = v2ResolveTabManager(params: routing) else { return nil }
+        return v2ResolveWorkspace(params: routing, tabManager: tabManager)
     }
 
     /// Handles the legacy v1 `artifacts` command by opening the same surface action.
