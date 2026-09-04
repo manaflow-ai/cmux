@@ -3135,6 +3135,8 @@ class TerminalController {
             "surface.resume.set",
             "surface.resume.get",
             "surface.resume.clear",
+            "agent.restore.admit",
+            "agent.restore.release",
             "debug.terminals",
             "surface.send_text",
             "surface.send_key",

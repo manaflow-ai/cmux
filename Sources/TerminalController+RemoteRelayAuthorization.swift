@@ -39,6 +39,8 @@ extension TerminalController {
         "surface.report_shell_state",
         "surface.ports_kick",
         "agent.resolve_delivery_target",
+        "agent.restore.admit",
+        "agent.restore.release",
         "notification.create",
         "notification.create_for_target",
     ]
@@ -61,6 +63,8 @@ extension TerminalController {
         "surface.clear_git_branch",
         "surface.report_shell_state",
         "surface.ports_kick",
+        "agent.restore.admit",
+        "agent.restore.release",
         "notification.create",
         "notification.create_for_target",
     ]
@@ -74,6 +78,8 @@ extension TerminalController {
         "surface.resume.clear",
         "surface.read_text",
         "surface.read_selection",
+        "agent.restore.admit",
+        "agent.restore.release",
         "notification.create_for_target",
     ]
 

@@ -93,9 +93,85 @@ struct CachedAgentProcessIdentityValidator: Sendable {
         _ arguments: [String],
         matches snapshot: SessionRestorableAgentSnapshot
     ) -> Bool {
-        guard let registration = snapshot.registration else { return true }
-        guard case .argvOption(let option) = registration.sessionIdSource else { return true }
-        return nonOptionValue(after: option, in: arguments) == snapshot.sessionId
+        if let registration = snapshot.registration {
+            let observedSessionID: String?
+            switch registration.sessionIdSource {
+            case .argvOption(let option):
+                guard let observedSessionID = nonOptionValue(after: option, in: arguments) else {
+                    // An argv-keyed registration cannot prove ownership when
+                    // its identity option is absent. Preserve the historical
+                    // fail-closed behavior instead of treating any matching
+                    // executable as this session.
+                    return false
+                }
+                return ManagedAgentSessionIdentity.sessionIDsMatch(
+                    kind: snapshot.kind.rawValue,
+                    lhs: observedSessionID,
+                    rhs: snapshot.sessionId
+                )
+            case .piSessionFile:
+                observedSessionID = firstValue(
+                    after: ["--session", "--resume", "-r"],
+                    in: arguments
+                )
+            case .grokSessionDirectory:
+                observedSessionID = firstValue(
+                    after: ["--session-id", "--session", "--resume", "-r"],
+                    in: arguments
+                )
+            case .persistedStore:
+                // Hermes is validated in the dedicated branch above.
+                observedSessionID = nil
+            }
+            guard let observedSessionID else { return true }
+            return ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: snapshot.kind.rawValue,
+                lhs: observedSessionID,
+                rhs: snapshot.sessionId
+            )
+        }
+        let observedSessionID: String?
+        switch snapshot.kind {
+        case .claude:
+            observedSessionID = firstValue(
+                after: ["--session-id", "--resume", "-r"],
+                in: arguments
+            )
+        case .codex:
+            observedSessionID = firstValue(
+                after: ["--session-id", "--session", "--resume", "-r"],
+                orSubcommand: "resume",
+                in: arguments
+            )
+        default:
+            observedSessionID = nil
+        }
+        guard let observedSessionID else { return true }
+        return ManagedAgentSessionIdentity.sessionIDsMatch(
+            kind: snapshot.kind.rawValue,
+            lhs: observedSessionID,
+            rhs: snapshot.sessionId
+        )
+    }
+
+    private func firstValue(
+        after options: [String],
+        orSubcommand subcommand: String? = nil,
+        in arguments: [String]
+    ) -> String? {
+        for option in options {
+            if let value = nonOptionValue(after: option, in: arguments) {
+                return value
+            }
+        }
+        guard let subcommand,
+              let index = arguments.firstIndex(of: subcommand) else {
+            return nil
+        }
+        let next = arguments.index(after: index)
+        guard next < arguments.endIndex else { return nil }
+        let value = arguments[next].trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty || value.hasPrefix("-") ? nil : value
     }
 
     private func recordedExecutableBasename(_ snapshot: SessionRestorableAgentSnapshot) -> String? {
