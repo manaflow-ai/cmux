@@ -157,10 +157,12 @@ import Testing
     @Test func connectedDialCarriesAdmittedSessionLink() async throws {
         let transport = LinkedDiagnosticSessionTransport(sessionID: 91)
         let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let (paths, pathContinuation) = AsyncStream<DiagnosticPathKind>.makeStream()
         let session = MobileCoreRPCSession(
             makeTransport: { transport },
             diagnosticTransport: .iroh,
-            transportConnectObserver: { event in _ = continuation.yield(event) }
+            transportConnectObserver: { event in _ = continuation.yield(event) },
+            transportPathObserver: { _, path in _ = pathContinuation.yield(path) }
         )
         let request = try MobileCoreRPCClient.requestData(
             method: "mobile.host.status",
@@ -174,14 +176,46 @@ import Testing
         )
         await session.tearDown(error: .connectionClosed)
         continuation.finish()
+        pathContinuation.finish()
         let recorded = await collect(events)
         #expect(recorded.count == 2)
         guard case .attempt = recorded[0],
               case let .connected(_, _, _, sessionID) = recorded[1] else {
-            Issue.record("Expected attempt followed by connected")
+            Issue.record("Expected attempt, then connected")
             return
         }
         #expect(sessionID == 91)
+        #expect(await collect(paths) == [.direct])
+    }
+
+    @Test func pathObserverDoesNotCarryLANAddress() async throws {
+        let transport = LinkedDiagnosticSessionTransport(
+            sessionID: 92,
+            path: .lan(address: "192.168.1.42:58_465")
+        )
+        let (events, continuation) = AsyncStream<MobileRPCTransportConnectEvent>.makeStream()
+        let (paths, pathContinuation) = AsyncStream<DiagnosticPathKind>.makeStream()
+        let session = MobileCoreRPCSession(
+            makeTransport: { transport },
+            diagnosticTransport: .lan,
+            transportConnectObserver: { event in _ = continuation.yield(event) },
+            transportPathObserver: { _, path in _ = pathContinuation.yield(path) }
+        )
+        let request = try MobileCoreRPCClient.requestData(
+            method: "mobile.host.status",
+            id: "linked-session"
+        )
+        _ = try await session.send(
+            payload: request,
+            requestID: "linked-session",
+            deadlineUptimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                + 5 * 1_000_000_000
+        )
+        await session.tearDown(error: .connectionClosed)
+        continuation.finish()
+        pathContinuation.finish()
+        _ = await collect(events)
+        #expect(await collect(paths) == [.lan])
     }
 
     private func collect(
@@ -193,20 +227,33 @@ import Testing
         }
         return events
     }
+
+    private func collect(
+        _ stream: AsyncStream<DiagnosticPathKind>
+    ) async -> [DiagnosticPathKind] {
+        var paths: [DiagnosticPathKind] = []
+        for await path in stream {
+            paths.append(path)
+        }
+        return paths
+    }
 }
 
 private actor LinkedDiagnosticSessionTransport:
-    CmxByteTransportDiagnosticSessionIdentifying
+    CmxByteTransportDiagnosticSessionIdentifying,
+    CmxByteTransportPathObserving
 {
     private let base: ControllableResponseTransport
     private let sessionID: Int
+    private let path: CmxTransportPath
 
-    init(sessionID: Int) {
+    init(sessionID: Int, path: CmxTransportPath = .irohDirect) {
         self.base = ControllableResponseTransport(
             closeEndsReceive: true,
             automaticallyRespondingRequestIDs: ["linked-session"]
         )
         self.sessionID = sessionID
+        self.path = path
     }
 
     func connect() async throws { try await base.connect() }
@@ -214,6 +261,13 @@ private actor LinkedDiagnosticSessionTransport:
     func send(_ data: Data) async throws { try await base.send(data) }
     func close() async { await base.close() }
     func transportDiagnosticSessionID() async -> Int? { sessionID }
+    func currentTransportPath() async -> CmxTransportPath { path }
+    func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        AsyncStream { continuation in
+            continuation.yield(path)
+            continuation.finish()
+        }
+    }
 }
 
 private actor MobileRPCConnectCancellationSignal {

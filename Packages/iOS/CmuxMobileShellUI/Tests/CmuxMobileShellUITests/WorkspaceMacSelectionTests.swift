@@ -957,7 +957,7 @@ import Testing
         foregroundAnchor.groupID = "foreground-group"
         var secondaryAnchor = workspace(id: "secondary-anchor", macDeviceID: "mac-b")
         secondaryAnchor.groupID = "secondary-group"
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 displayName: "Mac A",

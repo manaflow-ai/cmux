@@ -626,7 +626,7 @@ public actor DeviceRegistryService: DeviceRegistryRefreshing {
     static func parseDeviceList(in data: Data) -> [RegistryDevice]? {
         struct FailableRoute: Decodable {
             let value: CmxAttachRoute?
-            init(from decoder: Decoder) throws {
+            init(from decoder: any Decoder) throws {
                 value = try? CmxAttachRoute(from: decoder)
             }
         }

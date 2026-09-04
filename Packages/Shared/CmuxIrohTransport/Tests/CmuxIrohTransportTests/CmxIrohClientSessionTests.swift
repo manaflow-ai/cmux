@@ -50,6 +50,122 @@ struct CmxIrohClientSessionTests {
     }
 
     @Test
+    func freshNativeDirectPathProjectsAsIrohDirect() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [try publicRelayHint()]),
+            credential: credential,
+            transportMode: .iroh
+        )
+
+        // A public direct address may be discovered after the initial plan was
+        // built. It has native Iroh provenance by path category even without a
+        // matching hint in the original plan.
+        #expect(
+            await session.transportPath(
+                for: .direct(address: "203.0.113.42:443")
+            ) == .irohDirect
+        )
+        // Private observations still require a source-qualified hint and must
+        // remain unavailable when no provenance can be established.
+        #expect(
+            await session.transportPath(
+                for: .privateNetwork(address: "192.168.1.42:443")
+        ) == .unavailable
+        )
+    }
+
+    @Test
+    func pinnedIrohRejectsRelayMigrationOutsideTheCapturedPlan() async throws {
+        let allowedRelay = try publicRelayHint()
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [allowedRelay]),
+            credential: credential,
+            transportMode: .iroh
+        )
+
+        #expect(
+            await session.pathIsAllowed(.relay(url: allowedRelay.value))
+        )
+        #expect(
+            !(await session.pathIsAllowed(
+                .relay(url: "https://unexpected.relay.example/")
+            ))
+        )
+    }
+
+    @Test
+    func pinnedIrohRejectsASelectedPathThatCannotBeClassified() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try testIrohDialPlan(publicPaths: [try publicRelayHint()]),
+            credential: credential,
+            transportMode: .iroh
+        )
+        let unknownPath = CmxIrohObservedConnectionPath(snapshots: [
+            CmxIrohConnectionPathSnapshot(
+                isSelected: true,
+                remoteAddress: "peer-name.invalid",
+                isIP: false,
+                isRelay: false
+            ),
+        ])
+
+        // A selected-but-unclassified path is not the same as a temporarily
+        // empty selection. Pinned modes must reject it rather than grace it.
+        #expect(unknownPath == .unknown)
+        #expect(!(await session.pathIsAllowed(unknownPath)))
+    }
+
+    @Test
+    func directModeRejectsAnAddresslessDirectObservation() async throws {
+        let endpoint = TestDialingIrohEndpoint(
+            localIdentity: localIdentity,
+            dialResults: []
+        )
+        let directHint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "10.0.0.8:4242",
+            source: .customVPN,
+            privacyScope: .privateNetwork,
+            observedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            expiresAt: Date(timeIntervalSince1970: 1_700_003_600),
+            networkProfile: CmxIrohNetworkProfileKey(
+                source: .customVPN,
+                profileID: String(repeating: "e", count: 64)
+            )
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: endpoint,
+            targetIdentity: remoteIdentity,
+            dialPlan: try #require(
+                CmxIrohDialPlan.directOnly(pinnedPaths: [directHint])
+            ),
+            credential: credential,
+            transportMode: .direct
+        )
+
+        #expect(!(await session.pathIsAllowed(.direct(address: nil))))
+        #expect(await session.pathIsAllowed(.direct(address: "10.0.0.8:4242")))
+    }
+
+    @Test
     func publicDialAdmitsControlAndPreservesFollowingRPCBytes() async throws {
         let events = TestIrohEventRecorder()
         let control = controlStream(

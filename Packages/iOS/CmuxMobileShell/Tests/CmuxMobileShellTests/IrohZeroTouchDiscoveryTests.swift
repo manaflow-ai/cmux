@@ -768,6 +768,68 @@ struct IrohZeroTouchDiscoveryTests {
         #expect(fixture.factory.attemptedRouteIDs().isEmpty)
     }
 
+    /// LAN Only uses an encrypted Iroh identity as its bootstrap, so it must
+    /// keep zero-touch discovery available when no pairing row exists yet.
+    @Test func lanOnlyMethodKeepsZeroTouchIrohDiscovery() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let discovery = ScriptedIrohDiscovery(snapshots: [[live]])
+        let fixture = try await makeFixture(
+            discovery: discovery,
+            reportedDeviceID: "mac-a",
+            connectionMethod: .lan
+        )
+        defer { fixture.cleanup() }
+        let scope = try #require(
+            await fixture.shell.currentScopeSnapshot(userID: "user-1")
+        )
+
+        let candidates = await fixture.shell.discoverZeroTouchIrohCandidates(
+            scope: scope,
+            generation: fixture.shell.storedMacReconnectGeneration,
+            excluding: []
+        )
+
+        #expect(candidates.count == 1)
+        #expect(candidates.first?.macDeviceID == "mac-a")
+        #expect(discovery.callCount() == 1)
+    }
+
+    @Test func lanOverrideKeepsDiscoveryWhenDefaultIsTailscale() async throws {
+        let live = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let fixture = try await makeFixture(
+            discovery: ScriptedIrohDiscovery(snapshots: [[live]]),
+            reportedDeviceID: "mac-a",
+            connectionMethod: .tailscale
+        )
+        defer { fixture.cleanup() }
+
+        try await fixture.store.upsert(
+            macDeviceID: live.deviceID,
+            displayName: live.displayName,
+            routes: live.routes,
+            instanceTag: live.instanceTag,
+            markActive: true,
+            stackUserID: "user-1",
+            teamID: nil,
+            now: live.lastSeenAt
+        )
+        try await fixture.store.setConnectionMethod(
+            macDeviceID: live.deviceID,
+            instanceTag: live.instanceTag,
+            rawValue: MobileConnectionMethod.lan.rawValue,
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        let storedRows = try await fixture.store.loadAll(
+            stackUserID: "user-1",
+            teamID: nil
+        )
+        #expect(storedRows.first?.connectionMethodRawValue == MobileConnectionMethod.lan.rawValue)
+        await fixture.shell.loadPairedMacs()
+
+        #expect(!fixture.shell.zeroTouchIrohDiscoveryDisabled)
+    }
+
     private func makeFixture(
         candidates: [MobileDiscoveredIrohMac],
         reportedDeviceID: String,

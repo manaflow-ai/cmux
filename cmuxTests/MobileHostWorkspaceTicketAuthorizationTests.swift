@@ -35,6 +35,19 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
     }
 
+    private func lanRoute(
+        id: String = "lan",
+        host: String = "192.168.1.10",
+        priority: Int = 5
+    ) throws -> CmxAttachRoute {
+        try CmxAttachRoute(
+            id: id,
+            kind: .lan,
+            endpoint: .hostPort(host: host, port: 58465),
+            priority: priority
+        )
+    }
+
     private func irohRoute(withPathHint: Bool = true) throws -> CmxAttachRoute {
         let pathHints = if withPathHint {
             [
@@ -79,7 +92,10 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let routes = [loopback, tailscale, iroh]
 
         #expect(try MobileAttachTarget.simulatorInjection.selectRoutes(from: routes) == [sanitizedIroh])
-        #expect(try MobileAttachTarget.physicalDevice.selectRoutes(from: routes) == [sanitizedIroh])
+        #expect(
+            try MobileAttachTarget.physicalDevice.selectRoutes(from: routes)
+                == [sanitizedIroh, try tailscaleRoute()]
+        )
         #expect(try MobileAttachTarget.ticketOnly.selectRoutes(from: routes) == routes)
         #expect(
             try MobileAttachTarget.simulatorInjection.selectRoutes(from: [loopback, tailscale])
@@ -91,7 +107,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         )
     }
 
-    @Test func endpointIDOnlyIrohAttachURLsAreLosslessAndCarryNoSecretOrPathHint() throws {
+    @Test func attachURLsSanitizeIrohAndPreservePhysicalCompatibility() throws {
         let store = MobileAttachTicketStore()
         let originalRoute = try irohRoute()
 
@@ -115,18 +131,20 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
             case .simulatorInjection:
                 #expect(attachURL.contains("?v=1&payload="))
                 decoded = try compactTicket(from: attachURL)
+                #expect(decoded.routes == selectedRoutes)
             case .physicalDevice:
-                #expect(attachURL.contains("?v=3&i="))
+                #expect(attachURL.contains("?v=2"))
                 #expect(!attachURL.contains("payload="))
                 let components = try #require(URLComponents(string: attachURL))
                 decoded = try CmxPairingQRCode().decode(components)
+                #expect(decoded.routes == [try tailscaleRoute()])
+                #expect(decoded.authToken == nil)
+                continue
             case .ticketOnly:
                 Issue.record("Ticket-only target does not produce an attach URL")
                 continue
             }
             let authToken = try #require(ticket.authToken)
-            #expect(decoded.routes.count == selectedRoutes.count)
-            #expect(decoded.routes.first?.endpoint == selectedRoutes.first?.endpoint)
             #expect(decoded.authToken == nil)
             #expect(!attachURL.contains("relay.should-not-leak.example"))
             #expect(!attachURL.contains(authToken))
@@ -142,6 +160,12 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
     @Test func emptyHostRoutesPreserveNoRoutesBeforeTargetFiltering() {
         #expect(throws: MobileAttachTicketStoreError.noRoutes) {
             try MobileAttachTarget.physicalDevice.selectRoutes(from: [])
+        }
+    }
+
+    @Test func physicalDeviceRejectsRawLANWithoutAnEncryptedBootstrap() throws {
+        #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try MobileAttachTarget.physicalDevice.selectRoutes(from: [try lanRoute()])
         }
     }
 
@@ -179,6 +203,89 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         #expect(try CmxPairingQRCode().decode(components).routes == ticket.routes)
     }
 
+    @Test func physicalDeviceMixedIrohAndLANUsesIdentityOnlyIrohCode() throws {
+        let store = MobileAttachTicketStore()
+        let iroh = try irohRoute()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [iroh, try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        #expect(attachURL.contains("?v=1&payload="))
+        #expect(!attachURL.contains("192.168.1.10"))
+
+        let decoded = try compactTicket(from: attachURL)
+        #expect(decoded.routes.count == 1)
+        #expect(decoded.routes.first?.kind == .iroh)
+        #expect(decoded.macDeviceID == ticket.macDeviceID)
+        guard case let .peer(identity, pathHints) = decoded.routes.first?.endpoint else {
+            Issue.record("Expected an identity-only Iroh route")
+            return
+        }
+        #expect(identity.endpointID == endpointID)
+        #expect(pathHints.isEmpty)
+    }
+
+    @Test func legacyAttachURLStripsLANForReleasedPhoneDecoders() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try irohRoute(), try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        #expect(attachURL.contains("?v=1&payload="))
+        let decoded = try compactTicket(from: attachURL)
+        #expect(decoded.routes.map(\.kind) == [.iroh])
+        #expect(decoded.routes.first?.endpoint == try irohRoute(withPathHint: false).endpoint)
+        #expect(decoded.authToken == nil)
+    }
+
+    @Test func physicalDeviceMixedRoutesPreserveAllRouteClassesInCompactQRCode() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try irohRoute(withPathHint: false), try lanRoute(), try tailscaleRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        let components = try #require(URLComponents(string: attachURL))
+        #expect(components.queryItems?.first(where: { $0.name == "v" })?.value == "1")
+        #expect(components.queryItems?.contains(where: { $0.name == "payload" }) == true)
+        let decoded = try CmxPairingQRCode().decode(components)
+        #expect(decoded.routes.map(\.kind) == [.iroh, .lan, .tailscale])
+        #expect(decoded.routes.contains { $0.kind == .lan })
+        #expect(decoded.routes.contains { $0.kind == .tailscale })
+        #expect(decoded.routes.contains { $0.kind == .iroh })
+        #expect(decoded.authToken == nil)
+    }
+
+    @Test func physicalDeviceTailscaleAndLANFallbackStripsLANKind() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "workspace-scoped",
+            terminalID: nil,
+            routes: [try tailscaleRoute(), try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket, target: .physicalDevice)
+        let attachURL = try #require(payload["attach_url"] as? String)
+        #expect(attachURL.contains("?v=1&payload="))
+        let decoded = try compactTicket(from: attachURL)
+        #expect(decoded.routes.map(\.kind) == [.tailscale])
+    }
+
     @Test func physicalDeviceCanonicalizesFilteredSecondaryRouteForV2() throws {
         let secondaryRoute = try tailscaleRoute(
             id: "tailscale_2",
@@ -206,7 +313,7 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
     @Test func ticketOnlyPayloadPreservesMixedRoutesWithoutAttachURL() throws {
         let store = MobileAttachTicketStore()
-        let routes = [try loopbackRoute(), try tailscaleRoute()]
+        let routes = [try loopbackRoute(), try tailscaleRoute(), try lanRoute()]
         let ticket = try store.createTicket(
             workspaceID: "",
             terminalID: nil,
@@ -216,7 +323,31 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
 
         let payload = try store.payload(for: ticket, target: .ticketOnly)
         #expect(payload["attach_url"] == nil)
-        #expect((payload["routes"] as? [[String: Any]])?.count == routes.count)
+        // `ticket_only` is the authenticated contract consumed by released
+        // decoders. They cannot represent the newer `.lan` route kind, so the
+        // compatibility projection intentionally drops LAN while retaining
+        // the token and every route kind those decoders understand.
+        #expect((payload["routes"] as? [[String: Any]])?.count == 2)
+        #expect(
+            (payload["routes"] as? [[String: Any]])?.contains {
+                $0["kind"] as? String == CmxAttachTransportKind.lan.rawValue
+            } == false
+        )
+        #expect(payload["ticket"] is [String: Any])
+    }
+
+    @Test func ticketOnlyLANOnlyPayloadReportsRouteUnavailable() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try lanRoute()],
+            ttl: 3600
+        )
+
+        #expect(throws: MobileAttachTicketStoreError.routeUnavailable) {
+            try store.payload(for: ticket, target: .ticketOnly)
+        }
     }
 
     @Test func omittedTargetPreservesLegacyAttachURL() throws {
@@ -231,6 +362,31 @@ struct MobileHostWorkspaceTicketAuthorizationTests {
         let payload = try store.payload(for: ticket)
         let attachURL = try #require(payload["attach_url"] as? String)
         #expect(try compactTicket(from: attachURL).routes == ticket.routes)
+    }
+
+    @Test func omittedTargetTicketPayloadStripsLANForReleasedDecoders() throws {
+        let store = MobileAttachTicketStore()
+        let ticket = try store.createTicket(
+            workspaceID: "",
+            terminalID: nil,
+            routes: [try irohRoute(withPathHint: false), try lanRoute()],
+            ttl: 3600
+        )
+
+        let payload = try store.payload(for: ticket)
+        let ticketObject = try #require(payload["ticket"] as? [String: Any])
+        let ticketRoutes = try #require(ticketObject["routes"] as? [[String: Any]])
+        let routeObjects = try #require(payload["routes"] as? [[String: Any]])
+
+        // The omitted-target response is the pre-target compatibility contract.
+        // Released decoders have a closed transport-kind enum and must be able
+        // to decode both the full ticket and its convenience route projection.
+        #expect(ticketRoutes.map { $0["kind"] as? String } == [
+            CmxAttachTransportKind.iroh.rawValue,
+        ])
+        #expect(routeObjects.map { $0["kind"] as? String } == [
+            CmxAttachTransportKind.iroh.rawValue,
+        ])
     }
 
     @Test func omittedTargetTailscaleCompatibilityCodeIsMinimalV2() throws {

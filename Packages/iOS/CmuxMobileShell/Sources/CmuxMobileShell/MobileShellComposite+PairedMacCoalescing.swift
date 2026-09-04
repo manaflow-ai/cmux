@@ -61,7 +61,8 @@ extension MobileShellComposite {
     static func coalescePairedMacsByDialEndpoint(
         _ macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> [MobilePairedMac] {
         var selectedByKey: [String: MobilePairedMac] = [:]
         var orderByKey: [String: Int] = [:]
@@ -69,7 +70,8 @@ extension MobileShellComposite {
         for (index, mac) in macs.enumerated() {
             let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                defaultTransportMode: defaultTransportMode
             ) ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
             guard let existing = selectedByKey[key] else {
@@ -98,7 +100,8 @@ extension MobileShellComposite {
     static func coalescePairedMacsByIrohEndpointAuthority(
         _ macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> [MobilePairedMac] {
         var selectedByKey: [String: MobilePairedMac] = [:]
         var orderByKey: [String: Int] = [:]
@@ -107,9 +110,12 @@ extension MobileShellComposite {
             let key = irohEndpointID(
                 for: mac,
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                defaultTransportMode: defaultTransportMode
             ).map {
-                "iroh-authority:\(Self.scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
+                let modeScope = mac.storedConnectionMethod?.transportMode
+                    ?? defaultTransportMode
+                return "iroh-authority:mode:\(modeScope):\(Self.scopedIrohEndpointID(endpointID: $0, instanceTag: mac.instanceTag))"
             }
                 ?? "device:\(mac.id)"
             orderByKey[key] = min(orderByKey[key] ?? index, index)
@@ -130,12 +136,15 @@ extension MobileShellComposite {
     static func irohEndpointID(
         for mac: MobilePairedMac,
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> String? {
         let reconnectRoutes = storedReconnectRoutes(
             mac.routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            transportMode: mac.storedConnectionMethod?.transportMode
+                ?? defaultTransportMode
         )
         guard case let .peer(identity, _)? = reconnectRoutes.first?.endpoint else {
             return nil
@@ -163,7 +172,8 @@ extension MobileShellComposite {
         instanceTag: String?,
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> [String] {
         guard let target = macs.first(where: {
             MacPairingKey($0) == MacPairingKey(
@@ -171,11 +181,19 @@ extension MobileShellComposite {
                 instanceTag: instanceTag
             )
         }),
-              let key = target.scopedDialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) else {
+              let key = target.scopedDialEndpointKey(
+                  supportedKinds: supportedKinds,
+                  preferNonLoopback: preferNonLoopback,
+                  defaultTransportMode: defaultTransportMode
+              ) else {
             return [macDeviceID]
         }
         let matching = macs.filter {
-            $0.scopedDialEndpointKey(supportedKinds: supportedKinds, preferNonLoopback: preferNonLoopback) == key
+            $0.scopedDialEndpointKey(
+                supportedKinds: supportedKinds,
+                preferNonLoopback: preferNonLoopback,
+                defaultTransportMode: defaultTransportMode
+            ) == key
         }.map(\.macDeviceID)
         return matching.isEmpty ? [macDeviceID] : matching
     }
@@ -183,26 +201,30 @@ extension MobileShellComposite {
     func macDeviceIDAliasSetsByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> [String: Set<String>] {
         macDeviceIDAliasesByPairedMacID(
             in: macs,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            defaultTransportMode: defaultTransportMode
         ).mapValues(Set.init)
     }
 
     func macDeviceIDAliasesByPairedMacID(
         in macs: [MobilePairedMac],
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> [String: [String]] {
         var groupKeyByPairingID: [String: String] = [:]
         var idsByGroupKey: [String: [String]] = [:]
         for mac in macs {
             let key = mac.scopedDialEndpointKey(
                 supportedKinds: supportedKinds,
-                preferNonLoopback: preferNonLoopback
+                preferNonLoopback: preferNonLoopback,
+                defaultTransportMode: defaultTransportMode
             ) ?? "device:\(mac.id)"
             groupKeyByPairingID[mac.id] = key
             idsByGroupKey[key, default: []].append(mac.macDeviceID)
@@ -225,7 +247,8 @@ extension MobileShellComposite {
 func physicalMacAliasCanonicalIDsByCanonicalID(
     in macs: [MobilePairedMac],
     supportedKinds: [CmxAttachTransportKind],
-    preferNonLoopback: Bool
+    preferNonLoopback: Bool,
+    defaultTransportMode: CmxTransportMode = .automatic
 ) -> [String: Set<String>] {
     var unionFind = PairedMacAliasUnionFind()
     var pairingIDs: Set<String> = []
@@ -243,7 +266,8 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
 
         if let dialEndpoint = mac.scopedDialEndpointKey(
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            defaultTransportMode: defaultTransportMode
         ) {
             if let first = firstCanonicalIDByDialEndpoint[dialEndpoint] {
                 unionFind.union(pairingID, first)
@@ -254,7 +278,8 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
         if let irohEndpoint = MobileShellComposite.irohEndpointID(
             for: mac,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            defaultTransportMode: defaultTransportMode
         ) {
             // One physical Iroh endpoint can serve sibling app builds. The
             // endpoint is useful for historical alias repair only within the
@@ -263,10 +288,13 @@ func physicalMacAliasCanonicalIDsByCanonicalID(
                 endpointID: irohEndpoint,
                 instanceTag: mac.instanceTag
             )
-            if let first = firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] {
+            let modeScope = mac.storedConnectionMethod?.transportMode
+                ?? defaultTransportMode
+            let scopedModeEndpoint = "mode:\(modeScope):\(scopedIrohEndpoint)"
+            if let first = firstCanonicalIDByIrohEndpoint[scopedModeEndpoint] {
                 unionFind.union(pairingID, first)
             } else {
-                firstCanonicalIDByIrohEndpoint[scopedIrohEndpoint] = pairingID
+                firstCanonicalIDByIrohEndpoint[scopedModeEndpoint] = pairingID
             }
         }
     }
@@ -292,7 +320,8 @@ private extension MobilePairedMac {
     @MainActor
     func unscopedDialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> String? {
         guard let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
               !displayName.isEmpty else {
@@ -301,7 +330,9 @@ private extension MobilePairedMac {
         let reconnectRoutes = MobileShellComposite.storedReconnectRoutes(
             routes,
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            transportMode: storedConnectionMethod?.transportMode
+                ?? defaultTransportMode
         )
         if case let .peer(identity, _)? = reconnectRoutes.first?.endpoint {
             return "iroh:\(identity.endpointID):name:\(displayName.lowercased())"
@@ -319,15 +350,19 @@ private extension MobilePairedMac {
     @MainActor
     func scopedDialEndpointKey(
         supportedKinds: [CmxAttachTransportKind],
-        preferNonLoopback: Bool
+        preferNonLoopback: Bool,
+        defaultTransportMode: CmxTransportMode = .automatic
     ) -> String? {
         guard let endpointKey = unscopedDialEndpointKey(
             supportedKinds: supportedKinds,
-            preferNonLoopback: preferNonLoopback
+            preferNonLoopback: preferNonLoopback,
+            defaultTransportMode: defaultTransportMode
         ) else {
             return nil
         }
-        return "instance:\(instanceTagScope):\(endpointKey)"
+        let modeScope = storedConnectionMethod?.transportMode
+            ?? defaultTransportMode
+        return "instance:\(instanceTagScope):mode:\(modeScope):\(endpointKey)"
     }
 
     /// Presentation coalescing may join historical device ids for one app

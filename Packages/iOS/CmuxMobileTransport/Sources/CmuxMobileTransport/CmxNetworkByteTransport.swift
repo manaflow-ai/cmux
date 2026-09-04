@@ -36,8 +36,8 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
     case unsupportedRouteKind(CmxAttachTransportKind)
     /// The endpoint is not a host/port endpoint this transport can dial.
     case unsupportedEndpoint(CmxAttachEndpoint)
-    /// A Tailscale route reached the route-only factory seam without an
-    /// authorization context. Raw Tailscale TCP is never constructed there.
+    /// A private-network route reached the route-only factory seam without an
+    /// authorization context. Raw LAN/Tailscale TCP is never constructed there.
     case authorizationIntentRequired
     /// The request's authorization mode cannot be served by plaintext TCP.
     case unsupportedAuthorizationMode(CmxTransportAuthorizationMode)
@@ -68,7 +68,7 @@ public enum CmxNetworkByteTransportError: Error, Equatable, Sendable {
 ///
 /// The actor owns the connection, its callback queue, and all in-flight
 /// continuations so connect/receive/send/close are serialized without locks.
-public actor CmxNetworkByteTransport: CmxByteTransport {
+public actor CmxNetworkByteTransport: CmxByteTransport, CmxByteTransportPathObserving {
     /// Default per-receive byte cap.
     public static let defaultMaximumReceiveLength = 64 * 1024
     /// Default connect deadline, after which ``connect()`` fails as timed out.
@@ -88,6 +88,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     let maximumReceiveLength: Int
     let connectTimeoutNanoseconds: UInt64
     let tailscaleBinding: CmxTailscaleTransportBinding?
+    private let advertisedTransportPath: CmxTransportPath
     private var state: TransportState = .idle
     private var connectContinuations: [UUID: CheckedContinuation<Void, any Error>] = [:]
     private var receiveContinuation: (id: UUID, continuation: CheckedContinuation<Data?, any Error>)?
@@ -99,12 +100,14 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
     private var remoteDidClose = false
     private var tailscalePathRevision: UInt64 = 0
     private var tailscaleAuthorizationInvalidated = false
+    private var pathContinuations: [UUID: AsyncStream<CmxTransportPath>.Continuation] = [:]
 
     public init(
         host: String,
         port: Int,
         maximumReceiveLength: Int = CmxNetworkByteTransport.defaultMaximumReceiveLength,
-        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
+        connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds,
+        transportPath: CmxTransportPath = .unavailable
     ) throws {
         let normalizedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalizedHost.isEmpty else {
@@ -134,6 +137,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         tailscaleBinding = nil
+        advertisedTransportPath = transportPath
     }
 
     public init(
@@ -142,7 +146,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         connectTimeoutNanoseconds: UInt64 = CmxNetworkByteTransport.defaultConnectTimeoutNanoseconds
     ) throws {
         try route.validate()
-        guard route.kind != .tailscale else {
+        guard route.kind != .tailscale, route.kind != .lan else {
             throw CmxNetworkByteTransportError.authorizationIntentRequired
         }
         guard case let .hostPort(host, port) = route.endpoint else {
@@ -152,7 +156,11 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             host: host,
             port: port,
             maximumReceiveLength: maximumReceiveLength,
-            connectTimeoutNanoseconds: connectTimeoutNanoseconds
+            connectTimeoutNanoseconds: connectTimeoutNanoseconds,
+            transportPath: CmxNetworkByteTransportPath().path(
+                for: route.kind,
+                host: host
+            )
         )
     }
 
@@ -164,6 +172,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         maximumReceiveLength = Self.defaultMaximumReceiveLength
         connectTimeoutNanoseconds = Self.defaultConnectTimeoutNanoseconds
         tailscaleBinding = nil
+        advertisedTransportPath = .unavailable
     }
 
     public init(
@@ -181,6 +190,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
         tailscaleBinding = nil
+        advertisedTransportPath = .unavailable
     }
 
     init(
@@ -216,11 +226,50 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         )
         self.maximumReceiveLength = maximumReceiveLength
         self.connectTimeoutNanoseconds = max(1, connectTimeoutNanoseconds)
+        advertisedTransportPath = .tailscale(
+            address: CmxNetworkByteTransportPath().host(
+                from: preparedTailscaleRoute.proof.request.route
+            )
+                ?? String(describing: preparedTailscaleRoute.proof.peerAddress.nwHost)
+        )
         tailscaleBinding = CmxTailscaleTransportBinding(
             request: request,
             preparedRoute: preparedTailscaleRoute,
             authority: tailscaleRouteAuthority
         )
+    }
+
+    /// Returns the concrete route class selected for this TCP connection.
+    public func currentTransportPath() async -> CmxTransportPath {
+        advertisedTransportPath
+    }
+
+    /// Emits the route's initial class and any Network.framework path updates.
+    public func transportPathChanges() async -> AsyncStream<CmxTransportPath> {
+        if isTerminal {
+            return AsyncStream { continuation in
+                continuation.yield(advertisedTransportPath)
+                continuation.finish()
+            }
+        }
+        let id = UUID()
+        return AsyncStream(bufferingPolicy: .bufferingNewest(1)) { continuation in
+            pathContinuations[id] = continuation
+            continuation.yield(advertisedTransportPath)
+            continuation.onTermination = { @Sendable [weak self] _ in
+                Task { await self?.removePathContinuation(id) }
+            }
+        }
+    }
+
+    private func removePathContinuation(_ id: UUID) {
+        pathContinuations[id] = nil
+    }
+
+    private func publishTransportPath() {
+        for continuation in pathContinuations.values {
+            continuation.yield(advertisedTransportPath)
+        }
     }
 
     /// Opens the connection, awaiting `ready` or failing on error/timeout.
@@ -307,11 +356,9 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
                 }
                 Task { await self.handleConnectionEvent(event) }
             }
-            if tailscaleBinding != nil {
-                connection.pathUpdateHandler = { [weak self] path in
-                    guard let self else { return }
-                    Task { await self.handleTailscalePathUpdate(path) }
-                }
+            connection.pathUpdateHandler = { [weak self] path in
+                guard let self else { return }
+                Task { await self.handleNetworkPathUpdate(path) }
             }
             connection.start(queue: callbackQueue)
         case .connecting:
@@ -597,6 +644,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         connection.stateUpdateHandler = nil
         connection.pathUpdateHandler = nil
         connection.cancel()
+        finishPathContinuations()
         resumeConnectContinuations(throwing: error)
         resumeReceiveContinuation(throwing: error)
         resumeSendContinuation(throwing: error)
@@ -614,6 +662,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         connection.stateUpdateHandler = nil
         connection.pathUpdateHandler = nil
         connection.cancel()
+        finishPathContinuations()
         resumeConnectContinuations(throwing: pendingError)
         if resumeReceiveWithError {
             resumeReceiveContinuation(throwing: pendingError)
@@ -685,8 +734,14 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         failTransport(.connectionTimedOut)
     }
 
-    private func handleTailscalePathUpdate(_ path: NWPath) async {
-        guard tailscaleBinding != nil, !isTerminal else { return }
+    private func handleNetworkPathUpdate(_ path: NWPath) async {
+        guard !isTerminal else { return }
+        guard tailscaleBinding != nil else {
+            // LAN and loopback transports share this Network.framework seam,
+            // but their path changes are not Tailscale authorization events.
+            publishTransportPath()
+            return
+        }
         tailscalePathRevision = tailscalePathRevision == .max ? 1 : tailscalePathRevision + 1
         MobileDebugLog.shared.append(
             "tailscale.connection.path_update revision=\(tailscalePathRevision) path=\(Self.pathSummary(path))"
@@ -703,6 +758,7 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
             tailscaleAuthorizationInvalidated = true
             failTransport(.tailscaleAuthorizationUnavailable)
         }
+        publishTransportPath()
     }
 
     private func validateTailscaleAuthorizationForCurrentPath() async throws {
@@ -818,5 +874,13 @@ public actor CmxNetworkByteTransport: CmxByteTransport {
         }
         sendContinuation = nil
         pending.continuation?.resume(throwing: error)
+    }
+
+    private func finishPathContinuations() {
+        let continuations = pathContinuations.values
+        pathContinuations.removeAll()
+        for continuation in continuations {
+            continuation.finish()
+        }
     }
 }

@@ -23,11 +23,43 @@ struct CmxIrohSelectedTransportPathTests {
             snapshot(address: "[fe80::1%en0]:443", isIP: true),
         ])
 
-        #expect(publicPath == .direct)
-        #expect(lanPath == .privateNetwork)
-        #expect(tailscalePath == .privateNetwork)
-        #expect(ipv6Path == .privateNetwork)
-        #expect(scopedIPv6Path == .privateNetwork)
+        #expect(publicPath == .direct(address: "203.0.113.40:443"))
+        #expect(lanPath == .privateNetwork(address: "192.168.1.20:443"))
+        #expect(tailscalePath == .privateNetwork(address: "100.100.20.40:443"))
+        #expect(ipv6Path == .privateNetwork(address: "[fd12:3456::9]:443"))
+        #expect(scopedIPv6Path == .privateNetwork(address: "[fe80::1%en0]:443"))
+    }
+
+    @Test
+    func socketAddressHostExtractionSupportsTailscaleClassification() async throws {
+        #expect("100.100.20.40:443".cmxIrohSocketHost == "100.100.20.40")
+        #expect("[fd7a:115c:a1e0::1234]:443".cmxIrohSocketHost == "fd7a:115c:a1e0::1234")
+        #expect("192.168.1.20:443".cmxIrohSocketHost == "192.168.1.20")
+        let path = CmxIrohObservedConnectionPath.privateNetwork(address: "100.100.20.40:443")
+        let localIdentity = try CmxIrohPeerIdentity(endpointID: String(repeating: "ab", count: 32))
+        let remoteIdentity = try CmxIrohPeerIdentity(endpointID: String(repeating: "cd", count: 32))
+        let hint = try CmxIrohPathHint(
+            kind: .directAddress,
+            value: "100.100.20.40:443",
+            source: .tailscale,
+            privacyScope: .privateNetwork,
+            observedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            expiresAt: Date(timeIntervalSince1970: 1_700_000_300),
+            networkProfile: CmxIrohNetworkProfileKey(
+                source: .tailscale,
+                profileID: String(repeating: "a", count: 64)
+            )
+        )
+        let session = try CmxIrohClientSession(
+            endpoint: TestIrohEndpoint(identity: localIdentity),
+            targetIdentity: remoteIdentity,
+            dialPlan: try CmxIrohDialPlan(
+                validatingPublicPaths: [],
+                privateFallbackPaths: [hint]
+            ),
+            credential: try .pairGrant("e30.e30.AA")
+        )
+        #expect(await session.transportPath(for: path) == .tailscale(address: "100.100.20.40:443"))
     }
 
     @Test

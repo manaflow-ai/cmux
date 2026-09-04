@@ -12,7 +12,8 @@ public actor CmxIrohClientSession {
     /// deadline.
     private let dialPhaseTimeout: Duration
     private let targetIdentity: CmxIrohPeerIdentity
-    private let dialPlan: CmxIrohDialPlan
+    private let transportMode: CmxTransportMode
+    private var dialPlan: CmxIrohDialPlan
     private let credential: CmxIrohAdmissionCredential
     private let privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization?
     private let privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)?
@@ -39,6 +40,7 @@ public actor CmxIrohClientSession {
     ///   - credential: The backend grant or same-account offline pairing proof.
     ///   - privateFallbackAuthorization: The generation snapshot that admitted
     ///     the plan's private hints.
+    ///   - transportMode: The hard route-class policy captured for this dial.
     ///   - privateFallbackValidator: The provider that can re-read current
     ///     network state immediately before a private dial.
     ///   - dialPhaseTimeout: Maximum time allowed for each public or private
@@ -51,6 +53,7 @@ public actor CmxIrohClientSession {
         dialPlan: CmxIrohDialPlan,
         credential: CmxIrohAdmissionCredential,
         privateFallbackAuthorization: CmxIrohPrivateFallbackAuthorization? = nil,
+        transportMode: CmxTransportMode = .automatic,
         privateFallbackValidator: (any CmxIrohPrivateFallbackValidating)? = nil,
         privateFallbackContextProvider: PrivateFallbackContextProvider? = nil,
         dialPhaseTimeout: Duration = .seconds(5),
@@ -59,6 +62,7 @@ public actor CmxIrohClientSession {
     ) throws {
         self.endpoint = endpoint
         self.targetIdentity = targetIdentity
+        self.transportMode = transportMode
         self.dialPlan = dialPlan
         self.credential = credential
         self.privateFallbackAuthorization = privateFallbackAuthorization
@@ -68,6 +72,12 @@ public actor CmxIrohClientSession {
         self.protocolConfiguration = protocolConfiguration
         self.diagnostics = diagnostics
         self.peerAlias = DiagnosticCorrelation().handle(for: targetIdentity.endpointID)
+        let isPreDiscoveryLANPlan = transportMode == .lan
+            && dialPlan.publicPaths.isEmpty
+            && dialPlan.privateFallbackPaths.isEmpty
+        if !isPreDiscoveryLANPlan {
+            try CmxTransportModePolicy(transportMode).validate(irohDialPlan: dialPlan)
+        }
         headerCodec = try CmxIrohStreamHeaderCodec(configuration: protocolConfiguration)
     }
 
@@ -264,6 +274,168 @@ public actor CmxIrohClientSession {
         return await connection.observedSelectedPathChanges()
     }
 
+    /// Returns the non-lossy path stream reserved for session policy checks.
+    func policySelectedPathChanges() async -> AsyncStream<CmxIrohObservedConnectionPath> {
+        guard let connection = connection as? any CmxIrohConnectionPathInspecting else {
+            return AsyncStream { continuation in
+                continuation.yield(.unavailable)
+                continuation.finish()
+            }
+        }
+        return await connection.policySelectedPathChanges()
+    }
+
+    /// Checks one live path against the source-qualified dial plan captured
+    /// for this session. The raw selected-path stream carries only a socket
+    /// address, so matching it back to the plan is the ownership boundary that
+    /// prevents a private path from being reclassified as an unrestricted Iroh
+    /// direct path during migration.
+    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool {
+        switch transportMode {
+        case .automatic:
+            return true
+        case .tailscale:
+            return false
+        case .lan:
+            if path == .unavailable { return true }
+            return pathMatchesPlan(path, source: .lan)
+        case .iroh:
+            switch path {
+            case .unavailable:
+                return true
+            case .unknown:
+                return false
+            case let .relay(url):
+                return dialPlan.publicPaths.contains {
+                    $0.source == .native
+                        && $0.kind == .relayURL
+                        && $0.value == url
+                }
+            case let .direct(address):
+                // Native Iroh may discover a fresh public direct address after
+                // the initial relay/direct plan was built. Public direct
+                // evidence remains allowed; provider-attributed private paths
+                // stay constrained by source-qualified matching below.
+                _ = address
+                return true
+            case let .privateNetwork(address):
+                return pathMatchesPlan(.privateNetwork(address: address), source: .native)
+            }
+        case .direct:
+            switch path {
+            case .unavailable:
+                return true
+            case .unknown:
+                return false
+            case .relay:
+                return false
+            case let .direct(address):
+                return directPathMatchesPlan(
+                    address,
+                    source: .customVPN
+                )
+            case let .privateNetwork(address):
+                return pathMatchesPlan(.privateNetwork(address: address), source: .customVPN)
+            }
+        }
+    }
+
+    /// Projects a selected path without guessing provenance from an IP range.
+    /// A private socket is classified from the matching dial-plan hint; an
+    /// unmatched private socket is deliberately unavailable rather than being
+    /// mislabeled as LAN or Tailscale.
+    func transportPath(for path: CmxIrohObservedConnectionPath) async -> CmxTransportPath {
+        switch path {
+        case .unavailable:
+            return .unavailable
+        case .unknown:
+            return .unavailable
+        case let .direct(address):
+            guard let address else { return .irohDirect }
+            // A public direct observation is native Iroh evidence even when
+            // discovery learned it after this session's initial dial plan.
+            // Private observations below still require source-qualified hint
+            // matching before they can be attributed to a concrete network.
+            return projectedAddressPath(address, unmatchedPath: .irohDirect)
+        case .relay:
+            return .irohRelay(region: nil)
+        case let .privateNetwork(address):
+            return projectedAddressPath(address)
+        }
+    }
+
+    private func projectedAddressPath(
+        _ address: String,
+        unmatchedPath: CmxTransportPath = .unavailable
+    ) -> CmxTransportPath {
+        switch matchingPathHintSource(for: address) {
+        case .some(.lan): .lan(address: address)
+        case .some(.tailscale): .tailscale(address: address)
+        case .some(.native), .some(.customVPN): .irohDirect
+        case nil: unmatchedPath
+        }
+    }
+
+    private func pathMatchesPlan(
+        _ path: CmxIrohObservedConnectionPath,
+        source: CmxIrohPathHintSource
+    ) -> Bool {
+        switch path {
+        case let .privateNetwork(address):
+            return privatePathMatchesPlan(
+                .privateNetwork(address: address),
+                source: source
+            )
+        case let .direct(address):
+            guard let address else { return false }
+            return directPathMatchesPlan(address, source: source)
+        case .unavailable, .unknown, .relay:
+            return false
+        }
+    }
+
+    private func privatePathMatchesPlan(
+        _ path: CmxIrohObservedConnectionPath,
+        source: CmxIrohPathHintSource
+    ) -> Bool {
+        guard case let .privateNetwork(address) = path else { return false }
+        return (dialPlan.publicPaths + dialPlan.privateFallbackPaths).contains {
+            $0.kind == .directAddress
+                && $0.source == source
+                && socketAddressesMatch($0.value, address)
+        }
+    }
+
+    private func matchingPathHintSource(
+        for address: String
+    ) -> CmxIrohPathHintSource? {
+        (dialPlan.publicPaths + dialPlan.privateFallbackPaths).first {
+            $0.kind == .directAddress
+                && socketAddressesMatch($0.value, address)
+        }?.source
+    }
+
+    private func directPathMatchesPlan(
+        _ address: String?,
+        source: CmxIrohPathHintSource
+    ) -> Bool {
+        guard let address else { return false }
+        return (dialPlan.publicPaths + dialPlan.privateFallbackPaths).contains {
+                $0.kind == .directAddress
+                && $0.source == source
+                && socketAddressesMatch($0.value, address)
+        }
+    }
+
+    private func socketAddressesMatch(_ lhs: String, _ rhs: String) -> Bool {
+        guard let lhsHost = lhs.cmxIrohSocketHost,
+              let rhsHost = rhs.cmxIrohSocketHost else {
+            return lhs == rhs
+        }
+        guard lhsHost == rhsHost else { return false }
+        return lhs.cmxIrohSocketPort == rhs.cmxIrohSocketPort
+    }
+
     /// Observes redacted path lifecycle events on the admitted connection.
     func observedPathEvents() async -> AsyncStream<CmxIrohConnectionPathEvent> {
         guard let connection else {
@@ -344,11 +516,15 @@ public actor CmxIrohClientSession {
                           fallbackContext.dialPlan.publicPaths == dialPlan.publicPaths else {
                         throw CmxIrohPrivateFallbackValidationError.authorizationMismatch
                     }
+                    try CmxTransportModePolicy(transportMode).validate(
+                        irohDialPlan: fallbackContext.dialPlan
+                    )
                 } else {
                     fallbackContext = CmxIrohClientContext(
                         dialPlan: dialPlan,
                         credential: credential,
-                        privateFallbackAuthorization: privateFallbackAuthorization
+                        privateFallbackAuthorization: privateFallbackAuthorization,
+                        transportMode: transportMode
                     )
                 }
             } catch {
@@ -361,6 +537,10 @@ public actor CmxIrohClientSession {
                 ))
                 throw error
             }
+            // LAN discovery and other provider fallback stages can replace the
+            // initially empty/private plan. Retain the effective plan so path
+            // provenance and policy checks observe the path we actually dial.
+            dialPlan = fallbackContext.dialPlan
             let fallbackPaths = fallbackContext.dialPlan.privateFallbackPaths
             guard !fallbackPaths.isEmpty else {
                 // The fallback leg had zero dialable hints, so this attempt
@@ -373,6 +553,12 @@ public actor CmxIrohClientSession {
                     b: DiagnosticFailureKind.noRoute.rawValue
                 ))
                 if let publicConnectionError { throw publicConnectionError }
+                if transportMode.isPinned {
+                    throw CmxTransportModeError.noRoute(
+                        mode: transportMode,
+                        macDisplayName: nil
+                    )
+                }
                 throw CmxIrohRegistryContextError.dialPlanUnavailable
             }
             guard let privateFallbackValidator else {

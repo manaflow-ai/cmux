@@ -14,6 +14,8 @@ struct CmxIrohSelectedTransportPathClassifier: Sendable {
         switch observedPath {
         case .unavailable:
             return .unavailable
+        case .unknown:
+            return .unavailable
         case .direct:
             return .direct
         case .privateNetwork:

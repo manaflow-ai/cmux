@@ -110,6 +110,13 @@ import Testing
         #expect(chrome(connectionStatus: .connected) == .none)
     }
 
+    @Test func healthyConnectionShowsConcreteActiveTransport() {
+        #expect(chrome(
+            connectionStatus: .connected,
+            activeTransportPath: "Tailscale · 100.64.0.5"
+        ) == .statusLine(.activeTransport("Tailscale · 100.64.0.5")))
+    }
+
     @Test func noStoreConnectedStatusShowsNoChromeEvenWithStoreFlags() {
         #expect(chrome(
             hasStore: false,
@@ -166,8 +173,12 @@ import Testing
     }
 
     @Test
-    func macUpdateHintIndicatorShowsOnlyWithoutConnectionChrome() {
+    func macUpdateHintIndicatorStaysVisibleWithHealthyTransportPath() {
         #expect(chrome(connectionStatus: .connected).showsMacUpdateHintIndicator)
+        #expect(chrome(
+            connectionStatus: .connected,
+            activeTransportPath: "iroh direct"
+        ).showsMacUpdateHintIndicator)
         #expect(!chrome(connectionRequiresReauth: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(!chrome(isRecoveringConnection: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
         #expect(chrome(connectionRecoveryFailed: true, connectionStatus: .connected).showsMacUpdateHintIndicator)
@@ -227,7 +238,8 @@ import Testing
         connectionStatus: MobileMacConnectionStatus,
         tailscalePairingRequired: Bool = false,
         isInitialConnectionLoading: Bool = false,
-        initialConnectionTimedOut: Bool = false
+        initialConnectionTimedOut: Bool = false,
+        activeTransportPath: String? = nil
     ) -> WorkspaceListConnectionChrome {
         WorkspaceListConnectionChrome(
             hasStore: hasStore,
@@ -237,7 +249,8 @@ import Testing
             connectionStatus: connectionStatus,
             tailscalePairingRequired: tailscalePairingRequired,
             isInitialConnectionLoading: isInitialConnectionLoading,
-            initialConnectionTimedOut: initialConnectionTimedOut
+            initialConnectionTimedOut: initialConnectionTimedOut,
+            activeTransportPath: activeTransportPath
         )
     }
 

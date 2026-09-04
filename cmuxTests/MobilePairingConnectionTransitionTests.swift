@@ -15,6 +15,7 @@ struct MobilePairingConnectionTransitionTests {
         MobilePairingModel.Ready(
             attachURL: "cmux-ios://attach?v=2&r=100.64.0.1:7777",
             tailscaleLines: ["100.64.0.1:7777"],
+            lanLines: [],
             manualEntry: CmxManualPairingEntry(host: "100.64.0.1", port: 7777),
             reachableViaIroh: true
         )
@@ -175,7 +176,7 @@ struct MobilePairingConnectionTransitionTests {
         #expect(next == .signedOut)
     }
 
-    @Test("Tailscale is the only Mac pairing QR when Iroh is also available")
+    @Test("Tailscale remains the preferred pairing disclosure when Iroh is available")
     func tailscaleRouteWinsWhenIrohIsAvailable() throws {
         let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
             try irohRoute(),
@@ -192,6 +193,30 @@ struct MobilePairingConnectionTransitionTests {
         ]))
 
         #expect(plan.disclosureMode == .legacyPrivateNetworkCompatibility)
+    }
+
+    @Test("LAN-only pairing uses the current Iroh bootstrap grammar")
+    func lanOnlyPlanUsesIrohIdentityCode() throws {
+        let plan = try #require(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try CmxAttachRoute(
+                id: "lan",
+                kind: .lan,
+                endpoint: .hostPort(host: "192.168.1.20", port: 58_465)
+            ),
+            try irohRoute()
+        ]))
+        #expect(plan.disclosureMode == .irohIdentityOnly)
+    }
+
+    @Test("LAN-only pairing without an Iroh identity fails closed")
+    func lanOnlyPlanWithoutEncryptedBootstrapIsUnavailable() throws {
+        #expect(MobilePairingModel.PairingRoutePlan.make(routes: [
+            try CmxAttachRoute(
+                id: "lan",
+                kind: .lan,
+                endpoint: .hostPort(host: "192.168.1.20", port: 58_465)
+            )
+        ]) == nil)
     }
 
     @Test("Iroh alone does not produce a Mac pairing QR")

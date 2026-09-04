@@ -12,6 +12,11 @@ actor CmxConnectivityPeerSession {
 
     private struct PendingConnection {
         let id: UUID
+        /// The control owner that initiated this dial, or `nil` for a
+        /// control-free feature/event lane. This distinguishes an owned
+        /// foreground dial from an unowned pending dial when policies differ.
+        let ownerID: UUID?
+        let request: CmxByteTransportRequest
         let task: Task<any CmxConnectivitySession, any Error>
     }
 
@@ -76,6 +81,10 @@ actor CmxConnectivityPeerSession {
     // until the waiter observes it instead of dropping the wake-up.
     private var expiredRetiredDialWaiters: Set<UUID> = []
     private var activeConnection: ActiveConnection?
+    /// Policy of the installed session. Iroh peers are keyed by identity, so
+    /// this separate value prevents a later pinned dial from reusing an older
+    /// Auto session (or a Direct allowlist) after the user's mode changes.
+    private var activeRequest: CmxByteTransportRequest?
     private var allPathsClosedEviction: (
         connectionID: UUID,
         task: Task<Void, Never>
@@ -118,7 +127,8 @@ actor CmxConnectivityPeerSession {
                 try Task.checkCancellation()
                 let session = try await connectedSession(
                     for: request,
-                    preservesControlOwnerOnClosed: true
+                    preservesControlOwnerOnClosed: true,
+                    requestingOwnerID: ownerID
                 )
                 // The dial can finish while the caller's cancellation
                 // handler is waiting to release the owner. Do not hand a
@@ -184,13 +194,31 @@ actor CmxConnectivityPeerSession {
 
     func connectedSession(
         for request: CmxByteTransportRequest,
-        preservesControlOwnerOnClosed: Bool = false
+        preservesControlOwnerOnClosed: Bool = false,
+        requestingOwnerID: UUID? = nil
     ) async throws -> any CmxConnectivitySession {
         try requirePeer(request)
         var corpseRetriesRemaining = 1
 
         redial: while true {
             if let activeConnection {
+                if let activeRequest,
+                   !sameTransportPolicy(activeRequest, request) {
+                    // One Iroh peer session may be shared by foreground and
+                    // secondary owners. Do not tear down an owned session just
+                    // because a sibling pairing selected another policy; let
+                    // that caller retry after the owner releases it.
+                    guard controlOwner == nil else {
+                        throw CmxConnectivityEngineError.superseded
+                    }
+                    await removeActiveConnection(
+                        matching: activeConnection.id,
+                        releasesControlOwner: false,
+                        reason: .runtimeReconfigured,
+                        failure: .none
+                    )
+                    continue redial
+                }
                 if !(await activeConnection.session.isClosed()) {
                     return activeConnection.session
                 }
@@ -202,9 +230,9 @@ actor CmxConnectivityPeerSession {
                 )
             }
 
-            let revision = lifecycleRevision
             let pending: PendingConnection
-            if let pendingConnection {
+            if let pendingConnection,
+               sameTransportPolicy(pendingConnection.request, request) {
                 pending = pendingConnection
             } else {
                 // Keep ownership of every canceled dial. Once the bounded
@@ -213,6 +241,23 @@ actor CmxConnectivityPeerSession {
                 guard retiredDialDrains.count + retiredDialCleanupTasks.count
                     < Self.maximumRetiredDialCleanupCount else {
                     throw CmxConnectivityEngineError.superseded
+                }
+                if let existingPending = pendingConnection {
+                    // A control owner already owns this physical dial. A
+                    // policy-different feature lane must wait for that owner
+                    // to release it instead of canceling the foreground dial
+                    // and installing its own policy under the owner's lease.
+                    if let controlOwner,
+                       existingPending.ownerID == controlOwner.id {
+                        throw CmxConnectivityEngineError.superseded
+                    }
+                    // A different transport policy supersedes the pending
+                    // dial. Advance the generation before cancellation so a
+                    // non-cooperative FFI dial that completes later cannot
+                    // pass its waiter revision check and install stale
+                    // credentials or path constraints.
+                    lifecycleRevision &+= 1
+                    retirePendingConnection()
                 }
                 connectionGeneration &+= 1
                 failure = .none
@@ -227,10 +272,19 @@ actor CmxConnectivityPeerSession {
                     }
                     return session
                 }
-                pending = PendingConnection(id: UUID(), task: task)
+                pending = PendingConnection(
+                    id: UUID(),
+                    ownerID: requestingOwnerID,
+                    request: request,
+                    task: task
+                )
                 pendingConnection = pending
                 publishSnapshot()
             }
+            // Capture the revision after any pending-policy replacement above.
+            // The new dial is authoritative for this generation; using the
+            // pre-replacement value would reject the replacement itself.
+            let revision = lifecycleRevision
 
             let connected: any CmxConnectivitySession
             do {
@@ -252,6 +306,14 @@ actor CmxConnectivityPeerSession {
             }
 
             if let installed = activeConnection {
+                if let activeRequest,
+                   !sameTransportPolicy(activeRequest, request) {
+                    // This completion is older than the already-installed
+                    // policy. Retire only its stale candidate; never displace
+                    // the newer active session (or roll the mode backward).
+                    await connected.close()
+                    throw CmxConnectivityEngineError.superseded
+                }
                 if installed.id == pending.id {
                     return installed.session
                 }
@@ -272,11 +334,28 @@ actor CmxConnectivityPeerSession {
                 continue redial
             }
 
+            // The path can migrate between the builder's final admission and
+            // this installation point. Re-read it before publishing the
+            // session so a policy-forbidden path cannot become active while
+            // the non-lossy observer is still being scheduled.
+            if let path = await currentPolicyViolation(
+                in: connected,
+                request: request
+            ) {
+                await connected.close()
+                throw path
+            }
+
             // The dead-on-arrival probe suspends this actor. A concurrent
             // caller that dialed in that window may have installed first;
             // installing over it would leak its session and double-record
             // an established lifecycle for the same peer.
             if let installed = activeConnection {
+                if let activeRequest,
+                   !sameTransportPolicy(activeRequest, request) {
+                    await connected.close()
+                    throw CmxConnectivityEngineError.superseded
+                }
                 if installed.id == pending.id {
                     return installed.session
                 }
@@ -291,7 +370,8 @@ actor CmxConnectivityPeerSession {
             install(
                 connected,
                 id: pending.id,
-                purpose: request.sessionPurpose
+                purpose: request.sessionPurpose,
+                request: request
             )
             return connected
         }
@@ -383,7 +463,8 @@ actor CmxConnectivityPeerSession {
     private func install(
         _ connected: any CmxConnectivitySession,
         id: UUID,
-        purpose: CmxTransportSessionPurpose
+        purpose: CmxTransportSessionPurpose,
+        request: CmxByteTransportRequest
     ) {
         let diagnosticID = makeDiagnosticSessionID()
         // Publish ownership before starting streams whose first value is an
@@ -399,6 +480,7 @@ actor CmxConnectivityPeerSession {
             pathObservationTask: nil,
             pathEventObservationTask: nil
         )
+        activeRequest = request
         let closureTask = Task { [weak self] in
             await connected.waitUntilClosed()
             guard !Task.isCancelled else { return }
@@ -409,7 +491,7 @@ actor CmxConnectivityPeerSession {
             )
         }
         let pathObservationTask = Task { [weak self] in
-            let changes = await connected.observedSelectedPathChanges()
+            let changes = await connected.policySelectedPathChanges()
             for await path in changes {
                 guard !Task.isCancelled else { return }
                 await self?.pathDidChange(id: id, path: path)
@@ -457,6 +539,7 @@ actor CmxConnectivityPeerSession {
     ) async {
         guard let activeConnection, activeConnection.id == id else { return }
         self.activeConnection = nil
+        activeRequest = nil
         disarmAllPathsClosedEviction(for: activeConnection.id)
         let removedOwner = controlOwner
         let closurePurpose = removedOwner?.purpose
@@ -489,6 +572,7 @@ actor CmxConnectivityPeerSession {
         guard let activeConnection,
               id == nil || activeConnection.id == id else { return }
         self.activeConnection = nil
+        activeRequest = nil
         disarmAllPathsClosedEviction(for: activeConnection.id)
         let removedOwner = controlOwner
         let closurePurpose = removedOwner?.purpose
@@ -524,6 +608,37 @@ actor CmxConnectivityPeerSession {
             reason: reason,
             failure: failure
         )
+    }
+
+    /// Compares only the immutable transport authority, not the local owner
+    /// role. Foreground and background lanes may share one admitted session;
+    /// changing the route, authorization, mode, or Direct allowlist may not.
+    private func sameTransportPolicy(
+        _ lhs: CmxByteTransportRequest,
+        _ rhs: CmxByteTransportRequest
+    ) -> Bool {
+        sameRouteAuthority(lhs.route, rhs.route)
+            && lhs.expectedPeerDeviceID == rhs.expectedPeerDeviceID
+            && lhs.authorizationMode == rhs.authorizationMode
+            && lhs.irohDirectOnlyDialCandidates == rhs.irohDirectOnlyDialCandidates
+            && lhs.transportMode == rhs.transportMode
+    }
+
+    /// Iroh route IDs and path hints are refreshed independently of the
+    /// authenticated peer. They must not force a second session (or make a
+    /// waiter hang behind a dial that no longer has a release signal), while a
+    /// different route class/peer remains a hard replacement boundary.
+    private func sameRouteAuthority(
+        _ lhs: CmxAttachRoute,
+        _ rhs: CmxAttachRoute
+    ) -> Bool {
+        guard lhs.kind == rhs.kind else { return false }
+        guard lhs.kind == .iroh else { return lhs == rhs }
+        guard case let .peer(leftIdentity, _) = lhs.endpoint,
+              case let .peer(rightIdentity, _) = rhs.endpoint else {
+            return lhs == rhs
+        }
+        return leftIdentity == rightIdentity
     }
 
     private func retirePendingConnection() {
@@ -749,6 +864,22 @@ actor CmxConnectivityPeerSession {
         }
     }
 
+    private func currentPolicyViolation(
+        in session: any CmxConnectivitySession,
+        request: CmxByteTransportRequest
+    ) async -> CmxTransportModeError? {
+        let path = await session.observedSelectedPath()
+        guard path != .unavailable,
+              !(await session.pathIsAllowed(path)) else {
+            return nil
+        }
+        let concrete = await session.transportPath(for: path)
+        return .pathNotAllowed(
+            mode: request.transportMode,
+            actual: concrete.transportClass ?? .iroh
+        )
+    }
+
     private func pathDidChange(
         id: UUID,
         path: CmxIrohObservedConnectionPath
@@ -759,6 +890,37 @@ actor CmxConnectivityPeerSession {
         // ownership policy cannot be preempted by the path observer.
         guard !(await activeConnection.session.isClosed()),
               self.activeConnection?.id == id else { return }
+        // Preserve every concrete callback value for policy enforcement. Only
+        // an unavailable marker is replaced with the latest actor-owned
+        // snapshot, because it is the documented transient gap between paths.
+        // In particular, an `.unknown` value emitted by the bounded
+        // fail-closed stream must not be overwritten by a later healthy path.
+        let pathToCheck: CmxIrohObservedConnectionPath
+        if path == .unavailable {
+            let currentPath = await activeConnection.session.observedSelectedPath()
+            pathToCheck = currentPath == .unavailable ? path : currentPath
+        } else {
+            pathToCheck = path
+        }
+        let pathIsAllowed: Bool
+        if pathToCheck == .unavailable {
+            pathIsAllowed = true
+        } else {
+            pathIsAllowed = await activeConnection.session.pathIsAllowed(pathToCheck)
+        }
+        guard pathIsAllowed else {
+            // This owner is shared by foreground and secondary clients. Enforce
+            // the session's source-qualified captured policy here so a
+            // migration cannot bypass the foreground UI observer and keep
+            // serving background RPCs over a disallowed class.
+            await removeActiveConnection(
+                matching: id,
+                releasesControlOwner: true,
+                reason: .runtimeReconfigured,
+                failure: .unsupportedRoute
+            )
+            return
+        }
         guard path != .unavailable else {
             armAllPathsClosedEviction(for: id)
             return

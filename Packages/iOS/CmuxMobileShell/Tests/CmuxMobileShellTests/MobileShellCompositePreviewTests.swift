@@ -97,7 +97,7 @@ import Testing
             client: nil,
             isCurrentClientLimiting: false
         )
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [MobileWorkspacePreview(
@@ -676,7 +676,7 @@ import Testing
             name: "Secondary",
             terminals: [MobileTerminalPreview(id: "terminal-secondary", name: "secondary")]
         )
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [foregroundWorkspace, selectedWorkspace],
@@ -686,7 +686,7 @@ import Testing
         store.selectedWorkspaceID = "w-selected"
         store.selectedTerminalID = "terminal-selected"
 
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [foregroundWorkspace, selectedWorkspace],
@@ -1004,7 +1004,7 @@ import Testing
             terminals: [MobileTerminalPreview(id: "terminal-secondary", name: "secondary")]
         )
 
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
                 macDeviceID: MobileShellComposite.foregroundAnonymousKey,
                 workspaces: [anonymousWorkspace],
@@ -1037,7 +1037,7 @@ import Testing
             name: "Mac B",
             terminals: [MobileTerminalPreview(id: "terminal-shared", name: "b")]
         )
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [workspaceA],
@@ -1082,7 +1082,7 @@ import Testing
             terminals: [MobileTerminalPreview(id: "terminal-shared", name: "nightly")]
         )
         nightly.macInstanceTag = "nightly"
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             MobilePairedMac.pairingID(macDeviceID: "mac-a", instanceTag: "stable"):
                 MacWorkspaceState(
                     macDeviceID: "mac-a", instanceTag: "stable",
@@ -1143,7 +1143,7 @@ import Testing
             name: "First",
             terminals: [MobileTerminalPreview(id: "terminal-a", name: "a")]
         )
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [workspace],
@@ -1250,7 +1250,7 @@ import Testing
             name: "Secondary",
             terminals: [MobileTerminalPreview(id: "terminal-b", name: "b")]
         )
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-b": MacWorkspaceState(
                 macDeviceID: "mac-b",
                 displayName: "Mac B",
@@ -1259,7 +1259,7 @@ import Testing
             ),
         ], foregroundMacDeviceID: nil)
 
-        store.markSecondaryMacUnavailableForTesting("mac-b")
+        store.markSecondaryMacUnavailableSnapshot("mac-b")
 
         let downgraded = store.workspaces.first { $0.rpcWorkspaceID.rawValue == "secondary-row" }
         #expect(downgraded?.macConnectionStatus == .unavailable)

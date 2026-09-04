@@ -1,8 +1,10 @@
 /// Raw selected-path evidence retained only inside the transport package.
 enum CmxIrohObservedConnectionPath: Equatable, Sendable {
     case unavailable
-    case direct
-    case privateNetwork
+    /// A selected path snapshot that does not expose a supported address class.
+    case unknown
+    case direct(address: String?)
+    case privateNetwork(address: String)
     case relay(url: String)
 
     init(snapshots: [CmxIrohConnectionPathSnapshot]) {
@@ -14,10 +16,10 @@ enum CmxIrohObservedConnectionPath: Equatable, Sendable {
             self = .relay(url: selected.remoteAddress)
         } else if selected.isIP {
             self = CmxIrohIPAddressScope(socketAddress: selected.remoteAddress).isPrivate
-                ? .privateNetwork
-                : .direct
+                ? .privateNetwork(address: selected.remoteAddress)
+                : .direct(address: selected.remoteAddress)
         } else {
-            self = .unavailable
+            self = .unknown
         }
     }
 }

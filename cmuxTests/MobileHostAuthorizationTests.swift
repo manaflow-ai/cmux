@@ -253,6 +253,27 @@ struct MobileHostAuthorizationTests {
         }
         #expect(snapshot.routes.filter { $0.kind == .debugLoopback }.count == 1)
     }
+
+    @Test func testMobileRouteResolverRejectsIPv6LinkLocalLANHosts() throws {
+        let snapshot = MobileRouteResolver().routes(
+            port: 61234,
+            tailscaleHosts: [],
+            lanHosts: [
+                "fe80::1",
+                "fc00::1",
+                "192.168.1.10",
+            ]
+        )
+
+        let lanHosts = snapshot.routes.compactMap { route -> String? in
+            guard route.kind == .lan,
+                  case let .hostPort(host, _) = route.endpoint else {
+                return nil
+            }
+            return host
+        }
+        #expect(lanHosts == ["fc00::1", "192.168.1.10"])
+    }
     @Test func testMobileRouteResolverAwaitsMagicDNSForPublicStatusRoutes() async throws {
         let resolver = MobileRouteResolver()
         let snapshot = await resolver.routesResolvingTailscaleDNS(

@@ -1295,7 +1295,7 @@ import Testing
         await controlRefresh.value
 
         #expect(shell.connectionState == .connected)
-        #expect(shell.foregroundMacDeviceIDForTesting() == "mac-control-race")
+        #expect(shell.foregroundMacDeviceIDSnapshot() == "mac-control-race")
         #expect(shell.secondaryMacSubscriptions[
             MacPairingKey(
                 macDeviceID: "mac-control-race",
@@ -5367,7 +5367,7 @@ import Testing
             instanceTag: "mmpool"
         )
 
-        #expect(shell.foregroundMacDeviceIDForTesting() == "mac-late")
+        #expect(shell.foregroundMacDeviceIDSnapshot() == "mac-late")
         #expect(shell.liveMacConnections == [
             MobileMacConnectionSnapshot(
                 macDeviceID: "mac-late",
@@ -5431,7 +5431,7 @@ import Testing
         )
 
         #expect(shell.remoteClient === client)
-        #expect(shell.foregroundMacDeviceIDForTesting() == "legacy-mac")
+        #expect(shell.foregroundMacDeviceIDSnapshot() == "legacy-mac")
         #expect(shell.activeMacInstanceTag == nil)
     }
 
@@ -5481,7 +5481,7 @@ import Testing
         )
 
         #expect(shell.remoteClient == nil)
-        #expect(shell.foregroundMacDeviceIDForTesting() == nil)
+        #expect(shell.foregroundMacDeviceIDSnapshot() == nil)
     }
 
     @Test func anonymousSameRouteRepairReleasesForegroundLeaseBeforeDial()
@@ -5512,7 +5512,7 @@ import Testing
         #expect(shell.connectionState == .connected)
         #expect(shell.remoteClient != nil)
         #expect(shell.remoteClient !== originalClient)
-        #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
+        #expect(shell.foregroundMacDeviceIDSnapshot() == "test-mac")
         #expect(shell.connections["test-mac"]?.client === shell.remoteClient)
     }
 
@@ -5589,7 +5589,7 @@ import Testing
         #expect(control.isTransitioningToFocus)
         #expect(shell.secondaryMacSubscriptions[control.ownerKey] == nil)
         #expect(shell.connectionState == .connected)
-        #expect(shell.foregroundMacDeviceIDForTesting() == "mac-after-rename")
+        #expect(shell.foregroundMacDeviceIDSnapshot() == "mac-after-rename")
     }
 
     @Test func sameMacRedialWaitsForLeaseHandoffButNotPhysicalClose()
@@ -5665,7 +5665,7 @@ import Testing
         #expect(shell.connectionError == nil)
         #expect(shell.remoteClient != nil)
         #expect(shell.remoteClient !== originalClient)
-        #expect(shell.foregroundMacDeviceIDForTesting() == "test-mac")
+        #expect(shell.foregroundMacDeviceIDSnapshot() == "test-mac")
         #expect(await router.count(of: "mobile.attach_ticket.create") == 1)
     }
 
@@ -5679,7 +5679,7 @@ import Testing
         )
         let originalClient = try #require(shell.remoteClient)
         let originalForegroundMacDeviceID =
-            shell.foregroundMacDeviceIDForTesting()
+            shell.foregroundMacDeviceIDSnapshot()
         await router.failNextAttachTicketRequests()
 
         await shell.connectManualHost(
@@ -5692,7 +5692,7 @@ import Testing
         #expect(shell.connectionState == .connected)
         #expect(shell.remoteClient === originalClient)
         #expect(
-            shell.foregroundMacDeviceIDForTesting()
+            shell.foregroundMacDeviceIDSnapshot()
                 == originalForegroundMacDeviceID
         )
         #expect(await router.count(of: "mobile.attach_ticket.create") == 1)
@@ -5809,7 +5809,7 @@ import Testing
             instanceTag: nil
         )
 
-        #expect(shell.foregroundMacDeviceIDForTesting() == nil)
+        #expect(shell.foregroundMacDeviceIDSnapshot() == nil)
         #expect(shell.remoteClient == nil)
         #expect(shell.activeTicket == nil)
         #expect(shell.secondaryMacSubscriptions[MacPairingKey(macDeviceID: "mac-claimed", instanceTag: "authenticated-owner")] === control)

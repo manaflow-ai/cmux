@@ -21,6 +21,19 @@ import Testing
     }
 }
 
+@Test func loopbackRouteReportsItsConcretePathBeforeConnecting() async throws {
+    let route = try CmxAttachRoute(
+        id: "loopback",
+        kind: .debugLoopback,
+        endpoint: .hostPort(host: "127.0.0.1", port: 49831)
+    )
+    let transport = try CmxNetworkByteTransportFactory().makeTransport(for: route)
+    let observing = try #require(transport as? any CmxByteTransportPathObserving)
+
+    #expect(await observing.currentTransportPath() == .debugLoopback)
+    await observing.close()
+}
+
 @Test func networkTransportExchangesBytesOverHostPortRoute() async throws {
     let server = try NetworkEchoServer(response: Data("pong".utf8))
     let port = try await server.start()
@@ -137,7 +150,7 @@ private final class NetworkEchoServer: @unchecked Sendable {
     private let listener: NWListener
     private let response: Data
     private let queue = DispatchQueue(label: "dev.cmux.mobile.network-echo-server")
-    private var readyContinuation: CheckedContinuation<UInt16, Error>?
+    private var readyContinuation: CheckedContinuation<UInt16, any Error>?
     private var cancelledContinuation: CheckedContinuation<Void, Never>?
     private var didCancel = false
     private var connections: [NWConnection] = []

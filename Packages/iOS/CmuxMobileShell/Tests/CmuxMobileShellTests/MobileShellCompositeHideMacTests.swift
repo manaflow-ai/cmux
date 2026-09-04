@@ -525,7 +525,7 @@ import Testing
         await store.loadPairedMacs()
         // Production keys workspace state by PHYSICAL device id, shared by
         // every app instance of the Mac.
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "shared-mac": MacWorkspaceState(
                 macDeviceID: "shared-mac",
                 workspaces: [
@@ -571,7 +571,7 @@ import Testing
         // No instance remains visible: the physical state is pruned.
         #expect(store.displayPairedMacs.isEmpty)
         #expect(store.workspaces.isEmpty)
-        #expect(store.foregroundMacDeviceIDForTesting() == nil)
+        #expect(store.foregroundMacDeviceIDSnapshot() == nil)
     }
 
     @Test func hideKeepsSQLiteRowAndCreatesNoPendingDeleteOrTombstone() async throws {
@@ -685,7 +685,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
                 macDeviceID: MobileShellComposite.foregroundAnonymousKey,
                 workspaces: [
@@ -743,7 +743,7 @@ import Testing
             macDeviceID: "mac-a",
             displayName: "Desk Mac"
         ))
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [
@@ -785,7 +785,7 @@ import Testing
 
     @Test func staleForegroundSnapshotDoesNotHideUnavailableWorkspaceList() async throws {
         let store = MobileShellComposite(connectionState: .disconnected)
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [
@@ -875,7 +875,7 @@ import Testing
             teamIDProvider: { "team-a" }
         )
         await store.loadPairedMacs()
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             MobileShellComposite.foregroundAnonymousKey: MacWorkspaceState(
                 macDeviceID: MobileShellComposite.foregroundAnonymousKey,
                 workspaces: [
@@ -940,7 +940,7 @@ import Testing
             macDeviceID: "mac-a",
             displayName: "Desk Mac"
         ))
-        store.setWorkspaceStatesForTesting([
+        store.setWorkspaceStateSnapshot([
             "mac-a": MacWorkspaceState(
                 macDeviceID: "mac-a",
                 workspaces: [

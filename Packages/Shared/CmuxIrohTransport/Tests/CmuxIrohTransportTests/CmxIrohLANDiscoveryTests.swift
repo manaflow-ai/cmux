@@ -275,7 +275,7 @@ struct CmxIrohLANDiscoveryTests {
             #expect(CmxIrohSystemLANInterfaceSnapshotProvider.isEligibleInterfaceName(name))
         }
         for name in [
-            "lo0", "awdl0", "llw0", "ap1", "anpi0", "utun3", "ipsec0",
+            "lo0", "awdl0", "llw0", "ap1", "anpi0", "utun3", "ipsec0", "ppp0",
             "pdp_ip0", "bridge0", "gif0", "stf0", "vmenet0", "vmnet1",
             "tap0", "tun0", "docker0", "veth0", "en", "enx",
         ] {

@@ -142,6 +142,66 @@ import Testing
         #expect(candidates.isEmpty)
     }
 
+    @Test func rawLANReconnectCandidatesAreUnavailable() throws {
+        let lan = try CmxAttachRoute(
+            id: "lan",
+            kind: .lan,
+            endpoint: .hostPort(host: "192.168.1.20", port: 50906),
+            priority: 5
+        )
+
+        #expect(
+            MobileShellComposite.reconnectHostPortRoutes(
+                [lan],
+                supportedKinds: [.lan],
+                preferNonLoopback: true
+            ).isEmpty
+        )
+    }
+
+    @Test func defaultMethodChangeSkipsAnExplicitForegroundOverride() {
+        let shell = MobileShellComposite()
+        #expect(!shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: .automatic,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: true,
+            hasRecoveryTarget: false
+        ))
+        #expect(shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: .automatic,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: false,
+            hasRecoveryTarget: false
+        ))
+        #expect(!shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: nil,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: false,
+            hasRecoveryTarget: false
+        ))
+        #expect(shell.shouldRecoverForegroundForDefaultMethodChange(
+            liveTransportMode: nil,
+            newDefaultTransportMode: .tailscale,
+            hasExplicitPairingOverride: false,
+            hasRecoveryTarget: true
+        ))
+    }
+
+    @Test func storedReconnectFailureCapturesTheTargetPinnedModeError() {
+        let shell = MobileShellComposite()
+        shell.captureTransportModeErrorIfNeeded(
+            routes: [],
+            supportedKinds: [],
+            macDisplayName: "Studio Mac",
+            transportMode: .lan
+        )
+
+        #expect(
+            shell.lastTransportModeError
+                == .noRoute(mode: .lan, macDisplayName: "Studio Mac")
+        )
+    }
+
     private func magicDNS(_ port: Int = 50906) throws -> CmxAttachRoute {
         // A MagicDNS hostname route, advertised BEFORE the IP route by priority.
         try CmxAttachRoute(
@@ -272,7 +332,7 @@ import Testing
 
         #expect(result == .connected)
         #expect(store.activeRoute?.id == "good")
-        #expect(store.pooledRouteForTesting(macDeviceID: "test-mac")?.id == "good")
+        #expect(store.pooledRouteSnapshot(macDeviceID: "test-mac")?.id == "good")
     }
 
     @Test func supersededReconnectGenerationAbortsRouteIteration() async throws {
@@ -557,6 +617,16 @@ import Testing
         #expect(routes.map(\.kind) == [.tailscale])
     }
 
+    @Test func automaticSimulatorReconnectKeepsLoopbackAlongsideIroh() throws {
+        let routes = MobileShellComposite.storedReconnectRoutes(
+            [try iroh(), try loopback()],
+            supportedKinds: [.iroh, .debugLoopback],
+            preferNonLoopback: false
+        )
+
+        #expect(routes.map(\.kind) == [.iroh, .debugLoopback])
+    }
+
     @Test func tailscaleMethodWithoutGrantRejectsEveryRoute() throws {
         let routes = MobileShellComposite.storedReconnectRoutes(
             [try tailscale(), try iroh()],
@@ -803,19 +873,18 @@ import Testing
             instanceTag: "default"
         )
 
-        // The reconnected route only proves the store's logical state; the
-        // replaced live Iroh transport must also finish closing so no
-        // physical cleanup work is still pending when the test completes.
+        // The replaced live Iroh transport must finish closing, and the new
+        // session must be the raw authorized Tailscale route.
         let applied = try await pollUntil {
             let originalTransportClosed =
                 await originalTransport?.isClosedForTesting() == true
-            return factory.attemptedKinds().filter { $0 == .iroh }.count == 1
+            return factory.attemptedKinds().contains(.tailscale)
                 && store.connectionState == .connected
                 && originalTransportClosed
         }
         #expect(applied)
         #expect(store.activeRoute?.kind == .tailscale)
-        #expect(factory.attemptedKinds().filter { $0 == .tailscale }.count == 1)
+        #expect(factory.attemptedKinds() == [.iroh, .tailscale])
     }
 
     /// A selected Tailscale route is strict. If its dial fails, the old Iroh

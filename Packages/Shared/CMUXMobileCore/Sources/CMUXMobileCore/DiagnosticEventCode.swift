@@ -304,6 +304,18 @@ public enum DiagnosticEventCode: UInt16, Sendable, Codable, CaseIterable {
     /// A close carried a bounded remote reason token. `surface` is the peer
     /// alias, `a` is ``DiagnosticRemoteCloseReason``, and `c` is the session ID.
     case transportCloseReason = 79
+    /// The selected transport mode captured for one physical dial. `surface`
+    /// is the peer alias, `a` is ``DiagnosticTransportMode``, and `c` is the
+    /// local dial-attempt ID.
+    case transportModeSelected = 80
+    /// The negotiated path class for one dial. `surface` is the peer alias,
+    /// `a` is the path class, and `c` is the local dial-attempt ID. Unknown is
+    /// recorded for failures that never negotiated a path.
+    case transportDialPath = 81
+    /// A live session migrated between path classes. `surface` is the peer
+    /// alias, `a` is the previous path class, `b` is the new path class, and
+    /// `c` is the process-local session ID.
+    case transportPathMigration = 82
 }
 
 /// Scene phase carried by ``DiagnosticEventCode/appLifecycleChanged``.

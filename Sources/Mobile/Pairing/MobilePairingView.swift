@@ -6,14 +6,20 @@ import SwiftUI
 
 /// The macOS window for pairing an iPhone with this Mac.
 ///
-/// The page presents one pairing artifact: a Tailscale QR for signed-in
-/// iPhones that use the explicit Tailscale connection method. Iroh remains an
-/// automatic, no-QR discovery path and is shown only as status information.
+/// A transport chooser leads the page: Iroh pairing is automatic for
+/// signed-in iPhones and needs no QR, while the Tailscale tab shows the QR
+/// used when the iPhone's connection method is explicitly set to Tailscale.
+/// Each tab ends in a status row that doubles as the debugging surface
+/// (live transport state, manual-entry routes, signed-in account).
 struct MobilePairingView: View {
     @State private var model = MobilePairingModel()
     @State private var signInModel = AccountSignInModel(
         flow: AppDelegate.shared?.auth?.accountFlow
     )
+    /// The user's explicit tab pick. `nil` until they touch the chooser; the
+    /// effective tab then follows Iroh readiness (Iroh when ready, else
+    /// Tailscale) so the page opens on the transport that will work.
+    @State private var chosenTransport: MobilePairingTransportChoice?
     /// The manual-entry value that was just copied (the host or the port
     /// string), so only the matching button shows the brief "Copied" flash.
     /// The two values can never collide: one is a host, the other a port.
@@ -84,6 +90,59 @@ struct MobilePairingView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    // MARK: Transport chooser
+
+    private func effectiveTransport(
+        reachableViaIroh: Bool,
+        reachableViaTailscale: Bool
+    ) -> MobilePairingTransportChoice {
+        guard reachableViaIroh || reachableViaTailscale else {
+            return .unavailable
+        }
+        if let chosenTransport {
+            switch chosenTransport {
+            case .tailscale where !reachableViaTailscale:
+                return reachableViaIroh ? .iroh : .unavailable
+            case .iroh where !reachableViaIroh:
+                return reachableViaTailscale ? .tailscale : .unavailable
+            case .unavailable:
+                return reachableViaIroh ? .iroh : .tailscale
+            default:
+                return chosenTransport
+            }
+        }
+        return reachableViaIroh ? .iroh : .tailscale
+    }
+
+    private func transportPicker(
+        reachableViaIroh: Bool,
+        reachableViaTailscale: Bool
+    ) -> some View {
+        Picker(
+            String(localized: "mobile.pairing.transportPicker", defaultValue: "Connection"),
+            selection: Binding(
+                get: {
+                    effectiveTransport(
+                        reachableViaIroh: reachableViaIroh,
+                        reachableViaTailscale: reachableViaTailscale
+                    )
+                },
+                set: { chosenTransport = $0 }
+            )
+        ) {
+            // Transport product names are literal tokens, not translatable copy.
+            Text(verbatim: "Iroh")
+                .tag(MobilePairingTransportChoice.iroh)
+                .disabled(!reachableViaIroh)
+            Text(verbatim: "Tailscale")
+                .tag(MobilePairingTransportChoice.tailscale)
+                .disabled(!reachableViaTailscale)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 280)
     }
 
     /// The App Store-badge-styled button for getting cmux on the iPhone.
@@ -180,19 +239,40 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func readyContent(_ ready: MobilePairingModel.Ready) -> some View {
+        let transport = effectiveTransport(
+            reachableViaIroh: ready.reachableViaIroh,
+            reachableViaTailscale: ready.reachableViaTailscale
+        )
+
         VStack(alignment: .center, spacing: 14) {
+            if ready.reachableViaIroh || ready.reachableViaTailscale {
+                transportPicker(
+                    reachableViaIroh: ready.reachableViaIroh,
+                    reachableViaTailscale: ready.reachableViaTailscale
+                )
+            }
             getIPhoneAppBadge
-            tailscaleReadyBody(ready)
+            if transport == .tailscale {
+                tailscaleReadyBody(ready)
+            } else if transport == .iroh {
+                irohBody(waiting: ready.reachableViaIroh)
+            } else {
+                unavailableTransportBody
+            }
         }
         .frame(maxWidth: .infinity)
 
         Divider()
 
-        tailscaleRow(ready)
-        if ready.reachableViaIroh {
+        if transport == .tailscale {
+            tailscaleRow(ready)
+            manualEntry(ready)
+        } else if transport == .iroh {
+            irohRow(reachableViaIroh: ready.reachableViaIroh)
+        } else {
+            tailscaleRow(ready)
             irohRow(reachableViaIroh: ready.reachableViaIroh)
         }
-        manualEntry(ready)
 
         footer
     }
@@ -226,6 +306,30 @@ struct MobilePairingView: View {
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
 
+        if model.availableIOSAppTargets.count > 1 {
+            pairingTargetPicker
+        }
+    }
+
+    @ViewBuilder
+    private func irohBody(waiting: Bool) -> some View {
+        Text(String(
+            localized: "mobile.pairing.irohInstruction",
+            defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed."
+        ))
+        .cmuxFont(.callout)
+        .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: 420)
+
+        if waiting {
+            waitingIndicator
+        }
+
+        // The selected iOS app matters beyond the QR: it addresses the
+        // paired-Mac records Iroh discovery hands to that exact app, so the
+        // picker stays available on the automatic path too.
         if model.availableIOSAppTargets.count > 1 {
             pairingTargetPicker
         }
@@ -283,26 +387,35 @@ struct MobilePairingView: View {
 
     @ViewBuilder
     private func needsReachableTransportContent(reachableViaIroh: Bool) -> some View {
+        let transport = effectiveTransport(
+            reachableViaIroh: reachableViaIroh,
+            reachableViaTailscale: false
+        )
+
         VStack(alignment: .center, spacing: 14) {
-            getIPhoneAppBadge
-            tailscaleMissingBody
             if reachableViaIroh {
-                Text(String(
-                    localized: "mobile.pairing.irohInstruction",
-                    defaultValue: "Install cmux on your iPhone and sign in with the same account. It connects automatically — no code needed."
-                ))
-                .cmuxFont(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+                transportPicker(
+                    reachableViaIroh: true,
+                    reachableViaTailscale: false
+                )
+            }
+            getIPhoneAppBadge
+            if transport == .iroh {
+                irohBody(waiting: reachableViaIroh)
+            } else if transport == .unavailable {
+                unavailableTransportBody
+            } else {
+                tailscaleMissingBody
             }
         }
         .frame(maxWidth: .infinity)
 
         Divider()
 
-        if reachableViaIroh {
+        if transport == .iroh {
             irohRow(reachableViaIroh: reachableViaIroh)
+        } else if transport == .unavailable {
+            unavailableTransportRows
         }
 
         footer
@@ -329,6 +442,45 @@ struct MobilePairingView: View {
         )
         .buttonStyle(.borderedProminent)
         refreshButton
+    }
+
+    @ViewBuilder
+    private var unavailableTransportBody: some View {
+        Image(systemName: "network.slash")
+            .cmuxFont(size: 28)
+            .foregroundStyle(.orange)
+        Text(String(
+            localized: "mobile.pairing.transport.unavailable",
+            defaultValue: "Neither Iroh nor Tailscale is reachable for this Mac."
+        ))
+            .multilineTextAlignment(.center)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        Link(
+            String(localized: "mobile.pairing.req.tailscale.get", defaultValue: "Get Tailscale"),
+            destination: Self.tailscaleDownloadURL
+        )
+        .buttonStyle(.borderedProminent)
+        refreshButton
+    }
+
+    @ViewBuilder
+    private var unavailableTransportRows: some View {
+        irohRow(reachableViaIroh: false)
+        transportRow(
+            name: "Tailscale",
+            healthy: false,
+            status: String(
+                localized: "mobile.pairing.transport.status.notDetected",
+                defaultValue: "Not detected"
+            ),
+            detail: String(
+                localized: "mobile.pairing.transport.tailscale.detail",
+                defaultValue: "This code pairs over Tailscale instead. Both devices must be connected to the same Tailscale network."
+            )
+        ) {
+            EmptyView()
+        }
     }
 
     // MARK: Transport status rows (debugging surface)
@@ -402,10 +554,14 @@ struct MobilePairingView: View {
     @ViewBuilder
     private func manualEntry(_ ready: MobilePairingModel.Ready) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Enter this Mac's numeric Tailscale IP and port:"))
+            Text(String(localized: "mobile.pairing.manual.title", defaultValue: "Can't scan? Add this Mac manually:"))
                 .cmuxFont(.caption, weight: .semibold)
                 .foregroundStyle(.secondary)
             ForEach(ready.tailscaleLines, id: \.self) { line in
+                Text(line).cmuxFont(.caption, design: .monospaced)
+                    .textSelection(.enabled).foregroundStyle(.secondary)
+            }
+            ForEach(ready.lanLines, id: \.self) { line in
                 Text(line).cmuxFont(.caption, design: .monospaced)
                     .textSelection(.enabled).foregroundStyle(.secondary)
             }

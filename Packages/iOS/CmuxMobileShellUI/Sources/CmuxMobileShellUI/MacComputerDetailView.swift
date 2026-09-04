@@ -511,11 +511,17 @@ struct MacComputerDetailView: View {
                 )
             ) {
                 Text(L10n.string(
-                    "mobile.settings.connectionMethod.automatic",
-                    defaultValue: "Iroh"
+                    "mobile.settings.connectionMethod.auto",
+                    defaultValue: "Auto"
                 ))
                 .tag(MobileConnectionMethod.automatic)
-                .accessibilityIdentifier("MobileComputerConnectionMethodIroh")
+                .accessibilityIdentifier("MobileComputerConnectionMethodAuto")
+                Text(L10n.string(
+                    "mobile.settings.connectionMethod.lan",
+                    defaultValue: "LAN Only"
+                ))
+                .tag(MobileConnectionMethod.lan)
+                .accessibilityIdentifier("MobileComputerConnectionMethodLAN")
                 Text(L10n.string(
                     "mobile.settings.connectionMethod.tailscale",
                     defaultValue: "Tailscale Only"
@@ -528,6 +534,12 @@ struct MacComputerDetailView: View {
                 ))
                 .tag(MobileConnectionMethod.direct)
                 .accessibilityIdentifier("MobileComputerConnectionMethodDirect")
+                Text(L10n.string(
+                    "mobile.settings.connectionMethod.iroh",
+                    defaultValue: "iroh Only"
+                ))
+                .tag(MobileConnectionMethod.iroh)
+                .accessibilityIdentifier("MobileComputerConnectionMethodIroh")
             }
             .accessibilityIdentifier("MobileComputerConnectionMethod")
             // Tailscale Only with no authorized route for THIS computer is
@@ -561,6 +573,36 @@ struct MacComputerDetailView: View {
                     )
                 }
                 .accessibilityIdentifier("MobileComputerAddTailscaleConnectionButton")
+            }
+            if (pendingConnectionMethod ?? selectedMethod) == .iroh,
+               !computerHasUsableIrohRoute {
+                Label {
+                    Text(L10n.string(
+                        "mobile.connections.irohUnavailableWarning",
+                        defaultValue: "No iroh route is available for this computer — update cmux on the Mac or choose another mode."
+                    ))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                .accessibilityIdentifier("MobileComputerIrohUnavailableWarning")
+            }
+            if (pendingConnectionMethod ?? selectedMethod) == .lan,
+               !computerHasUsableLANRoute {
+                Label {
+                    Text(L10n.string(
+                        "mobile.connections.lanUnavailableWarning",
+                        defaultValue: "No LAN route is advertised for this computer — it stays disconnected until both devices share a local network."
+                    ))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+                .accessibilityIdentifier("MobileComputerLANUnavailableWarning")
             }
         } footer: {
             Text(connectionMethodFooterText)
@@ -797,6 +839,18 @@ struct MacComputerDetailView: View {
         return MobileShellComposite.hasUsableTailscaleAuthorization(in: [pairedMac])
     }
 
+    /// Whether this Computer currently advertises an authenticated Iroh peer.
+    private var computerHasUsableIrohRoute: Bool {
+        pairedMac?.routes.contains { $0.kind == .iroh } == true
+    }
+
+    /// Whether this Computer advertises at least one non-loopback LAN route.
+    private var computerHasUsableLANRoute: Bool {
+        pairedMac?.routes.contains { route in
+            route.kind == .lan && !CmxLoopbackHost().matches(route)
+        } == true
+    }
+
     private var connectionMethodFooterText: String {
         switch pendingConnectionMethod ?? selectedMethod {
         case .direct:
@@ -817,6 +871,16 @@ struct MacComputerDetailView: View {
                 network, then scan the Mac's pairing code once. cmux stays disconnected until that local \
                 authorization exists.
                 """
+            )
+        case .lan:
+            return L10n.string(
+                "mobile.settings.connectionMethod.lanFooter",
+                defaultValue: "Uses only the Mac's advertised local-network address. If the devices are not on the same network, cmux stays disconnected and does not switch transports."
+            )
+        case .iroh:
+            return L10n.string(
+                "mobile.settings.connectionMethod.irohFooter",
+                defaultValue: "Uses only authenticated iroh paths (direct or relay). LAN and Tailscale routes are not used."
             )
         }
     }
@@ -975,6 +1039,17 @@ struct MacComputerDetailView: View {
             if isForeground {
                 LabeledContent(L10n.string("mobile.computers.field.role", defaultValue: "Role"),
                                value: L10n.string("mobile.computers.role.foreground", defaultValue: "Active (foreground)"))
+                LabeledContent(
+                    L10n.string(
+                        "mobile.settings.activeTransport",
+                        defaultValue: "Active Transport"
+                    ),
+                    value: store.activeTransportPath.mobileStatusDisplayValue
+                        ?? L10n.string(
+                            "mobile.settings.activeTransport.unavailable",
+                            defaultValue: "Transport unavailable"
+                        )
+                )
             }
             LabeledContent(L10n.string("mobile.computers.field.workspaces", defaultValue: "Workspaces"),
                            value: "\(workspaceCount)")

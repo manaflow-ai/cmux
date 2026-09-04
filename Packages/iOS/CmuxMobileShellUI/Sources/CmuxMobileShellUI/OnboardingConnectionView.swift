@@ -94,16 +94,28 @@ struct OnboardingConnectionView: View {
                 defaultValue: "Your Mac is connected"
             )
         }
-        if connectionMethod == .tailscale {
+        switch connectionMethod {
+        case .tailscale:
             return L10n.string(
                 "mobile.onboarding.connect.tailscaleTitle",
                 defaultValue: "Connect over Tailscale"
             )
+        case .lan:
+            return L10n.string(
+                "mobile.onboarding.connect.lanTitle",
+                defaultValue: "Connect over LAN"
+            )
+        case .iroh:
+            return L10n.string(
+                "mobile.onboarding.connect.irohTitle",
+                defaultValue: "Connect over iroh"
+            )
+        case .automatic, .direct:
+            return L10n.string(
+                "mobile.onboarding.connect.title",
+                defaultValue: "Your Mac connects automatically"
+            )
         }
-        return L10n.string(
-            "mobile.onboarding.connect.title",
-            defaultValue: "Your Mac connects automatically"
-        )
     }
 
     private var message: String {
@@ -113,7 +125,8 @@ struct OnboardingConnectionView: View {
                 defaultValue: "Open any workspace and respond when an agent needs you."
             )
         }
-        if connectionMethod == .tailscale {
+        switch connectionMethod {
+        case .tailscale:
             if let requiredMacVersion {
                 return String(
                     format: L10n.string(
@@ -129,20 +142,31 @@ struct OnboardingConnectionView: View {
                 "mobile.onboarding.connect.tailscaleBody",
                 defaultValue: "Install Tailscale on both devices and join the same network, then scan the pairing code once."
             )
-        }
-        if let requiredMacVersion {
-            return String(
-                format: L10n.string(
-                    "mobile.onboarding.connect.bodyWithMinVersionFormat",
-                    defaultValue: "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
-                ),
-                requiredMacVersion
+        case .lan:
+            return L10n.string(
+                "mobile.onboarding.connect.lanBody",
+                defaultValue: "The iPhone and Mac must be on the same local network. cmux will stay disconnected instead of switching transports when they are not."
+            )
+        case .iroh:
+            return L10n.string(
+                "mobile.onboarding.connect.irohBody",
+                defaultValue: "Use the same cmux account on both devices. Only authenticated iroh direct or relay paths are allowed."
+            )
+        case .automatic, .direct:
+            if let requiredMacVersion {
+                return String(
+                    format: L10n.string(
+                        "mobile.onboarding.connect.bodyWithMinVersionFormat",
+                        defaultValue: "Use the same cmux account on both devices. Requires cmux %1$@ or newer on your Mac."
+                    ),
+                    requiredMacVersion
+                )
+            }
+            return L10n.string(
+                "mobile.onboarding.connect.body",
+                defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
             )
         }
-        return L10n.string(
-            "mobile.onboarding.connect.body",
-            defaultValue: "Use the same cmux account on both devices. Your Mac connects automatically."
-        )
     }
 
     /// The minimum stable-channel Mac version this app version accepts, from

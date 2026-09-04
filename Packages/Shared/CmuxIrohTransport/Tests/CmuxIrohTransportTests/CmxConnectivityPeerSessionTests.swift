@@ -6,6 +6,32 @@ import Testing
 @Suite(.serialized)
 struct CmxConnectivityPeerSessionTests {
     @Test
+    func aChangedTransportModeCannotReuseAnActivePeerSession() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .iroh
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let first = TestConnectivitySession(continuityID: 101)
+        let second = TestConnectivitySession(continuityID: 102)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [first, second])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in try await builder.build(request) }
+        )
+
+        _ = try await peer.connectedSession(for: automatic)
+        _ = try await peer.connectedSession(for: pinned)
+
+        #expect(await builder.callCount() == 2)
+        #expect(await first.closeCount() == 1)
+        #expect(await peer.connectionContinuityID() == 102)
+    }
+
+    @Test
     func concurrentCallersShareOneDialAndOneAdmittedSession() async throws {
         let request = try Self.request()
         let routeVariant = try Self.request(routeID: "iroh-v2-refreshed")
@@ -247,7 +273,7 @@ struct CmxConnectivityPeerSessionTests {
         try await Self.waitUntil { await recovered.hasSelectedPathObserver() }
         await recovered.publishSelectedPath(.unavailable)
         await clock.waitUntilSleeping()
-        await recovered.publishSelectedPath(.direct)
+        await recovered.publishSelectedPath(.direct(address: nil))
         try await Self.waitUntil { clock.sleepingDeadlines().isEmpty }
         clock.advance(
             by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds + 1
@@ -291,7 +317,7 @@ struct CmxConnectivityPeerSessionTests {
         // The path recovered but the observation stream never delivered the
         // usable value (a dropped event). The deadline must trust the live
         // state it re-reads, not the stale event that armed it.
-        await quietlyRecovered.setSelectedPathQuietly(.direct)
+        await quietlyRecovered.setSelectedPathQuietly(.direct(address: nil))
         clock.advance(
             by: CmxConnectivityPeerSession.allPathsClosedEvictionGraceSeconds
         )
@@ -554,6 +580,222 @@ struct CmxConnectivityPeerSessionTests {
     }
 
     @Test
+    func changedTransportPolicyRetiresAStillPendingDialBeforeReplacement() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .iroh
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        // The gated builder deliberately ignores cancellation while it is
+        // parked. This models an FFI dial that only notices cancellation after
+        // it has produced a session; the peer actor must still reject it by
+        // lifecycle revision before installing it.
+        let retired = TestConnectivitySession(continuityID: 43)
+        let replacement = TestConnectivitySession(continuityID: 44)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [retired, replacement]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        let first = Task { try? await peer.connectedSession(for: automatic) }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        let second = Task { try await peer.connectedSession(for: pinned) }
+        await builder.release(call: 0)
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+
+        let firstResult = await first.value
+        let secondResult = try await second.value
+        #expect(firstResult == nil)
+        #expect(await secondResult.connectionContinuityID() == 44)
+        #expect(await peer.connectionContinuityID() == 44)
+        #expect(await retired.closeCount() == 1)
+        await peer.invalidate()
+    }
+
+    @Test
+    func disallowedPathMigrationEvictsTheSharedSessionForEveryOwner() async throws {
+        let request = CmxByteTransportRequest(
+            route: try Self.request().route,
+            expectedPeerDeviceID: "123e4567-e89b-42d3-a456-426614174999",
+            authorizationMode: .transportAdmission,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: request)
+        let session = TestConnectivitySession(
+            continuityID: 45,
+            keepsSelectedPathStreamOpen: true,
+            initialPath: .privateNetwork(address: "192.168.1.20:58465"),
+            rejectsRelayPaths: true
+        )
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+
+        _ = try await peer.connectedSession(for: request)
+        try await Self.waitUntil { await session.hasSelectedPathObserver() }
+        await session.publishSelectedPath(.relay(url: "https://relay.example"))
+        try await Self.waitUntil { await session.closeCount() == 1 }
+
+        #expect(await peer.snapshot().phase == .failed)
+        #expect(await peer.snapshot().failure == .unsupportedRoute)
+        #expect(await peer.connectionContinuityID() == nil)
+        await peer.invalidate()
+    }
+
+    @Test
+    func policyConflictDoesNotEvictAnOwnedSession() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let session = TestConnectivitySession(continuityID: 46)
+        let builder = SequencedConnectivitySessionBuilder(sessions: [session])
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        _ = try await peer.acquireControl(for: automatic, ownerID: ownerID)
+        await #expect(throws: CmxConnectivityEngineError.superseded) {
+            _ = try await peer.connectedSession(for: pinned)
+        }
+        #expect(await session.closeCount() == 0)
+        #expect(await peer.connectionContinuityID() == 46)
+        await peer.releaseControl(ownerID: ownerID)
+        await peer.invalidate()
+    }
+
+    @Test
+    func policyConflictCannotRetireAnOwnedPendingDial() async throws {
+        let automatic = try Self.request()
+        let pinned = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let foregroundSession = TestConnectivitySession(continuityID: 47)
+        let conflictingSession = TestConnectivitySession(continuityID: 48)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [foregroundSession, conflictingSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        let foreground = Task {
+            try await peer.acquireControl(for: automatic, ownerID: ownerID)
+        }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+
+        let conflictingLane = Task {
+            try await peer.connectedSession(for: pinned)
+        }
+
+        // The unfixed implementation starts a second gated dial; the fixed
+        // implementation rejects the conflicting lane before opening one.
+        for _ in 0 ..< 1_000 {
+            if await builder.callCount() == 2 { break }
+            await Task.yield()
+        }
+        let callCount = await builder.callCount()
+        await builder.release(call: 0)
+        if callCount == 2 {
+            await builder.release(call: 1)
+        }
+
+        let foregroundResult = await foreground.result
+        let conflictingResult = await conflictingLane.result
+        guard case .success(let admitted) = foregroundResult else {
+            Issue.record("The owned foreground dial was superseded")
+            return
+        }
+        guard case .failure(let error) = conflictingResult else {
+            Issue.record("The conflicting lane unexpectedly replaced the owner")
+            return
+        }
+        #expect((error as? CmxConnectivityEngineError) == .superseded)
+        #expect(callCount == 1)
+        #expect(await admitted.connectionContinuityID() == 47)
+        #expect(await peer.connectionContinuityID() == 47)
+        await peer.releaseControl(ownerID: ownerID)
+        await peer.invalidate()
+    }
+
+    @Test
+    func foregroundControlSupersedesAnUnownedFeatureDial() async throws {
+        let automatic = try Self.request()
+        let feature = CmxByteTransportRequest(
+            route: automatic.route,
+            expectedPeerDeviceID: automatic.expectedPeerDeviceID,
+            authorizationMode: automatic.authorizationMode,
+            sessionPurpose: .featureLane,
+            transportMode: .lan
+        )
+        let peerID = try CmxConnectivityPeerID(request: automatic)
+        let featureSession = TestConnectivitySession(continuityID: 49)
+        let foregroundSession = TestConnectivitySession(continuityID: 50)
+        let builder = OrderedGatedConnectivitySessionBuilder(
+            sessions: [featureSession, foregroundSession]
+        )
+        let peer = CmxConnectivityPeerSession(
+            peerID: peerID,
+            buildSession: { request in
+                try await builder.build(request)
+            }
+        )
+        let ownerID = UUID()
+
+        // A feature lane has no control owner. Foreground control is allowed to
+        // replace that unowned pending dial, but the replacement waits for the
+        // retired physical task to settle before starting.
+        let featureDial = Task {
+            try await peer.connectedSession(for: feature)
+        }
+        try await Self.waitUntil { await builder.callCount() == 1 }
+        let foregroundDial = Task {
+            try await peer.acquireControl(for: automatic, ownerID: ownerID)
+        }
+        await builder.release(call: 0)
+        try await Self.waitUntil { await builder.callCount() == 2 }
+        await builder.release(call: 1)
+
+        if case .success = await featureDial.result {
+            Issue.record("The unowned feature dial unexpectedly won foreground control")
+        }
+        let admitted = try await foregroundDial.value
+        #expect(await admitted.connectionContinuityID() == 50)
+        #expect(await peer.connectionContinuityID() == 50)
+        await peer.releaseControl(ownerID: ownerID)
+        await peer.invalidate()
+    }
+
+    @Test
     func wedgedRetiredDialCannotBlockPastTheSettleBound() async throws {
         let request = try Self.request()
         let peerID = try CmxConnectivityPeerID(request: request)
@@ -779,6 +1021,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private let continuityID: UInt64
     private let gatesCloseAttribution: Bool
     private let keepsSelectedPathStreamOpen: Bool
+    private let rejectsRelayPaths: Bool
     private var closed = false
     private var closes = 0
     private var closeFailure = DiagnosticFailureKind.connectionClosed
@@ -792,7 +1035,7 @@ private actor TestConnectivitySession: CmxConnectivitySession {
     private var closeGateWaiting = false
     private var closeGateWaiter: CheckedContinuation<Void, Never>?
     private var received: [Data] = []
-    private var selectedPath = CmxIrohObservedConnectionPath.direct
+    private var selectedPath: CmxIrohObservedConnectionPath
     private var selectedPathContinuation:
         AsyncStream<CmxIrohObservedConnectionPath>.Continuation?
 
@@ -801,11 +1044,15 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         gatesCloseAttribution: Bool = false,
         keepsSelectedPathStreamOpen: Bool = false,
         gatesFirstIsClosedCheck: Bool = false,
-        gatesFirstClose: Bool = false
+        gatesFirstClose: Bool = false,
+        initialPath: CmxIrohObservedConnectionPath = .direct(address: nil),
+        rejectsRelayPaths: Bool = false
     ) {
         self.continuityID = continuityID
         self.gatesCloseAttribution = gatesCloseAttribution
         self.keepsSelectedPathStreamOpen = keepsSelectedPathStreamOpen
+        self.rejectsRelayPaths = rejectsRelayPaths
+        selectedPath = initialPath
         isClosedGatePending = gatesFirstIsClosedCheck
         closeGatePending = gatesFirstClose
     }
@@ -894,6 +1141,19 @@ private actor TestConnectivitySession: CmxConnectivitySession {
         }
         selectedPathContinuation = pair.continuation
         return pair.stream
+    }
+
+    func policySelectedPathChanges() -> AsyncStream<CmxIrohObservedConnectionPath> {
+        // The test session's path stream is already actor-owned; keep a
+        // separate entry point so the production peer can use its strict
+        // policy-observation seam without relying on a protocol default.
+        observedSelectedPathChanges()
+    }
+
+    func pathIsAllowed(_ path: CmxIrohObservedConnectionPath) async -> Bool {
+        guard rejectsRelayPaths else { return true }
+        if case .relay = path { return false }
+        return true
     }
 
     func hasSelectedPathObserver() -> Bool {

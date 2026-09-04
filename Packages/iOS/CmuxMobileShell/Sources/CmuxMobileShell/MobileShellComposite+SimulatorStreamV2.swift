@@ -110,7 +110,14 @@ extension MobileShellComposite {
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
-            sessionPurpose: .featureLane
+            sessionPurpose: .featureLane,
+            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
+                forMacDeviceID: activeTicket.macDeviceID,
+                instanceTag: activeMacInstanceTag
+            ),
+            // Keep the stream lane under the same hard policy as the live
+            // control client; the request may trigger a fresh physical dial.
+            transportMode: remoteClient?.transportMode ?? selectedTransportMode
         )
     }
 }

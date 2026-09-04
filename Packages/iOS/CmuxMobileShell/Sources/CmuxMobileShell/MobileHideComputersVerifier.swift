@@ -94,7 +94,7 @@ public struct MobileHideComputersVerifier {
         )
 
         await shell.loadPairedMacs()
-        shell.setWorkspaceStatesForTesting(seededWorkspaceStates(), foregroundMacDeviceID: "mac-a")
+        shell.setWorkspaceStateSnapshot(seededWorkspaceStates(), foregroundMacDeviceID: "mac-a")
         let initial = checkpoint("initial", shell: shell)
 
         let halfHideIDs = ["mac-a", "mac-b"]

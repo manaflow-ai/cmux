@@ -31,6 +31,8 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
     /// custom private-path joins. An empty or unusable allowlist must fail
     /// the dial instead of substituting another path.
     public let irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]?
+    /// The hard transport-class policy captured for this physical dial.
+    public let transportMode: CmxTransportMode
 
     /// Creates a route-bound transport request with explicit peer authority.
     public init(
@@ -38,13 +40,15 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
         expectedPeerDeviceID: String?,
         authorizationMode: CmxTransportAuthorizationMode,
         sessionPurpose: CmxTransportSessionPurpose = .foregroundControl,
-        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
+        irohDirectOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil,
+        transportMode: CmxTransportMode = .automatic
     ) {
         self.route = route
         self.expectedPeerDeviceID = expectedPeerDeviceID
         self.authorizationMode = authorizationMode
         self.sessionPurpose = sessionPurpose
         self.irohDirectOnlyDialCandidates = irohDirectOnlyDialCandidates
+        self.transportMode = transportMode
     }
 
     /// Returns the same route and authority with a different local owner role.
@@ -56,7 +60,29 @@ public struct CmxByteTransportRequest: Equatable, Sendable {
             expectedPeerDeviceID: expectedPeerDeviceID,
             authorizationMode: authorizationMode,
             sessionPurpose: sessionPurpose,
-            irohDirectOnlyDialCandidates: irohDirectOnlyDialCandidates
+            irohDirectOnlyDialCandidates: irohDirectOnlyDialCandidates,
+            transportMode: transportMode
         )
+    }
+
+    /// Enforces the selected mode at the last common boundary before a
+    /// transport factory can allocate a socket or Iroh session.
+    public func validateTransportMode() throws {
+        try CmxTransportModePolicy(transportMode).validate(route: route)
+        if irohDirectOnlyDialCandidates != nil, transportMode != .direct {
+            // A Direct allowlist is an exclusive capability, never an
+            // incidental hint. Reject contradictory requests before any
+            // provider can reinterpret it as a custom private path.
+            throw CmxTransportModeError.directCandidatesRequireDirectMode(
+                selectedMode: transportMode
+            )
+        }
+        if transportMode == .direct,
+           irohDirectOnlyDialCandidates?.isEmpty != false {
+            throw CmxTransportModeError.noRoute(
+                mode: .direct,
+                macDisplayName: nil
+            )
+        }
     }
 }

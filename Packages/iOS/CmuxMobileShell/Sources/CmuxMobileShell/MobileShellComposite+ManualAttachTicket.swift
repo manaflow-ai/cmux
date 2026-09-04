@@ -55,7 +55,10 @@ extension MobileShellComposite {
         attemptStartedAt: Date?,
         probeClient: MobileCoreRPCClient? = nil
     ) async throws -> CmxAttachTicket {
-        let directRoute = try Self.manualHostRoute(host: host, port: port)
+        let directRoute = try manualHostRoute(
+            host: host,
+            port: port
+        )
         let displayName = name.isEmpty ? host : name
         // Non-loopback callers supply an exact user-entry capability to the
         // subsequent `connect` call. This helper intentionally mints only a
@@ -132,9 +135,14 @@ extension MobileShellComposite {
                 stackTokenGate: stackTokenGate,
                 stackTokenForceRefreshGate: stackTokenForceRefreshGate,
                 transportConnectObserver: transportConnectDiagnosticObserver(
+                    peerID: probeTicket.macDeviceID,
+                    transportMode: selectedTransportMode
+                ),
+                transportPathObserver: transportPathDiagnosticObserver(
                     peerID: probeTicket.macDeviceID
                 ),
-                sessionPurpose: .probe
+                sessionPurpose: .probe,
+                transportMode: selectedTransportMode
             )
         }
         let timeoutNanoseconds: UInt64
