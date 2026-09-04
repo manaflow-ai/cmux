@@ -22746,9 +22746,18 @@ mod tests {
             serde_json::json!({}),
         )
         .unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(true).unwrap();
-        mux.append_journal_ingress(&ingress, "test", "hook-wake").unwrap();
-        mux.workspace_registry.lock().unwrap().set_resource_patch_failure(false).unwrap();
+        let validated = mux.journal_kernel.validate_ingress(&ingress).unwrap();
+        let commit = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .append_journal_ingress(&ingress, &validated, "test", "hook-wake")
+            .unwrap();
+        assert!(!commit.replayed);
+        assert_eq!(
+            mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+            1
+        );
 
         mux.report_agent(surface.id, AgentState::Working, AgentSource::Socket, None).unwrap();
         assert!(
