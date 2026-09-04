@@ -2152,6 +2152,9 @@
 		469200000000000000000002 /* SessionIndexRowSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469200000000000000000001 /* SessionIndexRowSnapshot.swift */; };
 		850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000017 /* SessionIndexSnapshotLoader.swift */; };
 		850000000000000000000006 /* SessionIndexSnapshotLoaderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */; };
+		D6F100000000000000000002 /* SessionIndexStatusIndicator.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F100000000000000000001 /* SessionIndexStatusIndicator.swift */; };
+		D6F100000000000000000005 /* SessionIndexStatusIndicatorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F100000000000000000006 /* SessionIndexStatusIndicatorModel.swift */; };
+		D6F100000000000000000003 /* SessionIndexStatusSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = D6F100000000000000000004 /* SessionIndexStatusSnapshot.swift */; };
 		FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003004 /* SessionIndexStore+CodexSQL.swift */; };
 		AFE11421E005492295BE3703 /* SessionIndexStore+GlobalSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CF53113EACF43C49EFFEF5C /* SessionIndexStore+GlobalSearch.swift */; };
 		FE003101 /* SessionIndexStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003001 /* SessionIndexStore.swift */; };
@@ -5285,6 +5288,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		469200000000000000000001 /* SessionIndexRowSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexRowSnapshot.swift; sourceTree = "<group>"; };
 		850000000000000000000017 /* SessionIndexSnapshotLoader.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoader.swift; sourceTree = "<group>"; };
 		850000000000000000000005 /* SessionIndexSnapshotLoaderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexSnapshotLoaderTests.swift; sourceTree = "<group>"; };
+		D6F100000000000000000001 /* SessionIndexStatusIndicator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStatusIndicator.swift; sourceTree = "<group>"; };
+		D6F100000000000000000006 /* SessionIndexStatusIndicatorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStatusIndicatorModel.swift; sourceTree = "<group>"; };
+		D6F100000000000000000004 /* SessionIndexStatusSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStatusSnapshot.swift; sourceTree = "<group>"; };
 		FE003004 /* SessionIndexStore+CodexSQL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+CodexSQL.swift"; sourceTree = "<group>"; };
 		5CF53113EACF43C49EFFEF5C /* SessionIndexStore+GlobalSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionIndexStore+GlobalSearch.swift"; sourceTree = "<group>"; };
 		FE003001 /* SessionIndexStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexStore.swift; sourceTree = "<group>"; };
@@ -8499,6 +8505,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A2C22D3F893E4B2D8FB3B91F /* VaultAllSessionsBar.swift */,
 				189ED88E2958436BAE17D5E4 /* VaultSessionSearchQuery.swift */,
 				5B9D1EE40CA94CD8BEDDDD98 /* VaultSessionLiveStatus.swift */,
+				D6F100000000000000000001 /* SessionIndexStatusIndicator.swift */,
+				D6F100000000000000000004 /* SessionIndexStatusSnapshot.swift */,
+				D6F100000000000000000006 /* SessionIndexStatusIndicatorModel.swift */,
 				5D1AE45742E0440681EC9AD4 /* VaultRecencySections.swift */,
 				850000000000000000000016 /* SessionIndexTableView.swift */,
 				850000000000000000000017 /* SessionIndexSnapshotLoader.swift */,
@@ -11397,6 +11406,9 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				D4476F040000000000000001 /* SessionIndexResolvedSystemSymbolImage.swift in Sources */,
 				469200000000000000000002 /* SessionIndexRowSnapshot.swift in Sources */,
 				850000000000000000000027 /* SessionIndexSnapshotLoader.swift in Sources */,
+				D6F100000000000000000002 /* SessionIndexStatusIndicator.swift in Sources */,
+				D6F100000000000000000005 /* SessionIndexStatusIndicatorModel.swift in Sources */,
+				D6F100000000000000000003 /* SessionIndexStatusSnapshot.swift in Sources */,
 				FE003104 /* SessionIndexStore+CodexSQL.swift in Sources */,
 				AFE11421E005492295BE3703 /* SessionIndexStore+GlobalSearch.swift in Sources */,
 				FE003101 /* SessionIndexStore.swift in Sources */,
