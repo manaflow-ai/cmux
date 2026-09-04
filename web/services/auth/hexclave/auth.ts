@@ -223,9 +223,17 @@ export async function exchangeOAuthCode(
       },
     };
   }
+  // `JSON.parse` happily returns null, a number, or a string. Any of those
+  // would throw on the first property read, and this call site is one redirect
+  // away from the visitor, so it must fail as a result rather than an
+  // exception.
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(text) as Record<string, unknown>;
+    const body: unknown = JSON.parse(text);
+    if (typeof body !== "object" || body === null || Array.isArray(body)) {
+      throw new Error("token endpoint returned a non-object body");
+    }
+    parsed = body as Record<string, unknown>;
   } catch {
     return { ok: false, error: { code: "OAUTH_TOKEN_MALFORMED", message: text } };
   }

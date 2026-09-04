@@ -138,4 +138,18 @@ describe("OAuth callback", () => {
     expect(new URL(response.headers.get("location") ?? "").searchParams
       .get("error")).toBe("unexpected");
   });
+
+  test("a 2xx body that is not an object fails as a redirect", async () => {
+    const { handoff, cookie } = await handoffCookie("/dashboard");
+    globalThis.fetch = (async () =>
+      new Response("null", { status: 200 })) as typeof fetch;
+
+    const response = await GET(
+      callback({ code: "auth-code", state: handoff.state }, cookie),
+    );
+
+    expect(response.status).toBe(307);
+    expect(new URL(response.headers.get("location") ?? "").searchParams
+      .get("error")).toBe("unexpected");
+  });
 });
