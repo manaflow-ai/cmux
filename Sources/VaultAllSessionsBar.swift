@@ -179,7 +179,15 @@ struct VaultAllSessionsBar: View {
             }
             .pickerStyle(.inline)
         } label: {
-            VaultToolbarIcon(systemName: "ellipsis.vertical", isEmphasized: true)
+            Text("⋮")
+                .font(.system(size: 18, weight: .bold, design: .rounded))
+                .foregroundStyle(Color.primary.opacity(0.92))
+                .frame(width: 28, height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.primary.opacity(0.10))
+                )
+                .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
@@ -202,65 +210,4 @@ struct VaultAllSessionsBar: View {
         return String(localized: "sessionIndex.view.default", defaultValue: "Default view")
     }
 
-}
-
-/// Consistent 20-point utility target for search-row menus. The quiet resting
-/// state keeps the field primary; hover and active states make the affordance
-/// legible without adding another pill to the toolbar.
-private struct VaultToolbarIcon: View {
-    let systemName: String
-    var isActive = false
-    var isEmphasized = false
-    @State private var isHovered = false
-
-    var body: some View {
-        Group {
-            if isEmphasized {
-                VStack(spacing: 2.5) {
-                    ForEach(0..<3, id: \.self) { _ in
-                        Circle()
-                            .fill(Color.primary)
-                            .frame(width: 3.5, height: 3.5)
-                    }
-                }
-            } else {
-                HeaderChromeIconStyle.symbol(systemName)
-            }
-        }
-            .foregroundStyle(
-                isActive
-                    ? Color.accentColor
-                    : isEmphasized
-                    ? Color.primary.opacity(isHovered ? 1 : 0.92)
-                    : HeaderChromeIconStyle.foregroundColor.opacity(
-                        isHovered
-                            ? HeaderChromeIconStyle.hoveredOpacity
-                            : HeaderChromeIconStyle.opacity
-                    )
-            )
-            .frame(
-                width: max(RightSidebarChromeMetrics.headerControlSize, 24),
-                height: max(RightSidebarChromeMetrics.headerControlSize, 24)
-            )
-            .background {
-                if isActive || isHovered || isEmphasized {
-                    RoundedRectangle(
-                        cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
-                        style: .continuous
-                    )
-                    .fill(
-                        isActive
-                            ? Color.accentColor.opacity(0.12)
-                            : Color.primary.opacity(isEmphasized ? 0.10 : 0.07)
-                    )
-                }
-            }
-            .contentShape(
-                RoundedRectangle(
-                    cornerRadius: RightSidebarChromeMetrics.headerControlCornerRadius,
-                    style: .continuous
-                )
-            )
-            .onHover { isHovered = $0 }
-    }
 }
