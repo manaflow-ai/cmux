@@ -472,7 +472,9 @@ jobs:
         shell: bash
         run: |
           if [[ "$MODE" == "full" ]]; then
-            cargo test --workspace --exclude cmux-tui-core --locked
+            # Process-heavy CLI tests can exceed the runner's child-process
+            # limit even on the 4-core and 6-core matrix runners.
+            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=2
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl

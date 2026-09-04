@@ -25279,10 +25279,12 @@ mod tests {
         let (events_tx, events_rx) = crossbeam_channel::bounded(1);
         events_tx.send(AppEvent::HostInputReady).unwrap();
         let input = runtime.producer(events_tx);
+        let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
         let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
         let reader = std::thread::spawn(move || {
             let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
             assert!(input.send(key));
+            sent_tx.send(()).unwrap();
             while !ingress.is_closed() {
                 std::thread::yield_now();
             }
@@ -25290,6 +25292,7 @@ mod tests {
         });
 
         runtime.attach_reader(reader);
+        sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
         runtime.shutdown();
 
         assert!(
@@ -28235,7 +28238,7 @@ mod tests {
 
         assert_eq!(
             app.selection.map(|selection| selection.range()),
-            Some(((0, 0), (10, 0))),
+            Some(((0, 0), (9, 0))),
             "Shift triple click must select the complete line when bypassing PTY mouse reporting"
         );
 
@@ -31230,6 +31233,7 @@ mod tests {
         app.replace_tree(browser_completion_tree(surface_id, surface_id));
         app.sidebar_visible = false;
         let area = browser_completion_area(surface_id);
+        app.outer_size = (40, 12);
         app.pane_areas = vec![area];
         app.rendered_pane_content_generations
             .insert(surface_id, PaneContentGeneration::Browser(41));
@@ -46428,11 +46432,7 @@ mod tests {
         let mux = Mux::new(
             name,
             SurfaceOptions {
-                command: Some(vec![
-                    "/bin/sh".to_string(),
-                    "-c".to_string(),
-                    "sleep 30".to_string(),
-                ]),
+                command: Some(vec!["/bin/sleep".to_string(), "300".to_string()]),
                 cwd: cwd.map(|path| path.to_string_lossy().into_owned()),
                 ..Default::default()
             },

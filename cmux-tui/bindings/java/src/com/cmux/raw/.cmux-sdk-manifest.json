@@ -366,6 +366,11 @@
       "size": 899
     },
     {
+      "path": "DaemonShutdownEvent.java",
+      "sha256": "2a0ea8654faea4c26ad22a42a82cea6f061092bb66d870e1a45eb20a3ecd4179",
+      "size": 1599
+    },
+    {
       "path": "DeadPane.java",
       "sha256": "fd0369d02f9cf43eb0475112fb7cb5ebe682d4e7b067f2eb6e7556f2f34a88d6",
       "size": 1963
@@ -427,8 +432,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "c2d4eb04ebcd42755bf17600f5d4b9a96045c281063f26d550ea0886e19974c6",
-      "size": 9265
+      "sha256": "1712b8e31182f51af62764c98d007c9c032c28ef43c7ea890818090ee3c5ac9d",
+      "size": 9451
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -857,8 +862,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "07539a9fbbb54f0d679b849f62b8e71cac651867b47ad8f0ff0c39753213c7bd",
-      "size": 4124
+      "sha256": "e6d5b6965405ced227d56c34cc25ba938834fe50da0d3135a797e822a692055c",
+      "size": 4199
     },
     {
       "path": "ProtocolEvent.java",
@@ -1542,7 +1547,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "0d60b5c04eb89444ff0b4a9354896f2ae81a2bf4c953aacadd12e2907c6d84a8",
+  "ir_sha256": "3081404cdf961727b704a56041bf714f07cdaf815429b37e305ad54a08a29b04",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
