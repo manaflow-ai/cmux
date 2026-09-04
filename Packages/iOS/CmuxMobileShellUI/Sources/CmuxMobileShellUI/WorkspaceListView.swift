@@ -969,7 +969,12 @@ struct WorkspaceListView: View {
             presentComputers()
         } label: {
             MobileDevicesToolbarLabel(
-                hasGateWarning: store?.hasMacVersionUpdateRequired ?? false
+                gateWarningDeviceIDs: store?.macVersionUpdateRequiredDeviceIDs ?? [],
+                computerDeviceIDs: Set(
+                    liveMachineSnapshots.macPickerMachines
+                        .map(\.macDeviceID)
+                        .filter { !$0.isEmpty }
+                )
             )
         }
         .accessibilityLabel(L10n.string("mobile.connections.title", defaultValue: "Computers"))
