@@ -138,4 +138,5 @@ Keyboard shortcut settings from Settings > Keyboard Shortcuts.
 
 | Key | Type | Default | Description |
 |---|---|---|---|
+| `shortcuts.prefix` | string, array, object, or null | `""` | Optional shared leader for cmux shortcut chords. One modifier stroke (or Space); unbound by default. |
 | `shortcuts.bindings` | object | `{}` | Shortcut overrides keyed by cmux action id. Use a string for a single shortcut, an array for a chord, null, an empty string, none, clear, unbound, or disabled to unbind. |

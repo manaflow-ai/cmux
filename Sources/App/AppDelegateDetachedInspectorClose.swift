@@ -72,6 +72,7 @@ extension AppDelegate {
     }
 
     func isCloseTabShortcutEventOrChordPrefix(_ event: NSEvent) -> Bool {
+        guard !shouldBypassPrefixChordPassThrough(event) else { return false }
         if matchConfiguredShortcut(event: event, action: .closeTab) {
             return true
         }

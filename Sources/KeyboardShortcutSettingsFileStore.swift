@@ -60,6 +60,8 @@ final class CmuxSettingsFileStore {
 
     private var shortcutsByAction: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     private var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
+    private var shortcutPrefix: StoredShortcut = .unbound
+    private var hasManagedShortcutPrefix = false
     private var whenClausesByAction: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
     private var activeManagedUserDefaults: [String: ManagedSettingsValue] = [:]
     private var importedManagedDefaults: [String: ManagedSettingsValue] = [:]
@@ -161,6 +163,8 @@ final class CmuxSettingsFileStore {
             (
                 shortcuts: shortcutsByAction,
                 managedShortcutActions: managedShortcutActions,
+                shortcutPrefix: shortcutPrefix,
+                hasManagedShortcutPrefix: hasManagedShortcutPrefix,
                 whenClauses: whenClausesByAction,
                 importedManagedDefaults: importedManagedDefaults,
                 sourcePath: activeSourcePath
@@ -179,6 +183,8 @@ final class CmuxSettingsFileStore {
         synchronized {
             shortcutsByAction = resolved.shortcuts
             managedShortcutActions = resolved.managedShortcutActions
+            shortcutPrefix = resolved.shortcutPrefix
+            hasManagedShortcutPrefix = resolved.hasManagedShortcutPrefix
             whenClausesByAction = resolved.whenClauses
             activeManagedUserDefaults = resolved.managedUserDefaults
             importedManagedDefaults = resolved.managedUserDefaults
@@ -190,6 +196,8 @@ final class CmuxSettingsFileStore {
 
         if previousState.shortcuts != resolved.shortcuts
             || previousState.managedShortcutActions != resolved.managedShortcutActions
+            || previousState.shortcutPrefix != resolved.shortcutPrefix
+            || previousState.hasManagedShortcutPrefix != resolved.hasManagedShortcutPrefix
             || previousState.whenClauses != resolved.whenClauses
             || previousState.sourcePath != resolved.path {
             KeyboardShortcutSettings.notifySettingsFileDidChange(
@@ -203,6 +211,13 @@ final class CmuxSettingsFileStore {
 
     func override(for action: KeyboardShortcutSettings.Action) -> StoredShortcut? {
         synchronized { shortcutsByAction[action] }
+    }
+
+    /// The optional global prefix stroke from `shortcuts.prefix`.
+    /// ``StoredShortcut/unbound`` is returned when the prefix layer is disabled
+    /// or the setting is absent/invalid.
+    func prefixShortcut() -> StoredShortcut {
+        synchronized { shortcutPrefix }
     }
 
     /// The `when`-clause override for an action parsed from `shortcuts.when` in
@@ -278,6 +293,8 @@ final class CmuxSettingsFileStore {
                     path: activeSourcePath,
                     shortcuts: shortcutsByAction,
                     managedShortcutActions: managedShortcutActions,
+                    shortcutPrefix: shortcutPrefix,
+                    hasManagedShortcutPrefix: hasManagedShortcutPrefix,
                     whenClauses: whenClausesByAction,
                     managedUserDefaults: activeManagedUserDefaults,
                     legacyDerivedManagedUserDefaultKeys: activeLegacyDerivedManagedUserDefaultKeys,
@@ -1005,12 +1022,21 @@ final class CmuxSettingsFileStore {
         }
 
         var bindings = section["bindings"] as? [String: Any] ?? [:]
+        if section.keys.contains("prefix") {
+            snapshot.hasManagedShortcutPrefix = true
+            if let parsedPrefix = parseShortcutPrefixValue(section["prefix"]) {
+                snapshot.shortcutPrefix = parsedPrefix
+            } else {
+                logInvalid("shortcuts.prefix", sourcePath: sourcePath)
+                snapshot.shortcutPrefix = .unbound
+            }
+        }
         if let value = jsonBool(section["showModifierHoldHints"]) {
             snapshot.managedUserDefaults[SettingCatalog().shortcuts.showModifierHoldHints.userDefaultsKey] = .bool(value)
         } else if section.keys.contains("showModifierHoldHints") {
             logInvalid("shortcuts.showModifierHoldHints", sourcePath: sourcePath)
         }
-        for (key, rawValue) in section where key != "bindings" && key != "showModifierHoldHints" && key != "when" {
+        for (key, rawValue) in section where key != "bindings" && key != "prefix" && key != "showModifierHoldHints" && key != "when" {
             bindings[key] = rawValue
         }
 
@@ -1081,7 +1107,10 @@ final class CmuxSettingsFileStore {
             // opt-in system-wide Show/Hide hotkey — honors the rebinding
             // instead of silently falling back to the built-in default.
             if let object = rawValue as? [String: Any] {
-                return parseShortcutObjectForm(object, action: action)
+                return parseShortcutObjectForm(
+                    object,
+                    allowsBareFirstStroke: action.allowsBareFirstStroke
+                )
             }
             return nil
         }()
@@ -1090,69 +1119,6 @@ final class CmuxSettingsFileStore {
         // Settings-file parsing runs while the shared store may still be initializing.
         // Avoid the UI recorder's conflict lookup here because it reads the shared store.
         return action.normalizedSettingsFileShortcut(shortcut)
-    }
-
-    /// Decodes the nested-object binding the CmuxSettings package writes
-    /// (`{ "first": { stroke }, "second": { stroke }? }`) into the app-target
-    /// ``StoredShortcut``. An empty primary key is the package's explicit
-    /// "unbound" marker. Returns `nil` when `first` is missing or malformed —
-    /// and, to stay consistent with the string parser, when a present `second`
-    /// stroke is malformed (a chord must not silently degrade to a single stroke)
-    /// or when a bare first stroke is used by an action that requires a modifier.
-    private func parseShortcutObjectForm(
-        _ object: [String: Any],
-        action: KeyboardShortcutSettings.Action
-    ) -> StoredShortcut? {
-        guard let firstValue = object["first"],
-              let first = parseShortcutStrokeObject(firstValue) else {
-            return nil
-        }
-        if first.key.isEmpty {
-            return .unbound
-        }
-        // Mirror StoredShortcut.parseConfig(strokes:allowBareFirstStroke:): a
-        // bare first stroke is only valid for actions that opt into it, or for
-        // the space key.
-        guard action.allowsBareFirstStroke || !first.modifierFlags.isEmpty || first.key == "space" else {
-            return nil
-        }
-        let second: ShortcutStroke?
-        if let secondValue = object["second"], !(secondValue is NSNull) {
-            // A present-but-malformed second stroke invalidates the whole
-            // binding rather than silently dropping the chord half.
-            guard let parsedSecond = parseShortcutStrokeObject(secondValue) else {
-                return nil
-            }
-            second = parsedSecond
-        } else {
-            second = nil
-        }
-        return StoredShortcut(first: first, second: second)
-    }
-
-    private func parseShortcutStrokeObject(_ rawValue: Any) -> ShortcutStroke? {
-        if rawValue is NSNull { return nil }
-        guard let dict = rawValue as? [String: Any],
-              let key = jsonString(dict["key"]) else {
-            return nil
-        }
-        // An out-of-range keyCode is a corrupt binding, not a key to silently
-        // wrap into a valid UInt16 (which would re-target a different key).
-        let keyCode: UInt16?
-        if let rawKeyCode = jsonInt(dict["keyCode"]) {
-            guard let value = UInt16(exactly: rawKeyCode) else { return nil }
-            keyCode = value
-        } else {
-            keyCode = nil
-        }
-        return ShortcutStroke(
-            key: canonicalShortcutKey(key, keyCode: keyCode),
-            command: jsonBool(dict["command"]) ?? false,
-            shift: jsonBool(dict["shift"]) ?? false,
-            option: jsonBool(dict["option"]) ?? false,
-            control: jsonBool(dict["control"]) ?? false,
-            keyCode: keyCode
-        )
     }
 
     private func parseNullableHex(
@@ -1856,7 +1822,7 @@ final class CmuxSettingsFileStore {
         return number.boolValue
     }
 
-    private func jsonInt(_ rawValue: Any?) -> Int? {
+    func jsonInt(_ rawValue: Any?) -> Int? {
         guard let number = rawValue as? NSNumber else { return nil }
         guard CFGetTypeID(number) != CFBooleanGetTypeID() else { return nil }
         let doubleValue = number.doubleValue
@@ -1870,7 +1836,7 @@ final class CmuxSettingsFileStore {
         return number.doubleValue
     }
 
-    private func jsonStringArray(_ rawValue: Any?) -> [String]? {
+    func jsonStringArray(_ rawValue: Any?) -> [String]? {
         guard let values = rawValue as? [Any] else { return nil }
         var strings: [String] = []
         strings.reserveCapacity(values.count)
@@ -1889,6 +1855,8 @@ struct ResolvedSettingsSnapshot {
     var path: String?
     var shortcuts: [KeyboardShortcutSettings.Action: StoredShortcut] = [:]
     var managedShortcutActions: Set<KeyboardShortcutSettings.Action> = []
+    var shortcutPrefix: StoredShortcut = .unbound
+    var hasManagedShortcutPrefix = false
     /// Per-action `when`-clause overrides parsed from `shortcuts.when` — gate a
     /// binding to a focus context (see ``ShortcutWhenClause``).
     var whenClauses: [KeyboardShortcutSettings.Action: ShortcutWhenClause] = [:]
@@ -1897,7 +1865,8 @@ struct ResolvedSettingsSnapshot {
     var managedCustomSettings = ManagedCustomSettings()
 
     mutating func fillMissingSettings(from fallback: ResolvedSettingsSnapshot) {
-        if path == nil && (!fallback.managedShortcutActions.isEmpty ||
+        if path == nil && (fallback.hasManagedShortcutPrefix ||
+            !fallback.managedShortcutActions.isEmpty ||
             !fallback.managedUserDefaults.isEmpty ||
             !fallback.managedCustomSettings.isEmpty) {
             path = fallback.path
@@ -1909,6 +1878,10 @@ struct ResolvedSettingsSnapshot {
             if let shortcut = fallback.shortcuts[action] {
                 shortcuts[action] = shortcut
             }
+        }
+        if !hasManagedShortcutPrefix, fallback.hasManagedShortcutPrefix {
+            hasManagedShortcutPrefix = true
+            shortcutPrefix = fallback.shortcutPrefix
         }
         for (action, clause) in fallback.whenClauses where whenClauses[action] == nil {
             whenClauses[action] = clause

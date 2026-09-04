@@ -5,6 +5,11 @@ import CmuxTerminal
 func cmuxCloseFocusedTerminalFindForEscape(event: NSEvent, appDelegate: AppDelegate) -> Bool {
     guard cmuxFindEventIsPlainEscape(event) else { return false }
 
+    // An armed prefix owns Escape as its cancel gesture. Let the app-level
+    // shortcut monitor consume it before the terminal find overlay can close
+    // itself (the monitor calls this helper immediately before dispatch).
+    guard !appDelegate.shortcutPrefixChordCoordinator.isArmed else { return false }
+
     let shortcutWindow = event.window
         ?? (event.windowNumber > 0 ? NSApp.window(withWindowNumber: event.windowNumber) : nil)
         ?? NSApp.keyWindow

@@ -121,12 +121,6 @@ struct SettingsFileStringMapping {
     let defaultsKey: String
 }
 
-struct SettingsFileStringArrayMapping {
-    let jsonKey: String
-    let defaultsKey: String
-    let invalidPath: String
-}
-
 enum AppSettingsFileMapping {
     private static let app = AppCatalogSection()
 
@@ -537,6 +531,7 @@ extension CmuxSettingsFileStore {
         "canvas.snappingEnabled",
         "fileEditor.wordWrap",
         "fileExplorer.doubleClickAction",
+        "shortcuts.prefix",
         "shortcuts.bindings",
     ]
 }

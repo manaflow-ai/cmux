@@ -2,9 +2,7 @@ extension KeyboardShortcutSettings.Action {
     var isSystemWideHotkey: Bool { self == .showHideAllWindows }
 
     var allowsChordShortcut: Bool {
-        self != .fileExplorerOpenSelection
-            && self != .fileExplorerOpenSelectionFinderAlias
-            && self != .cycleTextBoxSubmitAction
+        self != .showHideAllWindows
     }
 
     func displayedShortcutString(for shortcut: StoredShortcut) -> String {

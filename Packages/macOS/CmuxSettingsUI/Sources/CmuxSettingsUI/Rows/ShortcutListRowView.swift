@@ -40,11 +40,39 @@ struct ShortcutListRowView: View, Equatable {
 
                     Spacer()
 
+                    if snapshot.canEditChord {
+                        Button {
+                            actions.onToggleChordMode()
+                        } label: {
+                            Text(
+                                snapshot.chordsEnabled
+                                    ? String(localized: "shortcut.recorder.mode.chord", defaultValue: "Chord")
+                                    : String(localized: "shortcut.recorder.mode.single", defaultValue: "Single")
+                            )
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(
+                            snapshot.chordsEnabled ? Color.accentColor : Color.secondary
+                        )
+                        .help(
+                            snapshot.chordsEnabled
+                                ? String(localized: "shortcut.recorder.mode.chord.help", defaultValue: "Record a prefix chord")
+                                : String(localized: "shortcut.recorder.mode.single.help", defaultValue: "Record a single shortcut")
+                        )
+                        .accessibilityLabel(
+                            snapshot.chordsEnabled
+                                ? String(localized: "shortcut.recorder.mode.chord.accessibility", defaultValue: "Chord recording mode")
+                                : String(localized: "shortcut.recorder.mode.single.accessibility", defaultValue: "Single shortcut recording mode")
+                        )
+                        .accessibilityIdentifier("ShortcutRecorderChordModeButton")
+                    }
+
                     ShortcutRecorderView(
                         placeholder: snapshot.placeholder,
                         chordsEnabled: snapshot.chordsEnabled,
                         hasPendingRejection: snapshot.hasPendingRejection,
                         firstStrokeRequiresModifier: snapshot.firstStrokeRequiresModifier,
+                        configuredPrefix: snapshot.configuredPrefix,
                         onStroke: actions.onStroke,
                         onChord: actions.onChord,
                         onBareKeyRejected: actions.onBareKeyRejected

@@ -53,10 +53,20 @@ extension ShortcutAction {
            !first.control {
             return .primaryModifierRequired
         }
+        // A chord's first stroke is the shared leader, not an ordinary
+        // action-owned shortcut.  Let the action-independent prefix policy
+        // validate that leader (including bare Space) even when this action
+        // would reject a bare *single*-stroke binding.  This keeps the JSON
+        // store, recorder, and runtime in agreement for Space-prefixed chords.
+        let isValidSharedPrefix = shortcut.hasChord
+            && ShortcutPrefixPolicy().result(
+                for: StoredShortcut(first: first)
+            ) == .accepted
         let supportsLegacyBareSpace = first.key.lowercased() == "space"
             && self != .globalSearch
         guard allowsBareFirstStroke
             || first.hasAnyModifier
+            || isValidSharedPrefix
             || supportsLegacyBareSpace else {
             return .bareFirstStrokeNotAllowed
         }

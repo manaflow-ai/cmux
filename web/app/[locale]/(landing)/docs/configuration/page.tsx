@@ -138,6 +138,7 @@ function buildSettingsFileExample(t: ConfigurationTranslation) {
   // },
 
   // "shortcuts": {
+  //   "prefix": "ctrl+b",
   //   "bindings": {
   //     "toggleSidebar": "cmd+b",
   //     "toggleFileExplorer": "cmd+opt+b",
@@ -433,6 +434,8 @@ working-directory = ~/code`}</CodeBlock>
         <code>1</code> as the stored default and still match digits <code>1</code> through{" "}
         <code>9</code>.
       </p>
+      <p>{t("shortcutsPrefixIntro")}</p>
+      <Callout type="info">{t("shortcutsPrefixCallout")}</Callout>
       <p>
         The defaults below are the same cmux-owned actions listed on the{" "}
         <Link href="/docs/keyboard-shortcuts">keyboard shortcuts page</Link>.

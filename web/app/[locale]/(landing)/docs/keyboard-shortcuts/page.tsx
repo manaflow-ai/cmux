@@ -9,6 +9,7 @@ import { DocsHeading } from "@/app/[locale]/components/docs-heading";
 
 const shortcutChordExample = `{
   "shortcuts": {
+    "prefix": "ctrl+b",
     "bindings": {
       "newSurface": ["ctrl+b", "c"],
       "showNotifications": ["ctrl+b", "i"],
@@ -51,6 +52,14 @@ export default function KeyboardShortcutsPage() {
         <li>{t("chordsRuleSingle")}</li>
         <li>{t("chordsRuleArray")}</li>
         <li>{t("chordsRuleSyntax")}</li>
+      </ul>
+
+      <DocsHeading level={3} id="shortcut-prefix" className="scroll-mt-24">{t("prefixTitle")}</DocsHeading>
+      <p>{t("prefixIntro")}</p>
+      <ul>
+        <li>{t("prefixRuleDefault")}</li>
+        <li>{t("prefixRuleCancel")}</li>
+        <li>{t("prefixRulePassThrough")}</li>
       </ul>
 
       <KeyboardShortcuts />

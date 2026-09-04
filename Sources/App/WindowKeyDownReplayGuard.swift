@@ -1,4 +1,5 @@
 import AppKit
+import CmuxSettings
 import CmuxTerminal
 
 extension NSEvent {
@@ -36,12 +37,286 @@ private struct CmuxForceDispatchedKeyEventIdentity: Hashable {
     let timestamp: TimeInterval
 }
 
-/// Events whose force-dispatch is currently on the main-thread stack.
-/// Main-thread only (key-event dispatch); entries are stack-scoped, inserted
-/// before `keyDown(with:)` and removed when the dispatch unwinds, so WebKit's
-/// legitimate replay of an unhandled key (which arrives after the original
-/// dispatch has fully unwound) is still force-dispatched normally.
-private var cmuxInFlightForceDispatchedKeyEventIdentities = Set<CmuxForceDispatchedKeyEventIdentity>()
+/// Owns the stack-scoped force-dispatch identities for one application.
+/// Keeping this lifecycle on the AppDelegate avoids ambient process-global
+/// mutable state while still covering re-entry across all cmux windows.
+@MainActor
+final class CmuxForceDispatchKeyDownGuard {
+    private var inFlight = Set<CmuxForceDispatchedKeyEventIdentity>()
+
+    /// Claims one event identity for a direct responder dispatch.
+    func begin(windowNumber: Int, event: NSEvent) -> Bool {
+        let identity = CmuxForceDispatchedKeyEventIdentity(
+            windowNumber: windowNumber,
+            eventType: event.type.rawValue,
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags.rawValue,
+            timestamp: event.timestamp
+        )
+        guard inFlight.insert(identity).inserted else { return false }
+        return true
+    }
+
+    /// Releases an event identity after the direct dispatch unwinds.
+    func end(windowNumber: Int, event: NSEvent) {
+        inFlight.remove(
+            CmuxForceDispatchedKeyEventIdentity(
+                windowNumber: windowNumber,
+                eventType: event.type.rawValue,
+                keyCode: event.keyCode,
+                modifierFlags: event.modifierFlags.rawValue,
+                timestamp: event.timestamp
+            )
+        )
+    }
+}
+
+/// Owns pass-through markers for one application event-routing lifecycle.
+/// A suffix that did not match the prefix table must bypass cmux's later
+/// menu/performKeyEquivalent pass, while nested AppKit offers retain the
+/// marker until the complete dispatch unwinds.
+@MainActor
+final class CmuxPrefixChordPassThroughCoordinator {
+    private var ledger = ShortcutPrefixChordPassThroughLedger()
+    /// A window's `sendEvent` call can wrap one or more key-equivalent offers
+    /// before it finally delivers `keyDown` to the focused responder. Retain
+    /// the marker for that complete dispatch, not merely the menu-equivalent
+    /// phase, so a responder-local shortcut cannot steal the suffix afterward.
+    private var eventDispatchDepth: [ShortcutPrefixChordEventIdentity: Int] = [:]
+    /// Nested `performKeyEquivalent` calls are common when WebKit or an
+    /// AppKit responder re-offers the same event. Keep a bypass marker alive
+    /// until the outermost offer returns; consuming it at the first window
+    /// chokepoint would let a nested responder steal the terminal byte.
+    private var keyEquivalentDepth: [ShortcutPrefixChordEventIdentity: Int] = [:]
+
+    /// Cheap fast-path probe used by the optional prefix router. Most events
+    /// arrive with an empty ledger (especially while the feature is disabled),
+    /// so callers can avoid resolving a window identity and walking AppKit
+    /// focus state merely to discover that no marker exists.
+    var hasMarkers: Bool { ledger.count > 0 }
+
+    /// Marks an event whose literal bytes must bypass later cmux matching.
+    func mark(_ event: NSEvent, windowNumber: Int) {
+        ledger.mark(identity(for: event, windowNumber: windowNumber))
+    }
+
+    /// Returns whether a pass-through marker is still retained for `event`.
+    func shouldBypass(_ event: NSEvent, windowNumber: Int) -> Bool {
+        ledger.contains(identity(for: event, windowNumber: windowNumber))
+    }
+
+    /// Begins one complete window event dispatch.
+    /// Starts tracking one complete `sendEvent` dispatch.
+    func beginEvent(_ event: NSEvent, windowNumber: Int) {
+        let eventIdentity = identity(for: event, windowNumber: windowNumber)
+        eventDispatchDepth[eventIdentity, default: 0] += 1
+    }
+
+    /// Begins one key-equivalent offer and reports whether the event is marked
+    /// for pass-through. Depth is tracked even when no marker exists yet: a
+    /// nested route can discover a mismatch after the outer offer has started,
+    /// and that marker must still survive until the outer offer unwinds.
+    /// Starts tracking one nested key-equivalent offer.
+    func beginKeyEquivalent(_ event: NSEvent, windowNumber: Int) -> Bool {
+        let eventIdentity = identity(for: event, windowNumber: windowNumber)
+        keyEquivalentDepth[eventIdentity, default: 0] += 1
+        return ledger.contains(eventIdentity)
+    }
+
+    /// Ends one key-equivalent offer. The marker is consumed only when the
+    /// outermost nested offer has returned.
+    /// Ends one nested key-equivalent offer and consumes its marker if safe.
+    func endKeyEquivalent(_ event: NSEvent, windowNumber: Int) {
+        let eventIdentity = identity(for: event, windowNumber: windowNumber)
+        guard let depth = keyEquivalentDepth[eventIdentity] else {
+            return
+        }
+        if depth > 1 {
+            keyEquivalentDepth[eventIdentity] = depth - 1
+        } else {
+            keyEquivalentDepth.removeValue(forKey: eventIdentity)
+            if eventDispatchDepth[eventIdentity] == nil {
+                ledger.consume(eventIdentity)
+            }
+        }
+    }
+
+    /// Finishes one complete window event dispatch. The outermost dispatch
+    /// consumes the marker after responder delivery; a still-active nested
+    /// key-equivalent offer owns cleanup when its own stack unwinds.
+    /// Ends one complete `sendEvent` dispatch and consumes its marker if safe.
+    func finishEvent(_ event: NSEvent, windowNumber: Int) {
+        let eventIdentity = identity(for: event, windowNumber: windowNumber)
+        guard let depth = eventDispatchDepth[eventIdentity] else { return }
+        if depth > 1 {
+            eventDispatchDepth[eventIdentity] = depth - 1
+        } else {
+            eventDispatchDepth.removeValue(forKey: eventIdentity)
+            if keyEquivalentDepth[eventIdentity] == nil {
+                ledger.consume(eventIdentity)
+            }
+        }
+    }
+
+    /// Drops markers that can no longer be replayed after a settings/lifecycle
+    /// transition.  Event numbers are normally unique, but synthetic events
+    /// may reuse a structural identity across those transitions.
+    /// Clears all markers during a focus, lifecycle, or settings transition.
+    func reset() {
+        ledger.removeAll()
+        eventDispatchDepth.removeAll()
+        keyEquivalentDepth.removeAll()
+    }
+
+    private func identity(
+        for event: NSEvent,
+        windowNumber: Int
+    ) -> ShortcutPrefixChordEventIdentity {
+        ShortcutPrefixChordEventIdentity(
+            // NSEvent.eventNumber is only defined for mouse/tracking events;
+            // reading it from a keyboard event can raise an AppKit exception.
+            // Key events therefore use their structural identity fields.
+            eventNumber: 0,
+            windowID: windowNumber == 0 ? nil : windowNumber,
+            keyCode: event.keyCode,
+            modifierFlags: event.modifierFlags.rawValue,
+            timestamp: event.timestamp
+        )
+    }
+}
+
+/// Retains an unmatched prefix suffix marker for one complete
+/// ``NSWindow.sendEvent(_:)`` dispatch, including nested key-equivalent offers.
+@MainActor
+struct CmuxPrefixChordEventDispatchScope {
+    private let event: NSEvent
+    private let windowNumber: Int
+    private let isActive: Bool
+    private let coordinator: CmuxPrefixChordPassThroughCoordinator?
+
+    static func begin(
+        event: NSEvent,
+        window: NSWindow,
+        coordinator: CmuxPrefixChordPassThroughCoordinator?
+    ) -> Self {
+        let isActive = event.type == .keyDown
+            && (coordinator?.hasMarkers == true
+                || AppDelegate.shared?.shortcutPrefixChordCoordinator.isEnabled == true)
+        let windowNumber = AppDelegate.shared?.prefixChordWindowNumber(
+            for: event,
+            fallbackWindow: window
+        ) ?? window.windowNumber
+        if isActive {
+            coordinator?.beginEvent(
+                event,
+                windowNumber: windowNumber
+            )
+        }
+        return Self(
+            event: event,
+            windowNumber: windowNumber,
+            isActive: isActive,
+            coordinator: coordinator
+        )
+    }
+
+    func finish() {
+        guard isActive else { return }
+        coordinator?.finishEvent(
+            event,
+            windowNumber: windowNumber
+        )
+    }
+}
+
+/// Retains an unmatched suffix marker across nested AppKit
+/// `performKeyEquivalent` offers for the same event.
+@MainActor
+struct CmuxPrefixChordKeyEquivalentScope {
+    private let event: NSEvent
+    private let windowNumber: Int
+    private let isActive: Bool
+    private let coordinator: CmuxPrefixChordPassThroughCoordinator?
+    let shouldBypass: Bool
+
+    static func begin(
+        event: NSEvent,
+        window: NSWindow,
+        coordinator: CmuxPrefixChordPassThroughCoordinator?
+    ) -> Self {
+        let isActive = event.type == .keyDown
+            && (AppDelegate.shared?.shortcutPrefixChordCoordinator.isEnabled == true
+                || coordinator?.hasMarkers == true)
+        let windowNumber = AppDelegate.shared?.prefixChordWindowNumber(
+            for: event,
+            fallbackWindow: window
+        ) ?? window.windowNumber
+        let shouldBypass: Bool
+        if isActive {
+            shouldBypass = coordinator?.beginKeyEquivalent(
+                event,
+                windowNumber: windowNumber
+            ) ?? false
+        } else {
+            shouldBypass = false
+        }
+        return Self(
+            event: event,
+            windowNumber: windowNumber,
+            isActive: isActive,
+            coordinator: coordinator,
+            shouldBypass: shouldBypass
+        )
+    }
+
+    func finish() {
+        guard isActive else { return }
+        coordinator?.endKeyEquivalent(
+            event,
+            windowNumber: windowNumber
+        )
+    }
+}
+
+@MainActor
+extension NSWindow {
+    /// Offers synthetic/key-equivalent events that can enter `sendEvent`
+    /// without first traversing the app-local monitor.
+    func cmuxRoutePrefixChordBeforeKeyDownDelivery(
+        _ event: NSEvent,
+        appDelegate: AppDelegate
+    ) -> Bool {
+        guard (appDelegate.shortcutPrefixChordCoordinator.isEnabled
+                || appDelegate.prefixChordPassThroughCoordinator.hasMarkers),
+            let prefixResult = appDelegate.routePrefixChordEvent(
+                event,
+                dispatchWindow: self
+            ) else {
+            return false
+        }
+        return prefixResult
+    }
+
+    /// Resolves the prefix layer before menus and responder-local equivalents.
+    /// A non-nil result is the value `performKeyEquivalent` must return.
+    func cmuxRoutePrefixChordKeyEquivalent(
+        _ event: NSEvent,
+        appDelegate: AppDelegate
+    ) -> Bool? {
+        guard event.type == .keyDown,
+              (appDelegate.shortcutPrefixChordCoordinator.isEnabled
+                  || appDelegate.prefixChordPassThroughCoordinator.hasMarkers) else {
+            return nil
+        }
+        if let prefixResult = appDelegate.routePrefixChordEvent(
+            event,
+            dispatchWindow: self
+        ) {
+            return prefixResult
+        }
+        return appDelegate.handleConfiguredShortcutKeyEquivalent(event) ? true : nil
+    }
+}
 
 extension NSWindow {
     func cmuxRouteUndoRedoCommandEquivalentAwayFromAppKit(
@@ -123,21 +398,17 @@ extension NSWindow {
         to target: NSResponder,
         reason: @autoclosure () -> String
     ) -> Bool {
-        let identity = CmuxForceDispatchedKeyEventIdentity(
-            windowNumber: self.windowNumber,
-            eventType: event.type.rawValue,
-            keyCode: event.keyCode,
-            modifierFlags: event.modifierFlags.rawValue,
-            timestamp: event.timestamp
-        )
-        guard !cmuxInFlightForceDispatchedKeyEventIdentities.contains(identity) else {
+        guard let dispatchGuard = AppDelegate.shared?.forceDispatchKeyDownGuard else {
+            target.keyDown(with: event)
+            return true
+        }
+        guard dispatchGuard.begin(windowNumber: self.windowNumber, event: event) else {
 #if DEBUG
             cmuxDebugLog("  → \(reason()) reentry; declining force-dispatch of in-flight key event")
 #endif
             return false
         }
-        cmuxInFlightForceDispatchedKeyEventIdentities.insert(identity)
-        defer { cmuxInFlightForceDispatchedKeyEventIdentities.remove(identity) }
+        defer { dispatchGuard.end(windowNumber: self.windowNumber, event: event) }
 #if DEBUG
         cmuxDebugLog("  → \(reason()) routed to firstResponder.keyDown")
 #endif

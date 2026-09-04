@@ -24,4 +24,52 @@ import Testing
             ) == nil
         )
     }
+
+    @Test func validSpacePrefixIsAcceptedForChordEvenWhenBareSinglesAreRejected() {
+        let spacePrefixedChord = StoredShortcut(
+            first: ShortcutStroke(key: "space"),
+            second: ShortcutStroke(key: "n")
+        )
+
+        #expect(
+            ShortcutAction.newTab.shortcutBindingPolicyResult(
+                for: spacePrefixedChord
+            ) == .accepted
+        )
+        #expect(
+            ShortcutAction.newTab.shortcutBindingPolicyResult(
+                for: StoredShortcut(first: ShortcutStroke(key: "space"))
+            ) == .accepted
+        )
+        #expect(
+            ShortcutAction.newTab.shortcutBindingPolicyResult(
+                for: StoredShortcut(first: ShortcutStroke(key: "x"))
+            ) == .bareFirstStrokeNotAllowed
+        )
+    }
+
+    @Test func escapeSuffixIsReservedForPrefixCancellation() {
+        let escapeChord = StoredShortcut(
+            first: ShortcutStroke(key: "b", control: true),
+            second: ShortcutStroke(key: "escape")
+        )
+
+        #expect(
+            ShortcutAction.newTab.shortcutBindingPolicyResult(for: escapeChord)
+                == .systemReservedShortcutNotAllowed
+        )
+    }
+
+    @Test(arguments: ["escape", "\u{1b}"])
+    func escapeLeaderIsReservedEvenWithModifier(_ key: String) {
+        let escapeLeaderChord = StoredShortcut(
+            first: ShortcutStroke(key: key, control: true),
+            second: ShortcutStroke(key: "n")
+        )
+
+        #expect(
+            ShortcutAction.newTab.shortcutBindingPolicyResult(for: escapeLeaderChord)
+                == .systemReservedShortcutNotAllowed
+        )
+    }
 }

@@ -82,9 +82,13 @@ extension NSEvent {
     }
 
     func isFileExplorerOpenSelectionShortcut(in context: ShortcutContext) -> Bool {
-        KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
-            KeyboardShortcutSettings.shortcut(for: action).matches(event: self) &&
-                KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)
+        if AppDelegate.shared?.shouldBypassPrefixChordPassThrough(self) == true {
+            return false
+        }
+        return KeyboardShortcutSettings.Action.fileExplorerOpenSelectionActions.contains { action in
+            let matches = AppDelegate.shared?.matchConfiguredShortcut(event: self, action: action)
+                ?? KeyboardShortcutSettings.shortcut(for: action).matches(event: self)
+            return matches && KeyboardShortcutSettings.effectiveWhenClause(for: action).evaluate(context)
         }
     }
 }

@@ -248,6 +248,7 @@ extension CmuxSettingsFileStore {
             ],
             [
                 "shortcuts": [
+                    "prefix": "",
                     "bindings": shortcutsBindings,
                 ],
             ],

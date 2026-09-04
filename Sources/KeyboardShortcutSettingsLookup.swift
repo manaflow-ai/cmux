@@ -60,6 +60,13 @@ extension KeyboardShortcutSettings {
         shortcutIfBound(for: action) ?? .unbound
     }
 
+    /// Returns the optional global leader stroke for the cmux-owned chord layer.
+    /// An unbound value keeps the layer disabled, preserving terminal input for
+    /// existing installations that have never opted into prefix chords.
+    static func prefixShortcut() -> StoredShortcut {
+        settingsFileStore.prefixShortcut()
+    }
+
     private static func explicitlyConfiguredShortcut(for action: Action) -> StoredShortcut? {
         if settingsFileStore.isManagedByFile(action) {
             return settingsFileStore.override(for: action)

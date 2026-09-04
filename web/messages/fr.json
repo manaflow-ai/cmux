@@ -1087,6 +1087,8 @@
       "persistenceDesc": "Le nom du groupe, l'ancrage, l'état d'épinglage, l'état de repliement, la couleur et l'icône sont enregistrés avec vos espaces de travail et restaurés entre les lancements. L'appartenance à un groupe est stockée sur chaque espace de travail."
     },
     "configuration": {
+      "shortcutsPrefixIntro": "Utilisez shortcuts.prefix pour définir la touche préfixe partagée facultative. Une seule frappe avec modificateur (ou Espace) est acceptée sous forme de chaîne, de tableau à un élément ou d’objet structuré à une frappe tel que { \"first\": { \"key\": \"b\", \"control\": true } } ; null et les alias de raccourci non attribué la désactivent. Cette liste est exhaustive : un préfixe à deux frappes est refusé.",
+      "shortcutsPrefixCallout": "La couche de préfixe est désactivée par défaut. Lorsqu’elle est active, cmux attend brièvement une touche de suffixe et affiche les touches disponibles ; Escape ou l’expiration du délai l’annule. Un suffixe sans correspondance est transmis tel quel au terminal ciblé, et Escape, les touches multimédias et les touches définies par le système ne peuvent pas servir de préfixe.",
       "title": "Configuration",
       "metaDescription": "Configurez cmux via les fichiers de configuration Ghostty. Police, thème, couleurs, style des panneaux divisés, historique et paramètres de l'application pour le mode automatisation.",
       "intro": "cmux lit la configuration depuis les fichiers de configuration Ghostty, vous offrant des options familières si vous venez de Ghostty.",
@@ -1180,7 +1182,8 @@
         },
         "shortcuts": {
           "when": "Prédicats de contexte facultatifs par action (clauses `when` de style VS Code), indexés par identifiant d'action cmux. Chaque valeur est une expression booléenne sur des clés de contexte, combinée avec !, &&, || et des parenthèses. Clés booléennes : sidebarFocus, browserFocus, markdownFocus, filePreviewTextEditorFocus, simulatorFocus, terminalFocus, commandPaletteVisible, terminalFindVisible, workspaceCanvasLayout. Les clés typées acceptent des comparaisons : la chaîne sidebarMode (files, find, sessions, feed ou dock) et les entiers paneCount et workspaceCount. Les opérateurs de comparaison sont ==, !=, =~ (expression régulière), <, <=, >, >= et `in [a, b]` ; une clé inconnue ou absente vaut false. Les littéraux booléens true et false sont également acceptés ; `key == false` équivaut à `!key`. Le raccourci de l'action ne se déclenche (et n'entre en conflit avec d'autres raccourcis) que lorsque la clause est vraie. Exemples : { \"selectWorkspaceByNumber\": \"!sidebarFocus\" } sélectionne les espaces de travail avec Ctrl+1–9 partout sauf lorsque la barre latérale droite a le focus ; { \"selectSurfaceByNumber\": \"sidebarMode == 'find' && paneCount > 1\" } limite une liaison à la barre latérale Rechercher lorsque l'espace de travail comporte plusieurs panneaux.",
-          "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé."
+          "showModifierHoldHints": "Affiche les pastilles d’indication de raccourcis pendant que Cmd ou Control est maintenu enfoncé.",
+          "prefix": "Touche leader cmux facultative pour la couche de raccourcis. Laissez-la non attribuée (par défaut) pour conserver le comportement actuel du terminal. Utilisez une touche avec modificateur ou Espace ; les touches Échap, multimédias et autres touches système ne sont pas prises en charge. Échap annule un préfixe actif, un bref délai le désactive et un suffixe sans correspondance est transmis au terminal sans modification."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -1297,6 +1300,11 @@
       "restartNew": "Créer un nouveau workspace (par défaut)"
     },
     "keyboardShortcuts": {
+      "prefixTitle": "Touche préfixe facultative",
+      "prefixIntro": "Définissez shortcuts.prefix sur une frappe avec modificateur telle que ctrl+b ou cmd+k, puis attribuez des liaisons à deux éléments sous shortcuts.bindings. Le préfixe est partagé par les actions propres à cmux compatibles avec les raccourcis en séquence et reste désactivé tant que vous ne le configurez pas.",
+      "prefixRuleDefault": "La fonction est désactivée par défaut : la saisie dans le terminal et les raccourcis existants se comportent donc exactement comme avant. Un modificateur est requis, sauf si le préfixe est Espace.",
+      "prefixRuleCancel": "Après le préfixe, cmux affiche les secondes touches disponibles. Appuyez sur Escape pour annuler ou attendez l’expiration du court délai.",
+      "prefixRulePassThrough": "Si aucune séquence ne correspond à la deuxième touche, cmux n’exécute aucun autre raccourci et transmet cette touche telle quelle au terminal ciblé. Escape, les touches multimédias et les touches définies par le système ne peuvent pas être des touches préfixes.",
       "title": "Raccourcis clavier",
       "description": "Tous les raccourcis clavier disponibles dans cmux, classés par catégorie.",
       "metaDescription": "Tous les raccourcis clavier cmux pour les espaces de travail, surfaces, panneaux divisés, navigateur, notifications, recherche et gestion des fenêtres sur macOS.",

@@ -90,29 +90,6 @@ enum FileExplorerRootSyncPolicy {
     }
 }
 
-extension RightSidebarMode {
-    static func modeShortcut(for event: NSEvent) -> RightSidebarMode? {
-        modeShortcut(for: event, allowingAction: { _ in true })
-    }
-
-    static func modeShortcut(
-        for event: NSEvent,
-        allowingAction: (KeyboardShortcutSettings.Action) -> Bool
-    ) -> RightSidebarMode? {
-        guard event.type == .keyDown else { return nil }
-        for mode in RightSidebarMode.allCases {
-            guard let action = mode.shortcutAction,
-                  allowingAction(action),
-                  mode.isAvailable(),
-                  KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
-                continue
-            }
-            return mode
-        }
-        return nil
-    }
-}
-
 /// Right sidebar root view. Hosts a segmented mode picker plus the active panel.
 struct RightSidebarPanelView: View {
     @ObservedObject var tabManager: TabManager

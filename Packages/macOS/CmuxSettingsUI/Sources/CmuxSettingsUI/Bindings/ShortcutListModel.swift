@@ -12,10 +12,22 @@ final class ShortcutListModel {
 
     var bindings: [String: StoredShortcut] = [:]
     var managedBindingActionIDs: Set<String> = []
+    var prefix: StoredShortcut = .unbound
+    var prefixRejection: ShortcutPrefixPolicyResult?
     var legacyBindings: [String: StoredShortcut]
     private(set) var whenOverrideClauses: [String: ShortcutWhenClause] = [:]
     private(set) var whenOverrideRawStrings: [String: String] = [:]
-    private(set) var chordModeActions: Set<String> = []
+    var chordModeActions: Set<String> = []
+    @ObservationIgnored var chordModeOverrides: [String: Bool] = [:]
+    /// Monotonic generation for serialized prefix persistence. A generation
+    /// lets a late failure or observation from an older request avoid rolling
+    /// back a newer user choice.
+    @ObservationIgnored var prefixWriteGeneration: UInt64 = 0
+    /// Shortcut persistence operations are chained so prefix rebases, binding
+    /// edits, and resets reach ``JSONConfigStore`` in their MainActor issue
+    /// order. Keeping one tail prevents a later leaf write from racing a
+    /// prefix rebase and leaving a chord unreachable.
+    @ObservationIgnored var shortcutWriteTail: Task<Void, Never>?
     private(set) var restoreShortcuts: [String: StoredShortcut] = [:]
     private(set) var bareKeyRejections: Set<String> = []
     private(set) var primaryModifierRejections: Set<String> = []
@@ -37,6 +49,7 @@ final class ShortcutListModel {
     @ObservationIgnored let onShortcutsChanged: @MainActor () -> Void
     @ObservationIgnored let canRegisterSystemWideHotkey: @MainActor (StoredShortcut) -> Bool
     @ObservationIgnored private let bindingsDriver = SettingReadDriver<ShortcutBindingsSnapshot>()
+    @ObservationIgnored private let prefixDriver = SettingReadDriver<StoredShortcut>()
     @ObservationIgnored private let legacyBindingsDriver = SettingReadDriver<[String: StoredShortcut]>()
     @ObservationIgnored private let whenDriver = SettingReadDriver<[String: String]>()
 
@@ -69,10 +82,15 @@ final class ShortcutListModel {
     /// ignores subsequent calls after the first activation.
     func startObserving() {
         let bindingsKey = catalog.shortcuts.bindingSnapshot
+        let prefixKey = catalog.shortcuts.prefix
         let whenKey = catalog.shortcuts.when
         bindingsDriver.activate(
             { [jsonStore, bindingsKey] in jsonStore.values(for: bindingsKey) },
             sink: { [weak self] dictionary in self?.ingestBindings(dictionary) }
+        )
+        prefixDriver.activate(
+            { [jsonStore, prefixKey] in jsonStore.values(for: prefixKey) },
+            sink: { [weak self] prefix in self?.ingestPrefix(prefix) }
         )
         if let userDefaultsStore {
             legacyBindingsDriver.activate(
@@ -117,7 +135,7 @@ final class ShortcutListModel {
 
     /// The effective focus `when` clause for `action`: its `shortcuts.when`
     /// override, or the built-in ``ShortcutAction/defaultFocusWhenClause``.
-    private func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
+    func effectiveWhenClause(for action: ShortcutAction) -> ShortcutWhenClause {
         whenOverrideClauses[action.rawValue] ?? action.defaultFocusWhenClause
     }
 
@@ -192,6 +210,22 @@ final class ShortcutListModel {
     /// `when` clause, or `nil` when there is no conflict. Context-disjoint or
     /// priority-routed clauses coexist, matching the app target's check.
     private func detectConflict(for action: ShortcutAction, stroke: StoredShortcut) -> ShortcutAction? {
+        detectConflict(
+            for: action,
+            stroke: stroke,
+            overriding: latestBindings
+        )
+    }
+
+    /// Returns a conflict using `overriding` as the persisted binding snapshot.
+    /// Entries absent from the snapshot resolve through the normal legacy and
+    /// built-in fallback path, which lets prefix rebasing validate a complete
+    /// candidate table before it reaches JSONConfigStore.
+    func detectConflict(
+        for action: ShortcutAction,
+        stroke: StoredShortcut,
+        overriding: [String: StoredShortcut]
+    ) -> ShortcutAction? {
         let proposedClause = effectiveWhenClause(for: action)
         for other in ShortcutAction.allCases where other != action {
             guard ShortcutWhenClause.bindingsCollide(
@@ -200,12 +234,21 @@ final class ShortcutListModel {
                 effectiveWhenClause(for: other),
                 rhsHasPriority: other.hasPriorityShortcutRouting
             ) else { continue }
-            let effective = effective(for: other)
-            guard let effective, !effective.isUnbound else { continue }
+            let otherShortcut: StoredShortcut?
+            if let candidate = overriding[other.rawValue] {
+                guard !candidate.isUnbound,
+                      other.shortcutBindingPolicyResult(for: candidate) == .accepted else {
+                    continue
+                }
+                otherShortcut = candidate.canonicalized()
+            } else {
+                otherShortcut = self.effective(for: other)
+            }
+            guard let otherShortcut, !otherShortcut.isUnbound else { continue }
             if ShortcutBindingConflict(
                 proposed: stroke,
                 proposedUsesNumberedDigitMatching: action.usesNumberedDigitMatching,
-                configured: effective,
+                configured: otherShortcut,
                 configuredUsesNumberedDigitMatching: other.usesNumberedDigitMatching
             ).exists {
                 return other
@@ -325,6 +368,7 @@ final class ShortcutListModel {
         var updated = latestBindings
         updated[action.rawValue] = proposed
         restoreShortcuts.removeValue(forKey: action.rawValue)
+        clearChordModeOverride(for: action)
         clearRejections(for: action)
         await write(updated, clearingLegacyFor: action)
     }
@@ -333,37 +377,51 @@ final class ShortcutListModel {
     /// action that disallows chords, a non-digit numbered chord, or a chord that
     /// conflicts with another binding.
     func assignChord(_ chord: StoredShortcut, to action: ShortcutAction) async {
-        let chord = chord.canonicalized()
-        guard action.allowsChordShortcut else {
-            chordModeActions.remove(action.rawValue)
+        var chord = chord.canonicalized()
+        // A malformed callback (or an external caller) must never turn into a
+        // single-stroke write.  The recorder normally always supplies a
+        // suffix, but keeping this guard at the persistence boundary preserves
+        // the two-stroke invariant when a view is torn down mid-recording.
+        guard let second = chord.second, !second.key.isEmpty else {
+            clearChordModeOverride(for: action)
             return
         }
-        guard action.allowsBareFirstStroke || chord.first.hasAnyModifier else {
-            markBareKeyRejected(action)
-            chordModeActions.remove(action.rawValue)
-            return
+
+        let normalizedConfiguredPrefix = ShortcutPrefixPolicy().normalized(prefix)
+        if let normalizedConfiguredPrefix, !normalizedConfiguredPrefix.isUnbound {
+            chord = StoredShortcut(first: normalizedConfiguredPrefix.first, second: second)
         }
         guard let proposed = normalizedNumberedShortcutIfNeeded(chord, for: action) else {
             clearRejections(for: action)
             numberedDigitRejections.insert(action.rawValue)
-            chordModeActions.remove(action.rawValue)
+            clearChordModeOverride(for: action)
             return
         }
-        if action.rejectsSystemDefinedMediaKey(proposed) {
+        switch action.shortcutBindingPolicyResult(for: proposed) {
+        case .accepted:
+            break
+        case .bareFirstStrokeNotAllowed:
+            markBareKeyRejected(action)
+            clearChordModeOverride(for: action)
+            return
+        case .primaryModifierRequired,
+             .chordNotAllowed,
+             .systemDefinedMediaKeyNotAllowed,
+             .systemReservedShortcutNotAllowed:
             markSystemReservedRejected(action)
-            chordModeActions.remove(action.rawValue)
+            clearChordModeOverride(for: action)
             return
         }
         if let conflict = detectConflict(for: action, stroke: proposed) {
             clearRejections(for: action)
             conflictRejections[action.rawValue] = conflict
             rejectedConflictShortcuts[action.rawValue] = proposed
-            chordModeActions.remove(action.rawValue)
+            clearChordModeOverride(for: action)
             return
         }
         var updated = latestBindings
         updated[action.rawValue] = proposed
-        chordModeActions.remove(action.rawValue)
+        clearChordModeOverride(for: action)
         restoreShortcuts.removeValue(forKey: action.rawValue)
         clearRejections(for: action)
         await write(updated, clearingLegacyFor: action)
@@ -373,6 +431,7 @@ final class ShortcutListModel {
     func clearBinding(for action: ShortcutAction) async {
         var updated = latestBindings
         updated[action.rawValue] = StoredShortcut.unbound
+        clearChordModeOverride(for: action)
         await write(updated, clearingLegacyFor: action)
     }
 
@@ -399,7 +458,12 @@ final class ShortcutListModel {
         numberedDigitRejections.removeAll()
         conflictRejections.removeAll()
         rejectedConflictShortcuts.removeAll()
+        chordModeActions.removeAll()
+        chordModeOverrides.removeAll()
+        prefix = .unbound
+        prefixRejection = nil
         await write([:], resetAllLegacy: true)
+        await resetPrefix()
     }
 
     // MARK: - Prune helpers (moved verbatim from section)

@@ -4896,13 +4896,6 @@ final class TextBoxInputTextView: NSTextView {
         return false
     }
 
-    private func textBoxShortcut(_ event: NSEvent, matches action: KeyboardShortcutSettings.Action) -> Bool {
-        guard KeyboardShortcutSettings.shortcut(for: action).matches(event: event) else {
-            return false
-        }
-        return AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
-    }
-
     private func handleStandardEditShortcut(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard flags == .command else { return false }

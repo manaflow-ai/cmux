@@ -268,7 +268,10 @@ final class MarkdownWebView: WKWebView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
+        if AppDelegate.shared?.shouldBypassPrefixChordPassThrough(event) == true {
+            return false
+        }
+        return handleViewerNavigationKey(event) || super.performKeyEquivalent(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -293,6 +296,31 @@ final class MarkdownWebView: WKWebView {
         }, perform: { [weak self] action in
             self?.performViewerNavigationAction(action)
         })
+    }
+
+    /// Executes a viewer action whose leader was consumed by the global prefix
+    /// monitor before this WebKit view could observe it.
+    @discardableResult
+    func performResolvedViewerNavigation(
+        _ action: KeyboardShortcutSettings.Action,
+        event: NSEvent
+    ) -> Bool {
+        guard cmuxOwnsKeyEvent(event),
+              editableFocusStateConfirmed,
+              !editableElementFocused else {
+            viewerNavigationKeyRouter.reset()
+            return false
+        }
+        return viewerNavigationKeyRouter.performResolved(
+            action,
+            event: event,
+            isAllowed: { action, event in
+                AppDelegate.shared?.shortcutWhenClauseAllows(action: action, event: event) ?? true
+            },
+            perform: { [weak self] action in
+                self?.performViewerNavigationAction(action)
+            }
+        )
     }
 
     private func performViewerNavigationAction(_ action: KeyboardShortcutSettings.Action) {
@@ -430,7 +458,7 @@ final class MarkdownRendererSession {
     /// The live preview web view — the panel's keyboard surface in preview
     /// mode, and the evaluation target for find-in-page scripts. `nil` until
     /// the renderer has been mounted once.
-    var webView: WKWebView? {
+    var findScriptWebView: WKWebView? {
         ownedCoordinator.webView
     }
 
@@ -441,6 +469,9 @@ final class MarkdownRendererSession {
         get { ownedCoordinator.onMarkdownRendered }
         set { ownedCoordinator.onMarkdownRendered = newValue }
     }
+
+    /// The panel-owned WebKit view, when the preview renderer is mounted.
+    var webView: MarkdownWebView? { ownedCoordinator.webView }
 
     func coordinator(
         panelId: UUID,

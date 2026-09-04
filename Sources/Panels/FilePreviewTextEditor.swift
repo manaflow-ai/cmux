@@ -284,6 +284,9 @@ final class SavingTextView: NSTextView {
         guard event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
         }
+        if AppDelegate.shared?.shouldBypassPrefixChordPassThrough(event) == true {
+            return false
+        }
         if handleEditorShortcut(event) {
             return true
         }
@@ -327,6 +330,14 @@ final class SavingTextView: NSTextView {
         setPreviewFontSize(Self.defaultPreviewFontSize)
     }
 
+    /// Executes the file-preview save action after the global prefix router
+    /// has already consumed the leader and suffix events.
+    @discardableResult
+    func performPrefixChordSave() -> Bool {
+        guard let panel else { return false }
+        return panel.saveTextContent() != nil
+    }
+
     @discardableResult
     private func adjustPreviewFontSize(by factor: CGFloat) -> Bool {
         setPreviewFontSize(previewFontSize * factor)
@@ -353,6 +364,10 @@ final class SavingTextView: NSTextView {
     }
 
     private func handleEditorShortcut(_ event: NSEvent) -> Bool {
+        if AppDelegate.shared?.shouldBypassPrefixChordPassThrough(event) == true {
+            clearPendingShortcutChordPrefixes()
+            return false
+        }
         if hasMarkedText(),
            shortcutRoutingShouldBypassForPrintableOptionText(event: event) {
             clearPendingShortcutChordPrefixes()
@@ -363,9 +378,13 @@ final class SavingTextView: NSTextView {
         if let pendingPrefix = pendingEditorShortcutChordPrefix {
             pendingEditorShortcutChordPrefix = nil
             for candidate in candidates {
-                guard candidate.shortcut.firstStroke == pendingPrefix,
-                      let secondStroke = candidate.shortcut.secondStroke,
-                      secondStroke.matches(event: event) else { continue }
+                guard candidate.shortcut.firstStroke.isRoutingEquivalent(to: pendingPrefix),
+                      let secondStroke = candidate.shortcut.secondStroke else { continue }
+                let suffixMatches = AppDelegate.shared?.matchShortcutStroke(
+                    event: event,
+                    stroke: secondStroke
+                ) ?? secondStroke.matches(event: event)
+                guard suffixMatches else { continue }
                 guard candidate.isAllowed(event) else { return false }
                 candidate.perform()
                 return true
