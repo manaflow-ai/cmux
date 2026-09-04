@@ -53,6 +53,10 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+mock.module("next/headers", () => ({
+  headers: async () => new Headers(),
+}));
+
 mock.module("next/cache", () => ({
   cacheLife: () => undefined,
 }));
@@ -167,6 +171,16 @@ describe("dashboard TestFlight page", () => {
     expect(html).toContain("INVITED");
     expect(html).toContain("Access ends automatically if your subscription lapses.");
     expect(html).toContain('name="action" value="leave"');
+  });
+
+  test("rechecks eligibility before every rendered page", async () => {
+    const eligibleHtml = await renderTestflightPage();
+    currentUser = createTestflightUser({ eligible: false });
+    const ineligibleHtml = await renderTestflightPage();
+
+    expect(eligibleHtml).toContain("Join the iOS beta");
+    expect(ineligibleHtml).toContain("Subscription required");
+    expect(isTestflightEligible).toHaveBeenCalledTimes(2);
   });
 
   for (const [testflight, message] of [

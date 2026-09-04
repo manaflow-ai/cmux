@@ -2,7 +2,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type React from "react";
 
-const prefetchedHrefs: string[] = [];
+const linkPrefetch = new Map<string, boolean | undefined>();
 
 mock.module("../app/[locale]/dashboard/dashboard-account-menu", () => ({
   DashboardAccountMenu: () => <span data-testid="account-control" />,
@@ -29,7 +29,7 @@ mock.module("@/i18n/navigation", () => ({
     href: string;
     prefetch?: boolean;
   }) => {
-    if (prefetch) prefetchedHrefs.push(href);
+    linkPrefetch.set(href, prefetch);
     return <a href={href} {...props}>{children}</a>;
   },
   usePathname: () => "/dashboard/testflight",
@@ -80,7 +80,7 @@ describe("dashboard shell", () => {
   });
 
   test("renders iOS TestFlight in its own section below coderouter", () => {
-    prefetchedHrefs.length = 0;
+    linkPrefetch.clear();
     const html = renderToStaticMarkup(
       <DashboardShell vaultEnabled>
         <p>Dashboard content</p>
@@ -96,7 +96,8 @@ describe("dashboard shell", () => {
     expect(coderouterIndex).toBeGreaterThan(-1);
     expect(testflightIndex).toBeGreaterThan(coderouterIndex);
     expect(billingIndex).toBeGreaterThan(testflightIndex);
-    expect(prefetchedHrefs).toContain("/dashboard/coderouter");
-    expect(prefetchedHrefs).toContain("/dashboard/testflight");
+    // Auth-dependent pages must not be prefetched into a client snapshot.
+    expect(linkPrefetch.get("/dashboard/coderouter")).toBe(false);
+    expect(linkPrefetch.get("/dashboard/testflight")).toBe(false);
   });
 });

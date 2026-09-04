@@ -488,7 +488,7 @@ describe("coderouter dashboard", () => {
     expect(metricsTeamIds).toEqual(["user-1"]);
   });
 
-  test("rechecks live team grants before reusing the private view", async () => {
+  test("rechecks live team grants before rendering the page", async () => {
     authorizationAvailable = true;
 
     await CoderouterOverviewContent({

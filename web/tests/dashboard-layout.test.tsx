@@ -13,8 +13,12 @@ let currentUser: DashboardUser | null = {
 };
 let requestHeaders = new Headers();
 let authUnavailable = false;
+let knownAuthError = true;
 let dashboardShellRenderCount = 0;
 const getUser = mock(async () => currentUser);
+const verifyBrowserSessionRequest = mock(async () =>
+  currentUser && !currentUser.isAnonymous ? currentUser : null,
+);
 
 mock.module("@stackframe/stack", () => ({
   StackProvider: ({ children }: React.PropsWithChildren) => children,
@@ -40,13 +44,14 @@ mock.module("next-intl/server", () => ({
 }));
 
 mock.module("../services/vms/auth", () => ({
+  verifyBrowserSessionRequest,
   withSubrouterAuthorizationDeadline: async (
     operation: (signal: AbortSignal) => Promise<unknown>,
   ) => {
     if (authUnavailable) throw new Error("Stack unavailable");
     return operation(new AbortController().signal);
   },
-  isSubrouterAuthorizationError: () => true,
+  isSubrouterAuthorizationError: () => knownAuthError,
 }));
 
 mock.module("@/app/lib/stack", () => ({
@@ -81,8 +86,10 @@ beforeEach(() => {
   currentUser = { id: "user-1", isAnonymous: false };
   requestHeaders = new Headers();
   authUnavailable = false;
+  knownAuthError = true;
   dashboardShellRenderCount = 0;
   getUser.mockClear();
+  verifyBrowserSessionRequest.mockClear();
 });
 
 for (const unauthenticatedUser of [
@@ -99,7 +106,7 @@ for (const unauthenticatedUser of [
       }),
     ).rejects.toThrow("redirect:/sign-in?after=/en/dashboard");
 
-    expect(getUser).toHaveBeenCalledTimes(1);
+    expect(verifyBrowserSessionRequest).toHaveBeenCalledTimes(1);
     expect(dashboardShellRenderCount).toBe(0);
   });
 }
@@ -113,7 +120,7 @@ test("renders the dashboard shell only after server authentication succeeds", as
     }),
   );
 
-  expect(getUser).toHaveBeenCalledTimes(1);
+  expect(verifyBrowserSessionRequest).toHaveBeenCalledTimes(1);
   expect(dashboardShellRenderCount).toBe(1);
   expect(html).toContain("Private dashboard content");
 });
@@ -149,5 +156,18 @@ test("returns recovery UI without mounting the shell when auth times out", async
   expect(html).toContain("Back to sign in");
   expect(html).not.toContain("Private dashboard content");
   expect(html).not.toContain('data-testid="dashboard-shell"');
+  expect(dashboardShellRenderCount).toBe(0);
+});
+
+test("does not hide an unknown server failure as an auth outage", async () => {
+  authUnavailable = true;
+  knownAuthError = false;
+
+  await expect(
+    DashboardLayout({
+      children: <main>Private dashboard content</main>,
+      params: Promise.resolve({ locale: "en" }),
+    }),
+  ).rejects.toThrow("Stack unavailable");
   expect(dashboardShellRenderCount).toBe(0);
 });

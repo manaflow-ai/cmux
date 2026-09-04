@@ -14,7 +14,7 @@ type DashboardNavGroup = {
     href: string;
     label: string;
     active: boolean;
-    prefetch?: true;
+    prefetch?: boolean;
   }>;
 };
 
@@ -55,7 +55,10 @@ export function DashboardShell({
           href: "/dashboard/coderouter",
           label: t("coderouterOverview"),
           active: pathname.startsWith("/dashboard/coderouter"),
-          prefetch: true,
+          // These pages contain authorization-dependent data. Let the server
+          // check the session at click time instead of caching a private RSC
+          // snapshot in the browser before the click.
+          prefetch: false,
         },
       ],
     },
@@ -66,7 +69,7 @@ export function DashboardShell({
           href: "/dashboard/testflight",
           label: t("testflight"),
           active: pathname.startsWith("/dashboard/testflight"),
-          prefetch: true,
+          prefetch: false,
         },
       ],
     },

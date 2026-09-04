@@ -1,7 +1,5 @@
-import { createHash } from "node:crypto";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
-import { cacheLife } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireDashboardUser } from "@/app/lib/dashboard-auth";
@@ -13,9 +11,12 @@ import { isTestflightEligible } from "@/services/billing/pro";
 import { captureAscError } from "@/services/errors";
 import { TestflightPageHeader } from "../components/dashboard-page-headers";
 
-// The browser prefetches one private page snapshot. The snapshot is never
-// stored on the server, and its header and body commit as one render unit.
+// This route renders the session and page data as one unit. The dashboard nav
+// disables prefetch for this authorization-dependent page.
 export const instant = true;
+// Entitlement and enrollment are request-specific. A route-level guard also
+// covers links outside the dashboard shell.
+export const prefetch = "force-disabled";
 
 type SearchParams = {
   testflight?: string | string[];
@@ -66,50 +67,16 @@ export async function DashboardTestflightContent({
   locale: string;
   testflight?: string;
 }) {
-  // Entitlement checks stay outside the private cache. A subscription change
-  // therefore cannot leave the cached page granting access for five minutes.
+  // Resolve the session and entitlement for every request. The page is one
+  // render unit, so a prefetched response cannot outlive the authorization
+  // check or reveal an old enrollment state.
   const user = await requireDashboardUser(locale, "/dashboard/testflight");
   const eligible = await isTestflightEligible(user);
   const email = normalizedEmail(user.primaryEmail);
-  const authorizationFingerprint = createHash("sha256")
-    .update(`${user.id}\n${email ?? ""}\n${eligible ? "eligible" : "ineligible"}`)
-    .digest("hex");
-
-  return CachedDashboardTestflightContent({
-    locale,
-    testflight,
-    userId: user.id,
-    email,
-    eligible,
-    authorizationFingerprint,
-  });
-}
-
-async function CachedDashboardTestflightContent({
-  locale,
-  testflight,
-  userId,
-  email,
-  eligible,
-  authorizationFingerprint,
-}: {
-  readonly locale: string;
-  readonly testflight?: string;
-  readonly userId: string;
-  readonly email: string | null;
-  readonly eligible: boolean;
-  readonly authorizationFingerprint: string;
-}) {
-  "use cache: private";
-  // Thirty seconds keeps per-link prefetch available while bounding the
-  // enrollment snapshot. The live session and entitlement gate above runs
-  // before this scope on every server render.
-  cacheLife({ stale: 30 });
-  void authorizationFingerprint;
 
   const t = await getTranslations({ locale, namespace: "dashboard.testflight" });
   const status = eligible && email
-    ? await loadTestflightStatus(email, userId)
+    ? await loadTestflightStatus(email, user.id)
     : { enrolled: false };
   const banner = testflightBanner(testflight);
 

@@ -4,9 +4,10 @@ import { redirect } from "next/navigation";
 
 import {
   isSubrouterAuthorizationError,
+  verifyBrowserSessionRequest,
   withSubrouterAuthorizationDeadline,
 } from "../../services/vms/auth";
-import { getStackServerApp, isStackConfigured } from "./stack";
+import { isStackConfigured } from "./stack";
 import {
   DASHBOARD_RETURN_PATH_HEADER,
   normalizeDashboardReturnPath,
@@ -22,7 +23,7 @@ type DashboardAuthState =
   | { readonly kind: "missing" }
   | {
     readonly kind: "authenticated";
-    readonly user: NonNullable<Awaited<ReturnType<typeof readStackUser>>>;
+    readonly user: NonNullable<Awaited<ReturnType<typeof verifyBrowserSessionRequest>>>;
   }
   | { readonly kind: "unavailable" };
 
@@ -35,12 +36,18 @@ const readDashboardAuth = cache(async (): Promise<DashboardAuthState> => {
   if (!isStackConfigured()) return { kind: "unconfigured" };
 
   try {
-    const user = await withSubrouterAuthorizationDeadline(() => readStackUser());
-    return user && !user.isAnonymous
-      ? { kind: "authenticated", user }
-      : { kind: "missing" };
+    const requestHeaders = await headers();
+    const user = await withSubrouterAuthorizationDeadline((signal) =>
+      verifyBrowserSessionRequest(
+        new Request("https://cmux.com/dashboard", {
+          headers: Object.fromEntries(requestHeaders.entries()),
+        }),
+        signal,
+      )
+    );
+    return user ? { kind: "authenticated", user } : { kind: "missing" };
   } catch (error) {
-    if (isSubrouterAuthorizationError(error) || error instanceof Error) {
+    if (isSubrouterAuthorizationError(error)) {
       console.error("Dashboard Stack authorization unavailable", {
         errorType: error instanceof Error ? error.name : typeof error,
       });
@@ -49,10 +56,6 @@ const readDashboardAuth = cache(async (): Promise<DashboardAuthState> => {
     throw error;
   }
 });
-
-async function readStackUser() {
-  return getStackServerApp().getUser({ or: "return-null" });
-}
 
 /**
  * Read the dashboard destination set by middleware. The value is restricted
