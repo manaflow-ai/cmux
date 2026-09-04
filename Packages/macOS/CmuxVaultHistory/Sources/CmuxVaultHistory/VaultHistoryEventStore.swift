@@ -6,9 +6,7 @@ public actor VaultHistoryEventStore: VaultHistoryEventStoring {
     private let retention: VaultHistoryRetentionPolicy
     private let fileManager: FileManager
     private var didLoad = false
-    /// Append order (oldest to newest), matching the on-disk JSONL layout.
-    private var events: [VaultHistoryEvent] = []
-    /// Read order, updated incrementally so refreshes never re-sort the store.
+    /// Retention and read order, updated incrementally so refreshes never re-sort.
     private var newestFirstEvents: [VaultHistoryEvent] = []
     private var fileBytes = 0
 
@@ -28,27 +26,27 @@ public actor VaultHistoryEventStore: VaultHistoryEventStoring {
         self.fileManager = fileManager
     }
 
-    /// Persists one event and adds it to the in-memory snapshot only after acceptance.
+    /// Processes one event through persistence and timestamp-based retention.
     ///
     /// - Parameter event: Immutable event to append.
-    /// - Returns: `true` when the event was accepted by memory-only storage or persisted.
+    /// - Returns: `true` when storage accepted the mutation. An event older
+    ///   than the retained timestamp window can be evicted immediately.
     public func append(_ event: VaultHistoryEvent) async -> Bool {
         loadIfNeeded()
         guard let line = encodedLine(for: event), line.count <= retention.maxFileBytes else {
             return false
         }
         if let fileURL {
-            if fileBytes + line.count > retention.maxFileBytes {
+            let preservesChronologicalFileOrder = newestFirstEvents.first.map {
+                VaultHistoryEvent.newestFirst(event, $0)
+            } ?? true
+            if fileBytes + line.count > retention.maxFileBytes
+                || !preservesChronologicalFileOrder {
                 let snapshot = compactedSnapshot(including: event)
-                let orderedSnapshot = newestFirstSnapshot(
-                    including: event,
-                    retaining: snapshot.events
-                )
                 guard writeCompactedData(snapshot.data, to: fileURL) else {
                     return false
                 }
-                events = snapshot.events
-                newestFirstEvents = orderedSnapshot
+                newestFirstEvents = snapshot.events
                 fileBytes = snapshot.data.count
                 return true
             } else {
@@ -59,13 +57,8 @@ public actor VaultHistoryEventStore: VaultHistoryEventStoring {
             }
         }
 
-        events.append(event)
         insertNewestFirst(event)
-        for removedEvent in trimMemoryIfNeeded() {
-            if let index = newestFirstEvents.firstIndex(of: removedEvent) {
-                newestFirstEvents.remove(at: index)
-            }
-        }
+        trimMemoryIfNeeded()
         return true
     }
 
@@ -131,11 +124,11 @@ public actor VaultHistoryEventStore: VaultHistoryEventStoring {
             }
             loadedEvents.append(event)
         }
-        if loadedEvents.count > retention.maxStoredEvents {
-            loadedEvents.removeFirst(loadedEvents.count - retention.maxStoredEvents)
-        }
-        events = loadedEvents
-        newestFirstEvents = loadedEvents.sorted(by: VaultHistoryEvent.newestFirst)
+        newestFirstEvents = Array(
+            loadedEvents
+                .sorted(by: VaultHistoryEvent.newestFirst)
+                .prefix(retention.maxStoredEvents)
+        )
     }
 
     private func encodedLine(for event: VaultHistoryEvent) -> Data? {
@@ -175,16 +168,19 @@ public actor VaultHistoryEventStore: VaultHistoryEventStoring {
     private func compactedSnapshot(
         including event: VaultHistoryEvent
     ) -> (events: [VaultHistoryEvent], data: Data) {
-        var candidates = events
-        candidates.append(event)
+        var candidates = newestFirstEvents
+        let insertionIndex = candidates.firstIndex {
+            VaultHistoryEvent.newestFirst(event, $0)
+        } ?? candidates.endIndex
+        candidates.insert(event, at: insertionIndex)
         if candidates.count > retention.maxStoredEvents {
-            candidates.removeFirst(candidates.count - retention.maxStoredEvents)
+            candidates.removeLast(candidates.count - retention.maxStoredEvents)
         }
 
-        var retainedNewestFirst: [VaultHistoryEvent] = []
-        var retainedLinesNewestFirst: [Data] = []
+        var retainedEvents: [VaultHistoryEvent] = []
+        var retainedLines: [Data] = []
         var retainedBytes = 0
-        for candidate in candidates.reversed() {
+        for candidate in candidates {
             guard let line = encodedLine(for: candidate),
                   line.count <= retention.maxFileBytes else {
                 continue
@@ -192,16 +188,18 @@ public actor VaultHistoryEventStore: VaultHistoryEventStoring {
             guard retainedBytes + line.count <= retention.maxFileBytes else {
                 break
             }
-            retainedNewestFirst.append(candidate)
-            retainedLinesNewestFirst.append(line)
+            retainedEvents.append(candidate)
+            retainedLines.append(line)
             retainedBytes += line.count
         }
 
         var data = Data(capacity: retainedBytes)
-        for line in retainedLinesNewestFirst.reversed() {
+        // JSONL stays chronological so bounded tail reads always contain the
+        // newest retained records, even after an out-of-order append.
+        for line in retainedLines.reversed() {
             data.append(line)
         }
-        return (Array(retainedNewestFirst.reversed()), data)
+        return (retainedEvents, data)
     }
 
     private func writeCompactedData(_ data: Data, to fileURL: URL) -> Bool {
@@ -224,34 +222,10 @@ public actor VaultHistoryEventStore: VaultHistoryEventStoring {
         newestFirstEvents.insert(event, at: index)
     }
 
-    private func newestFirstSnapshot(
-        including event: VaultHistoryEvent,
-        retaining retainedEvents: [VaultHistoryEvent]
-    ) -> [VaultHistoryEvent] {
-        var ordered = newestFirstEvents
-        let insertionIndex = ordered.firstIndex {
-            VaultHistoryEvent.newestFirst(event, $0)
-        } ?? ordered.endIndex
-        ordered.insert(event, at: insertionIndex)
-
-        var remaining = Dictionary(
-            retainedEvents.map { ($0, 1) },
-            uniquingKeysWith: +
+    private func trimMemoryIfNeeded() {
+        guard newestFirstEvents.count > retention.maxStoredEvents else { return }
+        newestFirstEvents.removeLast(
+            newestFirstEvents.count - retention.maxStoredEvents
         )
-        return ordered.filter { candidate in
-            guard let count = remaining[candidate], count > 0 else {
-                return false
-            }
-            remaining[candidate] = count - 1
-            return true
-        }
-    }
-
-    private func trimMemoryIfNeeded() -> [VaultHistoryEvent] {
-        guard events.count > retention.maxStoredEvents else { return [] }
-        let removalCount = events.count - retention.maxStoredEvents
-        let removedEvents = Array(events.prefix(removalCount))
-        events.removeFirst(removalCount)
-        return removedEvents
     }
 }

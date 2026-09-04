@@ -61,15 +61,12 @@ final class VaultHistoryTimelineModel {
         refreshTask = Task { [weak self] in
             let recorded = await log.recentEvents()
             guard !Task.isCancelled, let self else { return }
-            var merged = recorded
-            merged.append(contentsOf: self.projection.events(from: sessionEntries))
-            // Cache one bounded ordered snapshot per refresh. Group changes
-            // reuse it without another O(n log n) pass.
-            merged.sort(by: VaultHistoryEvent.newestFirst)
-            if merged.count > Self.maxTimelineEvents {
-                merged.removeLast(merged.count - Self.maxTimelineEvents)
-            }
-            self.mergedEvents = merged
+            let projectedSessions = self.projection.events(from: sessionEntries)
+            self.mergedEvents = VaultHistoryEvent.mergeNewestFirst(
+                recorded,
+                projectedSessions,
+                limit: Self.maxTimelineEvents
+            )
             self.isLoading = false
             self.didLoad = true
             self.regroup()

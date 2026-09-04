@@ -1,3 +1,4 @@
+import AppKit
 import CmuxFoundation
 import SwiftUI
 
@@ -11,6 +12,7 @@ struct VaultPaneView: View {
     let activeSessionKeys: Set<String>
     let onFocus: ((SessionEntry) -> Void)?
     let historyLog: VaultHistoryEventLog
+    let chromeBackgroundColor: NSColor
     @AppStorage("vaultPane.tab") private var selectedTabRawValue = VaultPaneTab.sessions.rawValue
 
     private var selectedTab: VaultPaneTab {
@@ -30,7 +32,11 @@ struct VaultPaneView: View {
                     onFocus: onFocus
                 )
             case .history:
-                VaultHistoryView(sessionStore: store, log: historyLog)
+                VaultHistoryView(
+                    sessionStore: store,
+                    log: historyLog,
+                    chromeBackgroundColor: chromeBackgroundColor
+                )
             }
         }
     }
@@ -45,6 +51,6 @@ struct VaultPaneView: View {
             Spacer(minLength: 0)
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
     }
 }

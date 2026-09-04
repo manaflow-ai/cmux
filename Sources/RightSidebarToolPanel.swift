@@ -301,7 +301,8 @@ struct RightSidebarToolPanelView: View {
                         onFocus: { entry in
                             _ = SessionEntryResumeCoordinator.focusIfActive(entry, tabManager: tabManager)
                         },
-                        historyLog: historyLog
+                        historyLog: historyLog,
+                        chromeBackgroundColor: resolvedChromeBackgroundColor
                     )
                 } else {
                     SessionIndexView(

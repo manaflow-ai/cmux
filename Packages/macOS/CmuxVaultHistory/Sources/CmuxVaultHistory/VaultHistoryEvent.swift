@@ -57,4 +57,36 @@ public struct VaultHistoryEvent: Identifiable, Hashable, Codable, Sendable {
         }
         return lhs.id > rhs.id
     }
+
+    /// Linearly merges two newest-first snapshots while preserving their order.
+    ///
+    /// - Parameters:
+    ///   - lhs: First snapshot, ordered by ``newestFirst(_:_:)``.
+    ///   - rhs: Second snapshot, ordered by ``newestFirst(_:_:)``.
+    ///   - limit: Maximum number of merged events to return.
+    /// - Returns: At most `limit` events in deterministic newest-first order.
+    public static func mergeNewestFirst(
+        _ lhs: [Self],
+        _ rhs: [Self],
+        limit: Int = .max
+    ) -> [Self] {
+        let maximumCount = max(0, limit)
+        var merged: [Self] = []
+        merged.reserveCapacity(min(maximumCount, lhs.count + rhs.count))
+        var lhsIndex = lhs.startIndex
+        var rhsIndex = rhs.startIndex
+
+        while merged.count < maximumCount
+            && (lhsIndex < lhs.endIndex || rhsIndex < rhs.endIndex) {
+            if rhsIndex >= rhs.endIndex
+                || (lhsIndex < lhs.endIndex && !newestFirst(rhs[rhsIndex], lhs[lhsIndex])) {
+                merged.append(lhs[lhsIndex])
+                lhs.formIndex(after: &lhsIndex)
+            } else {
+                merged.append(rhs[rhsIndex])
+                rhs.formIndex(after: &rhsIndex)
+            }
+        }
+        return merged
+    }
 }

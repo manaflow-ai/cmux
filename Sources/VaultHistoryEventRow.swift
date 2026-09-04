@@ -47,9 +47,9 @@ struct VaultHistoryEventRow: View, Equatable {
         guard trimmed.isEmpty else { return trimmed }
         switch event.kind {
         case .windowOpened, .windowClosed:
-            String(localized: "vaultHistory.window", defaultValue: "Window")
+            return String(localized: "vaultHistory.window", defaultValue: "Window")
         default:
-            String(localized: "vaultHistory.untitled", defaultValue: "Untitled")
+            return String(localized: "vaultHistory.untitled", defaultValue: "Untitled")
         }
     }
 

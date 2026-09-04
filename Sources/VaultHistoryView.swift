@@ -1,3 +1,4 @@
+import AppKit
 import CmuxVaultHistory
 import CmuxFoundation
 import SwiftUI
@@ -6,16 +7,27 @@ import SwiftUI
 struct VaultHistoryView: View {
     @ObservedObject var sessionStore: SessionIndexStore
     let log: VaultHistoryEventLog
+    let chromeBackgroundColor: NSColor
     @State private var model: VaultHistoryTimelineModel
 
-    init(sessionStore: SessionIndexStore, log: VaultHistoryEventLog) {
+    init(
+        sessionStore: SessionIndexStore,
+        log: VaultHistoryEventLog,
+        chromeBackgroundColor: NSColor
+    ) {
         self.sessionStore = sessionStore
         self.log = log
+        self.chromeBackgroundColor = chromeBackgroundColor
         _model = State(initialValue: VaultHistoryTimelineModel(log: log))
     }
 
     var body: some View {
-        VaultHistoryContentView(sessionStore: sessionStore, log: log, model: model)
+        VaultHistoryContentView(
+            sessionStore: sessionStore,
+            log: log,
+            model: model,
+            chromeBackgroundColor: chromeBackgroundColor
+        )
     }
 }
 
@@ -23,6 +35,9 @@ private struct VaultHistoryContentView: View {
     @ObservedObject var sessionStore: SessionIndexStore
     let log: VaultHistoryEventLog
     let model: VaultHistoryTimelineModel
+    let chromeBackgroundColor: NSColor
+    @State private var sessionReloadGeneration = 0
+    @State private var hasFreshSessionSnapshot = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,19 +50,18 @@ private struct VaultHistoryContentView: View {
                 timelineList
             }
         }
-        .onAppear {
-            // History projects session activity from the durable agent indexes.
-            // Refresh on every mount so a warm in-memory cache cannot hide
-            // sessions written while this tab was not visible.
-            if !sessionStore.isLoading {
-                sessionStore.reload()
-            }
-            model.refresh(sessionEntries: sessionStore.entries)
+        .task(id: sessionReloadGeneration) {
+            let entries = await sessionStore.reloadAndWaitForFreshEntries()
+            guard !Task.isCancelled else { return }
+            hasFreshSessionSnapshot = true
+            model.refresh(sessionEntries: entries)
         }
         .onChange(of: sessionStore.entries) { _, entries in
+            guard hasFreshSessionSnapshot else { return }
             model.refresh(sessionEntries: entries)
         }
         .onChange(of: log.revision) { _, _ in
+            guard hasFreshSessionSnapshot else { return }
             model.refresh(sessionEntries: sessionStore.entries)
         }
     }
@@ -92,8 +106,8 @@ private struct VaultHistoryContentView: View {
             Spacer(minLength: 4)
 
             Button {
-                sessionStore.reload()
-                model.refresh(sessionEntries: sessionStore.entries)
+                hasFreshSessionSnapshot = false
+                sessionReloadGeneration &+= 1
             } label: {
                 Image(systemName: "arrow.clockwise")
                     .cmuxFont(size: 10, weight: .medium)
@@ -105,7 +119,7 @@ private struct VaultHistoryContentView: View {
             .titlebarInteractiveControl()
         }
         .rightSidebarChromeBar()
-        .rightSidebarChromeBottomBorder()
+        .rightSidebarChromeBottomBorder(backgroundColor: chromeBackgroundColor)
     }
 
     private var reloadLabel: String {

@@ -118,6 +118,39 @@ import Testing
         #expect(await reloaded.recentEvents().map(\.id) == expectedIDs)
     }
 
+    @Test func retentionKeepsNewestTimestampsAfterOutOfOrderAppends() async throws {
+        let fileURL = try makeTempFileURL()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+
+        let retention = VaultHistoryRetentionPolicy(
+            maxStoredEvents: 2,
+            maxFileBytes: 1_024,
+            maxLoadBytes: 4_096
+        )
+        let stores = [
+            VaultHistoryEventStore(fileURL: nil, retention: retention),
+            VaultHistoryEventStore(fileURL: fileURL, retention: retention),
+        ]
+        let appendedEvents = [100, 200, 1].map { timestamp in
+            VaultHistoryEvent(
+                id: "t\(timestamp)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(timestamp)),
+                kind: .workspaceCreated,
+                title: "workspace-\(timestamp)"
+            )
+        }
+
+        for store in stores {
+            for event in appendedEvents {
+                #expect(await store.append(event))
+            }
+            #expect(await store.recentEvents().map(\.id) == ["t200", "t100"])
+        }
+
+        let reloaded = VaultHistoryEventStore(fileURL: fileURL, retention: retention)
+        #expect(await reloaded.recentEvents().map(\.id) == ["t200", "t100"])
+    }
+
     @Test func oversizedEventIsRejectedWithoutDisplacingReadableHistory() async throws {
         let fileURL = try makeTempFileURL()
         defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }

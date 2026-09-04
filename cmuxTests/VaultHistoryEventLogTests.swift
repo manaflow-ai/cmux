@@ -88,6 +88,40 @@ import Testing
         #expect(events.first?.subject.windowId == windowId)
     }
 
+    @Test func renameRecordingSurvivesSynchronousWorkspaceRemovalObserver() async throws {
+        let store = VaultHistoryEventStore(fileURL: nil)
+        let log = VaultHistoryEventLog(store: store, phase: .active)
+        let manager = TabManager(
+            autoWelcomeIfNeeded: false,
+            vaultHistoryEventLog: log,
+            initialWorkspaceHistoryContext: .bootstrap
+        )
+        let renamedWorkspace = try #require(manager.selectedWorkspace)
+        _ = try #require(manager.addWorkspaceIfActive(
+            select: false,
+            autoWelcomeIfNeeded: false,
+            vaultHistoryContext: .structuralReplacement
+        ))
+
+        let observer = NotificationCenter.default.addObserver(
+            forName: .workspaceTitleDidChange,
+            object: manager,
+            queue: nil
+        ) { _ in
+            manager.closeWorkspace(renamedWorkspace, recordHistory: false)
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(manager.setCustomTitle(tabId: renamedWorkspace.id, title: "Renamed"))
+        await log.flushPendingRecords()
+
+        let renameEvent = try #require(
+            await log.recentEvents().first(where: { $0.kind == .workspaceRenamed })
+        )
+        #expect(renameEvent.subject.workspaceId == renamedWorkspace.id)
+        #expect(renameEvent.title == "Renamed")
+    }
+
     private func event(id: String) -> VaultHistoryEvent {
         VaultHistoryEvent(
             id: id,

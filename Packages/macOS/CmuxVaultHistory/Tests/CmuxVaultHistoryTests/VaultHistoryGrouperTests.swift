@@ -154,4 +154,21 @@ import Testing
                 == grouper.groups(events: events, by: .date, now: Self.now)
         )
     }
+
+    @Test func newestFirstMergeIsLinearOrderedAndBounded() {
+        let lhs = [
+            event(id: "tie-a", secondsAgo: 10),
+            event(id: "old", secondsAgo: 60),
+        ].sorted(by: VaultHistoryEvent.newestFirst)
+        let rhs = [
+            event(id: "tie-z", secondsAgo: 10),
+            event(id: "middle", secondsAgo: 30),
+        ].sorted(by: VaultHistoryEvent.newestFirst)
+
+        #expect(
+            VaultHistoryEvent.mergeNewestFirst(lhs, rhs, limit: 3).map(\.id)
+                == ["tie-z", "tie-a", "middle"]
+        )
+        #expect(VaultHistoryEvent.mergeNewestFirst(lhs, rhs, limit: 0).isEmpty)
+    }
 }

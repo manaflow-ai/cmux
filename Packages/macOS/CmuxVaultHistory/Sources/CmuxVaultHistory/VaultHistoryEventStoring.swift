@@ -2,10 +2,11 @@ import Foundation
 
 /// Persistence boundary consumed by the app-owned History coordinator.
 public protocol VaultHistoryEventStoring: Sendable {
-    /// Persists one event before making it visible to readers.
+    /// Processes one event through persistence and bounded retention.
     ///
     /// - Parameter event: Immutable event to append.
-    /// - Returns: `true` when the event was accepted and is now readable.
+    /// - Returns: `true` when storage accepted the mutation. An event older
+    ///   than the retained timestamp window can be evicted immediately.
     func append(_ event: VaultHistoryEvent) async -> Bool
 
     /// Returns the newest persisted events in deterministic order.
