@@ -925,9 +925,8 @@ public actor MobileIrxRuntimeComposition {
         let direct = binding.pathHints.filter {
             $0.kind == .directAddress && $0.isUsable(at: now)
         }.map(\.value)
-        let existing = routesByPeer[peerHex]
         routesByPeer[peerHex] = (
-            relay ?? existing?.relayURL,
+            relay,
             direct
         )
         return (binding, discovery)
