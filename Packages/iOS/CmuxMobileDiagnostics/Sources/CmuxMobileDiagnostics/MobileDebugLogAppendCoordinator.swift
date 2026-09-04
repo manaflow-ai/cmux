@@ -10,6 +10,7 @@ import Foundation
 final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
     private enum Entry: Sendable {
         case line(String)
+        case batch([String])
         case barrier(Acknowledgement)
     }
 
@@ -98,16 +99,24 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         }
 
         func enqueue(_ message: String) {
+            enqueue(.line(message))
+        }
+
+        func enqueueBatch(_ messages: [String]) {
+            guard !messages.isEmpty else { return }
+            enqueue(.batch(messages))
+        }
+
+        private func enqueue(_ entry: Entry) {
             withStateLock { state in
                 guard !state.finished else { return }
-                if state.entries.count >= maxBufferedEntries,
-                   let oldestLine = state.entries.firstIndex(where: { entry in
-                       if case .line = entry { return true }
-                       return false
-                   }) {
-                    state.entries.remove(at: oldestLine)
+                if state.entries.count >= maxBufferedEntries {
+                    guard let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) else {
+                        return
+                    }
+                    state.entries.remove(at: oldestDroppable)
                 }
-                state.entries.append(.line(message))
+                state.entries.append(entry)
             }
             wakeContinuation.yield(())
         }
@@ -116,13 +125,10 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
             let admitted = withStateLock { state in
                 guard !state.finished else { return false }
                 if state.entries.count >= maxBufferedEntries {
-                    guard let oldestLine = state.entries.firstIndex(where: { entry in
-                        if case .line = entry { return true }
-                        return false
-                    }) else {
+                    guard let oldestDroppable = state.entries.firstIndex(where: Self.isDroppable) else {
                         return false
                     }
-                    state.entries.remove(at: oldestLine)
+                    state.entries.remove(at: oldestDroppable)
                 }
                 state.entries.append(.barrier(acknowledgement))
                 return true
@@ -161,6 +167,15 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
             defer { lock.unlock() }
             return body(&state)
         }
+
+        private static func isDroppable(_ entry: Entry) -> Bool {
+            switch entry {
+            case .line, .batch:
+                return true
+            case .barrier:
+                return false
+            }
+        }
     }
 
     private let storage: Storage
@@ -187,6 +202,10 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
         storage.enqueue(message)
     }
 
+    func enqueueBatch(_ messages: [String]) {
+        storage.enqueueBatch(messages)
+    }
+
     func flush() async -> Bool {
         let acknowledgement = Acknowledgement()
         let admitted = storage.admit(acknowledgement)
@@ -202,10 +221,12 @@ final class MobileDebugLogAppendCoordinator: @unchecked Sendable {
                 switch entry {
                 case .line(let message):
                     await sink.append(message)
+                case .batch(let messages):
+                    await sink.appendBatch(messages)
                 case .barrier(let acknowledgement):
                     acknowledgement.signal()
-                }
             }
         }
     }
+}
 }

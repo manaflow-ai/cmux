@@ -609,6 +609,7 @@ public actor AppLog {
     private let presentation = DiagnosticEventPresentation()
     private let timestampFormatter: ISO8601DateFormatter
     private let ingress: EntryIngress
+    private let supplementalAppLogURLs: @Sendable () -> [URL]
 
     private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
 
@@ -621,11 +622,13 @@ public actor AppLog {
         buildStamp: String = "",
         maxArchiveCount: Int = AppLog.defaultMaxArchiveCount,
         maxRetainedBytes: Int = AppLog.defaultMaxRetainedBytes,
-        now: @escaping @Sendable () -> Date = { Date() }
+        now: @escaping @Sendable () -> Date = { Date() },
+        supplementalAppLogURLs: @escaping @Sendable () -> [URL] = { [] }
     ) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         timestampFormatter = formatter
+        self.supplementalAppLogURLs = supplementalAppLogURLs
         let started = formatter.string(from: now())
         if let appFileURL {
             appFile = LogFile(
@@ -725,7 +728,10 @@ public actor AppLog {
             return nil
         }
 
-        guard let appData = mergedData(for: appFile?.url),
+        guard let appData = mergedData(
+            for: appFile?.url,
+            additionalURLs: supplementalAppLogURLs()
+        ),
               let networkData = mergedData(for: networkFile?.url) else {
             return nil
         }
@@ -745,12 +751,15 @@ public actor AppLog {
         return await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds)
     }
 
-    private func mergedData(for fileURL: URL?) -> Data? {
+    private func mergedData(for fileURL: URL?, additionalURLs: [URL] = []) -> Data? {
         guard let fileURL else { return nil }
         let generations = Self.logFileURLs(for: fileURL).reversed()
         var merged = Data()
-        for generation in generations {
+        for generation in generations + additionalURLs.reversed() {
             guard let data = try? Data(contentsOf: generation) else { return nil }
+            if !merged.isEmpty, merged.last != 0x0A {
+                merged.append(0x0A)
+            }
             merged.append(data)
         }
         return merged

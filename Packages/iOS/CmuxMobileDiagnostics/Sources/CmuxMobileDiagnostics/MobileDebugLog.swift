@@ -98,6 +98,18 @@ public struct MobileDebugLog: Sendable {
         }
     }()
 
+    /// All durable verbose-log generations, with the active file first.
+    /// Crash-time records and lines written before the app-log mirror was
+    /// installed are included in the unified diagnostics export through this
+    /// list.
+    public static var logFileURLs: [URL] {
+        guard let logFileURL else { return [] }
+        return [
+            logFileURL,
+            URL(fileURLWithPath: logFileURL.path + ".1"),
+        ].filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
     /// The actor that owns the ring buffer and broadcast stream.
     public let sink: MobileDebugLogSink
     private let appendCoordinator: MobileDebugLogAppendCoordinator
@@ -119,9 +131,7 @@ public struct MobileDebugLog: Sendable {
     }
 
     func appendBatch(_ messages: [String]) {
-        for message in messages {
-            appendCoordinator.enqueue(message)
-        }
+        appendCoordinator.enqueueBatch(messages)
     }
 
     /// Identifies the running build so a pasted log proves which reload it came

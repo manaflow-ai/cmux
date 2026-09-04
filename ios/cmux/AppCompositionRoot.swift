@@ -132,7 +132,8 @@ final class AppCompositionRoot {
         let appLog = AppLog(
             appFileURL: AppLog.defaultAppLogFileURL,
             networkFileURL: AppLog.defaultNetworkLogFileURL,
-            buildStamp: MobileDebugLog.buildStamp
+            buildStamp: MobileDebugLog.buildStamp,
+            supplementalAppLogURLs: { MobileDebugLog.logFileURLs }
         )
         self.appLog = appLog
         diagnosticLog.setEventTap { event in

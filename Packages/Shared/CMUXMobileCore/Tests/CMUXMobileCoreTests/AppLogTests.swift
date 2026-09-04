@@ -125,6 +125,29 @@ import Testing
         #expect(archiveText.contains("dial"))
     }
 
+    @Test func exportIncludesSupplementalVerboseGenerations() async throws {
+        let dir = try makeTempDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let appURL = dir.appendingPathComponent("app.log")
+        let networkURL = dir.appendingPathComponent("network.log")
+        let verboseArchiveURL = dir.appendingPathComponent("cmux-debug.log.1")
+        let verboseURL = dir.appendingPathComponent("cmux-debug.log")
+        try Data("CRASH signal=6 name=SIGABRT\n".utf8).write(to: verboseArchiveURL)
+        try Data("verbose marker\n".utf8).write(to: verboseURL)
+        let log = AppLog(
+            appFileURL: appURL,
+            networkFileURL: networkURL,
+            buildStamp: "test",
+            supplementalAppLogURLs: { [verboseArchiveURL, verboseURL] }
+        )
+
+        let archiveURL = try #require(await log.exportLogs())
+        defer { try? FileManager.default.removeItem(at: archiveURL) }
+        let archiveText = try String(contentsOf: archiveURL, encoding: .isoLatin1)
+        #expect(archiveText.contains("CRASH signal=6 name=SIGABRT"))
+        #expect(archiveText.contains("verbose marker"))
+    }
+
     @Test func clearRemovesActiveAndArchivedGenerations() async throws {
         let dir = try makeTempDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }
