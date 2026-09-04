@@ -189,8 +189,7 @@ extension AppDelegate {
             let repository = artifactRepository
             Task { @MainActor [weak workspace] in
                 guard let workspace, let artifactID,
-                      let record = try? await repository.record(id: artifactID),
-                      let record else {
+                      let record = try? await repository.record(id: artifactID) else {
                     NSSound.beep()
                     return
                 }
