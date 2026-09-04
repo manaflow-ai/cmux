@@ -156,6 +156,9 @@ jobs:
       - name: Validate Python test harness syntax
         run: git ls-files 'tests/*.py' 'tests_v2/*.py' 'scripts/*.py' | xargs python3 -m py_compile
 
+      - name: Validate workspace handoff prototype
+        run: python3 tests/test_workspace_handoff.py
+
       - name: Validate TUI npm package artifact transfer
         run: python3 tests/test_tui_npm_package_artifact.py
 
