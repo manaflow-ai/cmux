@@ -451,8 +451,12 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 } else {
                     nodeActions.project(resource.id, .split, true)
                 }
-            case .port(let resource, _):
-                nodeActions.project(resource.id, .split, true)
+            case .port(let resource, _, let openIn):
+                if let openIn {
+                    nodeActions.projectInLocalWorkspace(resource.id, openIn)
+                } else {
+                    nodeActions.project(resource.id, .split, true)
+                }
             case .browser(let row):
                 nodeActions.project(row.resource.id, .split, true)
             case .placeholder(let machineID, let placeholder):
@@ -613,18 +617,37 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                 }
                 return items
             case .terminal(let row):
-                var items = resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                var items = resourceMenuItems(
+                    row.resource,
+                    isLocal: row.resource.machine.isLocal,
+                    openAction: { [weak self] in self?.open(node) }
+                )
                 if !row.resource.machine.isLocal {
                     items.append(.separator())
                     items.append(item(String(localized: "cloudTree.menu.killTerminal", defaultValue: "Kill Terminal\u{2026}")) { [nodeActions] in nodeActions.closeTerminal(row.resource.id) })
                 }
                 return items
             case .browser(let row):
-                return resourceMenuItems(row.resource, isLocal: row.resource.machine.isLocal)
+                return resourceMenuItems(
+                    row.resource,
+                    isLocal: row.resource.machine.isLocal,
+                    openAction: { [weak self] in self?.open(node) }
+                )
             case .display(let resource, let openIn):
-                return resourceMenuItems(resource, isLocal: false, openInLocalWorkspace: openIn)
-            case .port(let resource, let url):
-                return resourceMenuItems(resource, isLocal: false, portURL: url)
+                return resourceMenuItems(
+                    resource,
+                    isLocal: false,
+                    openInLocalWorkspace: openIn,
+                    openAction: { [weak self] in self?.open(node) }
+                )
+            case .port(let resource, let url, let openIn):
+                return resourceMenuItems(
+                    resource,
+                    isLocal: false,
+                    openInLocalWorkspace: openIn,
+                    openAction: { [weak self] in self?.open(node) },
+                    portURL: url
+                )
             case .browsersGroup, .portsGroup:
                 return [
                     item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { [nodeActions] in nodeActions.refresh() },
@@ -642,12 +665,17 @@ struct CloudTreeOutlineView: NSViewRepresentable {
             _ resource: SurfaceResource,
             isLocal: Bool,
             openInLocalWorkspace: UUID? = nil,
+            openAction: (@MainActor () -> Void)? = nil,
             portURL: String? = nil
         ) -> [NSMenuItem] {
             var items: [NSMenuItem] = [
                 item(String(localized: "cloudTree.menu.open", defaultValue: "Open")) { [nodeActions] in
-                    // Same scope rule as the row's open verb (one shared path).
-                    if let openInLocalWorkspace {
+                    // Use the exact row-open path when the row supplies one. This
+                    // keeps context-menu opens in lockstep with click/Return even
+                    // if a refresh changes the catalog after the menu is built.
+                    if let openAction {
+                        openAction()
+                    } else if let openInLocalWorkspace {
                         nodeActions.projectInLocalWorkspace(resource.id, openInLocalWorkspace)
                     } else {
                         nodeActions.project(resource.id, .split, true)
@@ -684,6 +712,26 @@ struct CloudTreeOutlineView: NSViewRepresentable {
                     })
                 }
                 items.append(item(String(localized: "cloudTree.menu.openFullClient", defaultValue: "Open Full cmux-tui Client")) { actions.runCommand(id, ["vm", "tui"]) })
+            }
+            if machine.freeAccess != .expired {
+                let diskMenu = NSMenu()
+                diskMenu.autoenablesItems = false
+                for gib in [64, 128, 256] {
+                    let diskItem = item(String(format: String(localized: "machines.menu.increaseDiskTo", defaultValue: "Increase to %d GiB"), gib)) {
+                        actions.resizeDisk(id, gib)
+                    }
+                    if let current = machine.stats?.diskTotalMb, current >= gib * 1024 {
+                        diskItem.isEnabled = false
+                    }
+                    diskMenu.addItem(diskItem)
+                }
+                let diskRoot = NSMenuItem(
+                    title: String(localized: "machines.menu.increaseDisk", defaultValue: "Increase Disk"),
+                    action: nil,
+                    keyEquivalent: ""
+                )
+                diskRoot.submenu = diskMenu
+                items.append(diskRoot)
             }
             items.append(item(String(localized: "cloudTree.menu.refresh", defaultValue: "Refresh")) { nodeActions.refresh() })
             items.append(.separator())

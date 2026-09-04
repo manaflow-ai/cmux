@@ -25,6 +25,14 @@ export class VmNotFoundError extends Data.TaggedError("VmNotFoundError")<{
   readonly vmId: string;
 }> {}
 
+export class VmResizeInvalidError extends Data.TaggedError("VmResizeInvalidError")<{
+  readonly vmId: string;
+  readonly requestedMb: number;
+  readonly currentMb: number;
+  readonly maxMb: number;
+  readonly reason: "below_current" | "above_max";
+}> {}
+
 /**
  * A private-network or tunnel operation on a deployment that does not serve
  * one — the provider has no `privateNetworking`, or
@@ -160,6 +168,7 @@ export type VmWorkflowError =
   | VmProviderOperationError
   | VmOperationUnsupportedError
   | VmNotFoundError
+  | VmResizeInvalidError
   | VmSnapshotNotFoundError
   | VmFreeAccessExpiredError
   | VmCreateInProgressError
@@ -188,6 +197,10 @@ export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundEr
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmNotFoundError";
+}
+
+export function isVmResizeInvalidError(err: unknown): err is VmResizeInvalidError {
+  return (err as { _tag?: string } | null)?._tag === "VmResizeInvalidError";
 }
 
 export function isVmSnapshotNotFoundError(err: unknown): err is VmSnapshotNotFoundError {
@@ -268,6 +281,7 @@ const vmWorkflowErrorTagRecord = {
   VmProviderOperationError: true,
   VmOperationUnsupportedError: true,
   VmNotFoundError: true,
+  VmResizeInvalidError: true,
   VmSnapshotNotFoundError: true,
   VmFreeAccessExpiredError: true,
   VmCreateInProgressError: true,

@@ -46,6 +46,7 @@ import {
   approveVmCmuxRemoteEnrollment,
   openBaseVm,
   openAttachEndpoint,
+  openVmPort,
   openVmCmuxRemote,
   openVmSession,
   revokeExpiredIdentityLeases,
@@ -53,6 +54,7 @@ import {
   resetBaseVm,
   restoreVm,
   reconcileVmProviderStatuses,
+  resizeVm,
 } from "../services/vms/workflows";
 
 const runDbTests = process.env.CMUX_DB_TEST === "1";
@@ -132,6 +134,110 @@ afterAll(async () => {
 });
 
 describe("VM Effect workflows", () => {
+  test("resizes a running VM disk, records the change, and returns provider-confirmed stats", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000140",
+      userId: "user-workflow-resize",
+      billingTeamId: "team-workflow-resize",
+      providerVmId: "provider-vm-resize",
+      status: "running",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: (() => {
+        let calls = 0;
+        return () => Effect.succeed({
+          state: "awake" as const,
+          sampledAt: Date.now(),
+          diskTotalMb: ++calls === 1 ? 32768 : 65536,
+          diskUsedMb: 4096,
+        });
+      })(),
+      resize: (_provider, _vmId, options) => {
+        expect(options).toEqual({ storageMb: 65536 });
+        return Effect.void;
+      },
+    };
+
+    const result = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId ?? vm.userId],
+        providerVmId: vm.providerVmId!,
+        storageMb: 65536,
+      }).pipe(Effect.provide(workflowLayer(testWorkflowRepo({ vm, usageEvents }), provider))),
+    );
+
+    expect(result.diskTotalMb).toBe(65536);
+    expect(usageEvents).toHaveLength(1);
+    expect(usageEvents[0]?.eventType).toBe("vm.resize");
+  });
+
+  test("rejects a disk shrink before calling the provider", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000141",
+      userId: "user-workflow-resize-shrink",
+      providerVmId: "provider-vm-resize-shrink",
+      status: "running",
+    });
+    let resizeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.succeed({ state: "awake", sampledAt: Date.now(), diskTotalMb: 65536 }),
+      resize: () => Effect.sync(() => { resizeCalls += 1; }),
+    };
+    const error = await Effect.runPromise(
+      resizeVm({
+        userId: vm.userId,
+        teamIds: [vm.billingTeamId ?? vm.userId],
+        providerVmId: vm.providerVmId!,
+        storageMb: 32768,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(testWorkflowRepo({ vm }), provider))),
+    );
+    expect(error).toMatchObject({ _tag: "VmResizeInvalidError", reason: "below_current" });
+    expect(resizeCalls).toBe(0);
+  });
+
+  test("rejects an unsupported port before attempting to resume a paused VM", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000130",
+      userId: "user-workflow-port-unsupported",
+      providerVmId: "provider-vm-port-unsupported",
+      status: "paused",
+    });
+    const usageEvents: RecordedUsageEvent[] = [];
+    const observedStatuses: ObservedStatusUpdate[] = [];
+    const repo = testWorkflowRepo({ vm, usageEvents, observedStatuses });
+    let resumeCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      resume: () =>
+        Effect.sync(() => {
+          resumeCalls += 1;
+          return testVmHandle({ providerVmId: vm.providerVmId! });
+        }),
+    };
+
+    const error = await Effect.runPromise(
+      openVmPort({
+        userId: vm.userId,
+        providerVmId: vm.providerVmId!,
+        port: 8000,
+      }).pipe(Effect.flip, Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(error).toMatchObject({
+      _tag: "VmOperationUnsupportedError",
+      operation: "openPort",
+    });
+    expect(resumeCalls).toBe(0);
+    expect(observedStatuses).toHaveLength(0);
+    expect(usageEvents).toHaveLength(0);
+  });
+
   test("exec resumes a paused VM, retries once, and records one usage event", async () => {
     const vm = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000101",
@@ -1813,13 +1919,16 @@ describe("VM Effect workflows", () => {
     const requested = testCloudVmRow({
       status: "provisioning",
       providerVmId: null,
+      slug: "sleepy-teal-otter",
     });
     const running = testCloudVmRow({
       status: "running",
       providerVmId: "provider-vm-usage-events",
       imageVersion: "test-version",
+      slug: "sleepy-teal-otter",
     });
     let providerCreateCalls = 0;
+    let providerDisplayName: string | undefined;
     let providerMemoryMb: number | undefined;
     let providerImageSize: { name: string; cpu: number; memoryMb: number; storageMb: number } | null = null;
     let usageEventAttempts = 0;
@@ -1863,6 +1972,7 @@ describe("VM Effect workflows", () => {
       create: (_provider, options) =>
         Effect.sync(() => {
           providerCreateCalls += 1;
+          providerDisplayName = options.displayName;
           providerMemoryMb = options.memoryMb;
           providerImageSize = options.imageSize ?? null;
           return {
@@ -1902,7 +2012,10 @@ describe("VM Effect workflows", () => {
     );
 
     expect(created.providerVmId).toBe("provider-vm-usage-events");
+    expect(created.slug).toBe("sleepy-teal-otter");
     expect(providerCreateCalls).toBe(1);
+    // The row's generated name is what the provider console shows too.
+    expect(providerDisplayName).toBe("sleepy-teal-otter");
     expect(providerMemoryMb).toBe(3072);
     // A sized image reaches the driver as the shape to boot at, never to resize to.
     expect(providerImageSize).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 });
@@ -4603,6 +4716,7 @@ function testCloudVmRow(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     provider: "freestyle",
     providerVmId: null,
     displayName: null,
+    slug: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
@@ -4878,7 +4992,7 @@ describe("destroyVm home volume cleanup", () => {
     expect(deletedVolumes).toEqual([volume]);
     expect(destroyedIds).toEqual([vm.id]);
     const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
-    expect(destroyedEvent?.metadata).toEqual({ homeVolume: volume, homeVolumeDeleted: true });
+    expect(destroyedEvent?.metadata).toEqual({ source: "user_request", homeVolume: volume, homeVolumeDeleted: true });
   });
 
   test("deletes a pre-marker per-machine volume recognized by its derived name", async () => {
@@ -4925,7 +5039,7 @@ describe("destroyVm home volume cleanup", () => {
     expect(provider.destroyedVmIds).toEqual(["noble-wren"]);
     expect(deletedVolumes).toEqual([]);
     const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
-    expect(destroyedEvent?.metadata).toBeUndefined();
+    expect(destroyedEvent?.metadata).toEqual({ source: "user_request" });
   });
 
   test("records the leak and still destroys the row when the volume delete fails", async () => {
@@ -4955,7 +5069,7 @@ describe("destroyVm home volume cleanup", () => {
     const leakEvent = usageEvents.find((event) => event.eventType === "vm.home_volume.delete_failed");
     expect(leakEvent?.metadata).toEqual({ homeVolume: volume, message: "volume still attached" });
     const destroyedEvent = usageEvents.find((event) => event.eventType === "vm.destroyed");
-    expect(destroyedEvent?.metadata).toEqual({ homeVolume: volume, homeVolumeDeleted: false });
+    expect(destroyedEvent?.metadata).toEqual({ source: "user_request", homeVolume: volume, homeVolumeDeleted: false });
   });
 
   test("still deletes the volume and finalizes the row when afterProviderDestroy throws", async () => {

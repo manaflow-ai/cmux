@@ -31,6 +31,7 @@ import {
   type VMHandle,
   type VMPrivateNetworking,
   type VMProvider,
+  type VMResizeOptions,
   type VMStatus,
 } from "./types";
 import { PLAN_MACHINE_MEMORY_MB, vcpusForMemoryMb, vmDiskMb } from "../machineSpec";
@@ -817,7 +818,7 @@ export class FreestyleProvider implements VMProvider {
           const networkId = options.network?.id;
           const { vm, vmId, data } = await fs.vms.create({
             snapshotId: image,
-            displayName: "cmux Cloud VM",
+            displayName: options.displayName ?? "cmux Cloud VM",
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
@@ -1020,6 +1021,29 @@ export class FreestyleProvider implements VMProvider {
           return { exitCode, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
         } catch (err) {
           throw new ProviderError("freestyle", `exec(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  async resize(vmId: string, options: VMResizeOptions): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.resize",
+      spanAttributes(vmId, "resize", {
+        "cmux.vm.resize.storage_mb": options.storageMb ?? 0,
+      }),
+      async () => {
+        try {
+          const request: ResizeVmOptions = {
+            ...(options.cpu === undefined ? {} : { cpu: options.cpu }),
+            ...(options.memoryMb === undefined ? {} : { memory: options.memoryMb }),
+            ...(options.storageMb === undefined ? {} : { storage: options.storageMb }),
+          };
+          if (Object.keys(request).length === 0) return;
+          const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          await fs.vms.ref(vmId).resize(request);
+        } catch (err) {
+          throw new ProviderError("freestyle", `resize(${vmId})`, err);
         }
       },
     );

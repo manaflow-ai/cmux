@@ -22,6 +22,7 @@ import {
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
+import { allocateVmSlug } from "./vmNaming";
 import {
   VmCreateDisabledError,
   VmCreateInProgressError,
@@ -317,26 +318,29 @@ export type VmRepositoryShape = {
   /** Endpoint leases issued to one signed-in user and still within their TTL. */
   readonly activeAccessLeasesForUser?: (userId: string) => Effect.Effect<CloudVmAccessLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
-  readonly recordUsageEvent: (input: {
-    readonly userId: string;
-    readonly billingTeamId?: string | null;
-    readonly billingPlanId?: string | null;
-    readonly vmId?: string | null;
-    readonly eventType: string;
-    readonly provider?: ProviderId;
-    readonly imageId?: string;
-    readonly metadata?: Record<string, unknown>;
-  }) => Effect.Effect<void, VmDatabaseError>;
-  readonly recordUsageEvents: (inputs: readonly {
-    readonly userId: string;
-    readonly billingTeamId?: string | null;
-    readonly billingPlanId?: string | null;
-    readonly vmId?: string | null;
-    readonly eventType: string;
-    readonly provider?: ProviderId;
-    readonly imageId?: string;
-    readonly metadata?: Record<string, unknown>;
-  }[]) => Effect.Effect<void, VmDatabaseError>;
+  readonly recordUsageEvent: (input: VmUsageEventInput) => Effect.Effect<void, VmDatabaseError>;
+  readonly recordUsageEvents: (inputs: readonly VmUsageEventInput[]) => Effect.Effect<void, VmDatabaseError>;
+};
+
+/**
+ * One usage-ledger row. Persisted to `cloud_vm_usage_events` and, for the
+ * allowlisted lifecycle types, mirrored to PostHog (services/vms/productAnalytics.ts).
+ */
+export type VmUsageEventInput = {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly billingPlanId?: string | null;
+  readonly vmId?: string | null;
+  readonly eventType: string;
+  readonly provider?: ProviderId;
+  readonly imageId?: string;
+  readonly metadata?: Record<string, unknown>;
+  /**
+   * The machine's `createdAt`, supplied by destroy sites so analytics can
+   * report the machine's lifetime. Not persisted: the ledger row already
+   * joins to `cloud_vms` by `vmId`.
+   */
+  readonly vmCreatedAt?: Date | null;
 };
 
 export class VmRepository extends Context.Tag("cmux/VmRepository")<
@@ -355,6 +359,34 @@ function dbEffect<A>(
 }
 
 type CloudDbTransaction = Parameters<Parameters<ReturnType<typeof cloudDb>["transaction"]>[0]>[0];
+
+/** Statuses whose rows hold their slug (mirrors the partial unique index). */
+const SLUG_LIVE_STATUSES = ["provisioning", "running", "paused"] as const;
+
+/**
+ * Picks the new row's three-word name inside the create transaction. Takes
+ * the billing-team advisory lock first (re-entrant for beginCreate, which
+ * already holds it; new for the base paths, whose own lock is per base), so
+ * every create in the team serializes here and a free candidate is still
+ * free at insert. The partial unique index stays as the backstop.
+ */
+async function allocateSlugInTx(tx: CloudDbTransaction, billingTeamId: string): Promise<string> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${billingTeamId}, 0))`);
+  return allocateVmSlug(async (candidate) => {
+    const [taken] = await tx
+      .select({ id: cloudVms.id })
+      .from(cloudVms)
+      .where(
+        and(
+          eq(cloudVms.billingTeamId, billingTeamId),
+          eq(cloudVms.slug, candidate),
+          inArray(cloudVms.status, [...SLUG_LIVE_STATUSES]),
+        ),
+      )
+      .limit(1);
+    return !!taken;
+  });
+}
 
 async function assertAccountVmCreateAllowed(
   tx: CloudDbTransaction,
@@ -504,7 +536,8 @@ function boundedReaperKeys(keys: readonly string[]): string[] {
   return normalized;
 }
 
-export const VmRepositoryLive = Layer.succeed(VmRepository, {
+/** The Postgres-backed repository. Workflows wrap it with the analytics sink (see workflows.ts). */
+export const vmRepositoryLiveShape: VmRepositoryShape = {
   findNetwork: (userId, provider) =>
     dbEffect("findNetwork", async () => {
       const db = cloudDb();
@@ -785,6 +818,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
+                slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
@@ -891,6 +925,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
                 imageVersion: input.imageVersion ?? null,
                 status: "provisioning",
                 idempotencyKey,
+                slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
             if (!vm) throw new Error("insert returned no VM row");
@@ -1090,6 +1125,7 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
               imageVersion: input.imageVersion ?? null,
               status: "provisioning",
               idempotencyKey,
+              slug: await allocateSlugInTx(tx, input.billingTeamId),
             })
             .returning();
           if (!vm) throw new Error("insert returned no VM row");
@@ -1881,4 +1917,6 @@ export const VmRepositoryLive = Layer.succeed(VmRepository, {
         metadata: input.metadata ?? {},
       })));
     }),
-});
+};
+
+export const VmRepositoryLive = Layer.succeed(VmRepository, vmRepositoryLiveShape);

@@ -283,6 +283,10 @@ struct VMSummary {
     var capabilities: VMCapabilities = .all
     /// User-chosen label; the id stays the machine's address.
     var displayName: String?
+    /// Server-generated three-word name (`sleepy-teal-otter`), fixed for the
+    /// machine's life and unique among the owner's live machines. Nil on
+    /// machines created before the backend assigned names.
+    var slug: String?
     /// When the free plan's access window closes for this machine (epoch ms);
     /// nil on paid plans or when the window is disabled server-side.
     var freeAccessExpiresAt: Int64?
@@ -291,8 +295,13 @@ struct VMSummary {
     var addressIPv4: String?
     var addressIPv6: String?
 
-    /// The name to show people: the label when set, otherwise the machine id.
-    var preferredName: String { displayName?.isEmpty == false ? displayName! : id }
+    /// The name to show people: the label when set, else the generated slug,
+    /// else the machine id.
+    var preferredName: String {
+        if let displayName, !displayName.isEmpty { return displayName }
+        if let slug, !slug.isEmpty { return slug }
+        return id
+    }
 
     /// The address to hand a person who asked for "the IP": v4 when the network
     /// allocated one (shorter, pasteable anywhere), else v6.
@@ -313,8 +322,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Which image each kind provisions on the caller's provider, for the New
-    /// Machine sheet's summary line. Empty on control planes that predate it.
+    /// Memory sizes the server accepts for new base machines, in MB.
+    var memoryOptionsMb: [Int] = []
+    /// Legacy compatibility data for older clients. The current New Machine
+    /// sheet always creates one base kind and does not display this field.
     var imageKinds: [VMImageKindOption] = []
 }
 
@@ -351,7 +362,7 @@ struct VMBaseSummary {
     let retainedProviderVmId: String?
 }
 
-struct VMExecResult {
+struct VMExecResult: Sendable {
     let exitCode: Int
     let stdout: String
     let stderr: String
@@ -364,16 +375,19 @@ struct VMCapabilities: Equatable, Sendable {
     var snapshot: Bool
     var restore: Bool
     var fork: Bool
+    /// The provider can mint a browser preview URL for a machine port.
+    var ports: Bool
 
-    static let all = VMCapabilities(snapshot: true, restore: true, fork: true)
+    static let all = VMCapabilities(snapshot: true, restore: true, fork: true, ports: true)
 
-    init(snapshot: Bool, restore: Bool, fork: Bool) {
+    init(snapshot: Bool, restore: Bool, fork: Bool, ports: Bool = true) {
         self.snapshot = snapshot
         self.restore = restore
         self.fork = fork
+        self.ports = ports
     }
 
-    /// `{snapshot, restore, fork}`; a missing object or flag reads as supported.
+    /// `{snapshot, restore, fork, ports}`; a missing object or flag reads as supported.
     init(json: Any?) {
         let dict = json as? [String: Any]
         func flag(_ key: String) -> Bool {
@@ -381,7 +395,12 @@ struct VMCapabilities: Equatable, Sendable {
             if let number = dict?[key] as? NSNumber { return number.boolValue }
             return true
         }
-        self.init(snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"))
+        self.init(
+            snapshot: flag("snapshot"),
+            restore: flag("restore"),
+            fork: flag("fork"),
+            ports: flag("ports")
+        )
     }
 }
 
@@ -704,6 +723,7 @@ actor VMClient {
                 planId: planId,
                 freeAccessWindowDays: freeAccessWindowDays,
                 freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
                 imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
             )
         }
@@ -727,6 +747,7 @@ actor VMClient {
             if let label = dict["displayName"] as? String, !label.isEmpty {
                 summary.displayName = label
             }
+            summary.slug = (dict["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             summary.freeAccessExpiresAt = Self.epochMilliseconds(dict["freeAccessExpiresAt"])
             if let address = dict["address"] as? [String: Any] {
                 summary.addressIPv4 = (address["ipv4"] as? String).flatMap { $0.isEmpty ? nil : $0 }
@@ -1027,6 +1048,20 @@ actor VMClient {
         }
     }
 
+    /// `limits.memoryOptionsMb: [number]`; malformed or non-positive entries are skipped.
+    private static func decodeIntArray(_ raw: Any?) -> [Int] {
+        guard let items = raw as? [Any] else { return [] }
+        return items.compactMap { item in
+            let value: Int?
+            if let item = item as? Int { value = item }
+            else if let item = item as? NSNumber, item.doubleValue.isFinite { value = Int(exactly: item.doubleValue) }
+            else if let item = item as? Double, item.isFinite { value = Int(exactly: item) }
+            else { value = nil }
+            guard let value, value > 0 else { return nil }
+            return value
+        }
+    }
+
     /// JSON numbers arrive as Int64 or Double depending on magnitude; `null`/absent → nil.
     private static func epochMilliseconds(_ raw: Any?) -> Int64? {
         if let value = raw as? Int64 { return value }
@@ -1075,6 +1110,9 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: nil)
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
+        summary.displayName = (obj["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 
@@ -1118,6 +1156,7 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "running"
         var summary = VMSummary(id: id, provider: providerValue, status: displayStatus, image: imageValue, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
         return summary
     }
 
@@ -1138,9 +1177,11 @@ actor VMClient {
         let displayStatus = rawStatus.flatMap { $0.isEmpty ? nil : $0 } ?? "unknown"
         var summary = VMSummary(id: id, provider: provider, status: displayStatus, image: image, createdAt: createdAt, base: decodeBaseSummary(obj["base"]))
         summary.kind = Self.decodeKind(obj["kind"])
+        summary.capabilities = VMCapabilities(json: obj["capabilities"])
         if let label = obj["displayName"] as? String, !label.isEmpty {
             summary.displayName = label
         }
+        summary.slug = (obj["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return summary
     }
 
@@ -1216,9 +1257,18 @@ actor VMClient {
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let snapshotID = obj["snapshotId"] as? String
+        var forked = VMSummary(
+            id: vmID,
+            provider: provider,
+            status: status?.isEmpty == false ? status! : "running",
+            image: image,
+            createdAt: createdAt,
+            base: nil
+        )
+        forked.capabilities = VMCapabilities(json: obj["capabilities"])
         return (
             snapshot: snapshotID.map { VMSnapshotResult(id: $0, name: nil, createdAt: Int64(Date().timeIntervalSince1970 * 1000)) },
-            vm: VMSummary(id: vmID, provider: provider, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+            vm: forked
         )
     }
 
@@ -1243,7 +1293,9 @@ actor VMClient {
         let createdAt = (obj["createdAt"] as? Int64)
             ?? Int64((obj["createdAt"] as? Double) ?? 0)
         let status = (obj["status"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        var restored = VMSummary(id: id, provider: providerValue, status: status?.isEmpty == false ? status! : "running", image: image, createdAt: createdAt, base: nil)
+        restored.capabilities = VMCapabilities(json: obj["capabilities"])
+        return restored
     }
 
     func openSSH(id: String) async throws -> VMSSHEndpoint {
@@ -1572,6 +1624,39 @@ actor VMClient {
             cpus: int("cpus"),
             cpuPercent: double("cpuPercent"),
             loadAverage1m: double("loadAverage1m"),
+            memoryTotalMb: int("memoryTotalMb"),
+            memoryUsedMb: int("memoryUsedMb"),
+            diskTotalMb: int("diskTotalMb"),
+            diskUsedMb: int("diskUsedMb")
+        )
+    }
+
+    /// Grow a machine's disk and return the provider's post-resize reading.
+    func resizeDisk(id: String, diskMb: Int) async throws -> VMStats {
+        let encodedID = try pathSegment(id, fieldName: "vm id")
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/vm/\(encodedID)/resize",
+            jsonBody: ["storageMb": diskMb],
+            timeoutSeconds: 120
+        )
+        try ensureOK(http, data: data)
+        let obj = try decodeJSONObject(data)
+        let state = VMStats.State(rawValue: (obj["state"] as? String) ?? "") ?? .unknown
+        func int(_ key: String) -> Int? {
+            if let v = obj[key] as? Int { return v }
+            if let v = obj[key] as? Double { return Int(v) }
+            return nil
+        }
+        let sampledAtMs = (obj["sampledAt"] as? Double)
+            ?? (obj["sampledAt"] as? Int).map(Double.init)
+            ?? Date().timeIntervalSince1970 * 1000
+        return VMStats(
+            state: state,
+            sampledAt: Date(timeIntervalSince1970: sampledAtMs / 1000),
+            cpus: int("cpus"),
+            cpuPercent: nil,
+            loadAverage1m: nil,
             memoryTotalMb: int("memoryTotalMb"),
             memoryUsedMb: int("memoryUsedMb"),
             diskTotalMb: int("diskTotalMb"),

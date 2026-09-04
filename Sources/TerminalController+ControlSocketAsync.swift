@@ -57,16 +57,26 @@ extension TerminalController {
                 return errorResponse
             }
             let authorizedRequest = relayAuthorization.request
-            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
-            return await withSocketCommandPolicyAsync(
-                commandKey: authorizedRequest.method,
-                isV2: true,
-                params: authorizedRequest.params
+            let automationOrigin = CmuxAutomationInvocationContext.eventOrigin
+            if let focusError = Self.focusSuppressionResponse(
+                method: authorizedRequest.method,
+                id: authorizedRequest.id.map(\.foundationObject),
+                params: authorizedRequest.params.mapValues(\.foundationObject)
             ) {
-                if policy.runsOnSocketWorker {
-                    return await self.socketWorkerV2ResponseAsync(authorizedRequest)
+                return focusError
+            }
+            let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
+            return await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
+                await withSocketCommandPolicyAsync(
+                    commandKey: authorizedRequest.method,
+                    isV2: true,
+                    params: authorizedRequest.params
+                ) {
+                    if policy.runsOnSocketWorker {
+                        return await self.socketWorkerV2ResponseAsync(authorizedRequest)
+                    }
+                    return await self.processParsedV2CommandAsync(authorizedRequest)
                 }
-                return await self.processParsedV2CommandAsync(authorizedRequest)
             }
         }
 
@@ -333,6 +343,13 @@ extension TerminalController {
     private nonisolated func processParsedV2CommandAsync(
         _ request: ControlRequest
     ) async -> String {
+        if let focusError = Self.focusSuppressionResponse(
+            method: request.method,
+            id: request.id.map(\.foundationObject),
+            params: request.params.mapValues(\.foundationObject)
+        ) {
+            return focusError
+        }
         let bridgedParams = request.params.mapValues(\.foundationObject)
         let method = request.method
         let id = request.id?.foundationObject

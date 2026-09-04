@@ -42,6 +42,7 @@ export async function GET(
           status: vm.status,
           createdAt: vm.createdAt,
           displayName: vm.displayName,
+          slug: vm.slug,
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);
@@ -107,6 +108,7 @@ export async function PATCH(
         return jsonResponse({
           id: vm.providerVmId,
           displayName: vm.displayName,
+          slug: vm.slug,
         });
       } catch (err) {
         if (isVmNotFoundError(err)) return notFoundVm(id);

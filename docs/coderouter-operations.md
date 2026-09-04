@@ -2,8 +2,9 @@
 
 This is the private-beta runbook for billing convergence, webhook replay,
 latency evidence, and privacy-safe observability. Never paste route tokens,
-OAuth credentials, request bodies, email addresses, or upstream-account IDs
-into tickets, logs, Sentry, PostHog, or ClickHouse.
+OAuth credentials, request bodies, email addresses, model credentials, or
+account labels into tickets, logs, Sentry, PostHog, or ClickHouse. Bounded,
+server-minted account IDs may appear only in closed telemetry fields.
 
 ## Rust Cloud client boundary
 
@@ -151,20 +152,24 @@ the authenticated output if it contains a principal identifier.
 ## Observability
 
 - Sentry project: `coderouter-web`; alert on new coderouter errors,
-  reconciliation failure, refresh failure, and sustained backend failure.
-- PostHog project: a dedicated CodeRouter-only project with AI Observability
-  enabled and its project timezone pinned to UTC. Do not ingest ordinary cmux
-  product analytics into it.
-- CodeRouter model-usage events use PostHog's standard `$ai_generation`
-  schema in content-free privacy mode. They contain token counts, the
-  model-route category required for pricing, and a pre-calculated
-  API-equivalent estimate. They do not include a prompt, output, trace,
-  request body, member identity, or raw Stack team ID.
-- The stable team scope is HMAC-SHA256 with the independent
-  `CODEROUTER_ANALYTICS_SCOPE_SECRET`; plain hashing is not sufficient because
-  known team IDs would be guessable. Person-profile processing is disabled.
+  reconciliation failure, refresh failure, and sustained model-route failure.
+- PostHog project: the main cmux project (`244066`) for account and session
+  lifecycle plus operational exceptions. It is not a CodeRouter usage ledger.
+- CodeRouter model usage uses the ClickHouse `usage_events` ledger. It contains
+  token counts, model and route categories, and the API-equivalent estimate.
+  Authenticated rows carry the Stack user ID and billing team.
 - PostHog must never contain prompts, outputs, bodies, credentials, route
-  tokens, email, payment-method details, or upstream-account identifiers.
+  tokens, emails, payment-method details, or model-account labels. The
+  canonical trace may carry a bounded opaque account ID for routing diagnosis.
+  It is not a credential or an account label.
+- Person-level product analytics live in the main cmux PostHog project through
+  `web/services/coderouter/analytics.ts`. It records closed account, session,
+  upstream lifecycle, and operational exception events. Route outcomes and
+  token usage stay in ClickHouse. See
+  `docs/posthog/cloud-product-analytics.md` for the catalog and query shapes.
+- The former dedicated CodeRouter project (`549394`) is no longer a runtime
+  sink. Treat its dashboards and environment keys as legacy, and remove keys
+  only after checking operator tooling.
 
 ### Usage ledger (ClickHouse)
 
@@ -270,15 +275,14 @@ is replayed on the next healthy account (up to `MAX_UPSTREAM_ATTEMPTS`, 4). Disa
 skipped. When every account is cooling down the client gets 503 `overloaded_error` with the soonest
 `retry-after`; when none exists, 503 with the add instructions. `usage_events.upstream_account_id`
 and `route_events.upstream_account_id` (ClickHouse migration `002`) name the account that served a
-request; PostHog carries `upstream_account_id` on `coderouter_route_health` and
-`coderouter_model_request_completed`.
+request. PostHog does not receive request-level LLM or token events.
 
 The cmux CLI manages the list through the app's session, so no credential is typed into a browser
 or argv:
 
 ```bash
 claude setup-token                                    # mints a long-lived sk-ant-oat01-... token
-cmux coderouter claude add oauth-token --label work   # hidden prompt; or CLAUDE_CODE_OAUTH_TOKEN / --stdin
+cmux coderouter claude add oauth-token --label work   # runs claude setup-token; or CLAUDE_CODE_OAUTH_TOKEN / --stdin
 cmux coderouter claude add oauth-token --label personal
 cmux coderouter claude list                           # id, kind, masked identifier, label, health
 cmux coderouter claude disable work                   # out of routing, keeps the credential

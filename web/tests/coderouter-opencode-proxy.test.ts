@@ -52,6 +52,20 @@ describe("coderouter OpenCode Go proxy", () => {
     expect(__test.safeProviderURL("https://127.0.0.1/v1")).toBe(false);
     expect(__test.safeProviderURL("https://10.0.0.1/v1")).toBe(false);
     expect(__test.safeProviderURL("https://192.168.1.4/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://169.254.169.254/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://100.64.0.1/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://[fe80::1]/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://[fd00::1]/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://[::ffff:127.0.0.1]/v1")).toBe(false);
+  });
+
+  test("rejects provider hostnames that resolve to private addresses", async () => {
+    await expect(__test.resolveProviderURL("https://provider.example/v1", async () => [
+      { address: "169.254.169.254", family: 4 },
+    ])).resolves.toBeNull();
+    await expect(__test.resolveProviderURL("https://provider.example/v1", async () => [
+      { address: "2001:db8::10", family: 6 },
+    ])).resolves.toMatchObject({ hostname: "provider.example" });
   });
 
   test("routes around an unavailable OpenCode account", async () => {
@@ -88,7 +102,10 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
 
   function dependencies(
     authenticated: string[] = [],
-    overrides: { fetch?: typeof fetch } = {},
+    overrides: {
+      fetch?: typeof fetch;
+      resolveProviderURL?: (value: string) => Promise<URL | null>;
+    } = {},
   ) {
     return {
       authenticate: async (token: string) => {
@@ -122,6 +139,7 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
           models: { "model-1": { name: "Model One" } },
         },
       }),
+      resolveProviderURL: async (value: string) => new URL(value),
       ...overrides,
     };
   }
@@ -207,6 +225,29 @@ describe("coderouter OpenCode Go proxy VM-bound route tokens", () => {
     );
     expect(response.status).toBe(401);
     expect(authenticated).toEqual([]);
+  });
+
+  test("rejects a provider hostname when DNS resolves it to a private address", async () => {
+    const response = await proxyOpenCodeRequest(
+      new Request("https://cmux.example/api/coderouter/opencode/proxy/go/chat", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${CLI_TOKEN}`,
+          "x-coderouter-route-token": CLI_TOKEN,
+        },
+        body: "{}",
+      }),
+      "go",
+      ["chat"],
+      dependencies([], {
+        resolveProviderURL: async (value: string) => __test.resolveProviderURL(
+          value,
+          async () => [{ address: "100.64.0.1", family: 4 }],
+        ),
+      }),
+    );
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toMatchObject({ error: "invalid_provider" });
   });
 
   test("propagates caller cancellation to the OpenCode upstream", async () => {
