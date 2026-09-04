@@ -296,6 +296,16 @@ describe("cloud_vm_request scope", () => {
     });
   });
 
+  test("billing annotation clears a prior scope when the resolved scope has no team or plan", () => {
+    const ctx = context({ billingTeamId: "old-team", billingCustomerType: "team", planId: "pro" });
+    runWithVmRequestContext(ctx, () => {
+      annotateVmRequestBilling({ billingTeamId: null, billingCustomerType: "user", planId: null });
+    });
+    expect(ctx.billingTeamId).toBeUndefined();
+    expect(ctx.billingCustomerType).toBe("user");
+    expect(ctx.planId).toBeUndefined();
+  });
+
   test("annotation outside a request context is a no-op", () => {
     expect(() => annotateVmRequestBilling({ planId: "pro" })).not.toThrow();
   });
