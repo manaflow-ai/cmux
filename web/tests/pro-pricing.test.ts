@@ -99,10 +99,10 @@ describe("pricing copy matches the plan policy", () => {
   const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
   const diskGb = VM_DISK_MB_DEFAULT / 1024;
 
-  test("the plan machine is 5 vCPU, 20 GB RAM, 200 GB disk, up to 50 machines", () => {
+  test("the plan machine is 5 vCPU, 20 GB RAM, 32 GB disk, up to 50 machines", () => {
     expect(vcpus).toBe(5);
     expect(memoryGb).toBe(20);
-    expect(diskGb).toBe(200);
+    expect(diskGb).toBe(32);
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
   });
 
