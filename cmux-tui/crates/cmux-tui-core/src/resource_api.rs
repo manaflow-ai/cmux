@@ -724,6 +724,22 @@ pub(crate) fn public_session_snapshot_with_journal_head(
         let mut agents = public_projections
             .agents
             .into_iter()
+            .filter(|agent| {
+                !(agent.source == "hook" && agent.state == "done")
+                    && !agent
+                        .source_session
+                        .as_deref()
+                        .is_some_and(|value| value.starts_with("cmux-hook-ended:"))
+            })
+            .map(|mut agent| {
+                if agent.source_session.as_deref().is_some_and(|value| {
+                    value.starts_with("cmux-hook-sequence:")
+                        || value.starts_with("cmux-hook-ended:")
+                }) {
+                    agent.source_session = None;
+                }
+                agent
+            })
             .map(|agent| agent.into_public_snapshot(&topology.session_id))
             .collect::<Vec<_>>();
         agents.sort_by(|left, right| {

@@ -1,0 +1,345 @@
+import AppKit
+import Combine
+import Darwin
+import Foundation
+
+/// Owns the dedicated computer-use status item and renders value-only session snapshots.
+@MainActor
+final class ComputerUseMenuBarController: NSObject, NSMenuDelegate {
+    private let statusItem: NSStatusItem
+    private let menu = NSMenu(title: String(localized: "computerUse.menu.title", defaultValue: "cmux Computer Use"))
+    private let snapshotStore: ComputerUseMenuBarSnapshotStore
+    private let isRunningInBackground: (String, String) -> Bool
+    private let onContinueInBackground:
+        (UUID, UUID, String, String, AgentPIDProcessIdentity, String?) -> Bool
+    private let canViewComputerUse:
+        (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool
+    private let onViewComputerUse:
+        (
+            ComputerUseTargetIdentity,
+            String,
+            String,
+            AgentPIDProcessIdentity,
+            String?
+        ) -> Bool
+    private let onStopComputerUse:
+        (String, String, AgentPIDProcessIdentity, String) -> Void
+    private let computerUseIcon: () -> NSImage?
+    private var snapshotCancellable: AnyCancellable?
+    private var currentSnapshot = ComputerUseMenuBarSnapshot.hidden
+    private var hasRenderedSnapshot = false
+    private var isMenuOpen = false
+    private var backgroundActions: [ObjectIdentifier: () -> Void] = [:]
+    private var viewActions: [ObjectIdentifier: () -> Void] = [:]
+    private var stopActions: [ObjectIdentifier: () -> Void] = [:]
+
+    init(
+        snapshotStore: ComputerUseMenuBarSnapshotStore,
+        isRunningInBackground: @escaping (String, String) -> Bool,
+        onContinueInBackground:
+            @escaping (
+                UUID,
+                UUID,
+                String,
+                String,
+                AgentPIDProcessIdentity,
+                String?
+            ) -> Bool,
+        canViewComputerUse:
+            @escaping (ComputerUseTargetIdentity, String, String, AgentPIDProcessIdentity) -> Bool,
+        onViewComputerUse:
+            @escaping (
+                ComputerUseTargetIdentity,
+                String,
+                String,
+                AgentPIDProcessIdentity,
+                String?
+            ) -> Bool,
+        onStopComputerUse:
+            @escaping (String, String, AgentPIDProcessIdentity, String) -> Void,
+        computerUseIcon: @escaping () -> NSImage?
+    ) {
+        self.snapshotStore = snapshotStore
+        self.isRunningInBackground = isRunningInBackground
+        self.onContinueInBackground = onContinueInBackground
+        self.canViewComputerUse = canViewComputerUse
+        self.onViewComputerUse = onViewComputerUse
+        self.onStopComputerUse = onStopComputerUse
+        self.computerUseIcon = computerUseIcon
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        super.init()
+
+        menu.autoenablesItems = false
+        menu.delegate = self
+        statusItem.menu = menu
+        statusItem.button?.imagePosition = .imageOnly
+        statusItem.button?.imageScaling = .scaleProportionallyDown
+        updateStatusItemAccessibility()
+
+        snapshotCancellable = snapshotStore.$snapshot
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] snapshot in
+                Task { @MainActor in self?.refreshUI(snapshot: snapshot) }
+            }
+        snapshotStore.start()
+        refreshUI(snapshot: snapshotStore.snapshot)
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        isMenuOpen = true
+        rebuildMenu(rows: currentSnapshot.rows)
+        snapshotStore.refresh()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        isMenuOpen = false
+    }
+
+    func removeFromMenuBar() {
+        snapshotCancellable?.cancel()
+        snapshotCancellable = nil
+        snapshotStore.stop()
+        statusItem.menu = nil
+        NSStatusBar.system.removeStatusItem(statusItem)
+    }
+
+    private func refreshUI(snapshot: ComputerUseMenuBarSnapshot) {
+        guard !hasRenderedSnapshot || snapshot != currentSnapshot else { return }
+        currentSnapshot = snapshot
+        hasRenderedSnapshot = true
+        statusItem.isVisible = snapshot.shouldShowStatusItem
+        updateStatusItemImage()
+        updateStatusItemAccessibility()
+
+        // State files can update several times per second. The menu only needs
+        // rebuilding while it is visible; the next open always uses the latest
+        // immutable snapshot. This keeps AppKit menu churn off the typing path.
+        if isMenuOpen {
+            rebuildMenu(rows: snapshot.rows)
+        }
+    }
+
+    private func rebuildMenu(rows: [ComputerUseMenuBarRow]) {
+        menu.removeAllItems()
+        backgroundActions.removeAll(keepingCapacity: true)
+        viewActions.removeAll(keepingCapacity: true)
+        stopActions.removeAll(keepingCapacity: true)
+
+        guard let row = rows.first else {
+            let item = NSMenuItem(
+                title: String(localized: "computerUse.menu.noLiveSessions", defaultValue: "No live agent sessions"),
+                action: nil,
+                keyEquivalent: ""
+            )
+            item.isEnabled = false
+            menu.addItem(item)
+            return
+        }
+
+        let driverSessionID = ComputerUseSessionScope.driverSessionID(
+            surfaceID: row.surfaceID
+        )
+        let runningInBackground = isRunningInBackground(
+            driverSessionID,
+            row.id
+        )
+        let viewTitle = String(
+            localized: "computerUse.menu.focusTarget",
+            defaultValue: "Focus Computer Use"
+        )
+        let viewItem = NSMenuItem(
+            title: viewTitle,
+            action: #selector(viewComputerUseAction(_:)),
+            keyEquivalent: ""
+        )
+        viewItem.target = self
+        viewItem.image = NSImage(systemSymbolName: "eye", accessibilityDescription: viewTitle)
+        if
+            let identity = row.targetIdentity,
+            let stateWriterIdentity = row.stateWriterIdentity,
+            canViewComputerUse(
+                identity,
+                driverSessionID,
+                row.id,
+                stateWriterIdentity
+            )
+        {
+            viewActions[ObjectIdentifier(viewItem)] = { [onViewComputerUse] in
+                _ = onViewComputerUse(
+                    identity,
+                    driverSessionID,
+                    row.id,
+                    stateWriterIdentity,
+                    row.proxySessionID
+                )
+            }
+            viewItem.state = runningInBackground ? .off : .on
+        } else {
+            viewItem.isEnabled = false
+            viewItem.toolTip = String(
+                localized: "computerUse.menu.noActivityTooltip",
+                defaultValue: "No computer-use activity yet"
+            )
+        }
+        menu.addItem(viewItem)
+
+        let backgroundTitle = String(
+            localized: "computerUse.menu.focusTerminal",
+            defaultValue: "Focus Calling Terminal"
+        )
+        let backgroundItem = NSMenuItem(
+            title: backgroundTitle,
+            action: #selector(continueInBackgroundAction(_:)),
+            keyEquivalent: ""
+        )
+        backgroundItem.target = self
+        backgroundItem.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: backgroundTitle)
+        backgroundItem.state = runningInBackground ? .on : .off
+        if let stateWriterIdentity = row.stateWriterIdentity {
+            backgroundActions[ObjectIdentifier(backgroundItem)] = {
+                [onContinueInBackground] in
+                _ = onContinueInBackground(
+                    row.workspaceID,
+                    row.surfaceID,
+                    driverSessionID,
+                    row.id,
+                    stateWriterIdentity,
+                    row.proxySessionID
+                )
+            }
+        } else {
+            backgroundItem.isEnabled = false
+        }
+        menu.addItem(backgroundItem)
+
+        menu.addItem(NSMenuItem.separator())
+        let targetAppName = row.targetAppName
+            ?? String(localized: "computerUse.menu.unknownTarget", defaultValue: "App")
+        let stopTitle = String(
+            localized: "computerUse.menu.stopUsing",
+            defaultValue: "Stop Using \(targetAppName)"
+        )
+        let stopItem = NSMenuItem(
+            title: stopTitle,
+            action: #selector(stopComputerUseAction(_:)),
+            keyEquivalent: ""
+        )
+        stopItem.target = self
+        stopItem.image = NSImage(
+            systemSymbolName: "stop.circle",
+            accessibilityDescription: stopTitle
+        )
+        if
+            let stateWriterIdentity = row.stateWriterIdentity,
+            let proxySessionID = row.proxySessionID,
+            ComputerUseSessionScope.isManagedProxySessionID(
+                proxySessionID,
+                for: driverSessionID
+            )
+        {
+            stopActions[ObjectIdentifier(stopItem)] = { [onStopComputerUse] in
+                onStopComputerUse(
+                    driverSessionID,
+                    row.id,
+                    stateWriterIdentity,
+                    proxySessionID
+                )
+            }
+        } else {
+            stopItem.isEnabled = false
+        }
+        menu.addItem(stopItem)
+    }
+
+    private func updateStatusItemImage() {
+        guard
+            let row = currentSnapshot.rows.first,
+            let identity = row.targetIdentity,
+            let pid = pid_t(exactly: identity.processIdentifier),
+            let application = NSRunningApplication(processIdentifier: pid),
+            identity.matches(application),
+            let targetIcon = application.icon,
+            let helperIcon = computerUseIcon()
+        else {
+            let image = NSImage(
+                systemSymbolName: "cursorarrow.motionlines",
+                accessibilityDescription: String(
+                    localized: "computerUse.menu.title",
+                    defaultValue: "cmux Computer Use"
+                )
+            )
+            image?.isTemplate = true
+            statusItem.button?.image = image
+            statusItem.length = NSStatusItem.variableLength
+            return
+        }
+
+        let image = NSImage(
+            size: NSSize(width: 42, height: 18),
+            flipped: false
+        ) { _ in
+            NSGraphicsContext.current?.imageInterpolation = .high
+            targetIcon.draw(
+                in: NSRect(x: 0, y: 0, width: 18, height: 18),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            helperIcon.draw(
+                in: NSRect(x: 24, y: 0, width: 18, height: 18),
+                from: .zero,
+                operation: .sourceOver,
+                fraction: 1
+            )
+            return true
+        }
+        image.isTemplate = false
+        statusItem.button?.image = image
+        statusItem.length = 54
+    }
+
+    private func updateStatusItemAccessibility() {
+        let activeRow = currentSnapshot.rows.first
+        let activeSession = activeRow.map {
+            (
+                driverSessionID: ComputerUseSessionScope.driverSessionID(
+                    surfaceID: $0.surfaceID
+                ),
+                logicalSessionID: $0.id
+            )
+        }
+        let modeLabel = activeSession.map {
+            isRunningInBackground(
+                $0.driverSessionID,
+                $0.logicalSessionID
+            )
+        } == true
+            ? String(
+                localized: "computerUse.menu.backgroundStatus",
+                defaultValue: "cmux Computer Use — Running in Background"
+            )
+            : String(localized: "computerUse.menu.title", defaultValue: "cmux Computer Use")
+        let label = activeRow?.targetAppName.map { targetName in
+            String(
+                localized: "computerUse.menu.statusWithTarget",
+                defaultValue: "\(modeLabel) — \(targetName)"
+            )
+        } ?? modeLabel
+        statusItem.button?.toolTip = label
+        statusItem.button?.setAccessibilityLabel(label)
+    }
+
+    @objc private func continueInBackgroundAction(_ sender: NSMenuItem) {
+        backgroundActions[ObjectIdentifier(sender)]?()
+        updateStatusItemAccessibility()
+    }
+
+    @objc private func viewComputerUseAction(_ sender: NSMenuItem) {
+        viewActions[ObjectIdentifier(sender)]?()
+        updateStatusItemAccessibility()
+    }
+
+    @objc private func stopComputerUseAction(_ sender: NSMenuItem) {
+        stopActions[ObjectIdentifier(sender)]?()
+    }
+}

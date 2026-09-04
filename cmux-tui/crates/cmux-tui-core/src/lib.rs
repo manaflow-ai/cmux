@@ -16,6 +16,7 @@ mod journal_checkpoint;
 mod journal_hooks;
 mod journal_ingress;
 mod journal_kernel;
+mod journal_reducers;
 mod model;
 mod mux;
 mod pairing;
@@ -25,6 +26,7 @@ mod resource_api;
 mod resource_mutation;
 mod resource_router;
 mod resource_selector;
+mod screen_detect;
 mod short_id;
 mod sidebar_resource;
 mod surface;
@@ -73,9 +75,9 @@ pub use surface::{
     BrowserFrameStream, BrowserFrameUpdate, BrowserSource, BrowserStatus,
     CLEAR_HISTORY_FALLBACK_UNREPRESENTABLE_ERROR, CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
     CLEAR_HISTORY_PRESERVATION_ERROR, CLEAR_HISTORY_STREAM_TIMEOUT_ERROR, ClearHistoryDelivery,
-    ClearHistoryFailure, DefaultColors, GuardedMouseEncode, PointerSemanticProbe,
-    PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface, SurfaceKind,
-    SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
+    ClearHistoryFailure, DEFAULT_SCROLLBACK_LIMIT_BYTES, DefaultColors, GuardedMouseEncode,
+    PointerSemanticProbe, PointerSnapshotProbe, RenderAttachFrame, RenderAttachStream, Surface,
+    SurfaceKind, SurfaceOptions, SurfaceRenderFrame, TerminalColors, TerminalHostConnectionState,
     TerminalPointerSnapshot,
 };
 pub use workspace_registry::{

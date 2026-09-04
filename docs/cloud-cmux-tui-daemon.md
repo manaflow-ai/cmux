@@ -277,4 +277,3 @@ over the same catalog (`vm.tree` is the catalog restricted to cloud machines;
 `vm.desktop_open` projects `<id>/screen/display:1`; `vm.port_open` projects
 `<id>/browser/port:<n>`, registering the port first when the probe has not
 seen it). CLI: `cmux surface ls|open|new-terminal` and `cmux vm tree|open`.
-

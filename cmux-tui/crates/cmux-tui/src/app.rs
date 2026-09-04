@@ -17,6 +17,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_tui_cdp::CDP_CONNECTION_UNAVAILABLE_MESSAGE;
 use cmux_tui_core::resource::FrontendProjectionPublicId;
 use cmux_tui_core::{
     BrowserFrame, BrowserSource, BrowserStatus, ClearHistoryDelivery, ClearHistoryFailure,
@@ -151,6 +152,9 @@ struct ProjectionRowsCache {
     invalidation_revision: u64,
     selected_workspace: Option<usize>,
     focus: ProjectionFocusKey,
+    /// The effective sort the rows were built with; a runtime cycle must
+    /// miss this cache.
+    sort: crate::config::AgentSortMode,
     /// All surfaces that can contribute an agent row to this snapshot. This
     /// includes currently hidden/filtered rows so an agent state transition
     /// cannot leave an old empty snapshot cached.
@@ -7079,6 +7083,17 @@ pub struct App {
     projection_rails: HashMap<String, ProjectionRailState>,
     projection_rows_cache: VecDeque<ProjectionRowsCache>,
     projection_rows_revision: u64,
+    /// Client-local focus stamps for the agents-view seen bit: surface to
+    /// the last epoch ms this client had it focused. Presentation state,
+    /// never journaled or shared: two attached clients keep separate stamps
+    /// and may rank the same idle agent differently, deliberately.
+    agent_focus_stamps: HashMap<SurfaceId, u64>,
+    /// Client-local runtime sort override per agents view id (the `s`
+    /// cycle key). Presentation state like the seen stamps: never
+    /// persisted, never shared between attached clients. It is cleared when
+    /// the active profile or its view specification is replaced, so a reused
+    /// id cannot inherit a stale mode.
+    agent_sort_overrides: HashMap<String, crate::config::AgentSortMode>,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
     /// a visible rail even when its snapshot is not retained. They are pruned
@@ -9342,7 +9357,20 @@ fn run_with_machine_updates_inner(
             let _ = browser_failure_tx.send(AppEvent::BrowserResizeFailed(failure));
         },
         move |error| {
-            let message = localization::catalog().browser.control_failed(&error);
+            crate::client_log::error("browser-control", &error);
+            // The dispatcher exposes only a string. Match the one stable CDP
+            // classification and discard every other internal detail before
+            // creating a user-facing status event.
+            let browser = &localization::catalog().browser;
+            let message = if error == CDP_CONNECTION_UNAVAILABLE_MESSAGE {
+                localization::catalog().browser.control_unavailable()
+            } else if error == browser.attach_unsupported {
+                browser.control_failed(browser.attach_unsupported)
+            } else {
+                // Keep the failure category stable. The raw error is already
+                // in the private diagnostic log and must not cross this UI boundary.
+                browser.control_failed("browser operation failed")
+            };
             let _ = browser_control_tx.send(AppEvent::Mux(MuxEvent::Status(message)));
         },
     )?;
@@ -9607,6 +9635,8 @@ fn run_with_machine_updates_inner(
         projection_rails: HashMap::new(),
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
+        agent_focus_stamps: HashMap::new(),
+        agent_sort_overrides: HashMap::new(),
         projection_agent_surfaces: HashSet::new(),
         projection_title_surfaces: HashSet::new(),
         projection_agent_surfaces_by_view: HashMap::new(),
@@ -10360,6 +10390,15 @@ impl App {
         self.focus == FocusTarget::ProjectionRail(index)
     }
 
+    /// The sort mode an agents view renders with: the client-local runtime
+    /// override (the `s` cycle key) over the configured starting mode.
+    pub(crate) fn effective_agent_sort(
+        &self,
+        spec: &crate::config::SidebarViewSpec,
+    ) -> crate::config::AgentSortMode {
+        self.agent_sort_overrides.get(&spec.id).copied().unwrap_or(spec.sort)
+    }
+
     pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
             return Arc::<[ProjectionRow]>::from(Vec::new());
@@ -10376,8 +10415,10 @@ impl App {
         let pane_revision = self.tree.pane_revision;
         let invalidation_revision = self.projection_rows_revision;
         let focus = projection_focus_key(&self.tree);
+        let sort = self.effective_agent_sort(&spec);
         let cache_index = self.projection_rows_cache.iter().position(|cache| {
             cache.view_id == spec.id
+                && cache.sort == sort
                 && cache.workspace_revision == workspace_revision
                 && cache.pane_revision == pane_revision
                 && cache.invalidation_revision == invalidation_revision
@@ -10399,27 +10440,25 @@ impl App {
             rows
         } else {
             let agents = if spec.includes(SidebarResourceKind::Agents) {
-                // Finished reports are historical records, not active agents.
-                // Otherwise detached "surface..." rows remain forever after exit.
-                // An `all`-scoped view is a chronological status board, so it
-                // keeps done agents; unknown stays out everywhere.
-                let keep_done = spec.scope == crate::config::SidebarViewScope::All;
+                // Finished reports are historical records, not active agents:
+                // an ended session leaves the journal-derived roster, and
+                // remote caches converge through the done broadcast, so every
+                // scope hides done/unknown rather than listing dead agents.
                 self.session
                     .agents()
                     .into_iter()
-                    .filter(|agent| match agent.state.as_str() {
-                        "unknown" => false,
-                        "done" => keep_done,
-                        _ => true,
-                    })
+                    .filter(|agent| !matches!(agent.state.as_str(), "done" | "unknown"))
                     .collect::<Vec<_>>()
             } else {
                 Vec::new()
             };
+            let seen_idle = self.seen_idle_agent_surfaces(&agents);
             let rows = crate::sidebar_projection::rows(
                 &spec,
+                sort,
                 &self.tree,
                 &agents,
+                &seen_idle,
                 selected_workspace,
                 &collapsed,
             );
@@ -10435,6 +10474,7 @@ impl App {
                 invalidation_revision,
                 selected_workspace: selected_workspace_key,
                 focus,
+                sort,
                 agent_surfaces: agent_surfaces.clone(),
                 title_surfaces: title_surfaces.clone(),
                 rows: rows.clone(),
@@ -10445,6 +10485,42 @@ impl App {
         };
         self.projection_rail_state_mut(index).reconcile_selection(&rows);
         rows
+    }
+
+    /// Stamp the focused surface, then derive which idle agents this client
+    /// has seen: the surface was focused at or after its idle transition.
+    /// The stamps live only in this client (presentation state); ordering
+    /// can therefore differ between two attached clients, by design. The
+    /// projection cache stays coherent because both seen inputs already
+    /// key it: a focus move changes the focus key and an agent transition
+    /// bumps the invalidation revision.
+    fn seen_idle_agent_surfaces(
+        &mut self,
+        agents: &[crate::session::AgentInfo],
+    ) -> crate::sidebar_projection::SeenIdleSurfaces {
+        if let Some(surface) = self.tree.active_surface() {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|elapsed| elapsed.as_millis() as u64)
+                .unwrap_or(0);
+            self.agent_focus_stamps.insert(surface, now_ms);
+        }
+        // Closed tabs leave stale stamps behind; bound the map instead of
+        // walking the tree every render.
+        if self.agent_focus_stamps.len() > 4_096 {
+            let live: HashSet<SurfaceId> = agents.iter().map(|agent| agent.surface).collect();
+            self.agent_focus_stamps.retain(|surface, _| live.contains(surface));
+        }
+        agents
+            .iter()
+            .filter(|agent| agent.state == "idle")
+            .filter(|agent| {
+                self.agent_focus_stamps
+                    .get(&agent.surface)
+                    .is_some_and(|stamp| *stamp >= agent.updated_at_ms)
+            })
+            .map(|agent| agent.surface)
+            .collect()
     }
 
     fn invalidate_projection_rows_cache(&mut self) {
@@ -10584,6 +10660,7 @@ impl App {
         previous: SidebarProjectionSpec,
     ) {
         if previous != SidebarProjectionSpec::from_config(&self.config) {
+            self.agent_sort_overrides.clear();
             self.invalidate_projection_rows_cache();
             self.cancel_sidebar_layout_drag();
         }
@@ -16862,7 +16939,8 @@ impl App {
 
     fn mouse_opens_cmux_context_menu(mouse: &MouseEvent) -> bool {
         mouse.kind == MouseEventKind::Down(MouseButton::Right)
-            && mouse.modifiers.contains(KeyModifiers::SHIFT)
+            && (mouse.modifiers.contains(KeyModifiers::SHIFT)
+                || mouse.modifiers.contains(KeyModifiers::ALT))
     }
 
     fn pointer_has_capture(&self, kind: MouseEventKind) -> bool {
@@ -18668,6 +18746,21 @@ impl App {
             }
             state.follow_selection = true;
             return Ok(RenderAction::Draw);
+        }
+        // `s` cycles this agents view's sort mode for this client only.
+        // The override is presentation state; the config value is where the
+        // cycle starts. The header's right label follows.
+        if key.code == KeyCode::Char('s') && !key.modifiers.contains(KeyModifiers::ALT) {
+            let target = self.config.sidebar.views.get(view_index).and_then(|spec| {
+                spec.levels
+                    .contains(&crate::config::SidebarResourceKind::Agents)
+                    .then(|| (spec.id.clone(), self.effective_agent_sort(spec).cycle_next()))
+            });
+            if let Some((id, next)) = target {
+                self.agent_sort_overrides.insert(id, next);
+                self.invalidate_projection_rows_cache();
+                return Ok(RenderAction::Draw);
+            }
         }
         if matches!(key.code, KeyCode::Char(' '))
             && let Some(branch) = selected.as_ref().and_then(|row| row.branch)
@@ -21233,6 +21326,7 @@ impl App {
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> PtyMousePressResult {
         if modifiers.contains(KeyModifiers::SHIFT)
+            || (button == MouseButton::Right && modifiers.contains(KeyModifiers::ALT))
             || self.menu.is_some()
             || self.prompt.is_some()
             || self.drag.is_some()
@@ -27291,7 +27385,10 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.profiles = vec![
             SidebarProfileSpec {
@@ -27353,7 +27450,10 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         };
         let agents_view = SidebarViewSpec {
             id: "shared-view".into(),
@@ -27363,7 +27463,10 @@ mod tests {
             width: 30,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         };
         let tabs_profile = SidebarProfileSpec {
             id: "tabs".into(),
@@ -27401,6 +27504,49 @@ mod tests {
         );
 
         mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn profile_switch_does_not_reuse_a_sort_override_for_a_reused_view_id() {
+        let mux = Mux::new("sidebar-profile-sort-override-test", SurfaceOptions::default());
+        let first_view = SidebarViewSpec {
+            id: "shared-view".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::Priority,
+            filter: crate::config::AgentRowFilter::default(),
+        };
+        let second_view =
+            SidebarViewSpec { sort: crate::config::AgentSortMode::Recency, ..first_view.clone() };
+        let first_profile = SidebarProfileSpec {
+            id: "first".into(),
+            name: "First".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&first_view)),
+            views: vec![first_view.clone()],
+        };
+        let second_profile = SidebarProfileSpec {
+            id: "second".into(),
+            name: "Second".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&second_view)),
+            views: vec![second_view.clone()],
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.profiles = vec![first_profile, second_profile];
+        app.config.sidebar.active_profile = "first".into();
+        app.config.sidebar.views = vec![first_view];
+        app.config.sidebar.layout =
+            crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
+        app.agent_sort_overrides.insert("shared-view".into(), crate::config::AgentSortMode::State);
+
+        app.activate_sidebar_profile(1);
+
+        assert_eq!(app.effective_agent_sort(&second_view), crate::config::AgentSortMode::Recency);
     }
 
     #[test]
@@ -27560,7 +27706,10 @@ mod tests {
                 width: 26,
                 max_width: 0,
                 collapse_priority: 20,
+                row_lines: 1,
                 scope: SidebarViewScope::All,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
         ];
         config.sidebar.views_explicit = true;
@@ -30989,6 +31138,14 @@ mod tests {
         assert!(app.menu.is_some(), "Shift-right-click must open the cmux context menu");
         app.menu = None;
 
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right), KeyModifiers::ALT))
+            .unwrap();
+        assert!(app.encode_buf.is_empty(), "Option-right-click must bypass PTY mouse reporting");
+        assert!(app.drag.is_none());
+        assert!(app.menu.is_some(), "Option-right-click must open the cmux context menu");
+        app.menu = None;
+
         app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::NONE))
             .unwrap();
         app.pane_areas[0].content.x += 3;
@@ -31029,6 +31186,66 @@ mod tests {
         assert!(app.encode_buf.is_empty());
         assert!(app.selection.is_some());
         assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn alt_left_and_middle_clicks_preserve_pty_mouse_reporting() {
+        let mux = Mux::new(
+            "alt-mouse-passthrough-test",
+            SurfaceOptions {
+                command: Some(vec![
+                    "/bin/sh".to_string(),
+                    "-c".to_string(),
+                    "sleep 30".to_string(),
+                ]),
+                ..Default::default()
+            },
+        );
+        let surface = mux.new_workspace(Some("work".to_string()), Some((20, 8))).unwrap();
+        surface.with_terminal(|terminal| terminal.vt_write(b"\x1b[?1002h\x1b[?1006h"));
+
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        let pane = app.tree.active_screen().unwrap().active_pane;
+        let content = Rect { x: 2, y: 3, width: 20, height: 8 };
+        app.pane_areas.push(PaneArea {
+            pane,
+            surface: surface.id,
+            rect: Rect { x: 1, y: 2, width: 23, height: 10 },
+            bar: Some(Rect { x: 1, y: 2, width: 23, height: 1 }),
+            omnibar: None,
+            content,
+            track: None,
+            viewport: None,
+        });
+        app.rendered_terminal_bounds.insert(surface.id, content);
+
+        let event = |kind, modifiers| MouseEvent {
+            kind,
+            column: content.x + 4,
+            row: content.y + 2,
+            modifiers,
+        };
+
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Left), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Left, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left), KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<8;5;3m");
+        assert!(app.drag.is_none());
+
+        app.encode_buf.clear();
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3M");
+        assert!(matches!(app.drag, Some(Drag::PtyMouse { button: MouseButton::Middle, .. })));
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Middle), KeyModifiers::ALT))
+            .unwrap();
+        assert_eq!(app.encode_buf, b"\x1b[<9;5;3m");
+        assert!(app.drag.is_none());
 
         mux.close_surface(surface.id).unwrap();
     }
@@ -34517,6 +34734,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 1,
                 },
                 &tx,
@@ -34539,6 +34757,7 @@ mod tests {
                     state: "working".into(),
                     source: "hook".into(),
                     session: None,
+                    agent: None,
                     updated_at_ms: 2,
                 },
                 &tx,
@@ -42901,7 +43120,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -42980,7 +43202,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43011,7 +43236,10 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
             SidebarViewSpec {
                 id: "agents-second".into(),
@@ -43021,7 +43249,10 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
         ];
         app.config.sidebar.views_explicit = true;
@@ -43037,6 +43268,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap(),
@@ -43051,6 +43283,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap();
@@ -43069,6 +43302,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 2,
             }))
             .unwrap(),
@@ -43094,7 +43328,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::All,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43126,7 +43363,10 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
             SidebarViewSpec {
                 id: "tabs-second".into(),
@@ -43136,7 +43376,10 @@ mod tests {
                 width: 40,
                 max_width: 0,
                 collapse_priority: 30,
+                row_lines: 1,
                 scope: crate::config::SidebarViewScope::Workspace,
+                sort: crate::config::AgentSortMode::default(),
+                filter: crate::config::AgentRowFilter::default(),
             },
         ];
         app.config.sidebar.views_explicit = true;
@@ -43190,7 +43433,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43219,7 +43465,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43234,6 +43483,7 @@ mod tests {
                 state: "working".into(),
                 source: "hook".into(),
                 session: None,
+                agent: None,
                 updated_at_ms: 1,
             }))
             .unwrap(),
@@ -43257,7 +43507,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43293,7 +43546,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43318,7 +43574,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43358,7 +43617,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43423,7 +43685,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43437,6 +43702,157 @@ mod tests {
         assert!(
             app.projection_rail_state_mut(0).collapsed.is_empty(),
             "stale action selection must not collapse the selected resource row"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agents_view_priority_renders_header_dots_and_two_line_rows() {
+        let (mux, first) = test_mux("agents-view-two-line-test", None);
+        let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
+        let second = mux.new_tab(Some(pane), None, Some((80, 24))).unwrap();
+        // The working report lands last, but blocked still ranks first.
+        mux.report_agent(second.id, AgentState::Blocked, AgentSource::Socket, None).unwrap();
+        mux.report_agent(first.id, AgentState::Working, AgentSource::Socket, None).unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 30,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 2,
+            scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        let lines: Vec<&str> = rendered.lines().collect();
+
+        let header = lines
+            .iter()
+            .position(|line| line.contains("agents") && line.contains("priority"))
+            .expect("agents view header shows the title and the sort mode");
+        let blocked = lines.iter().position(|line| line.contains("blocked")).unwrap();
+        let working = lines.iter().position(|line| line.contains("working")).unwrap();
+        assert!(header < blocked, "header renders above the rows");
+        assert!(blocked < working, "blocked outranks working regardless of recency");
+        // Two-line rows: the state dot and title line sits directly above
+        // the dim type/state line.
+        assert!(lines[blocked - 1].contains("●"), "blocked row carries a dot on its title line");
+        assert!(lines[working - 1].contains("●"), "working row carries a dot on its title line");
+        assert_eq!(working - blocked, 2, "each agent entry spans two lines");
+
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
+    fn filtered_nested_agents_view_discloses_the_filter_in_its_header() {
+        let (mux, surface) = test_mux("agents-view-filter-header-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "workspace-agents".into(),
+            levels: vec![SidebarResourceKind::Workspaces, SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 40,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::Recency,
+            filter: crate::config::AgentRowFilter {
+                agents: Vec::new(),
+                states: vec!["working".into()],
+                seen: None,
+            },
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+        assert!(
+            rendered.lines().any(|line| line.contains("agents") && line.contains("filtered")),
+            "an active nested-view filter must be visible in the header"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn agents_view_sort_key_updates_the_live_header_and_keeps_config_starting_mode() {
+        let (mux, surface) = test_mux("agents-view-sort-cycle-test", None);
+        mux.report_agent(
+            surface.id,
+            AgentState::Working,
+            AgentSource::Socket,
+            Some("agent-session".into()),
+        )
+        .unwrap();
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = vec![SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 32,
+            max_width: 0,
+            collapse_priority: 30,
+            row_lines: 1,
+            scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::Priority,
+            filter: crate::config::AgentRowFilter::default(),
+        }];
+        app.config.sidebar.views_explicit = true;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 12));
+        app.focus = FocusTarget::ProjectionRail(0);
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .lines()
+                .any(|line| { line.contains("agents") && line.contains("priority") })
+        );
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.config.sidebar.views[0].sort,
+            crate::config::AgentSortMode::Priority,
+            "the runtime cycle must not rewrite the shared config"
+        );
+        assert_eq!(
+            app.effective_agent_sort(&app.config.sidebar.views[0]),
+            crate::config::AgentSortMode::Recency
+        );
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(
+            buffer_text(terminal.backend().buffer())
+                .lines()
+                .any(|line| { line.contains("agents") && line.contains("recency") })
         );
 
         mux.close_surface(surface.id).unwrap();
@@ -43462,7 +43878,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43614,7 +44033,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.replace_tree(app.session.tree());
@@ -43714,7 +44136,10 @@ mod tests {
             width: 40,
             max_width: 0,
             collapse_priority: 30,
+            row_lines: 1,
             scope: crate::config::SidebarViewScope::Workspace,
+            sort: crate::config::AgentSortMode::default(),
+            filter: crate::config::AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
         app.sync_layout((100, 12));
@@ -45622,6 +46047,8 @@ mod tests {
             projection_rails: HashMap::new(),
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
+            agent_focus_stamps: HashMap::new(),
+            agent_sort_overrides: HashMap::new(),
             projection_agent_surfaces: HashSet::new(),
             projection_title_surfaces: HashSet::new(),
             projection_agent_surfaces_by_view: HashMap::new(),

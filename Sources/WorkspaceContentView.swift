@@ -92,7 +92,13 @@ private struct WorkspacePanelContentHostView: View {
             onRequestPanelFocus: onRequestPanelFocus,
             onResumeAgentHibernation: onResumeAgentHibernation,
             onAutoResumeAgentHibernation: onAutoResumeAgentHibernation,
-            onTriggerFlash: onTriggerFlash
+            onTriggerFlash: onTriggerFlash,
+            onRequestDeferredBrowserMaterialization: {
+                workspace.requestDeferredBrowserMaterialization(
+                    panelId: panel.id,
+                    isVisibleInUI: isVisibleInUI
+                )
+            }
         )
     }
 }

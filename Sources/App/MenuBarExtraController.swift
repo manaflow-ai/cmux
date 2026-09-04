@@ -209,6 +209,8 @@ final class MenuBarExtraController: NSObject, NSMenuDelegate {
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .globalSearch), to: globalSearchItem)
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .showNotifications), to: showNotificationsItem)
         applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .jumpToUnread), to: jumpToUnreadItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .markAllNotificationsRead), to: markAllReadItem)
+        applyShortcut(KeyboardShortcutSettings.menuShortcut(for: .clearAllNotifications), to: clearAllItem)
 
         jumpToUnreadItem.isEnabled = snapshot.hasUnreadNotifications
         markAllReadItem.isEnabled = snapshot.hasUnreadNotifications

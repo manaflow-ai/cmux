@@ -29,17 +29,13 @@ enum AgentHibernationPlanner {
         }
         guard excess > 0 else { return [] }
 
-        // Scheduled hibernation never reaps a live scoped process. Critical
-        // pressure may select one only while its lifecycle is explicitly idle;
-        // the controller still confirms stability, protects the transcript,
-        // and revalidates the exact process set before teardown.
+        // Liveness contributes to cap pressure but is not itself an exclusion:
+        // the controller confirms stability, protects the transcript, and
+        // revalidates the exact process scope before any teardown.
         let eligible = liveRestorable
             .filter { input in
                 !input.isProtected &&
-                    (
-                        trigger == .systemMemoryPressure ||
-                            !input.hasLiveProcess
-                    ) &&
+                    input.processSafetyAllowsHibernation &&
                     input.lifecycle.allowsHibernation &&
                     !input.isTemporarilyUnableToProtect &&
                     !input.hasUnconfirmedTerminalInput &&

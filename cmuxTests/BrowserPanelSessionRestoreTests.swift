@@ -128,4 +128,155 @@ struct BrowserPanelSessionRestoreTests {
         #expect(history.backHistoryURLStrings == ["https://example.com/back"])
         #expect(history.forwardHistoryURLStrings == ["https://example.com/forward"])
     }
+
+    @Test
+    func appSessionRestoreKeepsHiddenBrowserPanelsAsLightweightPlaceholders() throws {
+        let source = Workspace()
+        defer { source.retireFromOwningTabManager() }
+        let sourcePane = try #require(source.bonsplitController.focusedPaneId)
+        let sourceBrowser = try #require(source.newBrowserSurface(
+            inPane: sourcePane,
+            // Keep this fixture offline: the test only needs browser identity
+            // and persisted metadata, not a network navigation.
+            url: URL(string: "about:blank"),
+            focus: false
+        ))
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.retireFromOwningTabManager() }
+        let remap = restored.restoreSessionSnapshot(
+            snapshot,
+            deferBrowserPanels: true
+        )
+        let restoredPanelID = try #require(remap[sourceBrowser.id])
+
+        #expect(restored.panels[restoredPanelID] is DeferredBrowserPanel)
+        let roundTripped = restored.sessionSnapshot(includeScrollback: false)
+        #expect(roundTripped.panels.contains { panel in
+            panel.id == restoredPanelID && panel.type == .browser && panel.browser != nil
+        })
+
+        #expect(!restored.requestDeferredBrowserMaterialization(
+            panelId: restoredPanelID,
+            isVisibleInUI: false
+        ))
+        #expect(restored.panels[restoredPanelID] is DeferredBrowserPanel)
+        #expect(restored.requestDeferredBrowserMaterialization(
+            panelId: restoredPanelID,
+            isVisibleInUI: true,
+            reason: "test.visible"
+        ))
+        #expect(restored.panels[restoredPanelID] is BrowserPanel)
+        #expect(restored.requestDeferredBrowserMaterialization(
+            panelId: restoredPanelID,
+            isVisibleInUI: true,
+            reason: "test.idempotent"
+        ))
+    }
+
+    @Test
+    func selectingDeferredBrowserContinuesWithLiveBrowserAutofocus() throws {
+        let source = Workspace()
+        defer { source.retireFromOwningTabManager() }
+        let sourcePane = try #require(source.bonsplitController.focusedPaneId)
+        let sourceBrowser = try #require(source.newBrowserSurface(
+            inPane: sourcePane,
+            url: URL(string: "about:blank"),
+            focus: false
+        ))
+        let snapshot = source.sessionSnapshot(includeScrollback: false)
+
+        let restored = Workspace()
+        defer { restored.retireFromOwningTabManager() }
+        let remap = restored.restoreSessionSnapshot(snapshot, deferBrowserPanels: true)
+        let restoredPanelID = try #require(remap[sourceBrowser.id])
+        let restoredPane = try #require(restored.paneId(forPanelId: restoredPanelID))
+        let restoredTab = try #require(restored.surfaceIdFromPanelId(restoredPanelID))
+
+        #expect(restored.panels[restoredPanelID] is DeferredBrowserPanel)
+        restored.applyTabSelection(
+            tabId: restoredTab,
+            inPane: restoredPane,
+            reassertAppKitFocus: false
+        )
+
+        let browser = try #require(restored.panels[restoredPanelID] as? BrowserPanel)
+        #expect(browser.pendingAddressBarFocusRequestId != nil)
+    }
+
+    @Test
+    func appSessionRestoreDoesNotMaterializeSelectedBrowsersDuringTopologyAssembly() throws {
+        let firstPanelID = UUID()
+        let secondPanelID = UUID()
+        let browserSnapshot: (UUID, String) -> SessionPanelSnapshot = { id, url in
+            SessionPanelSnapshot(
+                id: id,
+                type: .browser,
+                title: url,
+                customTitle: nil,
+                directory: nil,
+                isPinned: false,
+                isManuallyUnread: false,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: nil,
+                browser: SessionBrowserPanelSnapshot(
+                    urlString: url,
+                    profileID: nil,
+                    shouldRenderWebView: true,
+                    pageZoom: 1,
+                    developerToolsVisible: false,
+                    backHistoryURLStrings: [],
+                    forwardHistoryURLStrings: []
+                ),
+                markdown: nil,
+                filePreview: nil,
+                rightSidebarTool: nil,
+                project: nil
+            )
+        }
+        let snapshot = SessionWorkspaceSnapshot(
+            processTitle: "Restored browser panes",
+            customTitle: nil,
+            customDescription: nil,
+            customColor: nil,
+            isPinned: false,
+            terminalScrollBarHidden: nil,
+            currentDirectory: FileManager.default.homeDirectoryForCurrentUser.path,
+            focusedPanelId: firstPanelID,
+            layout: .split(SessionSplitLayoutSnapshot(
+                orientation: .horizontal,
+                dividerPosition: 0.5,
+                first: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [firstPanelID],
+                    selectedPanelId: firstPanelID
+                )),
+                second: .pane(SessionPaneLayoutSnapshot(
+                    panelIds: [secondPanelID],
+                    selectedPanelId: secondPanelID
+                ))
+            )),
+            panels: [
+                browserSnapshot(firstPanelID, "https://example.com/first"),
+                browserSnapshot(secondPanelID, "https://example.com/second"),
+            ],
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil,
+            remote: nil
+        )
+
+        let restored = Workspace()
+        defer { restored.retireFromOwningTabManager() }
+        let remap = restored.restoreSessionSnapshot(
+            snapshot,
+            deferBrowserPanels: true
+        )
+
+        #expect(remap.count == 2)
+        #expect(restored.panels.values.count == 2)
+        #expect(restored.panels.values.allSatisfy { $0 is DeferredBrowserPanel })
+    }
 }

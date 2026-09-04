@@ -315,9 +315,21 @@ async function findByIdempotencyKey(
 
 export const FAILED_CREATE_RETRY_WINDOW_MS = 15 * 60 * 1000;
 
+/**
+ * failureCode stored when the provider itself failed the create. The HTTP
+ * layer reports these as vm_cloud_service_unavailable with retryable: true
+ * and retryAfterSeconds ~5, so the idempotency key must honor that contract
+ * and let the retry reach the provider again instead of replaying the stored
+ * failure for FAILED_CREATE_RETRY_WINDOW_MS (a client with a stable key, like
+ * the CLI pinned-slot flow, was bricked for 15 minutes by one transient
+ * provider failure).
+ */
+export const PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE = "provider_create_unavailable";
+
 const RETRYABLE_FAILED_CREATE_CODES = new Set([
   "billing_credits_insufficient",
   "billing_reserve_failed",
+  PROVIDER_CREATE_UNAVAILABLE_FAILURE_CODE,
 ]);
 
 function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {

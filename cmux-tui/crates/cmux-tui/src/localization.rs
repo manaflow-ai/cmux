@@ -249,6 +249,7 @@ pub(crate) struct ShortcutMessages {
 pub(crate) struct BrowserMessages {
     failed_prefix: &'static str,
     control_failed: &'static str,
+    control_unavailable: &'static str,
     not_responding: &'static str,
     resize_recovery: &'static str,
     new_page_verification_prefix: &'static str,
@@ -267,6 +268,10 @@ pub(crate) struct BrowserMessages {
 impl BrowserMessages {
     pub(crate) fn control_failed(&self, error: &str) -> String {
         self.control_failed.replace("{error}", error)
+    }
+
+    pub(crate) fn control_unavailable(&self) -> String {
+        self.control_failed.replace("{error}", self.control_unavailable)
     }
 
     pub(crate) fn loading(&self, url: &str) -> String {
@@ -788,6 +793,15 @@ pub(crate) struct SidebarMessages {
     pub panes: &'static str,
     pub tabs: &'static str,
     pub agents: &'static str,
+    /// Sort-mode label right-aligned in the agents view header.
+    pub sort_priority: &'static str,
+    /// Sort-mode labels the runtime cycle key steps through.
+    pub sort_recency: &'static str,
+    pub sort_name: &'static str,
+    pub sort_agent: &'static str,
+    pub sort_state: &'static str,
+    /// Header marker disclosing that a view filter is active.
+    pub sort_filtered: &'static str,
     pub projection_path_separator: &'static str,
     pub new_machine: &'static str,
     pub connect_machine: &'static str,
@@ -1337,6 +1351,7 @@ edits shell files. Authenticate with the configured host before retrying.
     browser: BrowserMessages {
         failed_prefix: "browser failed: ",
         control_failed: "browser command failed: {error}",
+        control_unavailable: "browser connection unavailable; retry the command",
         not_responding: "browser failed: browser is not responding",
         resize_recovery: "browser failed: browser resize recovery failed; reload to retry",
         new_page_verification_prefix: "browser failed: could not verify new page pixels: ",
@@ -1643,6 +1658,12 @@ OPTIONS:
         panes: "panes",
         tabs: "tabs",
         agents: "agents",
+        sort_priority: "priority",
+        sort_recency: "recency",
+        sort_name: "name",
+        sort_agent: "agent",
+        sort_state: "state",
+        sort_filtered: "filtered",
         projection_path_separator: " › ",
         new_machine: "new vm",
         connect_machine: "ssh host",
@@ -1983,6 +2004,7 @@ cmux machine-agent - ローカルの cmux セッションをリモートサー�
     browser: BrowserMessages {
         failed_prefix: "ブラウザでエラーが発生しました: ",
         control_failed: "ブラウザ操作に失敗しました: {error}",
+        control_unavailable: "ブラウザ接続を利用できません。コマンドを再試行してください",
         not_responding: "ブラウザが応答していません",
         resize_recovery: "ブラウザのサイズ変更を復旧できませんでした。再読み込みして再試行してください",
         new_page_verification_prefix: "新しいページの表示を確認できませんでした: ",
@@ -2286,6 +2308,12 @@ ID とセッション:
         panes: "ペイン",
         tabs: "タブ",
         agents: "エージェント",
+        sort_priority: "優先度",
+        sort_recency: "新着順",
+        sort_name: "名前順",
+        sort_agent: "エージェント順",
+        sort_state: "状態順",
+        sort_filtered: "フィルタ中",
         projection_path_separator: " › ",
         new_machine: "新規VM",
         connect_machine: "SSHホスト",

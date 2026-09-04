@@ -313,6 +313,7 @@ fn run_ensure(
         socket_is_derived,
         state: None,
         term: None,
+        initial_host_colors: None,
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
     match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {

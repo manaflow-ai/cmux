@@ -157,6 +157,7 @@ describe("/api/relay/preferences", () => {
       checkRateLimit: async () => ({ rateLimited: true }),
     }));
     expect(limited.status).toBe(429);
+    expect(await limited.json()).toEqual({ error: "rate_limited", source: "account_budget" });
   });
 
   test("rejects unauthenticated callers", async () => {

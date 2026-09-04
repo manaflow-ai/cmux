@@ -9,6 +9,8 @@ use std::fmt;
 #[cfg(unix)]
 use std::fs::File;
 use std::io;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use std::sync::Arc;
@@ -151,6 +153,34 @@ pub struct PtyPair {
 }
 
 impl PtyPair {
+    /// Duplicate the master descriptor before spawning so a reader can poll
+    /// its own owned descriptor without borrowing a handle that another
+    /// thread may close. `F_DUPFD_CLOEXEC` keeps the duplicate out of child
+    /// exec environments without a descriptor-inheritance race.
+    #[cfg(unix)]
+    pub fn try_clone_reader_descriptor(&self) -> anyhow::Result<OwnedFd> {
+        let source = self
+            .master
+            .as_raw_fd()
+            .ok_or_else(|| anyhow::anyhow!("PTY master does not expose a reader descriptor"))?;
+        loop {
+            // SAFETY: `source` is owned by this still-live PTY pair. The
+            // successful fcntl call returns a new descriptor we immediately
+            // wrap in OwnedFd.
+            let descriptor = unsafe { libc::fcntl(source, libc::F_DUPFD_CLOEXEC, 0) };
+            if descriptor >= 0 {
+                // SAFETY: ownership transfers from fcntl to OwnedFd exactly
+                // once on a successful call.
+                return Ok(unsafe { OwnedFd::from_raw_fd(descriptor) });
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(anyhow::anyhow!("failed to duplicate PTY reader: {error}"));
+        }
+    }
+
     /// Spawn the command, close the parent's slave descriptor, and return the
     /// master and child as one ownership-safe unit.
     pub fn spawn(self, command: PtyCommand) -> anyhow::Result<SpawnedPty> {

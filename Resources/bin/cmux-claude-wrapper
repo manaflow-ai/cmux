@@ -844,44 +844,6 @@ exec_real_claude_passthrough() {
     cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
 }
 
-if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
-    # User-managed hooks need the original cmux terminal environment.
-    if [[ "$IN_CMUX" == "1" ]]; then
-        clear_inherited_claude_session_identity_env
-    fi
-    clear_inherited_claude_auth_selection_env
-    if [[ "$IN_CMUX" == "1" ]]; then
-        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
-    fi
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
-fi
-
-if [[ "$IN_CMUX" == "0" ]]; then
-    clear_inherited_claude_auth_selection_env
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec_real_claude_passthrough "$@"
-fi
-
-# App-generated restore input plus an explicit resume id proves cmux owns this
-# launch, so a transient socket miss cannot permanently strip its hooks. An
-# unmarked resume from a detached shell/tmux keeps the bounded ownership probe
-# and preserves native behavior when its inherited cmux environment is stale.
-cmux_claude_resume_sid="$(extract_claude_resume_session_id "$@")"
-cmux_claude_app_restore_owned=0
-if [[ "$cmux_claude_resume_sid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ \
-      && "$cmux_claude_app_restore_launch" == "claude:$cmux_claude_resume_sid" ]]; then
-    cmux_claude_app_restore_owned=1
-fi
-if [[ "$cmux_claude_app_restore_owned" != "1" ]] \
-      && ! cmux_socket_available; then
-    clear_inherited_claude_session_identity_env
-    clear_inherited_claude_auth_selection_env
-    reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
-    REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
-    exec_real_claude_passthrough "$@"
-fi
-
 # Find real claude.
 REAL_CLAUDE="$(find_real_claude)" || { echo "Error: claude not found in PATH" >&2; exit 127; }
 
@@ -1037,6 +999,225 @@ cmux_claude_wrapper_create_settings_values_file() {
     printf '%s' "$settings_path"
 }
 
+# cmux computer use: attach the bundled cmux-cua MCP server so any Claude
+# session cmux launches can drive the local Mac through cmux's TCC identity.
+# Prints the --mcp-config JSON, or returns nonzero to skip injection so
+# sessions never see always-failing tools.
+cmux_computer_use_json_escape() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//$'\n'/\\n}"
+    value="${value//$'\r'/\\r}"
+    value="${value//$'\t'/\\t}"
+    printf '%s' "$value"
+}
+
+cmux_computer_use_resolve_client() {
+    local self_dir app_contents bundled_client
+    self_dir="$(cd "$(dirname "$0")" && pwd)" || return 1
+    app_contents="$(cd "$self_dir/../.." 2>/dev/null && pwd)" || return 1
+    bundled_client="$app_contents/Resources/bin/cmux-cua"
+    if [[ -x "$bundled_client" ]]; then
+        printf '%s' "$bundled_client"
+        return 0
+    fi
+    # cmux-cua is a closed host-owned contract. Never fall back to an ambient
+    # executable: that would create a second TCC identity and reintroduce the
+    # dependency this wrapper is responsible for eliminating.
+    return 1
+}
+
+# Claude Code managed policy (v2.1.193+) supports disableSideloadFlags, which
+# makes claude REFUSE TO START when a non-SDK --mcp-config flag is passed.
+# Injecting computer use under that policy would break every cmux Claude
+# session on managed machines, so detect it and skip injection.
+#
+# The flag can arrive through several managed-settings channels (per Claude's
+# server-managed-settings docs): the base managed-settings.json, the
+# managed-settings.d/*.json fragment dir, the com.anthropic.claudecode MDM
+# preferences domain, the cached remote-settings.json, and a policyHelper that
+# can override all of them. We cannot faithfully replay Claude's full
+# precedence/merge (and must not execute an arbitrary policyHelper on the
+# launch hot path), so this is deliberately CONSERVATIVE and FAIL-SAFE: skip
+# --mcp-config if ANY source shows the flag true OR a policyHelper is
+# configured (its output cannot be ruled out). A false positive only turns off
+# computer use; it never blocks a Claude launch. All paths are overridable via
+# env so tests need no root-owned fixtures.
+cmux_claude_json_flag_true() {
+    # Grep a JSON file for `"<key>": true`. Best-effort; a false positive only
+    # skips computer use.
+    local file="$1" key="$2"
+    [[ -r "$file" ]] || return 1
+    LC_ALL=C /usr/bin/grep -Eq "\"$key\"[[:space:]]*:[[:space:]]*true" "$file" 2>/dev/null
+}
+
+cmux_claude_json_has_key() {
+    local file="$1" key="$2"
+    [[ -r "$file" ]] || return 1
+    LC_ALL=C /usr/bin/grep -Eq "\"$key\"[[:space:]]*:" "$file" 2>/dev/null
+}
+
+cmux_claude_sideload_flags_disabled() {
+    local base_file managed_dir remote_file plist_domain defaults_bin
+    base_file="${CMUX_CLAUDE_MANAGED_SETTINGS_FILE:-/Library/Application Support/ClaudeCode/managed-settings.json}"
+    managed_dir="${CMUX_CLAUDE_MANAGED_SETTINGS_DIR:-/Library/Application Support/ClaudeCode/managed-settings.d}"
+    remote_file="${CMUX_CLAUDE_REMOTE_SETTINGS_FILE:-$HOME/.claude/remote-settings.json}"
+    plist_domain="${CMUX_CLAUDE_MANAGED_DEFAULTS_DOMAIN:-com.anthropic.claudecode}"
+
+    # File + fragment-dir + cached-remote JSON sources: flag true, or a
+    # policyHelper configured (can't rule out what it would return).
+    local f
+    for f in "$base_file" "$remote_file"; do
+        cmux_claude_json_flag_true "$f" "disableSideloadFlags" && return 0
+        cmux_claude_json_has_key "$f" "policyHelper" && return 0
+    done
+    if [[ -d "$managed_dir" ]]; then
+        for f in "$managed_dir"/*.json; do
+            [[ -e "$f" ]] || continue
+            cmux_claude_json_flag_true "$f" "disableSideloadFlags" && return 0
+            cmux_claude_json_has_key "$f" "policyHelper" && return 0
+        done
+    fi
+
+    # MDM preferences domain. `defaults read <domain> <key>` prints 1 for a
+    # true boolean; a configured policyHelper dict also disqualifies.
+    defaults_bin=/usr/bin/defaults
+    if [[ "${CMUX_CLAUDE_SKIP_DEFAULTS:-0}" != "1" && -x "$defaults_bin" ]]; then
+        local v
+        v="$("$defaults_bin" read "$plist_domain" disableSideloadFlags 2>/dev/null)"
+        [[ "$v" == "1" ]] && return 0
+        "$defaults_bin" read "$plist_domain" policyHelper >/dev/null 2>&1 && return 0
+    fi
+
+    return 1
+}
+
+cmux_computer_use_auth_token() {
+    local auth_file metadata owner mode token
+    auth_file="${CMUX_CUA_AUTH_TOKEN_FILE:-}"
+    if [[ -n "$auth_file" && "$auth_file" == /* && -f "$auth_file" && ! -L "$auth_file" ]]; then
+        metadata="$(/usr/bin/stat -f '%u %Lp' "$auth_file" 2>/dev/null || true)"
+        read -r owner mode <<< "$metadata"
+        if [[ "$owner" == "$(/usr/bin/id -u)" && "$mode" == "600" ]]; then
+            IFS= read -r token < "$auth_file" || true
+            if [[ -n "$token" ]]; then
+                printf '%s' "$token"
+                return 0
+            fi
+        fi
+    fi
+    token="${CMUX_CUA_SOCKET_AUTH_TOKEN:-}"
+    [[ -n "$token" ]] || return 1
+    printf '%s' "$token"
+}
+
+cmux_claude_computer_use_enabled_for_invocation() {
+    [[ "${CMUX_COMPUTER_USE_MCP_DISABLED:-0}" == "1" ]] && return 1
+    cmux_claude_sideload_flags_disabled && return 1
+    local arg
+    for arg in "$@"; do
+        case "$arg" in
+            --strict-mcp-config|--strict-mcp-config=*)
+                # Respect explicit MCP isolation (e.g. cmux's headless
+                # auto-naming summarizers pass --strict-mcp-config).
+                return 1
+                ;;
+        esac
+    done
+    return 0
+}
+
+cmux_computer_use_config() {
+    cmux_claude_computer_use_enabled_for_invocation "$@" || return 1
+    local client state_dir default_session cua_socket runtime_scope runtime_uid auth_token
+    client="$(cmux_computer_use_resolve_client)" || return 1
+    auth_token="$(cmux_computer_use_auth_token)" || return 1
+    runtime_scope="${CMUX_CUA_RUNTIME_SCOPE:-${CMUX_TAG:-default}}"
+    runtime_scope="$(printf '%s' "$runtime_scope" | LC_ALL=C /usr/bin/tr -c 'A-Za-z0-9_.-' '-' | /usr/bin/sed -E 's/^[.-]+//; s/[.-]+$//' | /usr/bin/cut -c1-64)"
+    [[ -n "$runtime_scope" ]] || runtime_scope="default"
+    runtime_uid="$(/usr/bin/id -u)"
+    state_dir="${CMUX_CUA_STATE_DIR:-${HOME}/Library/Application Support/cmux/cmux-cua/runtime/${runtime_scope}/state}"
+    cua_socket="${CMUX_CUA_SOCKET_PATH:-/tmp/cmux-cua-${runtime_uid}/${runtime_scope}/cmux-cua.sock}"
+    # Stable per-terminal session id so the branded agent cursor survives helper
+    # restarts in the same surface.
+    default_session="cmux-${CMUX_SURFACE_ID:-$$}"
+    # The helper owns external onboarding. Mark that contract explicitly so
+    # protected calls also wait for cmux's post-verification readiness signal.
+    printf '{"mcpServers":{"cmux-cua":{"command":"%s","args":["mcp","--socket","%s"],"env":{"CMUX_CUA_MCP_FORCE_PROXY":"1","CMUX_CUA_EXTERNAL_PERMISSION_FLOW":"1","CMUX_CUA_SOCKET_AUTH_TOKEN":"%s","CMUX_CUA_DEFAULT_SESSION":"%s","CMUX_CUA_STATE_OWNER_PID":"%s","CMUX_CUA_TELEMETRY_ENABLED":"false","CMUX_CUA_UPDATE_CHECK":"false","CMUX_CUA_CURSOR_GRADIENT":"#12c7f5,#2d8cff,#6c5cff","CMUX_CUA_CURSOR_BLOOM":"#2d8cff","CMUX_CUA_CURSOR_LABEL":"cmux","CMUX_CUA_STATE_DIR":"%s","NODE_OPTIONS":"","BUN_OPTIONS":""}}}}' \
+        "$(cmux_computer_use_json_escape "$client")" \
+        "$(cmux_computer_use_json_escape "$cua_socket")" \
+        "$(cmux_computer_use_json_escape "$auth_token")" \
+        "$(cmux_computer_use_json_escape "$default_session")" \
+        "$(cmux_computer_use_json_escape "${CMUX_CLAUDE_PID:-$$}")" \
+        "$(cmux_computer_use_json_escape "$state_dir")"
+}
+
+cmux_claude_global_skill_install_enabled() {
+    # Keep Claude and Codex discovery symmetric. Both pickers can only show a
+    # skill that exists in a filesystem skill root; the session-only plugin
+    # flag is not a durable picker entry. Users who want a strictly local
+    # session can opt out explicitly.
+    case "${CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL:-1}" in
+        0|false|FALSE|no|NO) return 1 ;;
+    esac
+    return 0
+}
+
+cmux_claude_install_computer_use_skill() {
+    # Claude surfaces personal skills from ~/.claude/skills with a plain
+    # unqualified name; ~/.agents/skills is Codex's discovery root, not
+    # Claude's. Keep the source inside the signed cmux app and link it instead
+    # of copying stale versions. Never replace a real directory or a symlink
+    # the user owns. Returns 0 only when the cmux-cua link now points at this
+    # app bundle, so callers can skip the namespaced session-scoped fallback.
+    local home="${HOME:-}"
+    [[ "$home" = /* ]] || return 1
+    local self_dir resource_dir source_dir skills_root destination target legacy legacy_target
+    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
+    resource_dir="${self_dir%/bin}"
+    source_dir="$resource_dir/cmux-cua"
+    [[ -f "$source_dir/SKILL.md" ]] || return 1
+
+    skills_root="$home/.claude/skills"
+    destination="$skills_root/cmux-cua"
+    /bin/mkdir -p "$skills_root" 2>/dev/null || return 1
+
+    # Retire the pre-rename cmux-computer-use link (written by older wrappers
+    # into Codex's shared root) so pickers do not show two copies of the same
+    # skill. Only a symlink into a cmux app bundle is removed; user-owned
+    # paths at that name are left alone.
+    legacy="$home/.agents/skills/cmux-computer-use"
+    if [[ -L "$legacy" ]]; then
+        legacy_target="$(/usr/bin/readlink "$legacy" 2>/dev/null || /bin/readlink "$legacy" 2>/dev/null)" || legacy_target=""
+        case "$legacy_target" in
+            */Contents/Resources/cmux-computer-use|*/Contents/Resources/cmux-cua)
+                /bin/rm -f "$legacy" 2>/dev/null || true
+                ;;
+        esac
+    fi
+
+    if [[ -L "$destination" ]]; then
+        target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+        case "$target" in
+            */Contents/Resources/cmux-cua|*/Contents/Resources/cmux-computer-use)
+                /bin/ln -sfn "$source_dir" "$destination" 2>/dev/null || return 1
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    elif [[ -e "$destination" ]]; then
+        # A user-owned path wins; report not-installed so the session-scoped
+        # fallback still delivers the current bundled skill.
+        return 1
+    else
+        /bin/ln -s "$source_dir" "$destination" 2>/dev/null || return 1
+    fi
+    target="$(/usr/bin/readlink "$destination" 2>/dev/null || /bin/readlink "$destination" 2>/dev/null)" || return 1
+    [[ "$target" == "$source_dir" ]]
+}
+
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -1116,6 +1297,45 @@ should_inject_claude_hooks() {
 
     return 0
 }
+
+# CMUX_CLAUDE_HOOKS_DISABLED is the documented MASTER opt-out: the wrapper
+# stays fully inert — no cmux calls, no computer-use attach, no argv changes
+# (the disabled-integration regression asserts exactly this).
+if [[ "$CMUX_CLAUDE_HOOKS_DISABLED" == "1" ]]; then
+    # User-managed hooks need the original cmux terminal environment.
+    if [[ "$IN_CMUX" == "1" ]]; then
+        clear_inherited_claude_session_identity_env
+    fi
+    clear_inherited_claude_auth_selection_env
+    if [[ "$IN_CMUX" == "1" ]]; then
+        reconcile_claude_config_dir_for_resume "$(extract_claude_resume_session_id "$@")"
+    fi
+    cmux_claude_wrapper_exec_resolved_claude "$REAL_CLAUDE" "$@"
+fi
+
+if [[ "$IN_CMUX" == "0" ]]; then
+    clear_inherited_claude_auth_selection_env
+    exec_real_claude_passthrough "$@"
+fi
+
+# App-generated restore input plus an explicit resume id proves cmux owns this
+# launch, so a transient socket miss cannot permanently strip its hooks or
+# Computer Use integration. An unmarked resume from a detached shell/tmux keeps
+# the bounded ownership probe and preserves native behavior when its inherited
+# cmux environment is stale.
+cmux_claude_resume_sid="$(extract_claude_resume_session_id "$@")"
+cmux_claude_app_restore_owned=0
+if [[ "$cmux_claude_resume_sid" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ \
+      && "$cmux_claude_app_restore_launch" == "claude:$cmux_claude_resume_sid" ]]; then
+    cmux_claude_app_restore_owned=1
+fi
+if [[ "$cmux_claude_app_restore_owned" != "1" ]] \
+      && ! cmux_socket_available; then
+    clear_inherited_claude_session_identity_env
+    clear_inherited_claude_auth_selection_env
+    reconcile_claude_config_dir_for_resume "$cmux_claude_resume_sid"
+    exec_real_claude_passthrough "$@"
+fi
 
 if (( cmux_claude_wrapper_reexec_hops > 0 )); then
     # A previous wrapper pass already made the cmux launch decision and may have
@@ -1407,6 +1627,30 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
         # merge is unavailable; the argument-size guard keeps this bounded.
         export CMUX_AGENT_LAUNCH_ARGV_B64="$(encode_launch_argv "$@")"
     fi
+fi
+
+# Keep the bundled skill discoverable by Claude's picker as well as Codex's.
+# Installation is best-effort and never replaces a user-owned path; set
+# CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0 for a strictly session-local run.
+# There is deliberately no --plugin-dir fallback: a plugin manifest in the
+# skill directory makes Codex namespace the skill (cmux-cua:cmux-cua) and
+# Claude display plugin skills qualified, so the durable ~/.claude/skills
+# link is the only Claude-side delivery path.
+if cmux_claude_global_skill_install_enabled \
+      && cmux_claude_computer_use_enabled_for_invocation "$@"; then
+    cmux_claude_install_computer_use_skill || true
+fi
+
+# Attach the cmux computer use MCP server. Prepended so a user-supplied
+# --mcp-config still applies as an additional config (the CLI merges repeated
+# --mcp-config flags). Must be the single-token `--mcp-config=<json>` form:
+# --mcp-config is variadic (`<configs...>`), so a separate value token would
+# make a following positional prompt (`claude "fix this"`) parse as another
+# MCP config. Injected after launch-argv capture on purpose: resume re-runs
+# the wrapper, which re-injects against the machinery present then.
+CMUX_COMPUTER_USE_CONFIG="$(cmux_computer_use_config "$@")" || CMUX_COMPUTER_USE_CONFIG=""
+if [[ -n "$CMUX_COMPUTER_USE_CONFIG" ]]; then
+    set -- "--mcp-config=$CMUX_COMPUTER_USE_CONFIG" "$@"
 fi
 
 if [[ "$SKIP_SESSION_ID" == true ]]; then

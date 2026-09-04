@@ -1,0 +1,4 @@
+interface:
+  display_name: "cmux-cua"
+  short_description: "Drive local macOS apps with the cmux-cua computer-use engine."
+  default_prompt: "Use cmux-cua to perceive and operate a local macOS app through the bundled helper, following its permission and session rules."
