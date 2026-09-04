@@ -429,7 +429,10 @@ struct VMTunnelManager: Sendable {
     /// through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        let runtimeInterfaceName = Self.readRuntimeInterfaceName(from: runtimeInterfaceMetadataURL)
+        let runtimeInterfaceName = Self.readRuntimeInterfaceName(
+            from: runtimeInterfaceMetadataURL,
+            markerURL: runtimeNameFileURL
+        )
             ?? Self.runtimeInterfaceName(for: runtimeNameFileURL)
         guard let runtimeInterfaceName else { return false }
         return Self.interfaceIsUp(
@@ -443,10 +446,32 @@ struct VMTunnelManager: Sendable {
     /// Reads and validates the user-readable companion marker written by the
     /// config's privileged `PostUp` hook. Invalid or stale contents fall back
     /// to the stock wg-quick marker inference instead of being trusted.
-    private static func readRuntimeInterfaceName(from metadataURL: URL) -> String? {
-        guard let raw = try? String(contentsOf: metadataURL, encoding: .utf8) else { return nil }
+    private static func readRuntimeInterfaceName(from metadataURL: URL, markerURL: URL) -> String? {
+        var metadataInfo = stat()
+        guard lstat(metadataURL.path, &metadataInfo) == 0,
+              (metadataInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG),
+              metadataInfo.st_size > 0,
+              metadataInfo.st_size <= 64,
+              let raw = try? String(contentsOf: metadataURL, encoding: .utf8) else { return nil }
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard value.range(of: #"^utun[0-9]+$"#, options: .regularExpression) != nil else { return nil }
+
+        // A stale companion file can survive a killed wg-quick process, and
+        // Darwin may reuse the same utun number later. Require the companion,
+        // wg-quick's root marker, and the socket to belong to one creation
+        // window before trusting the readable value.
+        var markerInfo = stat()
+        guard lstat(markerURL.path, &markerInfo) == 0,
+              (markerInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else { return nil }
+        var socketInfo = stat()
+        let socketURL = metadataURL
+            .deletingLastPathComponent()
+            .appendingPathComponent("\(value).sock", isDirectory: false)
+        guard lstat(socketURL.path, &socketInfo) == 0,
+              (socketInfo.st_mode & mode_t(S_IFMT)) == mode_t(S_IFSOCK) else { return nil }
+        let metadataTime = metadataInfo.st_mtimespec.tv_sec
+        guard abs(metadataTime - markerInfo.st_mtimespec.tv_sec) < 2,
+              abs(metadataTime - socketInfo.st_mtimespec.tv_sec) < 2 else { return nil }
         return value
     }
 
