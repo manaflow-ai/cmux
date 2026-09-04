@@ -381,6 +381,19 @@ final class AgentChatTranscriptService {
         registry.record(sessionID: sessionID)
     }
 
+    /// Resolves a session's transcript path, keeping broad filesystem fallback
+    /// work behind the coordinator's cancellable off-main boundary.
+    ///
+    /// - Parameter record: The session whose transcript should be resolved.
+    /// - Returns: An existing transcript path, or `nil` when none is found
+    ///   before the configured fallback deadline.
+    func resolvedTranscriptPath(for record: AgentChatSessionRecord) async -> String? {
+        if let boundedPath = resolver.boundedTranscriptPath(for: record) {
+            return boundedPath
+        }
+        return await fallbackResolutionCoordinator.resolve(for: record)
+    }
+
     /// Whether an ended session can still serve history without expensive
     /// fallback scans. Live sessions stay visible before their JSONL exists;
     /// ended sessions with missing JSONL only open to an unrecoverable error.
@@ -464,13 +477,7 @@ final class AgentChatTranscriptService {
             tailer = existing
         } else {
             let resolver = resolver
-            let initialPath = resolver.boundedTranscriptPath(for: record)
-            let fallbackPath: String?
-            if let initialPath {
-                fallbackPath = initialPath
-            } else {
-                fallbackPath = await fallbackResolutionCoordinator.resolve(for: record)
-            }
+            let fallbackPath = await resolvedTranscriptPath(for: record)
             guard let currentRecord = registry.record(sessionID: sessionID) else { return nil }
             failedResolutions.remove(sessionID)
             guard let resolvedTailer = ensureTailer(for: currentRecord, resolvePath: {
