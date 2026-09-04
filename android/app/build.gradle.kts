@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.coroutines.android)
+    implementation(libs.serialization.json)
 
     implementation(project(":core:transport"))
     implementation(project(":core:rpc"))
