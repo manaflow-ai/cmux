@@ -371,8 +371,9 @@ jobs:
     name: GhosttyKit release check
     permissions:
       contents: read
-    # The pull_request trigger is path-scoped to GhosttyKit provenance inputs;
-    # workflow_dispatch keeps the same guard available for explicit CI runs.
+    # Run this lightweight provenance check on pull requests before the router
+    # selects the expensive lanes; workflow_dispatch keeps it available for
+    # explicit CI runs as well.
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
     runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
