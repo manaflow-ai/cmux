@@ -15,6 +15,15 @@ typedef struct {
   bool sentinel;
 } ghostty_string_s;
 
+typedef struct {
+  double tl_px_x;
+  double tl_px_y;
+  uint32_t offset_start;
+  uint32_t offset_len;
+  const char* text;
+  uintptr_t text_len;
+} ghostty_text_s;
+
 typedef void (*ghostty_font_size_action_cb)(
     void* userdata,
     int32_t action,
@@ -24,6 +33,10 @@ typedef void (*ghostty_font_size_action_cb)(
     bool current_adjusted);
 
 bool ghostty_surface_clear_selection(void *surface);
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    ghostty_text_s *selection);
 
 void *ghostty_config_new(void);
 void ghostty_config_free(void *config);
