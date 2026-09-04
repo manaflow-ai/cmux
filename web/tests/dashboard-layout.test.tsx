@@ -11,6 +11,8 @@ let currentUser: DashboardUser | null = {
   id: "user-1",
   isAnonymous: false,
 };
+let requestHeaders = new Headers();
+let authUnavailable = false;
 let dashboardShellRenderCount = 0;
 const getUser = mock(async () => currentUser);
 
@@ -23,6 +25,28 @@ mock.module("next/navigation", () => ({
   redirect: (target: string) => {
     throw new Error(`redirect:${target}`);
   },
+}));
+
+mock.module("next/headers", () => ({
+  headers: async () => requestHeaders,
+}));
+
+mock.module("next-intl/server", () => ({
+  getTranslations: async () => (key: string) => ({
+    genericTitle: "Sign-in could not be completed",
+    genericBody: "Please try again.",
+    backToSignIn: "Back to sign in",
+  }[key] ?? key),
+}));
+
+mock.module("../services/vms/auth", () => ({
+  withSubrouterAuthorizationDeadline: async (
+    operation: (signal: AbortSignal) => Promise<unknown>,
+  ) => {
+    if (authUnavailable) throw new Error("Stack unavailable");
+    return operation(new AbortController().signal);
+  },
+  isSubrouterAuthorizationError: () => true,
 }));
 
 mock.module("@/app/lib/stack", () => ({
@@ -55,6 +79,8 @@ const { default: DashboardLayout } = await import(
 
 beforeEach(() => {
   currentUser = { id: "user-1", isAnonymous: false };
+  requestHeaders = new Headers();
+  authUnavailable = false;
   dashboardShellRenderCount = 0;
   getUser.mockClear();
 });
@@ -90,4 +116,38 @@ test("renders the dashboard shell only after server authentication succeeds", as
   expect(getUser).toHaveBeenCalledTimes(1);
   expect(dashboardShellRenderCount).toBe(1);
   expect(html).toContain("Private dashboard content");
+});
+
+test("preserves the deep dashboard destination through sign-in", async () => {
+  currentUser = null;
+  requestHeaders = new Headers({
+    "x-cmux-dashboard-return-path": "/dashboard/coderouter?team=team-1",
+  });
+
+  await expect(
+    DashboardLayout({
+      children: <main>Private dashboard content</main>,
+      params: Promise.resolve({ locale: "en" }),
+    }),
+  ).rejects.toThrow(
+    "redirect:/sign-in?after=/en/dashboard/coderouter?team=team-1",
+  );
+  expect(dashboardShellRenderCount).toBe(0);
+});
+
+test("returns recovery UI without mounting the shell when auth times out", async () => {
+  authUnavailable = true;
+
+  const html = renderToStaticMarkup(
+    await DashboardLayout({
+      children: <main>Private dashboard content</main>,
+      params: Promise.resolve({ locale: "en" }),
+    }),
+  );
+
+  expect(html).toContain("Sign-in could not be completed");
+  expect(html).toContain("Back to sign in");
+  expect(html).not.toContain("Private dashboard content");
+  expect(html).not.toContain('data-testid="dashboard-shell"');
+  expect(dashboardShellRenderCount).toBe(0);
 });

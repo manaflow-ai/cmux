@@ -1,4 +1,4 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import createMiddleware from "next-intl/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
@@ -13,12 +13,31 @@ import {
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
 import { requestOrigin, requestWithOrigin } from "./app/lib/request-origin";
+import {
+  DASHBOARD_RETURN_PATH_HEADER,
+  dashboardReturnPathForRequest,
+} from "./app/lib/dashboard-return-path";
 
 const intlMiddleware = createMiddleware(routing);
 const localeSet = new Set<string>(routing.locales);
 
 export default function middleware(incomingRequest: NextRequest) {
-  const request = requestWithOrigin(incomingRequest);
+  let request = requestWithOrigin(incomingRequest);
+  const dashboardReturnPath = dashboardReturnPathForRequest(
+    request.nextUrl.pathname,
+    request.nextUrl.search,
+    routing.locales,
+  );
+  if (dashboardReturnPath) {
+    const requestHeaders = new Headers(request.headers);
+    // Overwrite the value from the incoming request. The layout trusts this
+    // header only because middleware derives it from the current URL.
+    requestHeaders.set(DASHBOARD_RETURN_PATH_HEADER, dashboardReturnPath);
+    request = new NextRequest(request.url, {
+      headers: requestHeaders,
+      method: request.method,
+    });
+  }
   const host = request.headers.get("host") ?? "";
 
   // 301 redirect cmux.dev (and www.cmux.dev) to cmux.com, preserving path and query

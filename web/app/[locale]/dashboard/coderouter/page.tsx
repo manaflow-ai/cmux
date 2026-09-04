@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { cacheLife } from "next/cache";
@@ -101,6 +102,19 @@ async function ResolvedCoderouterOverviewContent({ params, searchParams }: PageP
   return <CoderouterOverviewContent locale={locale} team={team} />;
 }
 
+type CoderouterAuthorization = {
+  readonly teams: readonly DashboardTeam[];
+  readonly selectedTeam: DashboardTeam;
+  /** Changes whenever the live session or its team grants change. */
+  readonly authorizationFingerprint: string;
+};
+
+type CoderouterAuthorizationResult =
+  | { readonly kind: "authorized"; readonly value: CoderouterAuthorization }
+  | { readonly kind: "missing" }
+  | { readonly kind: "noTeams" }
+  | { readonly kind: "unavailable" };
+
 export async function CoderouterOverviewContent({
   locale,
   team,
@@ -108,21 +122,38 @@ export async function CoderouterOverviewContent({
   locale: string;
   team?: string;
 }) {
-  "use cache: private";
-  cacheLife({ stale: 300 });
-
+  // Authorization stays outside the private cache. This runs for every
+  // server render, so a changed team membership cannot reuse an old page
+  // snapshot. Only the already-authorized, browser-private view is cached.
   const requestHeaders = await headers();
-  const tokenStore = {
-    headers: { get: (name: string) => requestHeaders.get(name) },
-  };
-  let authenticated: {
-    readonly authorized: Awaited<ReturnType<typeof authorizedSubrouterTeams>>;
-    readonly accessToken: string | null;
-    readonly scopedTeamId: string | null;
-    readonly selectedTeamId: string | null;
-  } | null;
+  const authorization = await resolveCoderouterAuthorization(
+    requestHeaders,
+    team,
+  );
+  if (authorization.kind === "unavailable") {
+    return renderCoderouterLoadError(locale);
+  }
+  if (authorization.kind === "missing") {
+    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/coderouter")));
+  }
+  if (authorization.kind === "noTeams") {
+    redirect("/dashboard");
+  }
+
+  return CachedCoderouterOverviewContent({
+    locale,
+    teams: authorization.value.teams,
+    selectedTeam: authorization.value.selectedTeam,
+    authorizationFingerprint: authorization.value.authorizationFingerprint,
+  });
+}
+
+async function resolveCoderouterAuthorization(
+  requestHeaders: Headers,
+  requestedTeamId: string | undefined,
+): Promise<CoderouterAuthorizationResult> {
   try {
-    authenticated = await withSubrouterAuthorizationDeadline(
+    const authenticated = await withSubrouterAuthorizationDeadline(
       async (signal) => {
         const user = await verifySubrouterRequest(
           new Request("https://cmux.com/dashboard/coderouter", {
@@ -132,63 +163,125 @@ export async function CoderouterOverviewContent({
           { allowCookie: true, listAllTeams: true },
         );
         if (!user) return null;
-        const [authorized, authJson] = await Promise.all([
-          authorizedSubrouterTeams(user),
-          getStackServerApp().getAuthJson({ tokenStore }).catch(() => {
-            throw new SubrouterAuthorizationUnavailableError(
-              "Stack session refresh unavailable",
-            );
-          }),
-        ]);
         return {
-          authorized,
-          accessToken: authJson?.accessToken ?? null,
-          scopedTeamId: coderouterOrganizationFromCookieHeader(
-            requestHeaders.get("cookie"),
-            user.id,
-          ),
-          selectedTeamId: user.selectedTeamId,
+          user,
+          authorized: await authorizedSubrouterTeams(user),
         };
       },
     );
+    if (!authenticated) return { kind: "missing" };
+
+    const teams = authenticated.authorized
+      .filter((candidate) => candidate.use || candidate.manageAccounts)
+      .map((candidate) => ({
+        id: candidate.teamId,
+        name: candidate.teamName,
+        use: candidate.use,
+        manageAccounts: candidate.manageAccounts,
+        personal: candidate.personal,
+      }));
+    if (teams.length === 0) {
+      return { kind: "noTeams" };
+    }
+    const selectedTeam = selectTeam(
+      teams,
+      requestedTeamId,
+      coderouterOrganizationFromCookieHeader(
+        requestHeaders.get("cookie"),
+        authenticated.user.id,
+      ),
+      authenticated.user.selectedTeamId,
+    );
+    return {
+      kind: "authorized",
+      value: {
+        teams,
+        selectedTeam,
+        authorizationFingerprint: coderouterAuthorizationFingerprint(
+          authenticated.user.id,
+          authenticated.user.selectedTeamId,
+          teams,
+          requestHeaders.get("cookie"),
+        ),
+      },
+    };
   } catch (error) {
     if (!isSubrouterAuthorizationError(error)) throw error;
-    const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
-    return (
-      <CoderouterPageFrame>
-        <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
-      </CoderouterPageFrame>
-    );
+    return { kind: "unavailable" };
   }
-  if (!authenticated) {
-    redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/coderouter")));
+}
+
+function coderouterAuthorizationFingerprint(
+  userId: string,
+  selectedTeamId: string | null,
+  teams: readonly DashboardTeam[],
+  cookieHeader: string | null,
+): string {
+  const grants = teams
+    .map((candidate) => [
+      candidate.id,
+      candidate.name,
+      candidate.use ? "use" : "",
+      candidate.manageAccounts ? "manage" : "",
+      candidate.personal ? "personal" : "",
+    ].join(":"))
+    .sort()
+    .join("|");
+  return createHash("sha256")
+    .update(`${userId}\n${selectedTeamId ?? ""}\n${grants}\n${cookieHeader ?? ""}`)
+    .digest("hex");
+}
+
+async function renderCoderouterLoadError(locale: string) {
+  const t = await getTranslations({ locale, namespace: "dashboard.aiAccounts" });
+  return (
+    <CoderouterPageFrame>
+      <StatusPanel title={t("loadErrorTitle")} body={t("loadErrorBody")} />
+    </CoderouterPageFrame>
+  );
+}
+
+async function CachedCoderouterOverviewContent({
+  locale,
+  teams,
+  selectedTeam,
+  authorizationFingerprint,
+}: CoderouterAuthorization & { readonly locale: string }) {
+  "use cache: private";
+  // Thirty seconds is the minimum lifetime that still supports per-link
+  // prefetch. The uncached authorization gate above owns permission freshness;
+  // this scope only keeps the authorized view responsive between checks.
+  cacheLife({ stale: 30 });
+  void authorizationFingerprint;
+
+  const requestHeaders = await headers();
+  const tokenStore = {
+    headers: { get: (name: string) => requestHeaders.get(name) },
+  };
+  let authJson: Awaited<ReturnType<ReturnType<typeof getStackServerApp>["getAuthJson"]>>;
+  try {
+    authJson = await withSubrouterAuthorizationDeadline(async () => {
+      try {
+        return await getStackServerApp().getAuthJson({ tokenStore });
+      } catch {
+        throw new SubrouterAuthorizationUnavailableError(
+          "Stack session refresh unavailable",
+        );
+      }
+    });
+  } catch (error) {
+    if (!isSubrouterAuthorizationError(error)) throw error;
+    return renderCoderouterLoadError(locale);
   }
-  if (!authenticated.accessToken) {
+  const accessToken = authJson?.accessToken ?? null;
+  if (!accessToken) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard/coderouter")));
   }
 
-  const teams = authenticated.authorized
-    .filter((candidate) => candidate.use || candidate.manageAccounts)
-    .map((candidate) => ({
-      id: candidate.teamId,
-      name: candidate.teamName,
-      use: candidate.use,
-      manageAccounts: candidate.manageAccounts,
-      personal: candidate.personal,
-    }));
-  if (teams.length === 0) {
-    redirect("/dashboard");
-  }
-  const selectedTeam = selectTeam(
-    teams,
-    team,
-    authenticated.scopedTeamId,
-    authenticated.selectedTeamId,
-  );
   const [tPage, t, accountState, metrics, claudeUpstream, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
-    loadAccounts(selectedTeam, authenticated.accessToken),
+    loadAccounts(selectedTeam, accessToken),
     loadCoderouterTeamMetrics(selectedTeam.id),
     loadClaudeUpstream(selectedTeam.id),
     loadMachineUsage(selectedTeam.id),

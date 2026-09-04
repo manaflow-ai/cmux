@@ -12,6 +12,7 @@ let hostedControlConfigured = true;
 let hostedExchangeCalls = 0;
 let selectedTeamId: string | null = "team-1";
 let scopedTeamId: string | null = null;
+let authorizationCalls = 0;
 let authorizedTeams: Array<{
   teamId: string;
   teamName: string;
@@ -109,6 +110,7 @@ mock.module("../services/vms/auth", () => ({
     return await operation(new AbortController().signal);
   },
   verifySubrouterRequest: async () => {
+    authorizationCalls += 1;
     return { id: "user-1", selectedTeamId };
   },
   SubrouterAuthorizationUnavailableError:
@@ -251,6 +253,7 @@ describe("coderouter dashboard", () => {
     machineMetricsKind = "ready";
     selectedTeamId = "team-1";
     scopedTeamId = null;
+    authorizationCalls = 0;
     authorizedTeams = [{
       teamId: "team-1",
       teamName: "Team One",
@@ -483,6 +486,24 @@ describe("coderouter dashboard", () => {
     });
 
     expect(metricsTeamIds).toEqual(["user-1"]);
+  });
+
+  test("rechecks live team grants before reusing the private view", async () => {
+    authorizationAvailable = true;
+
+    await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
+    });
+    expect(authorizationCalls).toBe(1);
+
+    authorizedTeams = [];
+    await expect(
+      CoderouterOverviewContent({ locale: "en", team: "team-1" }),
+    ).rejects.toThrow("unexpected redirect to /dashboard");
+
+    expect(authorizationCalls).toBe(2);
+    expect(metricsTeamIds).toEqual(["team-1"]);
   });
 });
 

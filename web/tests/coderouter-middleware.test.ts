@@ -49,4 +49,17 @@ describe("coderouter middleware", () => {
     expect(response.headers.get("x-middleware-rewrite")).toBeNull();
     expect(response.headers.get("x-middleware-next")).toBe("1");
   });
+
+  test("forwards the localized dashboard destination to the server auth gate", () => {
+    const response = middleware(
+      new NextRequest(
+        "https://cmux.com/ja/dashboard/coderouter?team=team-1",
+        { headers: { "x-cmux-dashboard-return-path": "/pricing" } },
+      ),
+    );
+
+    expect(
+      response.headers.get("x-middleware-request-x-cmux-dashboard-return-path"),
+    ).toBe("/dashboard/coderouter?team=team-1");
+  });
 });

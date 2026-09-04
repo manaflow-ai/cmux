@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import { cacheLife } from "next/cache";
@@ -65,18 +66,50 @@ export async function DashboardTestflightContent({
   locale: string;
   testflight?: string;
 }) {
-  "use cache: private";
-  cacheLife({ stale: 300 });
-
+  // Entitlement checks stay outside the private cache. A subscription change
+  // therefore cannot leave the cached page granting access for five minutes.
   const user = await requireDashboardUser(locale, "/dashboard/testflight");
-
-  const [t, eligible] = await Promise.all([
-    getTranslations({ locale, namespace: "dashboard.testflight" }),
-    isTestflightEligible(user),
-  ]);
+  const eligible = await isTestflightEligible(user);
   const email = normalizedEmail(user.primaryEmail);
+  const authorizationFingerprint = createHash("sha256")
+    .update(`${user.id}\n${email ?? ""}\n${eligible ? "eligible" : "ineligible"}`)
+    .digest("hex");
+
+  return CachedDashboardTestflightContent({
+    locale,
+    testflight,
+    userId: user.id,
+    email,
+    eligible,
+    authorizationFingerprint,
+  });
+}
+
+async function CachedDashboardTestflightContent({
+  locale,
+  testflight,
+  userId,
+  email,
+  eligible,
+  authorizationFingerprint,
+}: {
+  readonly locale: string;
+  readonly testflight?: string;
+  readonly userId: string;
+  readonly email: string | null;
+  readonly eligible: boolean;
+  readonly authorizationFingerprint: string;
+}) {
+  "use cache: private";
+  // Thirty seconds keeps per-link prefetch available while bounding the
+  // enrollment snapshot. The live session and entitlement gate above runs
+  // before this scope on every server render.
+  cacheLife({ stale: 30 });
+  void authorizationFingerprint;
+
+  const t = await getTranslations({ locale, namespace: "dashboard.testflight" });
   const status = eligible && email
-    ? await loadTestflightStatus(email, user.id)
+    ? await loadTestflightStatus(email, userId)
     : { enrolled: false };
   const banner = testflightBanner(testflight);
 
