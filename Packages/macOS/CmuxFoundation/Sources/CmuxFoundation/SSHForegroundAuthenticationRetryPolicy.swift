@@ -1873,15 +1873,13 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             while IFS= read -r cmux_ssh_auth_force_existing_line; do
               printf '%s\n' "$cmux_ssh_auth_force_existing_line" >> "$cmux_ssh_auth_pending" || return 1
             done < "$cmux_ssh_auth_force_existing"
-            if [ ! -s "$cmux_ssh_auth_pending" ]; then
-              # Under the same fork ceiling the identity-aware signaler may
-              # be unable to start at all. The records came from the
-              # just-captured, parent-linked tree; freeze that exact set with
-              # the shell builtin and then kill it without another fork.
-              while IFS= read -r cmux_ssh_auth_force_input_line; do
-                printf '%s\n' "$cmux_ssh_auth_force_input_line" >> "$cmux_ssh_auth_pending" || return 1
-              done < "$cmux_ssh_auth_force_input"
-            fi
+            # The identity-aware signaler can return partial success when the
+            # host is at its fork ceiling. Include the complete retained
+            # snapshot, not just the rows it managed to journal, so every
+            # captured member gets the fork-free STOP/KILL pass below.
+            while IFS= read -r cmux_ssh_auth_force_input_line; do
+              printf '%s\n' "$cmux_ssh_auth_force_input_line" >> "$cmux_ssh_auth_pending" || return 1
+            done < "$cmux_ssh_auth_force_input"
             [ -s "$cmux_ssh_auth_pending" ] || return 1
             # Repeat STOP with the shell builtin so the subsequent KILL does
             # not depend on another process-table scan or a successful fork.
