@@ -112,9 +112,17 @@ function baselineEntries(text) {
   const entries = new Map();
   for (const line of text.split("\n").map((line) => line.trimEnd())) {
     if (!line || line.startsWith("#")) continue;
-    entries.set(line, (entries.get(line) ?? 0) + 1);
+    const fields = line.split("\t");
+    if (fields.length < 2 || !fields[0]) fail(`invalid baseline entry: ${line}`);
+    const message = fields.length >= 3 && /^\d+$/.test(fields[1]) ? fields.slice(2).join("\t") : fields.slice(1).join("\t");
+    const key = `${fields[0]}\t${message}`;
+    entries.set(key, (entries.get(key) ?? 0) + 1);
   }
   return entries;
+}
+
+function baselineEntryPath(entry) {
+  return entry.slice(0, entry.indexOf("\t"));
 }
 
 function readBaseline(repoRoot) {
@@ -173,18 +181,7 @@ function runOxlint(repoRoot, files) {
   const webRoot = path.join(repoRoot, "web");
   const result = spawnSync(
     path.join(webRoot, "node_modules", ".bin", "oxlint"),
-    [
-      "--config",
-      ".oxlintrc.json",
-      "-A",
-      "all",
-      "-D",
-      "complexity",
-      "--format",
-      "json",
-      "--no-error-on-unmatched-pattern",
-      ...files,
-    ],
+    ["--config", ".oxlintrc.json", "-A", "all", "-D", "complexity", "--format", "json", "--no-error-on-unmatched-pattern", ...files],
     { cwd: webRoot, encoding: "utf8", maxBuffer: 20 * 1024 * 1024 },
   );
   if (result.error) fail(`could not start oxlint: ${result.error.message}`);
@@ -199,14 +196,16 @@ function runOxlint(repoRoot, files) {
   if (result.status !== 0 && diagnostics.length === 0) {
     fail(`oxlint failed${result.stderr ? `: ${result.stderr.trim()}` : ""}`);
   }
-  return { diagnostics, stderr: result.stderr || "", status: result.status ?? 1 };
+  return {
+    diagnostics,
+    stderr: result.stderr || "",
+    status: result.status ?? 1,
+  };
 }
 
 function diagnosticKey(diagnostic) {
   const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
-  const spanLength = diagnostic.labels?.[0]?.span?.length;
-  const fingerprint = Number.isInteger(spanLength) ? spanLength : "unknown";
-  return `${filename}\t${fingerprint}\t${String(diagnostic.message ?? "")}`;
+  return `${filename}\t${String(diagnostic.message ?? "")}`;
 }
 
 const { base, head, files: explicitFiles } = parseArgs();
@@ -215,7 +214,11 @@ assertCheckedOutHead(repoRoot, head);
 const baseline = readBaseline(repoRoot);
 assertBaselineOnlyShrinks(repoRoot, base, baseline);
 const files = sourceFiles(repoRoot, explicitFiles);
+const scannedFiles = explicitFiles.length > 0 ? new Set(files) : undefined;
 if (files.length === 0) {
+  if (explicitFiles.length === 0 && baseline.size > 0) {
+    fail("the baseline still contains findings but no production web files are available to scan");
+  }
   console.log("complexity gate: no production web files to scan");
   process.exit(0);
 }
@@ -246,6 +249,7 @@ if (newFindings.length === 0) {
   let stale = 0;
   const staleEntries = [];
   for (const [entry, count] of baseline) {
+    if (scannedFiles && !scannedFiles.has(baselineEntryPath(entry))) continue;
     const missing = Math.max(0, count - (currentCounts.get(entry) ?? 0));
     stale += missing;
     for (let index = 0; index < missing; index += 1) staleEntries.push(entry);
@@ -255,13 +259,13 @@ if (newFindings.length === 0) {
     for (const entry of staleEntries.sort()) console.error(`  ${entry}`);
     process.exit(1);
   }
-  console.log(
-    `complexity gate: ${diagnostics.length} finding${diagnostics.length === 1 ? "" : "s"} matched the grandfathered baseline`,
-  );
+  console.log(`complexity gate: ${diagnostics.length} finding${diagnostics.length === 1 ? "" : "s"} matched the grandfathered baseline`);
   process.exit(0);
 }
 
-console.error(`complexity gate: ${newFindings.length} new finding${newFindings.length === 1 ? "" : "s"} exceed complexity ${complexityLimit}`);
+console.error(
+  `complexity gate: ${newFindings.length} new finding${newFindings.length === 1 ? "" : "s"} exceed complexity ${complexityLimit}`,
+);
 for (const diagnostic of newFindings) {
   const filename = String(diagnostic.filename ?? "").replace(/^\.\//, "");
   const line = diagnostic.labels?.[0]?.span?.line ?? 1;

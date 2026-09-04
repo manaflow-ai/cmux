@@ -1,8 +1,10 @@
 # Grandfathered Oxlint complexity findings.
-# Each entry is `<path relative to web/>`, a tab, the function span length in
-# bytes, another tab, and the exact diagnostic message. This list may only
-# shrink. Never add an entry for new code. Fix the function or use a narrowly
-# scoped, reviewed inline suppression when the complexity is intentional.
+# Each entry is `<path relative to web/>`, a tab, and the exact diagnostic
+# message. The checker also accepts the legacy form with a numeric function
+# span between the path and message, and ignores that unstable span. This list
+# may only shrink. Never add an entry for new code. Fix the function or use a
+# narrowly scoped, reviewed inline suppression when the complexity is
+# intentional.
 app/[locale]/(landing)/deeplink/[kind]/page.tsx	2321	function `invalidParams` has a complexity of 32. Maximum allowed is 20.
 app/[locale]/(landing)/docs/changelog/changelog-release.tsx	4820	function `ChangelogRelease` has a complexity of 22. Maximum allowed is 20.
 app/[locale]/dashboard/admin/admin-pro-panel.tsx	11925	function `AdminProPanel` has a complexity of 21. Maximum allowed is 20.
