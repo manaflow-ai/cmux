@@ -1939,7 +1939,17 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           }
 
           cmux_ssh_auth_cleanup() {
+            cmux_ssh_auth_cleanup_incoming_status=$?
             trap - EXIT HUP INT TERM
+            # A late fork/pipe failure can arrive after the force phase has
+            # already completed the identity-fenced kill transaction. Preserve
+            # that successful outcome instead of returning the incidental
+            # shell status (usually 1) to the caller. If cleanup was not marked
+            # complete, retain the existing recovery paths below.
+            if [ "$cmux_ssh_auth_cleanup_incoming_status" -ne 0 ] &&
+               [ "$cmux_ssh_auth_cleanup_complete" = 1 ]; then
+              exit 0
+            fi
             if [ "$cmux_ssh_auth_cleanup_complete" != 1 ]; then
               # The journal files are the authoritative ownership state. A
               # shell can abort before assigning one of the in-memory phase
