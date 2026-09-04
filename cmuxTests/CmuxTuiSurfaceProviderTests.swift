@@ -1350,6 +1350,22 @@ import Testing
         #expect(CloudVMStateSyncDecision.forSnapshot(incoming: nil, current: current) == .ignoreStale)
     }
 
+    @Test func snapshotClearsEventWarningOnlyAfterLiveFeedResumes() {
+        let cursor = CloudVMCursor(generation: "daemon-a", revision: 7)
+        #expect(!CloudVMEventFeedRecoveryDecision.shouldClearWarning(
+            snapshotCursor: nil,
+            subscriptionResumed: false
+        ))
+        #expect(!CloudVMEventFeedRecoveryDecision.shouldClearWarning(
+            snapshotCursor: cursor,
+            subscriptionResumed: false
+        ))
+        #expect(CloudVMEventFeedRecoveryDecision.shouldClearWarning(
+            snapshotCursor: cursor,
+            subscriptionResumed: true
+        ))
+    }
+
     @Test func eventRecoveryUsesPositiveCappedBackoff() {
         let policy = CloudMachineLinkEventsRecoveryPolicy.standard
         #expect(policy.delay(forAttempt: 1) == .milliseconds(250))
