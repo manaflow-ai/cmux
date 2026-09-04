@@ -18,6 +18,12 @@ Cargo test names do not include their package name, so a plain test-name filter
 cannot select that crate.
 --full runs the cross-platform merge gate, including real Windows execution.
 Both modes build and download a macOS arm64 cmux-tui artifact from the exact pushed HEAD.
+
+Optional retention is enabled with CMUX_TUI_HOSTED_RETENTION_COUNT. Run once
+with CMUX_TUI_HOSTED_RETENTION_DRY_RUN=1, then run with
+CMUX_TUI_HOSTED_RETENTION_CONFIRM=1 to remove confirmed inactive artifacts.
+The candidate scan is capped at 10,000 directories; use
+CMUX_TUI_HOSTED_RETENTION_MAX_CANDIDATES to choose a lower cap.
 EOF
 }
 
@@ -61,6 +67,8 @@ if [[ ! "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=hosted-retention.sh
+source "$script_dir/hosted-retention.sh"
 repo_root="$(git -C "$script_dir" rev-parse --show-toplevel)"
 cd "$repo_root"
 
@@ -332,15 +340,60 @@ gh run download \
   --dir "$temp_dir"
 
 downloaded_binary="$(find "$temp_dir" -type f -name cmux-tui-aarch64-apple-darwin -print | sed -n '1p')"
-if [[ -z "$downloaded_binary" ]]; then
+if [[ -z "$downloaded_binary" || -L "$downloaded_binary" || ! -f "$downloaded_binary" ]]; then
   echo "error: the macOS arm64 artifact did not contain cmux-tui" >&2
   exit 1
 fi
 
 artifact_dir="cmux-tui/target/hosted/$commit"
 artifact_binary="$artifact_dir/cmux-tui"
-mkdir -p "$artifact_dir"
-install -m 0755 "$downloaded_binary" "$artifact_binary"
+artifact_root="cmux-tui/target/hosted"
+artifact_parent="cmux-tui/target"
+if ! cmux_hosted_retention_validate_no_symlink_ancestors "$repo_root" cmux-tui target hosted; then
+  echo "error: hosted artifact path contains a symbolic-link ancestor" >&2
+  exit 2
+fi
+if [[ -L "$artifact_parent" || ! -d "$artifact_parent" || ! -O "$artifact_parent" ]]; then
+  if [[ -e "$artifact_parent" || -L "$artifact_parent" ]]; then
+    echo "error: hosted artifact parent is symbolic or not owned by this user" >&2
+    exit 2
+  fi
+  mkdir "$artifact_parent"
+fi
+if [[ ! -e "$artifact_root" ]]; then
+  mkdir "$artifact_root"
+fi
+if [[ -L "$artifact_root" || ! -d "$artifact_root" || ! -O "$artifact_root" ]]; then
+  echo "error: hosted artifact root is missing, symbolic, or not owned by this user" >&2
+  exit 2
+fi
+if [[ -e "$artifact_dir" || -L "$artifact_dir" ]]; then
+  if [[ -L "$artifact_dir" || ! -d "$artifact_dir" || ! -O "$artifact_dir" ]]; then
+    echo "error: hosted artifact directory is not a user-owned directory" >&2
+    exit 2
+  fi
+else
+  mkdir "$artifact_dir"
+fi
+if [[ -e "$artifact_binary" || -L "$artifact_binary" ]]; then
+  if [[ -L "$artifact_binary" || ! -f "$artifact_binary" || ! -O "$artifact_binary" ]]; then
+    echo "error: hosted artifact destination is not a user-owned regular file" >&2
+    exit 2
+  fi
+fi
+staged_binary="$(mktemp "$artifact_dir/.cmux-tui.XXXXXX")"
+if ! install -m 0755 "$downloaded_binary" "$staged_binary"; then
+  rm -f -- "$staged_binary"
+  echo "error: could not stage the hosted TUI artifact" >&2
+  exit 1
+fi
+if ! mv -f -- "$staged_binary" "$artifact_binary"; then
+  rm -f -- "$staged_binary"
+  echo "error: could not publish the hosted TUI artifact" >&2
+  exit 1
+fi
+
+cmux_hosted_retention_run "$artifact_dir" "$commit"
 
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
