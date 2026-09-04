@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
@@ -636,20 +636,27 @@ describe("model-plane env reaches provider creates", () => {
 // Compiled here with the local tic and queried like a guest program would.
 describe("devbox terminfo overlay", () => {
   const hasNcurses = spawnSync("tic", ["-V"]).status === 0 && spawnSync("infocmp", ["-V"]).status === 0;
-  const compiled = mkdtempSync(path.join(tmpdir(), "cmux-terminfo-"));
+  let compiled: string | undefined;
+  beforeEach(() => {
+    compiled = mkdtempSync(path.join(tmpdir(), "cmux-terminfo-"));
+  });
+  afterEach(() => {
+    if (compiled) rmSync(compiled, { recursive: true, force: true });
+    compiled = undefined;
+  });
   const tput = (term: string, ...args: string[]) => {
-    const result = spawnSync("tput", ["-T", term, ...args], { env: { ...process.env, TERMINFO: compiled, TERMINFO_DIRS: compiled } });
+    const result = spawnSync("tput", ["-T", term, ...args], { env: { ...process.env, TERMINFO: compiled!, TERMINFO_DIRS: compiled! } });
     expect({ term, args, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, args, status: 0 });
     return result.stdout.toString("latin1");
   };
   const infocmp = (term: string) => {
-    const result = spawnSync("infocmp", ["-x", "-A", compiled, term]);
+    const result = spawnSync("infocmp", ["-x", "-A", compiled!, term]);
     expect({ term, status: result.status, stderr: result.stderr.toString() }).toMatchObject({ term, status: 0 });
     return result.stdout.toString();
   };
 
   (hasNcurses ? test : test.skip)("compiles with tic and serves cmux's capabilities under every exported name", () => {
-    const tic = spawnSync("tic", ["-x", "-o", compiled, path.join(templateDir, "cmux-terminfo.src")]);
+    const tic = spawnSync("tic", ["-x", "-o", compiled!, path.join(templateDir, "cmux-terminfo.src")]);
     expect({ status: tic.status, stderr: tic.stderr.toString() }).toMatchObject({ status: 0 });
     for (const term of ["xterm-ghostty", "ghostty", "xterm-256color"]) {
       expect(tput(term, "colors").trim()).toBe("256");
@@ -663,7 +670,6 @@ describe("devbox terminfo overlay", () => {
       expect(tput(term, "setaf", "7")).toBe("\x1b[37m");
       expect(tput(term, "setaf", "16")).toBe("\x1b[38;5;16m");
     }
-    rmSync(compiled, { recursive: true, force: true });
   });
 
   test("the bake installs it before seeding ble.sh's per-TERM tput caches", () => {
