@@ -1,6 +1,19 @@
 public import Foundation
 public import Observation
 
+private func entriesWithMinimumSupportedVersion(
+    _ entries: [String: MobileMacListAuthState.Entry],
+    minimum: String?,
+    shouldOverride: Bool
+) -> [String: MobileMacListAuthState.Entry] {
+    guard shouldOverride else { return entries }
+    return entries.mapValues { entry in
+        var updated = entry
+        updated.minimumSupportedVersion = minimum
+        return updated
+    }
+}
+
 /// The phone's view of the account device list (the list-auth admission
 /// authority), projected for UI.
 ///
@@ -94,14 +107,14 @@ public final class MobileMacListAuthState {
             : minimumSupportedMacVersion
         let shouldOverride = hasPolicyMinimumSupportedMacVersion
             || minimumSupportedMacVersion != nil
-        self.entriesByEndpointID = Self.entries(
+        self.entriesByEndpointID = entriesWithMinimumSupportedVersion(
             entriesByEndpointID,
-            withMinimumSupportedVersion: effectiveMinimum,
+            minimum: effectiveMinimum,
             shouldOverride: shouldOverride
         )
-        self.entriesByDeviceID = Self.entries(
+        self.entriesByDeviceID = entriesWithMinimumSupportedVersion(
             entriesByDeviceID,
-            withMinimumSupportedVersion: effectiveMinimum,
+            minimum: effectiveMinimum,
             shouldOverride: shouldOverride
         )
         self.minimumSupportedMacVersion = effectiveMinimum
@@ -114,14 +127,14 @@ public final class MobileMacListAuthState {
     public func applyPolicyMinimumSupportedMacVersion(_ minimum: String?) {
         policyMinimumSupportedMacVersion = minimum
         hasPolicyMinimumSupportedMacVersion = true
-        entriesByEndpointID = Self.entries(
+        entriesByEndpointID = entriesWithMinimumSupportedVersion(
             entriesByEndpointID,
-            withMinimumSupportedVersion: minimum,
+            minimum: minimum,
             shouldOverride: true
         )
-        entriesByDeviceID = Self.entries(
+        entriesByDeviceID = entriesWithMinimumSupportedVersion(
             entriesByDeviceID,
-            withMinimumSupportedVersion: minimum,
+            minimum: minimum,
             shouldOverride: true
         )
         minimumSupportedMacVersion = minimum
@@ -140,19 +153,6 @@ public final class MobileMacListAuthState {
 
     public func entry(deviceID: String) -> Entry? {
         entriesByDeviceID[deviceID]
-    }
-
-    private static func entries(
-        _ entries: [String: Entry],
-        withMinimumSupportedVersion minimum: String?,
-        shouldOverride: Bool
-    ) -> [String: Entry] {
-        guard shouldOverride else { return entries }
-        return entries.mapValues { entry in
-            var updated = entry
-            updated.minimumSupportedVersion = minimum
-            return updated
-        }
     }
 
     /// Whether the directory still has a seeded overlay for this Mac. This is
