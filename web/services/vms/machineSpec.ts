@@ -83,11 +83,22 @@ export function vmResourceReservationForCreate(input: {
   readonly env?: Record<string, string | undefined>;
 } = {}): VmResourceReservation {
   if (input.imageSize) {
-    return normalizeResourceReservation({
+    const imageReservation = normalizeResourceReservation({
       vcpus: input.imageSize.cpu,
       memoryMb: input.imageSize.memoryMb,
       diskMb: input.imageSize.storageMb,
     });
+    // A resolver can provide both the caller's requested memory and the baked
+    // image selected to satisfy it. CPU and memory stay logical entitlement
+    // claims, while disk must match the image that the provider actually boots.
+    if (input.memoryMb !== undefined) {
+      return normalizeResourceReservation({
+        vcpus: vcpusForMemoryMb(input.memoryMb),
+        memoryMb: input.memoryMb,
+        diskMb: imageReservation.diskMb,
+      });
+    }
+    return imageReservation;
   }
   const memoryMb = input.memoryMb ?? PLAN_MACHINE_MEMORY_MB;
   return normalizeResourceReservation({

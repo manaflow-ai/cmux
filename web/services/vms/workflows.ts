@@ -469,14 +469,13 @@ export function createVm(input: {
     const beginInput = isPaidVmPlan(input.billingPlanId)
       ? {
         ...input,
-        // Reserve the logical plan profile when memoryMb is present, because
-        // the resolver may select a larger baked snapshot to satisfy it. A
-        // direct caller may instead provide only imageSize; in that form the
-        // image is the authoritative request and must not fall back to the
-        // smaller default reservation.
+        // Reserve the logical CPU and memory profile when memoryMb is present,
+        // while retaining the baked image's actual disk claim. A direct caller
+        // may instead provide only imageSize; in that form the image is the
+        // authoritative request.
         resourceReservation: input.resourceReservation ?? vmResourceReservationForCreate({
           memoryMb: input.memoryMb,
-          ...(input.memoryMb === undefined && input.imageSize ? { imageSize: input.imageSize } : {}),
+          imageSize: input.imageSize,
         }),
         sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
       }
