@@ -31,10 +31,9 @@
 #      (covers Sparkle's XPCServices and Updater.app).
 #   4b. The Cloud tunnel system extension under
 #      Contents/Library/SystemExtensions/* with its own entitlements and its
-#      own embedded provisioning profile. The extension is signed without
-#      hardened-runtime options, and the effective app entitlements omit the
-#      two runtime relaxations that macOS rejects when this extension is
-#      present. When the requested app entitlement is not granted by its
+#      own embedded provisioning profile. The extension is signed with the
+#      hardened runtime and without the two runtime relaxations that macOS
+#      rejects when this extension is present. When the requested app entitlement is not granted by its
 #      profile, signing stops. Nightly and Stable must not ship without the
 #      browser tunnel.
 #   5. The main app bundle with the effective app-level entitlements,
@@ -83,10 +82,11 @@ else
 fi
 
 # The app and its normal nested code use the hardened runtime. A packet-tunnel
-# system extension is a separate launch domain: macOS rejects the hardened
-# runtime relaxation flags there, so it gets its own signing argument set below.
+# system extension is a separate launch domain. macOS requires its hardened
+# runtime, but rejects the two runtime-relaxation entitlements below. It gets
+# its own signing argument set so the extension has runtime without those keys.
 COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
-SYSTEM_EXTENSION_COMMON=(--force "${TS_FLAG[@]}" --sign "$IDENTITY")
+SYSTEM_EXTENSION_COMMON=(--force --options runtime "${TS_FLAG[@]}" --sign "$IDENTITY")
 COMPUTER_USE_HELPER="$APP_PATH/Contents/Library/cmux Computer Use.app"
 SYSTEM_EXTENSIONS_DIR="$APP_PATH/Contents/Library/SystemExtensions"
 
@@ -272,8 +272,8 @@ if [[ "$TUNNEL_SUPPORTED" == "1" ]]; then
   while IFS= read -r -d '' sysext; do
     /usr/bin/codesign --verify --strict --verbose=2 "$sysext"
     sysext_details="$(/usr/bin/codesign -d --verbose=4 "$sysext" 2>&1)"
-    if [[ "$sysext_details" == *"flags="*"runtime"* ]]; then
-      echo "error: system extension $(basename "$sysext") carries hardened runtime flags; macOS will reject it" >&2
+    if [[ "$sysext_details" != *"flags="*"runtime"* ]]; then
+      echo "error: system extension $(basename "$sysext") is missing the hardened runtime required for notarization" >&2
       exit 1
     fi
     sysext_entitlements="$(/usr/bin/codesign -d --entitlements :- "$sysext" 2>&1)"
