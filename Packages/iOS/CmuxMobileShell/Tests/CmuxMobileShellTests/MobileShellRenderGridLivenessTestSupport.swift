@@ -811,7 +811,7 @@ struct LivenessTransportFactory: CmxByteTransportFactory {
     }
 }
 
-actor LivenessTransport: CmxByteTransport {
+actor LivenessTransport: CmxByteTransport, CmxByteTransportLivenessObserving {
     private let router: LivenessHostRouter
     private let closeGate: LivenessTransportCloseGate?
     private var pendingFrames: [Data] = []
@@ -903,6 +903,10 @@ actor LivenessTransport: CmxByteTransport {
     }
 
     func isClosedForTesting() -> Bool {
+        isClosed
+    }
+
+    func isTransportClosed() async -> Bool {
         isClosed
     }
 

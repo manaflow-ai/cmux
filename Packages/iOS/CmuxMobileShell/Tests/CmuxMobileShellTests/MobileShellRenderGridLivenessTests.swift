@@ -109,7 +109,7 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 1))
-    #expect(store.macConnectionStatus == .connected)
+    #expect(try await pollUntil { store.macConnectionStatus == .connected })
 
     await router.delaySubscribeRequest(number: 2)
     store.resyncTerminalOutput(
@@ -121,10 +121,8 @@ import Testing
     }
 
     #expect(await router.waitForCount(of: "mobile.events.subscribe", atLeast: 2))
-    #expect(
-        store.macConnectionStatus == .reconnecting,
-        "a prior listener acknowledgement must not validate its replacement"
-    )
+    #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus == .connected)
 
     await router.releaseAllHeld()
     #expect(try await pollUntil(attempts: 1_000) {
@@ -148,7 +146,7 @@ import Testing
 }
 
 @MainActor
-@Test func verifiedReplayCapableHostUsesRenderGridOnlySubscription() async throws {
+@Test func verifiedReplayCapableHostUsesHybridTerminalOutputSubscription() async throws {
     let clock = TestClock()
     let router = LivenessHostRouter()
     await router.setCapabilities([
@@ -161,16 +159,13 @@ import Testing
     let box = TransportBox()
     let store = try await makeConnectedStore(router: router, box: box, clock: clock)
     #expect(store.connectionState == .connected)
-    #expect(store.terminalOutputTransport == .renderGrid)
+    #expect(store.terminalOutputTransport == .hybrid)
 
     let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
     #expect(sawSubscribe, "listener must request the server-side subscription")
     let topics = await router.topics(for: "mobile.events.subscribe").last ?? []
     #expect(topics.contains("terminal.render_grid"))
-    #expect(
-        topics.contains("terminal.bytes") == false,
-        "verified replay must exclude raw bytes so primary-screen updates cannot bypass render-grid verification"
-    )
+    #expect(topics.contains("terminal.bytes"))
 }
 
 @MainActor
@@ -602,6 +597,43 @@ import Testing
         await router.count(of: "mobile.host.status") == hostStatusCountBeforeFailure,
         "one transient probe miss must not restart the event listener"
     )
+}
+
+/// A pair of failed subscription probes can identify a stalled event lane while
+/// the shared Iroh transport remains healthy. Repair that lane in place so
+/// terminal input and keepalives do not pay for a full session replacement.
+@MainActor
+@Test func watchdogRepairsStalledEventLaneWithoutReplacingLiveTransport() async throws {
+    let clock = TestClock()
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let store = try await makeConnectedStore(router: router, box: box, clock: clock)
+    defer {
+        Task { await router.releaseAllHeld() }
+    }
+
+    let sawSubscribe = try await pollUntil { await router.count(of: "mobile.events.subscribe") >= 1 }
+    #expect(sawSubscribe, "listener must establish the push subscription")
+    let originalClient = try #require(store.remoteClient)
+    let originalGeneration = store.connectionGeneration
+
+    await router.holdProbeRequest(number: 1)
+    await router.holdProbeRequest(number: 2)
+    clock.advance(by: 10)
+    store.debugRunRenderGridLivenessCheckForTesting()
+    #expect(await router.waitForCount(of: "mobile.events.probe", atLeast: 1))
+
+    let repaired = try await pollUntil(attempts: 600) {
+        store.debugRunRenderGridLivenessCheckForTesting()
+        let probeCount = await router.count(of: "mobile.events.probe")
+        let subscribeCount = await router.count(of: "mobile.events.subscribe")
+        return probeCount >= 2 && subscribeCount >= 2
+    }
+    #expect(repaired, "a live transport must restart only the stalled event listener")
+    #expect(store.remoteClient === originalClient)
+    #expect(store.connectionGeneration == originalGeneration)
+    #expect(store.connectionState == .connected)
+    #expect(store.macConnectionStatus == .connected)
 }
 
 /// A successful probe that REPAIRED a lost registration (the host reports
