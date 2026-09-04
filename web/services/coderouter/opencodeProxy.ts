@@ -1,3 +1,6 @@
+import { lookup as dnsLookup } from "node:dns/promises";
+import { isIP } from "node:net";
+
 import { authenticateRouteToken, selectAccountForRequest } from "./repository";
 import { freshCredential } from "./refresh";
 import { fetchProviderRead } from "./providerFetch";
@@ -39,6 +42,7 @@ type OpenCodeDependencies = {
   readonly credential: typeof freshCredential;
   readonly remoteConfig: (accessToken: string, signal?: AbortSignal) => Promise<Record<string, unknown>>;
   readonly fetch?: typeof fetch;
+  readonly resolveProviderURL?: typeof resolveProviderURL;
 };
 
 /** Runtime seams used by tests to exercise request-wide timeout behavior. */
@@ -330,7 +334,24 @@ export async function proxyOpenCodeRequest(
       false,
     );
   }
-  const target = new URL(base);
+  const target = await (dependencies.resolveProviderURL ?? resolveProviderURL)(base);
+  if (!target) {
+    captureOpenCodeHealth({
+      requestId,
+      identity: auth,
+      startedAt,
+      status: 502,
+      outcome: "invalid_provider",
+      failureStage: "provider_config",
+      attempts: resolved.attempts,
+    });
+    return apiError(
+      "invalid_provider",
+      "OpenCode returned an unsafe or invalid provider endpoint.",
+      502,
+      false,
+    );
+  }
   target.pathname = `${target.pathname.replace(/\/+$/, "")}/${path
     .map(encodeURIComponent)
     .join("/")}`;
@@ -431,24 +452,6 @@ export async function proxyOpenCodeRequest(
   });
   const body = observeModelUsage(upstream.body, (usage) => {
     if (!usage || usage.totalTokens === 0) return;
-    captureCoderouterEvent({
-      event: "coderouter_model_request_completed",
-      userId: auth.stackUserId,
-      teamId: auth.teamId,
-      properties: {
-        provider: "opencode-go",
-        model: usage.model ?? "unknown",
-        input_tokens: usage.inputTokens,
-        cached_input_tokens: usage.cachedInputTokens,
-        output_tokens: usage.outputTokens,
-        total_tokens: usage.totalTokens,
-        request_id: requestId,
-        duration_ms: Math.round(performance.now() - startedAt),
-        status: upstream.status,
-        response_streamed: streamed,
-        ...vmIdProperty(auth.vmId),
-      },
-    });
     recordUsageEvent({
       requestId,
       teamId: auth.teamId,
@@ -629,7 +632,7 @@ function vmIdProperty(vmId: string | null): { vm_id?: string } {
 
 function captureOpenCodeHealth(input: {
   readonly requestId: string;
-  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "vmId">;
+  readonly identity?: Pick<RouteTokenIdentity, "teamId" | "stackUserId" | "vmId">;
   readonly startedAt: number;
   readonly status: number;
   readonly outcome:
@@ -664,6 +667,7 @@ function captureOpenCodeHealth(input: {
   recordRouteEvent({
     requestId: input.requestId,
     teamId: input.identity?.teamId,
+    stackUserId: input.identity?.stackUserId,
     vmId: input.identity?.vmId ?? null,
     provider: "opencode-go",
     agent: "opencode",
@@ -695,23 +699,106 @@ function apiError(
   );
 }
 
+type ProviderLookupAddress = { readonly address: string; readonly family: number };
+type ProviderLookup = (hostname: string) => Promise<readonly ProviderLookupAddress[]>;
+
 function safeProviderURL(value: string): boolean {
   try {
     const url = new URL(value);
     if (url.protocol !== "https:" || url.username || url.password) return false;
-    const hostname = url.hostname.toLowerCase();
-    return (
-      hostname !== "localhost" &&
-      hostname !== "0.0.0.0" &&
-      hostname !== "::1" &&
-      !/^127\./.test(hostname) &&
-      !/^10\./.test(hostname) &&
-      !/^192\.168\./.test(hostname) &&
-      !/^172\.(1[6-9]|2[0-9]|3[01])\./.test(hostname)
-    );
+    return !unsafeProviderAddress(url.hostname);
   } catch {
     return false;
   }
+}
+
+async function resolveProviderURL(
+  value: string,
+  lookup: ProviderLookup = defaultProviderLookup,
+): Promise<URL | null> {
+  // Resolve every hostname before proxying it so private answers cannot pass
+  // through the URL parser. The provider catalog is trusted, but this remains
+  // defense-in-depth; the fetch implementation may perform a later lookup.
+  if (!safeProviderURL(value)) return null;
+  const url = new URL(value);
+  const hostname = normalizeProviderHostname(url.hostname);
+  if (isIP(hostname) !== 0) return url;
+  try {
+    const addresses = await lookup(hostname);
+    if (addresses.length === 0 || addresses.some(({ address }) => unsafeProviderAddress(address))) {
+      return null;
+    }
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+async function defaultProviderLookup(hostname: string): Promise<readonly ProviderLookupAddress[]> {
+  return dnsLookup(hostname, { all: true, verbatim: true });
+}
+
+function normalizeProviderHostname(hostname: string): string {
+  return hostname.replace(/^\[/, "").replace(/\]$/, "").toLowerCase();
+}
+
+function unsafeProviderAddress(value: string): boolean {
+  const address = normalizeProviderHostname(value);
+  const family = isIP(address);
+  if (family === 4) return unsafeIPv4Address(address);
+  if (family !== 6) {
+    return address === "localhost" || address === "localhost.localdomain";
+  }
+
+  const firstHextet = Number.parseInt(address.split(":", 1)[0] || "0", 16);
+  if (
+    address === "::" ||
+    address === "::1" ||
+    (firstHextet >= 0xfe80 && firstHextet <= 0xfebf) ||
+    (firstHextet & 0xfe00) === 0xfc00 ||
+    (firstHextet & 0xff00) === 0xff00
+  ) {
+    return true;
+  }
+
+  const mappedIPv4 = mappedIPv4Address(address);
+  return mappedIPv4 !== null && unsafeIPv4Address(mappedIPv4);
+}
+
+function unsafeIPv4Address(value: string): boolean {
+  const octets = value.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+  const [first, second] = octets;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 198 && (second === 18 || second === 19)) ||
+    first >= 224
+  );
+}
+
+function mappedIPv4Address(value: string): string | null {
+  const prefix = "::ffff:";
+  if (!value.startsWith(prefix)) return null;
+  const groups = value.slice(prefix.length).split(":");
+  if (groups.length !== 2) return null;
+  const numbers = groups.map((group) => Number.parseInt(group, 16));
+  if (numbers.some((number) => !Number.isInteger(number) || number < 0 || number > 0xffff)) {
+    return null;
+  }
+  return [
+    numbers[0] >> 8,
+    numbers[0] & 0xff,
+    numbers[1] >> 8,
+    numbers[1] & 0xff,
+  ].join(".");
 }
 
 function filteredResponseHeaders(input: Headers): Headers {
@@ -742,4 +829,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export const __test = { rewriteProviders, safeProviderURL, openCodeAccount };
+export const __test = {
+  rewriteProviders,
+  safeProviderURL,
+  resolveProviderURL,
+  openCodeAccount,
+};

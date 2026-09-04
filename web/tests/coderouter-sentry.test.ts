@@ -50,6 +50,14 @@ describe("coderouter Sentry privacy", () => {
     ).toBe(false);
   });
 
+  test("rate-limit rule reports pass the shared operational filter", () => {
+    expect(
+      shouldSendCoderouterSentryEvent({
+        contexts: { cmux: { subsystem: "rate_limit", route: "/api/feedback" } },
+      }),
+    ).toBe(true);
+  });
+
   test("removes request bodies, auth headers, route tokens, JWTs, and PII", () => {
     const event = scrubSentryEvent({
       message:

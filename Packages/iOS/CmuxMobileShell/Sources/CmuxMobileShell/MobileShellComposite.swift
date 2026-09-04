@@ -1045,6 +1045,22 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// ``MobileMacCompatPolicy/baked`` fallback; the app root replaces it
     /// with the fetched (or cached) `/api/mobile-mac-compat` list.
     public var macCompatPolicy: MobileMacCompatPolicy = .baked
+    /// Device ids whose last authenticated attempt was refused because the Mac
+    /// is below this iOS build's minimum. The warning remains until that Mac
+    /// successfully authenticates again or the account boundary clears it.
+    private var macVersionUpdateRequiredDeviceIDs: Set<String> = []
+    /// Whether any known Mac needs a cmux update before it can connect.
+    public var hasMacVersionUpdateRequired: Bool {
+        !macVersionUpdateRequiredDeviceIDs.isEmpty
+    }
+    /// Version reported by the currently authenticated foreground Mac. The
+    /// background compatibility refresh uses this to revalidate an already
+    /// connected session if the remote policy becomes stricter.
+    var authenticatedMacAppVersion: String?
+    /// Set when a background policy refresh completes while a Mac is still
+    /// connecting. The first healthy-state transition consumes it so the
+    /// connection cannot finish under the previous policy.
+    var pendingMacCompatibilityPolicyRevalidation = false
     /// Version-gate details captured when a connect route is rejected, so
     /// the end-of-attempt classification names the exact versions instead of
     /// a generic code. Cleared with the pairing error at attempt start.
@@ -2099,6 +2115,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectedHostName = ""
         pairingCode = ""
         clearPairingVersionWarning()
+        macVersionUpdateRequiredDeviceIDs.removeAll()
         // Wipe every draft so the next account never sees its predecessor's text.
         // Guard the in-memory clear and selection resets so per-terminal hooks do
         // not write partial state into a store we are emptying wholesale.
@@ -2230,6 +2247,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// lists" behavior).
     public func currentTeamDidChange() {
         cancelComputerVisibilityMutations()
+        macVersionUpdateRequiredDeviceIDs.removeAll()
         secondaryAggregationScopeGeneration &+= 1
         // Presence: cancel + re-subscribe so the online dots reflect the new team
         // (the subscribe reads the team live). Cheap live socket; the only eager bit.
@@ -4626,6 +4644,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             client: client
         ) {
         case .allowed:
+            authenticatedMacAppVersion = macAppVersion
+            clearMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
             break
         case .buildIncompatible:
             rejectForegroundHostIdentity(client: client, reason: "build_incompatible")
@@ -4634,6 +4654,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Explain before disconnecting (mirrors
             // applyStoredMacUpdateRequiredFailure ordering): the saved pairing
             // stays intact and reconnects once the Mac updates.
+            noteMacVersionUpdateRequired(for: resolvedTicket.macDeviceID)
             applyPairingFailure(
                 .macAppVersionTooOld(
                     macVersion: violation.macAppVersion,
@@ -9036,6 +9057,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Sends one notification reply to an explicitly captured terminal as a
+    /// bracketed paste followed by a single Return key event. Inline replies
+    /// must use this path instead of ``sendTerminalInput(_:workspaceID:terminalID:)``:
+    /// appending ``\r`` to terminal input is interpreted as a raw byte by the
+    /// socket grammar, which inserts a newline in full-screen agent editors
+    /// instead of submitting the prompt.
+    ///
+    /// This does not change selection or composer state. The target workspace
+    /// and terminal are validated before the request is sent, and the existing
+    /// paste helper supplies the same viewport and hibernation handling as the
+    /// on-device composer.
+    @discardableResult
+    public func sendTerminalPaste(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard !text.isEmpty,
+              workspace(workspaceID, containsSurfaceID: terminalID.rawValue) else {
+            return false
+        }
+        return await sendRemoteTerminalPaste(
+            text,
+            submitKey: "return",
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
     /// Submit the composer's text to an explicitly captured terminal. Used by
     /// ``submitComposer()`` so a terminal switch mid-send cannot reroute the text
     /// to whatever is selected when the (awaited) image sends return: the target
@@ -10030,6 +10080,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                         client: client
                     ) {
                     case .allowed:
+                        authenticatedMacAppVersion = status.macAppVersion
+                        clearMacVersionUpdateRequired(
+                            for: status.macDeviceID ?? ticket.macDeviceID
+                        )
                         break
                     case .buildIncompatible:
                         mobileShellLog.error(
@@ -10045,6 +10099,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     case let .macAppVersionTooOld(violation):
                         mobileShellLog.error(
                             "rejecting route from outdated Mac app version=\(violation.macAppVersion ?? "missing", privacy: .public) required=\(violation.requiredVersionDisplay, privacy: .public)"
+                        )
+                        noteMacVersionUpdateRequired(
+                            for: status.macDeviceID ?? ticket.macDeviceID
                         )
                         await client.disconnect()
                         pendingMacVersionGateViolation = violation
@@ -10663,6 +10720,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         activeTicket = nil
         activeRoute = nil
         activeMacInstanceTag = nil
+        authenticatedMacAppVersion = nil
+        pendingMacCompatibilityPolicyRevalidation = false
         connectedHostName = ""
     }
 
@@ -11327,7 +11386,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// line and one `ios_pairing_failed` whose `reason` matches the message.
     /// ``connectionState``/``macConnectionStatus`` teardown stays at the call
     /// sites because some paths (auth re-auth) also flip ``connectionRequiresReauth``.
-    private func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
+    func applyPairingFailure(_ category: MobilePairingFailureCategory, phase: String) {
         // Every failure path funnels through this sink, so the version-gate
         // stash is resolved here: any route rejected for a too-old Mac this
         // attempt upgrades the surfaced category to the exact versions,
@@ -11375,6 +11434,27 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         connectionError = nil
         connectionErrorGuidance = nil
         pendingMacVersionGateViolation = nil
+    }
+
+    /// Applies a policy delivered by the app-root refresh. Keeping this as a
+    /// store method makes the cache/baked seed and the remote replacement use
+    /// one mutation path, while the caller remains free to perform the fetch
+    /// off the connection startup path.
+    public func applyMacCompatibilityPolicy(_ policy: MobileMacCompatPolicy) {
+        macCompatPolicy = policy
+    }
+
+    func noteMacVersionUpdateRequired(for macDeviceID: String) {
+        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        guard !canonicalID.isEmpty else { return }
+        macVersionUpdateRequiredDeviceIDs.insert(canonicalID)
+    }
+
+    private func clearMacVersionUpdateRequired(for macDeviceID: String?) {
+        guard let macDeviceID else { return }
+        let canonicalID = cmxCanonicalDeviceID(macDeviceID)
+        guard !canonicalID.isEmpty else { return }
+        macVersionUpdateRequiredDeviceIDs.remove(canonicalID)
     }
 
     /// The running app's marketing version, driving Mac version-gate tier
@@ -11544,6 +11624,10 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         guard connectionState == .connected else {
             macConnectionStatus = .unavailable
             return
+        }
+        if pendingMacCompatibilityPolicyRevalidation {
+            revalidateActiveMacCompatibilityPolicy()
+            guard connectionState == .connected else { return }
         }
         let subscriptionIsValidated =
             terminalEventListenerID.map { listenerID in

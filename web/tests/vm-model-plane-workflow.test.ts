@@ -50,6 +50,7 @@ function row(overrides: Partial<CloudVmRow> = {}): CloudVmRow {
     provider: "freestyle",
     providerVmId: null,
     displayName: null,
+    slug: null,
     imageId: "snapshot-test",
     imageVersion: null,
     status: "provisioning",
@@ -442,7 +443,7 @@ describe("model-plane error responses", () => {
     });
     expect(JSON.stringify(createPayload)).not.toContain("db down");
 
-    const restore = vmCreateLikeErrorResponse(err, { operation: "restore", planId: "pro", retryAction: "unused" });
+    const restore = await vmCreateLikeErrorResponse(err, { operation: "restore", planId: "pro", retryAction: "unused" });
     expect(restore?.status).toBe(503);
     expect(await restore!.json()).toMatchObject({ error: "vm_model_plane_unavailable", phase: "restore" });
   });

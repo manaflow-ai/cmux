@@ -22,6 +22,11 @@
       "title": "Potreban je cmux Pro",
       "message": "Cloud VM-ovi zahtijevaju cmux Pro plan.",
       "action": "Nadogradite na cmux Pro na {upgradeUrl} da biste kreirali Cloud VM-ove."
+    },
+    "sharedResource": {
+      "message": "Zajednički skup {resource} resursa za Cloud VM je pun.",
+      "action": "Obrišite nekorišteni Cloud VM, pa pokušajte ponovo.",
+      "oversizedAction": "Zatražite manju {resource} veličinu Cloud VM-a koja stane u zajednički skup."
     }
   },
   "billingRecovery": {

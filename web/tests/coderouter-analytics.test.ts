@@ -39,7 +39,7 @@ function collector() {
 }
 
 describe("coderouter analytics", () => {
-  test("sends content-free AI Observability usage keyed by the Stack user", async () => {
+  test("does not send model usage to PostHog", async () => {
     const captured = collector();
     captureCoderouterEvent(
       {
@@ -66,47 +66,8 @@ describe("coderouter analytics", () => {
     );
 
     await Promise.all(captured.deferred);
-    expect(captured.urls).toEqual(["https://posthog.test/batch/"]);
-    const payload = JSON.parse(captured.bodies[0]!) as {
-      api_key: string;
-      batch: Array<{
-        event: string;
-        distinct_id: string;
-        properties: Record<string, unknown>;
-      }>;
-    };
-    const event = payload.batch[0]!;
-    expect(payload.api_key).toBe("phc_cmux_test");
-    expect(event.event).toBe("$ai_generation");
-    expect(event.distinct_id).toBe("stack-user-raw");
-    expect(event.properties).toMatchObject({
-      user_id: "stack-user-raw",
-      team_id: "team-raw",
-      $geoip_disable: true,
-      $ai_model: "gpt-5.6-terra",
-      $ai_provider: "openai",
-      $ai_input_tokens: 8,
-      $ai_cache_read_input_tokens: 3,
-      $ai_output_tokens: 2,
-      coderouter_total_tokens: 10,
-      product: "coderouter",
-      schema_version: 3,
-      service_version: "coderouter-web-v1",
-    });
-    const serialized = captured.bodies[0]!;
-    expect(event.properties).not.toHaveProperty("$process_person_profile");
-    for (const raw of [
-      "secret prompt",
-      "secret output",
-      "crt_secret",
-      "buyer@example.com",
-      "acct_secret",
-      "private.example",
-      "authorization secret",
-      "private-customer-label",
-    ]) {
-      expect(serialized).not.toContain(raw);
-    }
+    expect(captured.urls).toEqual([]);
+    expect(captured.bodies).toEqual([]);
   });
 
   test("keys ops events by the Stack user and forwards only the closed schema", async () => {
@@ -227,24 +188,16 @@ describe("coderouter analytics", () => {
     expect(captured.bodies[0]).not.toContain("must-not-leak");
   });
 
-  test("attributes VM-bound traffic per machine", () => {
+  test("keeps token and VM usage out of PostHog", () => {
     expect(
       analyticsTest.eventProperties("coderouter_auth_rejected", {
         surface: "responses",
         reason: "vm_mismatch",
       }),
     ).toEqual({ surface: "responses", reason: "vm_mismatch" });
-    expect(
-      analyticsTest.aiUsageProperties(
-        { provider: "codex", model: "gpt-5.2", input_tokens: 5, output_tokens: 5, vm_id: "vm-1" },
-      ),
-    ).toMatchObject({ coderouter_vm_id: "vm-1" });
-    // Unbound traffic and malformed ids carry no vm id at all.
-    expect(
-      analyticsTest.aiUsageProperties(
-        { provider: "codex", model: "gpt-5.2", input_tokens: 5, output_tokens: 5, vm_id: "not a vm id; free text" },
-      ),
-    ).not.toHaveProperty("coderouter_vm_id");
+    const captured = collector();
+    captureCoderouterEvent({ event: "coderouter_model_request_completed", userId: "u", teamId: "t", properties: { total_tokens: 10, vm_id: "vm-1" } }, captured.dependencies);
+    expect(captured.bodies).toHaveLength(0);
   });
 
   test("rejects invalid enum values and bounds numeric dimensions", () => {
@@ -262,21 +215,10 @@ describe("coderouter analytics", () => {
     ).toMatchObject({ account_count_bucket: "0", latency_bucket: "unknown" });
   });
 
-  test("pre-calculates versioned long-context API-equivalent cost", () => {
-    const properties = analyticsTest.aiUsageProperties(
-      {
-        provider: "codex",
-        model: "gpt-5.6-terra",
-        input_tokens: 300_000,
-        cached_input_tokens: 0,
-        output_tokens: 100_000,
-        total_tokens: 400_000,
-      },
-    );
-    expect(properties).not.toBeNull();
-    expect(properties!.$ai_total_cost_usd).toBe(3.75);
-    expect(properties!.coderouter_priced_tokens).toBe(400_000);
-    expect(properties!.coderouter_unpriced_tokens).toBe(0);
+  test("does not calculate or transmit PostHog token costs", () => {
+    const captured = collector();
+    captureCoderouterEvent({ event: "coderouter_model_request_completed", userId: "u", teamId: "t", properties: { input_tokens: 300_000, output_tokens: 100_000, total_tokens: 400_000 } }, captured.dependencies);
+    expect(captured.bodies).toHaveLength(0);
   });
 });
 
@@ -359,23 +301,8 @@ describe("coderouter raw trace batch", () => {
       batch: Array<{ event: string; distinct_id: string; timestamp: string; properties: Record<string, unknown> }>;
     };
     expect(body.api_key).toBe("phc_cmux_test");
-    expect(body.batch.map((entry) => entry.event)).toEqual(["$ai_trace", "$exception"]);
-    const trace = body.batch[0]!;
-    expect(trace.distinct_id).toBe("stack-user-raw");
-    expect(trace.timestamp).toBe("2026-09-03T00:00:00.000Z");
-    expect(trace.properties).toMatchObject({
-      $ai_trace_id: "req-1",
-      $ai_latency: 0.5,
-      coderouter_outcome: "success",
-      trace_id: "0af7651916cd43dd8448eb211c80319c",
-      user_id: "stack-user-raw",
-      team_id: "team-raw",
-      product: "coderouter",
-    });
-    for (const leaked of ["prompt", "authorization", "email", "$process_person_profile"]) {
-      expect(leaked in trace.properties).toBe(false);
-    }
-    const exception = body.batch[1]!;
+    expect(body.batch.map((entry) => entry.event)).toEqual(["$exception"]);
+    const exception = body.batch[0]!;
     expect(exception.distinct_id).toBe("coderouter-server");
     expect(exception.properties.$process_person_profile).toBe(false);
     expect(exception.properties.$exception_list).toEqual([
@@ -398,29 +325,4 @@ describe("coderouter raw trace batch", () => {
     expect(captured.urls).toEqual([]);
   });
 
-  test("$ai_generation carries the trace link, latency, status and stream flag", () => {
-    const properties = analyticsTest.aiUsageProperties(
-      {
-        provider: "claude",
-        model: "claude-sonnet-5",
-        input_tokens: 10,
-        cached_input_tokens: 2,
-        output_tokens: 5,
-        total_tokens: 15,
-        request_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
-        duration_ms: 2500,
-        status: 200,
-        response_streamed: true,
-      },
-    );
-    expect(properties).toMatchObject({
-      $ai_trace_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
-      $ai_parent_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
-      coderouter_request_id: "8b9a2f3e-1c4d-4e5f-8a6b-7c8d9e0f1a2b",
-      $ai_latency: 2.5,
-      $ai_http_status: 200,
-      $ai_is_error: false,
-      $ai_stream: true,
-    });
-  });
 });

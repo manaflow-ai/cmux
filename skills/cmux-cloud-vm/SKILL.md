@@ -80,6 +80,8 @@ cmux vm open <id>                       # the machine's shell (+ its screen on d
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
 cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
 cmux vm workspace rename <id> <ws> <name>   # rename it; `close` keeps its terminals (they detach into the pool), `rm` deletes it AND kills them
+cmux vm tab rename <id> <tab> <name>       # rename one exact tab placement; "" clears its custom label
+cmux vm terminal rename <id> <term> <name> # rename every tab placement; "" clears every custom label
 cmux vm open <id>:desktop               # the noVNC screen
 cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
 cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it

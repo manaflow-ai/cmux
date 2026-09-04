@@ -22,6 +22,11 @@
       "title": "يتطلب cmux Pro",
       "message": "تتطلب أجهزة Cloud VM خطة cmux Pro.",
       "action": "قم بالترقية إلى cmux Pro عبر {upgradeUrl} لإنشاء أجهزة Cloud VM."
+    },
+    "sharedResource": {
+      "message": "امتلأ تجمع موارد {resource} المشترك لأجهزة Cloud VM.",
+      "action": "احذف جهاز Cloud VM غير مستخدم ثم أعد المحاولة.",
+      "oversizedAction": "اطلب حجم {resource} أصغر لجهاز Cloud VM ليتسع في التجمع المشترك."
     }
   },
   "billingRecovery": {

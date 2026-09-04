@@ -22,6 +22,11 @@
       "title": "ត្រូវការ cmux Pro",
       "message": "Cloud VM តម្រូវឱ្យមានគម្រោង cmux Pro។",
       "action": "ដំឡើងកំណែទៅ cmux Pro នៅ {upgradeUrl} ដើម្បីបង្កើត Cloud VM។"
+    },
+    "sharedResource": {
+      "message": "ក្រុមធនធាន {resource} រួមរបស់ Cloud VM ពេញហើយ។",
+      "action": "លុប Cloud VM ដែលមិនប្រើ រួចព្យាយាមម្ដងទៀត។",
+      "oversizedAction": "ស្នើទំហំ {resource} តូចជាងនេះសម្រាប់ Cloud VM ដើម្បីឲ្យសមក្នុងក្រុមរួម។"
     }
   },
   "billingRecovery": {
