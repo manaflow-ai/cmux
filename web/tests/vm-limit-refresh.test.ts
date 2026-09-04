@@ -363,7 +363,9 @@ describe("lazy active-limit provider refresh", () => {
         billingCustomerType: "team",
         billingTeamId: requested.billingTeamId!,
         billingPlanId: "pro",
-        maxActiveVms: 50,
+        // A large team allowance must not turn the request-path repair into
+        // one provider call per VM. The remaining rows stay for the cron pass.
+        maxActiveVms: 5000,
         provider: "freestyle",
         image: "snapshot-test",
       }).pipe(Effect.provide(Layer.mergeAll(
@@ -377,7 +379,7 @@ describe("lazy active-limit provider refresh", () => {
     expect(candidateInput).toEqual({
       userId: requested.userId,
       billingTeamId: requested.billingTeamId,
-      limit: 50,
+      limit: 5,
     });
     expect(statsCalls).toBe(1);
     expect(reservations).toEqual([{

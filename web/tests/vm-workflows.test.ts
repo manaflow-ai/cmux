@@ -31,6 +31,7 @@ import {
   VmCreateInProgressError,
   VmDatabaseError,
   VmLimitExceededError,
+  VmSharedResourceLimitExceededError,
   VmNotFoundError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
@@ -399,6 +400,110 @@ describe("VM Effect workflows", () => {
     expect(finalizedReservation).toEqual({ vcpus: 1, memoryMb: 4096, diskMb: 16384 });
   });
 
+  test("recomputes a legacy native fork claim after scoped repair", async () => {
+    const source = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000162",
+      userId: "user-workflow-fork-retry",
+      billingTeamId: "team-workflow-fork-retry",
+      billingPlanId: "pro",
+      providerVmId: "provider-vm-fork-retry-source",
+      status: "running",
+      providerMetadata: {},
+    });
+    const pendingFork = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000163",
+      userId: source.userId,
+      billingTeamId: source.billingTeamId,
+      billingPlanId: "pro",
+      providerVmId: null,
+      status: "provisioning",
+    });
+    let currentSource = source;
+    const beginInputs: Array<{ resourceReservation?: unknown }> = [];
+    const reservations: unknown[] = [];
+    const repo = {
+      ...testWorkflowRepo({ vm: source }),
+      findUserVm: () => Effect.succeed(currentSource),
+      beginCreate: (input: { resourceReservation?: unknown; forkMinimumResourceReservation?: unknown }) => {
+        beginInputs.push(input);
+        if (beginInputs.length === 1) {
+          return Effect.fail(new VmSharedResourceLimitExceededError({
+            kind: "shared_resources",
+            billingTeamId: source.billingTeamId!,
+            phase: "create",
+            resource: "diskMb",
+            used: 200 * 1024,
+            requested: 200 * 1024,
+            limit: 200 * 1024,
+          }));
+        }
+        return Effect.succeed({
+          inserted: true,
+          vm: {
+            ...pendingFork,
+            providerMetadata: {
+              cmuxResourceReservation: input.resourceReservation,
+              cmuxResourceForkPending: input.forkMinimumResourceReservation,
+            },
+          },
+        });
+      },
+      legacyResourceReservationCandidates: () => Effect.succeed([currentSource]),
+      setResourceReservation: (input: { id: string; reservation: unknown }) => Effect.sync(() => {
+        reservations.push(input.reservation);
+        if (input.id === source.id) {
+          currentSource = {
+            ...currentSource,
+            providerMetadata: { cmuxResourceReservation: input.reservation },
+          };
+        }
+        return true;
+      }),
+      markCreateRunning: ({ providerVmId }: { providerVmId: string }) => Effect.succeed({
+        ...pendingFork,
+        providerVmId,
+        status: "running" as const,
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: (_provider, providerVmId) => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: 2,
+        memoryTotalMb: 8192,
+        diskTotalMb: providerVmId === source.providerVmId ? 65536 : 65536,
+      }),
+      fork: () => Effect.succeed(testVmHandle({ providerVmId: "provider-vm-fork-retry-copy" })),
+    };
+
+    await Effect.runPromise(
+      forkVm({
+        userId: source.userId,
+        billingCustomerType: "team",
+        billingTeamId: source.billingTeamId!,
+        teamIds: [source.billingTeamId!],
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        providerVmId: source.providerVmId!,
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(beginInputs).toHaveLength(2);
+    expect(beginInputs[0]?.resourceReservation).toEqual({
+      vcpus: 5,
+      memoryMb: 20 * 1024,
+      diskMb: 200 * 1024,
+    });
+    expect(beginInputs[1]?.resourceReservation).toEqual({
+      vcpus: 2,
+      memoryMb: 8192,
+      diskMb: 65536,
+    });
+    expect(reservations[0]).toEqual({ vcpus: 2, memoryMb: 8192, diskMb: 65536 });
+  });
+
   test("records CPU and memory in new snapshot claims", async () => {
     const source = testCloudVmRow({
       id: "00000000-0000-4000-8000-000000000153",
@@ -477,6 +582,63 @@ describe("VM Effect workflows", () => {
       memoryMb: 20 * 1024,
       diskMb: 200 * 1024,
     });
+  });
+
+  test("restores a captured small snapshot at the provider's effective target", async () => {
+    const provisioning = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000161",
+      userId: "user-workflow-restore-shape",
+      billingTeamId: "team-workflow-restore-shape",
+      billingPlanId: "pro",
+      providerVmId: null,
+      status: "provisioning",
+    });
+    let beginInput: { resourceReservation?: unknown } | undefined;
+    let createOptions: { memoryMb?: number } | undefined;
+    const repo = {
+      ...testWorkflowRepo({ vm: provisioning }),
+      hasOwnedSnapshot: () => Effect.succeed(true),
+      ownedSnapshotResourceReservation: () => Effect.succeed({
+        vcpus: 1,
+        memoryMb: 4096,
+        diskMb: 16384,
+      }),
+      beginCreate: (input: { resourceReservation?: unknown }) => {
+        beginInput = input;
+        return Effect.succeed({ inserted: true, vm: provisioning });
+      },
+      markCreateRunning: ({ providerVmId }: { providerVmId: string }) => Effect.succeed({
+        ...provisioning,
+        providerVmId,
+        status: "running" as const,
+      }),
+    } as unknown as VmRepositoryShape;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: (_provider, options) => {
+        createOptions = options;
+        return Effect.succeed(testVmHandle({ providerVmId: "provider-vm-restore-shape" }));
+      },
+    };
+
+    await Effect.runPromise(
+      restoreVm({
+        userId: provisioning.userId,
+        billingCustomerType: "team",
+        billingTeamId: provisioning.billingTeamId!,
+        billingPlanId: "pro",
+        maxActiveVms: 50,
+        provider: "freestyle",
+        snapshotId: "snapshot-small-shape",
+      }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+
+    expect(beginInput?.resourceReservation).toEqual({
+      vcpus: 1,
+      memoryMb: 4096,
+      diskMb: 32 * 1024,
+    });
+    expect(createOptions?.memoryMb).toBe(4096);
   });
 
   test("resizes a running VM disk, records the change, and returns provider-confirmed stats", async () => {
@@ -3790,6 +3952,45 @@ describe("VM Effect workflows", () => {
           billingTeamId: "team-workflow-recorded-snapshot",
           provider: "freestyle",
           snapshotId: "recorded-legacy-snapshot",
+        });
+      }).pipe(Effect.provide(VmRepositoryLive)),
+    );
+
+    expect(reservation).toEqual({ vcpus: 2, memoryMb: 8192, diskMb: 65536 });
+  });
+
+  dbTest("uses snapshot-time dimensions when the source later grows", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const sourceVmId = "00000000-0000-4000-8000-000000000164";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${sourceVmId}, 'user-workflow-snapshot-grown', 'team-workflow-snapshot-grown',
+        'pro', 'freestyle', 'provider-vm-snapshot-grown', 'snapshot-test', 'running',
+        ${sql.json({ cmuxResourceReservation: { vcpus: 16, memoryMb: 32768, diskMb: 160 * 1024 } })}
+      )
+    `;
+    await sql`
+      insert into cloud_vm_usage_events (
+        user_id, billing_team_id, vm_id, billing_plan_id, event_type, provider, image_id, metadata
+      ) values (
+        'user-workflow-snapshot-grown', 'team-workflow-snapshot-grown', ${sourceVmId},
+        'pro', 'vm.snapshot.created', 'freestyle', 'snapshot-test',
+        ${sql.json({ snapshotId: "snapshot-before-growth", vcpus: 2, memoryMb: 8192, diskMb: 65536 })}
+      )
+    `;
+
+    const reservation = await Effect.runPromise(
+      Effect.gen(function* () {
+        const repo = yield* VmRepository;
+        return yield* repo.ownedSnapshotResourceReservation!({
+          userId: "user-workflow-snapshot-grown",
+          billingTeamId: "team-workflow-snapshot-grown",
+          provider: "freestyle",
+          snapshotId: "snapshot-before-growth",
         });
       }).pipe(Effect.provide(VmRepositoryLive)),
     );
