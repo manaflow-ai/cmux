@@ -222,15 +222,16 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
     for (index, label) in &shown {
         let selectable = labels.len() > 1;
         let available = profile_limit.saturating_sub(2);
-        let fitted = if profiles_fit || (*index == active_index && active_name_width <= profile_limit) {
-            label.clone()
-        } else if available > 0 {
-            truncate(label, available)
-        } else if profile_limit > 0 {
-            truncate(label, profile_limit)
-        } else {
-            String::new()
-        };
+        let fitted =
+            if profiles_fit || (*index == active_index && active_name_width <= profile_limit) {
+                label.clone()
+            } else if available > 0 {
+                truncate(label, available)
+            } else if profile_limit > 0 {
+                truncate(label, profile_limit)
+            } else {
+                String::new()
+            };
         let fitted_width = UnicodeWidthStr::width(fitted.as_str());
         let padded = if profiles_fit || profile_limit >= fitted_width.saturating_add(2) {
             format!(" {fitted} ")
@@ -472,10 +473,7 @@ pub fn draw_machines(app: &mut App, frame: &mut Frame) {
         hits.push((rail::row(area, y), Hit::ConnectMachine));
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Machine)));
-    hits.push((
-        rail::divider(area),
-        Hit::RailResize { kind: RailKind::Machine, view_token: None },
-    ));
+    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Machine, view_token: None }));
     app.hits.extend(hits);
 }
 
@@ -544,10 +542,8 @@ pub fn draw_tabs(app: &mut App, frame: &mut Frame) {
         }
     }
     app.hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Tabs)));
-    app.hits.push((
-        rail::divider(area),
-        Hit::RailResize { kind: RailKind::Tabs, view_token: None },
-    ));
+    app.hits
+        .push((rail::divider(area), Hit::RailResize { kind: RailKind::Tabs, view_token: None }));
 }
 
 /// Render one configurable resource path as a dense native tree column.
@@ -767,10 +763,8 @@ pub fn draw_split_dividers(app: &mut App, frame: &mut Frame) {
             buf[(last, y)].set_symbol(palette.border_symbol).set_style(palette.border);
         }
         if let Some(group) = app.sidebar_layout.split_groups.get(divider.group)
-            && let (Some(first), Some(second)) = (
-                group.child_keys.get(divider.index),
-                group.child_keys.get(divider.index + 1),
-            )
+            && let (Some(first), Some(second)) =
+                (group.child_keys.get(divider.index), group.child_keys.get(divider.index + 1))
         {
             app.hits.push((
                 divider.rect,

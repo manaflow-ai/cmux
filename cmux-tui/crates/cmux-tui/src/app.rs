@@ -4619,7 +4619,12 @@ pub(crate) struct FilesLayoutGeometry {
 /// content range. Wheel routing calls this only after it has identified the
 /// body or action rectangle, so a header or empty boundary never changes a
 /// different viewport by accident.
-fn scroll_rail_offset(offset: &mut usize, total_rows: usize, visible_rows: usize, delta: isize) -> bool {
+fn scroll_rail_offset(
+    offset: &mut usize,
+    total_rows: usize,
+    visible_rows: usize,
+    delta: isize,
+) -> bool {
     let before = *offset;
     let maximum = total_rows.saturating_sub(visible_rows);
     *offset = offset.saturating_add_signed(delta).min(maximum);
@@ -11800,12 +11805,7 @@ impl App {
     }
 
     fn sidebar_actions_position_for_view(&self, index: usize) -> crate::config::ActionsPosition {
-        self.config
-            .sidebar
-            .views
-            .get(index)
-            .map(|spec| spec.actions_position)
-            .unwrap_or_default()
+        self.config.sidebar.views.get(index).map(|spec| spec.actions_position).unwrap_or_default()
     }
 
     fn files_rail_target_at(
@@ -12389,8 +12389,8 @@ impl App {
     /// mounted rail. This keeps focus useful across constrained resizes.
     fn fallback_visible_rail_kind(&self, hidden_index: usize) -> Option<RailKind> {
         let source = self.config.sidebar.views.get(hidden_index);
-        let prefers_workspace = source
-            .is_some_and(|view| view.includes(SidebarResourceKind::Workspaces));
+        let prefers_workspace =
+            source.is_some_and(|view| view.includes(SidebarResourceKind::Workspaces));
         if prefers_workspace
             && let Some(kind) = self.sidebar_layout.ordered.iter().find_map(|placement| {
                 let view = self.config.sidebar.views.get(placement.view_index)?;
@@ -16696,13 +16696,10 @@ impl App {
             // the mode never appears selected while it cannot accept input.
             let host_usable = host_mounted
                 && files_host_id.as_ref().is_some_and(|host_id| {
-                    let host_index = self
-                        .config
-                        .sidebar
-                        .views
-                        .iter()
-                        .position(|view| view.id == *host_id);
-                    let action_count = host_index.map_or(0, |index| self.sidebar_action_rows(index).len());
+                    let host_index =
+                        self.config.sidebar.views.iter().position(|view| view.id == *host_id);
+                    let action_count =
+                        host_index.map_or(0, |index| self.sidebar_action_rows(index).len());
                     layout.workspace.is_some_and(|area| {
                         self.files_layout_geometry_with_actions(
                             area,
@@ -20441,10 +20438,7 @@ impl App {
         })
     }
 
-    fn request_purge_managed_workspace_receipt(
-        &mut self,
-        receipt: &ManagedWorkspacePurgeReceipt,
-    ) {
+    fn request_purge_managed_workspace_receipt(&mut self, receipt: &ManagedWorkspacePurgeReceipt) {
         let valid = self.machine_ui.as_ref().is_some_and(|ui| {
             ui.snapshot.active == Some(receipt.machine)
                 && ui.managed_workspace(&receipt.workspace_id).is_some_and(|workspace| {
@@ -22731,8 +22725,9 @@ impl App {
                     prompt.managed_workspace_purge = Some(receipt);
                     self.prompt = Some(prompt);
                 } else {
-                    self.status_message =
-                        Some(localization::catalog().sidebar.managed_workspace_unavailable.to_string());
+                    self.status_message = Some(
+                        localization::catalog().sidebar.managed_workspace_unavailable.to_string(),
+                    );
                 }
             }
             MenuAction::CopyWorkspaceId(id) => {
@@ -25011,11 +25006,9 @@ impl App {
                     self.open_context_menu(x, y);
                 }
                 Hit::Machine { index: _, key } => {
-                    let Some(current_index) = self
-                        .machine_ui
-                        .as_ref()
-                        .and_then(|ui| ui.snapshot.machines.iter().position(|machine| machine.key == key))
-                    else {
+                    let Some(current_index) = self.machine_ui.as_ref().and_then(|ui| {
+                        ui.snapshot.machines.iter().position(|machine| machine.key == key)
+                    }) else {
                         return Ok(RenderAction::Draw);
                     };
                     self.machine_rail_follow_selection = true;
@@ -25151,10 +25144,8 @@ impl App {
                     // Recoverable rows are provider-owned and can reorder
                     // between rendering and dispatch. Resolve the stable id
                     // carried by the hit instead of trusting its old index.
-                    let Some((current_index, workspace_id)) = self
-                        .machine_ui
-                        .as_ref()
-                        .and_then(|ui| {
+                    let Some((current_index, workspace_id)) =
+                        self.machine_ui.as_ref().and_then(|ui| {
                             ui.recoverable_workspaces()
                                 .into_iter()
                                 .enumerate()
@@ -25174,13 +25165,8 @@ impl App {
                 }
                 Hit::CreateWorkspace { mode, view_token } => {
                     let target = SidebarActionTarget::CreateWorkspace(mode);
-                    let Some(view_index) = self
-                        .config
-                        .sidebar
-                        .views
-                        .iter()
-                        .enumerate()
-                        .find_map(|(index, view)| {
+                    let Some(view_index) =
+                        self.config.sidebar.views.iter().enumerate().find_map(|(index, view)| {
                             (self.rail_kind_for_view(index) == RailKind::Workspace
                                 && sidebar_profile_token(&view.id) == view_token)
                                 .then_some(index)
@@ -25289,7 +25275,13 @@ impl App {
                 }
                 Hit::RailResize { kind, view_token } => {
                     if let RailKind::Projection(index) = kind
-                        && view_token != self.config.sidebar.views.get(index).map(|view| sidebar_profile_token(&view.id))
+                        && view_token
+                            != self
+                                .config
+                                .sidebar
+                                .views
+                                .get(index)
+                                .map(|view| sidebar_profile_token(&view.id))
                     {
                         return Ok(RenderAction::Draw);
                     }
@@ -25320,11 +25312,8 @@ impl App {
                     first_token,
                     second_token,
                 } => {
-                    let valid = self
-                        .sidebar_layout
-                        .split_groups
-                        .get(group)
-                        .is_some_and(|candidate| {
+                    let valid =
+                        self.sidebar_layout.split_groups.get(group).is_some_and(|candidate| {
                             candidate
                                 .child_keys
                                 .get(index)
@@ -26939,13 +26928,17 @@ impl App {
                     }
                 }
                 Some(Hit::RecoverableWorkspace { index: _, token }) => {
-                    if let Some((current_index, workspace)) = self.machine_ui.as_ref().and_then(|ui| {
-                        ui.recoverable_workspaces()
-                            .into_iter()
-                            .enumerate()
-                            .find(|(_, workspace)| sidebar_profile_token(&workspace.id) == token)
-                            .map(|(index, workspace)| (index, workspace))
-                    }) {
+                    if let Some((current_index, workspace)) =
+                        self.machine_ui.as_ref().and_then(|ui| {
+                            ui.recoverable_workspaces()
+                                .into_iter()
+                                .enumerate()
+                                .find(|(_, workspace)| {
+                                    sidebar_profile_token(&workspace.id) == token
+                                })
+                                .map(|(index, workspace)| (index, workspace))
+                        })
+                    {
                         let mut actions = Vec::new();
                         if workspace.capabilities.restore {
                             actions.push(MenuAction::RestoreManagedWorkspace(current_index));
@@ -27154,8 +27147,7 @@ impl App {
                 if machine_count == 0 {
                     1
                 } else {
-                    machine_count
-                        * crate::ui::rail::RailMetrics::for_app(self).stride
+                    machine_count * crate::ui::rail::RailMetrics::for_app(self).stride
                 }
             });
             let footer_rows = self.machine_ui.as_ref().map_or(0, |ui| {
@@ -27236,10 +27228,8 @@ impl App {
                 return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
             }
             let metrics = crate::ui::rail::RailMetrics::for_app(self);
-            let recoverable_count = self
-                .machine_ui
-                .as_ref()
-                .map_or(0, |ui| ui.recoverable_workspaces().len());
+            let recoverable_count =
+                self.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspaces().len());
             let body_rows = (self.tree.workspaces().len() + recoverable_count) * metrics.stride;
             let footer_rows = self.workspace_sidebar_action_rows().len();
             let actions_position = self.workspace_actions_position();
@@ -27318,9 +27308,7 @@ impl App {
             let two_line_agents = spec.row_lines >= 2;
             let body_rows = rows
                 .iter()
-                .map(|row| {
-                    if two_line_agents && row.agent_state.is_some() { 2 } else { 1 }
-                })
+                .map(|row| if two_line_agents && row.agent_state.is_some() { 2 } else { 1 })
                 .sum::<usize>()
                 .max(usize::from(rows.is_empty()));
             if spec.includes(SidebarResourceKind::Agents) && rail_area.height > 1 {
@@ -48137,10 +48125,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace {
-                        mode: Some(WorkspaceCreationMode::Isolated),
-                        ..
-                    }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated), .. }
                 )
                 .then_some(*rect)
             })
@@ -48151,10 +48136,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace {
-                        mode: Some(WorkspaceCreationMode::Host),
-                        ..
-                    }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host), .. }
                 )
                 .then_some(*rect)
             })
@@ -48219,10 +48201,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace {
-                        mode: Some(WorkspaceCreationMode::Host),
-                        ..
-                    }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host), .. }
                 )
                 .then_some(rect.y)
             })
@@ -48233,10 +48212,7 @@ mod tests {
             .find_map(|(rect, hit)| {
                 matches!(
                     hit,
-                    super::Hit::CreateWorkspace {
-                        mode: Some(WorkspaceCreationMode::Isolated),
-                        ..
-                    }
+                    super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated), .. }
                 )
                 .then_some(rect.y)
             })
@@ -48377,19 +48353,13 @@ mod tests {
         assert!(app.hits.iter().any(|(_, hit)| {
             matches!(
                 hit,
-                super::Hit::CreateWorkspace {
-                    mode: Some(WorkspaceCreationMode::Isolated),
-                    ..
-                }
+                super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Isolated), .. }
             )
         }));
         assert!(app.hits.iter().any(|(_, hit)| {
             matches!(
                 hit,
-                super::Hit::CreateWorkspace {
-                    mode: Some(WorkspaceCreationMode::Host),
-                    ..
-                }
+                super::Hit::CreateWorkspace { mode: Some(WorkspaceCreationMode::Host), .. }
             )
         }));
     }
