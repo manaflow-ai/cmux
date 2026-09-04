@@ -57,6 +57,14 @@ public struct MobileDebugLog: Sendable {
         return accepted
     }
 
+    /// Waits until every previously admitted synchronous debug-log write has
+    /// reached the sink and its observers. Export uses this barrier before it
+    /// snapshots the supplemental verbose generations.
+    @discardableResult
+    public func flush() async -> Bool {
+        await appendCoordinator.flush()
+    }
+
     /// Clears both the in-memory buffer and the durable verbose-log file.
     @discardableResult
     public func clearPersistedLog() async -> Bool {

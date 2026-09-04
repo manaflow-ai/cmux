@@ -610,6 +610,7 @@ public actor AppLog {
     private let timestampFormatter: ISO8601DateFormatter
     private let ingress: EntryIngress
     private let supplementalAppLogURLs: @Sendable () -> [URL]
+    private let flushSupplementalAppLog: @Sendable () async -> Bool
 
     private static let drainWaitTimeoutNanoseconds: UInt64 = 5_000_000_000
 
@@ -623,12 +624,14 @@ public actor AppLog {
         maxArchiveCount: Int = AppLog.defaultMaxArchiveCount,
         maxRetainedBytes: Int = AppLog.defaultMaxRetainedBytes,
         now: @escaping @Sendable () -> Date = { Date() },
-        supplementalAppLogURLs: @escaping @Sendable () -> [URL] = { [] }
+        supplementalAppLogURLs: @escaping @Sendable () -> [URL] = { [] },
+        flushSupplementalAppLog: @escaping @Sendable () async -> Bool = { true }
     ) {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         timestampFormatter = formatter
         self.supplementalAppLogURLs = supplementalAppLogURLs
+        self.flushSupplementalAppLog = flushSupplementalAppLog
         let started = formatter.string(from: now())
         if let appFileURL {
             appFile = LogFile(
@@ -721,6 +724,7 @@ public actor AppLog {
     /// The active file and retained generations are merged into their domain's
     /// member, so rotation history never turns into extra files in the export.
     public func exportLogs() async -> URL? {
+        guard await flushSupplementalAppLog() else { return nil }
         let acknowledgement = Acknowledgement()
         ingress.enqueue(.barrier(acknowledgement))
         guard await acknowledgement.wait(timeoutNanoseconds: Self.drainWaitTimeoutNanoseconds),
@@ -753,14 +757,27 @@ public actor AppLog {
 
     private func mergedData(for fileURL: URL?, additionalURLs: [URL] = []) -> Data? {
         guard let fileURL else { return nil }
-        let generations = Self.logFileURLs(for: fileURL).reversed()
+        let generations = Array(Self.logFileURLs(for: fileURL).reversed())
         var merged = Data()
-        for generation in generations + additionalURLs.reversed() {
+        for generation in generations {
             guard let data = try? Data(contentsOf: generation) else { return nil }
             if !merged.isEmpty, merged.last != 0x0A {
                 merged.append(0x0A)
             }
             merged.append(data)
+        }
+        var existingLines = Set(merged.split(separator: 0x0A, omittingEmptySubsequences: true))
+        for generation in additionalURLs.reversed() {
+            guard let data = try? Data(contentsOf: generation) else { return nil }
+            for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+                guard !existingLines.contains(line) else { continue }
+                if !merged.isEmpty, merged.last != 0x0A {
+                    merged.append(0x0A)
+                }
+                merged.append(contentsOf: line)
+                merged.append(0x0A)
+                existingLines.insert(line)
+            }
         }
         return merged
     }

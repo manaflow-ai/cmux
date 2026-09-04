@@ -133,7 +133,8 @@ final class AppCompositionRoot {
             appFileURL: AppLog.defaultAppLogFileURL,
             networkFileURL: AppLog.defaultNetworkLogFileURL,
             buildStamp: MobileDebugLog.buildStamp,
-            supplementalAppLogURLs: { MobileDebugLog.logFileURLs }
+            supplementalAppLogURLs: { MobileDebugLog.logFileURLs },
+            flushSupplementalAppLog: { await MobileDebugLog.shared.flush() }
         )
         self.appLog = appLog
         diagnosticLog.setEventTap { event in
