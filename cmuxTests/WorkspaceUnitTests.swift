@@ -6143,7 +6143,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
         XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
-        XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+        XCTAssertEqual(forkPanel.surface.initialInput, " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n")
         let split = try rootSplit(in: workspace)
         let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId)).id.uuidString
         let forkPaneId = try XCTUnwrap(workspace.paneId(forPanelId: forkPanel.id)).id.uuidString
@@ -6183,7 +6183,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
             XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
             XCTAssertEqual(workspace.focusedPanelId, forkPanel.id)
             XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
-            XCTAssertEqual(forkPanel.surface.initialInput, snapshot.forkCommand.map { $0 + "\n" })
+            XCTAssertEqual(forkPanel.surface.initialInput, " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n")
             let split = try rootSplit(in: workspace)
             let sourcePaneId = try XCTUnwrap(workspace.paneId(forPanelId: sourcePanelId)).id.uuidString
             let forkPaneId = try XCTUnwrap(workspace.paneId(forPanelId: forkPanel.id)).id.uuidString
@@ -6227,10 +6227,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
 
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/workspace fork repo")
-        XCTAssertEqual(
-            forkPanel.surface.initialInput,
-            "cd -- '/tmp/workspace fork repo' 2>/dev/null || [ ! -d '/tmp/workspace fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
-        )
+        XCTAssertEqual(forkPanel.surface.initialInput, " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n")
     }
 
     func testForkAgentConversationInRemoteWorkspaceUsesRemoteStartupCommand() throws {
@@ -6588,13 +6585,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.initialTerminalCommand)
         XCTAssertFalse(launch.autoConnectRemoteConfiguration)
         XCTAssertNil(launch.remoteConfiguration)
-        XCTAssertEqual(
-            launch.initialTerminalInput,
-            "cd -- '/tmp/local fork repo' 2>/dev/null || [ ! -d '/tmp/local fork repo' ] && '/Users/example/.bun/bin/codex' 'fork' '019dad34-d218-7943-b81a-eddac5c87951'\n"
-        )
+        XCTAssertEqual(launch.initialTerminalInput, " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n")
     }
 
-    func testForkAgentConversationInRemoteConfiguredLocalWorkspaceAllowsLauncherScript() throws {
+    func testForkAgentConversationInRemoteConfiguredLocalWorkspaceUsesForkVerb() throws {
         let workspace = Workspace()
         workspace.configureRemoteConnection(
             WorkspaceRemoteConfiguration(
@@ -6648,7 +6642,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertNil(forkPanel.surface.debugInitialCommand())
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/Users/cmux/project")
-        XCTAssertTrue(forkPanel.surface.initialInput?.hasPrefix(" /bin/zsh ") == true)
+        XCTAssertEqual(forkPanel.surface.initialInput, " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n")
 
         let launch = try XCTUnwrap(
             workspace.forkAgentWorkspaceLaunch(
@@ -6660,7 +6654,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.initialTerminalCommand)
         XCTAssertFalse(launch.autoConnectRemoteConfiguration)
         XCTAssertNil(launch.remoteConfiguration)
-        XCTAssertTrue(launch.initialTerminalInput.hasPrefix(" /bin/zsh "))
+        XCTAssertEqual(launch.initialTerminalInput, " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n")
     }
 
     func testForkAgentConversationFromLocalTerminalInRemoteWorkspaceStaysLocal() throws {
@@ -6722,7 +6716,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertNil(forkPanel.surface.debugInitialCommand())
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/local project")
-        XCTAssertTrue(forkPanel.surface.initialInput?.hasPrefix(" /bin/zsh ") == true)
+        XCTAssertEqual(
+            forkPanel.surface.initialInput,
+            " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+        )
         XCTAssertEqual(workspace.activeRemoteTerminalSessionCount, initialRemoteSessionCount)
 
         let launch = try XCTUnwrap(
@@ -6735,7 +6732,10 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNil(launch.initialTerminalCommand)
         XCTAssertFalse(launch.autoConnectRemoteConfiguration)
         XCTAssertNil(launch.remoteConfiguration)
-        XCTAssertTrue(launch.initialTerminalInput.hasPrefix(" /bin/zsh "))
+        XCTAssertEqual(
+            launch.initialTerminalInput,
+            " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n"
+        )
     }
 
     func testForkAgentConversationInRemoteWorkspaceRejectsLocalLauncherScriptFallback() throws {
@@ -7270,11 +7270,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         )
         XCTAssertEqual(workspace.focusedPanelId, forkPanel.id, "Fork should focus the new tab")
         XCTAssertEqual(forkPanel.requestedWorkingDirectory, "/tmp/fork repo")
-        XCTAssertEqual(
-            forkPanel.surface.initialInput,
-            snapshot.forkCommand.map { $0 + "\n" },
-            "Forked tab should boot with the snapshot's --fork-session command"
-        )
+        XCTAssertEqual(forkPanel.surface.initialInput, " cmux fork claude 019dad34-d218-7943-b81a-eddac5c87951\n", "Forked tab should boot through the structured fork selector")
     }
 
     func testForkAgentConversationToNewTabPlacesForkImmediatelyRightOfAnchor() throws {
@@ -7392,11 +7388,7 @@ final class WorkspacePanelGitBranchTests: XCTestCase {
         XCTAssertNotEqual(forkPanelId, sourcePanelId, "Codex fork should focus the new split")
         let forkPanel = try XCTUnwrap(workspace.terminalPanel(for: forkPanelId))
         XCTAssertEqual(workspace.bonsplitController.allPaneIds.count, 2)
-        XCTAssertEqual(
-            forkPanel.surface.initialInput,
-            snapshot.forkCommand.map { $0 + "\n" },
-            "Codex fork split should boot with the Codex --fork-session command"
-        )
+        XCTAssertEqual(forkPanel.surface.initialInput, " cmux fork codex 019dad34-d218-7943-b81a-eddac5c87951\n", "Codex fork split should boot through the structured fork selector")
         let split = try rootSplit(in: workspace)
         let sourcePaneUUID = sourcePaneId.id.uuidString
         let forkPaneUUID = try XCTUnwrap(workspace.paneId(forPanelId: forkPanelId)).id.uuidString
