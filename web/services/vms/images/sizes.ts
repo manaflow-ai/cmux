@@ -29,7 +29,7 @@ export const VM_IMAGE_SIZES: readonly VmImageSize[] = [
   { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384, freestyleBase: "freestyle/ubuntu-sm" },
   { name: "md", cpu: 4, memoryMb: 8192, storageMb: 32768, freestyleBase: "freestyle/ubuntu" },
   { name: "lg", cpu: 8, memoryMb: 16384, storageMb: 65536, freestyleBase: "freestyle/ubuntu-lg" },
-  // Not in Freestyle's catalog: the step the 20 GB plan machine lands on, derived by resize.
+  // Not in Freestyle's catalog: an intermediate shape available to internal callers only.
   { name: "lgx", cpu: 12, memoryMb: 24576, storageMb: 98304 },
   { name: "xl", cpu: 16, memoryMb: 32768, storageMb: 131072, freestyleBase: "freestyle/ubuntu-xl" },
   { name: "2xl", cpu: 32, memoryMb: 65536, storageMb: 131072, freestyleBase: "freestyle/ubuntu-2xl" },

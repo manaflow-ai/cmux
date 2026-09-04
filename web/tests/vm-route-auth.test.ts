@@ -5,9 +5,9 @@ import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
 // The manifest is the only source of truth for images: the base default at the
 // plan's memory is what a create with no image (and no kind) resolves to, in
 // every environment. The manifest keeps one snapshot per Freestyle size, and
-// the pro plan machine (20 GiB, `memoryMb: 20480` below) boots the smallest
+// the pro plan machine (8 GiB, `memoryMb: 8192` below) boots the smallest
 // size with at least that much memory.
-const PRO_PLAN_MEMORY_MB = 20480;
+const PRO_PLAN_MEMORY_MB = 8192;
 const PRO_PLAN_SIZE = pickVmImageSizeForMemory(PRO_PLAN_MEMORY_MB)!.name;
 const MANIFEST_BASE_DEFAULT = (manifestJson.images as Array<{
   imageId: string;
@@ -453,7 +453,7 @@ describe("VM REST auth", () => {
       image: "snapshot-test",
       imageVersion: null,
       idempotencyKey: "idem-1",
-      memoryMb: 20480,
+      memoryMb: 8192,
     }));
     expect(listTeams).not.toHaveBeenCalled();
     expect(runVmWorkflow).toHaveBeenCalled();
@@ -645,7 +645,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 20480 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
   test("resolves a legacy client's oversized memory request to the plan machine", async () => {
@@ -671,7 +671,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 20480 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
   test("resolves a memory request below the plan machine to the plan machine", async () => {
@@ -694,7 +694,7 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 20480 }));
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
   test("rejects malformed memory sizes before billing or provider work", async () => {

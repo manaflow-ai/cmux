@@ -313,8 +313,10 @@ struct VMPlanLimits {
     /// The earliest free-access expiry across the caller's machines (epoch ms);
     /// nil when no machine is on a window. Server-authoritative.
     var freeAccessExpiresAt: Int64?
-    /// Which image each kind provisions on the caller's provider, for the New
-    /// Machine sheet's summary line. Empty on control planes that predate it.
+    /// Memory sizes the server accepts for new base machines, in MB.
+    var memoryOptionsMb: [Int] = []
+    /// Legacy compatibility data for older clients. The current New Machine
+    /// sheet always creates one base kind and does not display this field.
     var imageKinds: [VMImageKindOption] = []
 }
 
@@ -712,6 +714,7 @@ actor VMClient {
                 planId: planId,
                 freeAccessWindowDays: freeAccessWindowDays,
                 freeAccessExpiresAt: Self.epochMilliseconds(rawLimits["freeAccessExpiresAt"]),
+                memoryOptionsMb: Self.decodeIntArray(rawLimits["memoryOptionsMb"]),
                 imageKinds: Self.decodeImageKinds(rawLimits["imageKinds"])
             )
         }
@@ -1032,6 +1035,20 @@ actor VMClient {
             guard let kind = decodeKind(item["kind"]),
                   let image = item["image"] as? String, !image.isEmpty else { return nil }
             return VMImageKindOption(kind: kind, image: image)
+        }
+    }
+
+    /// `limits.memoryOptionsMb: [number]`; malformed or non-positive entries are skipped.
+    private static func decodeIntArray(_ raw: Any?) -> [Int] {
+        guard let items = raw as? [Any] else { return [] }
+        return items.compactMap { item in
+            let value: Int?
+            if let item = item as? Int { value = item }
+            else if let item = item as? NSNumber { value = item.intValue }
+            else if let item = item as? Double, item.isFinite { value = Int(item) }
+            else { value = nil }
+            guard let value, value > 0 else { return nil }
+            return value
         }
     }
 

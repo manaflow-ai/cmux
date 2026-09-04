@@ -144,13 +144,11 @@ function resolveBillingContext(
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. Every plan sells exactly
- * the plan machine (5 vCPU / 20 GB / 32 GB), so this is one entry: the
- * pricing copy promises that size, and a smaller machine would fall short of
- * it. vCPUs follow memory (vcpusForMemoryMb). Kept as a list so a future
- * size tier is one entry, not a new concept.
+ * Machine sizes a person can pick, as memory in MB. The supported ladder is
+ * 8/32, 16/64, and 32/128 (memory/disk in GB). vCPUs follow memory
+ * (vcpusForMemoryMb). The server owns this list so clients show valid sizes.
  */
-export const VM_MEMORY_OPTIONS_MB: readonly number[] = [PLAN_MACHINE_MEMORY_MB];
+export const VM_MEMORY_OPTIONS_MB: readonly number[] = [8192, 16384, 32768];
 
 /** Largest machine a plan may create. Env-overridable per plan. */
 export function maxMemoryMbForPlan(
@@ -166,12 +164,12 @@ export function maxMemoryMbForPlan(
     // paid plan gets, not a cut-down teaser. The paywall is the 7-day access
     // window and the machine count, never the machine's usefulness.
     return positiveInteger(
-      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+      env.CMUX_VM_FREE_MAX_MEMORY_MB ?? String(Math.max(...VM_MEMORY_OPTIONS_MB)),
       "CMUX_VM_FREE_MAX_MEMORY_MB",
     );
   }
   return positiveInteger(
-    env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(PLAN_MACHINE_MEMORY_MB),
+    env.CMUX_VM_PAID_MAX_MEMORY_MB ?? String(Math.max(...VM_MEMORY_OPTIONS_MB)),
     "CMUX_VM_PAID_MAX_MEMORY_MB",
   );
 }

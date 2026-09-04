@@ -143,7 +143,7 @@ bills and caps:
 The manifest records one entry per kind and size (`size: { name, cpu,
 memoryMb, storageMb }`), each the default for its kind+size. The resolver
 picks the smallest size whose memory covers the plan's `memoryMb`
-(`defaultMemoryMbForPlan`; today's paid default of 24 GiB lands on `xl`), so
+(`defaultMemoryMbForPlan`; today's default of 8 GiB lands on `md`), so
 the driver never resizes at create and nothing has to grow at boot. Snapshot
 slugs are `cmux-devbox-<size>` (`cmux-devbox` for `md`).
 
