@@ -281,8 +281,10 @@ machine resources):
 
 The `surface_id`, `workspace_id`, and `panel_id` fields in host-side projection
 receipts are local-only. The guest-facing daemon strips them and returns the
-remote resource and remote workspace IDs. This prevents a remote agent from
-turning a projection receipt into a host lookup.
+remote resource and remote workspace IDs. A host-only `url` field is also a
+local display handle, never a URL that a guest can ask the Mac to navigate.
+This prevents a remote agent from turning a projection receipt into a host
+lookup.
 
 | Method | Params | Result |
 | --- | --- | --- |

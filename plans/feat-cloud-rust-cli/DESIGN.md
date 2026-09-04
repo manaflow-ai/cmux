@@ -460,6 +460,11 @@ Use separate wire types for `GuestPath`, `HostPath`, `VmFileRef`, `VmUrl`, and
 and digest. The VM browser may translate it to a `file:` URL inside the guest;
 the host never sees or resolves that URL.
 
+The desktop bridge implements separate remote views for terminal I/O, browser
+frames, document models, and VM display frames. They share `RemoteResourceRef`
+and revision handling, but none accepts a host path, host URL, host surface ID,
+or generic local RPC.
+
 Topology control flows through the VM daemon, not directly to the Mac:
 
 ~~~text

@@ -7,8 +7,8 @@ offline, live. Source: `workers/presence/`. Deploy: `.github/workflows/presence.
 ## Backend decision: Cloudflare Durable Objects (not a new actor runtime)
 
 Presence needs a tiny per-team actor with serialized state, a timer for
-missed-heartbeat expiry, and realtime fan-out. Both Cloudflare Durable Objects
-and RivetKit model that well, so the decision came down to the stated hard
+missed-heartbeat expiry, and realtime fan-out. The selected runtime models
+those primitives directly, so the decision came down to the stated hard
 requirements (migrations wired into deploy, CI/CD, deploy-on-push) plus
 operational cost.
 

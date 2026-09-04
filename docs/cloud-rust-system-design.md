@@ -205,6 +205,12 @@ The Mac adapter owns only a frame renderer and input channel for a Cloud
 browser. The local host browser remains a separate local feature. This avoids
 the tempting but unsafe shortcut of sending a remote URL to the host WebView.
 
+The desktop projection has four narrow adapters: a remote terminal view for
+manual terminal I/O, a remote browser view for frames and input, a remote
+document view for file/diff/Markdown models, and a remote desktop view for VM
+display frames. All four consume `RemoteResourceRef` and revisioned data. None
+accepts a host path, host URL, host surface ID, or arbitrary local RPC.
+
 ## Cloud API contract
 
 ### Versioning and generated models
