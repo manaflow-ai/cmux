@@ -5338,10 +5338,20 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             if previous != nil, (panelCustomTitleSources[panelId] ?? .user) != .auto { return false }
         }
         var sameText = false
+        // Clearing a cloud terminal tab is a remote mutation even when this
+        // client has no local override. Resolve the projection before the
+        // empty-title guard so that the daemon can clear its canonical name.
+        let cloudResourceForPropagation: SurfaceResource? = {
+            guard propagateToCloud, source == .user else { return nil }
+            return cloudProjectedResource(forPanel: panelId)
+        }()
         if trimmed.isEmpty {
-            guard previous != nil else { return false }
-            panelCustomTitles.removeValue(forKey: panelId)
-            panelCustomTitleSources.removeValue(forKey: panelId)
+            let canClearRemoteName = cloudResourceForPropagation?.kind == .terminal
+            guard previous != nil || canClearRemoteName else { return false }
+            if previous != nil {
+                panelCustomTitles.removeValue(forKey: panelId)
+                panelCustomTitleSources.removeValue(forKey: panelId)
+            }
         } else {
             if previous == trimmed {
                 // Same text still updates provenance. A remote observation must
@@ -5379,8 +5389,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // to the machine's daemon tab name (`tab rename`): persisted there,
         // broadcast, and shown by every attached client (tree rows, other Macs,
         // TUI tab bars).
-        if propagateToCloud, source == .user,
-           let resource = cloudProjectedResource(forPanel: panelId), resource.kind == .terminal {
+        if let resource = cloudResourceForPropagation, resource.kind == .terminal {
             CloudWorkspaceRenameWriteThrough.propagateTerminalRename(
                 workspace: self,
                 panelID: panelId,
