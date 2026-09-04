@@ -165,6 +165,16 @@ extension Workspace {
         agentPIDKeysByPanelId[panelId, default: []].insert(key)
     }
 
+    private func hasAgentPIDAssociation(pid: pid_t, panelId: UUID) -> Bool {
+        agentPIDs.contains { key, recordedPID in
+            recordedPID == pid && agentPIDPanelIdsByKey[key] == panelId
+        }
+    }
+
+    private func hasAnyAgentPIDAssociation(pid: pid_t) -> Bool {
+        agentPIDs.values.contains(pid)
+    }
+
     @discardableResult
     private func clearOtherStructuredAgentRuntimes(onPanel panelId: UUID, keeping retainedKey: String) -> Bool {
         guard isStructuredAgentHookPIDKey(retainedKey) else { return false }
@@ -193,6 +203,35 @@ extension Workspace {
         if previous.pid != pid || previous.panelId != panelId || previous.identity != processIdentity {
             for changedPanelId in (previous.panelId == panelId ? [panelId] : [previous.panelId, panelId]).compactMap({ $0 }) {
                 AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId)
+            }
+            if !isRemoteWorkspace,
+               SharedLiveAgentIndex.shared.isSidebarProcessMonitoringEnabled() {
+                // Drop the old owner before arming the replacement. Keep a
+                // shared PID source alive when another runtime key still
+                // references the same panel/process generation.
+                if let previousPID = previous.pid {
+                    if let previousPanelId = previous.panelId {
+                        if !hasAgentPIDAssociation(pid: previousPID, panelId: previousPanelId) {
+                            SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
+                                pid: Int(previousPID),
+                                panelID: previousPanelId
+                            )
+                        }
+                    } else if !hasAnyAgentPIDAssociation(pid: previousPID) {
+                        SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(pid: Int(previousPID))
+                    }
+                }
+                // Sidebar process sources are meaningful only once a runtime
+                // has a panel owner. Unbound records wait for the next scoped
+                // index refresh instead of creating an unowned source.
+                if let panelId {
+                    SharedLiveAgentIndex.shared.armSidebarProcessExitWatcher(
+                        pid: Int(pid),
+                        panelID: panelId,
+                        workspaceID: id
+                    )
+                }
+                SharedLiveAgentIndex.shared.requestSidebarIndexRefresh()
             }
         }
         if refreshPorts { refreshTrackedAgentPorts() }
@@ -238,6 +277,18 @@ extension Workspace {
     }
 
     func clearAllAgentPIDs(refreshPorts: Bool = true) {
+        if !isRemoteWorkspace {
+            for (key, pid) in agentPIDs {
+                if let panelID = agentPIDPanelIdsByKey[key] {
+                    SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
+                        pid: Int(pid),
+                        panelID: panelID
+                    )
+                } else {
+                    SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(pid: Int(pid))
+                }
+            }
+        }
         agentPIDs.removeAll()
         agentPIDProcessIdentitiesByKey.removeAll()
         agentPIDPanelIdsByKey.removeAll()
@@ -308,6 +359,7 @@ extension Workspace {
         refreshPorts: Bool = true
     ) -> Bool {
         let ownedPanelId = agentPIDPanelIdsByKey[key]
+        let ownedPID = agentPIDs[key]
         if requireOwnedKey, ownedPanelId == nil {
             return false
         }
@@ -328,6 +380,18 @@ extension Workspace {
             didChange = true
         }
         if let changedPanelId = ownedPanelId ?? panelId, didChange { AgentHibernationController.shared.recordAgentProcessChange(workspaceId: id, panelId: changedPanelId) }
+        if let ownedPID, !isRemoteWorkspace {
+            if let ownedPanelId {
+                if !hasAgentPIDAssociation(pid: ownedPID, panelId: ownedPanelId) {
+                    SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(
+                        pid: Int(ownedPID),
+                        panelID: ownedPanelId
+                    )
+                }
+            } else if !hasAnyAgentPIDAssociation(pid: ownedPID) {
+                SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatcher(pid: Int(ownedPID))
+            }
+        }
         if let lifecyclePanelId = ownedPanelId ?? panelId {
             let lifecycleStatusKey = agentStatusKey(forAgentPIDKey: key)
             if clearAgentLifecycle(key: lifecycleStatusKey, panelId: lifecyclePanelId) {
@@ -437,6 +501,7 @@ extension Workspace {
         preservesTerminalForTransfer: Bool = false
     ) -> WorkspaceRemoteConfiguration? {
         appLinkHandoffCoordinator.cancel(sourcePanelID: panelId)
+        SharedLiveAgentIndex.shared.disarmSidebarProcessExitWatchers(panelID: panelId)
         if publishSurfaceClosedEvent {
             publishCmuxSurfaceClosed(panelId, paneId: paneId, panel: panel, origin: origin)
         }

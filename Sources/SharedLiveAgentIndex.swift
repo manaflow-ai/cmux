@@ -55,7 +55,22 @@ final class SharedLiveAgentIndex {
         continuation: CheckedContinuation<Void, Never>
     )
 
+    private typealias SidebarProcessExitWatcher = (
+        identity: AgentPIDProcessIdentity,
+        source: DispatchSourceProcess
+    )
+
+    nonisolated private static func cancelSidebarProcessExitWatcher(
+        _ watcher: SidebarProcessExitWatcher
+    ) {
+        // Dispatch sources retain their event handler. Clear it before cancel
+        // so the handler's source capture cannot form a teardown cycle.
+        watcher.source.setEventHandler {}
+        watcher.source.cancel()
+    }
+
     private(set) var index: RestorableAgentSessionIndex?
+    private var indexGeneration: UInt64 = 0
     private var loadedAt: Date?
     private var liveAgentProcessFingerprint: Set<String> = []
     // A synchronous loader cannot be interrupted once it is inside its
@@ -87,6 +102,7 @@ final class SharedLiveAgentIndex {
     private enum OwnershipRefreshTaskKind: Equatable {
         case full
         case fork
+        case sidebar
     }
     private var ownershipRefreshWaiterKinds: [UUID: OwnershipRefreshTaskKind] = [:]
     private var validatedForkSupport: [ForkProbeKey: ForkSupportValidation] = [:]
@@ -111,10 +127,22 @@ final class SharedLiveAgentIndex {
     private var activeForkSupportValidationRequestIdentities: [ForkProbeKey: Set<String>] = [:]
     private var processScopeFingerprint: Set<String> = []
     private var changePending = false
+    private var lastSidebarLivenessRefreshAt: Date?
+    private var sidebarLivenessRefreshTask: Task<Void, Never>?
+    private var sidebarProcessExitWatchers: [Int: SidebarProcessExitWatcher] = [:]
+    private var pendingSidebarLivenessPanelIDs = Set<UUID>()
+    private var pendingSidebarLivenessWorkspaceIDs: [UUID: UUID] = [:]
+    private var sidebarExplicitRefreshRetryTimer: DispatchSourceTimer?
+    private var lastExplicitSidebarRefreshAt: Date?
+    private var sidebarProcessPanelIDsByPID: [Int: Set<UUID>] = [:]
+    private var sidebarProcessWorkspaceIDsByPID: [Int: [UUID: UUID]] = [:]
+    private var sidebarProcessMonitoringOwners = Set<UUID>()
+    private var sidebarProcessMonitoringEnabled = false
     private var deferredReloadTimer: DispatchSourceTimer?
     private var forkSupportValidationExpiryTimer: DispatchSourceTimer?
 
     private static let cacheTTL: TimeInterval = 60.0
+    private static let sidebarLivenessRefreshCadence: TimeInterval = 30.0
     private static let forkAvailabilityProbeTTL: TimeInterval = 15.0
     nonisolated private static let maximumForkExecutableWatchPathCountPerValidation = 32
     nonisolated static let forkExecutableWatchOpenFlags = O_EVTONLY | O_CLOEXEC
@@ -303,9 +331,14 @@ final class SharedLiveAgentIndex {
         }
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        sidebarLivenessRefreshTask?.cancel()
         deferredReloadTimer?.cancel()
         forkSupportValidationExpiryTimer?.cancel()
         directoryWatchSource?.cancel()
+        for watcher in sidebarProcessExitWatchers.values {
+            Self.cancelSidebarProcessExitWatcher(watcher)
+        }
+        sidebarExplicitRefreshRetryTimer?.cancel()
         for record in forkExecutableWatchRecords.values {
             for source in record.sources {
                 source.cancel()
@@ -498,7 +531,9 @@ final class SharedLiveAgentIndex {
 
     /// Whether an agent-index refresh has been scheduled and has not completed yet.
     var hasScheduledRefresh: Bool {
-        refreshTask != nil || forkAvailabilityRefreshTask != nil
+        refreshTask != nil
+            || forkAvailabilityRefreshTask != nil
+            || sidebarLivenessRefreshTask != nil
     }
 
     /// Starts a full refresh for an ownership-sensitive restore.
@@ -517,17 +552,40 @@ final class SharedLiveAgentIndex {
     }
 
     /// Returns a freshly loaded index, coalescing with any refresh already in flight.
-    func indexRefreshingNow() async -> RestorableAgentSessionIndex? {
+    func indexRefreshingNow(
+        requiringSidebarMonitoringLease: Bool = false
+    ) async -> RestorableAgentSessionIndex? {
+        guard !requiringSidebarMonitoringLease || sidebarProcessMonitoringEnabled else {
+            return index
+        }
         ensureWatchingHookStoreDirectory()
         var completedRefreshPasses = 0
         let ownershipRefreshDeadline = DispatchTime.now().uptimeNanoseconds
             &+ Self.ownershipRefreshTimeoutNanoseconds
         while true {
-            guard !Task.isCancelled else { return nil }
+            guard !Task.isCancelled,
+                  !requiringSidebarMonitoringLease || sidebarProcessMonitoringEnabled else {
+                return requiringSidebarMonitoringLease ? index : nil
+            }
             guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                 abandonOwnershipRefreshTasks()
                 preservePendingHookChangeAfterOwnershipRefreshFailure()
                 return nil
+            }
+            if let sidebarLivenessRefreshTask {
+                guard await awaitOwnershipRefreshTask(
+                    sidebarLivenessRefreshTask,
+                    kind: .sidebar,
+                    timeoutNanoseconds: Self.remainingOwnershipRefreshNanoseconds(
+                        until: ownershipRefreshDeadline
+                    )
+                ) else {
+                    guard !Task.isCancelled else { return nil }
+                    abandonOwnershipRefreshTasks()
+                    preservePendingHookChangeAfterOwnershipRefreshFailure()
+                    return nil
+                }
+                continue
             }
             if let refreshTask {
                 guard await awaitOwnershipRefreshTask(
@@ -542,7 +600,10 @@ final class SharedLiveAgentIndex {
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return nil
                 }
-                guard !Task.isCancelled else { return nil }
+                guard !Task.isCancelled,
+                      !requiringSidebarMonitoringLease || sidebarProcessMonitoringEnabled else {
+                    return requiringSidebarMonitoringLease ? index : nil
+                }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                     abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
@@ -598,6 +659,361 @@ final class SharedLiveAgentIndex {
             startReload()
         }
     }
+
+    /// Revalidates cached process generations without re-reading hook stores.
+    ///
+    /// Sidebar liveness uses this bounded path between full index TTL reloads,
+    /// so an agent that exits without a hook event cannot remain confidently
+    /// running. All process inspection stays off the main actor.
+    func refreshCachedProcessLivenessForSidebar(
+        panelIDs: Set<UUID>,
+        currentWorkspaceIDByPanelID: [UUID: UUID],
+        force: Bool = false
+    ) {
+        guard sidebarProcessMonitoringEnabled else { return }
+        ensureWatchingHookStoreDirectory()
+        guard let cachedIndex = index else {
+            scheduleRefreshIfStale()
+            return
+        }
+        guard sidebarLivenessRefreshTask == nil,
+              refreshTask == nil,
+              forkAvailabilityRefreshTask == nil else {
+            for panelID in panelIDs {
+                pendingSidebarLivenessPanelIDs.insert(panelID)
+                if let workspaceID = currentWorkspaceIDByPanelID[panelID] {
+                    pendingSidebarLivenessWorkspaceIDs[panelID] = workspaceID
+                }
+            }
+            return
+        }
+        guard !panelIDs.isEmpty else { return }
+        armSidebarProcessExitWatchers(
+            panelIDs: panelIDs,
+            workspaceIDByPanelID: currentWorkspaceIDByPanelID
+        )
+        let now = dateProvider()
+        if !force, let lastSidebarLivenessRefreshAt,
+           now.timeIntervalSince(lastSidebarLivenessRefreshAt)
+                < Self.sidebarLivenessRefreshCadence {
+            return
+        }
+        lastSidebarLivenessRefreshAt = now
+
+        let previousFingerprint = liveAgentProcessFingerprint
+        let sourceGeneration = indexGeneration
+        let processRefreshTask = Task.detached(priority: .utility) {
+            guard !Task.isCancelled else { return cachedIndex }
+            let processSnapshot = CmuxTopProcessSnapshot.capture(includeProcessDetails: false)
+            guard !Task.isCancelled else { return cachedIndex }
+            return cachedIndex.revalidatingCachedProcesses(
+                against: processSnapshot,
+                panelIDs: panelIDs,
+                currentWorkspaceIDByPanelID: currentWorkspaceIDByPanelID
+            )
+        }
+        sidebarLivenessRefreshTask = Task { @MainActor [weak self] in
+            let refreshed = await withTaskCancellationHandler {
+                await processRefreshTask.value
+            } onCancel: {
+                processRefreshTask.cancel()
+            }
+            guard let self else { return }
+            guard !Task.isCancelled else {
+                self.sidebarLivenessRefreshTask = nil
+                self.noteOwnershipRefreshCompleted(kind: .sidebar, success: false)
+                return
+            }
+            guard self.indexGeneration == sourceGeneration else {
+                self.sidebarLivenessRefreshTask = nil
+                self.noteOwnershipRefreshCompleted(kind: .sidebar, success: true)
+                self.restartForkAvailabilityRefreshIfPending()
+                return
+            }
+            let nextFingerprint = refreshed.liveAgentProcessFingerprint()
+            let changedPanelIdsByWorkspaceId = RestorableAgentSessionIndexChangeSet(
+                previous: previousFingerprint,
+                current: nextFingerprint
+            ).panelIdsByWorkspaceId
+            // This is process-only validation. Preserve the full hook-index
+            // loadedAt so the normal TTL reload still discovers new records,
+            // lifecycle changes, and SessionStart anchors.
+            self.index = refreshed
+            self.liveAgentProcessFingerprint = nextFingerprint
+            self.sidebarLivenessRefreshTask = nil
+            self.noteOwnershipRefreshCompleted(kind: .sidebar, success: true)
+            self.restartForkAvailabilityRefreshIfPending()
+            if !changedPanelIdsByWorkspaceId.isEmpty {
+                self.postSharedLiveAgentIndexDidChange(
+                    panelIdsByWorkspaceId: changedPanelIdsByWorkspaceId
+                )
+            }
+            if self.changePending {
+                self.changePending = false
+                self.handleHookStoreChange()
+            }
+            let pendingPanelIDs = self.pendingSidebarLivenessPanelIDs
+            let pendingWorkspaceIDs = self.pendingSidebarLivenessWorkspaceIDs
+            self.pendingSidebarLivenessPanelIDs.removeAll()
+            self.pendingSidebarLivenessWorkspaceIDs.removeAll()
+            if !pendingPanelIDs.isEmpty {
+                self.refreshCachedProcessLivenessForSidebar(
+                    panelIDs: pendingPanelIDs,
+                    currentWorkspaceIDByPanelID: pendingWorkspaceIDs,
+                    force: true
+                )
+            }
+        }
+    }
+
+    /// Replays process events that arrived while a full index reload was busy.
+    /// The caller must invoke this after the competing task releases its slot.
+    private func drainPendingSidebarLivenessRefreshIfPossible() {
+        guard sidebarLivenessRefreshTask == nil,
+              refreshTask == nil,
+              forkAvailabilityRefreshTask == nil,
+              !pendingSidebarLivenessPanelIDs.isEmpty else { return }
+        let panelIDs = pendingSidebarLivenessPanelIDs
+        let workspaceIDs = pendingSidebarLivenessWorkspaceIDs
+        pendingSidebarLivenessPanelIDs.removeAll()
+        pendingSidebarLivenessWorkspaceIDs.removeAll()
+        refreshCachedProcessLivenessForSidebar(
+            panelIDs: panelIDs,
+            currentWorkspaceIDByPanelID: workspaceIDs,
+            force: true
+        )
+    }
+
+    /// Whether the cached index has recorded process generations worth
+    /// revalidating from the sidebar freshness lease.
+    func hasCachedProcessLivenessEntries() -> Bool {
+        index?.hasRecordedProcessGenerationsValue() == true
+    }
+
+    /// Enables immediate PID watcher/reload work only while the default
+    /// activity sidebar owns a visible monitoring lease.
+    @discardableResult
+    func setSidebarProcessMonitoringEnabled(_ enabled: Bool, ownerID: UUID) -> Bool {
+        let wasEnabled = sidebarProcessMonitoringEnabled
+        if enabled {
+            sidebarProcessMonitoringOwners.insert(ownerID)
+        } else {
+            sidebarProcessMonitoringOwners.remove(ownerID)
+        }
+        let shouldEnable = !sidebarProcessMonitoringOwners.isEmpty
+        guard sidebarProcessMonitoringEnabled != shouldEnable else { return false }
+        sidebarProcessMonitoringEnabled = shouldEnable
+        if !shouldEnable {
+            disarmSidebarProcessExitWatchers()
+        }
+        return !wasEnabled && shouldEnable
+    }
+
+    /// Whether runtime PID mutations may use the sidebar-only fast path.
+    func isSidebarProcessMonitoringEnabled() -> Bool {
+        sidebarProcessMonitoringEnabled
+    }
+
+    /// Requests an event-driven full index reload for a newly bound agent PID.
+    /// Calls coalesce behind the existing reload task and never scan inline.
+    func requestSidebarIndexRefresh() {
+        guard sidebarProcessMonitoringEnabled else { return }
+        let now = dateProvider()
+        if let lastExplicitSidebarRefreshAt,
+           now.timeIntervalSince(lastExplicitSidebarRefreshAt) < 2 {
+            changePending = true
+            if sidebarExplicitRefreshRetryTimer == nil {
+                let timer = DispatchSource.makeTimerSource(queue: watchQueue)
+                timer.schedule(deadline: .now() + 2)
+                timer.setEventHandler { [weak self] in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        self.sidebarExplicitRefreshRetryTimer?.cancel()
+                        self.sidebarExplicitRefreshRetryTimer = nil
+                        guard self.sidebarProcessMonitoringEnabled else { return }
+                        self.requestSidebarIndexRefresh()
+                    }
+                }
+                sidebarExplicitRefreshRetryTimer = timer
+                timer.resume()
+            }
+            return
+        }
+        sidebarExplicitRefreshRetryTimer?.cancel()
+        sidebarExplicitRefreshRetryTimer = nil
+        lastExplicitSidebarRefreshAt = now
+        if refreshTask != nil || forkAvailabilityRefreshTask != nil || sidebarLivenessRefreshTask != nil {
+            changePending = true
+            return
+        }
+        startReload()
+    }
+
+    /// Arms one kernel-backed exit source per active local agent PID.
+    /// Process exit is the primary path for crash-without-hook liveness updates.
+    func armSidebarProcessExitWatchers(
+        panelIDs: Set<UUID>,
+        workspaceIDByPanelID: [UUID: UUID] = [:]
+    ) {
+        guard sidebarProcessMonitoringEnabled else { return }
+        guard let index else { return }
+        for panelID in panelIDs {
+            guard let workspaceID = workspaceIDByPanelID[panelID],
+                  let entry = index.sidebarEntry(workspaceId: workspaceID, panelId: panelID) else {
+                continue
+            }
+            let processIdentities = entry.agentProcessIdentities.isEmpty
+                ? entry.processIdentities
+                : entry.agentProcessIdentities
+            for processID in processIdentities.keys {
+                guard processID > 0, processID <= Int(Int32.max) else { continue }
+                sidebarProcessPanelIDsByPID[processID, default: []].insert(panelID)
+                sidebarProcessWorkspaceIDsByPID[processID, default: [:]][panelID] = workspaceID
+                armSidebarProcessExitWatcher(pid: processID)
+            }
+        }
+    }
+
+    /// Arms a watcher immediately for a newly reported local agent PID.
+    func armSidebarProcessExitWatcher(
+        pid: Int,
+        panelID: UUID? = nil,
+        workspaceID: UUID? = nil
+    ) {
+        guard sidebarProcessMonitoringEnabled,
+              pid > 0,
+              pid <= Int(Int32.max) else { return }
+        if let panelID {
+            sidebarProcessPanelIDsByPID[pid, default: []].insert(panelID)
+            if let workspaceID {
+                sidebarProcessWorkspaceIDsByPID[pid, default: [:]][panelID] = workspaceID
+            }
+        }
+        guard let identity = AgentPIDProcessIdentity(pid: pid_t(pid)) else {
+            sidebarProcessPanelIDsByPID.removeValue(forKey: pid)
+            sidebarProcessWorkspaceIDsByPID.removeValue(forKey: pid)
+            return
+        }
+        if let existing = sidebarProcessExitWatchers[pid] {
+            guard existing.identity != identity else { return }
+            Self.cancelSidebarProcessExitWatcher(existing)
+            sidebarProcessExitWatchers.removeValue(forKey: pid)
+        }
+        let source = DispatchSource.makeProcessSource(
+            identifier: pid_t(pid),
+            eventMask: [.exit, .exec],
+            queue: watchQueue
+        )
+        source.setEventHandler { [weak self] in
+            let events = source.data
+            Task { @MainActor in
+                guard let self else { return }
+                if events.contains(.exit) {
+                    self.sidebarAgentProcessDidExit(pid, expectedIdentity: identity)
+                } else if events.contains(.exec) {
+                    self.refreshCachedProcessLivenessForSidebar(
+                        panelIDs: self.sidebarProcessPanelIDsByPID[pid] ?? [],
+                        currentWorkspaceIDByPanelID: self.sidebarProcessWorkspaceIDsByPID[pid] ?? [:],
+                        force: true
+                    )
+                }
+            }
+        }
+        sidebarProcessExitWatchers[pid] = (identity: identity, source: source)
+        source.resume()
+    }
+
+    /// Removes the complete watcher for an unowned PID.
+    ///
+    /// Unbound runtime records do not contribute a panel mapping, so this
+    /// path only cancels when no panel owners remain for the PID.
+    func disarmSidebarProcessExitWatcher(pid: Int) {
+        guard pid > 0,
+              sidebarProcessPanelIDsByPID[pid]?.isEmpty != false else { return }
+        sidebarProcessWorkspaceIDsByPID.removeValue(forKey: pid)
+        if let watcher = sidebarProcessExitWatchers.removeValue(forKey: pid) {
+            Self.cancelSidebarProcessExitWatcher(watcher)
+        }
+    }
+
+    func disarmSidebarProcessExitWatcher(pid: Int, panelID: UUID) {
+        guard pid > 0 else { return }
+        guard var panelIDs = sidebarProcessPanelIDsByPID[pid] else { return }
+        panelIDs.remove(panelID)
+        if panelIDs.isEmpty {
+            sidebarProcessPanelIDsByPID.removeValue(forKey: pid)
+            sidebarProcessWorkspaceIDsByPID.removeValue(forKey: pid)
+            if let watcher = sidebarProcessExitWatchers.removeValue(forKey: pid) {
+                Self.cancelSidebarProcessExitWatcher(watcher)
+            }
+        } else {
+            sidebarProcessPanelIDsByPID[pid] = panelIDs
+            sidebarProcessWorkspaceIDsByPID[pid] = sidebarProcessWorkspaceIDsByPID[pid]?.filter {
+                panelIDs.contains($0.key)
+            }
+        }
+    }
+
+    /// Removes every index-only watcher associated with a closed panel.
+    func disarmSidebarProcessExitWatchers(panelID: UUID) {
+        let processIDs = sidebarProcessPanelIDsByPID.compactMap { processID, panelIDs in
+            panelIDs.contains(panelID) ? processID : nil
+        }
+        for processID in processIDs {
+            disarmSidebarProcessExitWatcher(pid: processID, panelID: panelID)
+        }
+    }
+
+    /// Stops all sidebar-only process monitoring when activity rendering is
+    /// disabled, keeping the disabled path free of kernel sources and scans.
+    func disarmSidebarProcessExitWatchers() {
+        for watcher in sidebarProcessExitWatchers.values {
+            Self.cancelSidebarProcessExitWatcher(watcher)
+        }
+        sidebarProcessExitWatchers.removeAll()
+        sidebarProcessPanelIDsByPID.removeAll()
+        sidebarProcessWorkspaceIDsByPID.removeAll()
+        pendingSidebarLivenessPanelIDs.removeAll()
+        pendingSidebarLivenessWorkspaceIDs.removeAll()
+        sidebarLivenessRefreshTask?.cancel()
+        sidebarExplicitRefreshRetryTimer?.cancel()
+        sidebarExplicitRefreshRetryTimer = nil
+        lastExplicitSidebarRefreshAt = nil
+        lastSidebarLivenessRefreshAt = nil
+    }
+
+    private func sidebarAgentProcessDidExit(
+        _ processID: Int,
+        expectedIdentity: AgentPIDProcessIdentity?
+    ) {
+        if let expectedIdentity,
+           let currentIdentity = AgentPIDProcessIdentity(pid: pid_t(processID)),
+           currentIdentity != expectedIdentity {
+            let panelIDs = sidebarProcessPanelIDsByPID[processID] ?? []
+            let workspaceIDs = sidebarProcessWorkspaceIDsByPID[processID] ?? [:]
+            if let watcher = sidebarProcessExitWatchers.removeValue(forKey: processID) {
+                Self.cancelSidebarProcessExitWatcher(watcher)
+            }
+            armSidebarProcessExitWatcher(pid: processID)
+            refreshCachedProcessLivenessForSidebar(
+                panelIDs: panelIDs,
+                currentWorkspaceIDByPanelID: workspaceIDs,
+                force: true
+            )
+            return
+        }
+        if let watcher = sidebarProcessExitWatchers.removeValue(forKey: processID) {
+            Self.cancelSidebarProcessExitWatcher(watcher)
+        }
+        let panelIDs = sidebarProcessPanelIDsByPID.removeValue(forKey: processID) ?? []
+        let workspaceIDs = sidebarProcessWorkspaceIDsByPID.removeValue(forKey: processID) ?? [:]
+        refreshCachedProcessLivenessForSidebar(
+            panelIDs: panelIDs,
+            currentWorkspaceIDByPanelID: workspaceIDs,
+            force: true
+        )
+    }
+
 
     func scheduleRefreshIfStale(
         validating panelKey: RestorableAgentSessionIndex.PanelKey? = nil,
@@ -690,7 +1106,8 @@ final class SharedLiveAgentIndex {
     ) {
         insertPendingForkValidation(probeKey, fallbackSnapshot: fallbackSnapshot)
         guard refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
+              forkAvailabilityRefreshTask == nil,
+              sidebarLivenessRefreshTask == nil else {
             return
         }
         let generation = UUID()
@@ -711,10 +1128,15 @@ final class SharedLiveAgentIndex {
                 self.changePending = false
                 self.handleHookStoreChange()
             }
+            self.drainPendingSidebarLivenessRefreshIfPossible()
         }
     }
 
     private func startReload() {
+        guard sidebarLivenessRefreshTask == nil else {
+            changePending = true
+            return
+        }
         deferredReloadTimer?.cancel()
         deferredReloadTimer = nil
         let generation = UUID()
@@ -730,11 +1152,14 @@ final class SharedLiveAgentIndex {
                 success: reloadResult.didComplete && !Task.isCancelled
             )
             self.restartForkAvailabilityRefreshIfPending()
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+            self.postSharedLiveAgentIndexDidChange(
+                panelIdsByWorkspaceId: reloadResult.panelIdsByWorkspaceId
+            )
             if self.changePending {
                 self.changePending = false
                 self.handleHookStoreChange()
             }
+            self.drainPendingSidebarLivenessRefreshIfPossible()
         }
     }
 
@@ -749,7 +1174,7 @@ final class SharedLiveAgentIndex {
     ) async -> Bool {
         guard !task.isCancelled else { return false }
         let minimumGeneration = refreshCompletionGeneration + 1
-        guard refreshTask != nil || forkAvailabilityRefreshTask != nil else {
+        guard refreshTask != nil || forkAvailabilityRefreshTask != nil || sidebarLivenessRefreshTask != nil else {
             return !task.isCancelled
         }
         let waiterID = UUID()
@@ -946,6 +1371,7 @@ final class SharedLiveAgentIndex {
     private func abandonOwnershipRefreshTasks() {
         refreshTask?.cancel()
         forkAvailabilityRefreshTask?.cancel()
+        sidebarLivenessRefreshTask?.cancel()
         // Keep the detached loader handle until its synchronous probe actually
         // returns. Cancellation cannot interrupt that closure, and dropping it
         // here would let the next refresh start a second full scan while the
@@ -1189,7 +1615,8 @@ final class SharedLiveAgentIndex {
     private func restartForkAvailabilityRefreshIfPending() {
         guard !pendingForkValidationRequests.isEmpty,
               refreshTask == nil,
-              forkAvailabilityRefreshTask == nil else {
+              forkAvailabilityRefreshTask == nil,
+              sidebarLivenessRefreshTask == nil else {
             return
         }
         let generation = UUID()
@@ -1210,6 +1637,7 @@ final class SharedLiveAgentIndex {
                 self.changePending = false
                 self.handleHookStoreChange()
             }
+            self.drainPendingSidebarLivenessRefreshIfPossible()
         }
     }
 
@@ -1421,14 +1849,23 @@ final class SharedLiveAgentIndex {
 
     private func postSharedLiveAgentIndexDidChange(panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
         guard !panelIdsByWorkspaceId.isEmpty else {
-            NotificationCenter.default.post(name: .sharedLiveAgentIndexDidChange, object: self)
+            // An empty map is a completed, scoped no-op. Keep the map present
+            // so sidebar consumers do not mistake it for a legacy unscoped
+            // event and traverse every workspace/panel to re-arm watchers.
+            NotificationCenter.default.post(
+                name: .sharedLiveAgentIndexDidChange,
+                object: self,
+                userInfo: ["panelIdsByWorkspaceId": [UUID: Set<UUID>]()]
+            )
             return
         }
+        let changedPanelIds = Set(panelIdsByWorkspaceId.values.joined())
         NotificationCenter.default.post(
             name: .sharedLiveAgentIndexDidChange,
             object: self,
             userInfo: [
                 "panelIdsByWorkspaceId": panelIdsByWorkspaceId,
+                "panelIds": changedPanelIds,
             ]
         )
     }
@@ -1436,7 +1873,7 @@ final class SharedLiveAgentIndex {
     private func reloadIfLiveAgentProcessFingerprintChanged(
         pendingRequestIDsToRemoveOnCancellation: [ForkProbeKey: Set<UUID>] = [:]
     ) async -> (didReload: Bool, panelIdsByWorkspaceId: [UUID: Set<UUID>]) {
-        guard refreshTask == nil else {
+        guard refreshTask == nil, sidebarLivenessRefreshTask == nil else {
             changePending = true
             return (false, [:])
         }
@@ -1457,6 +1894,7 @@ final class SharedLiveAgentIndex {
         didComplete: Bool,
         panelIdsByWorkspaceId: [UUID: Set<UUID>]
     ) {
+        let previousFingerprint = liveAgentProcessFingerprint
         let loader = startIndexLoaderIfNeeded()
         guard let result = await awaitIndexLoaderResult(
             loader.task,
@@ -1474,13 +1912,19 @@ final class SharedLiveAgentIndex {
             return (false, [:])
         }
         let loadedAt = dateProvider()
+        let changeSet = RestorableAgentSessionIndexChangeSet(
+            previous: previousFingerprint,
+            current: result.liveAgentProcessFingerprint
+        )
         let hasPendingForkValidations = !pendingForkValidationPanels.isEmpty
+        var changedPanelIdsByWorkspaceId: [UUID: Set<UUID>] = [:]
         if forcePublish
             || hasPendingForkValidations
             || result.liveAgentProcessFingerprint != liveAgentProcessFingerprint
             || result.processScopeFingerprint != processScopeFingerprint
             || index?.isComplete != result.index.isComplete
             || index?.completionFingerprint != result.index.completionFingerprint {
+            changedPanelIdsByWorkspaceId = changeSet.panelIdsByWorkspaceId
             applyReloadedIndex(
                 result.index,
                 loadedAt: loadedAt,
@@ -1493,11 +1937,14 @@ final class SharedLiveAgentIndex {
             self.processScopeFingerprint = result.processScopeFingerprint
             self.validatedForkPanels = result.forkValidatedPanels
         }
-        let panelIdsByWorkspaceId = await applyPendingForkValidations(
-            pendingRequestIDsToRemoveOnCancellation:
-                pendingRequestIDsToRemoveOnCancellation
+        let pendingPanelIdsByWorkspaceId = await applyPendingForkValidations(
+            pendingRequestIDsToRemoveOnCancellation: pendingRequestIDsToRemoveOnCancellation
         )
-        return (true, panelIdsByWorkspaceId)
+        Self.mergePanelIdsByWorkspaceId(
+            pendingPanelIdsByWorkspaceId,
+            into: &changedPanelIdsByWorkspaceId
+        )
+        return (true, changedPanelIdsByWorkspaceId)
     }
 
     private func applyReloadedIndex(
@@ -1508,12 +1955,14 @@ final class SharedLiveAgentIndex {
         forkValidatedPanels: Set<RestorableAgentSessionIndex.PanelKey>
     ) {
         index = newIndex
+        indexGeneration &+= 1
         self.loadedAt = loadedAt
         validatedForkPanels = forkValidatedPanels
         validatedMissingForkPanels.removeAll()
         pruneForkSupportValidations(validPanelKeys: forkValidatedPanels, now: loadedAt)
         self.liveAgentProcessFingerprint = liveAgentProcessFingerprint
         self.processScopeFingerprint = processScopeFingerprint
+        lastSidebarLivenessRefreshAt = loadedAt
     }
 
     private func applyPendingForkValidations(

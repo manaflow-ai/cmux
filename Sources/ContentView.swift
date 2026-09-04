@@ -6066,8 +6066,15 @@ struct ContentView: View {
                     )
                 }
             }
-            guard let activePanelKey = commandPaletteForkableAgentActivePanelKey,
-                  changedPanelKeys.contains(activePanelKey) else {
+            let exactMatch = commandPaletteForkableAgentActivePanelKey.map {
+                changedPanelKeys.contains($0)
+            } == true
+            let aliasPanelIds = notification.userInfo?["panelIds"] as? Set<UUID>
+                ?? Set(panelIdsByWorkspaceId.values.joined())
+            let panelAliasMatch = focusedPanelContext.map { context in
+                aliasPanelIds.contains(context.panelId)
+            } == true
+            guard exactMatch || panelAliasMatch else {
                 return
             }
         } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
@@ -10950,6 +10957,9 @@ struct VerticalTabsSidebar: View, Equatable {
     @State private var bonsplitWorkspaceDropTargetBridge = SidebarBonsplitTabWorkspaceDropOverlay.TargetBridge()
     @State private var workspaceReorderDropTargetBridge = SidebarWorkspaceReorderDropOverlay.TargetBridge()
     @State private var appKitRowSnapshotCache = SidebarRowSnapshotCache()
+    /// One narrow-invalidation elapsed clock shared by both default sidebar
+    /// renderers. Rows receive only its closure capability bundle.
+    @State private var agentElapsedClock = SidebarAgentElapsedClock()
     /// Bumped once per interactive-resize end: an apply during the drag
     /// is deferred by the AppKit controller. The bump projects one final
     /// authoritative snapshot after mouse-up so state that changed mid-drag
@@ -10968,6 +10978,10 @@ struct VerticalTabsSidebar: View, Equatable {
     // publisher bursts cross into SwiftUI once per run-loop batch instead of
     // invalidating the full parent projection once per emitting workspace.
     @State private var workspaceSnapshotRefreshCoalescer = SidebarWorkspaceSnapshotRefreshCoalescer()
+    /// Last observed panel topology per workspace. A topology change is the
+    /// bounded signal that permits one full watcher-owner reconciliation;
+    /// metadata/status bursts stay on their scoped snapshot path.
+    @State private var sidebarPanelIdsByWorkspace: [UUID: Set<UUID>] = [:]
     // Parent-owned immutable workspace projections. Workspace publishers and
     // async observation streams terminate here, above the LazyVStack; rows
     // receive only values and action closures. This is the ownership boundary
@@ -11275,6 +11289,7 @@ struct VerticalTabsSidebar: View, Equatable {
         let workspaceNumberShortcut: StoredShortcut
         let tabItemSettings: SidebarTabItemSettingsSnapshot
         let showsAgentActivity: Bool
+        let showsAgentSpinner: Bool
         let pinResolutionContext: WorkspaceActionDispatcher.PinResolutionContext
         let tabIndexById: [UUID: Int]
         let numberedWorkspaceIndexById: [UUID: Int]
@@ -11454,8 +11469,10 @@ struct VerticalTabsSidebar: View, Equatable {
             canCloseWorkspace: canCloseWorkspace,
             workspaceNumberShortcut: workspaceNumberShortcut,
             tabItemSettings: tabItemSettings,
-            showsAgentActivity: tabItemSettings.details.showAgentActivity
-                && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled,
+            showsAgentActivity: tabItemSettings.details.showAgentActivity,
+            showsAgentSpinner: showsAgentSpinner(
+                for: tabItemSettings.details.showAgentActivity
+            ),
             pinResolutionContext: pinResolutionContext,
             tabIndexById: tabIndexById,
             numberedWorkspaceIndexById: numberedWorkspaceIndexById,
@@ -11580,6 +11597,15 @@ struct VerticalTabsSidebar: View, Equatable {
                 )
             }
         }
+        .background(alignment: .topLeading) {
+            if isPresented,
+               renderContext.showsAgentActivity,
+               CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                   effectiveProviderId: effectiveExtensionSidebarProviderId
+               ) {
+                SidebarAgentElapsedClockDriver(clock: agentElapsedClock)
+            }
+        }
         // Workspace publisher observations and the snapshot refresh feed BOTH
         // list implementations, so they live on the shared parent. They
         // previously hung off the legacy subtree only, which the AppKit flag
@@ -11606,21 +11632,145 @@ struct VerticalTabsSidebar: View, Equatable {
             debouncedInterval: Self.extensionSidebarObservationCoalesceInterval
         ) { workspaceId in
             guard isPresented else { return }
+            if renderContext.showsAgentActivity,
+               let workspace = tabManager.tabs.first(where: { $0.id == workspaceId }) {
+                let panelIDs = Set(workspace.panels.keys)
+                let topologyChanged = sidebarPanelIdsByWorkspace[workspaceId] != panelIDs
+                sidebarPanelIdsByWorkspace[workspaceId] = panelIDs
+                if topologyChanged {
+                    // Panel creation/move/restore can introduce an index-only
+                    // process binding while this sidebar remains mounted.
+                    // Reconcile all owners only for this infrequent topology
+                    // edge; ordinary metadata updates remain workspace-scoped.
+                    armSidebarProcessExitWatchersForCurrentPanels(renderContext: renderContext)
+                }
+            }
             scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .sharedLiveAgentIndexDidChange)) { notification in
+            guard isPresented else { return }
+            guard renderContext.showsAgentActivity else {
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
+                return
+            }
+            if let panelIdsByWorkspaceId = notification.userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
+                guard !panelIdsByWorkspaceId.isEmpty else { return }
+                // Scoped index events carry the exact panel keys whose
+                // process bindings changed. Resolve only those live workspace
+                // owners here; a full owner traversal is reserved for the
+                // legacy/unscoped notification below.
+                let ownerByPanelID = sidebarPanelOwnership(
+                    in: renderContext,
+                    scopedTo: panelIdsByWorkspaceId
+                )
+                armSidebarProcessExitWatchers(for: ownerByPanelID)
+                var panelIdsWithoutCurrentWorkspace = Set<UUID>()
+                for (workspaceId, panelIds) in panelIdsByWorkspaceId {
+                    if renderContext.workspaceById[workspaceId] != nil {
+                        scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+                    } else {
+                        panelIdsWithoutCurrentWorkspace.formUnion(panelIds)
+                    }
+                }
+                // Restored workspaces can rotate their UUID while retaining
+                // the panel id. Resolve those panel-only index entries against
+                // the current owner so their activity/elapsed snapshot updates.
+                guard !panelIdsWithoutCurrentWorkspace.isEmpty else { return }
+                for workspace in renderContext.tabs
+                where !panelIdsWithoutCurrentWorkspace.isDisjoint(with: workspace.panels.keys) {
+                    scheduleWorkspaceSnapshotRefresh(workspaceId: workspace.id)
+                }
+            } else if let workspaceId = notification.userInfo?["workspaceId"] as? UUID,
+                      let workspace = renderContext.workspaceById[workspaceId] {
+                let ownerByPanelID = sidebarPanelOwnership(
+                    in: renderContext,
+                    scopedTo: [workspaceId: Set(workspace.panels.keys)]
+                )
+                armSidebarProcessExitWatchers(for: ownerByPanelID)
+                scheduleWorkspaceSnapshotRefresh(workspaceId: workspaceId)
+            } else {
+                // A scoped index reload always carries its affected panel map.
+                // An empty/legacy notification has no authoritative workspace
+                // scope, so re-arm all current owners before returning.
+                armSidebarProcessExitWatchersForCurrentPanels(renderContext: renderContext)
+            }
         }
         .onAppear {
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
         }
+        .task(id: "\(isPresented)-\(renderContext.showsAgentActivity)-\(effectiveExtensionSidebarProviderId)") {
+            guard isPresented,
+                  renderContext.showsAgentActivity,
+                  CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                      effectiveProviderId: effectiveExtensionSidebarProviderId
+                  ) else {
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
+                return
+            }
+            let becameMonitoringOwner = SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(
+                true,
+                ownerID: windowId
+            )
+            // The app prewarms this index at launch, but a sidebar can mount
+            // before that detached load publishes. Await the same shared load
+            // once from the lifecycle boundary so the first snapshot cannot
+            // permanently miss hook-backed activity.
+            if becameMonitoringOwner {
+                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow(
+                    requiringSidebarMonitoringLease: true
+                )
+            } else if SharedLiveAgentIndex.shared.currentIndexSchedulingRefresh() == nil {
+                _ = await SharedLiveAgentIndex.shared.indexRefreshingNow(
+                    requiringSidebarMonitoringLease: true
+                )
+            }
+            guard isPresented, !Task.isCancelled else { return }
+            // Re-read ownership after the async load. Restore/move work can
+            // rotate a workspace identity while the task is suspended, so a
+            // map captured before the await is not safe for liveness checks.
+            let ownerByPanelID = armSidebarProcessExitWatchersForCurrentPanels()
+            if SharedLiveAgentIndex.shared.hasCachedProcessLivenessEntries() {
+                // A hidden sidebar may have missed a process exit before its
+                // kernel source was armed. Revalidate the cached generations
+                // once on activation so persisted Running state cannot survive
+                // until the normal index TTL expires.
+                SharedLiveAgentIndex.shared.refreshCachedProcessLivenessForSidebar(
+                    panelIDs: Set(ownerByPanelID.keys),
+                    currentWorkspaceIDByPanelID: ownerByPanelID,
+                    force: true
+                )
+            }
+            if !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
+        }
         .onChange(of: isPresented) { _, presented in
             if !presented {
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
+                sidebarPanelIdsByWorkspace.removeAll()
                 workspaceSnapshotRefreshCoalescer.cancel()
             } else if !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
         }
+        .onChange(of: effectiveExtensionSidebarProviderId) { _, providerId in
+            let isDefaultMonitoringOwner = isPresented
+                && renderContext.showsAgentActivity
+                && CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                    effectiveProviderId: providerId
+                )
+            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(
+                isDefaultMonitoringOwner,
+                ownerID: windowId
+            )
+        }
         .onChange(of: renderContext.workspaceIds) { _, _ in
+            let liveWorkspaceIDs = Set(renderContext.workspaceIds)
+            sidebarPanelIdsByWorkspace = sidebarPanelIdsByWorkspace.filter {
+                liveWorkspaceIDs.contains($0.key)
+            }
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
@@ -11631,11 +11781,25 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         }
         .onChange(of: renderContext.showsAgentActivity) { _, _ in
+            if !renderContext.showsAgentActivity {
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
+            } else if isPresented,
+                      CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+                          effectiveProviderId: effectiveExtensionSidebarProviderId
+                      ) {
+                SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(true, ownerID: windowId)
+            }
+            if isPresented, !featureFlags.isAppKitSidebarListEnabled {
+                refreshWorkspaceSnapshots()
+            }
+        }
+        .onChange(of: renderContext.showsAgentSpinner) { _, _ in
             if isPresented, !featureFlags.isAppKitSidebarListEnabled {
                 refreshWorkspaceSnapshots()
             }
         }
         .onDisappear {
+            SharedLiveAgentIndex.shared.setSidebarProcessMonitoringEnabled(false, ownerID: windowId)
             workspaceSnapshotRefreshCoalescer.cancel()
         }
     }
@@ -11834,7 +11998,9 @@ struct VerticalTabsSidebar: View, Equatable {
         pendingSelectedWorkspaceScrollId = selectedWorkspaceId
     }
 
-    private func appKitWorkspaceScrollArea(renderContext: WorkspaceListRenderContext) -> some View {
+    private func appKitWorkspaceScrollArea(
+        renderContext: WorkspaceListRenderContext
+    ) -> some View {
         let _ = anchorCwdRevision
         let _ = appKitPostResizeRefreshToken
         let _ = appKitTableApplyRequestToken
@@ -11877,6 +12043,7 @@ struct VerticalTabsSidebar: View, Equatable {
             selectedScrollTargetWorkspaceId: selectedScrollTargetWorkspaceId,
             isPresented: isPresented,
             unreadSource: sidebarUnread,
+            agentElapsedClock: agentElapsedClock.actions,
             onDeferredClickAwaitingApply: { appKitTableApplyRequestToken &+= 1 }
         )
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -12245,6 +12412,7 @@ struct VerticalTabsSidebar: View, Equatable {
             unreadCount: input.unreadCount,
             latestNotificationText: input.latestNotificationText,
             showsAgentActivity: input.showsAgentActivity,
+            showsAgentSpinner: input.showsAgentSpinner,
             rowSpacing: input.rowSpacing,
             isBeingDragged: input.isBeingDragged,
             topDropIndicatorVisible: input.topDropIndicatorVisible,
@@ -12629,12 +12797,95 @@ struct VerticalTabsSidebar: View, Equatable {
         }
     }
 
+    private func sidebarPanelOwnership(
+        in renderContext: WorkspaceListRenderContext,
+        scopedTo panelIdsByWorkspaceId: [UUID: Set<UUID>]? = nil
+    ) -> [UUID: UUID] {
+        sidebarPanelOwnership(
+            in: renderContext.tabs,
+            workspaceByID: renderContext.workspaceById,
+            scopedTo: panelIdsByWorkspaceId
+        )
+    }
+
+    private func sidebarPanelOwnership(
+        in workspaces: [Workspace],
+        workspaceByID: [UUID: Workspace]? = nil,
+        scopedTo panelIdsByWorkspaceId: [UUID: Set<UUID>]? = nil
+    ) -> [UUID: UUID] {
+        guard CmuxExtensionSidebarSelection.resolvesToDefaultSidebar(
+            effectiveProviderId: effectiveExtensionSidebarProviderId
+        ) else { return [:] }
+        var ownerByPanelID: [UUID: UUID] = [:]
+        var ambiguousPanelIDs = Set<UUID>()
+
+        if let panelIdsByWorkspaceId {
+            // The common scoped path performs dictionary lookups for only the
+            // changed workspace/panel keys. If a workspace identity was
+            // rotated during restore, its lifecycle registration will arm the
+            // current owner; resolving that alias here would require an
+            // all-sidebar panel scan on every index event.
+            guard let workspaceByID else { return [:] }
+            for (workspaceID, panelIDs) in panelIdsByWorkspaceId {
+                guard let workspace = workspaceByID[workspaceID] else { continue }
+                for panelID in panelIDs where workspace.panels[panelID] != nil {
+                    guard !ambiguousPanelIDs.contains(panelID) else { continue }
+                    if let previousOwner = ownerByPanelID[panelID], previousOwner != workspaceID {
+                        ownerByPanelID.removeValue(forKey: panelID)
+                        ambiguousPanelIDs.insert(panelID)
+                    } else {
+                        ownerByPanelID[panelID] = workspaceID
+                    }
+                }
+            }
+        } else {
+            // Only unscoped/legacy notifications pay the full owner traversal.
+            for workspace in workspaces {
+                for panelID in workspace.panels.keys {
+                    guard !ambiguousPanelIDs.contains(panelID) else { continue }
+                    if let previousOwner = ownerByPanelID[panelID], previousOwner != workspace.id {
+                        ownerByPanelID.removeValue(forKey: panelID)
+                        ambiguousPanelIDs.insert(panelID)
+                    } else {
+                        ownerByPanelID[panelID] = workspace.id
+                    }
+                }
+            }
+        }
+
+        return ownerByPanelID
+    }
+
+    private func armSidebarProcessExitWatchers(for ownerByPanelID: [UUID: UUID]) {
+        guard !ownerByPanelID.isEmpty else { return }
+        SharedLiveAgentIndex.shared.armSidebarProcessExitWatchers(
+            panelIDs: Set(ownerByPanelID.keys),
+            workspaceIDByPanelID: ownerByPanelID
+        )
+    }
+
+    @discardableResult
+    private func armSidebarProcessExitWatchersForCurrentPanels(
+        renderContext: WorkspaceListRenderContext
+    ) -> [UUID: UUID] {
+        let ownerByPanelID = sidebarPanelOwnership(in: renderContext)
+        armSidebarProcessExitWatchers(for: ownerByPanelID)
+        return ownerByPanelID
+    }
+
+    @discardableResult
+    private func armSidebarProcessExitWatchersForCurrentPanels() -> [UUID: UUID] {
+        let ownerByPanelID = sidebarPanelOwnership(in: tabManager.tabs)
+        armSidebarProcessExitWatchers(for: ownerByPanelID)
+        return ownerByPanelID
+    }
+
     private func refreshWorkspaceSnapshots(workspaceIds: Set<UUID>) {
         guard !workspaceIds.isEmpty else { return }
         let workspaceById = Dictionary(uniqueKeysWithValues: tabManager.tabs.map { ($0.id, $0) })
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
-            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let showsAgentSpinner = showsAgentSpinner(for: showsAgentActivity)
         var next = workspaceSnapshotsById
         var changed = false
         for workspaceId in workspaceIds {
@@ -12645,7 +12896,8 @@ struct VerticalTabsSidebar: View, Equatable {
             let snapshot = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                showsAgentSpinner: showsAgentSpinner
             )
             if featureFlags.isAppKitSidebarListEnabled {
                 guard appKitRowSnapshotCache.value(for: workspaceId) != snapshot else {
@@ -12670,24 +12922,30 @@ struct VerticalTabsSidebar: View, Equatable {
         let liveIds = Set(tabs.map(\.id))
         let settings = tabItemSettingsStore.snapshot
         let showsAgentActivity = settings.details.showAgentActivity
-            && CmuxFeatureFlags.shared.isSidebarWorkspaceAgentSpinnerEnabled
+        let showsAgentSpinner = showsAgentSpinner(for: showsAgentActivity)
         var next: [UUID: SidebarWorkspaceSnapshotBuilder.Snapshot] = [:]
         next.reserveCapacity(tabs.count)
         for workspace in tabs {
             next[workspace.id] = makeWorkspaceSnapshot(
                 workspace: workspace,
                 settings: settings,
-                showsAgentActivity: showsAgentActivity
+                showsAgentActivity: showsAgentActivity,
+                showsAgentSpinner: showsAgentSpinner
             )
         }
         guard next != workspaceSnapshotsById || Set(workspaceSnapshotsById.keys) != liveIds else { return }
         workspaceSnapshotsById = next
     }
 
+    private func showsAgentSpinner(for showsAgentActivity: Bool) -> Bool {
+        showsAgentActivity && featureFlags.isSidebarWorkspaceAgentSpinnerEnabled
+    }
+
     private func makeWorkspaceSnapshot(
         workspace: Workspace,
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        showsAgentSpinner: Bool
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
 #if DEBUG
         sidebarLazyContractProbe.workspaceSnapshotBuild?()
@@ -12695,7 +12953,8 @@ struct VerticalTabsSidebar: View, Equatable {
         return SidebarWorkspaceSnapshotFactory(
             workspace: workspace,
             settings: settings,
-            showsAgentActivity: showsAgentActivity
+            showsAgentActivity: showsAgentActivity,
+            showsAgentSpinner: showsAgentSpinner
         ).makeSnapshot()
     }
 
@@ -14600,7 +14859,8 @@ struct VerticalTabsSidebar: View, Equatable {
         let settings = renderContext.tabItemSettings
         let expectedPresentationKey = SidebarWorkspaceSnapshotFactory.presentationKey(
             settings: settings,
-            showsAgentActivity: renderContext.showsAgentActivity
+            showsAgentActivity: renderContext.showsAgentActivity,
+            showsAgentSpinner: renderContext.showsAgentSpinner
         )
         let cachedWorkspaceSnapshot = featureFlags.isAppKitSidebarListEnabled
             ? appKitRowSnapshotCache.value(for: tab.id)
@@ -14613,7 +14873,8 @@ struct VerticalTabsSidebar: View, Equatable {
             workspaceSnapshot = makeWorkspaceSnapshot(
                 workspace: tab,
                 settings: settings,
-                showsAgentActivity: renderContext.showsAgentActivity
+                showsAgentActivity: renderContext.showsAgentActivity,
+                showsAgentSpinner: renderContext.showsAgentSpinner
             )
             if featureFlags.isAppKitSidebarListEnabled {
                 appKitRowSnapshotCache.store(workspaceSnapshot, for: tab.id)
@@ -14654,6 +14915,7 @@ struct VerticalTabsSidebar: View, Equatable {
             unreadCount: unreadSummary.unreadCount,
             latestNotificationText: liveLatestNotificationText,
             showsAgentActivity: renderContext.showsAgentActivity,
+            showsAgentSpinner: renderContext.showsAgentSpinner,
             rowSpacing: tabRowSpacing,
             showsModifierShortcutHints: resolvedShowsModifierShortcutHints,
             isPointerHovering: isPointerHovering,
@@ -14680,6 +14942,7 @@ struct VerticalTabsSidebar: View, Equatable {
     /// action, never while SwiftUI realizes or lays out a row.
     private func makeWorkspaceRowActionFactory() -> SidebarWorkspaceRowActionFactory {
         let pointerInteractionMonitor = pointerInteractionMonitor
+        let agentElapsedClock = agentElapsedClock.actions
         return { input in
         let tabId = input.workspaceId
         let index = input.index
@@ -14733,6 +14996,7 @@ struct VerticalTabsSidebar: View, Equatable {
             }
         )
         return SidebarWorkspaceRowActions(
+            agentElapsedClock: agentElapsedClock,
             select: { modifiers in
                 guard let tab = workspace() else { return }
                 selectWorkspaceRow(tab, index: index, modifiers: modifiers)
@@ -15433,6 +15697,7 @@ struct TabItemView: View, Equatable {
     var unreadCount: Int { snapshot.unreadCount }
     var latestNotificationText: String? { snapshot.latestNotificationText }
     var showsAgentActivity: Bool { snapshot.showsAgentActivity }
+    var showsAgentSpinner: Bool { snapshot.showsAgentSpinner }
     var rowSpacing: CGFloat { snapshot.rowSpacing }
     var showsModifierShortcutHints: Bool { snapshot.showsModifierShortcutHints }
     var isPointerHovering: Bool { snapshot.isPointerHovering }
@@ -15584,6 +15849,12 @@ struct TabItemView: View, Equatable {
             : .secondary
     }
 
+    private func activeSecondaryNSColor(_ opacity: CGFloat = 0.75) -> NSColor {
+        usesInvertedActiveForeground
+            ? selectedWorkspaceForegroundNSColor(opacity: opacity)
+            : .secondaryLabelColor
+    }
+
     private var activeUnreadBadgeFillColor: Color {
         if let hex = sidebarNotificationBadgeColorHex, let nsColor = NSColor(hex: hex) {
             return Color(nsColor: nsColor)
@@ -15729,7 +16000,7 @@ struct TabItemView: View, Equatable {
             scaledCloseButtonHitSize
         )
 
-        let showsLoadingSpinner = showsAgentActivity && workspaceSnapshot.activeCodingAgentCount > 0
+        let showsLoadingSpinner = showsAgentSpinner && workspaceSnapshot.activeCodingAgentCount > 0
         let badgeOnLeading = unreadCount > 0 && settings.notificationBadgePosition == .leading
         let badgeOnTrailing = unreadCount > 0 && settings.notificationBadgePosition == .trailing
         let spinnerOnLeading = showsLoadingSpinner && settings.loadingSpinnerPosition == .leading
@@ -15831,6 +16102,21 @@ struct TabItemView: View, Equatable {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .alignmentGuide(.sidebarTitleFirstLineCenter) { _ in titleFirstLineCenter }
                         .layoutPriority(1)
+                }
+
+                if showsAgentActivity,
+                   workspaceSnapshot.agentActivity.primaryState != nil {
+                    SidebarAgentActivityLabel(
+                        activity: workspaceSnapshot.agentActivity,
+                        color: activeSecondaryNSColor(0.78),
+                        fontSize: GlobalFontMagnification.scaledSize(
+                            scaledFontSize(10),
+                            percent: globalFontMagnificationPercent
+                        ),
+                        clock: actions.agentElapsedClock
+                    )
+                    .fixedSize()
+                    .alignmentGuide(.sidebarTitleFirstLineCenter) { $0[VerticalAlignment.center] }
                 }
 
                 if trailingStatusActive || canCloseWorkspace {

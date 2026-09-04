@@ -16,7 +16,8 @@ struct SidebarWorkspaceRowSuspensionTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                showsAgentSpinner: false
             ),
             title: "Workspace",
             customDescription: customDescription,
@@ -33,7 +34,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
-            activeCodingAgentCount: 0,
+            agentActivity: SidebarWorkspaceAgentActivity(agents: []),
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -94,6 +95,7 @@ struct SidebarWorkspaceRowSuspensionTests {
             unreadCount: 0,
             latestNotificationText: nil,
             showsAgentActivity: settings.details.showAgentActivity,
+            showsAgentSpinner: false,
             rowSpacing: 8,
             isBeingDragged: false,
             topDropIndicatorVisible: false,

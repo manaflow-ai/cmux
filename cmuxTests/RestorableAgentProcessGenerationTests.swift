@@ -20,8 +20,7 @@ struct RestorableAgentProcessGenerationTests {
         sessionID: String,
         processID: Int,
         updatedAt: TimeInterval,
-        storeURL: URL,
-        previousHookStateDirectory: String?
+        storeURL: URL
     )
 
     @Test("Shared cache publishes unknown-to-exited liveness transitions")
@@ -34,6 +33,7 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .unknown },
             processIdentityProvider: { _ in nil }
@@ -43,6 +43,7 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
             processArgumentsProvider: { _ in nil },
             processPresenceProvider: { _ in .absent },
             processIdentityProvider: { _ in nil }
@@ -358,6 +359,60 @@ struct RestorableAgentProcessGenerationTests {
         )?.agentProcessIdentities[fixture.processID] == secondIdentity)
     }
 
+    @Test("Live index fingerprint publishes lifecycle and elapsed-anchor changes")
+    func liveIndexFingerprintPublishesLifecycleAndElapsedAnchorChanges() throws {
+        let fixture = try makeFixture(prefix: "cmux-agent-elapsed-fingerprint")
+        defer { cleanup(fixture) }
+
+        try writeHookTimingState(startedAt: 100, lifecycle: .running, to: fixture)
+        let first = loadHookFixture(fixture)
+        try writeHookTimingState(startedAt: 200, lifecycle: .running, to: fixture)
+        let second = loadHookFixture(fixture)
+        try writeHookTimingState(startedAt: 200, lifecycle: .needsInput, to: fixture)
+        let third = loadHookFixture(fixture)
+
+        #expect(first.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.startedAt == 100)
+        #expect(second.entry(
+            workspaceId: fixture.workspaceID,
+            panelId: fixture.panelID
+        )?.startedAt == 200)
+        #expect(first.liveAgentProcessFingerprint() != second.liveAgentProcessFingerprint())
+        #expect(second.liveAgentProcessFingerprint() != third.liveAgentProcessFingerprint())
+    }
+
+    @Test("Index fingerprint changes stay scoped to affected workspace panels")
+    func indexFingerprintChangesStayScopedToAffectedWorkspacePanels() {
+        let firstWorkspace = UUID(uuidString: "00000000-0000-0000-0000-000000000101")!
+        let firstPanel = UUID(uuidString: "00000000-0000-0000-0000-000000000102")!
+        let secondWorkspace = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+        let secondPanel = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+        let addedWorkspace = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
+        let addedPanel = UUID(uuidString: "00000000-0000-0000-0000-000000000302")!
+
+        let previous: Set<String> = [
+            "\(firstWorkspace.uuidString)|\(firstPanel.uuidString)|old",
+            "\(secondWorkspace.uuidString)|\(secondPanel.uuidString)|same",
+        ]
+        let current: Set<String> = [
+            "\(firstWorkspace.uuidString)|\(firstPanel.uuidString)|new",
+            "\(secondWorkspace.uuidString)|\(secondPanel.uuidString)|same",
+            "\(addedWorkspace.uuidString)|\(addedPanel.uuidString)|added",
+        ]
+
+        let changeSet = RestorableAgentSessionIndexChangeSet(
+            previous: previous,
+            current: current
+        )
+
+        #expect(changeSet.panelIdsByWorkspaceId == [
+            firstWorkspace: Set([firstPanel]),
+            addedWorkspace: Set([addedPanel]),
+        ])
+    }
+
     private func loadRunningFixture(
         _ fixture: Fixture,
         processArguments: CmuxTopProcessArguments,
@@ -368,6 +423,7 @@ struct RestorableAgentProcessGenerationTests {
             fileManager: fixture.fileManager,
             registry: CmuxVaultAgentRegistry(registrations: []),
             detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
             processArgumentsProvider: { pid in
                 pid == fixture.processID ? processArguments : nil
             },
@@ -375,6 +431,19 @@ struct RestorableAgentProcessGenerationTests {
             processIdentityProvider: { pid in
                 pid == fixture.processID ? processIdentity : nil
             }
+        )
+    }
+
+    private func loadHookFixture(_ fixture: Fixture) -> RestorableAgentSessionIndex {
+        RestorableAgentSessionIndex.load(
+            homeDirectory: fixture.root.path,
+            fileManager: fixture.fileManager,
+            registry: CmuxVaultAgentRegistry(registrations: []),
+            detectedSnapshots: [:],
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": fixture.hookStateDirectory.path],
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .unknown },
+            processIdentityProvider: { _ in nil }
         )
     }
 
@@ -409,13 +478,32 @@ struct RestorableAgentProcessGenerationTests {
         try data.write(to: fixture.storeURL, options: .atomic)
     }
 
+    private func writeHookTimingState(
+        startedAt: TimeInterval,
+        lifecycle: AgentHibernationLifecycleState,
+        to fixture: Fixture
+    ) throws {
+        var store = try #require(
+            JSONSerialization.jsonObject(with: Data(contentsOf: fixture.storeURL)) as? [String: Any]
+        )
+        var sessions = try #require(store["sessions"] as? [String: Any])
+        var record = try #require(sessions[fixture.sessionID] as? [String: Any])
+        record["startedAt"] = startedAt
+        record["agentLifecycle"] = lifecycle.rawValue
+        sessions[fixture.sessionID] = record
+        store["sessions"] = sessions
+        let data = try JSONSerialization.data(
+            withJSONObject: store,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try data.write(to: fixture.storeURL, options: .atomic)
+    }
+
     private func makeFixture(prefix: String) throws -> Fixture {
         let fileManager = FileManager.default
         let root = fileManager.temporaryDirectory
             .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
         let hookStateDirectory = root.appendingPathComponent("hook-state", isDirectory: true)
-        let previousHookStateDirectory = getenv("CMUX_AGENT_HOOK_STATE_DIR").map { String(cString: $0) }
-
         let workspaceID = UUID()
         let panelID = UUID()
         let sessionID = "codex-generation-session"
@@ -440,7 +528,7 @@ struct RestorableAgentProcessGenerationTests {
                 "arguments": ["/usr/local/bin/codex"],
                 "workingDirectory": "/tmp/repo",
                 "capturedAt": updatedAt,
-                "source": "test",
+                "source": "default",
             ],
         ]
         let data = try JSONSerialization.data(
@@ -448,7 +536,6 @@ struct RestorableAgentProcessGenerationTests {
             options: [.prettyPrinted, .sortedKeys]
         )
         try data.write(to: storeURL, options: .atomic)
-        setenv("CMUX_AGENT_HOOK_STATE_DIR", hookStateDirectory.path, 1)
         return (
             root: root,
             hookStateDirectory: hookStateDirectory,
@@ -458,17 +545,11 @@ struct RestorableAgentProcessGenerationTests {
             sessionID: sessionID,
             processID: processID,
             updatedAt: updatedAt,
-            storeURL: storeURL,
-            previousHookStateDirectory: previousHookStateDirectory
+            storeURL: storeURL
         )
     }
 
     private func cleanup(_ fixture: Fixture) {
-        if let previousHookStateDirectory = fixture.previousHookStateDirectory {
-            setenv("CMUX_AGENT_HOOK_STATE_DIR", previousHookStateDirectory, 1)
-        } else {
-            unsetenv("CMUX_AGENT_HOOK_STATE_DIR")
-        }
         try? fixture.fileManager.removeItem(at: fixture.root)
     }
 }

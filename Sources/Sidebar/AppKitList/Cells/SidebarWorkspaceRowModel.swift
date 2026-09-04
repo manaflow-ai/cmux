@@ -31,6 +31,7 @@ struct SidebarWorkspaceRowModel: Equatable {
     var unreadCount: Int
     var latestNotificationText: String?
     let showsAgentActivity: Bool
+    let showsAgentSpinner: Bool
     let rowSpacing: CGFloat
     let isBeingDragged: Bool
     let topDropIndicatorVisible: Bool

@@ -1089,7 +1089,7 @@ struct BrowserPanelView: View {
         .onDisappear {
             handleBrowserPanelDisappear()
         }
-        .onChange(of: panel.focusFlashToken) {
+        .onChange(of: panel.focusFlashToken) { _, _ in
             triggerFocusFlashAnimation()
         }
         .onChange(of: panel.screenshotCopiedToken) { _, _ in

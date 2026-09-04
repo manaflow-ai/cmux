@@ -297,6 +297,7 @@ struct CompletedRestoredAgentGenerationTests {
             snapshot: snapshot,
             lifecycle: .running,
             updatedAt: updatedAt,
+            provenance: .exactProcessBinding,
             processLiveness: .running,
             hasRecordedProcessID: true,
             processIDs: [Int(identity.pid)],

@@ -188,7 +188,7 @@ import Testing
         listeningPorts: [Int] = [],
         finderDirectoryPath: String? = nil,
         mediaActivity: BrowserMediaActivity = BrowserMediaActivity(),
-        activeCodingAgentCount: Int = 0
+        agentActivity: SidebarWorkspaceAgentActivity = SidebarWorkspaceAgentActivity(agents: [])
     ) -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey ?? Self.presentationKey(),
@@ -207,7 +207,7 @@ import Testing
             metadataBlocks: [],
             latestLog: nil,
             progress: nil,
-            activeCodingAgentCount: activeCodingAgentCount,
+            agentActivity: agentActivity,
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -233,6 +233,7 @@ import Testing
         showsGitBranch: Bool = true,
         usesViewportAwarePath: Bool = false,
         showsAgentActivity: Bool = true,
+        showsAgentSpinner: Bool = false,
         visibleAuxiliaryDetails: SidebarWorkspaceAuxiliaryDetailVisibility = SidebarWorkspaceAuxiliaryDetailVisibility(
             showsMetadata: true,
             showsLog: true,
@@ -248,6 +249,7 @@ import Testing
             showsGitBranch: showsGitBranch,
             usesViewportAwarePath: usesViewportAwarePath,
             showsAgentActivity: showsAgentActivity,
+            showsAgentSpinner: showsAgentSpinner,
             visibleAuxiliaryDetails: visibleAuxiliaryDetails
         )
     }

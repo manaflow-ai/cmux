@@ -15,5 +15,8 @@ struct RestorableAgentHookSessionRecord: Codable, Sendable {
     var lastPermissionMode: String?
     var isRestorable: Bool?
     var agentLifecycle: AgentHibernationLifecycleState?
+    /// Durable SessionStart anchor written by the hook store. Older stores may
+    /// omit this field; callers must present an indeterminate duration.
+    var startedAt: TimeInterval? = nil
     var updatedAt: TimeInterval
 }

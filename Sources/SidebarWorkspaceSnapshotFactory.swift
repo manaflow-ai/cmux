@@ -15,6 +15,7 @@ struct SidebarWorkspaceSnapshotFactory {
     let workspace: Workspace
     let settings: SidebarTabItemSettingsSnapshot
     let showsAgentActivity: Bool
+    let showsAgentSpinner: Bool
 
     func makeSnapshot() -> SidebarWorkspaceSnapshotBuilder.Snapshot {
         let detailVisibility = settings.visibleAuxiliaryDetails
@@ -74,6 +75,21 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
+        // Keep the feature's disabled fast path genuinely cold: the sidebar
+        // hot path must not touch the hook index or PID maps when agent
+        // activity is hidden by settings/flag. Metadata remains available
+        // without running the deterministic activity scan; agent-shaped pills
+        // are omitted rather than presenting stale, unowned status.
+        let agentActivity = showsAgentActivity
+            ? workspace.sidebarWorkspaceAgentActivity()
+            : SidebarWorkspaceAgentActivity(agents: [])
+        let metadataEntries: [SidebarStatusEntry] = if detailVisibility.showsMetadata {
+            showsAgentActivity
+                ? agentActivity.correctedStatusEntries(workspace.sidebarStatusEntriesInDisplayOrder())
+                : workspace.sidebarStatusEntriesInDisplayOrder()
+        } else {
+            []
+        }
         return SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: presentationKey,
             title: workspace.title,
@@ -89,18 +105,13 @@ struct SidebarWorkspaceSnapshotFactory {
                     || workspace.remoteConnectionState == .disconnected),
             copyableSidebarSSHError: copyableSidebarSSHError,
             latestConversationMessage: workspace.latestConversationMessage,
-            metadataEntries: detailVisibility.showsMetadata
-                ? workspace.sidebarStatusEntriesInDisplayOrder()
-                : [],
+            metadataEntries: metadataEntries,
             metadataBlocks: detailVisibility.showsMetadata
                 ? workspace.sidebarMetadataBlocksInDisplayOrder()
                 : [],
             latestLog: detailVisibility.showsLog ? workspace.logEntries.last : nil,
             progress: detailVisibility.showsProgress ? workspace.progress : nil,
-            activeCodingAgentCount: SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
-                showsAgentActivity: showsAgentActivity,
-                statesByPanelId: workspace.agentLifecycleStatesByPanelId
-            ),
+            agentActivity: agentActivity,
             compactGitBranchSummaryText: compactGitBranchSummaryText,
             compactDirectoryCandidates: compactDirectoryCandidates,
             compactBranchDirectoryCandidates: compactBranchDirectoryCandidates,
@@ -122,12 +133,17 @@ struct SidebarWorkspaceSnapshotFactory {
     }
 
     private var presentationKey: SidebarWorkspaceSnapshotBuilder.PresentationKey {
-        Self.presentationKey(settings: settings, showsAgentActivity: showsAgentActivity)
+        Self.presentationKey(
+            settings: settings,
+            showsAgentActivity: showsAgentActivity,
+            showsAgentSpinner: showsAgentSpinner
+        )
     }
 
     static func presentationKey(
         settings: SidebarTabItemSettingsSnapshot,
-        showsAgentActivity: Bool
+        showsAgentActivity: Bool,
+        showsAgentSpinner: Bool
     ) -> SidebarWorkspaceSnapshotBuilder.PresentationKey {
         SidebarWorkspaceSnapshotBuilder.PresentationKey(
             showsWorkspaceDescription: settings.showsWorkspaceDescription,
@@ -135,6 +151,7 @@ struct SidebarWorkspaceSnapshotFactory {
             showsGitBranch: settings.showsGitBranch,
             usesViewportAwarePath: settings.usesLastSegmentPath,
             showsAgentActivity: showsAgentActivity,
+            showsAgentSpinner: showsAgentSpinner,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails
         )
     }

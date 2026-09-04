@@ -959,9 +959,15 @@ struct RestorableAgentSessionIndex: Sendable {
     }
 
     struct Entry: Sendable {
+        typealias Provenance = RestorableAgentSessionEntryProvenance
+
         let snapshot: SessionRestorableAgentSnapshot
         let lifecycle: AgentHibernationLifecycleState?
+        /// Durable hook-session anchor used for restart-safe elapsed display.
+        /// Nil is expected for legacy/process-only observations.
+        let startedAt: TimeInterval?
         let updatedAt: TimeInterval
+        let provenance: Provenance
         /// Unlike an empty process ID set, this distinguishes an exited recorded process from no PID evidence.
         let processLiveness: RestorableAgentProcessLiveness
         /// Whether the persisted owner record carried a PID. A PID-less hook
@@ -977,12 +983,12 @@ struct RestorableAgentSessionIndex: Sendable {
         let terminationProcessIdentities: [Int: AgentPIDProcessIdentity]
         let containsUnrelatedProcess: Bool
 
-        /// Keeps older in-process fixtures source-compatible while callers that
-        /// have persisted PID evidence can opt in explicitly.
         init(
             snapshot: SessionRestorableAgentSnapshot,
             lifecycle: AgentHibernationLifecycleState?,
+            startedAt: TimeInterval? = nil,
             updatedAt: TimeInterval,
+            provenance: Provenance,
             processLiveness: RestorableAgentProcessLiveness,
             hasRecordedProcessID: Bool = false,
             processIDs: Set<Int>,
@@ -996,7 +1002,9 @@ struct RestorableAgentSessionIndex: Sendable {
         ) {
             self.snapshot = snapshot
             self.lifecycle = lifecycle
+            self.startedAt = startedAt
             self.updatedAt = updatedAt
+            self.provenance = provenance
             self.processLiveness = processLiveness
             self.hasRecordedProcessID = hasRecordedProcessID
             self.processIDs = processIDs
@@ -1007,6 +1015,23 @@ struct RestorableAgentSessionIndex: Sendable {
             self.terminationProcessIDs = terminationProcessIDs
             self.terminationProcessIdentities = terminationProcessIdentities
             self.containsUnrelatedProcess = containsUnrelatedProcess
+        }
+
+        /// Whether this entry came from a durable hook record carrying the
+        /// launch/session token. Process scans are kept separate so a
+        /// heuristic session-file match cannot become sidebar identity.
+        var hasHookRecord: Bool { provenance.contains(.hookRecord) }
+
+        /// Whether the process scanner obtained an explicit session binding
+        /// from cmux-owned launch arguments/environment rather than a latest
+        /// file or fork-parent inference.
+        var hasExactProcessBinding: Bool { provenance.contains(.exactProcessBinding) }
+
+        /// Whether the process scanner inferred the session identity or found
+        /// only a relaunchable process without a session token.
+        var isHeuristicProcessDetection: Bool {
+            provenance.contains(.heuristicProcessDetection)
+                && !provenance.contains(.exactProcessBinding)
         }
     }
 
@@ -1078,6 +1103,7 @@ struct RestorableAgentSessionIndex: Sendable {
     private let candidatesByPanelId: [UUID: [(PanelKey, Entry)]]
     private let entriesByPanelId: [UUID: Entry]
     private let ambiguousPanelIds: Set<UUID>
+    private let hasRecordedProcessGenerations: Bool
     private let equalRankAmbiguousPanelIds: Set<UUID>
     private let boundedAmbiguousPanelIds: Set<UUID>
 
@@ -1417,6 +1443,19 @@ struct RestorableAgentSessionIndex: Sendable {
             }
     }
 
+    /// Resolves sidebar identity without guessing between restored workspace owners.
+    func sidebarEntry(workspaceId: UUID, panelId: UUID) -> Entry? {
+        if let exact = entriesByPanel[PanelKey(workspaceId: workspaceId, panelId: panelId)] {
+            return exact
+        }
+        guard !ambiguousPanelIds.contains(panelId) else { return nil }
+        return entriesByPanelId[panelId]
+    }
+
+    func hasRecordedProcessGenerationsValue() -> Bool {
+        hasRecordedProcessGenerations
+    }
+
     func snapshot(workspaceId: UUID, panelId: UUID) -> SessionRestorableAgentSnapshot? {
         entry(workspaceId: workspaceId, panelId: panelId)?.snapshot
     }
@@ -1451,11 +1490,17 @@ struct RestorableAgentSessionIndex: Sendable {
         !processIDs(workspaceId: workspaceId, panelId: panelId).isEmpty
     }
 
-    /// Fingerprints cache-visible agent identity and liveness, including entries without a live PID.
+    /// Fingerprints cache-visible agent identity, lifecycle, timing, and liveness.
+    ///
+    /// Lifecycle and SessionStart changes can occur without changing a PID. They
+    /// must still publish a new shared index so sidebar state and elapsed time do
+    /// not remain stuck on an older hook event.
     func liveAgentProcessFingerprint() -> Set<String> {
         Set(entriesByPanel.map { key, entry in
             let processIDs = entry.agentProcessIDs.isEmpty ? entry.processIDs : entry.agentProcessIDs
-            let processIdentities = entry.agentProcessIdentities
+            let processIdentities = (entry.agentProcessIdentities.isEmpty
+                ? entry.processIdentities
+                : entry.agentProcessIdentities)
                 .sorted { $0.key < $1.key }
                 .map { processID, identity in
                     "\(processID):\(identity.startSeconds):\(identity.startMicroseconds)"
@@ -1470,11 +1515,16 @@ struct RestorableAgentSessionIndex: Sendable {
             case .unknown:
                 liveness = "unknown"
             }
+            let lifecycle = entry.lifecycle?.rawValue ?? "nil"
+            let startedAt = entry.startedAt.map { String($0) } ?? "nil"
             return [
                 key.workspaceId.uuidString,
                 key.panelId.uuidString,
                 entry.snapshot.kind.rawValue,
                 entry.snapshot.sessionId,
+                lifecycle,
+                startedAt,
+                String(entry.provenance.rawValue),
                 liveness,
                 entry.hasRecordedProcessID ? "pid-recorded" : "pidless",
                 processIDs.sorted().map(String.init).joined(separator: ","),
@@ -1491,6 +1541,8 @@ struct RestorableAgentSessionIndex: Sendable {
     /// invocation mode, and explicit session argument still match.
     func revalidatingCachedProcesses(
         against processSnapshot: CmuxTopProcessSnapshot,
+        panelIDs: Set<UUID>? = nil,
+        currentWorkspaceIDByPanelID: [UUID: UUID] = [:],
         processArgumentsProvider: (Int) -> CmuxTopProcessArguments? = {
             CmuxTopProcessSnapshot.processArgumentsAndEnvironment(for: $0)
         },
@@ -1504,13 +1556,17 @@ struct RestorableAgentSessionIndex: Sendable {
         revalidatedEntries.reserveCapacity(entriesByPanel.count)
 
         for (key, entry) in entriesByPanel {
+            guard panelIDs == nil || panelIDs?.contains(key.panelId) == true else {
+                revalidatedEntries[key] = entry
+                continue
+            }
             let recordedAgentProcessIDs = entry.agentProcessIDs.isEmpty
                 ? entry.processIDs
                 : entry.agentProcessIDs
             let matchesByProcessID = Dictionary(uniqueKeysWithValues: recordedAgentProcessIDs.map { processID in
                 let processMatch = Self.scopedProcessMatch(
                     for: entry.snapshot,
-                    workspaceId: key.workspaceId,
+                    workspaceId: currentWorkspaceIDByPanelID[key.panelId] ?? key.workspaceId,
                     panelId: key.panelId,
                     processID: processID,
                     recordedProcessIdentity: entry.agentProcessIdentities[processID]
@@ -1558,7 +1614,7 @@ struct RestorableAgentSessionIndex: Sendable {
             let currentPanelProcessIDs: Set<Int> = processLiveness == .running
                 ? Set(entry.processIDs.filter { processID in
                     guard let process = processSnapshot.process(pid: processID) else { return false }
-                    return process.cmuxWorkspaceID == key.workspaceId
+                    return process.cmuxWorkspaceID == (currentWorkspaceIDByPanelID[key.panelId] ?? key.workspaceId)
                         && process.cmuxSurfaceID == key.panelId
                 }).union(confirmedAgentProcessIDs)
                 : []
@@ -1571,7 +1627,9 @@ struct RestorableAgentSessionIndex: Sendable {
             revalidatedEntries[key] = Entry(
                 snapshot: entry.snapshot,
                 lifecycle: entry.lifecycle,
+                startedAt: entry.startedAt,
                 updatedAt: entry.updatedAt,
+                provenance: entry.provenance,
                 processLiveness: processLiveness,
                 hasRecordedProcessID: entry.hasRecordedProcessID,
                 processIDs: currentPanelProcessIDs,
@@ -1583,8 +1641,8 @@ struct RestorableAgentSessionIndex: Sendable {
                 terminationProcessIdentities: entry.terminationProcessIdentities.filter {
                     currentPanelProcessIDs.contains($0.key)
                 },
-                containsUnrelatedProcess: (processLiveness == .running && entry.containsUnrelatedProcess) ||
-                    presentMismatchedProcess
+                containsUnrelatedProcess: (processLiveness == .running && entry.containsUnrelatedProcess)
+                    || presentMismatchedProcess
             )
         }
 
@@ -2115,7 +2173,12 @@ struct RestorableAgentSessionIndex: Sendable {
                 let entry = Entry(
                     snapshot: snapshot,
                     lifecycle: effectiveRecord.agentLifecycle,
+                    // A missing SessionStart anchor is intentionally nil. The
+                    // sidebar must not turn an update timestamp into a false
+                    // elapsed duration.
+                    startedAt: effectiveRecord.startedAt,
                     updatedAt: effectiveRecord.updatedAt,
+                    provenance: .hookRecord,
                     processLiveness: processObservation.liveness,
                     hasRecordedProcessID: effectiveRecord.pid != nil,
                     processIDs: liveProcessID.map { [$0] } ?? [],
@@ -2178,13 +2241,32 @@ struct RestorableAgentSessionIndex: Sendable {
             key: PanelKey,
             snapshot: SessionRestorableAgentSnapshot,
             lifecycle: AgentHibernationLifecycleState?,
+            startedAt: TimeInterval? = nil,
             updatedAt: TimeInterval,
-            detected: ProcessDetectedSnapshotEntry
+            detected: ProcessDetectedSnapshotEntry,
+            provenance: Entry.Provenance,
+            sourceEntry: Entry? = nil
         ) -> Entry {
             let processIdentities = Self.processIdentities(
                 for: detected.processIDs,
                 processIdentityProvider: processIdentityProvider
             )
+            let detectedAgentProcessIdentities = processIdentities.filter {
+                detected.agentProcessIDs.contains($0.key)
+            }
+            var combinedProvenance = provenance
+            if let sourceEntry {
+                combinedProvenance.formUnion(sourceEntry.provenance)
+                let sourceAgentProcessIdentities = sourceEntry.agentProcessIdentities.isEmpty
+                    ? sourceEntry.processIdentities
+                    : sourceEntry.agentProcessIdentities
+                let sharesVerifiedProcessGeneration = sourceAgentProcessIdentities.contains { processID, identity in
+                    detectedAgentProcessIdentities[processID] == identity
+                }
+                if sharesVerifiedProcessGeneration {
+                    combinedProvenance.insert(.exactProcessBinding)
+                }
+            }
             let hibernationScope = hibernationProcessScopes[key] ?? (
                 detected.processIDs,
                 detected.agentProcessIDs,
@@ -2195,19 +2277,21 @@ struct RestorableAgentSessionIndex: Sendable {
                 processIdentityProvider: processIdentityProvider
             )
             return Entry(
-                snapshot: snapshot, lifecycle: lifecycle, updatedAt: updatedAt,
+                snapshot: snapshot,
+                lifecycle: lifecycle,
+                startedAt: startedAt,
+                updatedAt: updatedAt,
+                provenance: combinedProvenance,
                 processLiveness: .running,
                 hasRecordedProcessID: true,
                 processIDs: detected.processIDs,
                 processIdentities: processIdentities,
                 agentProcessIDs: detected.agentProcessIDs,
-                agentProcessIdentities: processIdentities.filter {
-                    detected.agentProcessIDs.contains($0.key)
-                },
+                agentProcessIdentities: detectedAgentProcessIdentities,
                 hibernationPanelProcessIDs: hibernationScope.panelProcessIDs,
                 terminationProcessIDs: hibernationScope.terminationProcessIDs,
                 terminationProcessIdentities: terminationProcessIdentities,
-                containsUnrelatedProcess: hibernationScope.containsUnrelatedProcess
+                containsUnrelatedProcess: hibernationScope.containsUnrelatedProcess,
             )
         }
 
@@ -2233,7 +2317,21 @@ struct RestorableAgentSessionIndex: Sendable {
                    detected: detected,
                    processIdentityProvider: processIdentityProvider
                ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                // The hook candidate supplies useful resume metadata, but the
+                // Fork-parent provenance stays heuristic unless the detected
+                // process shares a verified PID/start generation with the hook
+                // candidate; processDetectedEntry promotes that exact match
+                // with .exactProcessBinding while retaining hook metadata.
+                resolved[key] = processDetectedEntry(
+                    key: key,
+                    snapshot: panelCandidate.snapshot,
+                    lifecycle: panelCandidate.lifecycle,
+                    startedAt: panelCandidate.startedAt,
+                    updatedAt: panelCandidate.updatedAt,
+                    detected: detected,
+                    provenance: .heuristicProcessDetection,
+                    sourceEntry: panelCandidate
+                )
             } else if detected.sessionIDSource == .forkParentFallback,
                       Self.forkParentFallbackMustYield(kind: detected.snapshot.kind, toExisting: resolved[key]) {
                 // A nested fork process inside another agent's pane must not displace
@@ -2241,11 +2339,25 @@ struct RestorableAgentSessionIndex: Sendable {
                 continue
             } else if detected.sessionIDSource == .inferredLatestSessionFile,
                       let panelCandidate = sameKindStablePanelCandidate {
-                // Latest-file detection is ambiguous when multiple panels or restored workspaces share a
-                // cwd. Prefer the hook-store identity for this stable panel/surface while still carrying
-                // live process evidence for the restored panel. The workspace UUID can rotate during
-                // session restore, but the surface id is intentionally reused on the normal restore path.
-                resolved[key] = processDetectedEntry(key: key, snapshot: panelCandidate.snapshot, lifecycle: panelCandidate.lifecycle, updatedAt: panelCandidate.updatedAt, detected: detected)
+                // Latest-file detection is ambiguous when multiple panels or
+                // restored workspaces share a cwd. Prefer the hook-store
+                // identity for this stable panel/surface while still carrying
+                // live process evidence for the restored panel. The workspace
+                // UUID can rotate during session restore, but the surface id
+                // is intentionally reused on the normal restore path. The
+                // latest-session-file lookup is not identity evidence; only a
+                // verified PID/start-generation match in processDetectedEntry
+                // promotes the result to an exact process binding.
+                resolved[key] = processDetectedEntry(
+                    key: key,
+                    snapshot: panelCandidate.snapshot,
+                    lifecycle: panelCandidate.lifecycle,
+                    startedAt: panelCandidate.startedAt,
+                    updatedAt: panelCandidate.updatedAt,
+                    detected: detected,
+                    provenance: .heuristicProcessDetection,
+                    sourceEntry: panelCandidate
+                )
             } else if let existing = Self.matchingHookEntry(
                 for: detected.snapshot,
                 resolved: resolved[key],
@@ -2254,9 +2366,35 @@ struct RestorableAgentSessionIndex: Sendable {
                     SessionKey(kind: detected.snapshot.kind, sessionId: detected.snapshot.sessionId)
                 ]
             ) {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: existing.lifecycle, updatedAt: existing.updatedAt, detected: detected)
+                let provenance: Entry.Provenance = switch detected.sessionIDSource {
+                case .explicit: .exactProcessBinding
+                case .inferredLatestSessionFile, .forkParentFallback, .relaunchOnly:
+                    .heuristicProcessDetection
+                }
+                resolved[key] = processDetectedEntry(
+                    key: key,
+                    snapshot: detected.snapshot,
+                    lifecycle: existing.lifecycle,
+                    startedAt: existing.startedAt,
+                    updatedAt: existing.updatedAt,
+                    detected: detected,
+                    provenance: provenance,
+                    sourceEntry: existing
+                )
             } else {
-                resolved[key] = processDetectedEntry(key: key, snapshot: detected.snapshot, lifecycle: nil, updatedAt: 0, detected: detected)
+                let provenance: Entry.Provenance = switch detected.sessionIDSource {
+                case .explicit: .exactProcessBinding
+                case .inferredLatestSessionFile, .forkParentFallback, .relaunchOnly:
+                    .heuristicProcessDetection
+                }
+                resolved[key] = processDetectedEntry(
+                    key: key,
+                    snapshot: detected.snapshot,
+                    lifecycle: nil,
+                    updatedAt: 0,
+                    detected: detected,
+                    provenance: provenance
+                )
             }
         }
 
@@ -2391,6 +2529,15 @@ struct RestorableAgentSessionIndex: Sendable {
             canonical.sessionId = sibling.sessionId
             canonical.launchCommand = canonical.launchCommand ?? sibling.launchCommand
             canonical.cwd = canonical.cwd ?? sibling.cwd
+            // Canonicalization can join a short transport record to the
+            // durable Hermes session. Preserve the earliest verified anchor so
+            // a later transport update cannot reset the sidebar duration.
+            canonical.startedAt = [record.startedAt, sibling.startedAt]
+                .compactMap { anchor in
+                    guard let anchor, anchor.isFinite, anchor > 0 else { return nil }
+                    return anchor
+                }
+                .min()
             return canonical
         }
     }
@@ -3563,6 +3710,9 @@ struct RestorableAgentSessionIndex: Sendable {
         self.ambiguousPanelIds = ambiguousPanelIds
         self.equalRankAmbiguousPanelIds = equalRankAmbiguousPanelIds
         self.boundedAmbiguousPanelIds = boundedAmbiguousPanelIds
+        self.hasRecordedProcessGenerations = entriesByPanel.values.contains { entry in
+            !entry.processIDs.isEmpty || !entry.agentProcessIDs.isEmpty
+        }
     }
 }
 

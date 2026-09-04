@@ -768,6 +768,7 @@ struct RestorableAgentSessionIndexTests {
             fileManager: fm,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            environment: [:],
             processArgumentsProvider: { _ in nil }
         )
         let restoredSessionIds = try panels.map { panelId in
@@ -870,6 +871,7 @@ struct RestorableAgentSessionIndexTests {
             fileManager: fm,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            environment: [:],
             processArgumentsProvider: { _ in nil }
         )
         let restoredSessionIds = try zip(restoredWorkspaceIds, panels).map { workspaceId, panelId in
@@ -908,12 +910,6 @@ struct RestorableAgentSessionIndexTests {
         let detectedLatestSessionId = "pi-detected-newest"
         var hookSessions: [String: [String: Any]] = [:]
         for (index, hookRecord) in hookRecords.enumerated() {
-            let sessionFile = projectSessions.appendingPathComponent("\(hookRecord.sessionId).jsonl", isDirectory: false)
-            try "{}\n".write(to: sessionFile, atomically: true, encoding: .utf8)
-            try fm.setAttributes(
-                [.modificationDate: Date(timeIntervalSince1970: TimeInterval(1_000 + index))],
-                ofItemAtPath: sessionFile.path
-            )
             hookSessions[hookRecord.sessionId] = driftedAgentHookRecord(
                 launcher: "pi",
                 sessionId: hookRecord.sessionId,
@@ -974,18 +970,26 @@ struct RestorableAgentSessionIndexTests {
             panelId: panelId
         )
         let detected = try XCTUnwrap(detectedSnapshots[restoredKey])
-        XCTAssertEqual(detected.snapshot.sessionId, detectedLatestSessionId)
+        let expectedLatestSessionURL = detectedLatestFile.resolvingSymlinksInPath()
+        XCTAssertEqual(
+            URL(fileURLWithPath: detected.snapshot.sessionId).resolvingSymlinksInPath(),
+            expectedLatestSessionURL
+        )
 
         let index = RestorableAgentSessionIndex.load(
             homeDirectory: root.path,
             fileManager: fm,
             registry: registry,
             detectedSnapshots: detectedSnapshots,
+            environment: [:],
             processArgumentsProvider: { _ in nil }
         )
         let snapshot = try XCTUnwrap(index.snapshot(workspaceId: restoredWorkspaceId, panelId: panelId))
 
-        XCTAssertEqual(snapshot.sessionId, detectedLatestSessionId)
+        XCTAssertEqual(
+            URL(fileURLWithPath: snapshot.sessionId).resolvingSymlinksInPath(),
+            expectedLatestSessionURL
+        )
     }
 
     @Test
@@ -1077,6 +1081,10 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertEqual(snapshot.kind, .custom("pi"))
         XCTAssertEqual(snapshot.sessionId, piHookSessionId)
         XCTAssertEqual(index.processIDs(workspaceId: workspaceId, panelId: panelId), [123])
+        let entry = try XCTUnwrap(index.entry(workspaceId: workspaceId, panelId: panelId))
+        XCTAssertTrue(entry.hasHookRecord)
+        XCTAssertTrue(entry.isHeuristicProcessDetection)
+        XCTAssertFalse(entry.hasExactProcessBinding)
     }
 
     // RestorableAgentKind.cwdNamespacing delegates to the shared AgentResumeWorkingDirectory
@@ -1317,7 +1325,7 @@ struct RestorableAgentSessionIndexTests {
                 ]
             )
             let snapshot = try XCTUnwrap(
-                RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+                loadIndex(homeDirectory: root.path, fileManager: fm)
                     .snapshot(workspaceId: ws, panelId: panel),
                 "\(testCase.launcher): snapshot"
             )
@@ -1405,7 +1413,7 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let snapshot = try XCTUnwrap(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+            loadIndex(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         XCTAssertEqual(snapshot.sessionId, newId, "the surface must resume the newest session, not the replaced one")
@@ -1448,10 +1456,10 @@ struct RestorableAgentSessionIndexTests {
         XCTAssertEqual(Set(commands.compactMap { $0 }).count, 1, "resume command must be stable across reloads")
     }
 
-    // A session whose recorded process is no longer alive (the agent was killed) must NOT restore
-    // from the hook index, even though the record is still on disk.
+    // A dead recorded process must not erase durable resume metadata, but its
+    // liveness must remain exited so restore cannot relaunch it automatically.
     @Test
-    func testKilledSessionWithDeadProcessDoesNotRestore() throws {
+    func testKilledSessionWithDeadProcessRemainsRestorableButExited() throws {
         let fm = FileManager.default
         let root = fm.temporaryDirectory
             .appendingPathComponent("cmux-killed-\(UUID().uuidString)", isDirectory: true)
@@ -1479,12 +1487,11 @@ struct RestorableAgentSessionIndexTests {
             fileManager: fm,
             registry: registry,
             detectedSnapshots: [:],
-            processArgumentsProvider: { _ in nil }
+            processArgumentsProvider: { _ in nil },
+            processPresenceProvider: { _ in .absent }
         )
-        XCTAssertNil(
-            index.snapshot(workspaceId: ws, panelId: panel),
-            "a killed session whose recorded process is dead must not restore"
-        )
+        XCTAssertEqual(index.snapshot(workspaceId: ws, panelId: panel)?.sessionId, sid)
+        XCTAssertEqual(index.entry(workspaceId: ws, panelId: panel)?.processLiveness, .exited)
     }
 
     private func driftedHookRecord(
@@ -1546,7 +1553,10 @@ struct RestorableAgentSessionIndexTests {
                 "arguments": ["/usr/local/bin/\(launcher)"],
                 "workingDirectory": launchCwd,
                 "capturedAt": updatedAt,
-                "source": "test",
+                // Codex's bounded restore admission accepts a legacy record
+                // without a durable state database only when its launch source
+                // is an explicit default/argv capture.
+                "source": launcher == "codex" ? "default" : "test",
             ],
         ]
     }
@@ -1671,6 +1681,8 @@ struct RestorableAgentSessionIndexTests {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        let transcriptURL = try writeCodexTranscript(root: root, sessionID: sid, cwd: dir)
+        record["transcriptPath"] = transcriptURL.path
         record["launchCommand"] = [
             "launcher": "claude",
             "executablePath": "/Users/someone/.local/bin/claude",
@@ -1691,7 +1703,7 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let snapshot = try XCTUnwrap(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+            loadIndex(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         XCTAssertEqual(
@@ -1734,6 +1746,8 @@ struct RestorableAgentSessionIndexTests {
             launcher: "codex", sessionId: sid, workspaceId: ws, panelId: panel,
             recordedCwd: dir.path, launchCwd: dir.path, updatedAt: 10
         )
+        let transcriptURL = try writeCodexTranscript(root: root, sessionID: sid, cwd: dir)
+        record["transcriptPath"] = transcriptURL.path
         record["launchCommand"] = [
             "launcher": "codex",
             "executablePath": "sh",
@@ -1749,7 +1763,7 @@ struct RestorableAgentSessionIndexTests {
         )
 
         let snapshot = try XCTUnwrap(
-            RestorableAgentSessionIndex.load(homeDirectory: root.path, fileManager: fm)
+            loadIndex(homeDirectory: root.path, fileManager: fm)
                 .snapshot(workspaceId: ws, panelId: panel)
         )
         let resume = try XCTUnwrap(snapshot.resumeCommand)
@@ -1824,5 +1838,37 @@ struct RestorableAgentSessionIndexTests {
             to: stateDir.appendingPathComponent(storeFilename, isDirectory: false),
             options: .atomic
         )
+    }
+
+    private func loadIndex(
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> RestorableAgentSessionIndex {
+        RestorableAgentSessionIndex.load(
+            homeDirectory: homeDirectory,
+            fileManager: fileManager,
+            registry: CmuxVaultAgentRegistry.load(
+                homeDirectory: homeDirectory,
+                fileManager: fileManager
+            ),
+            detectedSnapshots: [:],
+            environment: [:]
+        )
+    }
+
+    private func writeCodexTranscript(root: URL, sessionID: String, cwd: URL) throws -> URL {
+        let transcriptURL = root.appendingPathComponent("codex-\(sessionID).jsonl", isDirectory: false)
+        let metadata: [String: Any] = [
+            "type": "session_meta",
+            "payload": [
+                "id": sessionID,
+                "cwd": cwd.path,
+                "source": "cli",
+                "originator": "codex-tui",
+            ],
+        ]
+        let data = try JSONSerialization.data(withJSONObject: metadata)
+        try data.write(to: transcriptURL, options: .atomic)
+        return transcriptURL
     }
 }

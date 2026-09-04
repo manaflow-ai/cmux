@@ -19,7 +19,8 @@ struct SidebarAppKitRowCellTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                showsAgentSpinner: false
             ),
             title: title,
             customDescription: customDescription,
@@ -36,7 +37,7 @@ struct SidebarAppKitRowCellTests {
             metadataBlocks: metadataBlocks,
             latestLog: nil,
             progress: nil,
-            activeCodingAgentCount: 0,
+            agentActivity: SidebarWorkspaceAgentActivity(agents: []),
             compactGitBranchSummaryText: nil,
             compactDirectoryCandidates: [],
             compactBranchDirectoryCandidates: [],
@@ -88,6 +89,7 @@ struct SidebarAppKitRowCellTests {
             unreadCount: 0,
             latestNotificationText: nil,
             showsAgentActivity: resolvedSettings.details.showAgentActivity,
+            showsAgentSpinner: false,
             rowSpacing: 8,
             isBeingDragged: false,
             topDropIndicatorVisible: false,
@@ -129,6 +131,7 @@ struct SidebarAppKitRowCellTests {
             unreadCount: 0,
             latestNotificationText: nil,
             showsAgentActivity: settings.details.showAgentActivity,
+            showsAgentSpinner: false,
             rowSpacing: 8,
             showsModifierShortcutHints: false,
             isPointerHovering: false,
