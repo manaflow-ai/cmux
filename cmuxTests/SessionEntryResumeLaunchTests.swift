@@ -428,7 +428,7 @@ struct SessionEntryResumeLaunchTests {
         )
         let matchingLaunch = try #require(matchingEntry.resumeLaunch)
 
-        SessionEntryResumeCoordinator.resume(matchingEntry, tabManager: manager)
+        SessionEntryResumeCoordinator().resume(matchingEntry, tabManager: manager)
 
         #expect(manager.tabs.count == 2)
         let matchingWorkspace = try #require(manager.selectedWorkspace)
@@ -468,7 +468,7 @@ struct SessionEntryResumeLaunchTests {
         )
         let differentLaunch = try #require(differentEntry.resumeLaunch)
 
-        SessionEntryResumeCoordinator.resume(differentEntry, tabManager: manager)
+        SessionEntryResumeCoordinator().resume(differentEntry, tabManager: manager)
 
         #expect(manager.tabs.count == 3)
         let createdWorkspace = try #require(manager.selectedWorkspace)
@@ -535,7 +535,7 @@ struct SessionEntryResumeLaunchTests {
         let paneCountBefore = workspace.bonsplitController.allPaneIds.count
         let panelCountBefore = workspace.panels.count
 
-        SessionEntryResumeCoordinator.open(entry, tabManager: manager)
+        SessionEntryResumeCoordinator().open(entry, tabManager: manager)
 
         #expect(manager.tabs.count == 1)
         #expect(manager.selectedWorkspace === workspace)

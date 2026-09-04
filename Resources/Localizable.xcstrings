@@ -167405,6 +167405,40 @@
         }
       }
     },
+    "sessionIndex.row.resume.compatibility": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume (compatibility command)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（互換コマンドで）再開"
+          }
+        }
+      }
+    },
+    "sessionIndex.row.resume.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume unavailable"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再開できません"
+          }
+        }
+      }
+    },
     "sessionIndex.row.reveal": {
       "extractionState": "manual",
       "localizations": {
@@ -257476,13 +257510,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The cmux Cloud service rejected this session. Run `cmux auth logout`, then `cmux auth login`, and retry."
+            "value": "The cmux Cloud service rejected this session. Sign out and sign in again, then retry."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux Cloud サービスがこのセッションを拒否しました。`cmux auth logout` を実行してから `cmux auth login` を実行し、再試行してください。"
+            "value": "cmux Cloud サービスがこのセッションを拒否しました。サインアウトしてから再度サインインし、再試行してください。"
           }
         }
       }

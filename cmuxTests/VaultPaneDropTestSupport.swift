@@ -9,6 +9,52 @@ import Testing
 @testable import cmux
 #endif
 
+/// Synthetic drag metadata for exercising the complete pane-target lifecycle.
+final class VaultPaneMockDraggingInfo: NSObject, NSDraggingInfo {
+    let draggingDestinationWindow: NSWindow?
+    let draggingSourceOperationMask: NSDragOperation = .move
+    let draggingLocation: NSPoint
+    let draggedImageLocation: NSPoint
+    let draggedImage: NSImage? = nil
+    // AppKit exposes these values nonisolated; fixtures freeze both at init.
+    nonisolated(unsafe) let draggingPasteboard: NSPasteboard
+    nonisolated(unsafe) let draggingSource: Any? = nil
+    let draggingSequenceNumber: Int
+    var draggingFormation: NSDraggingFormation = .default
+    var animatesToDestination = false
+    var numberOfValidItemsForDrop = 1
+    let springLoadingHighlight: NSSpringLoadingHighlight = .none
+
+    init(
+        window: NSWindow,
+        location: NSPoint,
+        pasteboard: NSPasteboard,
+        sequenceNumber: Int = 1
+    ) {
+        draggingDestinationWindow = window
+        draggingLocation = location
+        draggedImageLocation = location
+        draggingPasteboard = pasteboard
+        draggingSequenceNumber = sequenceNumber
+    }
+
+    func slideDraggedImage(to screenPoint: NSPoint) {}
+
+    override func namesOfPromisedFilesDropped(atDestination dropDestination: URL) -> [String]? {
+        nil
+    }
+
+    func enumerateDraggingItems(
+        options enumOpts: NSDraggingItemEnumerationOptions = [],
+        for view: NSView?,
+        classes classArray: [AnyClass],
+        searchOptions: [NSPasteboard.ReadingOptionKey: Any] = [:],
+        using block: (NSDraggingItem, Int, UnsafeMutablePointer<ObjCBool>) -> Void
+    ) {}
+
+    func resetSpringLoading() {}
+}
+
 /// Shared executable harness for synthetic Vault drops across pane targets.
 @MainActor
 struct VaultPaneDropTestHarness {

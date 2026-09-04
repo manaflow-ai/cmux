@@ -55,3 +55,23 @@ let results = CodexSessionResumeVerifier().verifyBatch(
     fileManager: fixtureFileManager
 )
 ```
+
+## Testing Vault resume planning
+
+`VaultResumeLaunchPlanner` accepts only immutable values and returns either a
+structured `cmux restore` selector or an explicitly bounded compatibility plan:
+
+```swift
+let plan = VaultResumeLaunchPlanner().plan(for: VaultResumeLaunchRequest(
+    kind: "codex",
+    sessionID: "checkpoint-id",
+    workingDirectory: "/tmp/project",
+    profile: .codex(
+        model: "gpt-5.5",
+        approvalPolicy: "never",
+        sandboxMode: "disabled",
+        effort: nil
+    ),
+    legacyCommand: nil
+))
+```

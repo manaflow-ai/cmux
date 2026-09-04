@@ -2137,6 +2137,8 @@
 		469201000000000000000006 /* SessionDragSessionSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 469201000000000000000005 /* SessionDragSessionSource.swift */; };
 		46920100000000000000000E /* SessionDragSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000D /* SessionDragSource.swift */; };
 		46920100000000000000000C /* SessionDragSourceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46920100000000000000000B /* SessionDragSourceView.swift */; };
+		112960000000000000000007 /* SessionEntry+VaultResumeRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000008 /* SessionEntry+VaultResumeRequest.swift */; };
+		112960000000000000000003 /* SessionEntryResumeCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000004 /* SessionEntryResumeCoordinator.swift */; };
 		992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230004 /* SessionEntryResumeLaunch.swift */; };
 		992300019923000199230001 /* SessionEntryResumeLaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */; };
 		D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */; };
@@ -2915,10 +2917,13 @@
 		992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */; };
 		6170C16F7014467C93587385 /* VaultRecencySections.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D1AE45742E0440681EC9AD4 /* VaultRecencySections.swift */; };
 		C018F5613EA04C739B108FB3 /* VaultRecencySectionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC5B58C162154422A2839569 /* VaultRecencySectionsTests.swift */; };
+		11296000000000000000000A /* VaultRestoreCompatibilitySecurityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000009 /* VaultRestoreCompatibilitySecurityTests.swift */; };
+		112960000000000000000001 /* VaultRestorePathGuaranteeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */; };
 		992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */; };
 		3FB1776899414996A93F0B93 /* VaultSessionCheckpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 662E8F5E0C3F4FBA8F75450A /* VaultSessionCheckpoint.swift */; };
 		8FB35FCA714749A9B54B2313 /* VaultSessionCheckpointStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF959230EC364550B3A48324 /* VaultSessionCheckpointStore.swift */; };
 		88DAF31AC3FC4A6CB899E0B1 /* VaultSessionCheckpointTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39A6A437B01E4A0CBF64454D /* VaultSessionCheckpointTests.swift */; };
+		112960000000000000000005 /* VaultSessionDropLauncher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112960000000000000000006 /* VaultSessionDropLauncher.swift */; };
 		A865E72EE4B14A2A8517A944 /* VaultSessionLiveStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B9D1EE40CA94CD8BEDDDD98 /* VaultSessionLiveStatus.swift */; };
 		208BA068DD2B4B4E86D0F213 /* VaultSessionLiveStatusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C5E90CEF204498AAEC93921 /* VaultSessionLiveStatusTests.swift */; };
 		021B98686B73408892D7C876 /* VaultSessionSearchQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 189ED88E2958436BAE17D5E4 /* VaultSessionSearchQuery.swift */; };
@@ -5266,6 +5271,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		469201000000000000000005 /* SessionDragSessionSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSessionSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000D /* SessionDragSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSource.swift; sourceTree = "<group>"; };
 		46920100000000000000000B /* SessionDragSourceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionDragSourceView.swift; sourceTree = "<group>"; };
+		112960000000000000000008 /* SessionEntry+VaultResumeRequest.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionEntry+VaultResumeRequest.swift"; sourceTree = "<group>"; };
+		112960000000000000000004 /* SessionEntryResumeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeCoordinator.swift; sourceTree = "<group>"; };
 		992300019923000199230004 /* SessionEntryResumeLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunch.swift; sourceTree = "<group>"; };
 		992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionEntryResumeLaunchTests.swift; sourceTree = "<group>"; };
 		D4476F030000000000000002 /* SessionIndexAgentIconImage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionIndexAgentIconImage.swift; sourceTree = "<group>"; };
@@ -6036,10 +6043,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 		99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultQueuedRestoreIdentityTests.swift; sourceTree = "<group>"; };
 		5D1AE45742E0440681EC9AD4 /* VaultRecencySections.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRecencySections.swift; sourceTree = "<group>"; };
 		CC5B58C162154422A2839569 /* VaultRecencySectionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRecencySectionsTests.swift; sourceTree = "<group>"; };
+		112960000000000000000009 /* VaultRestoreCompatibilitySecurityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestoreCompatibilitySecurityTests.swift; sourceTree = "<group>"; };
+		112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestorePathGuaranteeTests.swift; sourceTree = "<group>"; };
 		992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultRestoreRelaunchPersistenceTests.swift; sourceTree = "<group>"; };
 		662E8F5E0C3F4FBA8F75450A /* VaultSessionCheckpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpoint.swift; sourceTree = "<group>"; };
 		CF959230EC364550B3A48324 /* VaultSessionCheckpointStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpointStore.swift; sourceTree = "<group>"; };
 		39A6A437B01E4A0CBF64454D /* VaultSessionCheckpointTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionCheckpointTests.swift; sourceTree = "<group>"; };
+		112960000000000000000006 /* VaultSessionDropLauncher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionDropLauncher.swift; sourceTree = "<group>"; };
 		5B9D1EE40CA94CD8BEDDDD98 /* VaultSessionLiveStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionLiveStatus.swift; sourceTree = "<group>"; };
 		0C5E90CEF204498AAEC93921 /* VaultSessionLiveStatusTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionLiveStatusTests.swift; sourceTree = "<group>"; };
 		189ED88E2958436BAE17D5E4 /* VaultSessionSearchQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VaultSessionSearchQuery.swift; sourceTree = "<group>"; };
@@ -7532,6 +7542,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				9090F0019090F0019090F001 /* AgentHibernationPanelState.swift */,
 				9090F0029090F0029090F002 /* AgentHibernationResumePreparation.swift */,
 				F0ACC0E0000000000000002 /* CachedAgentProcessIdentityValidator.swift */,
+				112960000000000000000008 /* SessionEntry+VaultResumeRequest.swift */,
+				112960000000000000000004 /* SessionEntryResumeCoordinator.swift */,
 				992300019923000199230004 /* SessionEntryResumeLaunch.swift */,
 				B3575000000000000000000B /* SessionIndexModels.swift */,
 				F0ACC0DE0000000000000008 /* SharedLiveAgentIndexLoader.swift */,
@@ -8501,6 +8513,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */,
 				CAFE58130000000000000002 /* CampfireLaunchArgumentNormalizer.swift */,
 				B35750000000000000000005 /* VaultAgentProcessScanner.swift */,
+				112960000000000000000006 /* VaultSessionDropLauncher.swift */,
 				B35750000000000000000011 /* VaultAgentProcessScannerDetectRules.swift */,
 				B3575000000000000000000F /* VaultAgentProcessScannerSessionDirectories.swift */,
 				F76550040000000000000002 /* VaultAgentProcessScanner+CodexSessionCwd.swift */,
@@ -8863,6 +8876,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				8837A0020000000000000002 /* AgentResumeReturnShellStartupTests.swift */,
 				9200B0019200B0019200B002 /* ResumeLauncherCwdConsistencyTests.swift */,
 				992300019923000199230002 /* SessionEntryResumeLaunchTests.swift */,
+				112960000000000000000009 /* VaultRestoreCompatibilitySecurityTests.swift */,
+				112960000000000000000002 /* VaultRestorePathGuaranteeTests.swift */,
 				992300019923000199230005 /* VaultRestoreRelaunchPersistenceTests.swift */,
 				99230001992300019923000F /* VaultQueuedRestoreIdentityTests.swift */,
 				99230001992300019923000D /* TerminalStartupRestoreFailureTests.swift */,
@@ -11373,6 +11388,8 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				469201000000000000000006 /* SessionDragSessionSource.swift in Sources */,
 				46920100000000000000000E /* SessionDragSource.swift in Sources */,
 				46920100000000000000000C /* SessionDragSourceView.swift in Sources */,
+				112960000000000000000007 /* SessionEntry+VaultResumeRequest.swift in Sources */,
+				112960000000000000000003 /* SessionEntryResumeCoordinator.swift in Sources */,
 				992300019923000199230003 /* SessionEntryResumeLaunch.swift in Sources */,
 				D4476F030000000000000001 /* SessionIndexAgentIconImage.swift in Sources */,
 				85000000000000000000002A /* SessionIndexEntryProjection.swift in Sources */,
@@ -11940,14 +11957,15 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 					B35750000000000000000002 /* VaultAgentRegistry.swift in Sources */,
 				58A9932D36B3423F90031CB8 /* VaultAllSessionsBar.swift in Sources */,
 				112F421D5BA34A11BB7B8334 /* VaultCheckpointFork.swift in Sources */,
-				4DE577DECC1641C5903007E2 /* VaultCheckpointHarness.swift in Sources */,
-				B86FDACEC0BC4D10A58925D9 /* VaultCheckpointTimelineView.swift in Sources */,
-				F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */,
-				6170C16F7014467C93587385 /* VaultRecencySections.swift in Sources */,
-				3FB1776899414996A93F0B93 /* VaultSessionCheckpoint.swift in Sources */,
-				8FB35FCA714749A9B54B2313 /* VaultSessionCheckpointStore.swift in Sources */,
-				A865E72EE4B14A2A8517A944 /* VaultSessionLiveStatus.swift in Sources */,
-				021B98686B73408892D7C876 /* VaultSessionSearchQuery.swift in Sources */,
+					4DE577DECC1641C5903007E2 /* VaultCheckpointHarness.swift in Sources */,
+					B86FDACEC0BC4D10A58925D9 /* VaultCheckpointTimelineView.swift in Sources */,
+					F76550060000000000000001 /* VaultObservedAgentProcess.swift in Sources */,
+					6170C16F7014467C93587385 /* VaultRecencySections.swift in Sources */,
+					3FB1776899414996A93F0B93 /* VaultSessionCheckpoint.swift in Sources */,
+					8FB35FCA714749A9B54B2313 /* VaultSessionCheckpointStore.swift in Sources */,
+					112960000000000000000005 /* VaultSessionDropLauncher.swift in Sources */,
+					A865E72EE4B14A2A8517A944 /* VaultSessionLiveStatus.swift in Sources */,
+					021B98686B73408892D7C876 /* VaultSessionSearchQuery.swift in Sources */,
 				F7216001000000000000001 /* VerticalTabsSidebar+EmptyAreasAndFooter.swift in Sources */,
 				C9A57209C9A57209C9A57209 /* VerticalTabsSidebar+WorkspaceGroups.swift in Sources */,
 				A28B087F0000000000000005 /* ViewerNavigationKeyRouter.swift in Sources */,
@@ -13084,10 +13102,12 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				C2A04B60729A4FA6B38C8BC1 /* VaultCheckpointHarnessTests.swift in Sources */,
 				469200054692000146920001 /* VaultNativeDragSourceTests.swift in Sources */,
 				469200014692000146920001 /* VaultPaneDropRoutingTests.swift in Sources */,
-				469200064692000146920001 /* VaultPaneDropTestSupport.swift in Sources */,
-				469200044692000146920001 /* VaultPaneTransferLifecycleTests.swift in Sources */,
-				992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */,
-				C018F5613EA04C739B108FB3 /* VaultRecencySectionsTests.swift in Sources */,
+					469200064692000146920001 /* VaultPaneDropTestSupport.swift in Sources */,
+					469200044692000146920001 /* VaultPaneTransferLifecycleTests.swift in Sources */,
+					992300019923000199230010 /* VaultQueuedRestoreIdentityTests.swift in Sources */,
+					C018F5613EA04C739B108FB3 /* VaultRecencySectionsTests.swift in Sources */,
+					11296000000000000000000A /* VaultRestoreCompatibilitySecurityTests.swift in Sources */,
+					112960000000000000000001 /* VaultRestorePathGuaranteeTests.swift in Sources */,
 				992300019923000199230006 /* VaultRestoreRelaunchPersistenceTests.swift in Sources */,
 				88DAF31AC3FC4A6CB899E0B1 /* VaultSessionCheckpointTests.swift in Sources */,
 				208BA068DD2B4B4E86D0F213 /* VaultSessionLiveStatusTests.swift in Sources */,
