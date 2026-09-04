@@ -3702,12 +3702,12 @@ impl Drop for RemoteSession {
                         &format!("cannot write private dump {frames_name}: {error}"),
                     );
                 }
-                if let Err(error) = prune_dump_files(&directory.output) {
-                    crate::client_log::error(
-                        "mux-dump",
-                        &format!("cannot enforce private dump retention: {error}"),
-                    );
-                }
+            }
+            if let Err(error) = prune_dump_files(&directory.output) {
+                crate::client_log::error(
+                    "mux-dump",
+                    &format!("cannot enforce private dump retention: {error}"),
+                );
             }
         }
     }
