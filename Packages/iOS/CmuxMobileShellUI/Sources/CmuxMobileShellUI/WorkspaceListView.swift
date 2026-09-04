@@ -9,6 +9,9 @@ import AppKit
 #endif
 
 struct WorkspaceListView: View {
+#if os(iOS)
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+#endif
     let workspaces: [MobileWorkspacePreview]
     /// The Mac's workspace groups, in section order. Empty when the Mac reports no
     /// groups; the list then renders flat. Passed as value snapshots so no

@@ -110,6 +110,7 @@ struct WorkspaceRootToolbarContent: ToolbarContent {
                     machines: machines,
                     canAddDevice: showAddDevice != nil,
                     labelWidth: WorkspaceRootToolbarSizing.pickerWidth(for: contentWidth),
+                    usesCompactLabelTreatment: horizontalSizeClass != .regular,
                     statusLine: statusLine
                 ),
                 actions: WorkspaceMacTitlePickerActions(
@@ -916,17 +917,16 @@ struct WorkspaceShellView: View {
     @ToolbarContentBuilder
     private func splitSidebarBottomBar(unreadCount: Int) -> some ToolbarContent {
         ToolbarItem(placement: .bottomBar) {
-            Picker(
-                L10n.string("mobile.sidebar.destination.picker", defaultValue: "Section"),
-                selection: splitSidebarDestinationSelection
-            ) {
-                Text(L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"))
-                    .tag(MobilePrimaryTab.workspaces)
-                Text(notificationsSegmentTitle(unreadCount: unreadCount))
-                    .tag(MobilePrimaryTab.notifications)
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("MobileSplitSidebarDestinationPicker")
+            // iOS 26 already wraps a bottom-bar item in its own glass capsule.
+            // A segmented Picker adds a second capsule inside it, producing
+            // the doubled control shown in the iPad sidebar. These plain
+            // buttons keep the toolbar's single surface and communicate the
+            // selection with hierarchy and tint instead of nested chrome.
+            WorkspaceSidebarDestinationControl(
+                selection: splitSidebarDestinationSelection,
+                workspacesTitle: L10n.string("mobile.tabs.workspaces", defaultValue: "Workspaces"),
+                notificationsTitle: notificationsSegmentTitle(unreadCount: unreadCount)
+            )
         }
         if #available(iOS 26.0, *) {
             ToolbarSpacer(.flexible, placement: .bottomBar)
@@ -944,6 +944,50 @@ struct WorkspaceShellView: View {
                 )
                 .accessibilityIdentifier("MobileTaskComposerButton")
             }
+        }
+    }
+
+    private struct WorkspaceSidebarDestinationControl: View {
+        let selection: Binding<MobilePrimaryTab>
+        let workspacesTitle: String
+        let notificationsTitle: String
+
+        var body: some View {
+            HStack(spacing: 0) {
+                destinationButton(
+                    .workspaces,
+                    title: workspacesTitle,
+                    accessibilityID: "MobileSplitSidebarWorkspaces"
+                )
+                destinationButton(
+                    .notifications,
+                    title: notificationsTitle,
+                    accessibilityID: "MobileSplitSidebarNotifications"
+                )
+            }
+            .frame(minHeight: 44)
+            .accessibilityIdentifier("MobileSplitSidebarDestinationPicker")
+        }
+
+        private func destinationButton(
+            _ destination: MobilePrimaryTab,
+            title: String,
+            accessibilityID: String
+        ) -> some View {
+            let isSelected = selection.wrappedValue == destination
+            return Button {
+                selection.wrappedValue = destination
+            } label: {
+                Text(title)
+                    .font(.subheadline.weight(isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? .primary : .secondary)
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityIdentifier(accessibilityID)
         }
     }
 

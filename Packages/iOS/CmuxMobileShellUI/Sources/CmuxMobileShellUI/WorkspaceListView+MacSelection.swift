@@ -163,6 +163,7 @@ extension WorkspaceListView {
                 machines: machineSnapshots.macPickerMachines,
                 canAddDevice: showAddDevice != nil,
                 labelWidth: 155,
+                usesCompactLabelTreatment: horizontalSizeClass != .regular,
                 statusLine: connectionChrome.statusLine
             ),
             actions: WorkspaceMacTitlePickerActions(
@@ -254,6 +255,7 @@ struct WorkspaceMacTitlePicker: View, Equatable {
                         return .tail
                     }
                 }(),
+                usesCompactLabelTreatment: value.usesCompactLabelTreatment,
                 statusLine: value.statusLine
             )
             // Put the identity and status on the final combined label element.
@@ -292,18 +294,17 @@ struct WorkspaceMacTitlePicker: View, Equatable {
 }
 
 private struct WorkspaceMacTitlePickerLabel: View {
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-
     let title: String
     let isLoading: Bool
     let width: CGFloat
     let truncationMode: Text.TruncationMode
+    let usesCompactLabelTreatment: Bool
     var statusLine: WorkspaceConnectionStatusLine?
 
     var body: some View {
         VStack(spacing: 1) {
             HStack(spacing: 6) {
-                if horizontalSizeClass == .compact {
+                if usesCompactLabelTreatment {
                     // The iPhone keeps its long-standing treatment: the title
                     // tightens and shrinks (down to 0.75) before truncating,
                     // and the chevron hugs the text between centering
