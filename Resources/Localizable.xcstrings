@@ -45928,6 +45928,572 @@
         }
       }
     },
+    "cli.localTmux.error.cleanupListFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "local-tmux cleanup could not list sessions; the registry was left unchanged."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "local-tmux のクリーンアップでセッションを一覧表示できなかったため、レジストリは変更されませんでした。"
+          }
+        }
+      }
+    },
+    "cli.localTmux.error.cleanupSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux cleanup does not take a session selector" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux cleanup ではセッションセレクターを指定できません" } }
+      }
+    },
+    "cli.localTmux.error.clientListFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not inspect attached clients." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux は接続中のクライアントを確認できませんでした。" } }
+      }
+    },
+    "cli.localTmux.error.clientNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux client not found for session %@: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "セッション %@ の local-tmux クライアントが見つかりません: %@" } }
+      }
+    },
+    "cli.localTmux.error.listFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not list sessions; liveness is unknown." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux はセッションを一覧表示できなかったため、生存状態を確認できません。" } }
+      }
+    },
+    "cli.localTmux.error.listingIncomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session listing was incomplete; liveness is unknown." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のセッション一覧が不完全なため、生存状態を確認できません。" } }
+      }
+    },
+    "cli.localTmux.error.closeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux close failed" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の終了に失敗しました" } }
+      }
+    },
+    "cli.localTmux.error.createDirectory": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "could not create local-tmux state directory" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態ディレクトリを作成できませんでした" } }
+      }
+    },
+    "cli.localTmux.error.cwdInvalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux working directory is not an accessible directory: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の作業ディレクトリにアクセスできません: %@" } }
+      }
+    },
+    "cli.localTmux.error.detachOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --client/--all are only valid with detach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --client/--all は detach でのみ使用できます" } }
+      }
+    },
+    "cli.localTmux.error.attachOrStartOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux workspace and attachment options are only valid with start or attach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のワークスペースとアタッチ用オプションは start または attach でのみ使用できます" } }
+      }
+    },
+    "cli.localTmux.error.detachSelectorConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux detach accepts either --client or --all, not both" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux detach では --client と --all のどちらか一方を指定してください" } }
+      }
+    },
+    "cli.localTmux.error.duplicateName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: session name was supplied more than once" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: セッション名が複数回指定されています" } }
+      }
+    },
+    "cli.localTmux.error.headlessOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --headless is only valid with attach or start" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --headless は attach または start でのみ使用できます" } }
+      }
+    },
+    "cli.localTmux.error.insecurePath": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state path is not owned by the current user or is group/world accessible: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態パスが現在のユーザー所有でないか、グループ/全ユーザーに公開されています: %@" } }
+      }
+    },
+    "cli.localTmux.error.interactiveExit": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux interactive client exited with status %d" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の対話クライアントがステータス %d で終了しました" } }
+      }
+    },
+    "cli.localTmux.error.interactiveStart": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not start an interactive client" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の対話クライアントを起動できませんでした" } }
+      }
+    },
+    "cli.localTmux.error.existingSessionCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session already exists; use attach or close it before supplying a new command" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションは既に存在します。新しいコマンドを指定する前に attach または close を使用してください" } }
+      }
+    },
+    "cli.localTmux.error.existingSessionCwd": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session already exists with a different working directory; use attach or close it first" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "別の作業ディレクトリを持つ local-tmux セッションが既に存在します。先に attach または close を使用してください" } }
+      }
+    },
+    "cli.localTmux.error.invalidFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: --focus must be true or false" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: --focus は true または false で指定してください" } }
+      }
+    },
+    "cli.localTmux.error.invalidID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: --id must be a UUID" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: --id は UUID で指定してください" } }
+      }
+    },
+    "cli.localTmux.error.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session names must contain only letters, numbers, underscore, or dash (1–128 characters)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のセッション名には英数字、アンダースコア、ハイフンのみ使用できます（1～128文字）" } }
+      }
+    },
+    "cli.localTmux.error.invalidState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state is invalid: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態が無効です: %@" } }
+      }
+    },
+    "cli.localTmux.error.listSelector": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux list does not take a session selector" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux list ではセッションセレクターを指定できません" } }
+      }
+    },
+    "cli.localTmux.error.lockFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "could not lock local-tmux state: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態をロックできませんでした: %@" } }
+      }
+    },
+    "cli.localTmux.error.multipleClients": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session has multiple clients; pass --client <id> or --all to detach explicitly" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションに複数のクライアントがあります。明示的に切断するには --client <id> または --all を指定してください" } }
+      }
+    },
+    "cli.localTmux.error.newClientOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --new-client is only valid with attach" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --new-client は attach でのみ使用できます" } }
+      }
+    },
+    "cli.localTmux.error.noClients": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session has no attached clients: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションに接続中のクライアントがありません: %@" } }
+      }
+    },
+    "cli.localTmux.error.operationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux %@ failed (exit %d)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux %@ に失敗しました（終了コード %d）" } }
+      }
+    },
+    "cli.localTmux.error.persistState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "could not persist %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ を保存できませんでした" } }
+      }
+    },
+    "cli.localTmux.error.pruneOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --prune is only valid with cleanup" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --prune は cleanup でのみ使用できます" } }
+      }
+    },
+    "cli.localTmux.error.requiresApp": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux %@ requires a running cmux app; use --headless for a direct tmux client" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux %@ には実行中の cmux アプリが必要です。直接 tmux クライアントを使うには --headless を指定してください" } }
+      }
+    },
+    "cli.localTmux.error.requiresValue": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: %@ requires a value" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: %@ には値が必要です" } }
+      }
+    },
+    "cli.localTmux.error.runFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not run tmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で tmux を実行できませんでした" } }
+      }
+    },
+    "cli.localTmux.error.selectorConflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: use either a session name or --id, not both" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: セッション名または --id のどちらか一方を指定してください" } }
+      }
+    },
+    "cli.localTmux.error.selectorRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux %@ requires a session name or --id\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux %@ にはセッション名または --id が必要です\n%@" } }
+      }
+    },
+    "cli.localTmux.error.sessionIDNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session not found for id %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "指定された ID の local-tmux セッションが見つかりません: %@" } }
+      }
+    },
+    "cli.localTmux.error.sessionIdentityChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session identity changed; refusing to operate on replacement session: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションの識別子が変更されたため、置き換えられたセッションへの操作を拒否しました: %@" } }
+      }
+    },
+    "cli.localTmux.error.sessionIdentityUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not verify the tmux session identity: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で tmux セッションの識別子を確認できませんでした: %@" } }
+      }
+    },
+    "cli.localTmux.error.sessionNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session not found: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションが見つかりません: %@" } }
+      }
+    },
+    "cli.localTmux.error.sessionNotRunning": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux session is no longer running: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux セッションは実行されていません: %@" } }
+      }
+    },
+    "cli.localTmux.error.socketPathTooLong": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state directory is too long for a Unix socket: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態ディレクトリが Unix ソケットには長すぎます: %@" } }
+      }
+    },
+    "cli.localTmux.error.stateOperationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux state could not be accessed safely" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の状態に安全にアクセスできませんでした" } }
+      }
+    },
+    "cli.localTmux.error.surfaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux surface target was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のサーフェス対象が見つかりません" } }
+      }
+    },
+    "cli.localTmux.error.startID": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux start accepts a name, not --id" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux start では --id ではなく名前を指定してください" } }
+      }
+    },
+    "cli.localTmux.error.startOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux --cwd and --command are only valid with start" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の --cwd と --command は start でのみ使用できます" } }
+      }
+    },
+    "cli.localTmux.error.startRequiresName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux start requires a session name" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux start にはセッション名が必要です" } }
+      }
+    },
+    "cli.localTmux.error.timedOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux command timed out" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux コマンドがタイムアウトしました" } }
+      }
+    },
+    "cli.localTmux.error.tmuxMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux requires tmux. Install tmux or configure an executable tmux path" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux には tmux が必要です。tmux をインストールするか、実行可能な tmux のパスを設定してください" } }
+      }
+    },
+    "cli.localTmux.error.tmuxAliasAttachOnly": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "the tmux alias only supports attach; use local-tmux for other session operations" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "tmux エイリアスは attach のみをサポートします。他のセッション操作には local-tmux を使用してください" } }
+      }
+    },
+    "cli.localTmux.error.targetNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not resolve %@ target %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で %@ の対象 %@ を解決できませんでした" } }
+      }
+    },
+    "cli.localTmux.error.livenessUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not verify the existing surface; no new client was created" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux で既存サーフェスを確認できなかったため、新しいクライアントは作成されませんでした" } }
+      }
+    },
+    "cli.localTmux.error.workspaceNotFound": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux workspace target was not found" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux のワークスペース対象が見つかりません" } }
+      }
+    },
+    "cli.localTmux.error.workspaceRequiredForTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux pane or surface targets require a workspace" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux の pane または surface 対象にはワークスペースが必要です" } }
+      }
+    },
+    "cli.localTmux.error.unexpectedArgument": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: unexpected argument '%@'" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: 予期しない引数 '%@'" } }
+      }
+    },
+    "cli.localTmux.error.unknownFlag": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux: unknown flag '%@'\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local-tmux: 不明なフラグ '%@'\n%@" } }
+      }
+    },
+    "cli.localTmux.error.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown local-tmux subcommand '%@'.\n%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明な local-tmux サブコマンド '%@' です。\n%@" } }
+      }
+    },
+    "cli.localTmux.error.writeState": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "could not write %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ に書き込めませんでした" } }
+      }
+    },
+    "cli.localTmux.error.workspaceCreateFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "local-tmux could not create a workspace for %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ 用のワークスペースを local-tmux で作成できませんでした" } }
+      }
+    },
+    "cli.localTmux.output.attached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK session=%@ surface=%@ mode=local-tmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK session=%@ surface=%@ mode=local-tmux" } }
+      }
+    },
+    "cli.localTmux.output.closed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK closed session=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK closed session=%@" } }
+      }
+    },
+    "cli.localTmux.output.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK detached session=%@ client=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK detached session=%@ client=%@" } }
+      }
+    },
+    "cli.localTmux.output.detachedAll": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK detached all clients from session=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK detached all clients from session=%@" } }
+      }
+    },
+    "cli.localTmux.output.foundStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Found %lld stale local tmux session(s); pass --prune to remove them" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古い local tmux セッションが %lld 件見つかりました。削除するには --prune を指定してください" } }
+      }
+    },
+    "cli.localTmux.output.idSuffix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": " id=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": " id=%@" } }
+      }
+    },
+    "cli.localTmux.output.noSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No local tmux sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "local tmux セッションはありません" } }
+      }
+    },
+    "cli.localTmux.output.noStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No stale local tmux sessions" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古い local tmux セッションはありません" } }
+      }
+    },
+    "cli.localTmux.output.record": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK session=%@ id=%@ state=%@ socket=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK session=%@ id=%@ state=%@ socket=%@" } }
+      }
+    },
+    "cli.localTmux.output.removedStale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Removed %lld stale local tmux session(s)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古い local tmux セッションを %lld 件削除しました" } }
+      }
+    },
+    "cli.localTmux.output.sessionRow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld" } }
+      }
+    },
+    "cli.localTmux.output.status": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld socket=%@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "%@ [%@] clients=%lld socket=%@" } }
+      }
+    },
+    "cli.localTmux.state.detached": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "detached" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "切断済み" } }
+      }
+    },
+    "cli.localTmux.state.live": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "live" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "稼働中" } }
+      }
+    },
+    "cli.localTmux.state.stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "stale" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "古い" } }
+      }
+    },
+    "cli.localTmux.state.unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "unknown" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明" } }
+      }
+    },
+    "cli.localTmux.target.pane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "pane" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ペイン" } }
+      }
+    },
+    "cli.localTmux.target.surface": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "サーフェス" } }
+      }
+    },
+    "cli.localTmux.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usage: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [session] [options]\n\nOpt-in local tmux sessions survive cmux quit, crash, and app updates. Ordinary cmux terminals are unchanged.\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless] [--new-client]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nThe registry and tmux server socket live under ~/.cmux/local-tmux with user-only permissions. `attach --headless` hands the terminal directly to tmux for a client outside the cmux GUI."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使い方: cmux local-tmux <start|attach|list|status|detach|close|cleanup> [セッション] [オプション]\n\nオプトインしたローカル tmux セッションは cmux の終了、クラッシュ、アップデート後も維持されます。通常の cmux ターミナルの動作は変わりません。\n\nstart <name> [--cwd <path>] [--command <shell>] [--detached]\nattach <name|--id <uuid>> [--workspace <id|ref|index>] [--focus <true|false>] [--headless] [--new-client]\nlist [--json]\nstatus <name|--id <uuid>> [--json]\ndetach <name|--id <uuid>> [--client <id> | --all]\nclose <name|--id <uuid>>\ncleanup [--prune]\n\nレジストリと tmux サーバーソケットは ~/.cmux/local-tmux にユーザー専用権限で保存されます。`attach --headless` は cmux GUI 外のクライアントを tmux に直接接続します。"
+          }
+        }
+      }
+    },
     "cli.help.ssh": {
       "extractionState": "manual",
       "localizations": {
