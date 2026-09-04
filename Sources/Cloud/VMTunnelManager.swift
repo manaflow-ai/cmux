@@ -265,14 +265,21 @@ struct VMTunnelManager: Sendable {
     /// Distinct from the per-machine cmux-tui fingerprints: this one names this
     /// app/build's membership on the account's network.
     func deviceFingerprint() throws -> String {
-        if let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8) {
-            let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !trimmed.isEmpty { return trimmed }
-        }
+        if let existing = storedDeviceFingerprint() { return existing }
         let minted = "mac-" + UUID().uuidString.lowercased()
         try ensureStateDir()
         try write(minted + "\n", to: deviceIDURL)
         return minted
+    }
+
+    /// The enrolled role identity already on disk. Status and diagnostics use
+    /// this read-only form so checking a revoked tunnel cannot recreate state.
+    func storedDeviceFingerprint() -> String? {
+        guard let existing = try? String(contentsOf: deviceIDURL, encoding: .utf8) else {
+            return nil
+        }
+        let trimmed = existing.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// The `AllowedIPs` of the config on disk (the addresses this tunnel routes),

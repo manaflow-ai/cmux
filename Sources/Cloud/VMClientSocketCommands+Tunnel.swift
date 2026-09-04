@@ -104,7 +104,7 @@ extension TerminalController {
     /// only from Network Extension status. Terminal liveness comes from the
     /// user-space WireGuard hub.
     nonisolated static func cloudTunnelStatusPayload(manager: VMTunnelManager) async -> [String: Any] {
-        let fingerprint = (try? manager.deviceFingerprint()) ?? ""
+        let fingerprint = manager.storedDeviceFingerprint() ?? ""
         let config = manager.writtenConfig()
         let coordinator = await cloudTunnelCoordinator()
         let status = await coordinator?.status()
@@ -136,7 +136,7 @@ extension TerminalController {
         let hub = await MainActor.run { CmuxTuiSurfaceProviderRegistry.shared.wireGuardHub }
         let hubStatus = await hub?.status()
         payload["terminal_tunnel"] = [
-            "device_fingerprint": (try? terminalManager.deviceFingerprint()) ?? "",
+            "device_fingerprint": terminalManager.storedDeviceFingerprint() ?? "",
             "config_path": terminalManager.configURL.path,
             "config_present": terminalManager.writtenConfig() != nil,
             "routes": terminalManager.configuredRoutes(),
