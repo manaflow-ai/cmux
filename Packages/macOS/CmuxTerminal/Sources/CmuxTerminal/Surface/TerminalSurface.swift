@@ -331,6 +331,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     weak var configurationReloadDeferredRuntimeSurfaceView:
         (any TerminalSurfaceNativeViewing)?
     var requiresRestoreSpawnPacing = false
+    /// Whether this surface was created as an ordinary local surface that may
+    /// use declarative cmux shell-startup defaults. Restore transactions set
+    /// this to false even when they are admitted immediately.
+    var allowsDeclarativeStartupDefaults = true
     var startupRestoreAdmissionPhase = TerminalSurfaceStartupRestoreAdmissionPhase.unrestricted
     var cancelsStartupRestoreAdmissionOnExplicitInput = false
     var runtimeSurfaceSuspendedForAgentHibernation = false
@@ -610,6 +614,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         self.agentCommandShimInstallDeadline = dependencies.agentCommandShimInstallDeadline
         self.agentCommandShimInstallDeadlineClock = dependencies.agentCommandShimInstallDeadlineClock
         self.requiresRestoreSpawnPacing = runtimeSpawnPolicy.spawnTiming == .pacedSessionRestore
+        self.allowsDeclarativeStartupDefaults = runtimeSpawnPolicy.allowsDeclarativeStartupDefaults
         self.cancelsStartupRestoreAdmissionOnExplicitInput =
             runtimeSpawnPolicy.cancelsStartupRestoreAdmissionOnExplicitInput
         self.startupRestoreAdmissionPhase = runtimeSpawnPolicy.requiresStartupRestoreAdmission
@@ -832,16 +837,3 @@ extension TerminalSurface: TerminalSurfaceControlling {
 // TerminalSurfacing seam; lifecycle generations are registered separately so
 // the registry never reads mutable model state from a socket worker thread.
 extension TerminalSurface: TerminalSurfacing {}
-
-/// Transports the hidden bootstrap window from a nonisolated `deinit` to the
-/// main actor for closing. `@unchecked Sendable` because the window is
-/// exclusively owned by the request from creation until `close()` runs.
-private struct TerminalSurfaceHeadlessWindowCloseRequest: @unchecked Sendable {
-    let window: NSWindow
-
-    @MainActor
-    func close() {
-        window.contentView = nil
-        window.close()
-    }
-}

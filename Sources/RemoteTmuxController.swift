@@ -306,9 +306,11 @@ final class RemoteTmuxController {
             guard let workspace = tabManager.addWorkspaceIfActive(
                 title: sessionName,
                 titleSource: .auto,
+                inheritWorkingDirectory: false,
                 select: false,
                 autoWelcomeIfNeeded: false,
-                applyCreationTitleAsCustomTitle: false
+                applyCreationTitleAsCustomTitle: false,
+                initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
             ) else {
                 connection.stop()
                 return nil

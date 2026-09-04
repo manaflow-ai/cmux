@@ -550,6 +550,7 @@ extension TerminalController: ControlPaneContext {
             sourcePlaceholder = workspace.newTerminalSurface(
                 inPane: sourcePane,
                 focus: false,
+                runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults(),
                 allowTextBoxFocusDefault: false
             )?.id
             if sourcePlaceholder == nil {
@@ -560,6 +561,7 @@ extension TerminalController: ControlPaneContext {
             targetPlaceholder = workspace.newTerminalSurface(
                 inPane: targetPane,
                 focus: false,
+                runtimeSpawnPolicy: .immediate.withoutDeclarativeDefaults(),
                 allowTextBoxFocusDefault: false
             )?.id
             if targetPlaceholder == nil {

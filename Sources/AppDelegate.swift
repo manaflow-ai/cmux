@@ -8492,7 +8492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             eagerLoadTerminal: false,
             autoWelcomeIfNeeded: false,
             autoRefreshMetadata: false,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            initialRuntimeSpawnPolicy: .immediate.withoutDeclarativeDefaults()
         ) else {
             return nil
         }
@@ -10077,6 +10078,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         )
     }
 
+    /// Returns the app-lifetime terminal configuration source for a new window.
+    /// Isolated tests without a configured Settings runtime receive an
+    /// immutable ready source; production windows always share the model built
+    /// by ``cmuxApp``.
+    private func terminalConfigurationSourceForNewWindow() -> any DeclarativeTerminalConfigurationProviding {
+        settingsRuntime?.declarativeTerminalConfigurationModel
+            ?? DeclarativeTerminalConfigurationSnapshotSource()
+    }
+
+    /// Returns the readiness gate for the app-lifetime terminal configuration.
+    private func terminalConfigurationReadinessForNewWindow() -> (@MainActor @Sendable () async -> Void)? {
+        guard let model = settingsRuntime?.declarativeTerminalConfigurationModel else { return nil }
+        return { await model.waitForInitialSnapshot() }
+    }
+
     @discardableResult
     func createMainWindow(
         initialWorkspaceTitle: String? = nil,
@@ -10108,12 +10124,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             initialWorkspaceTitle: initialWorkspaceTitle,
             initialWorkingDirectory: initialWorkingDirectory,
             initialTerminalInput: initialTerminalInput,
+            initialRuntimeSpawnPolicy: sessionWindowSnapshot != nil
+                ? .immediate.withoutDeclarativeDefaults()
+                : initialTerminalInput != nil
+                    ? .immediate.withoutDeclarativeStartupDefaults()
+                    : .immediate,
             autoWelcomeIfNeeded: initialTerminalInput == nil,
             tabDragTransferRegistry: tabDragTransferRegistry,
             pullRequestProbeService: pullRequestProbeService,
             workspaceCustomizationStore: self.tabManager?.workspaceCustomizationStore
                 ?? WorkspaceCustomizationStore(defaults: .standard),
-            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker
+            nativeSSHConnectionBroker: TerminalController.shared.nativeSSHConnectionBroker,
+            declarativeTerminalConfigurationSource: terminalConfigurationSourceForNewWindow(),
+            initialWorkspaceReadiness: terminalConfigurationReadinessForNewWindow()
         )
         tabManager.windowId = windowId
         if let sessionWindowSnapshot {

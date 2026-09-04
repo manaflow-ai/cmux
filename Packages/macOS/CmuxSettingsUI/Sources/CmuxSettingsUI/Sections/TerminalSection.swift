@@ -70,6 +70,7 @@ public struct TerminalSection: View {
     public var body: some View {
         Group {
             SettingsSectionHeader(String(localized: "settings.section.terminal", defaultValue: "Terminal"), section: .terminal)
+            DeclarativeTerminalConfigurationCard()
             mainCard
             resumeCommandsCard
         }
@@ -541,5 +542,4 @@ public struct TerminalSection: View {
             }
         }
     }
-
 }
