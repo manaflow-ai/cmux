@@ -37328,15 +37328,15 @@
     "cli.coderouter.add.invalidApiKey": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter claude add oauth-token`." } },
-        "ja": { "stringUnit": { "state": "needs_review", "value": "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter claude add oauth-token`." } }
+        "en": { "stringUnit": { "state": "translated", "value": "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter accounts add claude`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "That is not an Anthropic API key (expected sk-ant-...). For a Claude Code OAuth token use `cmux coderouter accounts add claude`." } }
       }
     },
     "cli.coderouter.add.invalidOAuth": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter claude add api-key`." } },
-        "ja": { "stringUnit": { "state": "needs_review", "value": "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter claude add api-key`." } }
+        "en": { "stringUnit": { "state": "translated", "value": "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter accounts add anthropic-key`." } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "That is not a Claude Code OAuth token (expected sk-ant-oat01-...). For an Anthropic API key use `cmux coderouter accounts add anthropic-key`." } }
       }
     },
     "cli.coderouter.add.region": {
@@ -37468,8 +37468,8 @@
     "cli.coderouter.claude.emptyCommand": {
       "extractionState": "manual",
       "localizations": {
-        "en": { "stringUnit": { "state": "translated", "value": "  claude setup-token && cmux coderouter claude add oauth-token" } },
-        "ja": { "stringUnit": { "state": "needs_review", "value": "  claude setup-token && cmux coderouter claude add oauth-token" } }
+        "en": { "stringUnit": { "state": "translated", "value": "  cmux coderouter accounts add claude" } },
+        "ja": { "stringUnit": { "state": "needs_review", "value": "  cmux coderouter accounts add claude" } }
       }
     },
     "cli.coderouter.claude.noMatch": {
@@ -38020,26 +38020,26 @@
     "cli.coderouter.commands": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (إعدادات مستوى النماذج للفريق؛ تُمرَّر الأوامر الأخرى كما هي)" } },
-        "bs": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (postavke modelne ravni tima; ostale komande se prosljeđuju)" } },
-        "da": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (teamets modelplan-indstillinger; andre kommandoer sendes videre)" } },
-        "de": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (Team-Einstellungen der Modellebene; andere Befehle werden durchgereicht)" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (حسابات الفريق واستخدام الآلات؛ تُمرَّر الأوامر الأخرى كما هي)" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (nalozi tima i upotreba mašina; ostale komande se prosljeđuju)" } },
+        "da": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (teamkonti og maskinbrug; andre kommandoer sendes videre)" } },
+        "de": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (Teamkonten und Maschinennutzung; andere Befehle werden durchgereicht)" } },
         "en": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (team accounts and machine usage; other verbs pass through)" } },
-        "es": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (ajustes del plano de modelos del equipo; los demás verbos se pasan sin cambios)" } },
-        "fr": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (réglages du plan de modèles de l'équipe ; les autres verbes sont transmis tels quels)" } },
-        "it": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (impostazioni del piano modelli del team; gli altri comandi passano inalterati)" } },
-        "ja": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (チームのモデルプレーン設定。その他のサブコマンドはそのまま渡されます)" } },
-        "km": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (ការកំណត់ model plane របស់ក្រុម; ពាក្យបញ្ជាផ្សេងទៀតត្រូវបានបញ្ជូនបន្ត)" } },
-        "ko": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (팀 모델 플레인 설정; 다른 하위 명령은 그대로 전달됩니다)" } },
-        "nb": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (teamets modellplan-innstillinger; andre kommandoer sendes videre)" } },
-        "pl": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (ustawienia płaszczyzny modeli zespołu; pozostałe polecenia są przekazywane dalej)" } },
-        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (configurações do plano de modelos da equipe; outros verbos são repassados)" } },
-        "ru": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (настройки модельного плана команды; остальные команды передаются как есть)" } },
-        "th": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (การตั้งค่า model plane ของทีม; คำสั่งอื่นส่งผ่านตามเดิม)" } },
-        "tr": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (ekibin model düzlemi ayarları; diğer komutlar olduğu gibi iletilir)" } },
-        "uk": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (налаштування модельного плану команди; інші команди передаються без змін)" } },
-        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (团队模型平面设置；其他子命令原样透传)" } },
-        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (團隊模型平面設定；其他子命令原樣透傳)" } }
+        "es": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (cuentas del equipo y uso de máquinas; los demás verbos se pasan sin cambios)" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (comptes de l'équipe et utilisation des machines ; les autres verbes sont transmis tels quels)" } },
+        "it": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (account del team e utilizzo delle macchine; gli altri comandi passano invariati)" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (チームのアカウントとマシン使用量。その他のサブコマンドはそのまま渡されます)" } },
+        "km": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (គណនីក្រុម និងការប្រើប្រាស់ម៉ាស៊ីន; ពាក្យបញ្ជាផ្សេងទៀតត្រូវបានបញ្ជូនបន្ត)" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (팀 계정 및 머신 사용량; 다른 하위 명령은 그대로 전달됩니다)" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (teamkontoer og maskinbruk; andre kommandoer sendes videre)" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (konta zespołu i użycie maszyn; pozostałe polecenia są przekazywane dalej)" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (contas da equipe e uso das máquinas; outros verbos são repassados)" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (аккаунты команды и использование машин; остальные команды передаются как есть)" } },
+        "th": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (บัญชีทีมและการใช้งานเครื่อง; คำสั่งอื่นจะถูกส่งต่อโดยไม่เปลี่ยนแปลง)" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (ekip hesapları ve makine kullanımı; diğer komutlar olduğu gibi iletilir)" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (облікові записи команди та використання машин; інші команди передаються без змін)" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (团队账户和机器使用量；其他子命令原样传递)" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "coderouter <accounts|machines> [--team <id>] [--json]    (團隊帳戶與機器使用量；其他子命令原樣傳遞)" } }
       }
     },
     "cli.coderouter.error.launchFailed": {

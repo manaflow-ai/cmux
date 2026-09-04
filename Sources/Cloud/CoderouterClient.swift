@@ -217,6 +217,13 @@ actor CoderouterClient {
         jsonBody: [String: Any]? = nil,
         teamID explicitTeamID: String?
     ) async throws -> (Data, HTTPURLResponse) {
+        // Validate the destination before loading bearer and refresh tokens.
+        // A malformed debug override must never receive credential headers.
+        let requestURL = try Self.validatedRequestURL(
+            baseURL: AuthEnvironment.vmAPIBaseURL,
+            path: path,
+            queryItems: queryItems
+        )
         let tokens: (accessToken: String, refreshToken: String)
         do {
             tokens = try await auth.currentTokens()
@@ -227,18 +234,7 @@ actor CoderouterClient {
         }
         let resolvedTeamID = await auth.resolvedTeamID
 
-        guard var comps = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
-            throw CoderouterClientError.malformedResponse("the cmux backend URL is misconfigured")
-        }
-        comps.path = (comps.path.hasSuffix("/") ? String(comps.path.dropLast()) : comps.path) + path
-        if !queryItems.isEmpty {
-            comps.queryItems = queryItems
-        }
-        guard let url = comps.url else {
-            throw CoderouterClientError.malformedResponse("could not build the request URL")
-        }
-
-        var req = URLRequest(url: url)
+        var req = URLRequest(url: requestURL)
         req.httpMethod = method
         req.timeoutInterval = 15
         req.setValue("Bearer \(tokens.accessToken)", forHTTPHeaderField: "Authorization")
@@ -275,6 +271,117 @@ actor CoderouterClient {
             throw CoderouterClientError.malformedResponse("non-HTTP response")
         }
         return (data, http)
+    }
+
+    /// Builds a coderouter request only when its URL stays on the configured
+    /// backend origin. Release builds require HTTPS. Debug builds may use HTTP
+    /// for a loopback server, which is the tag-local development transport.
+    static func validatedRequestURL(
+        baseURL: URL,
+        path: String,
+        queryItems: [URLQueryItem] = []
+    ) throws -> URL {
+        guard let base = URLComponents(url: baseURL, resolvingAgainstBaseURL: false),
+              let scheme = base.scheme?.lowercased(),
+              let host = base.host?.lowercased(),
+              !host.isEmpty,
+              base.user == nil,
+              base.password == nil,
+              base.query == nil,
+              base.fragment == nil,
+              base.path.isEmpty || base.path == "/",
+              path.hasPrefix("/"),
+              !path.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
+            throw CoderouterClientError.malformedResponse("the cmux backend URL is misconfigured")
+        }
+
+        let https = scheme == "https"
+        #if DEBUG
+        let loopbackHTTP = scheme == "http" && Self.isLoopbackHost(host)
+        #else
+        let loopbackHTTP = false
+        #endif
+        guard https || loopbackHTTP else {
+            throw CoderouterClientError.malformedResponse("the cmux backend URL must use HTTPS")
+        }
+        guard loopbackHTTP || Self.isTrustedHTTPSOrigin(base) else {
+            throw CoderouterClientError.malformedResponse("the cmux backend URL is not an allowed credential destination")
+        }
+
+        var request = base
+        let basePath = base.path.hasSuffix("/") ? String(base.path.dropLast()) : base.path
+        request.path = basePath + path
+        request.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = request.url,
+              let requestComponents = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              Self.sameOrigin(base, requestComponents) else {
+            throw CoderouterClientError.malformedResponse("could not build the request URL")
+        }
+        return url
+    }
+
+    private static func sameOrigin(_ lhs: URLComponents, _ rhs: URLComponents) -> Bool {
+        lhs.scheme?.lowercased() == rhs.scheme?.lowercased()
+            && lhs.host?.lowercased() == rhs.host?.lowercased()
+            && effectivePort(lhs) == effectivePort(rhs)
+    }
+
+    private static func effectivePort(_ components: URLComponents) -> Int? {
+        if let port = components.port { return port }
+        switch components.scheme?.lowercased() {
+        case "http": return 80
+        case "https": return 443
+        default: return nil
+        }
+    }
+
+    private static func isLoopbackHost(_ host: String) -> Bool {
+        if host == "localhost" || host == "::1" { return true }
+        let octets = host.split(separator: ".")
+        guard octets.count == 4, octets.first == "127" else { return false }
+        return octets.dropFirst().allSatisfy { Int($0).map { (0...255).contains($0) } ?? false }
+    }
+
+    /// The VM API resolver has developer overrides for tagged builds. Keep
+    /// those overrides useful while refusing to send account credentials to an
+    /// arbitrary HTTPS host. Production has one origin; debug has that origin,
+    /// the shared staging deployment, and an explicitly declared direct
+    /// Tailscale backend.
+    private static func isTrustedHTTPSOrigin(_ components: URLComponents) -> Bool {
+        guard effectivePort(components) == 443 || components.port == nil else {
+            #if DEBUG
+            let environment = ProcessInfo.processInfo.environment
+            guard environment["CMUX_DEV_BACKEND_TRANSPORT"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "direct",
+                  let trustedHost = environment["CMUX_DEV_BACKEND_TAILSCALE_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                  components.host?.lowercased() == trustedHost,
+                  trustedHost.hasSuffix(".ts.net"),
+                  let port = components.port,
+                  (3800...4799).contains(port) else {
+                return false
+            }
+            return true
+            #else
+            return false
+            #endif
+        }
+        guard let host = components.host?.lowercased() else { return false }
+        if host == "cmux.com" || host == "cmux-staging.vercel.app" {
+            return true
+        }
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["CMUX_DEV_BACKEND_TRANSPORT"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "direct",
+              let trustedHost = environment["CMUX_DEV_BACKEND_TAILSCALE_HOST"]?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              host == trustedHost,
+              trustedHost.hasSuffix(".ts.net"),
+              let port = components.port,
+              (3800...4799).contains(port) else {
+            return false
+        }
+        return true
+        #else
+        return false
+        #endif
     }
 
     private func ensureOK(_ http: HTTPURLResponse, data: Data) throws {

@@ -163,21 +163,23 @@ export async function runAccountHealthNotifications(
   dependencies: AccountHealthDependencies = defaultDependencies(),
 ): Promise<AccountHealthRunResult> {
   const at = dependencies.now();
-  const notices = [
-    ...(await dependencies.brokenClaudeAccounts()),
-    ...(await dependencies.brokenSubscriptionAccounts()),
-  ].slice(0, MAX_ACCOUNTS_PER_RUN);
+  const notices = selectAccountHealthNotices(
+    await dependencies.brokenClaudeAccounts(),
+    await dependencies.brokenSubscriptionAccounts(),
+  );
   if (notices.length === 0) {
     return { accounts: 0, emails: 0, recipients: 0, withoutRecipient: 0, failures: 0 };
   }
 
   // Batch: one email per recipient listing every account of theirs that broke.
-  const byRecipient = new Map<string, { recipient: Recipient; notices: BrokenAccountNotice[] }>();
+  const byRecipient = new Map<string, { recipient: Recipient; notices: BrokenAccountNotice[]; noticeKeys: Set<string> }>();
+  const expectedRecipients = new Map<string, Set<string>>();
   const teamNames = new Map<string, string | null>();
   const teamRecipients = new Map<string, readonly Recipient[]>();
   let withoutRecipient = 0;
   const unaddressed: BrokenAccountNotice[] = [];
   for (const notice of notices) {
+    const noticeKey = accountHealthNoticeKey(notice);
     if (!teamNames.has(notice.teamId)) {
       teamNames.set(notice.teamId, await dependencies.teamName(notice.teamId).catch(() => null));
     }
@@ -194,27 +196,43 @@ export async function runAccountHealthNotifications(
       continue;
     }
     for (const recipient of recipients) {
-      const key = recipient.email.toLowerCase();
-      const entry = byRecipient.get(key) ?? { recipient, notices: [] };
-      entry.notices.push(notice);
+      const key = recipient.email.trim().toLowerCase();
+      if (!key) continue;
+      const expected = expectedRecipients.get(noticeKey) ?? new Set<string>();
+      expected.add(key);
+      expectedRecipients.set(noticeKey, expected);
+      const entry = byRecipient.get(key) ?? { recipient, notices: [], noticeKeys: new Set<string>() };
+      if (!entry.noticeKeys.has(noticeKey)) {
+        entry.noticeKeys.add(noticeKey);
+        entry.notices.push(notice);
+      }
       byRecipient.set(key, entry);
+    }
+    if (!expectedRecipients.has(noticeKey)) {
+      withoutRecipient += 1;
+      unaddressed.push(notice);
     }
   }
 
   let emails = 0;
   let failures = 0;
-  const notified = new Set<string>();
-  for (const { recipient, notices: mine } of byRecipient.values()) {
-    const email = await buildAccountHealthEmail({
-      from: dependencies.fromEmail(),
-      recipient,
-      notices: mine,
-      teamNames,
-    });
+  const successfulRecipients = new Map<string, Set<string>>();
+  for (const [recipientKey, { recipient, notices: mine }] of byRecipient) {
     try {
+      const email = await buildAccountHealthEmail({
+        from: dependencies.fromEmail(),
+        recipient,
+        notices: mine,
+        teamNames,
+      });
       await dependencies.send(email);
       emails += 1;
-      for (const notice of mine) notified.add(`${notice.source}:${notice.accountId}`);
+      for (const notice of mine) {
+        const noticeKey = accountHealthNoticeKey(notice);
+        const successful = successfulRecipients.get(noticeKey) ?? new Set<string>();
+        successful.add(recipientKey);
+        successfulRecipients.set(noticeKey, successful);
+      }
     } catch (error) {
       failures += 1;
       reportCoderouterFailure("account_health_email", error, { recipients: 1, accounts: mine.length });
@@ -222,7 +240,21 @@ export async function runAccountHealthNotifications(
   }
   // Accounts with nobody to tell are marked as well: the state is visible on
   // the dashboard and in the CLI, and retrying every run would never help.
-  const done = notices.filter((notice) => notified.has(`${notice.source}:${notice.accountId}`)).concat(unaddressed);
+  // When a team notice has several recipients, keep it pending until every
+  // distinct recipient accepts it. Resend's stable idempotency key makes the
+  // successful deliveries safe to retry on the next run.
+  const unaddressedKeys = new Set(unaddressed.map(accountHealthNoticeKey));
+  const done = notices.filter((notice) => {
+    const noticeKey = accountHealthNoticeKey(notice);
+    if (unaddressedKeys.has(noticeKey)) return true;
+    const expected = expectedRecipients.get(noticeKey);
+    const successful = successfulRecipients.get(noticeKey);
+    return !!expected && !!successful && [...expected].every((key) => successful.has(key));
+  }).sort((left, right) => {
+    // Keep the historical Claude-then-subscription order for the persistence
+    // update, even though selection is interleaved for fairness.
+    return left.source === right.source ? 0 : left.source === "claude" ? -1 : 1;
+  });
   if (done.length > 0) await dependencies.markNotified(done, at);
   addCoderouterBreadcrumb("account", "Account health notifications sent", {
     accounts: notices.length,
@@ -232,6 +264,32 @@ export async function runAccountHealthNotifications(
     failures,
   });
   return { accounts: notices.length, emails, recipients: byRecipient.size, withoutRecipient, failures };
+}
+
+/**
+ * Selects both account sources fairly so one large Claude batch cannot starve
+ * subscriptions. Each source keeps its query order. The subscription reserve
+ * is taken first, and any unused reserve goes back to Claude, so small queues
+ * keep the original Claude-then-subscription ordering.
+ */
+export function selectAccountHealthNotices(
+  claude: readonly BrokenAccountNotice[],
+  subscriptions: readonly BrokenAccountNotice[],
+  limit = MAX_ACCOUNTS_PER_RUN,
+): BrokenAccountNotice[] {
+  if (limit <= 0) return [];
+  const subscriptionReserve = Math.min(subscriptions.length, Math.floor(limit / 2));
+  const claudeCount = Math.min(claude.length, limit - subscriptionReserve);
+  const unusedReserve = limit - claudeCount - subscriptionReserve;
+  const subscriptionCount = Math.min(subscriptions.length, subscriptionReserve + unusedReserve);
+  return [
+    ...claude.slice(0, claudeCount),
+    ...subscriptions.slice(0, subscriptionCount),
+  ];
+}
+
+function accountHealthNoticeKey(notice: BrokenAccountNotice): string {
+  return `${notice.source}:${notice.accountId}`;
 }
 
 // Email copy.
@@ -358,7 +416,7 @@ function noticeSectionWithCopy(
       return {
         headline: renderTemplate(copy.claudeHeadline, { name, team, id }),
         why: renderTemplate(copy.claudeWhy, { code: notice.failureCode, when }),
-        fix: ["claude setup-token", `cmux coderouter accounts add claude --label ${shellWord(notice.label || "work")}`, removeStep],
+        fix: [`cmux coderouter accounts add claude --label ${shellWord(notice.label || "work")}`, removeStep],
       };
     case "anthropic-key":
       return {
@@ -398,7 +456,7 @@ function uniqueFixCommands(notices: readonly BrokenAccountNotice[], copy: Accoun
   for (const notice of notices) {
     switch (notice.kind) {
       case "claude":
-        commands.add("claude setup-token && cmux coderouter accounts add claude");
+        commands.add("cmux coderouter accounts add claude");
         break;
       case "anthropic-key":
         commands.add("ANTHROPIC_API_KEY=<new key> cmux coderouter accounts add anthropic-key");

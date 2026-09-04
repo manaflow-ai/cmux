@@ -144,7 +144,7 @@ extension CMUXCLI {
 
         default:
             throw CLIError(message: """
-                Unknown coderouter subcommand: \(sub)
+                Unknown coderouter subcommand: \(Self.sanitizeForTerminal(sub))
 
                 \(Self.coderouterUsage)
                 """)
@@ -229,7 +229,7 @@ extension CMUXCLI {
 
         default:
             throw CLIError(message: """
-                Unknown coderouter claude subcommand: \(sub)
+                Unknown coderouter claude subcommand: \(Self.sanitizeForTerminal(sub))
 
                 \(Self.coderouterUsage)
                 """)
@@ -667,7 +667,10 @@ extension CMUXCLI {
         let raw: [String: Any]
 
         var summary: String {
-            "\(kind) \(identifier.isEmpty ? label : identifier)\(identifier.isEmpty || label.isEmpty ? "" : " (\(label))")"
+            let safeKind = CMUXCLI.sanitizeForTerminal(kind)
+            let safeIdentifier = CMUXCLI.sanitizeForTerminal(identifier)
+            let safeLabel = CMUXCLI.sanitizeForTerminal(label)
+            return "\(safeKind) \(identifier.isEmpty ? safeLabel : safeIdentifier)\(identifier.isEmpty || label.isEmpty ? "" : " (\(safeLabel))")"
         }
     }
 
@@ -733,7 +736,7 @@ extension CMUXCLI {
         default:
             // `cmux coderouter accounts <label>` is a common slip; point at the verbs.
             throw CLIError(message: """
-                Unknown coderouter accounts subcommand: \(sub)
+                Unknown coderouter accounts subcommand: \(Self.sanitizeForTerminal(sub))
 
                 \(Self.coderouterUsage)
                 """)
@@ -1039,7 +1042,7 @@ extension CMUXCLI {
 
         default:
             throw CLIError(message: """
-                Unknown coderouter subscriptions subcommand: \(sub)
+                Unknown coderouter subscriptions subcommand: \(Self.sanitizeForTerminal(sub))
 
                 \(Self.coderouterUsage)
                 """)
@@ -1209,7 +1212,7 @@ extension CMUXCLI {
         let accounts = (response["accounts"] as? [[String: Any]]) ?? []
         guard !accounts.isEmpty else {
             print(Self.coderouterLocalized("cli.coderouter.claude.empty", "Claude upstream accounts: none. Cloud machines cannot run `claude` until one is added:"))
-            print(Self.coderouterLocalized("cli.coderouter.claude.emptyCommand", "  claude setup-token && cmux coderouter claude add oauth-token"))
+            print(Self.coderouterLocalized("cli.coderouter.claude.emptyCommand", "  cmux coderouter accounts add claude"))
             return
         }
         print(Self.coderouterFormatted("cli.coderouter.claude.count", "Claude upstream accounts (%lld):", Int64(accounts.count)))

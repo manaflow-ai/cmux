@@ -506,7 +506,7 @@
     },
     "claudeUpstream": {
       "title": "Claude アップストリームアカウント",
-      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、`claude setup-token` で発行した Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。追加時に各認証情報はプロバイダーで検証されます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。3 回連続で拒否されたアカウントは無効とマークされ、追加した人に修正方法を記したメールが 1 回だけ届きます。",
+      "description": "このチームの cmux Cloud VM 内の Claude Code は、Anthropic Messages のトラフィックを coderouter 経由で送信します。Anthropic API キー、`claude setup-token` で発行した Claude Code OAuth トークン、Amazon Bedrock 認証情報を必要なだけ追加できます。追加時に各認証情報はプロバイダーで検証されます。各マシンは 1 つのアカウントに固定されるためプロンプトキャッシュが機能し続け、レート制限や認証情報の拒否が起きるとそのアカウントはクールダウンに入り、マシンは次のアカウントに移ります。3 回連続で拒否されたアカウントは認証情報エラーとマークされ、追加した人に修正方法を記したメールが 1 回だけ届きます。",
       "emptyTitle": "Claude アップストリームアカウントがありません",
       "emptyBody": "アカウントを追加するまで、このチームの Cloud VM からの Claude リクエストは失敗します。",
       "accountsLabel": "{count} 件のアカウント",
