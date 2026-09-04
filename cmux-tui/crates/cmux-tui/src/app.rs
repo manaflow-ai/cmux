@@ -425,6 +425,15 @@ struct MachineSidebarPointerTopology {
     workspace_creation_policy: Option<WorkspaceCreationPolicy>,
 }
 
+/// The global agent status that the persistent profile strip displays. This
+/// receipt is separate from projection-row dependencies because the strip can
+/// remain visible when every Agents row is hidden or not yet in the tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct AgentAttentionReceipt {
+    attention: usize,
+    working: usize,
+}
+
 /// A data owner for a native sidebar row map. Pointer capture is cancelled
 /// only when the owner that produced the captured rows changes. Layout
 /// changes use the existing global pointer-topology boundary.
@@ -7970,6 +7979,13 @@ pub struct App {
     /// never journaled or shared: two attached clients keep separate stamps
     /// and may rank the same idle agent differently, deliberately.
     agent_focus_stamps: HashMap<SurfaceId, u64>,
+    /// The agent status receipt from the last successfully drawn profile
+    /// strip. It is independent of row dependencies, because the strip is
+    /// global even when an Agents rail is hidden or has not adopted a new
+    /// surface yet.
+    rendered_agent_attention: Option<AgentAttentionReceipt>,
+    /// Coalesce global profile-strip paints until the next successful frame.
+    agent_attention_paint_pending: bool,
     /// Projection surfaces seen by the most recent rendered snapshots. These
     /// sets cover caches evicted by the bounded LRU, so an update still wakes
     /// a visible rail even when its snapshot is not retained. They are pruned
@@ -10763,6 +10779,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         projection_rows_cache: VecDeque::new(),
         projection_rows_revision: 0,
         agent_focus_stamps: HashMap::new(),
+        rendered_agent_attention: None,
+        agent_attention_paint_pending: false,
         projection_agent_surfaces: HashSet::new(),
         projection_title_surfaces: HashSet::new(),
         projection_agent_surfaces_by_view: HashMap::new(),
@@ -11702,18 +11720,11 @@ impl App {
         if self.refresh_agent_focus_stamp(&agents) {
             self.invalidate_projection_rows_cache();
         }
-        let attention = agents
-            .iter()
-            .filter(|agent| {
-                agent.state == "blocked"
-                    || agent.state == "idle"
-                        && self
-                            .agent_focus_stamps
-                            .get(&agent.surface)
-                            .is_none_or(|stamp| *stamp < agent.updated_at_ms)
-            })
-            .count();
-        let working = agents.iter().filter(|agent| agent.state == "working").count();
+        let receipt = self.agent_attention_receipt(&agents);
+        self.rendered_agent_attention = Some(receipt.clone());
+        self.agent_attention_paint_pending = false;
+        let attention = receipt.attention;
+        let working = receipt.working;
         if attention == 0 && working == 0 {
             return None;
         }
@@ -11728,6 +11739,45 @@ impl App {
             summary.push_str(&format!("~{working}"));
         }
         Some(summary)
+    }
+
+    fn agent_attention_receipt(&self, agents: &[AgentInfo]) -> AgentAttentionReceipt {
+        let attention = agents
+            .iter()
+            .filter(|agent| {
+                agent.state == "blocked"
+                    || agent.state == "idle"
+                        && self
+                            .agent_focus_stamps
+                            .get(&agent.surface)
+                            .is_none_or(|stamp| *stamp < agent.updated_at_ms)
+            })
+            .count();
+        let working = agents.iter().filter(|agent| agent.state == "working").count();
+        AgentAttentionReceipt { attention, working }
+    }
+
+    /// Schedule a profile-strip paint when the global receipt changed. This
+    /// path is deliberately separate from projection row dependencies: an
+    /// AgentChanged event can arrive before a new surface is in the tree, or
+    /// while every Agents view is hidden, while the strip remains visible.
+    fn schedule_agent_attention_paint(&mut self) -> bool {
+        if !self.native_sidebar_presentation_visible() || self.agent_attention_paint_pending {
+            return false;
+        }
+        let Some(rendered) = self.rendered_agent_attention.as_ref() else {
+            return false;
+        };
+        let agents = self.session.agents();
+        if *rendered == self.agent_attention_receipt(&agents) {
+            return false;
+        }
+        self.agent_attention_paint_pending = true;
+        true
+    }
+
+    fn clear_pending_agent_attention_paint(&mut self) {
+        self.agent_attention_paint_pending = false;
     }
 
     pub(crate) fn projection_rows(&mut self, index: usize) -> Arc<[ProjectionRow]> {
@@ -15306,7 +15356,7 @@ impl App {
                 }
             }
             SessionCompletionAction::LayoutUndoConfirmation { pane, revision, closes_panes } => {
-                self.cancel_pty_mouse_drag();
+                self.cancel_pointer_before_modal();
                 let label = self.layout_undo_confirmation_label(&closes_panes);
                 self.prompt = Some(Prompt::new(
                     label,
@@ -15832,6 +15882,7 @@ impl App {
         })??;
         self.sync_text_input_viewports();
         self.clear_pending_projection_paint();
+        self.clear_pending_agent_attention_paint();
         if self.graphics_host_scene_reset_pending {
             if let Some(writer) = &self.graphics_writer {
                 writer.invalidate_host_scene();
@@ -18240,7 +18291,12 @@ impl App {
                     surface,
                     ProjectionSurfaceChange::Agent,
                 );
-                Ok(if paint_requested { RenderAction::Paint } else { RenderAction::None })
+                let attention_paint_requested = self.schedule_agent_attention_paint();
+                Ok(if paint_requested || attention_paint_requested {
+                    RenderAction::Paint
+                } else {
+                    RenderAction::None
+                })
             }
             AppEvent::Mux(MuxEvent::TitleChanged { surface, .. }) => Ok(
                 if self
@@ -20762,7 +20818,7 @@ impl App {
         }) else {
             return;
         };
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(Prompt::new(
             localization::catalog().sidebar.rename_machine,
             machine.name,
@@ -20784,7 +20840,7 @@ impl App {
         else {
             return;
         };
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(Prompt::new(
             localization::catalog().sidebar.rename_machine,
             name,
@@ -20804,7 +20860,7 @@ impl App {
         if self.managed_machine(key).is_some_and(|machine| {
             machine.status == ManagedMachineStatus::Active && machine.capabilities.delete
         }) {
-            self.cancel_pty_mouse_drag();
+            self.cancel_pointer_before_modal();
             self.prompt = Some(Prompt::new(
                 localization::catalog().sidebar.confirm_delete_machine,
                 String::new(),
@@ -20817,7 +20873,7 @@ impl App {
         if self.managed_machine(key).is_some_and(|machine| {
             machine.status == ManagedMachineStatus::Recoverable && machine.capabilities.purge
         }) {
-            self.cancel_pty_mouse_drag();
+            self.cancel_pointer_before_modal();
             self.prompt = Some(Prompt::new(
                 localization::catalog().sidebar.confirm_purge_machine,
                 String::new(),
@@ -21238,6 +21294,10 @@ impl App {
         if key.kind == KeyEventKind::Release {
             return Ok(RenderAction::None);
         }
+        // Keyboard commands are a modal boundary for pointer ownership. A
+        // held rail or selection gesture must finish before a command can
+        // open a menu, prompt, or another focused surface.
+        self.cancel_pointer_before_modal();
         // A context menu acts on the resources visible when it opened. Keep a
         // status message alive while the menu owns input so status actions can
         // still validate and copy that exact message.
@@ -21670,6 +21730,7 @@ impl App {
     }
 
     fn open_machine_creation_menu(&mut self, x: u16, y: u16) {
+        self.cancel_pointer_before_modal();
         let sources =
             self.machine_ui.as_ref().map(|ui| ui.creation_sources.clone()).unwrap_or_default();
         match sources.as_slice() {
@@ -21703,6 +21764,7 @@ impl App {
     }
 
     fn open_machine_connection_menu(&mut self, x: u16, y: u16) {
+        self.cancel_pointer_before_modal();
         if self.machine_ui.as_ref().is_some_and(|ui| ui.connect_accepts_pairing_code) {
             let prompt = self.connect_machine_prompt();
             self.prompt = Some(prompt);
@@ -21776,6 +21838,7 @@ impl App {
             MachineConnectRoute::Local => localization::catalog().sidebar.connect_host_prompt,
             MachineConnectRoute::Provider => localization::catalog().sidebar.connect_prompt,
         };
+        self.cancel_pointer_before_modal();
         self.prompt = Some(Prompt::new(label, target.clone(), PromptTarget::ConnectMachine(route)));
         if let Some(machine) = self.machine_ui.as_mut() {
             machine.request = Some(MachineRequest::Connect { target, route });
@@ -21815,6 +21878,7 @@ impl App {
         if scopes.is_empty() && actions.is_empty() {
             return false;
         }
+        self.cancel_pointer_before_modal();
         let has_scopes = !scopes.is_empty();
         let mut groups = Vec::new();
         if !scopes.is_empty() {
@@ -21912,6 +21976,7 @@ impl App {
         match action.fields.as_slice() {
             [] => self.stage_provider_action(index, None),
             [field] => {
+                self.cancel_pointer_before_modal();
                 self.prompt = Some(Prompt::new(
                     localization::catalog()
                         .sidebar
@@ -21978,6 +22043,7 @@ impl App {
         match result {
             Some(Ok((request, true))) => {
                 self.pending_provider_action = Some(request);
+                self.cancel_pointer_before_modal();
                 self.prompt = Some(Prompt::new(
                     localization::catalog().sidebar.confirm_destructive_action,
                     String::new(),
@@ -22774,6 +22840,7 @@ impl App {
         action_destination: Option<SurfaceId>,
         action_fallback_destination: Option<SurfaceId>,
     ) -> anyhow::Result<RenderAction> {
+        self.cancel_pointer_before_modal();
         if action == Action::SendPrefix && self.workspace_sidebar_focused() {
             self.forward_sidebar_key(prefix.into());
             return Ok(RenderAction::Draw);
@@ -23001,7 +23068,7 @@ impl App {
                 self.shortcut_help = if self.shortcut_help.is_some() {
                     None
                 } else {
-                    self.finish_active_drag();
+                    self.cancel_pointer_before_modal();
                     Some(ShortcutHelp::from_config(&self.config, self.surface_only.is_some()))
                 };
                 self.menu = None;
@@ -23060,7 +23127,7 @@ impl App {
             buffer,
             PromptTarget::Surface(surface),
         );
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(prompt);
     }
 
@@ -23100,7 +23167,7 @@ impl App {
             PromptTarget::Workspace(workspace_id)
         };
         let prompt = Prompt::new(localization::catalog().sidebar.rename_workspace, buffer, target);
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(prompt);
     }
 
@@ -23113,7 +23180,7 @@ impl App {
             buffer,
             PromptTarget::Screen(screen.id),
         );
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.prompt = Some(prompt);
     }
 
@@ -23198,6 +23265,7 @@ impl App {
         if !has_omnibar {
             return;
         }
+        self.cancel_pointer_before_modal();
         self.omnibar =
             Some(OmnibarState { pane, surface, input: TextInput::new(buffer), select_all });
     }
@@ -23282,6 +23350,7 @@ impl App {
     }
 
     fn activate_menu(&mut self, action: MenuAction) -> anyhow::Result<()> {
+        self.cancel_pointer_before_modal();
         match action {
             MenuAction::TogglePaneZoom { pane, zoomed } => {
                 if self.active_pane() != Some(pane) {
@@ -24821,6 +24890,29 @@ impl App {
 
     fn cancel_pointer_interaction(&mut self) -> bool {
         self.cancel_pointer_interaction_with_split_settle(true)
+    }
+
+    /// Entering a modal command surface retires every pointer owner from the
+    /// previous surface. Otherwise a later release could commit an obsolete
+    /// rail resize or selection after the menu or prompt has taken focus.
+    /// Retained mouse samples belong to the old hit-test frame too, so advance
+    /// the pointer generation when a modal boundary consumes them.
+    fn cancel_pointer_before_modal(&mut self) {
+        let menu_scrollbar_dragging =
+            self.menu.as_ref().is_some_and(|menu| menu.scrollbar_drag.is_some());
+        let retained_mouse = self.pending_pointer_motion.is_some()
+            || self
+                .deferred_input
+                .iter()
+                .any(|input| matches!(&input.event, TerminalInput::Mouse(_)));
+        if self.drag.is_some()
+            || !self.active_pointer_buttons.is_empty()
+            || menu_scrollbar_dragging
+            || retained_mouse
+        {
+            self.cancel_pointer_interaction();
+            self.advance_pointer_focus_generation();
+        }
     }
 
     /// Drop a pointer route at a topology/configuration boundary. A pane
@@ -27632,7 +27724,7 @@ impl App {
     }
 
     fn build_context_menu(&mut self, x: u16, y: u16) {
-        self.cancel_pty_mouse_drag();
+        self.cancel_pointer_before_modal();
         self.menu = None;
         self.omnibar = None;
         self.session.refresh_clients_background();
@@ -27893,6 +27985,7 @@ impl App {
     }
 
     fn open_clients_menu(&mut self, x: u16, y: u16, surface: SurfaceId) {
+        self.cancel_pointer_before_modal();
         self.session.refresh_clients_background();
         let mut groups = Vec::new();
         if let Some(MenuItem::Submenu { items, .. }) = client_menu_item(&self.clients, surface) {
@@ -27921,8 +28014,8 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        self.reset_selection_click_sequence();
         if let Some(menu) = self.menu.as_mut() {
+            self.reset_selection_click_sequence();
             return Ok(if menu.scroll_at(x, y, down) {
                 RenderAction::Draw
             } else {
@@ -27935,6 +28028,7 @@ impl App {
         if self.drag.is_some() || !self.active_pointer_buttons.is_empty() {
             return Ok(RenderAction::None);
         }
+        self.reset_selection_click_sequence();
         if self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -28273,7 +28367,6 @@ impl App {
         modifiers: KeyModifiers,
         terminal_admission: Option<TerminalPointerAdmission>,
     ) -> anyhow::Result<RenderAction> {
-        self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -28282,6 +28375,7 @@ impl App {
         if self.drag.is_some() || !self.active_pointer_buttons.is_empty() {
             return Ok(RenderAction::None);
         }
+        self.reset_selection_click_sequence();
         let over_scrollbar = matches!(self.hit_at(x, y), Some(Hit::HorizontalScrollbar { .. }));
         let over_pane = self.pane_area_at(x, y).is_some();
         if self.horizontal_scrollbar_state().is_some() && (over_scrollbar || over_pane) {
@@ -34592,6 +34686,61 @@ mod tests {
             app.selection.map(|selection| selection.range()),
             Some(((6, 0), (15, 0))),
             "double-click drag must start at the selected word and end at the whole target word"
+        );
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
+    fn selection_drag_wheel_does_not_reset_semantic_click_sequence() {
+        let (mut app, mux, surface, content) =
+            selection_fixture("selection-drag-wheel-pointer-owner-test", b"alpha beta gamma");
+
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: content.x + 7,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(click).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..click })
+            .unwrap();
+        app.handle_mouse(click).unwrap();
+        assert_eq!(app.selection_mode, SelectionMode::Word);
+        let sequence = app.selection_click_sequence.as_ref().expect("semantic click sequence");
+        assert_eq!(sequence.count, 2);
+
+        assert_eq!(
+            app.handle_mouse(MouseEvent {
+                kind: MouseEventKind::ScrollDown,
+                column: content.x + 7,
+                row: content.y,
+                modifiers: KeyModifiers::NONE,
+            })
+            .unwrap(),
+            RenderAction::None
+        );
+        assert_eq!(app.selection_mode, SelectionMode::Word);
+        assert_eq!(
+            app.selection_click_sequence.as_ref().map(|sequence| sequence.count),
+            Some(2),
+            "a wheel sample during selection must not reset the repeat mode"
+        );
+        assert!(matches!(app.drag, Some(Drag::Select { .. })));
+
+        let target = MouseEvent {
+            kind: MouseEventKind::Drag(MouseButton::Left),
+            column: content.x + 15,
+            row: content.y,
+            modifiers: KeyModifiers::NONE,
+        };
+        app.handle_mouse(target).unwrap();
+        app.handle_mouse(MouseEvent { kind: MouseEventKind::Up(MouseButton::Left), ..target })
+            .unwrap();
+        assert_eq!(
+            app.selection.map(|selection| selection.range()),
+            Some(((6, 0), (15, 0))),
+            "the semantic word range must survive an interleaved wheel sample"
         );
 
         mux.close_surface(surface.id).unwrap();
@@ -44849,6 +44998,79 @@ mod tests {
     }
 
     #[test]
+    fn keyboard_modal_boundary_releases_native_sidebar_capture() {
+        let mux = Mux::new("keyboard-modal-sidebar-pointer-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        app.drag = Some(Drag::RailResize(RailKind::Machine));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+
+        assert!(app.menu.is_some(), "the keyboard command must still open its menu");
+        assert!(app.drag.is_none(), "opening a menu must retire the old native drag");
+        assert!(app.active_pointer_buttons.is_empty());
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn keyboard_modal_boundary_discards_deferred_mouse_samples() {
+        let mux = Mux::new("keyboard-modal-deferred-pointer-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_controls_ui());
+        app.focus = FocusTarget::MachineRail;
+        app.sync_layout((100, 16));
+        let generation = app.pointer_focus_generation;
+        app.defer_input(TerminalInput::Mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 2,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.deferred_input.len(), 1);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('m'), KeyModifiers::NONE)).unwrap();
+
+        assert!(app.menu.is_some(), "the keyboard command must still open its menu");
+        assert!(app.deferred_input.is_empty(), "a modal must not replay an old hit-test sample");
+        assert!(app.pending_pointer_motion.is_none());
+        assert_ne!(app.pointer_focus_generation, generation);
+    }
+
+    #[test]
+    fn shortcuts_modal_boundary_releases_held_pointer_button() {
+        let mux = Mux::new("shortcuts-modal-sidebar-pointer-boundary", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.sync_layout((100, 16));
+        app.drag = Some(Drag::RailResize(RailKind::Workspace));
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        app.run_action(Action::ShowShortcuts).unwrap();
+
+        assert!(app.shortcut_help.is_some());
+        assert!(app.drag.is_none());
+        assert!(app.active_pointer_buttons.is_empty());
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 1,
+            row: 2,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
     fn sidebar_view_toggle_cancels_old_pointer_capture_before_host_mode_change() {
         let temp = test_temp_dir("sidebar-view-pointer-boundary");
         for index in 0..5 {
@@ -51068,6 +51290,54 @@ mod tests {
     }
 
     #[test]
+    fn agent_attention_wakes_profile_strip_before_new_surface_enters_tree() {
+        let (mux, first) = test_mux("agent-attention-profile-strip-wake-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sync_layout((100, 20));
+        let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(
+            app.rendered_agent_attention,
+            Some(AgentAttentionReceipt { attention: 0, working: 0 })
+        );
+
+        // The mux knows about this tab immediately, while the frontend's
+        // cached tree still does not. The persistent profile strip must wake
+        // from the global agent receipt even without a row dependency.
+        let pane = mux.with_state(|state| state.pane_of(first.id).expect("first pane"));
+        let second = mux.new_tab(Some(pane), None, Some((20, 8))).unwrap();
+        mux.report_agent(
+            second.id,
+            AgentState::Working,
+            AgentSource::Hook,
+            Some("unadopted-agent".into()),
+        )
+        .unwrap();
+        let action = app
+            .handle(AppEvent::Mux(MuxEvent::AgentChanged {
+                surface: second.id,
+                state: "working".into(),
+                source: "hook".into(),
+                session: Some("unadopted-agent".into()),
+                agent: None,
+                updated_at_ms: 1,
+            }))
+            .unwrap();
+        assert_eq!(action, RenderAction::Paint);
+        assert!(
+            !app.projection_agent_surfaces.contains(&second.id),
+            "the test must remain outside the stale cached tree dependency"
+        );
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert!(buffer_text(terminal.backend().buffer()).contains("~1"));
+
+        mux.close_surface(first.id).unwrap();
+        mux.close_surface(second.id).unwrap();
+    }
+
+    #[test]
     fn projection_title_wake_paints_after_invalidating_cached_rows() {
         let (mux, surface) = test_mux("projection-title-paint-test", None);
         let mut app = test_app(Session::Local(mux.clone()));
@@ -53672,6 +53942,8 @@ mod tests {
             projection_rows_cache: VecDeque::new(),
             projection_rows_revision: 0,
             agent_focus_stamps: HashMap::new(),
+            rendered_agent_attention: None,
+            agent_attention_paint_pending: false,
             projection_agent_surfaces: HashSet::new(),
             projection_title_surfaces: HashSet::new(),
             projection_agent_surfaces_by_view: HashMap::new(),
