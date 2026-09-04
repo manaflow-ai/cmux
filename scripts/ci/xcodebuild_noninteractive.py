@@ -107,6 +107,41 @@ def process_group_exists(process_group_id: int) -> bool:
     return True
 
 
+def read_process_group_receipt(fd: int, timeout: float = 1.0) -> int | None:
+    """Read the PTY child's post-setsid process-group receipt."""
+
+    try:
+        os.set_blocking(fd, False)
+    except OSError:
+        return None
+    receipt = bytearray()
+    deadline = time.monotonic() + max(0, timeout)
+    while time.monotonic() < deadline and len(receipt) < 32:
+        try:
+            readable, _, _ = select.select(
+                [fd], [], [], max(0, deadline - time.monotonic())
+            )
+        except (OSError, ValueError):
+            return None
+        if not readable:
+            break
+        try:
+            chunk = os.read(fd, 32 - len(receipt))
+        except BlockingIOError:
+            continue
+        except OSError:
+            return None
+        if not chunk:
+            break
+        receipt.extend(chunk)
+        if b"\n" in receipt:
+            break
+    try:
+        return int(bytes(receipt).strip())
+    except ValueError:
+        return None
+
+
 def terminate_child(pid: int, process_group_id: int | None = None) -> None:
     """Terminate the PTY leader and descendants without an unbounded wait."""
 
@@ -223,31 +258,36 @@ def main() -> int:
         ),
     )
 
+    receipt_read, receipt_write = os.pipe()
     pid, fd = pty.fork()
     if pid == 0:
+        os.close(receipt_read)
         try:
             os.setsid()
         except OSError:
             pass
-        os.execvp(sys.argv[1], sys.argv[1:])
-
-    # Verify that the PTY leader owns a private process group before using
-    # killpg. The child calls setsid() immediately after fork; retry briefly
-    # across that handoff so a descendant that outlives the leader remains
-    # attributable without ever guessing at the caller's process group.
-    process_group_id: int | None = None
-    for _ in range(100):
         try:
-            candidate = os.getpgid(pid)
-        except (ProcessLookupError, OSError):
-            break
-        if candidate == pid:
-            process_group_id = pid
-            break
-        try:
-            select.select([], [], [], 0.001)
+            receipt = f"{os.getpgid(0)}\n".encode("ascii")
+            os.write(receipt_write, receipt)
         except OSError:
             pass
+        try:
+            os.close(receipt_write)
+        except OSError:
+            pass
+        os.execvp(sys.argv[1], sys.argv[1:])
+
+    os.close(receipt_write)
+    try:
+        receipt_group_id = read_process_group_receipt(
+            receipt_read,
+            timeout=min(timeout, 1.0) if timeout is not None else 1.0,
+        )
+    finally:
+        os.close(receipt_read)
+    # Only use a group id explicitly written after setsid(). A missing or
+    # mismatched receipt falls back to direct-child signalling.
+    process_group_id = receipt_group_id if receipt_group_id == pid else None
 
     prompt_window = b""
     timed_out = False
