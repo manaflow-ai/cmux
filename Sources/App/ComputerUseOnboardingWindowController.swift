@@ -108,9 +108,12 @@ final class ComputerUseOnboardingWindowController: NSObject, NSWindowDelegate {
     }
     static let completionDismissDelay: Duration = .seconds(2.4)
     nonisolated static let permissionCompanionGlideDuration: TimeInterval = 0.48
-    private static let expandedWindowSize = NSSize(width: 600, height: 440)
+    private static let expandedWindowSize = NSSize(
+        width: ComputerUseOnboardingVisualTokens.reference.expandedWindowSize.width,
+        height: ComputerUseOnboardingVisualTokens.reference.expandedWindowSize.height
+    )
     nonisolated private static let permissionCompanionWindowSize =
-        ComputerUsePermissionCompanionLayout.size
+        ComputerUseOnboardingVisualTokens.reference.companionSize
     private static let expandedWindowStyleMask: NSWindow.StyleMask = [
         .titled,
         .closable,

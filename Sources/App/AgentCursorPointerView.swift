@@ -85,11 +85,15 @@ private enum ComputerUseCursorArtwork {
 /// artwork into `Resources/ComputerUseHelperIcon.icns` for System Settings.
 @MainActor
 enum ComputerUseHelperIconRenderer {
-    private static let canvasSize = NSSize(width: 1_024, height: 1_024)
-    private static let plateCornerRadius: CGFloat = 224
-    private static let cursorTranslation = CGPoint(x: 293.4, y: 293.4)
-    private static let cursorScale: CGFloat = 44.8
-    private static let rimWidth: CGFloat = 14
+    private static let visualTokens = ComputerUseOnboardingVisualTokens.reference
+    private static let canvasSize = NSSize(
+        width: visualTokens.helperIconCanvasSize.width,
+        height: visualTokens.helperIconCanvasSize.height
+    )
+    private static let plateCornerRadius = visualTokens.helperIconCornerRadius
+    private static let cursorTranslation = visualTokens.helperIconCursorTranslation
+    private static let cursorScale = visualTokens.helperIconCursorScale
+    private static let rimWidth = visualTokens.helperIconRimWidth
     private static var cachedImages: [Bool: NSImage] = [:]
 
     private static func plateGradientColors(dark: Bool) -> [CGColor] {
