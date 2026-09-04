@@ -13,11 +13,12 @@ extension LocalArtifactRepository {
     }
 
     func normalizedRecord(_ record: ArtifactRecord) -> ArtifactRecord {
+        let ownership = normalizedOwnership(record.ownership)
         ArtifactRecord(
             id: record.id,
             kind: record.kind,
-            identityKey: record.identityKey,
-            ownership: normalizedOwnership(record.ownership),
+            identityKey: canonicalIdentity(for: record, ownership: ownership),
+            ownership: ownership,
             source: record.source,
             createdAt: record.createdAt,
             lastSeenAt: record.lastSeenAt,
@@ -27,6 +28,20 @@ extension LocalArtifactRepository {
             representation: record.representation,
             isUserOwned: record.isUserOwned
         )
+    }
+
+    func canonicalIdentity(for record: ArtifactRecord, ownership: ArtifactOwnership) -> String {
+        switch record.representation {
+        case .url(let value):
+            return identity.key(kind: .url, value: value, ownership: ownership)
+        case .directory(let path):
+            return identity.key(kind: .directory, value: path, ownership: ownership)
+        case .managedFile(let relativePath, _):
+            let digest = relativePath.split(separator: ".", maxSplits: 1).first.map(String.init) ?? relativePath
+            return identity.contentKey(kind: record.kind, digest: digest, ownership: ownership)
+        case .inlineText(let value), .inlineHTML(let value):
+            return identity.key(kind: record.kind, value: value, ownership: ownership)
+        }
     }
 
     func merge(_ lhs: ArtifactRecord, _ rhs: ArtifactRecord) -> ArtifactRecord {

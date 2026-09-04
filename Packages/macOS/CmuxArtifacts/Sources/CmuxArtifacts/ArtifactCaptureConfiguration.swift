@@ -26,6 +26,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
     public var maximumSearchResults: Int
     /// Maximum records accepted in one producer batch.
     public var maximumBatchCount: Int
+    /// Maximum UTF-8 bytes copied into the local search projection for a text file.
+    public var maximumIndexedContentBytes: Int
 
     /// Conservative defaults that keep capture local and bounded.
     public static let defaultValue = ArtifactCaptureConfiguration(
@@ -40,7 +42,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         maximumPayloadBytes: 512 * 1024 * 1024,
         maximumCatalogBytes: 16 * 1024 * 1024,
         maximumSearchResults: 500,
-        maximumBatchCount: 64
+        maximumBatchCount: 64,
+        maximumIndexedContentBytes: 64 * 1024
     )
 
     /// Creates a capture policy.
@@ -56,7 +59,8 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         maximumPayloadBytes: Int64 = 512 * 1024 * 1024,
         maximumCatalogBytes: Int = 16 * 1024 * 1024,
         maximumSearchResults: Int = 500,
-        maximumBatchCount: Int = 64
+        maximumBatchCount: Int = 64,
+        maximumIndexedContentBytes: Int = 64 * 1024
     ) {
         self.enabled = enabled
         self.includeFilePaths = includeFilePaths
@@ -70,6 +74,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         self.maximumCatalogBytes = maximumCatalogBytes
         self.maximumSearchResults = maximumSearchResults
         self.maximumBatchCount = maximumBatchCount
+        self.maximumIndexedContentBytes = maximumIndexedContentBytes
     }
 
     /// Returns values clamped to safe resource bounds.
@@ -83,6 +88,7 @@ public struct ArtifactCaptureConfiguration: Codable, Equatable, Sendable {
         value.maximumCatalogBytes = min(max(maximumCatalogBytes, 64 * 1024), 128 * 1024 * 1024)
         value.maximumSearchResults = min(max(maximumSearchResults, 1), 5_000)
         value.maximumBatchCount = min(max(maximumBatchCount, 1), 256)
+        value.maximumIndexedContentBytes = min(max(maximumIndexedContentBytes, 0), 512 * 1024)
         value.ignoreHosts = ignoreHosts
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .filter { !$0.isEmpty }

@@ -441,7 +441,12 @@ final class WorkspaceArtifactsState {
     }
 
     private var ownership: ArtifactOwnership {
-        ArtifactOwnership(workspaceID: workspaceID?.uuidString, projectRoot: workingDirectory)
+        ArtifactOwnership(
+            workspaceID: workspaceID?.uuidString,
+            projectID: workingDirectory.map { identity.stableTextDigest($0) },
+            projectRoot: workingDirectory,
+            workspaceTitle: nil
+        )
     }
 
     private func merge(_ incoming: ArtifactRecord, at date: Date) -> ArtifactRecord {

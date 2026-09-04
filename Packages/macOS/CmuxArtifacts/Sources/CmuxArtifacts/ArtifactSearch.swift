@@ -119,7 +119,7 @@ public struct ArtifactSearchEngine: Sendable {
             }
             guard score != Int.min else { continue }
             let snippet: String? = {
-                guard let content = record.inlineContent,
+                guard let content = record.inlineContent ?? record.metadata["contentPreview"],
                       let range = content.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) else {
                     return nil
                 }

@@ -135,6 +135,11 @@ extension LocalArtifactRepository {
         enriched["sourcePath"] = canonical.path
         enriched["fileName"] = canonical.lastPathComponent
         enriched["source"] = source.rawValue
+        if inferred.isTextSearchable,
+           let text = String(data: Data(data.prefix(configuration.maximumIndexedContentBytes)), encoding: .utf8),
+           !text.isEmpty {
+            enriched["contentPreview"] = text
+        }
         return PreparedInput(
             kind: inferred,
             // Content identity makes a moved/renamed file the same artifact,

@@ -103,6 +103,9 @@ public struct ArtifactRecord: Codable, Equatable, Hashable, Sendable, Identifiab
         fields.append((source.rawValue, 450))
         fields.append(contentsOf: metadata.map { ($0.key + " " + $0.value, 500) })
         if let inlineContent { fields.append((inlineContent, 300)) }
+        if let contentPreview = metadata["contentPreview"], !contentPreview.isEmpty {
+            fields.append((contentPreview, 300))
+        }
         if let workspaceTitle = ownership.workspaceTitle { fields.append((workspaceTitle, 200)) }
         if let projectRoot = ownership.projectRoot { fields.append((projectRoot, 200)) }
         return fields
