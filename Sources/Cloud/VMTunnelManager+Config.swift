@@ -30,6 +30,17 @@ extension VMTunnelManager {
             interfaceEnd += 1
         }
 
+        // Publish the real interface before any potentially slow route hooks;
+        // the app can then bind liveness to the exact socket even while setup
+        // is still finishing.
+        if let runtimeMetadataPath, !runtimeMetadataPath.isEmpty {
+            let metadataHooks = runtimeMetadataHooks(path: runtimeMetadataPath)
+            let existing = Set(lines[interfaceStart..<interfaceEnd])
+            let newHooks = metadataHooks.filter { !existing.contains($0) }
+            lines.insert(contentsOf: newHooks, at: interfaceEnd)
+            interfaceEnd += newHooks.count
+        }
+
         if !allowedIPs.isEmpty {
             let routes = try normalizedRoutes(allowedIPs)
             let peerStart = try sectionStart("[Peer]", in: lines)
@@ -70,14 +81,6 @@ extension VMTunnelManager {
             let newHooks = routeHooks.filter { !existing.contains($0) }
             lines.insert(contentsOf: newHooks, at: interfaceEnd)
             interfaceEnd += newHooks.count
-        }
-
-        if let runtimeMetadataPath, !runtimeMetadataPath.isEmpty {
-            interfaceEnd = sectionEnd(after: interfaceStart, in: lines)
-            let metadataHooks = runtimeMetadataHooks(path: runtimeMetadataPath)
-            let existing = Set(lines[interfaceStart..<interfaceEnd])
-            let newHooks = metadataHooks.filter { !existing.contains($0) }
-            lines.insert(contentsOf: newHooks, at: interfaceEnd)
         }
 
         return lines.joined(separator: "\n")
