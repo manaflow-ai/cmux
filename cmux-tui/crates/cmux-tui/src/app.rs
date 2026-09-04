@@ -11467,7 +11467,7 @@ impl App {
         let host_id = self.active_files_host_id();
         let supported = host_id.as_ref().is_some_and(|host_id| {
             self.active_sidebar_profile_state()
-                .is_none_or(|state| !state.hidden_views.contains(&host_id))
+                .is_none_or(|state| !state.hidden_views.contains(host_id))
         });
         if supported {
             return;
@@ -25379,7 +25379,7 @@ impl App {
                     }
                     self.open_machine_connection_menu(x, y);
                 }
-                Hit::Workspace { index, id } => {
+                Hit::Workspace { index: _, id } => {
                     // The rendered row stores both a position and its stable
                     // identity. Resolve the identity again before changing
                     // selection, because a tree reorder can make the saved
@@ -25486,7 +25486,7 @@ impl App {
                     }
                     return self.invoke_sidebar_action(action);
                 }
-                Hit::RecoverableWorkspace { index, token } => {
+                Hit::RecoverableWorkspace { index: _, token } => {
                     // Recoverable rows are provider-owned and can reorder
                     // between rendering and dispatch. Resolve the stable id
                     // carried by the hit instead of trusting its old index.
@@ -28487,7 +28487,7 @@ mod tests {
         App, AppEvent, BACKGROUND_REFRESH_RETRIES, BrowserResizeFailure, ContextMenu,
         DEFERRED_INPUT_CAPACITY, DeferredInput, DeferredInputAdmission, DeferredInputQueue,
         DeferredReplayDisposition, Drag, EventCancellation, FocusTarget, ForwardMuxOutcome,
-        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement,
+        FrontendJournalQueue, FrontendJournalWorker, GraphicIdentity, GraphicPlacement, Hit,
         GraphicSourceRect, GraphicsSceneCache, GuardedMouseEncode, HostInputIngress,
         HostInputMessage, HostInputRuntime, MachineActionWorker, MachineConnectRoute, MenuAction,
         MenuItem, MutationImpact, MuxTitleIngress, OmnibarHit, OmnibarState, OrderedSession,
@@ -28555,7 +28555,8 @@ mod tests {
     use crate::browser_input::{BrowserInputDispatcher, BrowserInputEvent, BrowserInputKind};
     use crate::config::{
         Action, AgentRowFilter, AgentSortMode, ChromeTheme, Config, ScrollbarPosition,
-        SidebarColumnKind, SidebarProfileSpec, SidebarResourceKind, SidebarSplitDir, SidebarView,
+        SidebarColumnKind, SidebarLayoutNode, SidebarProfileSpec, SidebarResourceKind,
+        SidebarSplitDir, SidebarView,
         SidebarViewScope, SidebarViewSpec, action_definitions,
     };
     use crate::localization;
@@ -32835,7 +32836,7 @@ mod tests {
     #[test]
     fn split_fraction_overrides_follow_child_ids_after_reordering() {
         let mut config = split_sidebar_config();
-        if let Some(crate::config::SidebarLayoutNode::Split(split)) =
+        if let Some(SidebarLayoutNode::Split(split)) =
             config.sidebar.layout.first_mut()
         {
             split.children.reverse();

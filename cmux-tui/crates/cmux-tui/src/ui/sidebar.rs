@@ -1082,7 +1082,10 @@ fn draw_workspaces(app: &mut App, frame: &mut Frame) {
         );
     }
     hits.push((rail::row(area, area.y), Hit::RailPad(RailKind::Workspace)));
-    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Workspace, view_token }));
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: Some(view_token) },
+    ));
     app.hits.extend(hits);
 }
 
@@ -1363,7 +1366,10 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             }
         }
     }
-    hits.push((rail::divider(area), Hit::RailResize { kind: RailKind::Workspace, view_token }));
+    hits.push((
+        rail::divider(area),
+        Hit::RailResize { kind: RailKind::Workspace, view_token: Some(view_token) },
+    ));
     app.hits.extend(hits);
     input_cursor
 }
