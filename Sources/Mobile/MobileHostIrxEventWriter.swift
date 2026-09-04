@@ -118,9 +118,9 @@ actor MobileHostIrxEventWriter: MobileHostIndependentEventWriting {
                 // finish the same writer while the creator is still unwinding.
                 throw MobileHostIrxEventWriterOpenError.superseded
             }
-            openingWriter = nil
-            openingWriterID = nil
-            writer = opened
+            self.openingWriter = nil
+            self.openingWriterID = nil
+            self.writer = opened
             journal.record("host-events", "writer-opened")
             return opened
         }
