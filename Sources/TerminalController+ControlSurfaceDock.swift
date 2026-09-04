@@ -135,7 +135,8 @@ extension TerminalController {
             environment: inputs.startupEnvironment,
             tmuxStartCommand: kind == .terminal ? inputs.tmuxStartCommand : nil,
             focus: focus,
-            preloadInitialNavigationInBackground: kind == .browser
+            preloadInitialNavigationInBackground: kind == .browser,
+            engine: inputs.engine
         )
         guard let newPanelId else {
             return .createFailed

@@ -142,6 +142,9 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: vmCapabilitiesFor(entry.provider),
         createdAt: entry.createdAt,
         displayName: entry.displayName,
+        // Generated three-word name; clients show it when no displayName is
+        // set. Null on rows created before names were assigned.
+        slug: entry.slug,
         // The machine's address on its owner's private network (reachable over
         // the WireGuard tunnel); null for machines created before private
         // networking. Clients surface it as "Copy IP Address".
@@ -555,6 +558,8 @@ export async function POST(request: Request): Promise<Response> {
           kind: imageSelection.kind,
           ...(imageSelection.size ? { size: imageSelection.size } : {}),
           createdAt: created.createdAt,
+          displayName: created.displayName,
+          slug: created.slug,
         });
       }
     },

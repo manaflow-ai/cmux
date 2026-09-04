@@ -6,10 +6,6 @@ import {
   addCoderouterBreadcrumb,
   reportCoderouterFailure,
 } from "./observability";
-import {
-  CODEROUTER_API_RATE_CARD_VERSION,
-  estimateApiEquivalent,
-} from "./apiEquivalentPricing";
 
 // Coderouter analytics live in the main cmux PostHog project, keyed by the
 // Stack user id the cmux apps identify with, so one person's app activity and
@@ -18,7 +14,7 @@ import {
 // travels: prompts, outputs, headers, credentials, emails, account labels;
 // every event is rebuilt from a closed schema. (Until 2026-09-03 these events
 // went to a separate project under HMAC pseudonyms, which made that join
-// impossible; the raw route-health event was folded into `$ai_trace`.)
+// impossible. Token and request usage belongs exclusively in ClickHouse.)
 
 export type CoderouterAnalyticsEvent =
   | "coderouter_account_added"
@@ -34,6 +30,7 @@ export type CoderouterAnalyticsEvent =
   | "coderouter_cli_command_completed"
   | "coderouter_claude_upstream_set"
   | "coderouter_claude_upstream_removed"
+  /** @deprecated usage is ClickHouse-only; this event is rejected. */
   | "coderouter_model_request_completed";
 
 type AnalyticsScalar = string | number | boolean;
@@ -88,15 +85,15 @@ export function deferCoderouterTask(task: Promise<unknown>): void {
 
 /**
  * A PostHog event whose properties are built by a trusted caller
- * (`requestTelemetry.ts`, `exceptionEvent.ts`): the LLM-analytics trace
- * events and Error Tracking exceptions. Identity handling matches
+ * (`observability.ts`, `exceptionEvent.ts`): operational Error Tracking
+ * exceptions. Identity handling matches
  * `captureCoderouterEvent`.
  */
 export type CoderouterRawEvent = {
   readonly event: "$ai_trace" | "$ai_span" | "$exception" | "coderouter_alert";
   readonly userId?: string;
   readonly teamId?: string;
-  /** Span start for `$ai_*` events; defaults to now. */
+  /** Event timestamp; defaults to now. */
   readonly timestamp?: string;
   readonly properties: Readonly<Record<string, CoderouterRawProperty>>;
 };
@@ -105,7 +102,7 @@ export type CoderouterRawEvent = {
 const RAW_EVENT_KEY = /^(\$ai_[a-z_]+|\$exception_[a-z_]+|coderouter_[a-z_]+|trace_id|vercel_request_id|team_id|upstream_kind|upstream_account_id|provider|agent|attempt|attempts|status|outcome|failure_stage|failure_code|healthy|total|sticky|cooldown_ms|forced|surface|reason|alert_key|severity|title|count|threshold|window_minutes)$/;
 
 /**
- * Sends one batch of trace/exception events. Same gate, config, identity and
+ * Sends one batch of operational exception/alert events. Same gate, config, identity and
  * deferred delivery as `captureCoderouterEvent`; the closed schema here is
  * the key allow-list.
  */
@@ -113,11 +110,16 @@ export function captureCoderouterRawBatch(
   events: readonly CoderouterRawEvent[],
   dependencies: AnalyticsDependencies = defaultDependencies,
 ): void {
-  if (events.length === 0 || !dependencies.enabled()) return;
+  // PostHog is not a CodeRouter request or token ledger. Keep the legacy
+  // trace shape available to callers and tests, but refuse to transmit it.
+  const operationalEvents = events.filter(
+    (entry) => entry.event !== "$ai_trace" && entry.event !== "$ai_span",
+  );
+  if (operationalEvents.length === 0 || !dependencies.enabled()) return;
   const config = dependencies.config();
   if (!config) return;
   const now = new Date().toISOString();
-  const batch = events.map((entry) => {
+  const batch = operationalEvents.map((entry) => {
     const properties: Record<string, CoderouterRawProperty> = {};
     for (const [key, value] of Object.entries(entry.properties)) {
       if (RAW_EVENT_KEY.test(key)) properties[key] = value;
@@ -199,13 +201,7 @@ export function captureCoderouterEvent(
   const config = dependencies.config();
   if (!config) return;
 
-  const aggregateUsage =
-    input.event === "coderouter_model_request_completed";
-  if (aggregateUsage && !input.teamId) return;
-
-  const properties = aggregateUsage
-    ? aiUsageProperties(input.properties ?? {})
-    : eventProperties(input.event, input.properties ?? {});
+  const properties = eventProperties(input.event, input.properties ?? {});
   if (!properties) return;
 
   // Account lifecycle events describe one person's action and are dropped
@@ -215,7 +211,7 @@ export function captureCoderouterEvent(
     api_key: config.projectKey,
     batch: [
       {
-        event: aggregateUsage ? "$ai_generation" : input.event,
+        event: input.event,
         ...identity(input.userId, input.teamId),
         properties: {
           ...properties,
@@ -278,10 +274,14 @@ function eventNeedsUser(event: CoderouterAnalyticsEvent): boolean {
 }
 
 function eventProperties(
-  event: Exclude<CoderouterAnalyticsEvent, "coderouter_model_request_completed">,
+  event: CoderouterAnalyticsEvent,
   input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
 ): Record<string, AnalyticsScalar> | null {
   switch (event) {
+    case "coderouter_model_request_completed":
+      // Deprecated compatibility input. Usage is recorded only by
+      // `usageLedger.ts` in ClickHouse.
+      return null;
     case "coderouter_account_added": {
       const provider = accountProvider(input.provider);
       const source = lifecycleSource(input.source);
@@ -411,122 +411,6 @@ function cliCommandProperties(
     : null;
 }
 
-function aiUsageProperties(
-  input: Readonly<Record<string, AnalyticsScalar | null | undefined>>,
-): Record<string, AnalyticsScalar> | null {
-  const model = analyticsModel(input.model);
-  const provider = aiProvider(input.provider);
-  const inputTokens = safeCount(input.input_tokens);
-  const cachedInputTokens = Math.min(
-    inputTokens,
-    safeCount(input.cached_input_tokens),
-  );
-  const outputTokens = safeCount(input.output_tokens);
-  const totalTokens = Math.max(
-    inputTokens + outputTokens,
-    safeCount(input.total_tokens),
-  );
-  if (totalTokens === 0) return null;
-  const estimate = estimateApiEquivalent({
-    model,
-    inputTokens,
-    cachedInputTokens,
-    outputTokens,
-    totalTokens,
-  });
-  const vmId = analyticsVmId(input.vm_id);
-  const upstreamKind = claudeUpstreamKind(input.upstream_kind);
-  const upstreamAccount = analyticsVmId(input.upstream_account_id);
-  const requestId = analyticsRequestId(input.request_id);
-  const latencyMs = boundedNumber(input.duration_ms, 24 * 60 * 60 * 1_000);
-  const status = boundedNumber(input.status, 599);
-  return {
-    // Links the generation to its `$ai_trace` (the ledger request id), so the
-    // PostHog waterfall shows the model call under the routed request.
-    ...(requestId
-      ? { $ai_trace_id: requestId, $ai_parent_id: requestId, coderouter_request_id: requestId }
-      : {}),
-    ...(latencyMs !== null ? { $ai_latency: latencyMs / 1_000 } : {}),
-    ...(status !== null ? { $ai_http_status: status, $ai_is_error: status >= 400 } : {}),
-    ...(typeof input.response_streamed === "boolean" ? { $ai_stream: input.response_streamed } : {}),
-    $ai_model: model,
-    $ai_provider: provider,
-    $ai_input_tokens: inputTokens,
-    $ai_cache_read_input_tokens: cachedInputTokens,
-    $ai_cache_reporting_exclusive: false,
-    $ai_output_tokens: outputTokens,
-    ...(estimate.pricedTokens > 0
-      ? { $ai_total_cost_usd: estimate.usd }
-      : {}),
-    coderouter_total_tokens: totalTokens,
-    coderouter_priced_tokens: estimate.pricedTokens,
-    coderouter_unpriced_tokens: estimate.unpricedTokens,
-    coderouter_pricing_version: CODEROUTER_API_RATE_CARD_VERSION,
-    ...(vmId ? { coderouter_vm_id: vmId } : {}),
-    ...(upstreamKind ? { upstream_kind: upstreamKind } : {}),
-    ...(upstreamAccount ? { upstream_account_id: upstreamAccount } : {}),
-  };
-}
-
-/**
- * The ledger request id (`newLedgerRequestId`, a UUID): the join key across
- * the PostHog trace, the ClickHouse rows and the `x-coderouter-request-id`
- * header. Anything that is not a UUID is a caller-provided string and is
- * dropped by the closed schema.
- */
-function analyticsRequestId(value: AnalyticsScalar | null | undefined): string | null {
-  return typeof value === "string" &&
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
-    ? value.toLowerCase()
-    : null;
-}
-
-/**
- * Cloud VM id a bound route token attributes usage to. The id is an opaque
- * server-minted UUID (no personal data), so it is forwarded as-is after a
- * shape check that keeps free-form strings out of the closed schema.
- */
-function analyticsVmId(value: AnalyticsScalar | null | undefined): string | null {
-  return typeof value === "string" &&
-      /^[A-Za-z0-9_-]{1,128}$/.test(value)
-    ? value
-    : null;
-}
-
-function safeCount(value: AnalyticsScalar | null | undefined): number {
-  return typeof value === "number" &&
-      Number.isSafeInteger(value) &&
-      value >= 0 &&
-      value <= MAX_COUNT
-    ? value
-    : 0;
-}
-
-function analyticsModel(value: AnalyticsScalar | null | undefined): string {
-  if (typeof value !== "string") return "unknown";
-  const model = value.trim().toLowerCase();
-  const families: ReadonlyArray<readonly [RegExp, string]> = [
-    [/^gpt-5\.6-sol(?:-|$)|^gpt-5\.6$/, "gpt-5.6-sol"],
-    [/^gpt-5\.6-terra(?:-|$)/, "gpt-5.6-terra"],
-    [/^gpt-5\.6-luna(?:-|$)/, "gpt-5.6-luna"],
-    [/^gpt-5\.3-codex(?:-|$)/, "gpt-5.3-codex"],
-    [/^gpt-5\.2-codex(?:-|$)/, "gpt-5.2-codex"],
-    [/^gpt-5\.2(?:-|$)/, "gpt-5.2"],
-    [/^gpt-5\.1-codex(?:-|$)/, "gpt-5.1-codex"],
-    [/^gpt-5-codex(?:-|$)/, "gpt-5-codex"],
-    [/^claude-sonnet-5(?:-|$)/, "claude-sonnet-5"],
-    [/^claude-opus-4[.-]8(?:-|$)/, "claude-opus-4.8"],
-    [/^claude-opus-4[.-]7(?:-|$)/, "claude-opus-4.7"],
-    [/^claude-opus-4[.-]6(?:-|$)/, "claude-opus-4.6"],
-    [/^claude-opus-4[.-]5(?:-|$)/, "claude-opus-4.5"],
-    [/^claude-sonnet-4[.-]6(?:-|$)/, "claude-sonnet-4.6"],
-    [/^claude-sonnet-4[.-]5(?:-|$)/, "claude-sonnet-4.5"],
-    [/^claude-sonnet-4(?:-|$)/, "claude-sonnet-4"],
-    [/^claude-haiku-4[.-]5(?:-|$)/, "claude-haiku-4.5"],
-  ];
-  return families.find(([pattern]) => pattern.test(model))?.[1] ?? "unknown";
-}
-
 function accountProvider(value: unknown): string | null {
   return enumValue(value, [
     "codex",
@@ -544,23 +428,6 @@ function lifecycleSource(value: unknown): string | null {
 
 function claudeUpstreamKind(value: unknown): string | null {
   return enumValue(value, ["anthropic_api_key", "anthropic_oauth", "bedrock"]);
-}
-
-function aiProvider(value: AnalyticsScalar | null | undefined): string {
-  switch (value) {
-    case "codex":
-    case "openai":
-    case "openai-apikey":
-      return "openai";
-    case "claude":
-    case "anthropic":
-    case "anthropic-apikey":
-      return "anthropic";
-    case "opencode-go":
-      return "opencode";
-    default:
-      return "unknown";
-  }
 }
 
 function authSurface(value: unknown): string | null {
@@ -632,7 +499,5 @@ export function coderouterAnalyticsConfig(): CoderouterAnalyticsConfig | null {
 
 export const __test = {
   eventProperties,
-  aiUsageProperties,
   deliver,
-  analyticsModel,
 };

@@ -1,11 +1,10 @@
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { Link } from "@/i18n/navigation";
-import { getStackServerApp, isStackConfigured } from "@/app/lib/stack";
+import { getRequestScopedStackUser, isStackConfigured } from "@/app/lib/stack";
 import { localizedVaultPath, vaultSignInHref } from "@/app/lib/vault-auth";
 import { isVaultEnabled } from "@/services/vault/config";
 import { withPrioritySpan } from "@/services/telemetry";
-import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
 
 export default async function DashboardIndexPage({
@@ -22,11 +21,7 @@ export default async function DashboardIndexPage({
     "cmux-dashboard",
     "cmux.dashboard.auth",
     { "http.route": "/dashboard", "cmux.locale": locale },
-    () => withStackAuthSpan(
-      "get_user",
-      () => getStackServerApp().getUser({ or: "return-null" }),
-      { "cmux.auth.flow": "dashboard" },
-    ),
+    () => getRequestScopedStackUser("dashboard"),
   );
   if (!user) {
     redirect(vaultSignInHref(localizedVaultPath(locale, "/dashboard")));
