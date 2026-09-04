@@ -369,9 +369,7 @@ describe("devbox image template", () => {
     const packageJson = JSON.parse(
       readFileSync(path.join(import.meta.dirname, "../package.json"), "utf8"),
     ) as { dependencies: Record<string, string> };
-    // Public-platform SDK stays on the 0.2 line. The exact patch lives in
-    // package.json; this assertion should not fail the CI router on a bump.
-    expect(packageJson.dependencies.freestyle).toMatch(/^0\.2\.\d+$/);
+    expect(packageJson.dependencies.freestyle).toBe("0.2.9");
     expect(packageJson.dependencies["freestyle-beta"]).toBeUndefined();
   });
 
