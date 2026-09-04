@@ -28528,6 +28528,26 @@ mod tests {
     }
 
     #[test]
+    fn fresh_sidebar_renders_work_and_focus_controls_with_the_empty_agents_view() {
+        let (mux, surface) = test_mux("default-sidebar-presentation-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.replace_tree(app.session.tree());
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 24));
+
+        let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let rendered = buffer_text(terminal.backend().buffer());
+
+        assert!(rendered.contains("Work"), "the active profile is discoverable: {rendered}");
+        assert!(rendered.contains("Focus"), "the alternate profile is discoverable: {rendered}");
+        assert!(rendered.contains("agents"), "the Agents view title is visible: {rendered}");
+        assert!(rendered.contains("no agents"), "an empty roster is explained: {rendered}");
+
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn compact_sidebar_width_and_action_preserve_the_full_width() {
         let mut config = Config::default();
         config.sidebar.width = 28;

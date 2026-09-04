@@ -9412,10 +9412,36 @@ mod tests {
     }
 
     #[test]
-    fn sidebar_resources_are_hidden_when_their_view_is_omitted() {
+    fn sidebar_defaults_present_workspaces_and_agents_with_a_focus_alternative() {
         let sidebar = Sidebar::default();
-        assert!(sidebar.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
-        assert_eq!(sidebar.views[1].actions, vec![SidebarActionSpec::plain(Action::NewWorkspace)]);
+        assert_eq!(sidebar.active_profile, "work");
+        assert_eq!(
+            sidebar.profiles.iter().map(|profile| profile.id.as_str()).collect::<Vec<_>>(),
+            vec!["work", "focus"]
+        );
+
+        let work = &sidebar.profiles[0];
+        assert!(work.views.iter().any(|view| view.includes(SidebarResourceKind::Workspaces)));
+        let agents = work
+            .views
+            .iter()
+            .find(|view| view.includes(SidebarResourceKind::Agents))
+            .expect("the default Work profile exposes the agent roster");
+        assert_eq!(agents.id, "agents");
+        assert_eq!(agents.scope, SidebarViewScope::All);
+        assert_eq!(agents.row_lines, 2);
+
+        let focus = &sidebar.profiles[1];
+        assert!(focus.views.iter().any(|view| view.includes(SidebarResourceKind::Workspaces)));
+        assert!(focus.views.iter().all(|view| !view.includes(SidebarResourceKind::Agents)));
+        assert_eq!(
+            work.views
+                .iter()
+                .find(|view| view.includes(SidebarResourceKind::Workspaces))
+                .unwrap()
+                .actions,
+            vec![SidebarActionSpec::plain(Action::NewWorkspace)]
+        );
     }
 
     #[test]
