@@ -58552,6 +58552,7 @@
         }
       }
     },
+    "cli.tmux-compat.error.invalidPaneSurfacesResponse": {"extractionState":"manual","localizations":{"en":{"stringUnit":{"state":"translated","value":"cmux couldn't resolve the selected pane. Select a different pane and try again."}},"ja":{"stringUnit":{"state":"translated","value":"cmux は選択したペインを解決できませんでした。別のペインを選択して、もう一度お試しください。"}}}},
     "cli.tmux-compat.error.managedTerminalRequired": {
       "extractionState": "manual",
       "localizations": {

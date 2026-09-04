@@ -2,6 +2,67 @@ import CMUXAgentLaunch
 import Foundation
 
 extension CMUXCLI {
+    /// Empty persisted Dock panes are valid in cmux, but tmux panes need a targetable surface.
+    /// Keep the compatibility projection fail-closed when additive fields are omitted.
+    func tmuxPaneHasTargetableSurface(_ pane: [String: Any]) -> Bool {
+        if let surfaceCount = intFromAny(pane["surface_count"]) {
+            return surfaceCount > 0
+        }
+        if let surfaceIDs = pane["surface_ids"] as? [String] {
+            return !surfaceIDs.isEmpty
+        }
+        if let surfaces = pane["surfaces"] as? [[String: Any]] {
+            return !surfaces.isEmpty
+        }
+        if let selectedSurfaceID = pane["selected_surface_id"] as? String {
+            return !selectedSurfaceID.isEmpty
+        }
+        return false
+    }
+
+    /// Returns `nil` only for an empty successful surfaces array; malformed entries throw.
+    func tmuxSelectedSurfaceIdIfPresent(
+        workspaceId: String,
+        paneId: String,
+        client: SocketClient
+    ) throws -> String? {
+        let payload = try client.sendV2(
+            method: "pane.surfaces",
+            params: ["workspace_id": workspaceId, "pane_id": paneId]
+        )
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let invalidResponse = CLIError(message: String(
+            localized: "cli.tmux-compat.error.invalidPaneSurfacesResponse",
+            defaultValue: "cmux couldn't resolve the selected pane. Select a different pane and try again.",
+            bundle: bundle
+        ))
+        guard let surfaces = payload["surfaces"] as? [[String: Any]] else { throw invalidResponse }
+        guard !surfaces.isEmpty else { return nil }
+        if let selected = surfaces.first(where: { boolFromAny($0["selected"]) == true }),
+           let id = selected["id"] as? String, !id.isEmpty {
+            return id
+        }
+        if let id = surfaces.lazy.compactMap({ $0["id"] as? String }).first(where: { !$0.isEmpty }) {
+            return id
+        }
+        throw invalidResponse
+    }
+
+    func tmuxSelectedSurfaceId(
+        workspaceId: String,
+        paneId: String,
+        client: SocketClient
+    ) throws -> String {
+        guard let surfaceID = try tmuxSelectedSurfaceIdIfPresent(
+            workspaceId: workspaceId,
+            paneId: paneId,
+            client: client
+        ) else {
+            throw CLIError(message: "Pane has no surface to target")
+        }
+        return surfaceID
+    }
+
     func tmuxEnrichContextWithGeometry(
         _ context: inout [String: String],
         pane: [String: Any],
