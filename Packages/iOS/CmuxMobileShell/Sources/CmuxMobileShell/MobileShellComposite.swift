@@ -3141,6 +3141,15 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         let activeMac = loadedActiveMac.flatMap {
             isHidden($0) || isDemonstrationPairedMac($0) ? nil : $0
         }
+        // Reconnect candidates include every saved Computer, but strict
+        // Tailscale owns the recovery pass only for the selected foreground
+        // pairing. When there is no retained foreground identity (for example
+        // launch restore), the store's active row is the selection authority.
+        let retainedForegroundKey = foregroundOrRecoveryMacKey
+        let reconnectSelectionKey: MacPairingKey? =
+            retainedForegroundKey == .anonymousForeground
+                ? activeMac.map(MacPairingKey.init)
+                : retainedForegroundKey
         let allMacs = loadedMacs.filter {
             !isHidden($0) && !isDemonstrationPairedMac($0)
         }
@@ -3219,6 +3228,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             // Raw Tailscale/TCP is bearer-capable only for an exact local route
             // retained by the pairing. A selected Tailscale method has no Iroh
             // fallback, so an absent or stale grant remains unavailable.
+            let candidateOwnsForegroundSelection = reconnectSelectionKey
+                == MacPairingKey(mac)
             if localCanConnectSecurely {
                 attemptedAutomaticIroh = attemptedAutomaticIroh || localHasIroh
                 lastDialOutcome = await connectStoredMacOutcome(
@@ -3268,11 +3279,13 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             if connectionState == .connected { break }
-            if candidateUsesStrictTailscale {
+            if candidateUsesStrictTailscale && candidateOwnsForegroundSelection {
                 // An explicit Tailscale selection owns this reconnect pass.
                 // Do not promote another saved Mac or discover an Iroh peer
                 // after its authorized Tailscale route fails.
-                applyOperationalError(MobileShellConnectionError.insecureManualRoute)
+                if connectionError == nil {
+                    applyOperationalError(MobileShellConnectionError.insecureManualRoute)
+                }
                 strictTailscaleFailure = true
                 break
             }
