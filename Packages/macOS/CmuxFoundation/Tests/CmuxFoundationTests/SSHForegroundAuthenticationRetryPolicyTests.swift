@@ -326,7 +326,7 @@ struct SSHForegroundAuthenticationRetryPolicyTests {
         \(SSHForegroundAuthenticationRetryPolicy().processTreeTerminationShellFunction())
         ( /bin/sh "$CMUX_TEST_LEAF_SCRIPT" & wait $! ) &
         cmux_test_auth_root=$!
-        trap '/bin/kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; /bin/kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
+        trap 'kill -CONT "$cmux_test_auth_root" >/dev/null 2>&1 || true; kill -KILL "$cmux_test_auth_root" >/dev/null 2>&1 || true' EXIT
         cmux_test_ready_attempt=0
         while [ ! -f "$CMUX_TEST_READY_MARKER" ] && [ "$cmux_test_ready_attempt" -lt 300 ]; do
           /bin/sleep 0.01
