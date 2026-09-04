@@ -79,7 +79,8 @@ struct DisconnectedWorkspaceShellView: View {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: showComputers) {
                                 MobileDevicesToolbarLabel(
-                                    hasGateWarning: store?.hasMacVersionUpdateRequired ?? false
+                                    gateWarningDeviceIDs: store?.macVersionUpdateRequiredDeviceIDs ?? [],
+                                    computerDeviceIDs: savedComputerDeviceIDs
                                 )
                             }
                             .accessibilityLabel(L10n.string(
@@ -157,6 +158,15 @@ struct DisconnectedWorkspaceShellView: View {
     /// shows, so a Mac paired under several stored ids is one row here too.
     private var savedComputers: [MacComputerSnapshot] {
         store.map { MacComputerSnapshot.snapshots(from: $0) } ?? []
+    }
+
+    /// The Computers sheet includes both shown and hidden rows, so both sets
+    /// participate in the toolbar warning scope while this screen is open.
+    private var savedComputerDeviceIDs: Set<String> {
+        Set(
+            savedComputers.map(\.deviceId)
+                + (store?.hiddenComputers.map(\.macDeviceID) ?? [])
+        )
     }
 
     @ViewBuilder
