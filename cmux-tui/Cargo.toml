@@ -113,7 +113,7 @@ smallvec = "1"
 getrandom = "0.3"
 glob = "0.3"
 bytes = "1"
-ed25519-dalek = { version = "3", features = ["std"] }
+ed25519-dalek = "3"
 diffy = "0.4"
 fs4 = "1.1.0"
 terminput = "=0.5.11"
