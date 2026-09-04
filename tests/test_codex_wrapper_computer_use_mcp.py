@@ -1238,7 +1238,7 @@ def test_codex_preserves_unrelated_global_symlink_by_default(failures: list[str]
 
 
 def test_codex_preserves_unverified_legacy_computer_use_link(failures: list[str]) -> None:
-    code, args, stderr, skill = run_wrapper(["hello"], preexisting_legacy_link=True)
+    code, _args, stderr, skill = run_wrapper(["hello"], preexisting_legacy_link=True)
     expect(code == 0, f"legacy-migration wrapper exited {code}: {stderr}", failures)
     expect(
         skill["legacy_present"] is True,

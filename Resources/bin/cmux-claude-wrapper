@@ -1206,11 +1206,14 @@ cmux_claude_session_skill_root() {
     # agent could mutate the signed resource. Project only the immutable skill
     # document into a per-session read-only directory.
     projection="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-session.XXXXXX")" || return 1
-    mkdir -p "$projection/.claude/skills/cmux-cua" || return 1
-    cp "$skill_file" "$projection/.claude/skills/cmux-cua/SKILL.md" || return 1
-    chmod 0555 "$projection" "$projection/.claude" \
-        "$projection/.claude/skills" "$projection/.claude/skills/cmux-cua" || return 1
-    chmod 0444 "$projection/.claude/skills/cmux-cua/SKILL.md" || return 1
+    if ! mkdir -p "$projection/.claude/skills/cmux-cua" \
+        || ! cp "$skill_file" "$projection/.claude/skills/cmux-cua/SKILL.md" \
+        || ! chmod 0555 "$projection" "$projection/.claude" \
+            "$projection/.claude/skills" "$projection/.claude/skills/cmux-cua" \
+        || ! chmod 0444 "$projection/.claude/skills/cmux-cua/SKILL.md"; then
+        rm -rf -- "$projection"
+        return 1
+    fi
     printf '%s' "$projection"
 }
 
