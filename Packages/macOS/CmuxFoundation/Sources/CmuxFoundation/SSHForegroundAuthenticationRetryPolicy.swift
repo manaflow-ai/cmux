@@ -2112,10 +2112,16 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           # terminal or launch a short-lived replacement process.
           if ! cmux_ssh_auth_filter_current_records \
             "$cmux_ssh_auth_owned" "$cmux_ssh_auth_term_candidates" 1; then
-            cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+            cmux_ssh_auth_debug "term candidate filter failed; emergency pass"
+            if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
             exit 0
           fi
-          /usr/bin/awk '
+          if ! /usr/bin/awk '
             {
               cmux_key = $2 SUBSEP $4 SUBSEP $6
               if (cmux_key in cmux_seen) next
@@ -2132,7 +2138,15 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
                 }
               }
             }
-          ' "$cmux_ssh_auth_term_candidates" > "$cmux_ssh_auth_term" || exit 0
+          ' "$cmux_ssh_auth_term_candidates" > "$cmux_ssh_auth_term"; then
+            cmux_ssh_auth_debug "term ordering failed; emergency pass"
+            if cmux_ssh_auth_force_initial_tree "$cmux_ssh_auth_initial_members"; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
+            exit 0
+          fi
           cmux_ssh_auth_signal_verified_batch TERM "$cmux_ssh_auth_term" /dev/null || true
           # The wrapper sends its event immediately after forwarding TERM and
           # waits for our ACK. Snapshot before ACK so a replacement is still
