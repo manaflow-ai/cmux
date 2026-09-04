@@ -40,6 +40,29 @@ struct CloudVMServiceTests {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer coherent-access")
         #expect(request.value(forHTTPHeaderField: "X-Stack-Refresh-Token") == "coherent-refresh")
     }
+
+    @Test func coherentProviderDoesNotFallBackToIndependentReads() async {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TeamHeaderURLProtocol.self]
+        let service = CloudVMService(
+            baseURL: "https://cmux.example",
+            tokens: CloudAPITokenSource(
+                accessToken: { "independent-access" },
+                refreshToken: { "independent-refresh" },
+                coherentTokenPair: { nil }
+            ),
+            sessionConfiguration: configuration
+        )
+
+        do {
+            _ = try await service.listMachines()
+            Issue.record("a configured coherent provider must be authoritative")
+        } catch let error as CloudAPIError {
+            #expect(error == .notSignedIn)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
 }
 
 private final class TeamHeaderURLProtocol: URLProtocol, @unchecked Sendable {
