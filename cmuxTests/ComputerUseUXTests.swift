@@ -1187,6 +1187,59 @@ struct ComputerUseUXTests {
         )
     }
 
+    /// The host onboarding hero and compact helper tile share this rendered
+    /// artwork. Its visible blue mark must be centered by its bounding box;
+    /// centering an ink centroid leaves the logo visibly displaced.
+    @Test @MainActor
+    func helperIconVisibleBoundsStayCenteredInBothAppearances() throws {
+        for darkMode in [false, true] {
+            let image = try #require(
+                ComputerUseHelperIconRenderer.image(darkMode: darkMode)
+            )
+            let bitmap = try #require(
+                image.representations.compactMap { $0 as? NSBitmapImageRep }.first
+            )
+            let data = try #require(bitmap.bitmapData)
+            let bytesPerPixel = bitmap.bitsPerPixel / 8
+            var minX = bitmap.pixelsWide
+            var minY = bitmap.pixelsHigh
+            var maxX = -1
+            var maxY = -1
+
+            for y in 0..<bitmap.pixelsHigh {
+                for x in 0..<bitmap.pixelsWide {
+                    let pixel = data.advanced(
+                        by: y * bitmap.bytesPerRow + x * bytesPerPixel
+                    )
+                    let red = Int(pixel[0])
+                    let green = Int(pixel[1])
+                    let blue = Int(pixel[2])
+                    let alpha = Int(pixel[3])
+                    guard
+                        alpha > 0,
+                        blue > 150,
+                        blue > Int(Double(red) * 1.25),
+                        blue > Int(Double(green) * 1.05),
+                        blue - red > 30
+                    else {
+                        continue
+                    }
+                    minX = min(minX, x)
+                    minY = min(minY, y)
+                    maxX = max(maxX, x)
+                    maxY = max(maxY, y)
+                }
+            }
+
+            #expect(maxX >= minX)
+            #expect(maxY >= minY)
+            let boundsMidX = (Double(minX) + Double(maxX)) / 2
+            let boundsMidY = (Double(minY) + Double(maxY)) / 2
+            #expect(abs(boundsMidX - Double(bitmap.pixelsWide) / 2) <= 1)
+            #expect(abs(boundsMidY - Double(bitmap.pixelsHigh) / 2) <= 1)
+        }
+    }
+
     @Test func permissionCompanionStartsSmallAndCenteredOverMainWindow() {
         let mainFrame = NSRect(x: 100, y: 200, width: 600, height: 440)
 
