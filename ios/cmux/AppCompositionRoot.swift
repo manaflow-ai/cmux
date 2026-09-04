@@ -25,6 +25,10 @@ final class AppCompositionRoot {
     /// The irx (from-scratch iroh) composition when its DEBUG flag owns the
     /// `.iroh` route; nil when the legacy runtime is active.
     let irx: MobileIrxRuntimeComposition?
+    /// Settings surface routed to the same Iroh implementation that owns
+    /// connections. In IRX mode, private addresses must never mutate only the
+    /// dormant legacy runtime.
+    let irohSettingsController: any CmxIrohSettingsControlling
     /// irx-backed first-pair discovery/forget; nil when legacy owns the slot.
     let irxDiscovery: MobileIrxDiscoveryProvider?
     /// One build-compatibility policy shared by discovery, persistence, and
@@ -104,6 +108,14 @@ final class AppCompositionRoot {
         self.auth = auth
         self.iroh = iroh
         self.irx = irx
+        if let irx {
+            self.irohSettingsController = MobileIrxSettingsController(
+                irx: irx,
+                legacy: iroh
+            )
+        } else {
+            self.irohSettingsController = iroh
+        }
         self.irxDiscovery = irxDiscovery
         self.buildCompatibilityPolicy = buildCompatibilityPolicy
         self.reachability = reachability

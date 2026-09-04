@@ -81,6 +81,15 @@ public struct IrxGrantSnapshot: Codable, Equatable, Sendable {
 /// plumbing) under irx's temporal rules: every result is cached to disk, the
 /// dial path never waits on the backend, and every call is journaled.
 public actor IrxBrokerService {
+    static func registrationCapabilities(for platform: CmxIrohPlatform) -> [String] {
+        switch platform {
+        case .mac:
+            ["cmux.irx.v1", "iroh.private_paths.v1"]
+        case .ios:
+            ["cmux.irx.v1"]
+        }
+    }
+
     public struct Configuration: Sendable {
         public var baseURL: URL
         public var clientNamespace: String
@@ -342,7 +351,7 @@ public actor IrxBrokerService {
             endpointID: identity.endpointIDHex,
             identityGeneration: configuration.identityGeneration,
             pairingEnabled: pairingEnabled,
-            capabilities: ["cmux.irx.v1"],
+            capabilities: Self.registrationCapabilities(for: configuration.platform),
             pathHints: hints,
             directPorts: directPorts
         )

@@ -390,7 +390,12 @@ struct MacComputerDetailView: View {
             )]
         }
         if let registryEntry = thisMacPrivateNetworkRegistryEntry {
-            return [registryEntry]
+            return [.init(
+                macDeviceID: registryEntry.macDeviceID,
+                instanceTag: registryEntry.instanceTag,
+                displayName: displayTitle,
+                supportsPrivatePaths: registryEntry.supportsPrivatePaths
+            )]
         }
         return []
     }

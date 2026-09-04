@@ -87,6 +87,10 @@ public actor MobileIrxRuntimeComposition {
     /// authenticated Bonjour LAN profiles on the same network generations.
     private let networkPathState: MobileIrohNetworkPathState
     private let lanPeerDiscovery: CmxIrohLANPeerDiscovery
+    /// Device-local, account-scoped user overrides from the Private Addresses
+    /// editor. IRX reads the same persisted store as the retired runtime, so
+    /// switching transport implementations never loses the user's routes.
+    private let customPrivatePaths: CmxIrohCustomPrivatePathStore
     private let reachability: (any ReachabilityProviding)?
 
     private weak var auth: AuthCoordinator?
@@ -138,6 +142,8 @@ public actor MobileIrxRuntimeComposition {
     private var claimedControlSessions: [String: UUID] = [:]
     /// The events uni-lane accept is single-consumer per session too.
     private var claimedEventSessions: Set<String> = []
+    /// Change-only stream consumed by the MainActor settings adapter.
+    private var settingsContinuations: [UUID: AsyncStream<Void>.Continuation] = [:]
 
     @MainActor
     public init(
@@ -169,8 +175,10 @@ public actor MobileIrxRuntimeComposition {
         self.keychainAccessGroup = keychainAccessGroup
         self.networkPathState = networkPathState
         self.lanPeerDiscovery = lanPeerDiscovery
+        self.customPrivatePaths = CmxIrohCustomPrivatePathStore(
+            store: CmxIrohUserDefaultsInstallStateStore(defaults: defaults)
+        )
         self.reachability = reachability
-        _ = defaults
         let appNamespace = injectedAppNamespace
             ?? MobileIOSAppNamespace(bundleIdentifier: bundleIdentifier)
         clientNamespace = appNamespace?.bundleIdentifier ?? "legacy"
@@ -481,6 +489,7 @@ public actor MobileIrxRuntimeComposition {
                 minimumSupportedMacVersion: snapshot.minimumSupportedMacVersion
             )
         }
+        publishSettingsUpdate()
     }
 
     /// UI/programmatic lookup: the peer's list-auth stance right now.
@@ -552,6 +561,7 @@ public actor MobileIrxRuntimeComposition {
         await MainActor.run {
             MobileMacListAuthState.shared.clear()
         }
+        publishSettingsUpdate()
         Self.journal.record("client-runtime", "device-list-signed-out")
     }
 
@@ -838,6 +848,151 @@ public actor MobileIrxRuntimeComposition {
         return try? await auth.authenticatedSessionSnapshot().accountID
     }
 
+    // MARK: - Private Addresses settings
+
+    /// Adds the active IRX device directory and device-local private-address
+    /// settings to the existing settings snapshot consumed by SwiftUI.
+    public func settingsSnapshot(
+        overlaying base: CmxIrohSettingsSnapshot
+    ) async -> CmxIrohSettingsSnapshot {
+        let privateSnapshot = if let activeAccountID {
+            await customPrivatePaths.availableSnapshot(accountID: activeAccountID)
+        } else {
+            CmxIrohCustomPrivatePathSnapshot.unavailable
+        }
+        var macsByID: [String: CmxIrohSettingsSnapshot.PrivateNetworkMac] = [:]
+        if let directory = deviceListBox.current {
+            for entry in directory.entries.values {
+                guard let deviceID = entry.deviceID else { continue }
+                let identity = CmxMacAppInstanceIdentity(
+                    macDeviceID: deviceID,
+                    instanceTag: entry.tag
+                )
+                let supportsPrivatePaths = entry.capabilities?.contains(
+                    "iroh.private_paths.v1"
+                ) == true
+                macsByID[identity.id] = .init(
+                    macDeviceID: identity.macDeviceID,
+                    instanceTag: identity.instanceTag,
+                    displayName: identity.macDeviceID,
+                    supportsPrivatePaths: supportsPrivatePaths
+                )
+            }
+        }
+        for configuration in privateSnapshot.configurations
+        where macsByID[configuration.id] == nil {
+            macsByID[configuration.id] = .init(
+                macDeviceID: configuration.macDeviceID,
+                instanceTag: configuration.instanceTag,
+                displayName: configuration.macDisplayName
+            )
+        }
+        return CmxIrohSettingsSnapshot(
+            runtimeStatus: base.runtimeStatus,
+            selectedTransportPath: base.selectedTransportPath,
+            preference: base.preference,
+            pathPreference: Self.forceRelayOnly ? .relayOnly : .automatic,
+            managedRelays: base.managedRelays,
+            customRelays: base.customRelays,
+            privateNetworkMacs: macsByID.values.sorted { $0.id < $1.id },
+            customPrivateNetworks: privateSnapshot.configurations.map {
+                .init(
+                    macDeviceID: $0.macDeviceID,
+                    instanceTag: $0.instanceTag,
+                    macDisplayName: $0.macDisplayName,
+                    addresses: $0.addresses.map(\.value),
+                    isEnabled: $0.isEnabled
+                )
+            },
+            policySource: base.policySource,
+            policySequence: base.policySequence,
+            policyExpiresAt: base.policyExpiresAt,
+            staleRelayIDs: base.staleRelayIDs,
+            failureDescription: base.failureDescription,
+            debugTransportVerificationMode: base.debugTransportVerificationMode
+        )
+    }
+
+    public func settingsUpdates() -> AsyncStream<Void> {
+        let id = UUID()
+        let (stream, continuation) = AsyncStream<Void>.makeStream(
+            bufferingPolicy: .bufferingNewest(1)
+        )
+        settingsContinuations[id] = continuation
+        continuation.onTermination = { @Sendable [weak self] _ in
+            Task { await self?.removeSettingsContinuation(id) }
+        }
+        return stream
+    }
+
+    public func refreshSettingsSnapshot() {
+        publishSettingsUpdate()
+    }
+
+    public func upsertCustomPrivatePath(
+        _ path: CmxIrohCustomPrivatePathDraft
+    ) async throws {
+        guard let activeAccountID else { throw CompositionError.notSignedIn }
+        _ = try await customPrivatePaths.upsert(path, accountID: activeAccountID)
+        await privatePathSettingsChanged(
+            macDeviceID: path.macDeviceID,
+            instanceTag: path.instanceTag
+        )
+    }
+
+    public func removeCustomPrivatePath(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async throws {
+        guard let activeAccountID else { throw CompositionError.notSignedIn }
+        _ = try await customPrivatePaths.remove(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag,
+            accountID: activeAccountID
+        )
+        await privatePathSettingsChanged(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+    }
+
+    private func privatePathSettingsChanged(
+        macDeviceID: String,
+        instanceTag: String?
+    ) async {
+        let requested = CmxMacAppInstanceIdentity(
+            macDeviceID: macDeviceID,
+            instanceTag: instanceTag
+        )
+        let peers = deviceListBox.current?.entries.compactMap { peerHex, entry in
+            guard let deviceID = entry.deviceID else { return nil }
+            let candidate = CmxMacAppInstanceIdentity(
+                macDeviceID: deviceID,
+                instanceTag: entry.tag
+            )
+            return candidate.id == requested.id ? peerHex : nil
+        } ?? []
+        for peerHex in peers {
+            if let route = routesByPeer[peerHex] {
+                routesByPeer[peerHex] = (route.relayURL, [])
+            }
+            await enginesByPeer[peerHex]?.relayHintChanged(
+                trigger: "private-path-change"
+            )
+        }
+        publishSettingsUpdate()
+    }
+
+    private func removeSettingsContinuation(_ id: UUID) {
+        settingsContinuations.removeValue(forKey: id)
+    }
+
+    private func publishSettingsUpdate() {
+        for continuation in settingsContinuations.values {
+            continuation.yield()
+        }
+    }
+
     // MARK: - Dialing
 
     private func peerTarget(for request: CmxByteTransportRequest) throws -> String {
@@ -1061,6 +1216,34 @@ public actor MobileIrxRuntimeComposition {
                     [
                         "peer": String(peerHex.prefix(12)),
                         "count": String(direct.count),
+                    ]
+                )
+            }
+        }
+        if !Self.forceRelayOnly,
+           case .automatic = dialIntent,
+           let discoveredRoute,
+           let activeAccountID
+        {
+            let configured = await customPrivatePaths.enabledPaths(
+                forMacDeviceID: discoveredRoute.binding.deviceID,
+                instanceTag: discoveredRoute.binding.tag,
+                accountID: activeAccountID
+            )
+            let privateAddresses = CmxIrohCustomPrivatePathBootstrap.dialAddresses(
+                configured,
+                directPorts: discoveredRoute.binding.directPorts
+            )
+            if !privateAddresses.isEmpty {
+                for address in privateAddresses where !directAddresses.contains(address) {
+                    directAddresses.append(address)
+                }
+                routesByPeer[peerHex] = (relayURL, directAddresses)
+                Self.journal.record(
+                    "client-dial", "private-hints-adopted",
+                    [
+                        "peer": String(peerHex.prefix(12)),
+                        "count": String(privateAddresses.count),
                     ]
                 )
             }

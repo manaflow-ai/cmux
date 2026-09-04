@@ -299,7 +299,11 @@ final class MobileHostIrxRuntime {
                             appVersion: IrxCtlClientInfo.appVersionString(
                                 infoDictionary: Bundle.main.infoDictionary),
                             releaseTrack: Self.hostReleaseTrack(),
-                            capabilities: ["cmux.irx.v2", "list-auth"]
+                            capabilities: [
+                                "cmux.irx.v2",
+                                "list-auth",
+                                "iroh.private_paths.v1",
+                            ]
                         ),
                         clientNamespace: namespace.rawValue
                     ),
