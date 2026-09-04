@@ -285,6 +285,9 @@ jobs:
       - name: Validate universal nightly workflow
         run: bash ./tests/test_nightly_universal_build.sh
 
+      - name: Validate nightly failure summary behavior
+        run: node ./tests/test_nightly_failure_summary.js
+
       - name: Validate nightly notarization behavior
         run: ./tests/test_notarize_nightly_dmg.sh
 

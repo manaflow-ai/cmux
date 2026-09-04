@@ -286,39 +286,19 @@ if ! awk '
   /^  report-nightly-failure:/ { job="report"; next }
   /^  close-nightly-failure-issue:/ { job="close"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_gate=1 }
+  job == "report" && /contains\(needs\.\*\.result, .failure.\)/ { saw_report_failure_gate=1 }
+  job == "report" && /contains\(needs\.\*\.result, .cancelled.\)/ { saw_report_cancelled_gate=1 }
   job == "report" && /refresh-compilation-cache/ { saw_report_cache=1 }
+  job == "report" && /Checkout failure summary helper/ { saw_report_checkout=1 }
+  job == "report" && /ref: \$\{\{ needs\.decide\.outputs\.head_sha \}\}/ { saw_report_fixed_sha=1 }
+  job == "report" && /formatNightlyFailure/ { saw_report_helper=1 }
   job == "report" && /issues: write/ { saw_report_perm=1 }
   job == "report" && /nightly-failure/ { saw_report_label=1 }
   job == "close" && /needs\.publish-nightly\.result == .success./ { saw_close_gate=1 }
   job == "close" && /state: .closed./ { saw_close=1 }
-  END { exit !(saw_report_gate && saw_report_cache && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
+  END { exit !(saw_report_failure_gate && saw_report_cancelled_gate && saw_report_cache && saw_report_checkout && saw_report_fixed_sha && saw_report_helper && saw_report_perm && saw_report_label && saw_close_gate && saw_close) }
 ' "$WORKFLOW_FILE"; then
-  echo "FAIL: cache refresh and publish failures must reach the nightly-failure issue, and a successful publish must close it"
-  exit 1
-fi
-
-REPORT_JOB="$(awk '
-  /^  report-nightly-failure:/ { in_report=1; print; next }
-  in_report && /^  [a-zA-Z0-9_-]+:/ { exit }
-  in_report { print }
-' "$WORKFLOW_FILE")"
-if ! grep -Fq "const publishFailed = failed.some((name) => name !== 'refresh-compilation-cache');" <<<"$REPORT_JOB"; then
-  echo "FAIL: cache-only failures must be classified separately from publish failures"
-  exit 1
-fi
-if ! grep -Fq "NIGHTLY installs stop receiving updates until a run on main succeeds." <<<"$REPORT_JOB"; then
-  echo "FAIL: a publish-pipeline failure must tell operators that NIGHTLY updates have stopped"
-  exit 1
-fi
-if ! grep -Fq "The cache refresh failed; no publish was attempted and the previous NIGHTLY remains available." <<<"$REPORT_JOB"; then
-  echo "FAIL: a cache-only failure must not be labeled as a stalled NIGHTLY publish"
-  exit 1
-fi
-if ! grep -Fq "'refresh-compilation-cache': 'cache refresh'" <<<"$REPORT_JOB" \
-  || ! grep -Fq "'build-nightly-app': 'app compile'" <<<"$REPORT_JOB" \
-  || ! grep -Fq "'build-sign-notarize-nightly': 'sign and notarize'" <<<"$REPORT_JOB"; then
-  echo "FAIL: nightly failure issues must use allowlisted labels instead of raw job identifiers"
+  echo "FAIL: cache refresh and publish failures must reach the tested nightly-failure formatter, and a successful publish must close it"
   exit 1
 fi
 
