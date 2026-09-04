@@ -130,6 +130,7 @@ class SignInViewModel @Inject constructor(
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             connection.setRequestProperty("X-Stack-Project-Id", stackProjectId)
             connection.setRequestProperty("X-Stack-Publishable-Client-Key", stackPublishableKey)
+            connection.setRequestProperty("X-Stack-Access-Type", "client")
             connection.doOutput = true
             connection.outputStream.use { it.write(body.toByteArray()) }
 
