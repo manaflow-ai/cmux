@@ -261,6 +261,61 @@ import UIKit
         #expect(coordinator.lastPayloadApplyRoute == .tableRelayout)
     }
 
+    @Test func dragCompletionWinsOverSnapshotQueuedBeforeDrag() {
+        let firstWorkspace = preview(
+            id: "workspace-1",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_020)
+        )
+        let secondWorkspace = preview(
+            id: "workspace-2",
+            activityAt: Date(timeIntervalSinceReferenceDate: 790_000_021)
+        )
+        var staleScrollUpdate = firstWorkspace
+        staleScrollUpdate.previewText = "Stale scroll snapshot"
+        var latestDragUpdate = firstWorkspace
+        latestDragUpdate.previewText = "Drag completion snapshot"
+
+        let coordinator = WorkspaceListTableCoordinator(
+            configuration: configuration(
+                workspaces: [firstWorkspace, secondWorkspace],
+                enablesReorder: true
+            )
+        )
+        let tableView = makeTableView()
+        coordinator.attach(to: tableView)
+        let dragItem = UIDragItem(itemProvider: NSItemProvider())
+        dragItem.localObject = WorkspaceListTableItem.workspace(
+            firstWorkspace.id,
+            indented: false
+        )
+        let dragSession = ScrollDragSession(dragItems: [dragItem])
+
+        coordinator.scrollViewWillBeginDragging(tableView)
+        coordinator.update(
+            configuration: configuration(
+                workspaces: [staleScrollUpdate, secondWorkspace],
+                enablesReorder: true
+            ),
+            in: tableView
+        )
+        coordinator.tableView(tableView, dragSessionWillBegin: dragSession)
+        coordinator.update(
+            configuration: configuration(
+                workspaces: [latestDragUpdate, secondWorkspace],
+                enablesReorder: true
+            ),
+            in: tableView
+        )
+        coordinator.scrollViewDidEndDragging(tableView, willDecelerate: false)
+        coordinator.tableView(tableView, dragSessionDidEnd: dragSession)
+
+        #expect(
+            coordinator.configuration.workspacesByID[firstWorkspace.id]?.previewText
+                == latestDragUpdate.previewText,
+            "A stale scroll snapshot must not overwrite the newest drag completion payload."
+        )
+    }
+
     @Test func workspaceRenderEquivalenceQuantizesOnlyTimestamps() {
         let base = Date(timeIntervalSinceReferenceDate: 790_000_020)
         var previous = preview(id: "workspace-1", activityAt: base)
@@ -797,7 +852,8 @@ import UIKit
         ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
-        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        enablesReorder: Bool = false
     ) -> WorkspaceListTable {
         let workspaces = workspaceIDs.map { rawID in
             var workspace = MobileWorkspacePreview(
@@ -826,7 +882,8 @@ import UIKit
             ungroupWorkspaceGroup: ungroupWorkspaceGroup,
             ungroupWorkspaceGroupRequest: ungroupWorkspaceGroupRequest,
             deleteWorkspaceGroup: deleteWorkspaceGroup,
-            deleteWorkspaceGroupRequest: deleteWorkspaceGroupRequest
+            deleteWorkspaceGroupRequest: deleteWorkspaceGroupRequest,
+            enablesReorder: enablesReorder
         )
     }
 
@@ -847,7 +904,8 @@ import UIKit
         ungroupWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         ungroupWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
         deleteWorkspaceGroup: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
-        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil
+        deleteWorkspaceGroupRequest: ((MobileWorkspaceGroupPreview.ID) -> Void)? = nil,
+        enablesReorder: Bool = false
     ) -> WorkspaceListTable {
         return WorkspaceListTable(
             items: items ?? workspaces.map { .workspace($0.id, indented: false) },
@@ -871,7 +929,7 @@ import UIKit
             isInitialConnectionLoading: false,
             initialConnectionTitle: nil,
             initialConnectionDescription: nil,
-            enablesReorder: false,
+            enablesReorder: enablesReorder,
             moveRows: nil,
             canDropIntoGroup: nil,
             dropIntoGroup: nil,
@@ -898,5 +956,23 @@ import UIKit
             refresh: nil
         )
     }
+}
+
+@MainActor
+private final class ScrollDragSession: NSObject, UIDragSession {
+    let dragItems: [UIDragItem]
+
+    init(dragItems: [UIDragItem]) {
+        self.dragItems = dragItems
+    }
+
+    var localContext: Any?
+    var items: [UIDragItem] { dragItems }
+    var allowsMoveOperation: Bool { true }
+    var isRestrictedToDraggingApplication: Bool { false }
+
+    func location(in view: UIView) -> CGPoint { .zero }
+    func hasItemsConforming(toTypeIdentifiers typeIdentifiers: [String]) -> Bool { false }
+    func canLoadObjects(ofClass aClass: NSItemProviderReading.Type) -> Bool { false }
 }
 #endif
