@@ -4396,9 +4396,9 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
             appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab),
             "Physical Cmd+W should match Close Tab even when Dvorak emits a comma"
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             appDelegate.debugMatchesConfiguredShortcut(event: event, action: .openSettings),
-            "The logical Cmd+, Settings binding remains character-matchable"
+            "The implicit Cmd+, Settings action must yield to the physical Close Tab fallback"
         )
         XCTAssertTrue(
             appDelegate.shouldSuppressStaleCmuxMenuShortcut(event: event),
