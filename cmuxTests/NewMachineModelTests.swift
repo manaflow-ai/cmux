@@ -18,7 +18,7 @@ struct NewMachineModelTests {
     private func makeModel(
         mode: NewMachineModel.Mode = .newMachine,
         plan: MachinePlanSnapshot? = nil,
-        memoryOptionsMb: [Int] = [],
+        memoryOptionsMb: [Int] = NewMachineModel.memoryOptionsMb,
         starts: Bool = true
     ) -> (NewMachineModel, Box<[MachineCreateRequest]>) {
         let recorder = Box<[MachineCreateRequest]>([])
@@ -58,10 +58,12 @@ struct NewMachineModelTests {
         #expect(model.memoryMb == 8192)
     }
 
-    @Test func emptyServerOptionsKeepOnlyTheKnownDefault() {
+    @Test func emptyServerOptionsPreserveLegacyDefaultWithoutSizeFlag() {
         let (model, _) = makeModel(memoryOptionsMb: [])
-        #expect(model.memoryOptions == [8192])
-        #expect(model.memoryMb == 8192)
+        #expect(model.memoryOptions == [])
+        #expect(model.memoryMb == 20480)
+        #expect(!model.supportsSize)
+        #expect(model.cliArguments == ["vm", "new", "--base", "--focus", "false"])
     }
 
     @Test func selectedSizeTravelsAsBaseSizeFlagOnly() {

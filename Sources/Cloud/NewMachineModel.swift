@@ -76,6 +76,10 @@ final class NewMachineModel {
     /// not a coding-machine option because it has no baked dev tools.
     static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
     static let planMachineMemoryMb = 8192
+    /// The pre-ladder backend default. It is used only when the server omits
+    /// `limits.memoryOptionsMb`, so the client does not send an unsupported
+    /// `--size` flag during a rolling upgrade.
+    static let legacyPlanMachineMemoryMb = 20480
     /// Mirrors `maxMemoryMbForPlan`: development and paid plans may use the
     /// largest supported base image unless an operator sets a lower ceiling.
     static func maxMemoryMb(planId: String?) -> Int {
@@ -112,11 +116,12 @@ final class NewMachineModel {
         self.plan = plan
         let serverOptions = memoryOptionsMb.filter { MachineSizeOption(memoryMb: $0) != nil }
         // An empty list means an older control plane did not advertise the
-        // ladder. Keep the compatibility surface to the known 8 GiB default
-        // instead of offering requests that server may reject.
-        self.availableMemoryOptionsMb = serverOptions.isEmpty ? [Self.planMachineMemoryMb] : serverOptions
+        // ladder. Preserve its 20 GiB default and omit --size entirely.
+        self.availableMemoryOptionsMb = serverOptions
         self.submit = submit
-        self.memoryMb = Self.defaultMemoryMb(planId: plan?.planId, options: self.availableMemoryOptionsMb)
+        self.memoryMb = serverOptions.isEmpty
+            ? Self.legacyPlanMachineMemoryMb
+            : Self.defaultMemoryMb(planId: plan?.planId, options: serverOptions)
     }
 
     static func defaultMemoryMb(planId: String?, options: [Int] = memoryOptionsMb) -> Int {
@@ -131,7 +136,7 @@ final class NewMachineModel {
     }
 
     /// Base is sized by the backend; only `vm new` takes `--size`.
-    var supportsSize: Bool { mode == .newMachine }
+    var supportsSize: Bool { mode == .newMachine && !availableMemoryOptionsMb.isEmpty }
     var memoryOptions: [Int] {
         let ceiling = Self.maxMemoryMb(planId: plan?.planId)
         return availableMemoryOptionsMb.filter { $0 <= ceiling }.sorted()
@@ -185,7 +190,8 @@ final class NewMachineModel {
     var cliArguments: [String] {
         switch mode {
         case .newMachine:
-            var arguments = ["vm", "new", "--base", "--size", String(memoryMb)]
+            var arguments = ["vm", "new", "--base"]
+            if supportsSize { arguments += ["--size", String(memoryMb)] }
             arguments += ["--focus", "false"]
             return arguments
         case .base(let workspaceID):
