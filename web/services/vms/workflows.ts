@@ -2112,7 +2112,11 @@ export function openVmCmuxRemote(input: {
         cause,
       }),
     });
-    yield* repo.recordLease({
+    // The lease is the durable revocation/audit record. The usage event is an
+    // independent ledger write, so do not add its database latency to the
+    // lease path. A lease failure still fails closed and runs provider cleanup;
+    // usage failure remains best effort as it was before.
+    const lease = repo.recordLease({
       vmId: vm.id,
       userId: input.userId,
       kind: "preview",
@@ -2128,7 +2132,7 @@ export function openVmCmuxRemote(input: {
         return cleanup.pipe(Effect.andThen(Effect.fail(err)));
       }),
     );
-    yield* repo.recordUsageEvent({
+    const usage = repo.recordUsageEvent({
       userId: input.userId,
       billingTeamId: vm.billingTeamId,
       billingPlanId: vm.billingPlanId,
@@ -2138,6 +2142,7 @@ export function openVmCmuxRemote(input: {
       imageId: vm.imageId,
       metadata: { transport: "cmux-remote", invited: !!endpoint.invitation },
     }).pipe(Effect.catchAll(() => Effect.void));
+    yield* Effect.all([lease, usage], { concurrency: 2 });
     // Backfill: machines created before address recording learn their private
     // address on first attach, so "Copy IP Address" appears for them too.
     const learned = endpoint.networkAddresses;
