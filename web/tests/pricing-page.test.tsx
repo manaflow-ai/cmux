@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { ReactNode } from "react";
 
 import { stripeSubscriptions } from "../db/schema";
 import enMessages from "../messages/en.json";
@@ -29,6 +30,22 @@ const redirect = mock((href: unknown) => {
 const originalVaultEnabled = process.env.CMUX_VAULT_ENABLED;
 
 mock.module("next/navigation", () => createNextNavigationMock(redirect));
+
+mock.module("../i18n/navigation", () => ({
+  Link: ({
+    href,
+    className,
+    children,
+  }: {
+    href: string;
+    className?: string;
+    children: ReactNode;
+  }) => (
+    <a href={href} className={className}>
+      {children}
+    </a>
+  ),
+}));
 
 mock.module("next-intl", () => ({
   NextIntlClientProvider: ({ children }: { children: React.ReactNode }) => children,

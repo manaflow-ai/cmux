@@ -1,5 +1,6 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxAgentHooks
 import CmuxBrowser
 import CmuxAgentJournal
 import CmuxFoundation
@@ -423,12 +424,14 @@ final class ClaudeHookSessionStore {
 
     private let statePath: String
     private let fileManager: FileManager
+    private let promptDepthPolicy: AgentHookPromptDepthPolicy
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
     init(
         processEnv: [String: String] = ProcessInfo.processInfo.environment,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        promptDepthPolicy: AgentHookPromptDepthPolicy = .balanced
     ) {
         if let overridePath = processEnv["CMUX_CLAUDE_HOOK_STATE_PATH"]?.trimmingCharacters(in: .whitespacesAndNewlines),
            !overridePath.isEmpty {
@@ -442,6 +445,7 @@ final class ClaudeHookSessionStore {
             self.statePath = NSString(string: Self.defaultStatePath).expandingTildeInPath
         }
         self.fileManager = fileManager
+        self.promptDepthPolicy = promptDepthPolicy
         self.encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     }
 
@@ -1224,6 +1228,11 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
+            if promptDepthPolicy.closesActivePrompt {
+                record.beginAuthoritativePrompt(turnId: normalizedTurnId)
+                state.sessions[normalized] = record
+                return (staleTerminalTurn: false, nested: false)
+            }
             if let normalizedTurnId {
                 markPromptTurnActive(normalizedTurnId, on: &record)
                 var turnStack = activePromptTurnStack(from: record)
@@ -1310,7 +1319,19 @@ final class ClaudeHookSessionStore {
                 now: now
             )
             let depthBeforeStop = max(0, record.activePromptDepth ?? 0)
-            let depthAfterStop = max(0, depthBeforeStop - 1)
+            let depthAfterStop = promptDepthPolicy.closesActivePrompt
+                ? 0
+                : max(0, depthBeforeStop - 1)
+            let lifecycleWhenClosed: AgentHibernationLifecycleState? = agentLifecycle
+                ?? (promptDepthPolicy.closesActivePrompt ? .idle : nil)
+            let runtimeWhenClosed: AgentHookRuntimeStatus? = runtimeStatus
+                ?? (promptDepthPolicy.closesActivePrompt ? .idle : nil)
+            // A nested balanced stop must not overwrite a still-running
+            // session with its child completion's idle/error status. An
+            // authoritative boundary, or an explicit running status from
+            // active background work, is safe to persist immediately.
+            let shouldUpdateRuntimeStatus = updateRuntimeStatus
+                && (depthAfterStop == 0 || runtimeStatus == .running)
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1320,18 +1341,27 @@ final class ClaudeHookSessionStore {
                 pid: pid,
                 launchCommand: launchCommand,
                 isRestorable: nil,
-                agentLifecycle: depthAfterStop == 0 ? agentLifecycle : .running,
+                agentLifecycle: depthAfterStop == 0 ? lifecycleWhenClosed : .running,
                 hookEventName: hookEventName,
                 lastSubtitle: lastSubtitle,
                 lastBody: lastBody,
                 lastNotificationStatus: lastNotificationStatus,
                 updateLastNotificationStatus: updateLastNotificationStatus,
-                runtimeStatus: runtimeStatus,
-                updateRuntimeStatus: updateRuntimeStatus,
+                runtimeStatus: depthAfterStop == 0 ? runtimeWhenClosed : runtimeStatus,
+                // Some authoritative-boundary callers omit updateRuntimeStatus;
+                // this OR keeps their idle/running result persisted and is
+                // intentionally load-bearing rather than redundant.
+                updateRuntimeStatus: shouldUpdateRuntimeStatus
+                    || (promptDepthPolicy.closesActivePrompt && depthAfterStop == 0),
                 now: now
             )
             appendAutoNameMessages(autoNameMessages, to: &record)
             let normalizedTurnId = normalizeOptional(turnId)
+            if promptDepthPolicy.closesActivePrompt {
+                record.endAuthoritativePrompt()
+                state.sessions[normalized] = record
+                return false
+            }
             if let normalizedTurnId {
                 var turnStack = activePromptTurnStack(from: record)
                 var totalDepthBeforeStop = max(depthBeforeStop, turnStack.count)
@@ -1487,6 +1517,9 @@ final class ClaudeHookSessionStore {
                 startedAt: now,
                 updatedAt: now
             )
+            if promptDepthPolicy.closesActivePrompt, agentLifecycle == .unknown {
+                record.clearPromptStartState()
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1671,7 +1704,15 @@ final class ClaudeHookSessionStore {
             if codexSessionStartIsStale(record, incomingPID: pid) {
                 return false
             }
-            clearCodexSessionStartTurnState(on: &record)
+            // A PID-bearing restart must retain the completed-turn marker so a
+            // duplicate SessionStart from that same process remains stale. A
+            // PID-less start cannot establish that identity and keeps the
+            // historical full reset behavior.
+            if pid != nil {
+                record.clearActivePromptState()
+            } else {
+                record.clearPromptStartState()
+            }
             update(
                 &record,
                 workspaceId: workspaceId,
@@ -1750,6 +1791,7 @@ final class ClaudeHookSessionStore {
     func codexSessionStartIsStale(
         sessionId: String,
         incomingPID: Int?,
+        includeLastPromptTurnId: Bool = true,
         includeTerminalPromptTurnIds: Bool = true
     ) throws -> Bool {
         let normalized = normalizeSessionId(sessionId)
@@ -1759,6 +1801,7 @@ final class ClaudeHookSessionStore {
             return codexSessionStartIsStale(
                 record,
                 incomingPID: incomingPID,
+                includeLastPromptTurnId: includeLastPromptTurnId,
                 includeTerminalPromptTurnIds: includeTerminalPromptTurnIds
             )
         }
@@ -1891,12 +1934,13 @@ final class ClaudeHookSessionStore {
     private func codexSessionStartIsStale(
         _ record: ClaudeHookSessionRecord,
         incomingPID: Int?,
+        includeLastPromptTurnId: Bool = true,
         includeTerminalPromptTurnIds: Bool = true
     ) -> Bool {
         if max(record.activePromptDepth ?? 0, record.activePromptTurnIds?.count ?? 0) > 0 {
             return true
         }
-        let hasCompletedTurnState = normalizeOptional(record.lastPromptTurnId) != nil
+        let hasCompletedTurnState = (includeLastPromptTurnId && normalizeOptional(record.lastPromptTurnId) != nil)
             || (includeTerminalPromptTurnIds && !terminalPromptTurnSet(from: record).isEmpty)
         guard hasCompletedTurnState,
               let incomingPID,
@@ -1904,13 +1948,6 @@ final class ClaudeHookSessionStore {
             return false
         }
         return incomingPID == existingPID
-    }
-
-    private func clearCodexSessionStartTurnState(on record: inout ClaudeHookSessionRecord) {
-        record.activePromptDepth = nil
-        record.activePromptTurnId = nil
-        record.activePromptTurnIds = nil
-        record.lastPromptTurnId = nil
     }
 
     private func markPromptTurnActive(_ turnId: String, on record: inout ClaudeHookSessionRecord) {
@@ -5819,15 +5856,15 @@ struct CMUXCLI {
                     break
                 }
                 let rows: [(String, String, String, String, String)] = vms.map { vm in
-                    (
-                        (vm["id"] as? String) ?? "?",
-                        (vm["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["id"] as? String) ?? "?",
-                        (vm["status"] as? String) ?? "unknown",
-                        (vm["provider"] as? String) ?? "?",
-                        (vm["image"] as? String) ?? "?"
-                    )
+                    let id = (vm["id"] as? String) ?? "?"
+                    let displayName = (vm["displayName"] as? String)
+                        .flatMap { $0.isEmpty ? nil : $0 }
+                    let slug = (vm["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    let label = displayName ?? slug ?? id
+                    let state = (vm["status"] as? String) ?? "unknown"
+                    let provider = (vm["provider"] as? String) ?? "?"
+                    let image = (vm["image"] as? String) ?? "?"
+                    return (id, label, state, provider, image)
                 }
                 let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
@@ -34305,7 +34342,8 @@ export default CMUXSessionRestore;
             processEnv: env.merging(
                 ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(sessionStoreSuffix: def.sessionStoreSuffix, env: env)],
                 uniquingKeysWith: { _, new in new }
-            )
+            ),
+            promptDepthPolicy: def.promptDepthPolicy
         )
 
         let hookCwd = input.cwd
@@ -35430,9 +35468,14 @@ export default CMUXSessionRestore;
             )
             var supersededOMPRecords: [ClaudeHookSessionRecord] = []
             func codexSessionStartWentStaleAfterAccept() -> Bool {
+                // A fresh PID-bearing start retains the completed-turn marker so
+                // a later duplicate is rejected. This probe runs after our own
+                // PID write, so completed markers must be ignored here; only a
+                // competing active prompt should invalidate the accepted start.
                 def.name == "codex" && ((try? store.codexSessionStartIsStale(
                     sessionId: sessionId,
                     incomingPID: pid,
+                    includeLastPromptTurnId: false,
                     includeTerminalPromptTurnIds: false
                 )) == true)
             }
@@ -36160,12 +36203,22 @@ export default CMUXSessionRestore;
             let antigravityHasActiveBackgroundWork = hasActiveAntigravityBackgroundWork()
             var hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
             let stopNotificationStatus: AgentHookNotificationStatus = (codexFailure == nil && antigravityFailure == nil) ? .idle : .error
-            var lifecycleAfterStop: AgentHibernationLifecycleState = {
+            func lifecycleAndRuntimeStatus(
+                hasActiveBackgroundWork: Bool,
+                stopNotificationStatus: AgentHookNotificationStatus
+            ) -> (AgentHibernationLifecycleState, AgentHookRuntimeStatus?) {
                 if hasActiveBackgroundWork && stopNotificationStatus == .idle {
-                    return .running
+                    return (.running, .running)
                 }
-                return stopNotificationStatus == .idle ? .idle : .needsInput
-            }()
+                return (
+                    stopNotificationStatus == .idle ? .idle : .needsInput,
+                    runtimeStatus(for: stopNotificationStatus)
+                )
+            }
+            var (lifecycleAfterStop, runtimeStatusAfterStop) = lifecycleAndRuntimeStatus(
+                hasActiveBackgroundWork: hasActiveBackgroundWork,
+                stopNotificationStatus: stopNotificationStatus
+            )
             var staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                 hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             // Current tokenized launches settle only from CodexTurnLedger. Keep
@@ -36226,6 +36279,8 @@ export default CMUXSessionRestore;
                     hookEventName: persistedHookEventName,
                     lastSubtitle: nil,
                     lastBody: nil,
+                    runtimeStatus: runtimeStatusAfterStop,
+                    updateRuntimeStatus: true,
                     autoNameMessages: autoNamingMessages(
                         for: def,
                         parsedInput: input,
@@ -36274,9 +36329,10 @@ export default CMUXSessionRestore;
             if def.name == "codex" {
                 codexHasActiveBackgroundWork = (codexStopDecision?.activeChildCount ?? 0) > 0
                 hasActiveBackgroundWork = antigravityHasActiveBackgroundWork || codexHasActiveBackgroundWork
-                lifecycleAfterStop = hasActiveBackgroundWork && stopNotificationStatus == .idle
-                    ? .running
-                    : (stopNotificationStatus == .idle ? .idle : .needsInput)
+                (lifecycleAfterStop, runtimeStatusAfterStop) = lifecycleAndRuntimeStatus(
+                    hasActiveBackgroundWork: hasActiveBackgroundWork,
+                    stopNotificationStatus: stopNotificationStatus
+                )
                 staleIdleStopHasNewerRunningSession = lifecycleAfterStop == .idle &&
                     hasNewerRunningSession(workspaceId: workspaceId, surfaceId: surfaceId)
             }
@@ -36351,7 +36407,7 @@ export default CMUXSessionRestore;
                                   lastBody: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : body,
                                   lastNotificationStatus: (def.name == "codex" && codexHasActiveBackgroundWork) ? nil : stopNotificationStatus,
                                   updateLastNotificationStatus: true,
-                                  runtimeStatus: (hasActiveBackgroundWork && stopNotificationStatus == .idle) ? .running : runtimeStatus(for: stopNotificationStatus),
+                                  runtimeStatus: runtimeStatusAfterStop,
                                   updateRuntimeStatus: true)
                 if def.name == "codex", codexHasActiveBackgroundWork {
                     try? store.clearNotificationSummary(sessionId: sessionId)

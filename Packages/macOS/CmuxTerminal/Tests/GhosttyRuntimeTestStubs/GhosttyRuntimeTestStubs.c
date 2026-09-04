@@ -230,6 +230,17 @@ bool ghostty_surface_clear_selection(void *surface) {
     return false;
 }
 
+bool ghostty_surface_read_selection_clipboard_text(
+    void *surface,
+    uintptr_t max_bytes,
+    void *result
+) {
+    (void)surface;
+    (void)max_bytes;
+    (void)result;
+    return false;
+}
+
 void *ghostty_config_new(void) {
     return calloc(1, sizeof(GhosttyRuntimeTestConfig));
 }
