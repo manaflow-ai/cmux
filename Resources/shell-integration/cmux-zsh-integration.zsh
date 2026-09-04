@@ -409,6 +409,7 @@ _cmux_install_cli_wrapper() {
     local wrapper_variable="$2"
     local wrapper_file="${3:-$command_name}"
     local integration_dir="${CMUX_SHELL_INTEGRATION_DIR:-}"
+    local has_user_alias=0
     [[ -n "$integration_dir" ]] || return 0
 
     integration_dir="${integration_dir%/}"
@@ -416,11 +417,21 @@ _cmux_install_cli_wrapper() {
     local wrapper_path="$bundle_dir/bin/$wrapper_file"
     [[ -x "$wrapper_path" ]] || return 0
 
+    if (( ${+aliases[$command_name]} || ${+galiases[$command_name]} )); then
+        has_user_alias=1
+    fi
+
     # Keep the bundled wrapper ahead of later PATH mutations. Install it
     # via eval so an existing alias cannot break parsing.
     typeset -g "$wrapper_variable=$wrapper_path"
     if [[ "$command_name" == "claude" ]]; then
         _cmux_install_cli_command_shim "$command_name" "$wrapper_path"
+    fi
+    # A user alias is an explicit command contract (for example, selecting a
+    # different executable or adding default arguments). Preserve it while
+    # still refreshing cmux's wrapper path and per-surface shim above.
+    if (( has_user_alias )); then
+        return 0
     fi
     builtin unalias "$command_name" >/dev/null 2>&1 || true
     if [[ "$command_name" == "claude" ]]; then
@@ -429,8 +440,10 @@ _cmux_install_cli_wrapper() {
         eval "$command_name() { \"\${$wrapper_variable}\" \"\$@\"; }"
     fi
 }
-_cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
-_cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+# Keep these command names quoted: a pre-existing zsh global alias would
+# otherwise expand the argument before the installer can inspect it.
+_cmux_install_cli_wrapper 'claude' _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+_cmux_install_cli_wrapper 'grok' _CMUX_GROK_WRAPPER
 
 _cmux_normalize_claude_config_dir() {
     [[ -n "${CLAUDE_CONFIG_DIR:-}" && -n "${HOME:-}" ]] || return 0
@@ -1908,8 +1921,10 @@ _cmux_fix_path() {
             PATH="$(_cmux_path_prepend_unique_directory "$bin_dir" "${PATH-}" "$gui_dir")"
         fi
     fi
-    _cmux_install_cli_wrapper claude _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
-    _cmux_install_cli_wrapper grok _CMUX_GROK_WRAPPER
+    # Keep the command names quoted for the same pre-existing-global-alias
+    # case as the startup installation above.
+    _cmux_install_cli_wrapper 'claude' _CMUX_CLAUDE_WRAPPER cmux-claude-wrapper
+    _cmux_install_cli_wrapper 'grok' _CMUX_GROK_WRAPPER
     add-zsh-hook -d precmd _cmux_fix_path
 }
 
