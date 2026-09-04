@@ -23679,6 +23679,11 @@ impl App {
     }
 
     fn toggle_sidebar_view(&mut self) {
+        // Files and Workspaces share a host, so changing the mode replaces
+        // every row and scrollbar rectangle in that host. Release a capture
+        // before changing the mode; an old Files drag must never mutate the
+        // hidden browser after the host becomes Workspaces, or vice versa.
+        self.invalidate_pointer_topology();
         let sidebar_was_focused = self.sidebar_rail_focused();
         let next = self.sidebar_view.toggled();
         self.sidebar_view = next;
@@ -24206,11 +24211,8 @@ impl App {
         let mut rows: Vec<(usize, u16, u16)> = Vec::new();
         for (rect, hit) in &self.hits {
             let Hit::Workspace { index, id } = hit else { continue };
-            let Some(current_index) =
-                self.tree.workspaces().iter().position(|workspace| workspace.id == *id)
-            else {
-                return None;
-            };
+            let current_index =
+                self.tree.workspaces().iter().position(|workspace| workspace.id == *id)?;
             if *index != current_index || current_index >= len {
                 return None;
             }
@@ -32710,8 +32712,8 @@ mod tests {
             SidebarProfileSpec {
                 id: "second".into(),
                 name: "Second".into(),
-                views: second_views.clone(),
-                layout: second_layout.clone(),
+                views: second_views,
+                layout: second_layout,
             },
         ];
         app.config.sidebar.active_profile = "first".into();
@@ -44703,6 +44705,44 @@ mod tests {
     }
 
     #[test]
+    fn sidebar_view_toggle_cancels_old_pointer_capture_before_host_mode_change() {
+        let temp = test_temp_dir("sidebar-view-pointer-boundary");
+        for index in 0..5 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("sidebar-view-pointer-boundary-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 5,
+            visible_rows: 2,
+            anchor_y: 1,
+            anchor_offset: 0,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+        let generation = app.pointer_focus_generation;
+        let offset = app.sidebar_files.scroll_offset();
+
+        app.run_action(Action::ToggleSidebarView).unwrap();
+
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert!(app.drag.is_none(), "mode changes must release old Files captures");
+        assert!(app.active_pointer_buttons.is_empty());
+        assert_ne!(app.pointer_focus_generation, generation);
+        app.handle_left_drag(20, 4).unwrap();
+        assert_eq!(app.sidebar_files.scroll_offset(), offset);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn tree_refresh_cancels_native_sidebar_capture_before_new_rows() {
         let mux = Mux::new("tree-sidebar-pointer-boundary-test", SurfaceOptions::default());
         mux.new_workspace(Some("first".into()), None).unwrap();
@@ -50181,7 +50221,7 @@ mod tests {
         app.config.sidebar.profiles = vec![profile.clone()];
         app.config.sidebar.active_profile = profile.id.clone();
         app.config.sidebar.views = profile.views.clone();
-        app.config.sidebar.layout = profile.layout.clone();
+        app.config.sidebar.layout = profile.layout;
         app.config.sidebar.views_explicit = true;
         app.config.sidebar.row_height = 1;
         app.config.sidebar.row_gap = 2;
