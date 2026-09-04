@@ -58,52 +58,40 @@ enum SyntheticKeyEventFactory {
     /// automation share one native mapping instead of maintaining two event
     /// pipelines.
     static func specification(forBrowserEvent event: BrowserKeyboardEvent) -> SyntheticKeySpecification? {
-        let keyToken: String
-        switch event.code {
-        case "ArrowLeft": keyToken = "left"
-        case "ArrowRight": keyToken = "right"
-        case "ArrowUp": keyToken = "up"
-        case "ArrowDown": keyToken = "down"
-        case "Enter", "NumpadEnter": keyToken = "return"
-        case "Tab": keyToken = "tab"
-        case "Escape": keyToken = "escape"
-        case "Backspace": keyToken = "delete"
-        case "Delete": keyToken = "forward_delete"
-        case "Home", "Numpad7": keyToken = "home"
-        case "End", "Numpad1": keyToken = "end"
-        case "PageUp", "Numpad9": keyToken = "page_up"
-        case "PageDown", "Numpad3": keyToken = "page_down"
-        case "Insert", "Numpad0": keyToken = "insert"
-        case "ShiftLeft": keyToken = "shift_left"
-        case "ShiftRight": keyToken = "shift_right"
-        case "ControlLeft": keyToken = "control_left"
-        case "ControlRight": keyToken = "control_right"
-        case "AltLeft": keyToken = "option_left"
-        case "AltRight": keyToken = "option_right"
-        case "MetaLeft": keyToken = "command_left"
-        case "MetaRight": keyToken = "command_right"
-        case "Numpad8": keyToken = "up"
-        case "Numpad2": keyToken = "down"
-        case "Numpad4": keyToken = "left"
-        case "Numpad6": keyToken = "right"
-        case "Numpad5": keyToken = "clear"
-        case "NumpadDivide": keyToken = "num_divide"
-        case "NumpadMultiply": keyToken = "num_multiply"
-        case "NumpadSubtract": keyToken = "num_minus"
-        case "NumpadAdd": keyToken = "num_plus"
-        case "NumpadDecimal": keyToken = "num_decimal"
-        case "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12":
-            keyToken = event.code
-        default:
-            if event.key.count == 1,
-               let character = event.key.first,
-               let printable = specification(forASCIICharacter: character) {
-                return printable
-            }
-            keyToken = event.key
-        }
+        guard let nativeKey = event.nativeKey else { return nil }
+        return specification(forBrowserNativeKey: nativeKey)
+    }
 
-        return specification(key: keyToken, modifierFlags: [])
+    /// Converts the browser package's platform-neutral descriptor into the
+    /// AppKit representation consumed by CGEvent construction.
+    static func specification(
+        forBrowserNativeKey key: BrowserKeyboardNativeKey,
+        additionalModifierFlags: NSEvent.ModifierFlags = []
+    ) -> SyntheticKeySpecification {
+        let flags = appKitModifierFlags(for: key.modifiers).union(additionalModifierFlags)
+
+        return SyntheticKeySpecification(
+            storedKey: key.charactersIgnoringModifiers ?? "",
+            keyCode: key.keyCode,
+            modifierFlags: flags,
+            characters: key.characters ?? "",
+            charactersIgnoringModifiers: key.charactersIgnoringModifiers ?? ""
+        )
+    }
+
+    /// Converts the browser package's modifier bitset into AppKit flags.
+    static func appKitModifierFlags(
+        for modifiers: BrowserKeyboardNativeModifiers
+    ) -> NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if modifiers.contains(.shift) { flags.insert(.shift) }
+        if modifiers.contains(.control) { flags.insert(.control) }
+        if modifiers.contains(.option) { flags.insert(.option) }
+        if modifiers.contains(.command) { flags.insert(.command) }
+        if modifiers.contains(.numericPad) { flags.insert(.numericPad) }
+        if modifiers.contains(.capsLock) { flags.insert(.capsLock) }
+        if modifiers.contains(.function) { flags.insert(.function) }
+        return flags
     }
 
     static func specification(forASCIICharacter character: Character) -> SyntheticKeySpecification? {
@@ -250,6 +238,7 @@ enum SyntheticKeyEventFactory {
         if modifiers.contains(.shift) { flags.insert(.maskShift) }
         if modifiers.contains(.capsLock) { flags.insert(.maskAlphaShift) }
         if modifiers.contains(.function) { flags.insert(.maskSecondaryFn) }
+        if modifiers.contains(.numericPad) { flags.insert(.maskNumericPad) }
         return flags
     }
 

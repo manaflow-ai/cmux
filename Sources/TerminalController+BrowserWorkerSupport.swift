@@ -1,6 +1,197 @@
+import CmuxBrowser
+import CmuxControlSocket
 import Foundation
 
 extension TerminalController {
+    /// Returns the native-replay action represented by a browser keyboard method.
+    nonisolated func browserKeyboardAction(
+        for method: String
+    ) -> BrowserKeyboardAction? {
+        switch method {
+        case "browser.press": return .press
+        case "browser.keydown": return .keyDown
+        case "browser.keyup": return .keyUp
+        default: return nil
+        }
+    }
+
+    /// Runs one mapped browser key through the MainActor/WebKit seam and encodes
+    /// its typed result without parking the socket worker on a semaphore.
+    nonisolated func v2BrowserKeyboardNativeResponse(
+        request: ControlRequest,
+        event: BrowserKeyboardEvent,
+        action: BrowserKeyboardAction
+    ) async -> String {
+        let params = request.params.mapValues(\.foundationObject)
+        let allowsFocusMutation = Self.socketCommandAllowsInAppFocusMutations(
+            commandKey: request.method,
+            isV2: true,
+            params: params
+        )
+        let result = await CmuxAutomationInvocationContext.$focusAllowed.withValue(allowsFocusMutation) {
+            await Task { @MainActor [weak self] in
+                guard let self else {
+                    return ControlCallResult.err(
+                        code: "unavailable",
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        ),
+                        data: nil
+                    )
+                }
+                return await self.v2BrowserKeyboardNativeResult(
+                    request: request,
+                    event: event,
+                    action: action
+                )
+            }.value
+        }
+        var resolvedResult = result
+        // The existing accessibility snapshot implementation is a worker-lane
+        // operation. Keep the optional `snapshot_after` contract intact by
+        // invoking that established bridge only after the non-blocking native
+        // key delivery has completed; the readiness/input path above remains
+        // fully async and never waits on a semaphore.
+        if case .ok(let jsonPayload) = result,
+           v2Bool(params, "snapshot_after") == true,
+           let payload = jsonPayload.foundationObject as? [String: Any],
+           let rawSurfaceID = payload["surface_id"] as? String,
+           let surfaceID = UUID(uuidString: rawSurfaceID) {
+            var mutablePayload = payload
+            v2BrowserAppendPostSnapshot(
+                params: params,
+                surfaceId: surfaceID,
+                payload: &mutablePayload
+            )
+            if let snapshotPayload = JSONValue(foundationObject: mutablePayload) {
+                resolvedResult = .ok(snapshotPayload)
+            }
+        }
+        return Self.v2Encoder.response(id: request.id, resolvedResult)
+    }
+
+    /// Executes a mapped browser key on the main actor after an asynchronous
+    /// document-readiness wait. The typed result crosses back to the socket
+    /// worker without carrying AppKit/WebKit objects or blocking a thread.
+    @MainActor
+    func v2BrowserKeyboardNativeResult(
+        request: ControlRequest,
+        event: BrowserKeyboardEvent,
+        action: BrowserKeyboardAction
+    ) async -> ControlCallResult {
+        let params = request.params.mapValues(\.foundationObject)
+        // The synchronous worker router refreshes handle aliases before every
+        // browser command. Preserve that target-resolution invariant on this
+        // asynchronous path without a second actor hop.
+        v2RefreshKnownRefs()
+        guard let tabManager = v2ResolveTabManager(params: params) else {
+            return .err(
+                code: "unavailable",
+                message: String(
+                    localized: "cli.browser.error.tabManagerUnavailable",
+                    defaultValue: "Browser controls are unavailable"
+                ),
+                data: nil
+            )
+        }
+
+        let resolved = v2ResolveBrowserPanelContext(
+            params: params,
+            tabManager: tabManager
+        )
+        if let error = resolved.error,
+           case let .err(code, message, data) = error {
+            return .err(
+                code: code,
+                message: message,
+                data: data.flatMap(JSONValue.init(foundationObject:))
+            )
+        }
+        guard let context = resolved.context else {
+            return .err(
+                code: "internal_error",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
+        }
+
+        let expectedWebViewIdentifier = ObjectIdentifier(context.webView)
+        switch await context.browserPanel.ensureAutomationDocumentReady(
+            expectedWebViewIdentifier: expectedWebViewIdentifier,
+            reason: "automation-keyboard"
+        ) {
+        case .timedOut:
+            return .err(
+                code: "timeout",
+                message: String(
+                    localized: "browser.automation.error.documentReadinessTimedOut",
+                    defaultValue: "Timed out waiting for the browser document to become ready"
+                ),
+                data: .object(["surface_id": .string(context.surfaceId.uuidString)])
+            )
+        case .superseded:
+            return .err(
+                code: "stale_state",
+                message: String(
+                    localized: "browser.automation.error.superseded",
+                    defaultValue: "The browser surface was already recovered. Retry the command."
+                ),
+                data: .object(["surface_id": .string(context.surfaceId.uuidString)])
+            )
+        case .cancelled:
+            return .err(
+                code: "cancelled",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: nil
+            )
+        case .committed:
+            break
+        }
+
+        guard context.browserPanel.webView === context.webView else {
+            return .err(
+                code: "stale_state",
+                message: String(
+                    localized: "browser.automation.error.superseded",
+                    defaultValue: "The browser surface was already recovered. Retry the command."
+                ),
+                data: .object(["surface_id": .string(context.surfaceId.uuidString)])
+            )
+        }
+
+        switch context.webView.replayBrowserKeyboardEvent(event, action: action) {
+        case .delivered:
+            let workspaceRef = v2EnsureHandleRef(kind: .workspace, uuid: context.workspaceId)
+            let surfaceRef = v2EnsureHandleRef(kind: .surface, uuid: context.surfaceId)
+            return .ok(.object([
+                "workspace_id": .string(context.workspaceId.uuidString),
+                "workspace_ref": .string(workspaceRef),
+                "surface_id": .string(context.surfaceId.uuidString),
+                "surface_ref": .string(surfaceRef)
+            ]))
+        case .unsupported, .eventCreationFailed:
+            // This method is called only after the package reports a native
+            // descriptor. Reaching either case means the AppKit adapter could
+            // not honor the trusted-input contract; never downgrade to a DOM
+            // KeyboardEvent here.
+            return .err(
+                code: "internal_error",
+                message: String(
+                    localized: "cli.browser.error.operationFailed",
+                    defaultValue: "Browser operation failed"
+                ),
+                data: .object(["surface_id": .string(context.surfaceId.uuidString)])
+            )
+        }
+    }
+
     nonisolated func v2BrowserPanelFields(
         _ context: V2BrowserPanelContext,
         adding fields: [String: Any] = [:]

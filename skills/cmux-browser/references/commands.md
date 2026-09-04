@@ -93,7 +93,9 @@ use the native WebKit input path, preserving browser defaults such as
 contenteditable caret movement, selection, scrolling, and control activation;
 opaque tokens use a page-event compatibility fallback. `Space`, `Spacebar`,
 and `space` emit DOM key `" "` with code `"Space"`; use `--key ' '` to pass
-the raw DOM key.
+the raw DOM key. Use `keydown Shift`/`keyup Shift` (or another supported
+modifier) around an arrow press when a page editor should extend a selection;
+the modifier state is retained per browser surface.
 
 ## Wait
 

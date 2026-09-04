@@ -675,6 +675,29 @@ final class BrowserFixtureInteractionUITests: BrowserFixtureSocketTestCase {
         XCTAssertEqual(after["arrowKeydownCount"] as? Int, 1)
     }
 
+    /// A held modifier must travel through AppKit's flagsChanged path so
+    /// WebKit extends a contenteditable selection instead of merely moving
+    /// the caret.
+    func testContenteditableShiftArrowDownExtendsSelectionWithTrustedInput() throws {
+        try launchApp()
+        let sid = try openFixture("contenteditable-arrow")
+
+        try socketResult(method: "browser.focus", params: ["surface_id": sid, "selector": "#editor"])
+        try socketResult(method: "browser.keydown", params: ["surface_id": sid, "key": "Shift"])
+        try socketResult(method: "browser.press", params: ["surface_id": sid, "key": "ArrowDown"])
+        try socketResult(method: "browser.keyup", params: ["surface_id": sid, "key": "Shift"])
+
+        let after = try XCTUnwrap(
+            try evalValue("window.__cmuxArrowState()", surfaceID: sid) as? [String: Any],
+            "Expected selection state after Shift+ArrowDown"
+        )
+        XCTAssertEqual(after["anchorLine"] as? Int, 0)
+        XCTAssertEqual(after["focusLine"] as? Int, 1)
+        XCTAssertEqual(after["lastArrowTrusted"] as? Bool, true)
+        XCTAssertEqual(after["lastArrowShift"] as? Bool, true)
+        XCTAssertEqual(after["arrowKeydownCount"] as? Int, 1)
+    }
+
     func testKeyboardWidget() throws {
         try launchApp()
         let sid = try openFixture("keyboard-widget")

@@ -1,4 +1,5 @@
 import CmuxControlSocket
+import CmuxBrowser
 import Foundation
 
 /// Async socket-dispatch helpers kept separate from the legacy synchronous
@@ -65,6 +66,16 @@ extension TerminalController {
             ) {
                 return focusError
             }
+            if let workspaceParamError = v2UnsupportedWorkspaceAliasError(
+                method: authorizedRequest.method,
+                params: authorizedRequest.params.mapValues(\.foundationObject)
+            ) {
+                return v2Result(
+                    id: authorizedRequest.id?.foundationObject,
+                    workspaceParamError
+                )
+            }
+
             let policy = Self.executionPolicy(forV2Method: authorizedRequest.method)
             return await CmuxAutomationInvocationContext.$eventOrigin.withValue(automationOrigin) {
                 await withSocketCommandPolicyAsync(
@@ -72,6 +83,21 @@ extension TerminalController {
                     isV2: true,
                     params: authorizedRequest.params
                 ) {
+                    // Native browser keys stay on the asynchronous MainActor
+                    // path: WebKit/AppKit require main-actor delivery, while
+                    // the socket worker remains suspendable during readiness.
+                    // Opaque keys intentionally continue through the legacy
+                    // compatibility worker handler.
+                    if let action = self.browserKeyboardAction(for: authorizedRequest.method),
+                       let rawKey = authorizedRequest.params["key"]?.foundationObject as? String,
+                       let event = BrowserKeyboardEvent(rawKey: rawKey),
+                       event.nativeKey != nil {
+                        return await self.v2BrowserKeyboardNativeResponse(
+                            request: authorizedRequest,
+                            event: event,
+                            action: action
+                        )
+                    }
                     if policy.runsOnSocketWorker {
                         return await self.socketWorkerV2ResponseAsync(authorizedRequest)
                     }

@@ -6936,32 +6936,18 @@ class TerminalController {
         var readinessTask: Task<Void, Never>?
         let outcome: BrowserAutomationDocumentReadinessOutcome? = v2AwaitCallback(timeout: timeout) { finish in
             readinessTask = Task { @MainActor in
-                guard ObjectIdentifier(browserPanel.webView) == expectedWebViewIdentifier,
-                      let blankURL = URL(string: "about:blank") else {
-#if DEBUG
-                    cmuxDebugLog("browser.jsCommit.locateFailed surface=\(surfaceId.uuidString.prefix(5))")
-#endif
+                switch await browserPanel.ensureAutomationDocumentReady(
+                    expectedWebViewIdentifier: expectedWebViewIdentifier,
+                    timeout: .seconds(timeout),
+                    reason: reason
+                ) {
+                case .committed:
+                    finish(.committed)
+                case .superseded:
                     finish(.superseded)
-                    return
+                case .cancelled, .timedOut:
+                    finish(.cancelled)
                 }
-                let currentWebView = browserPanel.webView
-
-                if currentWebView.url == nil,
-                   !currentWebView.isLoading,
-                   currentWebView.backForwardList.currentItem == nil {
-                    // Discarded tabs preserve the user's page intent. Restore it before
-                    // falling back to a real about:blank document for an empty new tab.
-                    let restored = browserPanel.restoreDiscardedWebViewIfNeeded(reason: reason)
-                    if !restored, let preserved = browserPanel.currentURL {
-                        browserPanel.navigate(to: preserved)
-                    } else if !restored || BrowserPanel.isAboutBlankURL(browserPanel.currentURL) {
-                        browserPanel.navigate(to: blankURL)
-                    }
-                }
-
-                finish(await browserPanel.waitForAutomationDocumentCommit(
-                    expectedWebViewIdentifier: expectedWebViewIdentifier
-                ))
             }
         }
         if outcome == nil {
@@ -7917,7 +7903,7 @@ class TerminalController {
         return .err(code: "not_found", message: message, data: data)
     }
 
-    private nonisolated func v2BrowserAppendPostSnapshot(
+    nonisolated func v2BrowserAppendPostSnapshot(
         params: [String: Any],
         surfaceId: UUID,
         payload: inout [String: Any]
@@ -8700,6 +8686,8 @@ class TerminalController {
         v2BrowserKeyboardAction(params: params, action: .keyUp)
     }
 
+    /// Handles one browser keyboard RPC, using native WebKit input for mapped
+    /// keys and retaining the DOM compatibility path for opaque values.
     private nonisolated func v2BrowserKeyboardAction(
         params: [String: Any],
         action: BrowserKeyboardAction
@@ -8707,39 +8695,65 @@ class TerminalController {
         guard let event = BrowserKeyboardEvent(rawKey: v2RawString(params, "key")) else {
             return .err(code: "invalid_params", message: "Missing key", data: nil)
         }
+
+        // A native descriptor is the only path that can provide trusted WebKit
+        // defaults. Socket traffic uses the asynchronous readiness path in
+        // `ControlSocketAsync`; this synchronous adapter is retained only for
+        // in-process callers that are already on the main thread.
+        if event.nativeKey != nil {
+            guard Thread.isMainThread else {
+                return .err(
+                    code: "invalid_dispatch",
+                    message: String(
+                        localized: "cli.browser.error.operationFailed",
+                        defaultValue: "Browser operation failed"
+                    ),
+                    data: nil
+                )
+            }
+            return v2BrowserWithPanelContext(params: params) { ctx in
+                guard ctx.browserPanel.hasCommittedDocumentSinceWebViewReplacement ||
+                        ctx.webView.backForwardList.currentItem != nil else {
+                    return .err(
+                        code: "timeout",
+                        message: String(
+                            localized: "browser.automation.error.documentReadinessTimedOut",
+                            defaultValue: "Timed out waiting for the browser document to become ready"
+                        ),
+                        data: ["surface_id": ctx.surfaceId.uuidString]
+                    )
+                }
+
+                switch ctx.webView.replayBrowserKeyboardEvent(event, action: action) {
+                case .delivered:
+                    var payload: [String: Any] = [
+                        "workspace_id": ctx.workspaceId.uuidString,
+                        "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
+                        "surface_id": ctx.surfaceId.uuidString,
+                        "surface_ref": v2Ref(kind: .surface, uuid: ctx.surfaceId)
+                    ]
+                    v2BrowserAppendPostSnapshot(params: params, surfaceId: ctx.surfaceId, payload: &payload)
+                    return .ok(payload)
+                case .unsupported, .eventCreationFailed:
+                    // The descriptor was resolved before entering this branch;
+                    // a failed native delivery must not silently become an
+                    // untrusted page-world KeyboardEvent.
+                    return .err(
+                        code: "internal_error",
+                        message: String(
+                            localized: "cli.browser.error.operationFailed",
+                            defaultValue: "Browser operation failed"
+                        ),
+                        data: ["surface_id": ctx.surfaceId.uuidString]
+                    )
+                }
+            }
+        }
+
+        // Preserve the historical compatibility path for opaque key tokens
+        // that have no macOS virtual-key representation.
         return v2BrowserWithPanelContext(params: params) { ctx in
             let surfaceId = ctx.surfaceId
-
-            // Native AppKit delivery is the authoritative path for browser
-            // keyboard automation. WebKit marks events that arrive through
-            // `keyDown(with:)` as trusted and runs native editing defaults;
-            // dispatching a DOM KeyboardEvent from page JavaScript cannot do
-            // either (notably for vertical contenteditable navigation).
-            let documentReady = v2EnsureBrowserDocumentLoaded(
-                ctx.webView,
-                browserPanel: ctx.browserPanel,
-                surfaceId: surfaceId,
-                reason: "automation-keyboard"
-            )
-            let nativeDelivered = documentReady && v2MainSync {
-                guard ctx.browserPanel.webView === ctx.webView else { return false }
-                return ctx.webView.replayBrowserKeyboardEvent(event, action: action)
-            }
-            if nativeDelivered {
-                var payload: [String: Any] = [
-                    "workspace_id": ctx.workspaceId.uuidString,
-                    "workspace_ref": v2Ref(kind: .workspace, uuid: ctx.workspaceId),
-                    "surface_id": surfaceId.uuidString,
-                    "surface_ref": v2Ref(kind: .surface, uuid: surfaceId)
-                ]
-                v2BrowserAppendPostSnapshot(params: params, surfaceId: surfaceId, payload: &payload)
-                return .ok(payload)
-            }
-
-            // Keep the historical page-event path for unknown key tokens that
-            // have no macOS virtual-key representation. This is a compatibility
-            // escape hatch; all canonical keys (including arrows) use native
-            // delivery above.
             let script = v2BrowserControl.keyboardScript(action: action, event: event)
             switch v2RunBrowserJavaScript(ctx.webView, browserPanel: ctx.browserPanel, surfaceId: surfaceId, script: script) {
             case .failure(let message):

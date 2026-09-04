@@ -49,19 +49,38 @@ struct MobileBrowserInputReplayer {
         webView.scrollWheel(with: event)
     }
 
+    /// Replays one mobile browser key using the shared native WebKit seam.
+    ///
+    /// - Parameters:
+    ///   - input: Canonical mobile key and modifier metadata.
+    ///   - webView: The browser surface that owns the input.
+    /// - Throws: ``MobileBrowserInputReplayError`` when the key is invalid or
+    ///   AppKit cannot create the native event.
     func replayKey(_ input: MobileBrowserKeyInput, in webView: WKWebView) throws {
         guard let specification = SyntheticKeyEventFactory.specification(
             key: input.key,
             modifierNames: input.modifiers
         ) else { throw MobileBrowserInputReplayError.invalidKey }
-        guard webView.replayBrowserKeyboardSpecification(
+        switch webView.replayBrowserKeyboardSpecification(
             specification,
             action: .press
-        ) else {
+        ) {
+        case .delivered:
+            break
+        case .unsupported:
+            throw MobileBrowserInputReplayError.invalidKey
+        case .eventCreationFailed:
             throw MobileBrowserInputReplayError.eventCreationFailed
         }
     }
 
+    /// Replays text through native ASCII key events and the existing Unicode
+    /// insertion path for characters without a direct macOS key mapping.
+    ///
+    /// - Parameters:
+    ///   - input: Text payload to insert.
+    ///   - webView: The browser surface that owns the input.
+    /// - Throws: ``MobileBrowserInputReplayError`` when insertion fails.
     func replayText(_ input: MobileBrowserTextInput, in webView: WKWebView) async throws {
         var scriptInsertedText = ""
         for character in input.text {
@@ -73,11 +92,16 @@ struct MobileBrowserInputReplayer {
                 guard let specification = SyntheticKeyEventFactory.specification(forASCIICharacter: character) else {
                     throw MobileBrowserInputReplayError.invalidKey
                 }
-                guard webView.replayBrowserKeyboardSpecification(
+                switch webView.replayBrowserKeyboardSpecification(
                     specification,
                     action: .press,
                     characters: specification.characters
-                ) else {
+                ) {
+                case .delivered:
+                    break
+                case .unsupported:
+                    throw MobileBrowserInputReplayError.invalidKey
+                case .eventCreationFailed:
                     throw MobileBrowserInputReplayError.eventCreationFailed
                 }
             } else {
