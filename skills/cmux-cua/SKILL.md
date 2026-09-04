@@ -35,18 +35,24 @@ restarting cmux. Upstream telemetry and update checks are disabled at runtime.
   `/tmp/cmux-cua-<uid>/<scope>/cmux-cua.sock`; the Codex compatibility daemon uses
   `cmux-cua-codex.sock` beside it. Both fit Darwin's Unix-socket path limit and share
   the tag-scoped cmux Application Support state directory.
-- The wrappers keep the signed, app-bundled skill discoverable in both agent
-  pickers: each repairs the link in its agent's own root before launching —
-  `~/.claude/skills/cmux-cua` for Claude, `~/.agents/skills/cmux-cua` for
-  Codex (migrating any older cmux-owned `cmux-computer-use` link) — so the
-  picker shows one plain `cmux-cua` entry. Codex falls back to an
-  invocation-scoped `skills.config` entry only when that repair fails; there
-  is deliberately no Claude plugin fallback and no plugin manifest in this
-  directory, because a manifest makes Codex namespace the skill
-  (`cmux-cua:cmux-cua`) and Claude display it plugin-qualified. A user-owned
-  directory or unrelated symlink at that path is never replaced. Set
-  `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` when a strictly session-local
-  launch is required.
+- The wrappers use a session-scoped skill by default: Codex receives a
+  path-scoped `skills.config` entry and Claude receives a single-token
+  `--add-dir=<path>` projection. Starting an agent therefore does not create
+  or repair a user-global picker link. Set
+  `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` only when a durable global entry is
+  desired; it links the app-bundled document into the provider's own root
+  (`~/.agents/skills/cmux-cua` for Codex or `~/.claude/skills/cmux-cua` for
+  Claude). Launch-time migration removes or retargets only links proven to be
+  cmux-managed, including the legacy `cmux-computer-use` and `codex-cua`
+  aliases. User-owned directories, unrelated symlinks, and project skills are
+  preserved. A project or user-owned same-name skill keeps precedence, and the
+  session fallback is suppressed when it would add a duplicate picker row;
+  project mirrors that resolve to the bundled document remain one canonical
+  identity. There is deliberately no plugin fallback or plugin manifest in
+  this directory, because a manifest namespaces Codex's skill
+  (`cmux-cua:cmux-cua`) and qualifies it in Claude. Relaunching a cmux agent
+  safely remediates existing managed links; paths with unproven ownership are
+  left untouched for manual review.
 - While Computer Use is enabled, the helper daemon starts quietly at cmux
   startup with its internal permission gate disabled. Starting cmux or an agent
   never requests access or shows onboarding.

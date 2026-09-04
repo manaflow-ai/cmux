@@ -21,20 +21,24 @@ helper.
 
 Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
 replace that plugin: it supplies its own local MCP server and the
-`$cmux-cua` skill. Each agent wrapper repairs the app-bundled skill link in
-its agent's own discovery root before launching — `~/.claude/skills/cmux-cua`
-for Claude, `~/.agents/skills/cmux-cua` for Codex (migrating any older
-cmux-owned `~/.agents/skills/cmux-computer-use` link) — so both pickers see
-the same skill as a single plain `cmux-cua` entry. Codex's invocation-scoped
-`skills.config` injection is only a fallback for when that link cannot be
-installed; Claude has no session fallback, and the skill directory ships no
-plugin manifest — Codex treats `.claude-plugin/plugin.json` as a plugin
-manifest and would namespace the skill as `cmux-cua:cmux-cua`. No
-`npx skills add` step is required; a
-new agent session is enough after a cmux build. cmux refreshes only a symlink
-that already points at a cmux app bundle and never overwrites a user-owned
-skill directory or unrelated symlink. Set
-`CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=0` for a strictly session-local launch.
+`$cmux-cua` skill. Agent launches are session-scoped by default: Codex gets a
+path-scoped `skills.config` entry and Claude gets a temporary `--add-dir=<path>`
+projection, so starting an agent does not create or repair a user-global skill.
+For users who want a durable picker entry, set
+`CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` explicitly; the wrapper then links
+only its own root (`~/.agents/skills/cmux-cua` for Codex or
+`~/.claude/skills/cmux-cua` for Claude). On each cmux launch, migration removes
+or retargets only links proven to point at a cmux app (including the legacy
+`cmux-computer-use` and `codex-cua` aliases); real directories, unrelated
+symlinks, and project skills are never overwritten or removed. Project and
+user-owned same-name skills retain precedence, and the session fallback is
+withheld when it would create a second `cmux-cua` row. A project mirror that
+resolves to the bundled document is one canonical identity, so it remains one
+entry. The skill directory ships no plugin manifest — Codex treats
+`.claude-plugin/plugin.json` as a plugin manifest and would namespace the skill
+as `cmux-cua:cmux-cua`. No `npx skills add` step is required; relaunching a
+cmux agent performs the safe remediation for existing managed links. Links
+whose ownership cannot be proved are left for the user to review.
 
 While Codex runs inside a cmux terminal, its CLI also Apple-Events its own
 "Codex Computer Use" (`com.openai.sky.CUAService`) helper. macOS attributes
