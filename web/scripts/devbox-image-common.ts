@@ -34,6 +34,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "cmux-bashrc",
   "cmux-devbox-boot",
   "cmux-motd",
+  "cmux-terminfo.sh",
   "cmux-terminfo.src",
   "seed-history",
 ] as const;

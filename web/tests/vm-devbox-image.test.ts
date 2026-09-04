@@ -77,6 +77,7 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-terminfo.sh",
       "cmux-terminfo.src",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
@@ -90,13 +91,14 @@ describe("devbox image template", () => {
       "cmux-bashrc",
       "cmux-devbox-boot",
       "cmux-motd",
+      "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "seed-history",
     ]);
   });
 
   test("every shell file parses", () => {
-    for (const name of ["cmux-bashrc", "agent-config.sh"]) {
+    for (const name of ["cmux-bashrc", "agent-config.sh", "cmux-terminfo.sh"]) {
       const result = spawnSync("bash", ["-n", path.join(templateDir, name)]);
       expect({ name, status: result.status }).toEqual({ name, status: 0 });
     }
@@ -678,8 +680,10 @@ describe("devbox terminfo overlay", () => {
     const bake = readScript("build-devbox-freestyle.ts");
     expect(bake.indexOf('await step("terminfo"')).toBeGreaterThan(0);
     expect(bake.indexOf('await step("terminfo"')).toBeLessThan(bake.indexOf('await step(\n    "devshell"'));
+    expect(bake).toContain('await put("cmux-terminfo.sh", "/etc/profile.d/cmux-terminfo.sh")');
     expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeGreaterThan(0);
     expect(dockerfile.indexOf("tic -x -o /etc/terminfo")).toBeLessThan(dockerfile.indexOf("blesh-cache-seed"));
     expect(dockerfile).toContain("xterm-ghostty; do");
+    expect(readFileSync(path.join(templateDir, "cmux-terminfo.sh"), "utf8")).toContain("TERMINFO=/etc/terminfo");
   });
 });

@@ -236,6 +236,7 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY seed-history /etc/cmux/seed-history
+COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
 # The cmux app's terminfo overlay (Resources/terminfo-overlay as infocmp
 # source): Ghostty's entry under xterm-ghostty and under xterm-256color, the
 # TERM cmux exports, with bright colors 8-15 as indexed 38;5;n. Guest

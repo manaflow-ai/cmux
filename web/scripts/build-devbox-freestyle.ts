@@ -284,6 +284,7 @@ try {
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("seed-history", "/etc/cmux/seed-history");
+  await put("cmux-terminfo.sh", "/etc/profile.d/cmux-terminfo.sh");
   await put("cmux-terminfo.src", "/etc/cmux/terminfo.src");
   await step("terminfo", devboxTerminfoInstallCommand);
   await step(
