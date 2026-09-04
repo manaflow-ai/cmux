@@ -423,6 +423,7 @@ extension BrowserPanel {
     }
 
     func toggleOrInjectReactGrab() async {
+        guard !isChromiumBacked else { return }
         if isReactGrabActive {
             toggleReactGrab()
         } else {
@@ -432,6 +433,7 @@ extension BrowserPanel {
     }
 
     func ensureReactGrabActive() async {
+        guard !isChromiumBacked else { return }
         guard await prepareForReactGrabActivation(reason: "reactGrab.ensureActive") else { return }
         if isReactGrabActive {
             guard pendingReactGrabRoundTripToken != nil else { return }

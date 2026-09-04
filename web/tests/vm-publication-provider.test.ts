@@ -107,7 +107,7 @@ function fakeClient(
       domain: string;
       createdAt: string;
       verifiedBy: string;
-    }>; 
+    }>;
     readonly certificateList?: () => Promise<CertificateInfo[]>;
     readonly wildcardCreate?: (domain: string) => Promise<CertificateInfo>;
   } = {},

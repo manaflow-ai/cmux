@@ -4,7 +4,9 @@ import Foundation
 @MainActor
 final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var paneCreateResolution: ControlPaneCreateResolution = .tabManagerUnavailable
+    var paneCreateInputs: ControlPaneCreateInputs?
     var createResolution: ControlSurfaceCreateResolution = .tabManagerUnavailable
+    var surfaceCreateInputs: ControlSurfaceCreateInputs?
     var surfaceListSnapshot: ControlSurfaceListSnapshot?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
@@ -54,14 +56,16 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
         routing: ControlRoutingSelectors,
         inputs: ControlPaneCreateInputs
     ) -> ControlPaneCreateResolution {
-        paneCreateResolution
+        paneCreateInputs = inputs
+        return paneCreateResolution
     }
 
     func controlSurfaceCreate(
         routing: ControlRoutingSelectors,
         inputs: ControlSurfaceCreateInputs
     ) -> ControlSurfaceCreateResolution {
-        createResolution
+        surfaceCreateInputs = inputs
+        return createResolution
     }
 
     func controlSurfaceResumeSet(

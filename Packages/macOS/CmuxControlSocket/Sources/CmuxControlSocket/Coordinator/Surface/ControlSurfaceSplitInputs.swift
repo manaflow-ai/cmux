@@ -1,4 +1,5 @@
 public import Foundation
+public import CmuxBrowser
 
 /// The pre-parsed inputs for `surface.split`, lifted from the legacy
 /// `v2SurfaceSplit` body's param parsing.
@@ -15,6 +16,8 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
     public let typeRaw: String?
     /// The raw `url` string, or `nil`.
     public let urlRaw: String?
+    /// The explicit browser engine override, or `nil` to inherit settings.
+    public let engine: BrowserEngineKind?
     /// The requested source `surface_id`, or `nil` to split the focused surface.
     public let requestedSourceSurfaceID: UUID?
     /// The trimmed-non-empty `working_directory`, or `nil`.
@@ -41,6 +44,7 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
         directionRaw: String,
         typeRaw: String?,
         urlRaw: String?,
+        engine: BrowserEngineKind? = nil,
         requestedSourceSurfaceID: UUID?,
         workingDirectory: String?,
         initialCommand: String?,
@@ -55,6 +59,7 @@ public struct ControlSurfaceSplitInputs: Sendable, Equatable {
         self.directionRaw = directionRaw
         self.typeRaw = typeRaw
         self.urlRaw = urlRaw
+        self.engine = engine
         self.requestedSourceSurfaceID = requestedSourceSurfaceID
         self.workingDirectory = workingDirectory
         self.initialCommand = initialCommand
