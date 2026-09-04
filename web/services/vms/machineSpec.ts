@@ -44,7 +44,7 @@ export type VmSharedResourceName = keyof VmResourceReservation;
  * outside these bounds instead of treating it as a real machine shape.
  */
 export const VM_PROVIDER_RESOURCE_BOUNDS = {
-  vcpus: { min: 2, max: 32 },
+  vcpus: { min: 1, max: 32 },
   memoryMb: { min: 4 * 1024, max: 64 * 1024 },
   diskMb: { min: 16 * 1024, max: VM_DISK_MB_MAX },
 } as const satisfies Record<VmSharedResourceName, { min: number; max: number }>;
