@@ -52,6 +52,20 @@ describe("coderouter OpenCode Go proxy", () => {
     expect(__test.safeProviderURL("https://127.0.0.1/v1")).toBe(false);
     expect(__test.safeProviderURL("https://10.0.0.1/v1")).toBe(false);
     expect(__test.safeProviderURL("https://192.168.1.4/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://169.254.169.254/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://100.64.0.1/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://[fe80::1]/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://[fd00::1]/v1")).toBe(false);
+    expect(__test.safeProviderURL("https://[::ffff:127.0.0.1]/v1")).toBe(false);
+  });
+
+  test("rejects provider hostnames that resolve to private addresses", async () => {
+    await expect(__test.resolveProviderURL("https://provider.example/v1", async () => [
+      { address: "169.254.169.254", family: 4 },
+    ])).resolves.toBeNull();
+    await expect(__test.resolveProviderURL("https://provider.example/v1", async () => [
+      { address: "2001:db8::10", family: 6 },
+    ])).resolves.toMatchObject({ hostname: "provider.example" });
   });
 
   test("routes around an unavailable OpenCode account", async () => {
