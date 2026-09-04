@@ -107,6 +107,7 @@ fn run_inner(
 fn remote_help_requested(args: &[String]) -> bool {
     const VALUE_OPTIONS: &[&str] = &[
         "--invite-file",
+        "--grant-file",
         "--daemon",
         "--lanes",
         "--reconnect-attempts",
@@ -195,6 +196,7 @@ fn remote_help(command: Option<&str>) -> &'static str {
 struct ConnectFlags {
     route: Option<String>,
     invitation: Option<InvitationArg>,
+    grant_file: Option<PathBuf>,
     daemon: Option<String>,
     lanes: LanePolicy,
     lanes_explicit: bool,
@@ -264,6 +266,11 @@ fn parse_connect_flags(args: &[String]) -> anyhow::Result<ConnectFlags> {
                 &mut flags.invitation,
                 InvitationArg::File(value("--invite-file")?.into()),
             )?,
+            "--grant-file" => {
+                if flags.grant_file.replace(value("--grant-file")?.into()).is_some() {
+                    return Err(anyhow!(catalog().remote_client.option_once("--grant-file")));
+                }
+            }
             "--daemon" => flags.daemon = Some(value("--daemon")?),
             "--lanes" => {
                 flags.lanes = value("--lanes")?.parse().map_err(|_: String| {
@@ -582,6 +589,14 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .as_ref()
         .map(|encoded| EnrollmentInvitation::from_uri(encoded.as_str()))
         .transpose()?;
+    let grant = flags
+        .grant_file
+        .take()
+        .map(|path| read_cloud_grant(&path))
+        .transpose()?;
+    if invitation.is_some() && grant.is_some() {
+        return Err(anyhow!("--invite-file and --grant-file cannot be combined"));
+    }
     let total_startup_timeout = flags
         .startup_timeout
         .unwrap_or_else(|| invitation.as_ref().map_or(DEFAULT_STARTUP_TIMEOUT, invitation_timeout));
@@ -635,7 +650,10 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
     let providers = Arc::new(client_provider_registry(ssh.clone(), relay_routes, flags.iroh_path)?);
     let explicit_route = flags.route.take();
     let explicit_route_for_refresh = explicit_route.clone();
-    let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(invitation) =
+    let (route_strings, auth, expected_daemon, known, carrier_auth) = if let Some(grant) = grant {
+        let route = explicit_route.ok_or_else(|| anyhow!("--grant-file requires an explicit route"))?;
+        (vec![route], ClientAuthMode::Grant { token: grant }, None, None, false)
+    } else if let Some(invitation) =
         &invitation
     {
         if let Some(fingerprint) = flags.daemon.as_deref()
@@ -1629,6 +1647,16 @@ fn read_invitation_uri(path: &Path) -> anyhow::Result<Zeroizing<String>> {
     let bytes = cmux_remote::secret_file::read_owner_only(path, MAX_INVITATION_URI_BYTES + 2)
         .map_err(|_| anyhow!(catalog().remote_client.invitation_path_invalid))?;
     normalize_invitation_uri(bytes)
+}
+
+fn read_cloud_grant(path: &Path) -> anyhow::Result<String> {
+    let value = cmux_remote::secret_file::read_owner_only_string(path, 16 * 1024 + 2)
+        .with_context(|| format!("could not read cloud grant file {}", path.display()))?;
+    let value = value.trim();
+    if value.is_empty() || value.len() > 16 * 1024 {
+        return Err(anyhow!("cloud grant file is empty or too large"));
+    }
+    Ok(value.to_owned())
 }
 
 #[cfg(test)]
