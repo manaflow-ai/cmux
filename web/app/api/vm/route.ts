@@ -58,6 +58,7 @@ import {
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale } from "../../../services/vms/vmErrorMessages";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
+import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
 import {
   createVm,
   listUserVms,
@@ -95,6 +96,7 @@ export async function GET(request: Request): Promise<Response> {
           });
           listEntitlements = entitlements;
           billingTeamId = entitlements.billingTeamId;
+          annotateVmRequestBilling(entitlements);
           setSpanAttributes(span, {
             "cmux.billing.team_id_set": !!billingTeamId,
             "cmux.billing.customer_type": entitlements.billingCustomerType,
@@ -118,6 +120,7 @@ export async function GET(request: Request): Promise<Response> {
       if (!listEntitlements) {
         try {
           listEntitlements = resolveVmEntitlements(user, process.env);
+          annotateVmRequestBilling(listEntitlements);
         } catch {
           listEntitlements = null;
         }
