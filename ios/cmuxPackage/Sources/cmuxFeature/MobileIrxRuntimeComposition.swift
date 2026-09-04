@@ -224,8 +224,8 @@ public actor MobileIrxRuntimeComposition {
                 await networkPathState.start(
                     reachability: reachability,
                     onPathChange: { [weak self] in
-                        await lanPeerDiscovery.pathDidChange()
                         await self?.invalidateCachedDirectRoutesForNetworkChange()
+                        await lanPeerDiscovery.pathDidChange()
                     }
                 )
             }
