@@ -3943,8 +3943,11 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let database = AuthDatabase::load_or_create(temp.path(), "daemon", false).unwrap();
 
+        let mut invitation_ids = HashSet::with_capacity(MAX_LIVE_INVITATIONS);
         for _ in 0..MAX_LIVE_INVITATIONS {
-            database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+            let invitation =
+                database.create_invitation(Duration::from_secs(60), Vec::new()).await.unwrap();
+            invitation_ids.insert(invitation.id);
         }
 
         let error = database
@@ -3958,6 +3961,12 @@ mod tests {
 
         let persisted = load_state(&temp.path().join("devices.json")).unwrap();
         assert_eq!(persisted.invitations.len(), MAX_LIVE_INVITATIONS);
+        let persisted_ids = persisted
+            .invitations
+            .into_iter()
+            .map(|invitation| invitation.id)
+            .collect::<HashSet<_>>();
+        assert_eq!(persisted_ids, invitation_ids);
     }
 
     #[test]
