@@ -11,6 +11,8 @@ import Testing
 /// counters but never key material.
 @Suite
 struct CloudTunnelRuntimeConfigurationRedactorTests {
+    private let redactor = CloudTunnelRuntimeConfigurationRedactor()
+
     @Test("private and pre-shared keys are dropped; everything else stays in order")
     func redactsKeys() {
         let dump = """
@@ -23,7 +25,7 @@ struct CloudTunnelRuntimeConfigurationRedactorTests {
         rx_bytes=10
         tx_bytes=20
         """
-        let redacted = CloudTunnelRuntimeConfigurationRedactor.redacted(dump)
+        let redacted = redactor.redacted(dump)
         #expect(!redacted.contains("private_key"))
         #expect(!redacted.contains("preshared_key"))
         #expect(redacted == """
@@ -38,6 +40,6 @@ struct CloudTunnelRuntimeConfigurationRedactorTests {
 
     @Test("lines without a key=value shape are preserved")
     func keepsUnstructuredLines() {
-        #expect(CloudTunnelRuntimeConfigurationRedactor.redacted("errno=0\n\n") == "errno=0\n\n")
+        #expect(redactor.redacted("errno=0\n\n") == "errno=0\n\n")
     }
 }

@@ -34,6 +34,9 @@ extension CloudTunnelCoordinator {
             )
             return String(format: format, nsError.code)
         }
-        return nsError.localizedDescription
+        return String(
+            localized: "cloudTunnel.error.genericFailure",
+            defaultValue: "cmux could not start the Cloud VPN. Try again."
+        )
     }
 }

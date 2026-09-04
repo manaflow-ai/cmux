@@ -26,16 +26,21 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
         self.providerBundleIdentifier = providerBundleIdentifier
         self.activator = activator
         initialLoad = Task { [weak self] in
-            await self?.loadExistingManagerIfNeeded()
+            await self?.loadExistingManagerFromPreferences()
         }
     }
 
     nonisolated var statusUpdates: AsyncStream<CloudTunnelLinkStatus> {
         AsyncStream { continuation in
-            let task = Task {
+            let task = Task { @MainActor [weak self] in
                 let notifications = NotificationCenter.default.notifications(named: .NEVPNStatusDidChange)
                 for await notification in notifications {
-                    guard let connection = notification.object as? NEVPNConnection else { continue }
+                    guard let self,
+                          let connection = notification.object as? NEVPNConnection,
+                          connection === self.manager?.connection
+                    else {
+                        continue
+                    }
                     continuation.yield(CloudTunnelLinkStatus(connection.status))
                 }
                 continuation.finish()
@@ -113,12 +118,20 @@ final class NetworkExtensionTunnelController: CloudTunnelControlling {
     /// Cache this app's existing configuration, if any, without creating one.
     private func loadExistingManagerIfNeeded() async {
         if manager != nil { return }
-        if let initialLoad, !Task.isCancelled {
+        if let initialLoad {
             // Let the launch-time load finish rather than racing a second one.
-            self.initialLoad = nil
             _ = await initialLoad.value
+            self.initialLoad = nil
             if manager != nil { return }
         }
+        await loadExistingManagerFromPreferences()
+    }
+
+    /// Load the saved manager directly. The launch task must call this helper,
+    /// not ``loadExistingManagerIfNeeded()``, because that method awaits the
+    /// launch task and would otherwise wait on itself.
+    private func loadExistingManagerFromPreferences() async {
+        if manager != nil { return }
         guard let existing = try? await NETunnelProviderManager.loadAllFromPreferences() else { return }
         manager = existing.first(where: isOurs)
     }

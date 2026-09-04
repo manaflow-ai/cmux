@@ -273802,13 +273802,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This cmux build does not include the app-managed tunnel. Use `cmux vpn up` (wg-quick) instead."
+            "value": "This cmux build does not include the signed Network Extension required for browser access."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "この cmux ビルドにはアプリ管理のトンネルが含まれていません。代わりに `cmux vpn up`（wg-quick）を使用してください。"
+            "value": "この cmux ビルドには、ブラウザアクセスに必要な署名済み Network Extension が含まれていません。"
           }
         }
       }
@@ -273928,6 +273928,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "VPN の状態更新が届かなくなりました。"
+          }
+        }
+      }
+    },
+    "cloudTunnel.error.genericFailure": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux could not start the Cloud VPN. Try again."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux はクラウド VPN を開始できませんでした。もう一度お試しください。"
           }
         }
       }

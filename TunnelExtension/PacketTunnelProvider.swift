@@ -26,6 +26,7 @@ nonisolated private let logger = Logger(subsystem: "com.cmuxterm.app.tunnel", ca
 /// without a provisioning profile, and Xcode refuses to ad-hoc sign restricted
 /// entitlements.
 final class PacketTunnelProvider: NEPacketTunnelProvider {
+    private let runtimeConfigurationRedactor = CloudTunnelRuntimeConfigurationRedactor()
     private lazy var adapter = WireGuardAdapter(with: self) { level, message in
         switch level {
         case .verbose:
@@ -114,7 +115,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         adapter.getRuntimeConfiguration { settings in
             // Peers, handshakes, transfer counters — never the keys.
-            let redacted = settings.map(CloudTunnelRuntimeConfigurationRedactor.redacted)
+            let redacted = settings.map(runtimeConfigurationRedactor.redacted)
             completionHandler(redacted?.data(using: .utf8))
         }
     }

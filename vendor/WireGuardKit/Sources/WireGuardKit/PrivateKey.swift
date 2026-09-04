@@ -111,4 +111,8 @@ public class BaseKey: RawRepresentable, Equatable, Hashable {
             }
         }
     }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rawValue)
+    }
 }

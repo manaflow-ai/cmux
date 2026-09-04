@@ -67,6 +67,10 @@ func init() {
 			select {
 			case <-signals:
 				n := runtime.Stack(buf, true)
+				for n == len(buf) {
+					buf = make([]byte, len(buf)*2)
+					n = runtime.Stack(buf, true)
+				}
 				buf[n] = 0
 				if uintptr(loggerFunc) != 0 {
 					C.callLogger(loggerFunc, loggerCtx, 0, (*C.char)(unsafe.Pointer(&buf[0])))
