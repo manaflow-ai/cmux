@@ -20,16 +20,18 @@ data class EventEnvelope(
 /** Workspace data returned by mobile.workspace.list. */
 @Serializable
 data class WorkspaceDto(
-    val workspace_id: String,
+    val id: String,
     val title: String,
-    val directory: String? = null,
+    val current_directory: String? = null,
     val terminals: List<TerminalDto> = emptyList(),
-    val unread_count: Int = 0,
+    val unread_count: Int? = null,
+    val is_selected: Boolean = false,
 )
 
 /** Terminal surface within a workspace. */
 @Serializable
 data class TerminalDto(
-    val surface_id: String,
+    val id: String,
     val title: String? = null,
+    val is_focused: Boolean = false,
 )

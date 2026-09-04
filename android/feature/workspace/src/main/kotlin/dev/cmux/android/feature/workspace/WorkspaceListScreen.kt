@@ -69,10 +69,10 @@ fun WorkspaceListScreen(
                                 WorkspaceRow(
                                     workspace = ws,
                                     onOpenTerminal = { surfaceId ->
-                                        onOpenTerminal(ws.workspace_id, surfaceId)
+                                        onOpenTerminal(ws.id, surfaceId)
                                     },
                                     onOpenBrowser = { panelId ->
-                                        onOpenBrowser(ws.workspace_id, panelId)
+                                        onOpenBrowser(ws.id, panelId)
                                     },
                                 )
                                 HorizontalDivider()
@@ -108,11 +108,12 @@ private fun WorkspaceRow(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (workspace.unread_count > 0) {
-                Badge { Text("${workspace.unread_count}") }
+            val unread = workspace.unread_count ?: 0
+            if (unread > 0) {
+                Badge { Text("$unread") }
             }
         }
-        workspace.directory?.let { dir ->
+        workspace.current_directory?.let { dir ->
             Text(
                 dir,
                 style = MaterialTheme.typography.bodySmall,
@@ -128,7 +129,7 @@ private fun WorkspaceRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.clickable {
-                    onOpenTerminal(workspace.terminals.first().surface_id)
+                    onOpenTerminal(workspace.terminals.first().id)
                 },
             )
         }

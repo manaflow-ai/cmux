@@ -59,10 +59,16 @@ class WorkspaceViewModel @Inject constructor(
                     authToken = accessToken,
                 )
 
-                val resultArray = response["result"]?.jsonArray
+                val resultObject = response["result"]?.jsonObject
                     ?: run {
                         val err = response["error"]?.jsonObject?.get("message")
                         _state.value = WorkspaceUiState.Error(err?.toString() ?: "No result")
+                        return@launch
+                    }
+
+                val resultArray = resultObject["workspaces"]?.jsonArray
+                    ?: run {
+                        _state.value = WorkspaceUiState.Error("Missing workspaces field")
                         return@launch
                     }
 
