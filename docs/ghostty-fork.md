@@ -12,8 +12,8 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
-The submodule pinned by this branch is `3f33233aa`, reachable from fork
-branch `fix-word-selection-drag` until that branch is merged to `main`.
+The submodule pinned by this branch is `abd40f6e4`, reachable from fork
+`main` after Ghostty PR #211 was merged.
 It carries the renderer/API compatibility pin plus the Fish SSH feature-gating
 fix (`fd13a3fc2`): the embedded Ghostty CLI wrapper is installed whenever
 either `ssh-env` or `ssh-terminfo` is enabled. The pin includes the prior fork
@@ -44,8 +44,8 @@ resolution.
     regresses the visible selection and the next repeat's distance check.
 
 The corresponding universal ReleaseFast GhosttyKit archive is published at
-https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-3f33233aa5a44d675234f7c54fa3f16d84baf661-crashsubdir-cmux-crash-sentry-off-v1
-with SHA-256 `b92946155126c0173b5ef41caf6a54a4c1c9fd9f85574bb3d8afed77e2d73ff9`
+https://github.com/manaflow-ai/ghostty/releases/tag/xcframework-abd40f6e472d57f2d4bb182004bb5f3fac8df961-crashsubdir-cmux-crash-sentry-off-noi18n-v2
+with SHA-256 `fdb0f7e844fa086a410f0b1df23badf2b0503c084e1c66c297e22930758b6971`
 pinned in `scripts/ghosttykit-checksums.txt`.
 
 ### iOS tokened render disposition and nonblocking prompt reveal
