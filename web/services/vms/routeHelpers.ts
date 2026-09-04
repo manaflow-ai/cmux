@@ -43,6 +43,8 @@ import {
   isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
+  isVmTunnelEnrollmentBusyError,
+  isVmTunnelEnrollmentUnavailableError,
   vmWorkflowErrorCause,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
@@ -761,6 +763,31 @@ export async function vmWorkflowErrorResponse(
       phase: "network",
       retryable: false,
       details: { deviceFingerprint: workflowError.deviceFingerprint },
+    });
+  }
+
+  if (isVmTunnelEnrollmentBusyError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_busy",
+      status: 409,
+      message: "This computer is already being enrolled on the Cloud VM network.",
+      action: "Retry the same enrollment request after the current request finishes.",
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: workflowError.retryAfterSeconds,
+    });
+  }
+
+  if (isVmTunnelEnrollmentUnavailableError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_tunnel_enrollment_unavailable",
+      status: 503,
+      message: "Cloud VM network enrollment is temporarily unavailable.",
+      action: "Retry after the Cloud VM service has completed its database upgrade.",
+      reason: workflowError.reason,
+      phase: "network",
+      retryable: true,
+      retryAfterSeconds: 30,
     });
   }
 
