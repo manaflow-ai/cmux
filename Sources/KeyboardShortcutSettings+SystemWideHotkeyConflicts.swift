@@ -48,7 +48,12 @@ extension KeyboardShortcutSettings {
         }
         let keyCode = UInt16(registration.keyCode)
         let modifierFlags = shortcut.modifierFlags
-        let eventCharacter = KeyboardLayout.character(forKeyCode: keyCode)
+        // Recreate the same modifier-aware character plane that AppKit uses
+        // for the registered Carbon keystroke (not just the unmodified layout).
+        let eventCharacter = KeyboardLayout.character(
+            forKeyCode: keyCode,
+            modifierFlags: modifierFlags
+        )
 
         return reservedSystemWideHotkeyShortcuts(
             excluding: action,
