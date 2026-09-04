@@ -5,9 +5,9 @@ extension TerminalController {
     /// Adds one explicitly authorized URL, file, HTML, or text value.
     nonisolated func v2ArtifactsAdd(params: [String: Any]) async -> V2CallResult {
         let workspaceID = (params["workspace_id"] as? String).flatMap(UUID.init(uuidString:))
-        guard let workspace = await MainActor.run({
+        guard let workspace = await MainActor.run {
             workspaceID.flatMap { AppDelegate.shared?.workspaceFor(tabId: $0) }
-        }) else {
+        } else {
             return .err(
                 code: "not_found",
                 message: String(localized: "artifacts.cli.noWorkspace", defaultValue: "No workspace is available for Artifacts"),
