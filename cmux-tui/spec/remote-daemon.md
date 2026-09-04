@@ -6,18 +6,26 @@ Status: implementation contract for protocol 5.
 
 One daemon represents one operating-system user and grants access to every cmux workspace it owns. An enrolled client can run arbitrary commands as that user, so workspace filtering is navigation, not a security boundary. Stronger isolation belongs in a separately managed microVM. Container or cgroup membership does not reduce daemon authority.
 
+A Cloud guest session is a separate authorization profile. It carries a signed
+machine, session, and workspace lease and exposes only the actions in
+[the Cloud guest command policy](../../docs/cloud-guest-command-policy.md).
+This lease is an API boundary inside one project trust domain. It is not a data
+isolation claim between processes that share the VM. Mac denial, peer policy,
+model authority, and relay admission remain outside guest control so VM root
+cannot widen them.
+
 The daemon supports multiple concurrent human and agent clients. Each enrolled device has an independent application key and revocation record. Relay tickets, discovery records, and route hints never become daemon authorization. A trusted owner-only Unix socket or SSH carrier may authorize a carrier-mode session without enrollment. Removing operating-system or SSH access prevents new carrier sessions; the owner admin channel terminates an already connected carrier session by device and session ID.
 
 ## Layers
 
 Remote access has four boundaries:
 
-1. A provider produces ordered, bounded binary links. Providers include direct WebSocket, the Rust relay, the Cloudflare Durable Object relay, and Iroh.
+1. A carrier produces ordered, bounded binary links. Carriers include direct WebSocket, the native relay, the hosted relay, and authenticated peer transport.
 2. The secure session authenticates devices, encrypts frames end to end, assigns logical streams, applies flow control, acknowledges mutations, and reconnects.
 3. Services expose mux compatibility, workspace RPC, process streams, and TCP routes.
-4. Frontends use services without inspecting provider routes or credentials.
+4. Frontends use services without inspecting carrier routes or credentials.
 
-Unix sockets and SSH stdio may use carrier authentication because the operating system or SSH server already authenticated the user. Hosted and direct network providers require application device authentication. Relay providers additionally require a short-lived provider ticket for abuse control.
+Unix sockets and SSH stdio may use carrier authentication because the operating system or SSH server already authenticated the user. Hosted and direct network carriers require application device authentication. Relay carriers additionally require a short-lived admission ticket for abuse control.
 
 ## Lanes and latency
 
@@ -28,7 +36,7 @@ Each frame declares one lane:
 - `bulk`: file contents, diffs, terminal replay, browser frames, and computer-use media.
 - `tunnel`: forwarded TCP bytes.
 
-Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link provider, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A provider without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and provider labels is not implemented in protocol 5.
+Lane policy is configurable as `single`, `isolated`, or `auto`. `single` multiplexes all lanes on one link. `isolated` opens an independent link per lane. On a parallel-link carrier, `auto` maps interactive and control to independent links and maps tunnel plus bulk to a third link. A carrier without useful parallel links uses one prioritized link. Bulk backpressure must never consume the interactive queue reserve. The current TUI records a private input-to-write latency histogram and backpressure failures for tests; a public telemetry surface with queue depth and carrier labels is not implemented in protocol 5.
 
 A service declares every lane one logical stream may use. A multi-lane stream acknowledges setup on each declared lane before exposing buffered application data, and closes only after a terminal marker has arrived in order on every declared lane. This per-lane barrier prevents an isolated fast carrier from overtaking setup or teardown on another carrier. A failed terminal send retries under a bound, then closes the logical session so the peer cannot retain an unreachable stream.
 
@@ -40,7 +48,7 @@ An invitation contains the daemon public key, a random 256-bit secret, an identi
 
 The client accepts an invitation only through `--invite-file PATH`, with `-` reading exactly one bounded line from stdin. A regular file must be owned by the current user and have no group or other permission bits. The input is capped at the protocol URI limit, rejects additional lines, is zeroized after parsing, and is never included in an error. Inline and positional invitation forms are rejected without echoing their secret. Supplying more than one invitation source is an error. An explicit non-invitation route may accompany the invitation file to choose the first carrier.
 
-Clients preserve invitation route order and may try more than one carrier. A reachable same-host Unix socket is promoted, while a remote or missing Unix path is demoted. Provider connection and provider-credential failures may fall through to the next hint. cmux Noise or device authentication failure, a pinned daemon-key mismatch, protocol incompatibility, generation exhaustion, or an explicitly closed session stops fallback.
+Clients preserve invitation route order and may try more than one carrier. A reachable same-host Unix socket is promoted, while a remote or missing Unix path is demoted. Carrier connection and admission-credential failures may fall through to the next hint. cmux Noise or device authentication failure, a pinned daemon-key mismatch, protocol incompatibility, generation exhaustion, or an explicitly closed session stops fallback.
 
 Enrolled sessions use a mutually authenticated Noise handshake. The daemon checks the device key and revocation generation before accepting application frames. Reconnect performs a fresh handshake and resumes application sequence numbers. Revocation closes live connections and invalidates cached grants.
 
@@ -54,11 +62,11 @@ Interactive input, RPC mutations, process lifecycle, and file mutations are reli
 
 Clients send an authenticated logical-close frame during graceful shutdown. An abrupt carrier loss retains the logical session and its replay state for a finite, configurable lease, 120 seconds by default. A successful reconnect atomically publishes the new generation, then closes the prior physical link outside lifecycle locks so blocked old-generation readers wake and move to the replacement.
 
-The client exposes a credential-free connection snapshot containing the published generation, state, lane bindings, selected provider route, and provider path. Iroh reports whether its currently selected path is direct IP or relay. The owner-only daemon admin socket exposes a separate snapshot containing generation, connected or reconnecting state, remaining resume lease, and daemon-observed lane bindings. The daemon does not infer the client's provider from ingress because SSH sidecars and TLS terminators intentionally change the final ingress carrier.
+The client exposes a credential-free connection snapshot containing the published generation, state, lane bindings, selected carrier route, and carrier path. Authenticated peer transport reports whether its selected path is direct or relayed. The owner-only daemon admin socket exposes a separate snapshot containing generation, connected or reconnecting state, remaining resume lease, and daemon-observed lane bindings. The daemon does not infer the client's carrier from ingress because SSH sidecars and TLS terminators intentionally change the final ingress carrier.
 
-## Provider contract
+## Carrier contract
 
-The Rust relay and Durable Object relay implement the same provider protocol:
+The native and hosted relays implement the same carrier protocol:
 
 1. A daemon keeps one control WebSocket registered for an opaque slot.
 2. A client requests an opaque circuit and waits.
@@ -66,9 +74,9 @@ The Rust relay and Durable Object relay implement the same provider protocol:
 4. The daemon opens the circuit WebSocket.
 5. The relay forwards binary frames between the paired sockets without interpreting them.
 
-Each circuit carries one physical lane or a `single` multiplexed link. The Durable Object stores only lease metadata and socket attachments needed after hibernation. Ciphertext and application replay state remain at the endpoints. The Rust relay keeps circuit bytes in memory and may use an external directory only for slot-to-shard routing.
+Each circuit carries one physical lane or a `single` multiplexed link. The hosted relay stores only lease metadata and socket attachments needed after hibernation. Ciphertext and application replay state remain at the endpoints. The native relay keeps circuit bytes in memory and may use an external directory only for slot-to-shard routing.
 
-Iroh supplies the same binary-link contract through authenticated QUIC, NAT traversal, and relay fallback. Its endpoint identity is a route credential, not daemon authorization. Clients default to automatic path selection. Direct-only mode disables relay transports and requires an explicit direct address; relay-only mode disables IP transports and requires an explicit relay URL. A constrained mode fails closed when its required route hint is absent. Direct WebSocket terminates the same application handshake even when TLS is present.
+Authenticated peer transport supplies the same binary-link contract through encrypted datagrams, NAT traversal, and relay fallback. Its endpoint identity is a route credential, not daemon authorization. Clients default to automatic path selection. Direct-only mode disables relay transports and requires an explicit direct address; relay-only mode disables IP transports and requires an explicit relay URL. A constrained mode fails closed when its required route hint is absent. Direct WebSocket terminates the same application handshake even when TLS is present.
 
 ## Services
 
@@ -76,12 +84,14 @@ Iroh supplies the same binary-link contract through authenticated QUIC, NAT trav
 
 `workspace-rpc` opens independent interactive, control, cancellation, and bulk streams. Requests execute concurrently under per-lane admission control, and responses return on the request's lane. Cancellation uses its own persistent control-lane stream and remains admissible when normal request slots are full. Non-cancelable mutations preserve receive order within one traffic class. Concurrent requests across traffic classes have no implicit ordering, so a client awaits a response before issuing a dependent operation. The exact service names, envelopes, request fields, response shapes, and examples are defined in [`remote-rpc.md`](remote-rpc.md). It exposes:
 
-- open/list workspace roots and capabilities;
+- open or list lease-scoped workspace roots and return action-specific
+  preconditions;
 - stat, bounded read, atomic write with content preconditions, directory listing, search, and patch application;
 - Git status and structured or unified diff;
 - pipe processes and explicit PTY processes, with predeclared UUID handles, daemon-wide discovery, bounded styled terminal snapshots, stdin, resize, signal, wait, bounded output drain, replay sequence numbers, and operation/workspace/detached lifetime;
 - workspace routes that name a remote host and port, plus per-client loopback listeners and per-connection tunnel streams;
-- capability discovery for future browser and computer-use input, screenshots, accessibility trees, and media streams.
+- action-specific browser and computer-use availability, screenshots,
+  accessibility trees, and media streams.
 
 Pipe I/O is the default and recommended mode for tool calls. Omitting `io` selects writable pipes; an explicit pipes object can start with stdin closed. PTY allocation is explicit and appropriate for interactive programs, terminal emulation, or commands that change behavior when attached to a terminal.
 
@@ -95,12 +105,12 @@ Request identifiers, operation identifiers, and cleanup ownership are scoped to 
 
 The SSH bootstrap probes the exact distribution and remote protocol versions. A live named mux socket gets a remote sidecar, preserving the existing tmux-style session; a missing mux socket creates a durable bare headless mux owner before starting the sidecar. Startup is serialized with an owner-local lock. `--upgrade` force-installs the pinned distribution, stops only an SSH-managed sidecar, waits for its runtime metadata cleanup, and reconnects. It interrupts clients, forwards, and sidecar-owned workspace RPC resources but preserves terminal panes. Embedded daemons are refused, and the mux owner needs an explicit full-session restart to run the new binary. Client cancellation interrupts connection setup, and invitation setup uses a deadline long enough for invitation expiry plus local approval.
 
-Short-lived relay provider credentials are refreshable independently of the authenticated cmux session. Built-in sources include a static ticket, an owner-managed file, an argv-only command with a deadline, and an asynchronous broker callback. Implementations fetch again for each Register or Connect socket and provider-authentication retry. Relay-minted Join tickets authenticate circuit sockets. Credentials are bounded, intermediate values are zeroized, authorization headers are marked sensitive, and ticket-bearing protocol messages are redacted.
+Short-lived relay admission credentials are refreshable independently of the authenticated cmux session. Built-in sources include a static ticket, an owner-managed file, an argv-only command with a deadline, and an asynchronous broker callback. Implementations fetch again for each Register or Connect socket and admission-authentication retry. Relay-minted Join tickets authenticate circuit sockets. Credentials are bounded, intermediate values are zeroized, authorization headers are marked sensitive, and ticket-bearing protocol messages are redacted.
 
-Local bare `cmux-tui` retains tmux behavior and attaches to the local session when one exists. Network commands choose their named provider by default. Command-line flags configure lane policy, reconnect limits, install behavior, and relay routes. The current `cmux-tui.json` schema has no remote section.
+Local bare `cmux-tui` retains tmux behavior and attaches to the local session when one exists. Network commands choose their named carrier by default. Command-line flags configure lane policy, reconnect limits, install behavior, and relay routes. The current `cmux-tui.json` schema has no remote section.
 
 ## Compatibility and exclusions
 
-The protocol-12 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new provider abstraction.
+The protocol-12 Unix JSON-lines and opt-in WebSocket text endpoints remain supported while clients migrate. They are compatibility transports and do not define the new carrier abstraction.
 
 This protocol does not create, destroy, snapshot, or authorize VMs. A daemon may run inside a VM supplied by another component, but VM lifecycle remains outside cmux-tui.

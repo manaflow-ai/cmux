@@ -4,6 +4,26 @@ Status: normative schema for remote protocol 5.
 
 This contract describes the `workspace-rpc`, `process-stream`, and `tcp-tunnel` services. Rust enum variant names serialize as kebab-case `type` values. Struct field names remain snake_case. Identifier wrappers serialize as their underlying JSON string or unsigned integer.
 
+## Cloud guest profile
+
+This protocol inventory is larger than the public Cloud guest surface. A Cloud
+daemon authenticates the guest lease before it parses a selector, path, URL,
+route, or process request. It maps only the actions in
+[the Cloud guest command policy](../../docs/cloud-guest-command-policy.md) to
+RPC requests. Direct `create-route`, control-listener, host projection, raw
+RPC, and unleased workspace requests are denied.
+
+The `capabilities` messages below negotiate protocol compatibility between two
+already authenticated endpoints. They are not a user-facing Cloud feature
+catalog, an authorization source, or a required request before an action. The
+public CLI uses local `--help --json`, guest `context`, action-specific state,
+and typed errors.
+
+VM root can replace this daemon. Mac denial, peer admission, model authority,
+and managed destination policy must therefore also run outside the VM. A Cloud
+guest cannot start a Mac connection. The Mac starts the remote circuit and
+accepts only replies for that established flow.
+
 ## Service opening and message framing
 
 Open a logical service stream by sending one control object:

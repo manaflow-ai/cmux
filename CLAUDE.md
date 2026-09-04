@@ -35,6 +35,16 @@ cd ghostty && zig build -Demit-xcframework=true -Dxcframework-target=universal -
 
 Clean up older tags you started this session (quit the app, remove its `/tmp` socket and derived data) before launching a new one.
 
+## Actionable closeouts
+
+Actionables must name the concrete work that remains. For a broad product or
+system request, the default actionable is `build it all`, followed by the
+specific first vertical slice and its acceptance path. Do not replace that
+directive with a request to merge specs, choose between already-scoped
+implementation parts, or restate the brainstorm. Ask for user input only when
+the choice changes authority, data exposure, or release scope. State any
+laziness-based shortcut and its residual risk.
+
 ## Tag-bound debug CLI
 
 For CLI or socket dogfood against a tagged Debug app, set `CMUX_TAG` and use the helper. Do not use `/tmp/cmux-cli`, which points at the most recently reloaded build and can target the user's main app socket.

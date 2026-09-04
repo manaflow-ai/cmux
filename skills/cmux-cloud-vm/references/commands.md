@@ -1,21 +1,81 @@
 # cmux vm command reference
 
-`cloud` is an alias for `vm` (`cmux cloud ls` == `cmux vm ls`). The global `--json` flag works on every subcommand and may appear before or after the subcommand. All of this requires the cmux app running and a signed-in account.
+`cloud` is an alias for `vm` (`cmux cloud ls` == `cmux vm ls`). The global `--json` flag works on every subcommand and may appear before or after the subcommand. The control-plane commands below are host-side commands and require a signed-in account. A process inside a Cloud VM uses the guest commands in the next section and does not use host resource IDs.
+
+## Guest scope: the commands a remote agent may use
+
+These commands run inside a Cloud VM. The VM-local daemon checks the agent's
+machine, session, and workspace lease before every read or mutation. The
+normative, complete allowlist is in
+[`docs/cloud-guest-command-policy.md`](../../../docs/cloud-guest-command-policy.md):
+
+```bash
+cmux workspace list --json
+cmux workspace <workspace-id> show --json
+cmux workspace <workspace-id> move --target <workspace-id>
+cmux tab list --workspace <workspace-id> --json
+cmux tab <tab-id> move --workspace <workspace-id> --before <other-tab-id>
+cmux pane list --workspace <workspace-id> --json
+cmux surface list --workspace <workspace-id> --json
+cmux surface <surface-id> move --workspace <workspace-id> --before <other-surface-id>
+cmux open ./README.md
+cmux diff --repo .
+cmux markdown open ./docs/plan.md
+cmux browser open http://127.0.0.1:3000
+cmux browser <browser-id> navigate http://127.0.0.1:3000
+cmux browser <browser-id> snapshot --interactive
+cmux browser <browser-id> click <selector-or-ref>
+cmux browser <browser-id> fill <selector-or-ref> "query"
+cmux peer list --json
+```
+
+The guest may address only VM-owned resources in its lease. It must not use
+`local` IDs, host workspace or pane selectors, a host path, a host URL, a host
+browser profile, clipboard, keychain, SSH agent, reverse relay, or
+`CMUX_SOCKET_PATH`. The guest daemon rejects missing or ambiguous scope with
+`scope.denied`; it never falls back to a host socket.
+
+`open`, `diff`, and `markdown` accept VM-relative paths only. They return
+bounded immutable snapshots or structured models and create VM-owned viewer
+surfaces. `browser` runs in the VM and sends only pixels and explicit input to
+an optional host projection. Its `file:` and network policy is VM-local,
+declared same-project application services, or an exact peer grant. The host
+gateway, Mac LAN, metadata, link-local, daemon ports, and undeclared private
+addresses are denied. Redirects, subresources, WebSockets, WebRTC, DNS, and
+downloads use the same managed policy. Public Internet access needs the
+host-selected, expiring `internet` grant for this lease.
+
+Host projection and transfer are separate host-user actions:
+
+```bash
+cmux cloud projection attach <remote-workspace> --workspace <local-workspace> [--follow-focus]
+cmux cloud projection move <projection> --workspace <local-workspace>
+cmux cloud network egress <session> set internet --ttl 1h --domain example.com
+cmux vm pull <id> work/app/report.html ./report.html
+```
+
+The remote agent cannot request a host picker, supply a host path, or move a
+host resource. A host projection is a display binding, not a shared filesystem
+or a host WebView. VM tab, pane, and surface changes mirror only inside the
+host-attached projection container for that remote workspace. A guest-created
+workspace stays closed on the Mac until the host attaches it.
+Host input stays bound to one projection and remote surface. Guest focus cannot
+retarget it. Closing or replacing that surface drops later input.
 
 ## Discovery: the cloud tree
 
 ```bash
 cmux auth status                       # signed in?
-cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
-cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt, capabilities: {ports, …}}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
+cmux vm ls                             # NAME / LABEL / STATE / KIND / IMAGE + plan meter (+ free-window countdown)
+cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
 cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
 cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
 cmux vpn down                          # take this build's tunnel down (sudo)
-cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
-cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
-cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
-cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
-cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # into the current local workspace: one pane + the rest as tabs (drop a workspace row onto a pane)
+cmux vm tree                           # host view of Cloud machines, workspaces, terminals, desktop, and ports
+cmux vm tree <id> --refresh            # one Cloud machine, re-synced first
+cmux vm workspace new <id> [--name n]  # host-created workspace on the machine, projected to a new local workspace
+cmux vm workspace open <id> <ws-id>    # host projection of a machine workspace as a new local Cloud workspace
+cmux vm workspace open <id> <ws-id> --here [--workspace <local>]      # host-user-only placement into a local workspace
 cmux vm workspace open <id> <ws-id> --tabs [--pane <p>]                # all as tabs of the focused/--pane pane (CLI placement)
 cmux vm workspace open <id> <ws-id> --pane <p> --left|--right|--up|--down   # what dropping the row on that pane edge does
 cmux vm workspace rename <id> <ws-id> <name>   # rename that workspace (the row's "Rename…")
@@ -27,7 +87,7 @@ cmux vm terminal read <id> <term-id>   # the visible screen as text (--json: + r
 cmux vm terminal wait <id> <term-id> --pattern <regex> [--timeout <s>]   # block until the screen matches (default 30 s); exit 1 on timeout
 cmux vm tree --json                    # {machines: [{id, local, name, status, link_state, …}], resources: [{id, machine, kind, key, title, detail, lifecycle, agent, remote_workspace, port, url, open, open_surface_ids}], projections: […]}
 cmux surface ls [--json]               # same catalog; `surface open <resource>` / `surface new-terminal --machine <m>` are the generic verbs
-cmux vm status <id>                    # provider, status, image
+cmux vm status <id>                    # kind, status, image
 cmux vm stats <id>                     # CPU/mem/disk now; sleeping machines stay asleep
 cmux vm tools <id>                     # which tools are installed
 cmux vm ports <id>                     # listening TCP ports inside the machine
@@ -49,24 +109,26 @@ vivid-newt  running  · 24 GB · 16 GB disk · link connected
     ● display:1  Desktop  noVNC  (cmux surface open vivid-newt/display/display:1)
   terminals/                                  ← every terminal resource the machine owns
     ● term_2f9…  bun test  ~/work/app             ← shown in a workspace
-    (detached — no tab on the machine shows these)
+    (detached: no tab on the machine shows these)
       ● term_c04…  sleep 1000                   ← live, but in no workspace's layout
 ```
 
-The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`; each workspace lists exactly its layout — a terminal whose tab closed is gone from the folder), then **Ports**, **VNC Displays** (one row per screen), and last, its own section, **Terminals** (every terminal resource the machine owns, detached ones greyed; always present, ＋ = `surface new-terminal`). Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`; each workspace lists exactly its layout, so a terminal whose tab closed is gone from the folder), then **Ports**, **VNC Displays** (one row per screen), and last, its own section, **Terminals** (every terminal resource the machine owns, detached ones greyed; always present, ＋ = `surface new-terminal`). Every sidebar verb has a CLI verb. See [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
 
-## Surfaces: one open path for terminals, screens and browsers
+## Surfaces: one host projection path for Cloud resources
 
 ```bash
 cmux surface open vivid-newt/terminal/term_2f9c…                 # reuse the pane showing it, else open beside you
 cmux surface open vivid-newt/terminal/term_2f9c… --new           # a second pane on the same terminal
 cmux surface open vivid-newt/display/display:1 --pane pane:3 --left   # the VNC screen, split left of pane 3
-cmux surface open local/terminal/<uuid> --workspace workspace:2  # move a local terminal into another workspace
+cmux surface open local/terminal/<uuid> --workspace workspace:2  # host-user-only local operation
 cmux surface new-terminal --machine vivid-newt --remote-workspace ws_3c1… --name "tests" -- bun test
-cmux surface new-terminal --machine local --cwd ~/src/app        # a new local shell
+cmux surface new-terminal --machine local --cwd ~/src/app        # host-user-only local shell
 ```
 
-Resource ids come from `surface ls --json`; `--pane` + a side uses the same drop rules as dragging a row from the sidebar.
+Resource ids come from the host `surface ls --json`; a guest receives only
+VM-local IDs from its lease. `--pane` + a side uses the same drop rules as
+dragging a row from the sidebar, and is host-user-only for Cloud resources.
 
 ## Routing: which machine, without running anything
 
@@ -76,7 +138,7 @@ cmux vm route --cwd ~/src/app --json   # {machine, created, reason, would_provis
 cmux vm route --new --provision        # actually create the fresh pool machine the router would use
 ```
 
-Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted. New cmux-created machines clear the provider idle timeout; a sleeping entry is an older/provider-managed or explicitly paused machine and is woken before an open operation.
+Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted. New cmux-created machines have no automatic idle timeout; a sleeping entry is an older or explicitly paused machine and is woken before an open operation.
 
 ## Lifecycle
 
@@ -85,13 +147,43 @@ cmux vm new --detach                   # new Desktop machine (screen + shell), h
 cmux vm new --base --detach            # shell-only machine
 cmux vm new --size 16g --detach        # memory preset: 2g|4g|8g|16g|24g|32g or raw MB (disk follows memory, 16 GB max)
 cmux vm new --name "build box" --detach # display label; the id stays the address
+cmux vm new --no-wait --detach         # return the cold-create operation without waiting
 cmux vm wait <id> [--timeout <sec>] [--wake]   # block until ready; --wake also wakes it
 cmux vm rename <id> <label>            # display label; the id stays the address
 cmux vm rename <id> --clear
 cmux vm rm <id>                        # PERMANENT delete of machine + data (aliases: destroy, delete)
 ```
 
-Without `--detach`, `vm new`, `vm fork`, and `vm restore` also open the machine as a workspace in the user's app.
+Create claims a clean, single-claim warm machine when one matches the requested
+kind, size, region, image family, and persistence profile. A warm slot has never
+had a tenant and is destroyed after its one tenant releases it. The target is
+p50 under 3 seconds and p95 under 10 seconds to daemon readiness. If no warm
+slot exists, the Rust client follows the tracked operation by default.
+`--no-wait` returns that operation immediately. `--detach` only controls
+whether cmux opens a local pane after readiness.
+
+## Domains and publication
+
+Preserve the shipped domain verbs and flow:
+
+```bash
+cmux cloud domains list
+cmux cloud domains zones
+cmux cloud domains verify example.com
+cmux cloud domains publish <vm> <port> --domain app.example.com --access team --team <team-id>
+cmux cloud domains access app.example.com public
+cmux cloud domains rm app.example.com
+```
+
+`verify` prints labelled DNS records on the first call. Change DNS, then run
+the same command again. Generated `cmux.sh` names need no customer DNS proof.
+Human output starts with the URL. Protected viewers see sign-in or denial;
+`rm` remains one no-prompt command during migration. A domain is a publication,
+not a port-open alias.
+
+Without `--detach`, `vm new`, `vm fork`, and `vm restore` also open a host
+projection of the machine in the user's app. These commands are not available
+to an untrusted guest agent.
 
 ## Base (the pinned persistent slot)
 
@@ -134,22 +226,22 @@ cmux vm pull <id> <remote-path> [local-path]        # file or directory back to 
 
 Aliases: `upload` / `download`. Transfers ride the exec channel (no SSH), chunked base64, 256 MB cap; directories travel as tarballs and merge into the destination. Remote paths are relative to `/root` (the persistent volume).
 
-## Opening things for the human (`vm open`)
+## Opening things for the human (`vm open`, host-side)
 
 ```bash
 cmux vm open <id>                      # the machine's shell (same as `vm shell`); desktop machines also get their screen beside it
 cmux vm open <id>/<ws>                 # a cmux-tui workspace (ws_… id or name): its focused terminal, or a new shell if empty
-cmux vm open <id>/<ws>/<term_…>        # one terminal — focuses the pane already showing it instead of opening a second
+cmux vm open <id>/<ws>/<term_…>        # one terminal: focuses the pane already showing it instead of opening a second
 cmux vm open <id>:desktop              # the noVNC screen as a browser pane (also: `cmux vm desktop <id>`)
 cmux vm open <id>:port/3000            # private tokened URL for an HTTP port, as a browser pane
 cmux vm open <id> 3000                 # same as :port/3000
 cmux vm open <id> 3000 --print         # URL only, no pane
 cmux vm open … --workspace <ws> --focus true   # target a local workspace; focus the new pane (default: open beside you)
 cmux vm shell <id>                     # a plain terminal on the machine (like ssh): one terminal in its cmux-tui session, attached in a pane
-cmux vm tui <id>                       # the FULL cmux-tui client in a pane (its own workspaces/panes) — only when you want the client itself
+cmux vm tui <id>                       # the FULL cmux-tui client in a pane (its own workspaces/panes): only when you want the client itself
 ```
 
-`vm open` prints `OK surface=… workspace=… terminal=… [reused=true]`; `--json` prints the socket payload.
+`vm open` prints `OK surface=… workspace=… terminal=… [reused=true]`; `--json` prints the socket payload. The IDs in this receipt are host projection IDs and never cross into a Cloud VM.
 
 ## Checkpoints, forks, templates
 
@@ -160,11 +252,12 @@ cmux vm restore <snapshot-id> [--detach]       # snapshot -> new tracked machine
 cmux vm promote-template <id>          # template-named snapshot for reuse
 ```
 
-## SSH (provider-dependent)
+## SSH (when available)
 
 ```bash
-cmux vm ssh <id>                       # cmux-managed SSH workspace (not on every provider)
+cmux vm ssh <id>                       # cmux-managed SSH workspace when the machine exposes it
 cmux vm ssh-info <id>                  # raw SSH endpoint details when available
 ```
 
-The default cmux Cloud provider attaches through the cmux-tui remote daemon, not SSH — when `ssh` errors, use `exec`, `agent`, or `open` instead.
+The default Cloud path attaches through the cmux-tui remote daemon, not SSH. If
+`ssh` errors, use `exec`, `agent`, or `open` instead.
