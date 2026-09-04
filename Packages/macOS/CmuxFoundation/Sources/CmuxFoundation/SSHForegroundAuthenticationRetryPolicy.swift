@@ -2116,6 +2116,12 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_resume_unconfirmed_stops "$cmux_ssh_auth_owned"
             cmux_ssh_auth_freeze_attempt=$((cmux_ssh_auth_freeze_attempt + 1))
           done
+          # Recheck the shared deadline before starting any post-freeze
+          # discovery. The freeze pass itself can consume the entire budget
+          # on a loaded runner; entering the TERM scan in that state can
+          # receive a group signal and abort before force cleanup runs.
+          cmux_ssh_auth_cleanup_has_time >/dev/null 2>&1 || true
+          cmux_ssh_auth_debug "post-freeze deadline=$cmux_ssh_auth_deadline_expired"
           cmux_ssh_auth_debug "freeze loop ended attempt=$cmux_ssh_auth_freeze_attempt frozen=$cmux_ssh_auth_tree_frozen deadline=$cmux_ssh_auth_deadline_expired"
           if [ "$cmux_ssh_auth_tree_frozen" != 1 ]; then
             cmux_ssh_auth_debug "initial freeze failed; emergency pass"
