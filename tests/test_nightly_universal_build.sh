@@ -316,6 +316,35 @@ if ! awk '
   exit 1
 fi
 
+for workflow in "$WORKFLOW_FILE" "$RELEASE_WORKFLOW_FILE"; do
+  if ! grep -Fq 'git log -1 --format=%H -- cmux-tui ghostty .github/workflows/cmux-tui-artifacts.yml .github/workflows/cmux-tui-build-package.yml' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must resolve the exact cmux-tui source revision"
+    exit 1
+  fi
+  if ! grep -Fq 'https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must install the immutable cmux-tui manifest"
+    exit 1
+  fi
+  if ! grep -Fq -- '--expected-commit "$cmux_tui_commit"' "$workflow" ||
+     ! grep -Fq -- '--require-capability wireguard-hub' "$workflow"; then
+    echo "FAIL: $(basename "$workflow") must reject a stale cmux-tui client without WireGuard hub support"
+    exit 1
+  fi
+done
+
+if grep -Fq 'signing will use the wg-quick fallback' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly must not ship without the Network Extension"
+  exit 1
+fi
+
+INSTALL_TUI_SCRIPT="$ROOT_DIR/scripts/install-cmux-tui-client.sh"
+for expected in '--expected-commit' '--require-capability' 'required cmux-tui capability is missing'; do
+  if ! grep -Fq -- "$expected" "$INSTALL_TUI_SCRIPT"; then
+    echo "FAIL: cmux-tui installer must enforce $expected"
+    exit 1
+  fi
+done
+
 if ! awk '
   /^      - name: Codesign app/ { sign_line=NR }
   /^      - name: Smoke launch signed app before notarization/ { smoke_line=NR }
