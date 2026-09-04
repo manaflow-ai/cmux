@@ -42,6 +42,7 @@ import { isVmAttachTransportUnsupportedError } from "../services/vms/errors";
 import {
   PLAN_SHARED_DISK_MB,
   VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+  VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY,
 } from "../services/vms/machineSpec";
 import {
   createVm,
@@ -403,7 +404,12 @@ describe("VM Effect workflows", () => {
       providerVmId: "provider-vm-resize-stats-failure",
       status: "running",
     });
-    const confirmations: Array<{ confirmedDiskMb: number; operationId: string }> = [];
+    const unconfirmed: Array<{
+      id: string;
+      expectedDiskMb: number;
+      minimumDiskMb?: number;
+      operationId: string;
+    }> = [];
     let statsCalls = 0;
     const repo = {
       ...testWorkflowRepo({ vm }),
@@ -413,9 +419,9 @@ describe("VM Effect workflows", () => {
         requestedDiskMb: 65536,
         operationId: "resize-operation-stats-failure",
       }),
-      confirmVmResize: (confirmation: { confirmedDiskMb: number; operationId: string }) =>
+      markVmResizeUnconfirmed: (confirmation: typeof unconfirmed[number]) =>
         Effect.sync(() => {
-          confirmations.push(confirmation);
+          unconfirmed.push(confirmation);
           return true;
         }),
     } as unknown as VmRepositoryShape;
@@ -443,9 +449,10 @@ describe("VM Effect workflows", () => {
     );
 
     expect(error).toMatchObject({ _tag: "VmProviderOperationError", operation: "getStats" });
-    expect(confirmations).toHaveLength(1);
-    expect(confirmations[0]).toMatchObject({
-      confirmedDiskMb: 262144,
+    expect(unconfirmed).toHaveLength(1);
+    expect(unconfirmed[0]).toMatchObject({
+      expectedDiskMb: 204800,
+      minimumDiskMb: 65536,
       operationId: "resize-operation-stats-failure",
     });
   });
@@ -3136,6 +3143,112 @@ describe("VM Effect workflows", () => {
       where id = ${oldVmId}
     `;
     expect(oldRow).toEqual({ diskMb: 73728, pending: false });
+  });
+
+  dbTest("background reconciliation lowers an unconfirmed resize claim after stats return", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000151";
+    const teamId = "team-workflow-resize-unconfirmed";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-workflow-resize-unconfirmed', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-unconfirmed', 'snapshot-test', 'running',
+        ${sql.json({
+          cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: PLAN_SHARED_DISK_MB },
+          [VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY]: {
+            operationId: "resize-operation-unconfirmed",
+            requestedDiskMb: 65536,
+          },
+        })}
+      )
+    `;
+
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: (_provider, providerVmId) => {
+        expect(providerVmId).toBe("provider-vm-resize-unconfirmed");
+        return Effect.succeed({
+          state: "awake" as const,
+          sampledAt: Date.now(),
+          cpus: 2,
+          memoryTotalMb: 8192,
+          diskTotalMb: 73728,
+        });
+      },
+    };
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    const [row] = await sql<{ diskMb: number; unconfirmed: boolean }[]>`
+      select
+        (provider_metadata->'cmuxResourceReservation'->>'diskMb')::integer as "diskMb",
+        provider_metadata ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY} as unconfirmed
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(row).toEqual({ diskMb: 73728, unconfirmed: false });
+  });
+
+  dbTest("background reconciliation releases an abandoned resize marker into an unconfirmed claim", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    const vmId = "00000000-0000-4000-8000-000000000152";
+    const teamId = "team-workflow-resize-abandoned";
+    await sql`
+      insert into cloud_vms (
+        id, user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, provider_metadata
+      ) values (
+        ${vmId}, 'user-workflow-resize-abandoned', ${teamId}, 'pro', 'freestyle',
+        'provider-vm-resize-abandoned', 'snapshot-test', 'running',
+        ${sql.json({
+          cmuxResourceReservation: { vcpus: 2, memoryMb: 8192, diskMb: PLAN_SHARED_DISK_MB },
+          [VM_RESOURCE_RESIZE_PENDING_METADATA_KEY]: {
+            operationId: "resize-operation-abandoned",
+            requestedDiskMb: 65536,
+            previousDiskMb: 32768,
+            createdAtMs: Date.now() - (60 * 60 * 1000),
+          },
+        })}
+      )
+    `;
+
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running"),
+      getStats: () => Effect.succeed({
+        state: "awake" as const,
+        sampledAt: Date.now(),
+        cpus: 2,
+        memoryTotalMb: 8192,
+        diskTotalMb: 32768,
+      }),
+    };
+
+    await Effect.runPromise(
+      reconcileVmProviderStatuses().pipe(Effect.provide(providerLayer(provider))),
+    );
+
+    const [row] = await sql<{
+      diskMb: number;
+      pending: boolean;
+      unconfirmed: boolean;
+    }[]>`
+      select
+        (provider_metadata->'cmuxResourceReservation'->>'diskMb')::integer as "diskMb",
+        provider_metadata ? ${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY} as pending,
+        provider_metadata ? ${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY} as unconfirmed
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(row).toEqual({ diskMb: PLAN_SHARED_DISK_MB, pending: false, unconfirmed: true });
   });
 
   dbTest("uses the shared disk pool for snapshot events without a recorded size", async () => {
