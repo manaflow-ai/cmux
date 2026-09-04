@@ -1236,7 +1236,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_portable_signal_input="$2"
             cmux_ssh_auth_portable_signal_output="${3:-/dev/null}"
             cmux_ssh_auth_portable_filter_stopped="${4:-1}"
-            cmux_ssh_auth_portable_skip_snapshot="$5"
+            cmux_ssh_auth_portable_skip_snapshot="${5:-0}"
             case "$cmux_ssh_auth_portable_signal_name" in
               STOP) cmux_ssh_auth_portable_require_stopped=0 ;;
               TERM|KILL) cmux_ssh_auth_portable_require_stopped=1 ;;
@@ -1623,7 +1623,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             cmux_ssh_auth_signal_input="$2"
             cmux_ssh_auth_signal_output="${3:-/dev/null}"
             cmux_ssh_auth_signal_filter_stopped="${4:-1}"
-            cmux_ssh_auth_signal_skip_snapshot="$5"
+            cmux_ssh_auth_signal_skip_snapshot="${5:-0}"
             if [ "$cmux_ssh_auth_signal_backend" != darwin ]; then
               if [ -n "$cmux_ssh_auth_perl_command" ]; then
                 cmux_ssh_auth_signal_portable_batch \
