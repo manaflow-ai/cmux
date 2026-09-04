@@ -12,7 +12,12 @@ extension AppDelegate {
         event: NSEvent,
         action: KeyboardShortcutSettings.Action
     ) -> Bool {
-        guard !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action),
+        // The observed menu collision is the built-in Settings Cmd+, item.
+        // Keep other punctuation actions (including user-facing zoom/history
+        // bindings) on the shared character path unless their own router adds
+        // a deliberate precedence rule.
+        guard action == .openSettings,
+              !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action),
               ShortcutStroke.isCommandPunctuationFromPhysicalLetter(event) else {
             return false
         }
