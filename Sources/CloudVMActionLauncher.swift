@@ -108,19 +108,19 @@ final class CloudVMActionLauncher {
         let errorPipe = Pipe()
         process.standardOutput = outputPipe
         process.standardError = errorPipe
+        let outputDelivery = onOutput.map { MainActorOutputCoalescer(handler: $0) }
         let outputCollector = ProcessOutputCollector(stdout: outputPipe, stderr: errorPipe) { chunk in
-            guard let chunk = String(data: chunk, encoding: .utf8), !chunk.isEmpty else { return }
-            Task { @MainActor in
-                onOutput?(chunk)
-            }
+            outputDelivery?.enqueue(chunk)
         }
         outputCollector.start()
         let launchWindow = preferredWindow
         process.terminationHandler = { terminatedProcess in
-            let output = outputCollector.finish()
+            let result = outputCollector.finishResult()
+            let output = result.output
             let processIdentifier = terminatedProcess.processIdentifier
             let terminationStatus = terminatedProcess.terminationStatus
             Task { @MainActor in
+                await outputDelivery?.finishAndWait()
                 Self.shared.processes.removeValue(forKey: processIdentifier)
                 let suppressPresentation = Self.shared.authTransitionSuppressedProcessIDs.remove(processIdentifier) != nil
                 onCompletion?(
@@ -128,7 +128,7 @@ final class CloudVMActionLauncher {
                         terminationStatus: terminationStatus,
                         output: output,
                         workspaceId: Self.createdWorkspaceId(from: output),
-                        machineId: Self.createdMachineId(from: output)
+                        machineId: result.machineId
                     )
                 )
                 if terminationStatus == 0, presentOutputOnSuccess, !Self.shared.isShuttingDown, !suppressPresentation {
@@ -167,6 +167,7 @@ final class CloudVMActionLauncher {
             return true
         } catch {
             outputCollector.cancel()
+            outputDelivery?.finish()
             if presentsFailureAlert {
                 presentStartFailure(
                     summary: String(
@@ -205,14 +206,16 @@ final class CloudVMActionLauncher {
 
     /// `cmux vm new` prints `OK machine=<id>` the moment the machine exists,
     /// before it tries to open it, so a failed open still reports the machine.
-    private static func createdMachineId(from output: String) -> String? {
-        for token in output.split(whereSeparator: \.isWhitespace) {
-            let string = String(token)
-            guard string.hasPrefix("machine=") else { continue }
-            let id = String(string.dropFirst("machine=".count))
-            if !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) {
-                return id
-            }
+    nonisolated static func createdMachineId(from stdout: String) -> String? {
+        for rawLine in stdout.split(whereSeparator: \.isNewline) {
+            let line = rawLine.trimmingCharacters(in: .whitespaces)
+            guard line.hasPrefix("OK machine=") else { continue }
+            let payload = line.dropFirst("OK machine=".count)
+            let id = payload.split(maxSplits: 1, whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+            guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { continue }
+            let suffix = payload.dropFirst(id.count)
+            guard suffix.isEmpty || suffix.first?.isWhitespace == true else { continue }
+            return id
         }
         return nil
     }
@@ -376,6 +379,76 @@ final class CloudVMActionLauncher {
     }
 }
 
+/// Delivers bounded stdout progress through one consumer task. `AsyncStream`
+/// owns synchronization and drops the oldest chunks when its finite buffer is
+/// full, so pipe callbacks never create an unbounded MainActor task fanout.
+final class MainActorOutputCoalescer: @unchecked Sendable {
+    private let continuation: AsyncStream<Data>.Continuation
+    private let deliveryTask: Task<Void, Never>
+    private let stateLock = NSLock()
+    private var didFinish = false
+
+    init(
+        handler: @escaping @MainActor (String) -> Void,
+        onTermination: (@Sendable () -> Void)? = nil
+    ) {
+        let pair = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingNewest(128))
+        continuation = pair.continuation
+        pair.continuation.onTermination = { @Sendable _ in
+            onTermination?()
+        }
+        deliveryTask = Task {
+            for await data in pair.stream {
+                let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+                guard !text.isEmpty else { continue }
+                await MainActor.run { handler(text) }
+            }
+        }
+    }
+
+    func enqueue(_ data: Data) {
+        guard !data.isEmpty else { return }
+        continuation.yield(data)
+    }
+
+    /// Finish the stream after the process has delivered its final output.
+    /// The delivery task then drains any buffered chunks and exits.
+    func finish() {
+        stateLock.lock()
+        guard !didFinish else {
+            stateLock.unlock()
+            return
+        }
+        didFinish = true
+        stateLock.unlock()
+        continuation.finish()
+    }
+
+    /// Finishes the stream and waits until every buffered chunk reaches the
+    /// handler. This is used before process completion is published.
+    func finishAndWait() async {
+        finish()
+        await deliveryTask.value
+    }
+
+    deinit {
+        stateLock.lock()
+        let shouldCancel = !didFinish
+        didFinish = true
+        stateLock.unlock()
+        if shouldCancel {
+            continuation.finish()
+            deliveryTask.cancel()
+        }
+    }
+}
+
+struct ProcessOutputResult: Sendable, Equatable {
+    let output: String
+    let stdout: String
+    let machineId: String?
+}
+
 final class ProcessOutputCollector: @unchecked Sendable {
     private enum Stream {
         case stdout
@@ -385,10 +458,26 @@ final class ProcessOutputCollector: @unchecked Sendable {
     private let stdoutHandle: FileHandle
     private let stderrHandle: FileHandle
     private let lock = NSLock()
+    private let readCondition = NSCondition()
     private let byteLimit = 32 * 1024
     private var stdout = Data()
     private var stderr = Data()
-    private var isFinished = false
+    private var stdoutPendingUTF8 = Data()
+    private var stderrPendingUTF8 = Data()
+    private var stdoutProtocolLine = Data()
+    private var observedMachineID: String?
+    private var acceptingReads = true
+    private var activeReads = 0
+
+    private enum FinishState {
+        case open
+        case finishing
+        case finished(ProcessOutputResult)
+    }
+
+    private let finishCondition = NSCondition()
+    private var finishState: FinishState = .open
+    private var suppressOutputDelivery = false
 
     private let onOutput: ((Data) -> Void)?
 
@@ -400,9 +489,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     func start() {
         stdoutHandle.readabilityHandler = { [weak self] handle in
+            guard let self, self.beginRead() else { return }
+            defer { self.endRead() }
             switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
-                self?.append(data, to: .stdout)
+                self.append(data, to: .stdout)
             case .wouldBlock:
                 return
             case .endOfFile:
@@ -410,9 +501,11 @@ final class ProcessOutputCollector: @unchecked Sendable {
             }
         }
         stderrHandle.readabilityHandler = { [weak self] handle in
+            guard let self, self.beginRead() else { return }
+            defer { self.endRead() }
             switch handle.readAvailableDataOrEndOfFile() {
             case .data(let data):
-                self?.append(data, to: .stderr)
+                self.append(data, to: .stderr)
             case .wouldBlock:
                 return
             case .endOfFile:
@@ -423,76 +516,326 @@ final class ProcessOutputCollector: @unchecked Sendable {
 
     @discardableResult
     func finish() -> String {
-        lock.lock()
-        guard !isFinished else {
-            let output = formattedOutputLocked()
-            lock.unlock()
-            return output
-        }
-        isFinished = true
-        lock.unlock()
+        finishResult().output
+    }
 
+    /// Finishes all pipe reads and returns one cached result. A synchronous
+    /// output callback may re-enter this method. That path returns a snapshot
+    /// of bytes already committed by the callback and schedules the single
+    /// finalizer, which publishes the complete result after all callbacks
+    /// return.
+    func finishResult() -> ProcessOutputResult {
+        if callbackDepthOnCurrentThread() > 0 {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            return requestReentrantFinish(drain: true)
+        }
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
-        append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
-        append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
-        try? stdoutHandle.close()
-        try? stderrHandle.close()
-
-        lock.lock()
-        let output = formattedOutputLocked()
-        lock.unlock()
-        return output
+        stopAcceptingAndWaitForReads()
+        finishCondition.lock()
+        while true {
+            switch finishState {
+            case .open:
+                finishState = .finishing
+                finishCondition.unlock()
+                let result = finalize(drain: true)
+                finishCondition.lock()
+                finishState = .finished(result)
+                finishCondition.broadcast()
+                finishCondition.unlock()
+                return result
+            case .finishing:
+                if callbackDepthOnCurrentThread() > 0 {
+                    // The owner may be inside this callback's drain. Waiting
+                    // here would deadlock that owner. Return a committed
+                    // snapshot; the owner still publishes the final result.
+                    finishCondition.unlock()
+                    lock.lock()
+                    let snapshot = formattedResultLocked()
+                    lock.unlock()
+                    return snapshot
+                }
+                finishCondition.wait()
+            case .finished(let result):
+                finishCondition.unlock()
+                return result
+            }
+        }
     }
 
     func cancel() {
-        lock.lock()
-        guard !isFinished else {
-            lock.unlock()
+        if callbackDepthOnCurrentThread() > 0 {
+            stdoutHandle.readabilityHandler = nil
+            stderrHandle.readabilityHandler = nil
+            requestReentrantFinish(drain: false)
             return
         }
-        isFinished = true
-        lock.unlock()
-
         stdoutHandle.readabilityHandler = nil
         stderrHandle.readabilityHandler = nil
+        stopAcceptingAndWaitForReads()
+        finishCondition.lock()
+        while true {
+            switch finishState {
+            case .open:
+                finishState = .finishing
+                finishCondition.unlock()
+                let result = finalize(drain: false)
+                finishCondition.lock()
+                finishState = .finished(result)
+                finishCondition.broadcast()
+                finishCondition.unlock()
+                return
+            case .finishing:
+                if callbackDepthOnCurrentThread() > 0 {
+                    finishCondition.unlock()
+                    return
+                }
+                finishCondition.wait()
+            case .finished:
+                finishCondition.unlock()
+                return
+            }
+        }
+    }
+
+    private func finalize(drain: Bool) -> ProcessOutputResult {
+        lock.lock()
+        // A finish invoked from an output callback must not recursively deliver
+        // drain bytes to that callback. The callback's own bytes were committed
+        // before it was entered. Normal finalization still delivers drained
+        // bytes so live progress keeps its existing behavior.
+        suppressOutputDelivery = callbackDepthOnCurrentThread() > 0
+        lock.unlock()
+
+        if drain {
+            append(stdoutHandle.readDataToEndOfFileOrEmpty(), to: .stdout)
+            append(stderrHandle.readDataToEndOfFileOrEmpty(), to: .stderr)
+        }
+        lock.lock()
+        finishPendingUTF8Locked()
+        finishProtocolObservation()
+        let result = formattedResultLocked()
+        lock.unlock()
         try? stdoutHandle.close()
         try? stderrHandle.close()
+        return result
+    }
+
+    private func requestReentrantFinish(drain: Bool) -> ProcessOutputResult {
+        finishCondition.lock()
+        let shouldStartOwner: Bool
+        switch finishState {
+        case .open:
+            finishState = .finishing
+            shouldStartOwner = true
+        case .finishing:
+            shouldStartOwner = false
+        case .finished(let result):
+            finishCondition.unlock()
+            return result
+        }
+        finishCondition.unlock()
+
+        if shouldStartOwner {
+            // Close admission before dispatching the owner. A readability
+            // callback may already be queued on another thread, but no new
+            // callback can begin after this point. The owner still waits for
+            // callbacks admitted before this lock transition.
+            readCondition.lock()
+            acceptingReads = false
+            readCondition.unlock()
+            DispatchQueue.global().async { [self] in
+                // The callback cannot wait for itself. This owner waits on a
+                // separate thread until every read callback has returned.
+                stopAcceptingAndWaitForReads()
+                let result = finalize(drain: drain)
+                finishCondition.lock()
+                finishState = .finished(result)
+                finishCondition.broadcast()
+                finishCondition.unlock()
+            }
+        }
+
+        lock.lock()
+        let snapshot = formattedResultLocked()
+        lock.unlock()
+        return snapshot
     }
 
     private func append(_ data: Data, to stream: Stream) {
         guard !data.isEmpty else { return }
-        onOutput?(data)
         lock.lock()
-        defer { lock.unlock() }
-
         switch stream {
         case .stdout:
-            appendBounded(data, to: &stdout)
+            observeMachineID(in: data)
+            appendBounded(data, to: &stdout, pending: &stdoutPendingUTF8)
         case .stderr:
-            appendBounded(data, to: &stderr)
+            appendBounded(data, to: &stderr, pending: &stderrPendingUTF8)
+        }
+        let shouldDeliver = !suppressOutputDelivery
+        lock.unlock()
+        if shouldDeliver {
+            deliverOutput(data)
         }
     }
 
-    private func appendBounded(_ data: Data, to buffer: inout Data) {
-        guard data.count < byteLimit else {
-            buffer = Data(data.suffix(byteLimit))
-            return
+    private func deliverOutput(_ data: Data) {
+        guard let onOutput else { return }
+        let key = "ProcessOutputCollector.callbackDepth.\(ObjectIdentifier(self))"
+        let threadDictionary = Thread.current.threadDictionary
+        let priorDepth = threadDictionary[key] as? Int ?? 0
+        threadDictionary[key] = priorDepth + 1
+        defer {
+            if priorDepth == 0 {
+                threadDictionary.removeObject(forKey: key)
+            } else {
+                threadDictionary[key] = priorDepth
+            }
         }
+        onOutput(data)
+    }
 
-        let overflow = buffer.count + data.count - byteLimit
+    private func callbackDepthOnCurrentThread() -> Int {
+        let key = "ProcessOutputCollector.callbackDepth.\(ObjectIdentifier(self))"
+        return Thread.current.threadDictionary[key] as? Int ?? 0
+    }
+
+    private func beginRead() -> Bool {
+        readCondition.lock(); defer { readCondition.unlock() }
+        guard acceptingReads else { return false }
+        activeReads += 1
+        return true
+    }
+
+    private func endRead() {
+        readCondition.lock()
+        activeReads -= 1
+        if activeReads == 0 { readCondition.broadcast() }
+        readCondition.unlock()
+    }
+
+    private func stopAcceptingAndWaitForReads() {
+        readCondition.lock()
+        acceptingReads = false
+        while activeReads > 0 { readCondition.wait() }
+        readCondition.unlock()
+    }
+
+    private func appendBounded(_ data: Data, to buffer: inout Data, pending: inout Data) {
+        var combined = pending
+        combined.append(data)
+        let decoded = decodeUTF8(combined)
+        pending = decoded.pending
+        buffer.append(decoded.valid)
+        let overflow = buffer.count - byteLimit
         if overflow > 0 {
-            buffer.removeSubrange(0..<overflow)
+            buffer.removeSubrange(0..<min(overflow, buffer.count))
         }
-        buffer.append(data)
+        while let first = buffer.first, (first & 0xC0) == 0x80 { buffer.removeFirst() }
     }
 
-    private func formattedOutputLocked() -> String {
+    private func decodeUTF8(_ data: Data) -> (valid: Data, pending: Data) {
+        var valid = Data()
+        valid.reserveCapacity(data.count)
+        var index = 0
+        while index < data.count {
+            let byte = data[index]
+            let width: Int
+            switch byte {
+            case 0x00...0x7F: width = 1
+            case 0xC2...0xDF: width = 2
+            case 0xE0...0xEF: width = 3
+            case 0xF0...0xF4: width = 4
+            default:
+                index += 1
+                continue
+            }
+            guard index + width <= data.count else {
+                return (valid, Data(data[index...]))
+            }
+            if isValidUTF8Sequence(in: data, at: index, width: width) {
+                valid.append(contentsOf: data[index..<(index + width)])
+                index += width
+            } else {
+                // Skip only the malformed leading byte. The following bytes
+                // may begin a valid sequence and must be examined again.
+                index += 1
+            }
+        }
+        return (valid, Data())
+    }
+
+    private func isValidUTF8Sequence(in data: Data, at index: Int, width: Int) -> Bool {
+        guard width > 1 else { return true }
+        let first = data[index]
+        let second = data[index + 1]
+        guard (second & 0xC0) == 0x80 else { return false }
+        if first == 0xE0, second < 0xA0 { return false }
+        if first == 0xED, second >= 0xA0 { return false }
+        if first == 0xF0, second < 0x90 { return false }
+        if first == 0xF4, second >= 0x90 { return false }
+        for offset in 2..<width where (data[index + offset] & 0xC0) != 0x80 {
+            return false
+        }
+        return true
+    }
+
+    private func finishPendingUTF8Locked() {
+        if !stdoutPendingUTF8.isEmpty {
+            stdout.append(String(decoding: stdoutPendingUTF8, as: UTF8.self).data(using: .utf8) ?? Data())
+            stdoutPendingUTF8.removeAll(keepingCapacity: false)
+            trimToByteLimit(&stdout)
+        }
+        if !stderrPendingUTF8.isEmpty {
+            stderr.append(String(decoding: stderrPendingUTF8, as: UTF8.self).data(using: .utf8) ?? Data())
+            stderrPendingUTF8.removeAll(keepingCapacity: false)
+            trimToByteLimit(&stderr)
+        }
+    }
+
+    private func trimToByteLimit(_ buffer: inout Data) {
+        let overflow = buffer.count - byteLimit
+        guard overflow > 0 else { return }
+        buffer.removeSubrange(0..<overflow)
+        while let first = buffer.first, (first & 0xC0) == 0x80 { buffer.removeFirst() }
+    }
+
+    private func finishProtocolObservation() {
+        guard observedMachineID == nil,
+              let text = String(data: stdoutProtocolLine, encoding: .utf8) else { return }
+        observedMachineID = CloudVMActionLauncher.createdMachineId(from: text)
+    }
+
+    private func observeMachineID(in data: Data) {
+        guard observedMachineID == nil else { return }
+        stdoutProtocolLine.append(data)
+        while let newline = stdoutProtocolLine.firstIndex(of: 0x0A) {
+            let line = stdoutProtocolLine.prefix(upTo: newline)
+            stdoutProtocolLine.removeSubrange(...newline)
+            if let text = String(data: line, encoding: .utf8),
+               let machineID = CloudVMActionLauncher.createdMachineId(from: text) {
+                observedMachineID = machineID
+                return
+            }
+        }
+        // Scan complete lines before bounding the incomplete suffix. A single
+        // pipe read can contain the protocol line and much later output.
+        if stdoutProtocolLine.count > 4096 {
+            stdoutProtocolLine.removeSubrange(0..<(stdoutProtocolLine.count - 4096))
+        }
+    }
+
+    private func formattedResultLocked() -> ProcessOutputResult {
         let output = String(data: stdout, encoding: .utf8) ?? ""
         let error = String(data: stderr, encoding: .utf8) ?? ""
-        return [output, error]
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n\n")
+        return ProcessOutputResult(
+            output: [output, error]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: "\n\n"),
+            stdout: output,
+            machineId: observedMachineID
+        )
     }
 }

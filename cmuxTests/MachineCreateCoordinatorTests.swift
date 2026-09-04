@@ -185,7 +185,7 @@ struct MachineCreateCoordinatorTests {
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let workspaceID = UUID()
 
-        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\nOK workspace=\(workspaceID.uuidString) transport=cmux-remote\n", workspaceID: workspaceID)
+        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\nOK machine=calm-petrel\nOK workspace=\(workspaceID.uuidString) transport=cmux-remote\n", workspaceID: workspaceID, machineID: "calm-petrel")
 
         #expect(coordinator.operations.isEmpty, "the fleet row takes over")
         #expect(changes.finished.count == 1)
@@ -200,7 +200,7 @@ struct MachineCreateCoordinatorTests {
     @Test func successKeepsTheTypedLabelInTheNotification() {
         let (coordinator, launches, notices, _, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(name: "build box"), launch: launches.launch)
-        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\n")
+        launches.complete(status: 0, output: "Created Cloud VM calm-petrel\nOK machine=calm-petrel\n", machineID: "calm-petrel")
         #expect(notices.notices.first?.title == "build box is ready")
         #expect(notices.notices.first?.workspaceID == nil)
     }
@@ -242,7 +242,7 @@ struct MachineCreateCoordinatorTests {
         #expect(launches.arguments[1] == launches.arguments[0])
         #expect(coordinator.operation(id: id)?.isRunning == true)
 
-        launches.complete(status: 0, output: "Created Cloud VM noble-wren\n")
+        launches.complete(status: 0, output: "Created Cloud VM noble-wren\nOK machine=noble-wren\n", machineID: "noble-wren")
         #expect(coordinator.operations.isEmpty)
         #expect(notices.notices.count == 2)
     }
@@ -280,6 +280,20 @@ struct MachineCreateCoordinatorTests {
         #expect(coordinator.operation(id: id)?.failureOutput?.contains("Sign in") == true)
     }
 
+    @Test func lateProgressFromAnEarlierAttemptCannotOverwriteRetry() {
+        let (coordinator, launches, _, _, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+        let firstProgress = launches.progressHandlers[0]
+        launches.complete(status: 1, output: "Error: first attempt")
+        #expect(coordinator.retry(id))
+        let secondProgress = launches.progressHandlers[1]
+        firstProgress("OK machine=stale-machine\n")
+        #expect(coordinator.operation(id: id)?.createdMachineID == nil)
+        secondProgress("OK machine=current-machine\n")
+        #expect(coordinator.operation(id: id)?.createdMachineID == "current-machine")
+    }
+
     // MARK: Created but opening failed
 
     @Test func createdButOpenFailedDropsTheRowAndNeverRetriesTheCreate() {
@@ -308,19 +322,32 @@ struct MachineCreateCoordinatorTests {
         #expect(notice?.body == "attach failed (HTTP 502)\nOpen it from the Machines list.", "the reason, not the CLI's progress line, leads the body")
     }
 
-    /// An older bundled CLI without the `machine=` token still classifies via
-    /// the localized "Created Cloud VM" line.
-    @Test func createdButOpenFailedFallsBackToTheLocalizedCreatedLine() {
+    @Test func progressMachineIDSurvivesBoundedTranscriptEviction() {
+        let (coordinator, launches, _, changes, _) = makeCoordinator()
+        coordinator.start(Self.newMachineRequest(), launch: launches.launch)
+        let id = coordinator.operations[0].id
+
+        // The progress stream saw the protocol line, but the completion's
+        // bounded stdout transcript no longer contains it.
+        launches.progressHandlers[0]("OK machine=calm-petrel\n")
+        launches.complete(status: 1, output: "Error: attach failed", machineID: nil)
+
+        #expect(coordinator.operations.isEmpty)
+        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
+            machineID: "calm-petrel",
+            output: "Error: attach failed"
+        ))
+        #expect(!coordinator.retry(id))
+    }
+
+    @Test func localizedCreatedLineWithoutProtocolMarkerDoesNotClaimAMachine() {
         let (coordinator, launches, _, changes, _) = makeCoordinator()
         coordinator.start(Self.newMachineRequest(), launch: launches.launch)
         let id = coordinator.operations[0].id
         launches.complete(status: 1, output: "Created Cloud VM calm-petrel\nError: attach failed (HTTP 502)")
-        #expect(coordinator.operations.isEmpty)
-        #expect(!coordinator.retry(id))
-        #expect(changes.finished.first?.outcome == .createdButOpenFailed(
-            machineID: "calm-petrel",
-            output: "Error: attach failed (HTTP 502)"
-        ))
+        #expect(coordinator.operations.count == 1)
+        #expect(coordinator.retry(id))
+        #expect(changes.finished.first?.outcome == .failed(output: "Created Cloud VM calm-petrel\nError: attach failed (HTTP 502)"))
     }
 
     /// Transcripts that trip the app's redaction never reach the row, the
@@ -352,10 +379,12 @@ struct MachineCreateCoordinatorTests {
         #expect(launches.arguments.count == 2)
     }
 
-    @Test func createdMachineIDIsParsedFromTheCLIsCreatedLine() {
+    @Test func createdMachineIDRequiresTheStrictProtocolLine() {
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "OK machine=calm-petrel") == "calm-petrel")
-        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)") == "calm-petrel")
-        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "  Created Cloud VM noble_wren2  ") == "noble_wren2")
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM calm-petrel\nError: noProvider(calm-petrel)") == nil)
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "  OK machine=noble_wren2 transport=cmux-remote  ") == "noble_wren2")
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Error: machine=calm-petrel") == nil)
+        #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "OK machine=bad.id") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Error: Creating Cloud VM (HTTP 502)") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "Created Cloud VM") == nil)
         #expect(MachineCreateCoordinator.createdMachineID(fromOutput: "") == nil)
@@ -375,6 +404,85 @@ struct MachineCreateCoordinatorTests {
         launches.complete(status: 0, output: "Opened Base base-1")
         #expect(coordinator.operations.isEmpty)
         #expect(notices.notices.isEmpty, "the account this belonged to is gone; nobody to tell")
+    }
+}
+
+private actor CoalescerTerminationProbe {
+    private(set) var didTerminate = false
+
+    func markTerminated() {
+        didTerminate = true
+    }
+}
+
+@MainActor
+@Suite(.serialized)
+struct MainActorOutputCoalescerTests {
+    @Test func processCompletionFinishesStreamAfterDeliveringBufferedOutput() async throws {
+        let termination = CoalescerTerminationProbe()
+        let handler = OutputHandlerProbe()
+        let coalescer = MainActorOutputCoalescer(
+            handler: { text in handler.values.append(text) },
+            onTermination: {
+                Task { await termination.markTerminated() }
+            }
+        )
+
+        coalescer.enqueue(Data("progress".utf8))
+        await coalescer.finishAndWait()
+
+        try await Self.waitForTermination(termination)
+        #expect(handler.values == ["progress"])
+    }
+
+    @Test func finishAndWaitDrainsBufferedChunksBeforeReturning() async {
+        let values = OutputHandlerProbe()
+        let coalescer = MainActorOutputCoalescer(
+            handler: { text in values.values.append(text) }
+        )
+        for index in 0..<32 {
+            coalescer.enqueue(Data("chunk-\(index)".utf8))
+        }
+
+        await coalescer.finishAndWait()
+
+        #expect(values.values.count == 32)
+        #expect(values.values.first == "chunk-0")
+        #expect(values.values.last == "chunk-31")
+    }
+
+    @Test func cancellationReleasesTaskAndHandlerAfterStreamTermination() async throws {
+        let termination = CoalescerTerminationProbe()
+        weak var weakHandler: OutputHandlerProbe?
+
+        do {
+            let handler = OutputHandlerProbe()
+            weakHandler = handler
+            var coalescer: MainActorOutputCoalescer? = MainActorOutputCoalescer(
+                handler: { _ in handler.values.append("received") },
+                onTermination: {
+                    Task { await termination.markTerminated() }
+                }
+            )
+            coalescer?.enqueue(Data("cancelled".utf8))
+            coalescer = nil
+        }
+
+        try await Self.waitForTermination(termination)
+        #expect(weakHandler == nil)
+    }
+
+    private static func waitForTermination(_ probe: CoalescerTerminationProbe) async throws {
+        for _ in 0..<100 {
+            if await probe.didTerminate { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        Issue.record("coalescer stream did not terminate")
+    }
+
+    @MainActor
+    private final class OutputHandlerProbe {
+        var values: [String] = []
     }
 }
 
