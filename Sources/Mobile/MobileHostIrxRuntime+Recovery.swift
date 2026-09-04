@@ -5,6 +5,19 @@ import Foundation
 
 @MainActor
 extension MobileHostIrxRuntime {
+    /// Fences in-flight broker work before AuthCoordinator clears its
+    /// published identity during an explicit sign-out. The identity observer
+    /// remains responsible for the serialized resource teardown.
+    func beginSignOutPreparation() {
+        pendingBrokerAuthenticationRefreshToken = nil
+        generationToken = UUID()
+        desiredActivityGeneration &+= 1
+        cancelActivationRetry()
+        cancelAutopilotRecovery()
+        activationTask?.cancel()
+        activationTask = nil
+    }
+
     /// Applies the mobile-host policy to the irx lifecycle. Requests are
     /// serialized so a policy lift cannot start a new endpoint while an older
     /// teardown is still closing its resources.
@@ -68,6 +81,7 @@ extension MobileHostIrxRuntime {
         guard desiredActive,
               Self.isEnabled,
               activeAccountID == accountID else { return }
+        pendingBrokerAuthenticationRefreshToken = nil
         cancelActivationRetry()
         cancelAutopilotRecovery()
         // Invalidate the previous task synchronously before cancellation. A
@@ -200,6 +214,7 @@ extension MobileHostIrxRuntime {
               activeAccountID == accountID,
               desiredActive,
               Self.isEnabled else { return }
+        pendingBrokerAuthenticationRefreshToken = nil
         lastBrokerFailure = failure
         var attributes = failure.journalAttributes
         Self.journal.record("host-runtime", "activation-failed", attributes)
@@ -303,6 +318,7 @@ extension MobileHostIrxRuntime {
               activeAccountID == accountID,
               desiredActive,
               Self.isEnabled else { return }
+        pendingBrokerAuthenticationRefreshToken = nil
         lastBrokerFailure = failure
         Self.journal.record(
             "host-runtime", "activation-failed", failure.journalAttributes)
@@ -445,6 +461,7 @@ extension MobileHostIrxRuntime {
     }
 
     func deactivate(preserveReauthentication: Bool = false) async {
+        pendingBrokerAuthenticationRefreshToken = nil
         generationToken = UUID()
         cancelActivationRetry()
         cancelAutopilotRecovery()

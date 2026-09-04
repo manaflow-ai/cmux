@@ -5,6 +5,33 @@ import Foundation
 
 @MainActor
 extension MobileHostIrohRuntime {
+    /// Marks the activation owner before AuthCoordinator can publish a
+    /// signed-out identity during a broker-triggered refresh.
+    func markBrokerAuthenticationRefreshStarted(
+        revision: UInt64
+    ) {
+        guard lifecycleRevision == revision, !signOutIntentActive else {
+            return
+        }
+        pendingBrokerAuthenticationRefreshRevision = revision
+    }
+
+    /// Clears the handoff marker after refresh completion. A definitive
+    /// rejection intentionally leaves it set until the activation-failure
+    /// handler records the operation-specific reauthentication state.
+    func completeBrokerAuthenticationRefresh(
+        revision: UInt64,
+        requiresReauthentication: Bool
+    ) {
+        guard pendingBrokerAuthenticationRefreshRevision == revision,
+              lifecycleRevision == revision else {
+            return
+        }
+        if !requiresReauthentication {
+            pendingBrokerAuthenticationRefreshRevision = nil
+        }
+    }
+
     /// Maps the legacy runtime's route-publication phase to the shared Mobile
     /// settings lifecycle state without inferring status from cached routes.
     var publishedIrohActivationState: IrxHostActivationState {
@@ -45,6 +72,7 @@ extension MobileHostIrohRuntime {
             ?? IrxBrokerFailure(operation: .register, error: error)
         guard failure.requiresReauthentication,
               revision == lifecycleRevision else { return false }
+        pendingBrokerAuthenticationRefreshRevision = nil
         irohAuthenticationFailure = failure
         irohActivationFailure = failure
         cancelFailureRecovery(resetBackoff: true)

@@ -73,6 +73,11 @@ final class MobileHostIrxRuntime {
     var activationUnauthorizedFailureCount = 0
     var activationMissingAuthenticationFailureCount = 0
     var terminalRecoveryCount = 0
+    /// Fences the short interval where AuthCoordinator clears its published
+    /// identity before the broker receives the definitive refresh rejection.
+    /// The matching failure handler clears this marker after recording the
+    /// operation-specific reauthentication state.
+    var pendingBrokerAuthenticationRefreshToken: UUID?
     let activationRetryPolicy = IrxHostActivationPolicy(
         retrySchedule: CmxIrohRetrySchedule(
             initialDelay: 30,
@@ -162,6 +167,14 @@ final class MobileHostIrxRuntime {
         let sessionGeneration = identity?.generation
         guard accountID != activeAccountID
                 || sessionGeneration != activeSessionGeneration else { return }
+        if accountID == nil,
+           pendingBrokerAuthenticationRefreshToken == generationToken {
+            // A definitive force-refresh rejection clears AuthCoordinator's
+            // identity before the broker operation can report its typed
+            // failure. Keep this owner fenced until that failure handler
+            // records the operation and performs teardown.
+            return
+        }
         let preserveReauthentication = accountID == nil
             && activationState == .reauthenticationRequired
         if accountID == nil, let deviceListStore {
@@ -284,30 +297,19 @@ final class MobileHostIrxRuntime {
                     accountID: accountID
                 ),
                 identity: identity,
-                tokenSource: .accountPinned(
-                    to: accountID,
-                    snapshot: { [weak auth] in
-                        guard let auth else { return nil }
-                        do {
-                            let session = try await auth.authenticatedSessionSnapshot()
-                            return CmxIrohAccountCredentialSnapshot(
-                                accountID: session.accountID,
-                                credentials: CmxIrohBrokerCredentials(
-                                    accessToken: session.accessToken,
-                                    refreshToken: session.refreshToken
-                                )
-                            )
-                        } catch AuthError.unauthorized {
-                            // A missing session is definitive; the auth
-                            // coordinator owns the sign-in transition.
-                            return nil
-                        }
+                tokenSource: auth.accountPinnedIrohBrokerTokenSource(
+                    accountID: accountID,
+                    onForceRefreshStart: { [weak self] in
+                        await self?.markBrokerAuthenticationRefreshStarted(
+                            accountID: accountID, token: token
+                        )
                     },
-                    forceRefresh: { [weak auth] in
-                        guard let auth else {
-                            throw CmxIrohBrokerTokenRecoveryError.transient
-                        }
-                        try await auth.forceRefreshForIrohBroker()
+                    onForceRefreshCompletion: { [weak self] requiresReauthentication in
+                        await self?.completeBrokerAuthenticationRefresh(
+                            accountID: accountID,
+                            token: token,
+                            requiresReauthentication: requiresReauthentication
+                        )
                     }
                 ),
                 journal: Self.journal

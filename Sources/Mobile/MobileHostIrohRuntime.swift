@@ -136,6 +136,11 @@ final class MobileHostIrohRuntime {
     /// Last non-auth activation failure, retained while bounded recovery is
     /// pending so Settings/status do not collapse a retrying host to inactive.
     var irohActivationFailure: IrxBrokerFailure?
+    /// Fences the short interval where AuthCoordinator clears its published
+    /// identity before the broker receives a definitive refresh rejection.
+    /// The matching activation-failure handler clears this marker after it
+    /// records the operation-specific state.
+    var pendingBrokerAuthenticationRefreshRevision: UInt64?
     var preparedSignOut: CmxIrohHostSignOutPreparation?
     var signOutIntentActive = false
     var signOutPreparationTask: Task<Void, Never>?
@@ -251,6 +256,7 @@ final class MobileHostIrohRuntime {
         eraseAccountState: Bool,
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
+        pendingBrokerAuthenticationRefreshRevision = nil
         lifecycleRevision &+= 1
         cancelRetryInspection()
         bindingPersistenceQueue.cancel()

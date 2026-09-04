@@ -6,6 +6,32 @@ import Foundation
 /// below the tracked Swift source-size limit.
 @MainActor
 extension MobileHostIrxRuntime {
+    /// Marks the activation owner before AuthCoordinator can publish a
+    /// signed-out identity during a broker-triggered refresh.
+    func markBrokerAuthenticationRefreshStarted(
+        accountID: String,
+        token: UUID
+    ) {
+        guard generationToken == token, activeAccountID == accountID else { return }
+        pendingBrokerAuthenticationRefreshToken = token
+    }
+
+    /// Clears the handoff marker after refresh completion. A definitive
+    /// rejection intentionally leaves it set until the operation-specific
+    /// failure handler records reauthentication and tears down the owner.
+    func completeBrokerAuthenticationRefresh(
+        accountID: String,
+        token: UUID,
+        requiresReauthentication: Bool
+    ) {
+        guard pendingBrokerAuthenticationRefreshToken == token,
+              activeAccountID == accountID,
+              generationToken == token else { return }
+        if !requiresReauthentication {
+            pendingBrokerAuthenticationRefreshToken = nil
+        }
+    }
+
     /// Restarts only credential renewal while a still-healthy endpoint keeps
     /// serving existing sessions after a terminal mint response.
     @discardableResult
