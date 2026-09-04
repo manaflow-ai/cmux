@@ -249,9 +249,7 @@ public actor IrxPeerEngine {
                await !session.connection.isClosed
             {
                 let recentlyAlive: Bool
-                if staleAfter <= .zero {
-                    recentlyAlive = true
-                } else if ContinuousClock.now - session.establishedAtMonotonic <= staleAfter {
+                if ContinuousClock.now - session.establishedAtMonotonic <= staleAfter {
                     // A newly admitted session has not necessarily completed
                     // its first keepalive round yet, but is still within the
                     // bounded fresh-session grace period.

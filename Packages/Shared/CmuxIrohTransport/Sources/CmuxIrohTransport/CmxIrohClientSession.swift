@@ -333,7 +333,6 @@ public actor CmxIrohClientSession {
 
     /// Closes the control stream and complete QUIC connection.
     public func close() async {
-        guard !closed else { return }
         closed = true
         finishClosureWaiters()
         closureWatcher?.cancel()
