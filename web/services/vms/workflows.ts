@@ -984,15 +984,34 @@ export function snapshotVm(input: {
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const vm = yield* requireUserVm(input);
-    // Snapshot storage is the source VM's provider-confirmed disk, not merely
-    // the 32 GB starting profile. A failed or unavailable stats read fails
-    // closed to the per-VM maximum so a later restore cannot undercount it.
-    const snapshotDiskMb = providers.getStats
+    // Snapshot resources are the source VM's provider-confirmed shape, not
+    // merely the logical starting profile. A failed or partial stats read
+    // falls back to the conservative shared-pool claim for each unknown field.
+    const snapshotStats = providers.getStats
       ? yield* providers.getStats(vm.provider, vm.providerVmId ?? input.providerVmId).pipe(
-        Effect.map((stats) => positiveDiskSize(stats.diskTotalMb)),
+        Effect.map((stats) => ({
+          vcpus: positiveResourceSize(stats.cpus),
+          memoryMb: positiveResourceSize(stats.memoryTotalMb),
+          diskMb: positiveResourceSize(stats.diskTotalMb),
+        })),
         Effect.catchAll(() => Effect.succeed(null)),
       )
       : null;
+    const sourceReservation = vmResourceReservationFromMetadata(vm.providerMetadata);
+    const snapshotReservation = {
+      vcpus: Math.max(
+        sourceReservation.vcpus,
+        snapshotStats?.vcpus ?? DEFAULT_VM_RESOURCE_RESERVATION.vcpus,
+      ),
+      memoryMb: Math.max(
+        sourceReservation.memoryMb,
+        snapshotStats?.memoryMb ?? DEFAULT_VM_RESOURCE_RESERVATION.memoryMb,
+      ),
+      diskMb: Math.max(
+        sourceReservation.diskMb,
+        snapshotStats?.diskMb ?? PLAN_SHARED_DISK_MB,
+      ),
+    } satisfies VmResourceReservation;
     const snapshot = yield* (providers.snapshot
       ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
       : Effect.fail(new VmOperationUnsupportedError({
@@ -1011,11 +1030,12 @@ export function snapshotVm(input: {
         snapshotId: snapshot.id,
         named: !!input.name,
         name: input.name ?? null,
-        // Persist the source claim with the snapshot event. Restores can then
-        // reserve the captured disk even after the source VM is gone or grows.
-        // An old provider event has no durable disk field. Claim the complete
-        // shared pool so a restore cannot make an unknown snapshot look free.
-        diskMb: snapshotDiskMb ?? PLAN_SHARED_DISK_MB,
+        // Persist the complete source claim with the snapshot event. Restores
+        // can then reserve the captured shape after the source VM is gone or
+        // grows. Unknown dimensions already use a fail-closed pool claim.
+        vcpus: snapshotReservation.vcpus,
+        memoryMb: snapshotReservation.memoryMb,
+        diskMb: snapshotReservation.diskMb,
       },
     });
     return snapshot;
@@ -1059,7 +1079,7 @@ export function restoreVm(input: {
       ? snapshotReservation ?? {
         ...DEFAULT_VM_RESOURCE_RESERVATION,
         // A snapshot event written before resource metadata existed has no
-        // trustworthy disk size. Claim the complete shared pool.
+        // trustworthy shape. Claim the complete shared pool dimensions.
         diskMb: PLAN_SHARED_DISK_MB,
       }
       : undefined;
@@ -1082,9 +1102,9 @@ export function restoreVm(input: {
 }
 
 /**
- * Resolve the source shape used by a fork. Legacy rows have no durable disk
- * claim, so paid forks read provider stats and fail closed at the per-VM disk
- * ceiling when the provider cannot report a size.
+ * Resolve the source shape used by a fork. Legacy rows have no durable claim,
+ * so paid forks read provider stats and fail closed at the shared-pool claim
+ * when the provider cannot report a dimension.
  */
 function resourceReservationForFork(
   providers: VmProviderGatewayShape,
@@ -1097,23 +1117,28 @@ function resourceReservationForFork(
     return Effect.succeed(reservation);
   }
 
-  // An unknown legacy disk claims the complete pool. This keeps the fallback
-  // bounded by the entitlement instead of making every restore impossible.
-  const unknownDisk = { ...reservation, diskMb: PLAN_SHARED_DISK_MB };
-  if (!providers.getStats) return Effect.succeed(unknownDisk);
+  // Unknown legacy dimensions claim the complete base pool. This keeps the
+  // fallback bounded by the entitlement instead of undercounting a large VM.
+  const unknownShape = {
+    vcpus: Math.max(reservation.vcpus, DEFAULT_VM_RESOURCE_RESERVATION.vcpus),
+    memoryMb: Math.max(reservation.memoryMb, DEFAULT_VM_RESOURCE_RESERVATION.memoryMb),
+    diskMb: PLAN_SHARED_DISK_MB,
+  } satisfies VmResourceReservation;
+  if (!providers.getStats) return Effect.succeed(unknownShape);
   return providers.getStats(source.provider, source.providerVmId ?? providerVmId).pipe(
     Effect.map((stats) => {
-      const diskMb = stats.diskTotalMb;
-      return typeof diskMb === "number" && Number.isSafeInteger(diskMb) && diskMb > 0
-        ? { ...reservation, diskMb: Math.max(reservation.diskMb, diskMb) }
-        : unknownDisk;
+      return {
+        vcpus: Math.max(reservation.vcpus, positiveResourceSize(stats.cpus) ?? unknownShape.vcpus),
+        memoryMb: Math.max(reservation.memoryMb, positiveResourceSize(stats.memoryTotalMb) ?? unknownShape.memoryMb),
+        diskMb: Math.max(reservation.diskMb, positiveResourceSize(stats.diskTotalMb) ?? unknownShape.diskMb),
+      } satisfies VmResourceReservation;
     }),
-    Effect.catchAll(() => Effect.succeed(unknownDisk)),
+    Effect.catchAll(() => Effect.succeed(unknownShape)),
   );
 }
 
-/** Accept only a provider-reported positive disk size for snapshot claims. */
-function positiveDiskSize(value: unknown): number | null {
+/** Accept only a provider-reported positive resource size. */
+function positiveResourceSize(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0
     ? value
     : null;
@@ -1421,21 +1446,21 @@ function reconcileLegacyResourceReservations(
       if (hasPendingMarker && !pending) return Effect.void;
       return getStats(vm.provider, providerVmId).pipe(
         Effect.flatMap((stats) => {
-          const diskMb = positiveDiskSize(stats.diskTotalMb);
+          const diskMb = positiveResourceSize(stats.diskTotalMb);
           if (diskMb === null) return Effect.void;
           const existing = vmResourceReservationFromMetadata(metadata);
           if (pending && diskMb < pending.requestedDiskMb) return Effect.void;
           const reservation = pending
             ? {
               ...existing,
-              vcpus: positiveDiskSize(stats.cpus) ?? existing.vcpus,
-              memoryMb: positiveDiskSize(stats.memoryTotalMb) ?? existing.memoryMb,
+              vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
+              memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
               diskMb: Math.max(pending.requestedDiskMb, diskMb),
             }
             : {
               ...DEFAULT_VM_RESOURCE_RESERVATION,
-              vcpus: positiveDiskSize(stats.cpus) ?? existing.vcpus,
-              memoryMb: positiveDiskSize(stats.memoryTotalMb) ?? existing.memoryMb,
+              vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
+              memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
               // Never replace the logical starting profile with a smaller
               // provider report. A larger report remains visible and fails
               // closed against the shared pool.
@@ -2278,7 +2303,7 @@ export function resizeVm(input: {
     // The provider can round a requested disk up. Persist the observed claim
     // before returning so the next shared-pool check cannot undercount it.
     // Missing or malformed stats fail closed at the per-VM maximum.
-    const confirmedDiskMb = positiveDiskSize(updated.diskTotalMb) ?? VM_DISK_MB_MAX;
+    const confirmedDiskMb = positiveResourceSize(updated.diskTotalMb) ?? VM_DISK_MB_MAX;
     if (reservation && repo.confirmVmResize) {
       const confirmed = yield* repo.confirmVmResize({
         id: vm.id,

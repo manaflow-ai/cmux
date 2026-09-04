@@ -2252,13 +2252,17 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         diskMb: PLAN_SHARED_DISK_MB,
       };
       const source = vmResourceReservationFromMetadata(event.sourceMetadata, conservativeFallback);
+      const recordedVcpus = positiveReservationInteger(event.metadata?.vcpus);
+      const recordedMemoryMb = positiveReservationInteger(event.metadata?.memoryMb);
       const recordedDiskMb = positiveReservationInteger(event.metadata?.diskMb);
       return {
-        ...source,
-        // New snapshot events record the source disk. Older events have no
-        // durable size, so claim the complete shared pool rather than trusting
-        // a source VM that may have grown after the snapshot was taken.
-        diskMb: recordedDiskMb ?? PLAN_SHARED_DISK_MB,
+        // New snapshot events record the provider-confirmed shape. Keep the
+        // source claim as a floor so an older or partial provider report never
+        // lowers a durable reservation. Older events have no shape fields, so
+        // the conservative fallback claims the complete shared pool.
+        vcpus: Math.max(source.vcpus, recordedVcpus ?? conservativeFallback.vcpus),
+        memoryMb: Math.max(source.memoryMb, recordedMemoryMb ?? conservativeFallback.memoryMb),
+        diskMb: Math.max(source.diskMb, recordedDiskMb ?? PLAN_SHARED_DISK_MB),
       };
     }),
 
