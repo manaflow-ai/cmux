@@ -2041,7 +2041,7 @@ async fn run_daemon(
             Ok((unix, websocket, workspace_http, relays, iroh, admin, info))
         }
         .await;
-        let (unix, websocket, workspace_http, relays, iroh, admin, info) = match transport_setup {
+        let (unix, websocket, workspace_http, relays, _iroh, admin, info) = match transport_setup {
             Ok(transports) => transports,
             Err(error) => {
                 return finalize_daemon_authorization(auth, state_dir, lifecycle_id, vec![error])
@@ -2069,7 +2069,7 @@ async fn run_daemon(
                 .push(anyhow::Error::new(error).context("workspace HTTP shutdown failed"));
         }
         #[cfg(feature = "iroh-transport")]
-        if let Some(listener) = iroh
+        if let Some(listener) = _iroh
             && let Err(error) = listener.shutdown().await
         {
             shutdown_failures
