@@ -343,6 +343,10 @@ pub fn shell_single_quote(value: &str) -> String {
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FileUrlError {
+    #[cfg_attr(
+        not(windows),
+        expect(dead_code, reason = "constructed only by Windows path validation")
+    )]
     UnsupportedWindowsNamespace,
 }
 
