@@ -106,8 +106,9 @@ browsers, and agents. The macOS app must not create a second remote graph.
   guessing a plural key or identity rule. The snapshot retains the new kind as
   opaque state, so protocol growth is visible to agents without risking a
   misapplied mutation.
-- Freshness is explicit: `current`, `stale`, and `unavailable` are distinct
-  states. A cached graph may be displayed as stale, but it may not authorize a
+- Freshness is explicit: an accepted graph is `current` or `stale`; absence of
+  a graph is represented by no `cloud_state` entry, not a third fake freshness
+  value. A cached graph may be displayed as stale, but it may not authorize a
   new placement or rename.
 - Snapshot-only compatibility is explicit. The app suspends the event reader for
   an unversioned Freestyle daemon, keeps all rows visible, and rejects workspace
