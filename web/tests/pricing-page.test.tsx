@@ -42,6 +42,18 @@ mock.module("next-intl/server", () => ({
   setRequestLocale: () => undefined,
 }));
 
+mock.module("@/i18n/navigation", () => ({
+  Link: ({ href, children, ...props }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...props}>
+      {children}
+    </a>
+  ),
+  redirect: () => undefined,
+  usePathname: () => "/pricing",
+  useRouter: () => ({}),
+  getPathname: () => "/pricing",
+}));
+
 mock.module("../app/[locale]/components/site-header", () => ({
   SiteHeader: () => <header />,
 }));
