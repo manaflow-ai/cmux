@@ -253,6 +253,40 @@ import Testing
     }
 }
 
+@Suite
+struct SidebarSnapshotWorkspaceIndexTests {
+    private struct FixtureWorkspace: Equatable {
+        let id: UUID
+        let title: String
+    }
+
+    @Test
+    func indexPreservesSnapshotOutputForDuplicateAndMissingWorkspaceIDs() {
+        let duplicateID = UUID()
+        let liveWorkspaces = [
+            FixtureWorkspace(id: duplicateID, title: "first duplicate"),
+            FixtureWorkspace(id: duplicateID, title: "second duplicate"),
+        ] + (0..<998).map { index in
+            FixtureWorkspace(id: UUID(), title: "workspace \(index)")
+        }
+        let missingID = UUID()
+        let snapshotWorkspaceIDs = liveWorkspaces.map(\.id) + [missingID]
+
+        let expectedTitles = snapshotWorkspaceIDs.compactMap { workspaceID in
+            liveWorkspaces.first(where: { $0.id == workspaceID })?.title
+        }
+        let index = cmuxSidebarWorkspaceIndex(liveWorkspaces, id: \.id)
+        let actualTitles = snapshotWorkspaceIDs.compactMap { workspaceID in
+            index[workspaceID]?.title
+        }
+
+        #expect(actualTitles == expectedTitles)
+        #expect(index[duplicateID]?.title == "first duplicate")
+        #expect(index[missingID] == nil)
+        #expect(index.count == liveWorkspaces.count - 1)
+    }
+}
+
 @Suite struct SidebarSelectedWorkspaceScrollPolicyTests {
     @Test func skipsScrollWhenSelectedWorkspaceIdIsNil() {
         #expect(!SidebarSelectedWorkspaceScrollPolicy.shouldScrollSelectedWorkspace(
