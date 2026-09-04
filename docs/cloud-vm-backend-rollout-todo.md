@@ -10,8 +10,8 @@ This is the scoped todo list for making the Cloud VM backend production-ready wi
 > **2026-09-04 current-main re-audit:** The terminal placement rename and
 > canonical remote-state synchronization remain absent from `main`; current
 > `main` adds no replacement for them. The branch is rebased on
-> `f83815917330efd70e2156f40425bcf72bc405dd` (`Clarify Cloud VM capacity is
-> shared (#11897)`). Freestyle is still the only
+> `e83b83229fc08a313fa958b36cb7926f14538108` (the current `main` browser
+> revert, [PR 11966](https://github.com/manaflow-ai/cmux/pull/11966)). Freestyle is still the only
 > active provider. The direct development backend is healthy, but the shared
 > free account has `maxActiveVms=0`, so an authenticated live VM rename smoke
 > remains pending a paid or explicitly provisioned test VM.
