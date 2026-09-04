@@ -5771,16 +5771,27 @@ struct CMUXCLI {
                     print("No cloud VMs. Try: cmux vm new")
                     break
                 }
-                let rows: [(String, String, String, String, String)] = vms.map { vm in
-                    (
-                        (vm["id"] as? String) ?? "?",
-                        (vm["displayName"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["slug"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                            ?? (vm["id"] as? String) ?? "?",
+                var rows: [(String, String, String, String, String)] = []
+                rows.reserveCapacity(vms.count)
+                for vm in vms {
+                    let id = (vm["id"] as? String) ?? "?"
+                    let displayName = vm["displayName"] as? String
+                    let slug = vm["slug"] as? String
+                    let label: String
+                    if let displayName, !displayName.isEmpty {
+                        label = displayName
+                    } else if let slug, !slug.isEmpty {
+                        label = slug
+                    } else {
+                        label = id
+                    }
+                    rows.append((
+                        id,
+                        label,
                         (vm["status"] as? String) ?? "unknown",
                         (vm["provider"] as? String) ?? "?",
                         (vm["image"] as? String) ?? "?"
-                    )
+                    ))
                 }
                 let hasLabels = rows.contains { !$0.1.isEmpty }
                 let nameWidth = max(4, rows.map { $0.0.count }.max() ?? 4)
