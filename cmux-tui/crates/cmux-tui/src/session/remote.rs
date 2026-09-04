@@ -5407,6 +5407,28 @@ mod tests {
     }
 
     #[cfg(target_os = "macos")]
+    fn macos_set_text_acl(path: &Path, rule: &str) {
+        let status =
+            std::process::Command::new("chmod").args(["+a", rule]).arg(path).status().unwrap();
+        assert!(status.success(), "chmod failed with {status}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_dump_acl_matches_system_textual_rules() {
+        let deny_root = tempfile::tempdir().unwrap();
+        macos_set_text_acl(deny_root.path(), "everyone deny write");
+        let deny_directory = fs::File::open(deny_root.path()).unwrap();
+        assert!(reject_extended_acl(&deny_directory).is_ok());
+
+        let allow_root = tempfile::tempdir().unwrap();
+        macos_set_text_acl(allow_root.path(), "everyone allow read");
+        let allow_directory = fs::File::open(allow_root.path()).unwrap();
+        let error = reject_extended_acl(&allow_directory).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[cfg(target_os = "macos")]
     fn macos_dump_directory_with_acl(tags: &[libc::c_int]) -> (tempfile::TempDir, fs::File) {
         use std::os::fd::AsRawFd;
 
