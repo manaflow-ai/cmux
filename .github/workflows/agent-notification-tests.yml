@@ -1,0 +1,18 @@
+name: Agent notification semantics
+on:
+  pull_request:
+    paths:
+      - Packages/macOS/CmuxAgentJournal/**
+      - CLI/CMUXCLI+SemanticNotifications.swift
+      - Sources/AgentJournalLifecycleCenter*.swift
+      - .github/workflows/agent-notification-tests.yml
+permissions:
+  contents: read
+jobs:
+  agent-notification-tests:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Test semantic lifecycle and durable notification admission
+        run: swift test --package-path Packages/macOS/CmuxAgentJournal -Xswiftc -warnings-as-errors
