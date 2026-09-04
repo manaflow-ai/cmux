@@ -17,6 +17,8 @@ private final class StubCallingCenter: UserNotificationCenterCalling, @unchecked
         var startedAdds = 0
         var finishedAdds = 0
         var startedRemovals = 0
+        var deliveredRemovalIdentifiers: [[String]] = []
+        var pendingRemovalIdentifiers: [[String]] = []
     }
 
     // Safety: the lock guards simple counters written from the service's
@@ -52,6 +54,14 @@ private final class StubCallingCenter: UserNotificationCenterCalling, @unchecked
 
     var startedRemovals: Int {
         state.withLock { $0.startedRemovals }
+    }
+
+    var deliveredRemovalIdentifiers: [[String]] {
+        state.withLock { $0.deliveredRemovalIdentifiers }
+    }
+
+    var pendingRemovalIdentifiers: [[String]] {
+        state.withLock { $0.pendingRemovalIdentifiers }
     }
 
     func setNotificationCategories(_ categories: Set<UNNotificationCategory>) {}
@@ -90,11 +100,17 @@ private final class StubCallingCenter: UserNotificationCenterCalling, @unchecked
     }
 
     func removeDeliveredNotifications(withIdentifiers identifiers: [String]) {
-        state.withLock { $0.startedRemovals += 1 }
+        state.withLock {
+            $0.startedRemovals += 1
+            $0.deliveredRemovalIdentifiers.append(identifiers)
+        }
     }
 
     func removePendingNotificationRequests(withIdentifiers identifiers: [String]) {
-        state.withLock { $0.startedRemovals += 1 }
+        state.withLock {
+            $0.startedRemovals += 1
+            $0.pendingRemovalIdentifiers.append(identifiers)
+        }
     }
 }
 
@@ -360,5 +376,7 @@ struct UserNotificationCenterServiceTests {
         #expect(Self.isSuccess(await service.removeDeliveredNotifications(withIdentifiers: ["a"])))
         #expect(Self.isSuccess(await service.removePendingNotificationRequests(withIdentifiers: ["b"])))
         #expect(center.startedRemovals == 2)
+        #expect(center.deliveredRemovalIdentifiers == [["a"]])
+        #expect(center.pendingRemovalIdentifiers == [["b"]])
     }
 }

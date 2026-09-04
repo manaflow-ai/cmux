@@ -322,7 +322,8 @@ final class TerminalNotificationStore: ObservableObject {
             emitNotificationsDismissed(ids: ids)
             return
         }
-        let extra = drainedSuperseded.filter { !ids.contains($0) }
+        let idSet = Set(ids)
+        let extra = drainedSuperseded.filter { !idSet.contains($0) }
         emitNotificationsDismissed(ids: ids + extra)
     }
 
@@ -1160,6 +1161,14 @@ final class TerminalNotificationStore: ObservableObject {
         indexes.latestByTabId[tabId]
     }
 
+    /// Whether the current sidebar preview is a read notification that can be
+    /// retired by a subsequent activity boundary. An unread latest entry is
+    /// deliberately left alone so an unrelated outstanding alert remains
+    /// visible while another surface is active.
+    func hasSidebarNotificationPreview(forTabId tabId: UUID) -> Bool {
+        indexes.latestByTabId[tabId]?.isRead == true
+    }
+
     func notifications(forTabId tabId: UUID, surfaceId: UUID?) -> [TerminalNotification] {
         notifications.filter { $0.matches(tabId: tabId, surfaceId: surfaceId) }
     }
@@ -1167,6 +1176,15 @@ final class TerminalNotificationStore: ObservableObject {
     func clearLatestNotification(forTabId tabId: UUID) {
         guard let latestNotification = indexes.latestByTabId[tabId] else { return }
         remove(id: latestNotification.id)
+    }
+
+    /// Retires read notification previews for a workspace after new
+    /// terminal/agent activity. Unread entries remain available to represent
+    /// an outstanding alert, while ``notificationFeedHistory`` remains the
+    /// durable chronological record for the entries that are retired.
+    @discardableResult
+    func clearSidebarNotificationPreviews(forTabId tabId: UUID) -> Bool {
+        removeNotifications { $0.tabId == tabId && $0.isRead }
     }
 
     func focusedReadIndicatorSurfaceId(forTabId tabId: UUID) -> UUID? {
@@ -2116,26 +2134,61 @@ final class TerminalNotificationStore: ObservableObject {
     }
 
     func remove(id: UUID) {
-        var updated = notifications
-        let removed = updated.first(where: { $0.id == id })
-        let originalCount = updated.count
-        updated.removeAll { $0.id == id }
-        guard updated.count != originalCount else { return }
-        notifications = updated
-        notificationFeedHistory.markRead(ids: [id])
-        if let removed {
-            clearFocusedReadIndicator(forTabId: removed.tabId, surfaceId: removed.surfaceId)
+        _ = removeNotifications { $0.id == id }
+    }
+
+    /// Removes several active notifications in one mutation. The sidebar
+    /// activity path can retire many read previews at once; filtering and
+    /// publishing once keeps that path O(n + r) instead of repeating the full
+    /// active-array/index work for every removed entry.
+    @discardableResult
+    private func removeNotifications(
+        where shouldRemove: (TerminalNotification) -> Bool
+    ) -> Bool {
+        var updated: [TerminalNotification] = []
+        updated.reserveCapacity(notifications.count)
+        var removedNotifications: [TerminalNotification] = []
+        for notification in notifications {
+            if shouldRemove(notification) {
+                removedNotifications.append(notification)
+            } else {
+                updated.append(notification)
+            }
         }
-        removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: [id.uuidString])
-        let supersededDrained = removed.map { removedNotification in
-            supersededPhoneDismissBuffer.flush(
+        guard !removedNotifications.isEmpty else { return false }
+
+        notifications = updated
+        let removedIDs = removedNotifications.map(\.id)
+        notificationFeedHistory.markRead(ids: Set(removedIDs))
+
+        var nextFocusedReadIndicators = focusedReadIndicatorByTabId
+        for notification in removedNotifications {
+            guard let existingSurfaceId = nextFocusedReadIndicators[notification.tabId],
+                  notification.surfaceId == nil || existingSurfaceId == notification.surfaceId else {
+                continue
+            }
+            nextFocusedReadIndicators.removeValue(forKey: notification.tabId)
+        }
+        if nextFocusedReadIndicators != focusedReadIndicatorByTabId {
+            focusedReadIndicatorByTabId = nextFocusedReadIndicators
+        }
+
+        let removedIDStrings = removedIDs.map(\.uuidString)
+        removeNotificationRequestsAndReleaseSoundReferences(withIdentifiers: removedIDStrings)
+        var drainedSuperseded: [String] = []
+        for notification in removedNotifications {
+            drainedSuperseded.append(contentsOf: supersededPhoneDismissBuffer.flush(
                 forKey: SupersededPhoneDismissBuffer.key(
-                    tabId: removedNotification.tabId,
-                    surfaceId: removedNotification.surfaceId
+                    tabId: notification.tabId,
+                    surfaceId: notification.surfaceId
                 )
-            )
-        } ?? []
-        emitNotificationsDismissed(ids: [id.uuidString], drainedSuperseded: supersededDrained)
+            ))
+        }
+        emitNotificationsDismissed(
+            ids: removedIDStrings,
+            drainedSuperseded: drainedSuperseded
+        )
+        return true
     }
 
     func clearNotifications(forTabId tabId: UUID, correlationKey: String) {

@@ -91,7 +91,35 @@ public final class NotificationDismissalModel: NotificationDismissing {
 
     @discardableResult
     public func dismissNotificationOnTerminalInteraction(workspaceId: UUID, surfaceId: UUID?) -> Bool {
-        dismissNotification(workspaceId: workspaceId, surfaceId: surfaceId, context: .terminalInteraction)
+        // Terminal input is an activity boundary even when the notification
+        // was already read. The normal dismissal path intentionally keeps a
+        // read notification as the sidebar preview, so retire that live
+        // preview separately while retaining the chronological feed record.
+        let didDismiss = dismissNotification(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            context: .terminalInteraction
+        )
+        guard let host, host.hasNotificationStore,
+              host.storeHasSidebarNotificationPreview(workspaceId: workspaceId) else {
+            return didDismiss
+        }
+        // `dismissNotification` already proved selection when it changed an
+        // indicator. A read-only preview has no dismissible aggregate state,
+        // so perform the same selection gate only for that case. Keeping the
+        // aggregate fast path intact matters because this callback runs on
+        // every explicit terminal keystroke.
+        if !didDismiss,
+           !host.isNotificationTargetSelected(
+               workspaceId: workspaceId,
+               surfaceId: surfaceId
+           ) {
+            return false
+        }
+        let didClearPreview = host.storeClearSidebarNotificationPreviews(
+            workspaceId: workspaceId
+        )
+        return didDismiss || didClearPreview
     }
 
     @discardableResult
