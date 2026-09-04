@@ -5,21 +5,7 @@ import Foundation
 struct LiveAgentSessionOwnerIndex: Sendable {
     static let empty = Self(observations: [])
 
-    private struct SessionKey: Hashable, Sendable {
-        let kind: String
-        let sessionID: String
-
-        init(kind: String, sessionID: String) {
-            let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
-            self.kind = normalizedKind
-            self.sessionID = ManagedAgentSessionIdentity.canonicalSessionID(
-                kind: normalizedKind,
-                sessionID: sessionID
-            )
-        }
-    }
-
-    private let ownersBySession: [SessionKey: [LiveAgentSessionOwner]]
+    private let ownersBySession: [LiveAgentSessionOwnerSessionKey: [LiveAgentSessionOwner]]
 
     init(observations: [LiveAgentSessionOwnerObservation]) {
         // A long-lived process can leave stale hook rows for older sessions.
@@ -34,10 +20,10 @@ struct LiveAgentSessionOwnerIndex: Sendable {
             newestByProcessIdentity[candidate.processIdentity] = candidate
         }
 
-        var ownersBySession: [SessionKey: [LiveAgentSessionOwner]] = [:]
+        var ownersBySession: [LiveAgentSessionOwnerSessionKey: [LiveAgentSessionOwner]] = [:]
         for owner in newestByProcessIdentity.values {
             ownersBySession[
-                SessionKey(kind: owner.kind, sessionID: owner.sessionID),
+                LiveAgentSessionOwnerSessionKey(kind: owner.kind, sessionID: owner.sessionID),
                 default: []
             ].append(owner)
         }
@@ -58,7 +44,7 @@ struct LiveAgentSessionOwnerIndex: Sendable {
             return AgentPIDProcessIdentity(pid: pid_t($0))
         }
     ) -> LiveAgentSessionOwner? {
-        let owners = ownersBySession[SessionKey(kind: kind, sessionID: sessionID)] ?? []
+        let owners = ownersBySession[LiveAgentSessionOwnerSessionKey(kind: kind, sessionID: sessionID)] ?? []
         let candidates = revalidateProcessEvidence
             ? owners.filter { owner in
                 guard processIdentityProvider(owner.processID) == owner.processIdentity else {
@@ -137,8 +123,8 @@ struct LiveAgentSessionOwnerIndex: Sendable {
         if candidate.observedAt != existing.observedAt {
             return candidate.observedAt > existing.observedAt
         }
-        let candidateIdentity = SessionKey(kind: candidate.kind, sessionID: candidate.sessionID)
-        let existingIdentity = SessionKey(kind: existing.kind, sessionID: existing.sessionID)
+        let candidateIdentity = LiveAgentSessionOwnerSessionKey(kind: candidate.kind, sessionID: candidate.sessionID)
+        let existingIdentity = LiveAgentSessionOwnerSessionKey(kind: existing.kind, sessionID: existing.sessionID)
         if candidateIdentity.kind != existingIdentity.kind {
             return candidateIdentity.kind > existingIdentity.kind
         }
