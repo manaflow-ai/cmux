@@ -4058,11 +4058,17 @@ final class cmuxUITests: XCTestCase {
         XCTAssertFalse(app.buttons["MobileIrohShareDiagnosticReport"].exists)
 
         exportLogs.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        XCTAssertTrue(
-            app.buttons["Copy"].waitForExistence(timeout: 4),
-            "Tapping Export Logs must present the share sheet."
-        )
-        app.buttons["Cancel"].tap()
+        let activityList = app.otherElements["ActivityListView"]
+        let shareSheetPresented = activityList.waitForExistence(timeout: 4)
+            || app.sheets.firstMatch.exists
+        XCTAssertTrue(shareSheetPresented, "Tapping Export Logs must present the share sheet.")
+        if app.buttons["Cancel"].exists {
+            app.buttons["Cancel"].tap()
+        } else if activityList.exists {
+            activityList.swipeDown()
+        } else {
+            app.sheets.firstMatch.swipeDown()
+        }
         XCTAssertTrue(exportLogs.waitForExistence(timeout: 2))
     }
 
