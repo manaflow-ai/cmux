@@ -490,7 +490,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             let status = await links.status(machineID: machineID)
             guard isCurrentRefresh(lifecycle: lifecycle, refresh: generation) else { return }
             linkState = status?.state ?? .error
-            var text = status?.error ?? CloudMachineLink.errorText(error)
+            let text = status?.error ?? CloudMachineLink.errorText(error)
             linkError = text
             #if DEBUG
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")

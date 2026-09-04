@@ -40,6 +40,7 @@ libc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
+socket2 = { workspace = true, optional = true }
 snow.workspace = true
 subtle.workspace = true
 tokio.workspace = true

@@ -2383,23 +2383,16 @@ actor MachineUsageClient {
         return nil
     }
 
-    private nonisolated static let iso8601WithFractions: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private nonisolated static let iso8601: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
     /// `null`/absent is nil; an unparseable string is nil too, since the date
     /// only labels the readout and must never fail the whole payload.
     private nonisolated static func dateValue(_ raw: Any?) -> Date? {
         guard let text = raw as? String, !text.isEmpty else { return nil }
-        return iso8601WithFractions.date(from: text) ?? iso8601.date(from: text)
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: text) { return date }
+        let wholeSeconds = ISO8601DateFormatter()
+        wholeSeconds.formatOptions = [.withInternetDateTime]
+        return wholeSeconds.date(from: text)
     }
 
     private func request(

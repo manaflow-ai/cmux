@@ -372,7 +372,7 @@ actor CloudWireGuardHub {
             } catch {
                 return
             }
-            await self.stopIfStillUnused(generation: stopGeneration)
+            self.stopIfStillUnused(generation: stopGeneration)
         }
     }
 

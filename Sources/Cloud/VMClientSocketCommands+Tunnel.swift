@@ -81,7 +81,6 @@ extension TerminalController {
             // app-managed builds, stops user-space links, and removes the local
             // config so a later explicit use re-enrolls from scratch.
             return v2VmCall(id: id) {
-                let manager = VMTunnelManager()
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     try? await coordinator.revoke()
                 }
