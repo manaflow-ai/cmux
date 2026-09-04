@@ -566,7 +566,10 @@ jobs:
           CMUX_CLI_BIN="$CLI_BINARY" python3 tests/test_cli_version_memory_guard.py
 
       - name: Thin bundle to the variant architecture
-        if: matrix.variant != 'universal' && needs.decide.outputs.fast_build != 'true'
+        # The fast build is already compiled arm64, but the downloaded cmux-tui
+        # client can still be universal. Thin every non-universal artifact before
+        # signing so the architecture gate remains meaningful.
+        if: matrix.variant != 'universal'
         run: |
           set -euo pipefail
           ./scripts/thin-app-bundle.sh build-universal/Build/Products/Release/cmux.app "$NIGHTLY_VARIANT"
