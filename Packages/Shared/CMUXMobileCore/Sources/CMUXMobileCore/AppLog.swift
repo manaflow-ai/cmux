@@ -766,12 +766,22 @@ public actor AppLog {
             }
             merged.append(data)
         }
-        var existingLines = Set(merged.split(separator: 0x0A, omittingEmptySubsequences: true))
+        let existingTextLines = String(decoding: merged, as: UTF8.self)
+            .split(whereSeparator: \.isNewline)
+        var existingLines = Set(existingTextLines.map(String.init))
+        var existingMirroredLines = Set(existingTextLines.compactMap { line -> String? in
+            guard let opening = line.firstIndex(of: "[") else { return nil }
+            let remainder = line[opening...]
+            guard remainder.contains("] ") else { return nil }
+            return String(remainder)
+        })
         for generation in additionalURLs.reversed() {
             guard let data = try? Data(contentsOf: generation) else { return nil }
             for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
                 let lineData = Data(line)
-                guard !existingLines.contains(line), merged.range(of: lineData) == nil else {
+                let lineString = String(decoding: lineData, as: UTF8.self)
+                guard !existingLines.contains(lineString),
+                      !existingMirroredLines.contains(lineString) else {
                     continue
                 }
                 if !merged.isEmpty, merged.last != 0x0A {
@@ -779,7 +789,8 @@ public actor AppLog {
                 }
                 merged.append(contentsOf: lineData)
                 merged.append(0x0A)
-                existingLines.insert(line)
+                existingLines.insert(lineString)
+                existingMirroredLines.insert(lineString)
             }
         }
         return merged
