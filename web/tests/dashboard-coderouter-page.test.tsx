@@ -95,6 +95,9 @@ mock.module("../app/lib/stack", () => ({
 class TestSubrouterAuthorizationUnavailableError extends Error {}
 
 mock.module("../services/vms/auth", () => ({
+  parseNativeStackTokens: () => null,
+  unauthorized: () => new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 }),
+  verifyRequest: async () => null,
   withSubrouterAuthorizationDeadline: async (
     operation: (signal: AbortSignal) => Promise<unknown>,
   ) => {
@@ -114,6 +117,13 @@ mock.module("../services/vms/auth", () => ({
 
 mock.module("../services/subrouter/routeHelpers", () => ({
   authorizedSubrouterTeams: async () => authorizedTeams,
+  resolveTeam: () => ({
+    ok: true,
+    teamId: "team-1",
+    teamName: "Team One",
+    use: true,
+    manageAccounts: true,
+  }),
 }));
 
 mock.module("../services/subrouter/hostedClient", () => ({
