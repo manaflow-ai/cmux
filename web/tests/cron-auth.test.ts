@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+
 import { authorizeCronRequest } from "../services/cronAuth";
 
 const originalCronSecret = process.env.CRON_SECRET;
@@ -18,6 +20,20 @@ function requestWithAuthorization(authorization?: string): Request {
 }
 
 describe("cron auth", () => {
+  test("every Vercel cron route uses the shared bearer authorization", () => {
+    const config = JSON.parse(
+      readFileSync(new URL("../vercel.json", import.meta.url), "utf8"),
+    ) as { crons: Array<{ path: string }> };
+
+    for (const cron of config.crons) {
+      const source = readFileSync(
+        new URL(`../app${cron.path}/route.ts`, import.meta.url),
+        "utf8",
+      );
+      expect(source).toContain("authorizeCronRequest");
+    }
+  });
+
   test("fails closed when CRON_SECRET is not configured, whatever the header says", () => {
     delete process.env.CRON_SECRET;
 
