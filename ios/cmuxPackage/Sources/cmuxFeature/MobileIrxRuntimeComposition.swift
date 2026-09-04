@@ -2,7 +2,6 @@ public import CMUXMobileCore
 import CmuxAuthRuntime
 public import CmuxIrohTransport
 import CmuxIrxTransport
-import CmuxMobileIrxControl
 public import CmuxMobileRPC
 import CmuxMobileShellModel
 public import Foundation

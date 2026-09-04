@@ -11,7 +11,10 @@ public import Foundation
 /// classify lane teardown, but this lane never closes the shared QUIC session.
 /// Session ownership belongs to ``IrxPeerEngine``.
 public actor IrxControlByteTransport: CmxByteTransport {
+    /// The asynchronous factory used to obtain an admitted QUIC connection and control lane.
     public typealias Establish = @Sendable () async throws -> (IrxConnection, IrxLaneStream)
+
+    /// Called once when this transport releases its control lane.
     public typealias OnClose = @Sendable () async -> Void
 
     private let establish: Establish
@@ -20,6 +23,7 @@ public actor IrxControlByteTransport: CmxByteTransport {
     private var connectInFlight: Task<(IrxConnection, IrxLaneStream), any Error>?
     private var isClosed = false
 
+    /// Creates a transport that lazily establishes its control lane.
     public init(
         closeCode: IrxCloseCode,
         establish: @escaping Establish,
