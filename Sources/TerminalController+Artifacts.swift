@@ -9,7 +9,11 @@ extension TerminalController {
     ) async -> V2CallResult {
         let repository = await MainActor.run { AppDelegate.shared?.artifactRepository }
         guard let repository else {
-            return .err(code: "unavailable", message: "Artifacts are unavailable before the app finishes launching", data: nil)
+            return .err(
+                code: "unavailable",
+                message: String(localized: "artifacts.cli.unavailable", defaultValue: "Artifacts are unavailable before the app finishes launching"),
+                data: nil
+            )
         }
         let scope = Self.artifactScope(params["scope"] as? String, params: params)
         do {
@@ -31,9 +35,17 @@ extension TerminalController {
                 return payload
             }])
         } catch is CancellationError {
-            return .err(code: "cancelled", message: "Artifact request cancelled", data: nil)
+            return .err(
+                code: "cancelled",
+                message: String(localized: "artifacts.cli.cancelled", defaultValue: "Artifact request cancelled"),
+                data: nil
+            )
         } catch {
-            return .err(code: "artifact_error", message: String(describing: error), data: nil)
+            return .err(
+                code: "artifact_error",
+                message: String(localized: "artifacts.cli.failed", defaultValue: "The artifact request could not be completed."),
+                data: nil
+            )
         }
     }
 
@@ -49,7 +61,11 @@ extension TerminalController {
               let pane = workspace.bonsplitController.focusedPaneId
                 ?? workspace.bonsplitController.allPaneIds.first,
               workspace.openOrFocusWorkspaceArtifactsSurface(inPane: pane, focus: true) != nil else {
-            return .err(code: "not_found", message: "No workspace is available for Artifacts", data: nil)
+            return .err(
+                code: "not_found",
+                message: String(localized: "artifacts.cli.noWorkspace", defaultValue: "No workspace is available for Artifacts"),
+                data: nil
+            )
         }
         _ = owner
         return .ok(["workspace_id": workspace.id.uuidString, "surface": "artifacts"])
@@ -60,11 +76,15 @@ extension TerminalController {
     func openArtifactsV1Command(_ args: String) -> String {
         guard args.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || args.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "open" else {
-            return "ERROR: Usage: artifacts [open]"
+            return String(localized: "artifacts.cli.usage", defaultValue: "ERROR: Usage: artifacts [open]")
         }
         switch v2ArtifactsOpen(params: [:]) {
-        case .ok: return "OK Artifacts"
-        case .err(_, let message, _): return "ERROR: \(message)"
+        case .ok: return String(localized: "artifacts.cli.opened", defaultValue: "OK Artifacts")
+        case .err(_, let message, _):
+            return String.localizedStringWithFormat(
+                String(localized: "artifacts.cli.errorPrefix", defaultValue: "ERROR: %@"),
+                message
+            )
         }
     }
 

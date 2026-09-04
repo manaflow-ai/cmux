@@ -291387,6 +291387,69 @@
         "ja": { "stringUnit": { "state": "translated", "value": "アーティファクト" } }
       }
     },
+    "artifacts.cli.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifacts are unavailable before the app finishes launching" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アプリの起動が完了するまでアーティファクトは利用できません" } }
+      }
+    },
+    "artifacts.cli.cancelled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifact request cancelled" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトの要求をキャンセルしました" } }
+      }
+    },
+    "artifacts.cli.noWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No workspace is available for Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトに利用できるワークスペースがありません" } }
+      }
+    },
+    "artifacts.cli.unknownSubcommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Unknown artifacts subcommand '%@'. Use list, search, or open." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "不明なアーティファクトサブコマンド '%@' です。list、search、open を使用してください。" } }
+      }
+    },
+    "artifacts.cli.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The artifact request could not be completed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "アーティファクトの要求を完了できませんでした。" } }
+      }
+    },
+    "artifacts.cli.usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ERROR: Usage: artifacts [open]" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー: 使用法: artifacts [open]" } }
+      }
+    },
+    "artifacts.cli.opened": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "OK Artifacts" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "OK アーティファクト" } }
+      }
+    },
+    "artifacts.cli.errorPrefix": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "ERROR: %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "エラー: %@" } }
+      }
+    },
+    "artifacts.cli.openedWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Artifacts opened in workspace %@" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "ワークスペース %@ でアーティファクトを開きました" } }
+      }
+    },
     "artifactsPane.workspaceUnavailable": {
       "extractionState": "manual",
       "localizations": {

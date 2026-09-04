@@ -34,7 +34,13 @@ extension CMUXCLI {
         case "open":
             payload = try client.sendV2(method: "artifacts.open", params: params)
         default:
-            throw CLIError(message: "Unknown artifacts subcommand '\(subcommand)'. Use list, search, or open.", exitCode: 2)
+            throw CLIError(
+                message: String.localizedStringWithFormat(
+                    String(localized: "artifacts.cli.unknownSubcommand", defaultValue: "Unknown artifacts subcommand '%@'. Use list, search, or open."),
+                    subcommand
+                ),
+                exitCode: 2
+            )
         }
 
         if jsonOutput {
@@ -50,7 +56,10 @@ extension CMUXCLI {
                 print("\(kind)\t\(id)\t\(value)")
             }
         } else if let workspaceID = payload["workspace_id"] as? String {
-            print("Artifacts opened in workspace \(workspaceID)")
+            print(String.localizedStringWithFormat(
+                String(localized: "artifacts.cli.openedWorkspace", defaultValue: "Artifacts opened in workspace %@"),
+                workspaceID
+            ))
         }
         _ = idFormat
     }
