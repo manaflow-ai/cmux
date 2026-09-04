@@ -4345,6 +4345,60 @@ final class AppDelegateShortcutRoutingTests: XCTestCase {
         XCTAssertEqual(workspace.panels.count, panelCountBefore)
     }
 
+    func testDvorakPhysicalWCommandShortcutPrefersCloseTabOverSettings() {
+        guard let appDelegate = AppDelegate.shared else {
+            XCTFail("Expected AppDelegate.shared")
+            return
+        }
+
+        let windowId = appDelegate.createMainWindow()
+        defer { closeWindow(withId: windowId) }
+
+        guard let window = window(withId: windowId) else {
+            XCTFail("Expected test window")
+            return
+        }
+
+        // Standard Dvorak emits a comma from the physical ANSI-W key. The
+        // layout-produced comma must not be mistaken for the Cmd+, Settings
+        // shortcut; it is the physical Cmd+W that the user pressed.
+        appDelegate.shortcutLayoutCharacterProvider = { keyCode, _ in
+            keyCode == 13 ? "," : nil // kVK_ANSI_W
+        }
+        defer {
+            appDelegate.shortcutLayoutCharacterProvider = KeyboardLayout.character(forKeyCode:modifierFlags:)
+        }
+
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [.command],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: ",",
+            charactersIgnoringModifiers: ",",
+            isARepeat: false,
+            keyCode: 13 // kVK_ANSI_W
+        ) else {
+            XCTFail("Failed to construct Dvorak physical-W event")
+            return
+        }
+
+#if DEBUG
+        XCTAssertTrue(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .closeTab),
+            "Physical Cmd+W should match Close Tab even when Dvorak emits a comma"
+        )
+        XCTAssertFalse(
+            appDelegate.debugMatchesConfiguredShortcut(event: event, action: .openSettings),
+            "A Dvorak comma from physical W must not match Cmd+, Settings"
+        )
+#else
+        XCTFail("debugMatchesConfiguredShortcut is only available in DEBUG")
+#endif
+    }
+
     func testCmdIStillTriggersShowNotificationsShortcut() {
         guard let appDelegate = AppDelegate.shared else {
             XCTFail("Expected AppDelegate.shared")
