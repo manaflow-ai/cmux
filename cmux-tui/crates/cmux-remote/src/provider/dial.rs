@@ -161,10 +161,7 @@ impl WireGuardDialer {
 #[cfg(feature = "wireguard-transport")]
 impl fmt::Debug for WireGuardDialer {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("WireGuardDialer")
-            .field("routes", &self.net.routes())
-            .finish()
+        formatter.debug_struct("WireGuardDialer").field("routes", &self.net.routes()).finish()
     }
 }
 
@@ -181,10 +178,10 @@ impl Dialer for WireGuardDialer {
             .into_iter()
             .find(|address| self.net.routes_contain(address.ip()))
             .ok_or_else(|| {
-                LinkError::Transport(format!(
-                    "{host}:{port} is outside the configured WireGuard routes"
-                ))
-            })?;
+            LinkError::Transport(format!(
+                "{host}:{port} is outside the configured WireGuard routes"
+            ))
+        })?;
         let stream = self.net.connect(address).await.map_err(|error| {
             LinkError::Transport(format!("wireguard connect {address}: {error}"))
         })?;

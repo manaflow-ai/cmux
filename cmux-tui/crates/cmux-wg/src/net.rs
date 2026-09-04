@@ -175,7 +175,9 @@ impl WgNet {
             .resolve()
             .await
             .map_err(|_| WgError::EndpointUnresolved(endpoint.host.clone()))?;
-        let peer = *candidates.first().ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
+        let peer = *candidates
+            .first()
+            .ok_or_else(|| WgError::EndpointUnresolved(endpoint.host.clone()))?;
         let bind: SocketAddr = if peer.is_ipv4() { "0.0.0.0:0".parse() } else { "[::]:0".parse() }
             .expect("literal bind address");
         let socket = UdpSocket::bind(bind).await?;
@@ -496,8 +498,12 @@ impl Driver {
         // goes into the tunnel.
         for entry in &config.addresses {
             let result = match entry.address {
-                IpAddr::V4(address) => iface.routes_mut().add_default_ipv4_route(address).map(|_| ()),
-                IpAddr::V6(address) => iface.routes_mut().add_default_ipv6_route(address).map(|_| ()),
+                IpAddr::V4(address) => {
+                    iface.routes_mut().add_default_ipv4_route(address).map(|_| ())
+                }
+                IpAddr::V6(address) => {
+                    iface.routes_mut().add_default_ipv6_route(address).map(|_| ())
+                }
             };
             result.map_err(|_| WgError::Stack("route table full".into()))?;
         }
@@ -521,7 +527,9 @@ impl Driver {
     }
 
     fn now(&self) -> SmolInstant {
-        SmolInstant::from_micros(i64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(i64::MAX))
+        SmolInstant::from_micros(
+            i64::try_from(self.epoch.elapsed().as_micros()).unwrap_or(i64::MAX),
+        )
     }
 
     async fn run(mut self) {
@@ -696,8 +704,11 @@ impl Driver {
     fn allocate_port(&mut self) -> u16 {
         for _ in 0..EPHEMERAL_PORT_COUNT {
             let port = self.next_port;
-            self.next_port =
-                if self.next_port >= u16::MAX - 1 { FIRST_EPHEMERAL_PORT } else { self.next_port + 1 };
+            self.next_port = if self.next_port >= u16::MAX - 1 {
+                FIRST_EPHEMERAL_PORT
+            } else {
+                self.next_port + 1
+            };
             let in_use = self.conns.iter().any(|conn| {
                 self.sockets
                     .get::<tcp::Socket>(conn.handle)
@@ -773,7 +784,12 @@ impl Driver {
 
     /// Build the channel pair for a socket: the driver-side [`Conn`] and the
     /// owner-side [`WgStream`].
-    fn bridge(&self, handle: SocketHandle, local: SocketAddr, remote: SocketAddr) -> (Conn, WgStream) {
+    fn bridge(
+        &self,
+        handle: SocketHandle,
+        local: SocketAddr,
+        remote: SocketAddr,
+    ) -> (Conn, WgStream) {
         let (inbound_tx, inbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
         let (outbound_tx, outbound_rx) = mpsc::channel(STREAM_CHANNEL_DEPTH);
         let stream = WgStream {

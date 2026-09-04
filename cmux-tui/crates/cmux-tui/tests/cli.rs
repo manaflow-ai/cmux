@@ -4303,7 +4303,11 @@ fn wg_hub_reports_readiness_and_removes_its_socket_on_sigterm() {
     let mut stdout = BufReader::new(child.stdout.take().unwrap());
     let mut line = String::new();
     stdout.read_line(&mut line).unwrap();
-    assert!(!line.is_empty(), "hub exited before printing readiness: {:?}", child.wait_with_output());
+    assert!(
+        !line.is_empty(),
+        "hub exited before printing readiness: {:?}",
+        child.wait_with_output()
+    );
     let ready: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
     assert_eq!(ready["event"], "hub-ready", "{line}");
     assert_eq!(ready["socket"], socket.to_str().unwrap(), "{line}");

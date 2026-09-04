@@ -27,6 +27,9 @@ use crate::crypto::AuthKind;
 use crate::link::{FrameLink, LinkError};
 use crate::observability::TransportSnapshot;
 
+#[cfg(feature = "wireguard-transport")]
+pub use dial::WireGuardDialer;
+pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
 #[cfg(feature = "iroh-transport")]
 pub use iroh::{
     CMUX_IROH_ALPN, IrohListener, IrohPathMode, IrohProvider, IrohProviderConfig, IrohRoute,
@@ -40,9 +43,6 @@ pub use ssh::{SshProvider, SshProviderConfig};
 pub use stream::LengthDelimitedLink;
 #[cfg(unix)]
 pub use unix::UnixProvider;
-#[cfg(feature = "wireguard-transport")]
-pub use dial::WireGuardDialer;
-pub use dial::{DialedIo, DialedStream, Dialer, OsTcpDialer, SocksDialer, resolve_dial_target};
 pub use websocket::{
     AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
     connect_websocket_via,

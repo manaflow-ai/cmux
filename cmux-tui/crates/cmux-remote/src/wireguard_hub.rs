@@ -28,10 +28,12 @@ use tokio::task::JoinSet;
 use crate::admin::verify_unix_peer_owner;
 use crate::provider::socks::{
     self, COMMAND_CONNECT, REPLY_ADDRESS_TYPE_NOT_SUPPORTED, REPLY_COMMAND_NOT_SUPPORTED,
-    REPLY_CONNECTION_REFUSED, REPLY_GENERAL_FAILURE, REPLY_NETWORK_UNREACHABLE,
-    REPLY_NOT_ALLOWED, REPLY_SUCCEEDED, Target,
+    REPLY_CONNECTION_REFUSED, REPLY_GENERAL_FAILURE, REPLY_NETWORK_UNREACHABLE, REPLY_NOT_ALLOWED,
+    REPLY_SUCCEEDED, Target,
 };
-use crate::unix_socket::{OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError};
+use crate::unix_socket::{
+    OwnedUnixListener, UnixAcceptBackoff, UnixSocketCleanup, UnixSocketError,
+};
 
 /// Concurrent tunneled connections the hub serves. Each VM link uses at most
 /// four lanes; this leaves room for many links plus reconnect overlap.
@@ -195,7 +197,10 @@ pub async fn serve_wireguard_hub(
 }
 
 /// One SOCKS5 exchange, then a bidirectional copy until either side closes.
-async fn serve_connection(net: Arc<WgNet>, mut stream: UnixStream) -> Result<(), socks::SocksError> {
+async fn serve_connection(
+    net: Arc<WgNet>,
+    mut stream: UnixStream,
+) -> Result<(), socks::SocksError> {
     let request = tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
         if !socks::server_greet(&mut stream).await? {
             return Ok(None);

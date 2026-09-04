@@ -118,7 +118,10 @@ async fn invitation_enrolls_over_a_wireguard_dialed_websocket() {
         .unwrap();
     assert_eq!(daemon_client.receive().await.unwrap().unwrap().payload, b"keys".as_slice());
     let screen = vec![0x5a; 16_000];
-    daemon_client.send(Lane::Bulk, 2, Bytes::from(screen.clone()), FrameFlags::empty()).await.unwrap();
+    daemon_client
+        .send(Lane::Bulk, 2, Bytes::from(screen.clone()), FrameFlags::empty())
+        .await
+        .unwrap();
     assert_eq!(client.receive().await.unwrap().unwrap().payload, screen.as_slice());
 
     assert!(tunnel.time_since_last_handshake().await.unwrap().is_some());
