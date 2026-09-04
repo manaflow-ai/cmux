@@ -7433,9 +7433,11 @@ class GhosttyNSView: NSView, NSUserInterfaceValidations {
         guard event.keyCode == 36 || event.keyCode == 76 else { return false }
         // Korean IME: Enter commits the syllable AND executes the command (single step).
         // Japanese/Chinese IME: Enter only confirms the conversion; a second Enter executes.
-        // Only send the extra Return key for Korean input sources.
-        guard let sourceId = KeyboardLayout.id else { return false }
-        return sourceId.range(of: "korean", options: .caseInsensitive) != nil
+        // Only send the extra Return key for Korean input sources (see the policy).
+        return TerminalCommittedIMEReturnInputSourcePolicy().shouldForwardReturn(
+            sourceId: KeyboardLayout.id,
+            languages: KeyboardLayout.languages
+        )
     }
 
     private func ghosttyKeyEvent(for event: NSEvent, surface: ghostty_surface_t) -> ghostty_input_key_s {
