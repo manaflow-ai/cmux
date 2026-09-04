@@ -86,6 +86,12 @@ extension TerminalSurface {
         // until its completion task publishes the result and clears both task
         // slots; a later creation request can then reuse that in-flight work.
         agentCommandShimPendingCreationSource = nil
+        // A deadline may have released surface creation while the installer is
+        // still running. Reopen the readiness gate so a later creation can
+        // retry after cancellation without starting a duplicate installer.
+        if agentCommandShimInstallTask != nil {
+            agentCommandShimInstallCompleted = false
+        }
     }
 
     @MainActor
