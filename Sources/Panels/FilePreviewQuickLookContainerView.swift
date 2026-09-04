@@ -9,6 +9,7 @@ import Quartz
 /// representable teardown, so no closed preview is reused.
 final class FilePreviewQuickLookContainerView: NSView {
     private var previewView: QLPreviewView?
+    private var isRetiring = false
     private var isDismantled = false
 
     /// Creates an empty stable host for a replaceable inner preview.
@@ -26,10 +27,10 @@ final class FilePreviewQuickLookContainerView: NSView {
     /// Returns the preview owned by this mounted host, creating it when needed.
     /// A dismantled representable cannot create or re-adopt a preview.
     func livePreviewView() -> QLPreviewView? {
+        guard !isRetiring, !isDismantled else { return nil }
         if let previewView {
             return previewView
         }
-        guard !isDismantled else { return nil }
 
         guard let previewView = QLPreviewView(frame: bounds, style: .normal) else {
             return nil
@@ -37,8 +38,9 @@ final class FilePreviewQuickLookContainerView: NSView {
         previewView.autostarts = true
         previewView.shouldCloseWithWindow = false
         previewView.autoresizingMask = [.width, .height]
-        addSubview(previewView)
         self.previewView = previewView
+        // Register the child before AppKit can synchronously re-enter this host.
+        addSubview(previewView)
         return previewView
     }
 
@@ -56,7 +58,14 @@ final class FilePreviewQuickLookContainerView: NSView {
     }
 
     private func retireLivePreview(reason: String) {
-        guard let previewView else { return }
+        guard !isRetiring, let previewView else { return }
+        isRetiring = true
+        self.previewView = nil
+        defer { isRetiring = false }
+
+        // Invalidate the slot before any AppKit call. `close()` and
+        // `removeFromSuperview()` can synchronously trigger SwiftUI/responder
+        // updates while the old Quick Look view is already deactivated.
         sentryBreadcrumb(
             "quickLook.preview.retire",
             category: "filePreview",
@@ -67,6 +76,5 @@ final class FilePreviewQuickLookContainerView: NSView {
         // when the preview has never entered a window.
         previewView.close()
         previewView.removeFromSuperview()
-        self.previewView = nil
     }
 }

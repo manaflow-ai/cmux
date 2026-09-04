@@ -40,6 +40,24 @@ struct FilePreviewKindResolverTests {
         }
     }
 
+    @Test("Large single-line text routes through the bounded text path")
+    func largeSingleLineTextRoutesThroughTextPreview() throws {
+        let contents = String(repeating: "x", count: 1_048_576)
+        for fileExtension in [nil, "txt"] {
+            let baseURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-file-preview-\(UUID().uuidString)")
+            let url = fileExtension.map { baseURL.appendingPathExtension($0) } ?? baseURL
+            try Data(contents.utf8).write(to: url, options: .atomic)
+            defer { try? FileManager.default.removeItem(at: url) }
+
+            #expect(
+                FilePreviewKindResolver.initialMode(for: url)
+                    == (fileExtension == nil ? .quickLook : .text)
+            )
+            #expect(FilePreviewKindResolver.mode(for: url) == .text)
+        }
+    }
+
     @Test("MTS binary transport streams keep media preview after sniffing")
     func mtsBinaryTransportStreamsKeepMediaPreviewAfterSniffing() throws {
         let url = try temporaryFile(
