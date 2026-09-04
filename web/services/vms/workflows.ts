@@ -458,13 +458,14 @@ export function createVm(input: {
     const beginInput = isPaidVmPlan(input.billingPlanId)
       ? {
         ...input,
-        // Reserve the logical plan profile, not the provider snapshot shape.
-        // Freestyle's nearest ladder image can be larger than the advertised
-        // 5 vCPU / 20 GB profile, and that overprovisioning is an implementation
-        // detail rather than extra customer capacity. Including it here would
-        // reject the default paid create before the provider call.
+        // Reserve the logical plan profile when memoryMb is present, because
+        // the resolver may select a larger baked snapshot to satisfy it. A
+        // direct caller may instead provide only imageSize; in that form the
+        // image is the authoritative request and must not fall back to the
+        // smaller default reservation.
         resourceReservation: input.resourceReservation ?? vmResourceReservationForCreate({
           memoryMb: input.memoryMb,
+          ...(input.memoryMb === undefined && input.imageSize ? { imageSize: input.imageSize } : {}),
         }),
         sharedResourceCapacity: sharedResourceCapacityForMaxActiveVms(input.maxActiveVms),
       }
