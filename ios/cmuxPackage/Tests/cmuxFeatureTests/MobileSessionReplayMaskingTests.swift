@@ -1,8 +1,8 @@
 #if os(iOS)
+@testable import CmuxMobileBrowserStream
 import CmuxMobileCamera
 import CmuxMobileSimulatorStream
 import CmuxMobileTerminal
-import Foundation
 import Testing
 
 @testable import cmuxFeature
@@ -15,8 +15,7 @@ import Testing
         let masked = MobileSessionReplayMasking.maskedViewClasses
 
         #expect(masked.contains { $0 == GhosttySurfaceView.self })
-        // Internal to its package; identified by runtime name instead.
-        #expect(masked.contains { NSStringFromClass($0).contains("BrowserStreamContentView") })
+        #expect(masked.contains { $0 == BrowserStreamContentView.self })
         #expect(masked.contains { $0 == SimStreamDisplayView.self })
         #expect(masked.contains { $0 == CameraPreviewHostView.self })
         #expect(masked.count == 4)

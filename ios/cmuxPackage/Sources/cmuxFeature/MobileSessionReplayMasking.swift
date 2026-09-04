@@ -15,6 +15,7 @@ import CmuxMobileTerminal
 /// content surface that is not a `UILabel`/`UIImageView`/`WKWebView` must be
 /// added here before it ships.
 public enum MobileSessionReplayMasking {
+    /// All app-owned content surfaces that session replay must mask.
     public static var maskedViewClasses: [AnyClass] {
         [
             GhosttySurfaceView.self,

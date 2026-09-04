@@ -40,6 +40,14 @@ public struct MobileCrashReporter {
     ///   - consent: The shared analytics/crash telemetry opt-out gate.
     ///   - arguments: Process arguments used to gate the DEBUG-only test crash.
     ///     Defaults to `ProcessInfo.processInfo.arguments`.
+    ///   - environment: Process environment used for test-run detection and the
+    ///     DEBUG-only replay mask-audit override.
+    ///   - notificationCenter: Notification center used to observe consent
+    ///     changes for the process lifetime.
+    ///   - revocationWatcher: Process-owned watcher that starts and stops the
+    ///     SDK as telemetry consent changes.
+    ///   - replayMaskedViewClasses: Custom UIKit view classes that session
+    ///     replay must mask unconditionally.
     ///   - prepareLocale: Process-locale initialization performed before Sentry
     ///     starts any background work.
     ///   - start: The Sentry start function. Tests inject this closure so they
@@ -182,9 +190,12 @@ public struct MobileCrashReporter {
         options.enableNetworkBreadcrumbs = false
         options.enableAutoBreadcrumbTracking = false
         options.tracePropagationTargets = []
-        // Sessions are release-health telemetry, outside the crash-only scope,
-        // and the one envelope type the consent beforeSend gate cannot drop.
-        options.enableAutoSessionTracking = false
+        // Session Replay listens for Sentry session lifecycle callbacks to create
+        // its rolling error buffer and sampled full-session recording. Keep the
+        // lifecycle enabled now that replay is part of mobile telemetry. The
+        // same consent gate controls whether the SDK starts, and revocation
+        // closes it and purges the session/replay cache.
+        options.enableAutoSessionTracking = true
         #if os(iOS)
         // Session replay: masked recordings of the app's own screens for crash
         // and UX context. Masking runs on-device during capture, so masked

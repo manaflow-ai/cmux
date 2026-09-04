@@ -90,7 +90,9 @@ private final class ReplayMaskProbeView: UIView {}
         #expect(options.enableNetworkBreadcrumbs == false)
         #expect(options.enableAutoBreadcrumbTracking == false)
         #expect(options.tracePropagationTargets.isEmpty)
-        #expect(options.enableAutoSessionTracking == false)
+        // Replay needs Sentry's session lifecycle to create its rolling error
+        // buffer and apply the configured session sample rate.
+        #expect(options.enableAutoSessionTracking == true)
         #expect(options.enableLogs == true)
         #expect(options.beforeBreadcrumb != nil)
         #if os(iOS)
