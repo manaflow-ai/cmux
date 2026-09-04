@@ -1156,6 +1156,7 @@
           "defaultSearchEngine": "Tarayıcı adres çubuğundaki URL olmayan sorgular için varsayılan arama motoru. Diğer sağlayıcılar için custom ile customSearchEngineURLTemplate kullanın.",
           "customSearchEngineName": "defaultSearchEngine custom olduğunda kullanılan görünen ad.",
           "customSearchEngineURLTemplate": "defaultSearchEngine custom olduğunda kullanılan arama URL’si. Kodlanmış sorgu için sorgu yer tutucusunu veya %s ekleyin. Yer tutucu yoksa cmux URL’ye q= ekler.",
+          "captureKeyboardShortcuts": "Odaktaki tarayıcı sayfasının, aksi halde cmux işlemlerini tetikleyecek klavye kısayollarını almasına izin verir.",
           "urlAllowlist": "Yerleşik tarayıcıda gezinmeyi kısıtlayan ana bilgisayar veya URL kalıpları. Ayarlar yerel geliştirme kaynaklarını önerir; bir listeyi kaydetmek isteğe bağlı kısıtlamayı etkinleştirir. Girişleri kaldırarak engelleyin veya yönetilen bir politika yoksa kısıtlamayı devre dışı bırakmak için kullanıcı değerini boş bırakın."
         },
         "workspaceGroups": {

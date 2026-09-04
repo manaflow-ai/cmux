@@ -3,6 +3,18 @@ import CmuxSettingsUI
 import Foundation
 
 extension KeyboardShortcutSettings {
+    /// Whether focused browser web content should receive cmux-conflicting
+    /// keyboard shortcuts before the app-level shortcut router.
+    static func browserKeyboardShortcutCaptureEnabled(
+        defaults: UserDefaults = .standard
+    ) -> Bool {
+        let setting = Self.browserKeyboardShortcutCaptureSetting
+        guard defaults.object(forKey: setting.userDefaultsKey) != nil else {
+            return setting.defaultValue
+        }
+        return defaults.bool(forKey: setting.userDefaultsKey)
+    }
+
     static func shortcutIfBound(for action: Action) -> StoredShortcut? {
         #if DEBUG
         shortcutLookupObserver?(action)

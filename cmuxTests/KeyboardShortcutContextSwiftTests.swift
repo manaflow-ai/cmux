@@ -13,8 +13,119 @@ private typealias SimulatorStoredShortcut = cmux_DEV.StoredShortcut
 private typealias SimulatorStoredShortcut = cmux.StoredShortcut
 #endif
 
+private final class BrowserOwnershipFieldEditor: NSTextView {
+    override var isFieldEditor: Bool {
+        get { true }
+        set {}
+    }
+
+    deinit {}
+}
+
 @Suite("Keyboard shortcut context")
 struct KeyboardShortcutContextSwiftTests {
+    @Test("browser keyboard shortcut capture setting defaults off and reads live overrides")
+    func browserKeyboardShortcutCaptureSetting() {
+        let suiteName = "cmux.browserKeyboardShortcutCapture.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        #expect(!KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
+        defaults.set(true, forKey: SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey)
+        #expect(KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
+        defaults.set(false, forKey: SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey)
+        #expect(!KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled(defaults: defaults))
+    }
+
+    @Test("panel-less web focus does not advertise BrowserPanel-owned actions")
+    func panelLessBrowserFocusAvailability() {
+        let context = ShortcutEventFocusContext(
+            browserPanel: nil,
+            browserWebViewFocused: true,
+            markdownPanel: nil,
+            filePreviewTextEditorFocused: false,
+            simulatorFocused: false,
+            rightSidebarFocused: false,
+            shortcutContext: ShortcutFocusState(
+                browser: false,
+                markdown: false,
+                sidebar: false
+            ).context
+        )
+
+        #expect(!context.focusState.browser)
+        #expect(!KeyboardShortcutSettings.Action.browserReload.shortcutContext.isAvailable(context))
+        #expect(!KeyboardShortcutSettings.Action.toggleBrowserDeveloperTools.shortcutContext.isAvailable(context))
+
+        let popupContext = ShortcutEventFocusContext(
+            browserPanel: nil,
+            browserWebViewFocused: true,
+            browserPopupWebViewFocused: true,
+            markdownPanel: nil,
+            filePreviewTextEditorFocused: false,
+            simulatorFocused: false,
+            rightSidebarFocused: false,
+            shortcutContext: ShortcutFocusState(
+                browser: true,
+                markdown: false,
+                sidebar: false
+            ).context
+        )
+
+        #expect(popupContext.focusState.browser)
+    }
+
+    @Test("browser capture indexes control and private-use key tokens")
+    func browserCaptureNonPrintableKeyClassification() {
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("\u{1B}"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("\u{7F}"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("\u{F728}"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("tab"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("return"))
+        #expect(SimulatorStoredShortcut.isNonPrintableShortcutKey("enter"))
+    }
+
+    @Test("browser field-editor ownership fails closed without a tracked owner")
+    @MainActor
+    func browserFieldEditorWithoutOwnerFailsClosed() {
+        let host = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 20))
+        let editor = BrowserOwnershipFieldEditor(frame: host.bounds)
+        host.addSubview(editor)
+        editor.nextResponder = nil
+
+        #expect(editor.superview === host)
+        #expect(editor.cmuxBrowserOwningView() == nil)
+    }
+
+    @Test("browser field-editor ownership stops at the responder hop limit")
+    @MainActor
+    func browserFieldEditorOwnershipHopLimit() {
+        func fieldEditorChain(
+            nonViewHops: Int
+        ) -> (BrowserOwnershipFieldEditor, [NSResponder], NSView) {
+            let editor = BrowserOwnershipFieldEditor(frame: .zero)
+            let responders = (0..<nonViewHops).map { _ in NSResponder() }
+            let owner = NSView(frame: .zero)
+            var current: NSResponder = editor
+            for responder in responders {
+                current.nextResponder = responder
+                current = responder
+            }
+            current.nextResponder = owner
+            return (editor, responders, owner)
+        }
+
+        let (withinLimit, withinResponders, withinOwner) = fieldEditorChain(nonViewHops: 63)
+        #expect(withinResponders.count == 63)
+        #expect(withinLimit.cmuxBrowserOwningView() === withinOwner)
+
+        let (beyondLimit, beyondResponders, beyondOwner) = fieldEditorChain(nonViewHops: 64)
+        #expect(beyondResponders.count == 64)
+        withExtendedLifetime(beyondOwner) {
+            #expect(beyondLimit.cmuxBrowserOwningView() == nil)
+        }
+    }
+
     @Test("Bulk notification shortcuts are shared, visible, and unbound by default")
     func bulkNotificationShortcutsAreSharedVisibleAndUnbound() throws {
         let actions: [KeyboardShortcutSettings.Action] = [

@@ -5,6 +5,14 @@ import WebKit
 
 struct ShortcutEventFocusContext {
     let browserPanel: BrowserPanel?
+    /// True when browser web content owns focus even if its ``BrowserPanel``
+    /// model is temporarily unavailable. This is an ownership signal for
+    /// browser editing/capture paths, not proof that a BrowserPanel-scoped
+    /// shortcut is available.
+    let browserWebViewFocused: Bool
+    /// True only for a standalone browser popup web view. This is the sole
+    /// panel-less web-view state that contributes to the `browser` focus atom.
+    let browserPopupWebViewFocused: Bool
     let markdownPanel: MarkdownPanel?
     let filePreviewTextEditorFocused: Bool
     let simulatorFocused: Bool
@@ -16,6 +24,8 @@ struct ShortcutEventFocusContext {
 
     init(
         browserPanel: BrowserPanel?,
+        browserWebViewFocused: Bool = false,
+        browserPopupWebViewFocused: Bool = false,
         markdownPanel: MarkdownPanel?,
         filePreviewTextEditorFocused: Bool,
         simulatorFocused: Bool,
@@ -25,6 +35,8 @@ struct ShortcutEventFocusContext {
         shortcutContext: ShortcutContext
     ) {
         self.browserPanel = browserPanel
+        self.browserWebViewFocused = browserWebViewFocused
+        self.browserPopupWebViewFocused = browserPopupWebViewFocused
         self.markdownPanel = markdownPanel
         self.filePreviewTextEditorFocused = filePreviewTextEditorFocused
         self.simulatorFocused = simulatorFocused
@@ -42,7 +54,7 @@ struct ShortcutEventFocusContext {
     /// ``ShortcutWhenClause`` evaluates against.
     var focusState: ShortcutFocusState {
         ShortcutFocusState(
-            browser: browserPanel != nil,
+            browser: browserPanel != nil || browserPopupWebViewFocused,
             markdown: markdownPanel != nil,
             sidebar: rightSidebarFocused,
             filePreviewTextEditor: filePreviewTextEditorFocused,
@@ -104,19 +116,24 @@ extension AppDelegate {
         let simulatorFocused = simulatorPanel != nil
         let simulatorTextEditorFocused = simulatorFocused
             && shortcutWindow?.firstResponder.map(shortcutResponderAcceptsTextEditing) == true
+        let browserWebView = !simulatorFocused ? shortcutEventBrowserWebView(event) : nil
+        let browserWebViewFocused = browserWebView != nil
+        let browserPopupWebViewFocused = browserWebView?.isOwnedByBrowserPopupPanel == true
         let browserPanel = simulatorFocused
             ? nil
             : shortcutEventFocusedBrowserPanel(event) ?? shortcutWebInspectorFocusedBrowserPanel(in: shortcutWindow)
         // Only treat a markdown panel as focused when no browser panel owns the
         // event, so a focused browser never routes markdown shortcuts.
-        let markdownPanel = browserPanel == nil ? shortcutFocusedMarkdownPanel(in: shortcutWindow) : nil
-        let filePreviewTextEditorFocused = browserPanel == nil && markdownPanel == nil
+        let markdownPanel = browserPanel == nil && !browserWebViewFocused
+            ? shortcutFocusedMarkdownPanel(in: shortcutWindow)
+            : nil
+        let filePreviewTextEditorFocused = browserPanel == nil && !browserWebViewFocused && markdownPanel == nil
             ? shortcutFocusedFilePreviewTextEditor(in: shortcutWindow)
             : false
         let rightSidebarFocused = !simulatorFocused
             && (shortcutWindow.map { shouldRouteRightSidebarModeShortcut(in: $0) } ?? false)
         let focusState = ShortcutFocusState(
-            browser: browserPanel != nil,
+            browser: browserPanel != nil || browserPopupWebViewFocused,
             markdown: markdownPanel != nil,
             sidebar: rightSidebarFocused,
             filePreviewTextEditor: filePreviewTextEditorFocused,
@@ -124,6 +141,8 @@ extension AppDelegate {
         )
         let context = ShortcutEventFocusContext(
             browserPanel: browserPanel,
+            browserWebViewFocused: browserWebViewFocused,
+            browserPopupWebViewFocused: browserPopupWebViewFocused,
             markdownPanel: markdownPanel,
             filePreviewTextEditorFocused: filePreviewTextEditorFocused,
             simulatorFocused: simulatorFocused,
@@ -279,6 +298,14 @@ extension AppDelegate {
         }
     }
 
+    /// Drops the bounded browser ownership cache after an event has completed.
+    /// Chord handling intentionally does not call this helper mid-dispatch,
+    /// because the same NSEvent can cross several AppKit routing boundaries.
+    func clearShortcutEventBrowserWebViewCache(for event: NSEvent) {
+        guard event.cmuxBrowserWebViewCache != nil else { return }
+        event.cmuxBrowserWebViewCache = nil
+    }
+
     func shortcutEventFocusedBrowserPanel(_ event: NSEvent) -> BrowserPanel? {
         guard let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow else {
             return nil
@@ -300,9 +327,22 @@ extension AppDelegate {
         }
 
         if let responder,
-           let panelId = BrowserWindowPortalRegistry.searchOverlayPanelId(for: responder, in: shortcutWindow),
-           let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
-            return panel
+           let focusOwner = BrowserWindowPortalRegistry.focusOwner(
+               for: responder,
+               in: shortcutWindow
+           ) {
+            switch focusOwner {
+            case .search(let panelId):
+                if let panel = shortcutBrowserPanel(panelId: panelId, in: shortcutWindow) {
+                    return panel
+                }
+            case .page(let webView):
+                if let panel = shortcutBrowserPanel(webView: webView) {
+                    return panel
+                }
+            case .designComposer, .omnibarSuggestions, .inspector, .otherChrome:
+                break
+            }
         }
 
         if let webView = shortcutOwningWebView(for: responder) {
@@ -344,12 +384,22 @@ extension AppDelegate {
             return panel
         }
         if let responder,
-           let panelId = BrowserWindowPortalRegistry.searchOverlayPanelId(
+           let focusOwner = BrowserWindowPortalRegistry.focusOwner(
                for: responder,
                in: window
-           ),
-           let panel = shortcutBrowserPanel(panelId: panelId, in: window) {
-            return panel
+           ) {
+            switch focusOwner {
+            case .search(let panelId):
+                if let panel = shortcutBrowserPanel(panelId: panelId, in: window) {
+                    return panel
+                }
+            case .page(let webView):
+                if let panel = shortcutBrowserPanel(webView: webView) {
+                    return panel
+                }
+            case .designComposer, .omnibarSuggestions, .inspector, .otherChrome:
+                break
+            }
         }
         if let webView = shortcutOwningWebView(for: responder),
            let panel = shortcutBrowserPanel(webView: webView) {
@@ -370,12 +420,127 @@ extension AppDelegate {
     /// focus and the default Cmd+I (Show Notifications) keeps working otherwise
     /// (issue #6776).
     func shortcutEventFirstResponderOwnsBrowserWebView(_ event: NSEvent) -> Bool {
+        if shortcutEventBrowserWebView(event) != nil {
+            return true
+        }
+
+        // Document-editing routing predates the strict capture ownership check.
+        // During a portal reattach WebKit can briefly expose no stable page
+        // child; preserve the legacy responder-chain answer for this path only
+        // so Cmd+I/C/X/A does not regress, while capture itself remains strict
+        // and fail-closed for unknown siblings.
         let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
-        guard let responder = shortcutWindow?.firstResponder,
-              let webView = shortcutOwningWebView(for: responder) else {
+        guard let shortcutWindow,
+              let responder = shortcutWindow.firstResponder,
+              browserOmnibarPanelId(for: responder) == nil,
+              let webView = shortcutOwningWebView(for: responder) as? CmuxWebView,
+              isBrowserPanelWebView(webView),
+              !shortcutResponderIsInspector(responder, in: webView),
+              webView.cmuxBrowserPageContentRoot(owningResponder: responder) == nil,
+              webView.cmuxBrowserPageContentStructureIsTransient else {
             return false
         }
-        return shortcutBrowserPanel(webView: webView) != nil
+        return shortcutResponderBelongs(to: webView, responder: responder)
+    }
+
+    /// Returns the focused browser web view that owns an event's responder
+    /// chain, excluding browser chrome such as the address/find bars and Web
+    /// Inspector responders, which must retain their own keyboard handling.
+    func shortcutEventBrowserWebView(_ event: NSEvent) -> CmuxWebView? {
+        let shortcutWindow = shortcutResolvedEventWindow(event) ?? NSApp.keyWindow ?? NSApp.mainWindow
+        guard let shortcutWindow,
+              let responder = shortcutWindow.firstResponder else {
+            return nil
+        }
+
+        if let cached = event.cmuxBrowserWebViewCache,
+           cached.matches(
+               window: shortcutWindow,
+               responder: responder,
+               activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+           ) {
+            return cached.webView
+        }
+
+        let webView: CmuxWebView? = {
+            guard browserOmnibarPanelId(for: responder) == nil else {
+                return nil
+            }
+
+            // Portal-hosted browser chrome is a sibling of the page. Resolve
+            // the direct slot owner first so the hot path never scans every
+            // browser slot and never guesses that a chrome control belongs to
+            // the page.
+            if let focusOwner = BrowserWindowPortalRegistry.focusOwner(
+                for: responder,
+                in: shortcutWindow
+            ) {
+                guard case .page(let portalWebView) = focusOwner,
+                      isBrowserPanelWebView(portalWebView),
+                      !shortcutResponderIsInspector(responder, in: portalWebView) else {
+                    return nil
+                }
+                return portalWebView
+            }
+
+            // Non-portal browser surfaces (including popup panels) use their
+            // direct responder chain. The strict ownership check prevents a
+            // sibling chrome view from being mapped to the page by the legacy
+            // recovery resolver.
+            guard let directWebView = shortcutOwningWebView(for: responder) as? CmuxWebView,
+                  isBrowserPanelWebView(directWebView),
+                  shortcutResponderBelongsToPageContent(to: directWebView, responder: responder),
+                  !shortcutResponderIsInspector(responder, in: directWebView) else {
+                return nil
+            }
+            return directWebView
+        }()
+
+        event.cmuxBrowserWebViewCache = ShortcutEventBrowserWebViewCache(
+            eventWindow: shortcutWindow,
+            firstResponder: responder,
+            webView: webView,
+            activeChordPrefix: activeConfiguredShortcutChordPrefixForCurrentEvent
+        )
+        return webView
+    }
+
+    private func shortcutResponderBelongs(
+        to root: NSView,
+        responder: NSResponder
+    ) -> Bool {
+        guard let view = responder.cmuxBrowserOwningView() else { return false }
+        return view === root || view.isDescendant(of: root)
+    }
+
+    private func shortcutResponderBelongsToPageContent(
+        to webView: WKWebView,
+        responder: NSResponder
+    ) -> Bool {
+        if responder === webView {
+            return true
+        }
+        // macOS WKWebView has no public `scrollView`; page responders are
+        // descendants of its direct content child, whereas inspector and
+        // companion views are sibling children. Resolve that structural root
+        // instead of treating every web-view descendant as page content.
+        guard let pageRoot = webView.cmuxBrowserPageContentRoot(
+            owningResponder: responder
+        ) else {
+            return false
+        }
+        return shortcutResponderBelongs(to: pageRoot, responder: responder)
+    }
+
+    private func shortcutResponderIsInspector(
+        _ responder: NSResponder,
+        in _: WKWebView
+    ) -> Bool {
+        // Keep the key-equivalent path free of the lazy `_inspector` getter.
+        // An inspector responder is identified by its existing WebKit class /
+        // ancestor structure; ordinary page responders do not carry that
+        // marker, so no frontend lookup is needed to reject them.
+        cmuxIsLikelyWebInspectorResponder(responder)
     }
 
     private func shortcutFocusedBrowserPanel(in window: NSWindow?) -> BrowserPanel? {

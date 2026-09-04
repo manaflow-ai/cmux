@@ -42,6 +42,18 @@ extension KeyboardShortcutSettings.Action {
         }
     }
 
+    /// App-lifecycle commands remain owned by cmux even when a web page is
+    /// allowed to capture ordinary app shortcuts. Losing these bindings can
+    /// strand the user outside the page (for example, swallowing Cmd+Q).
+    var isProtectedFromBrowserCapture: Bool {
+        switch self {
+        case .quit, .closeWindow, .toggleFullScreen, .openSettings, .showHideAllWindows:
+            return true
+        default:
+            return false
+        }
+    }
+
     enum ShortcutContext: Equatable {
         case application
         case commandPaletteVisible

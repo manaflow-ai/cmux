@@ -851,6 +851,30 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "captureBrowserKeyboardShortcuts",
+                settingsKey: "browser.captureKeyboardShortcuts",
+                title: {
+                    String(
+                        localized: "settings.browser.captureKeyboardShortcuts",
+                        defaultValue: "Allow Browser to Capture Keyboard Shortcuts"
+                    )
+                },
+                sectionTitle: browser,
+                keywords: [
+                    "browser.captureKeyboardShortcuts",
+                    "browser",
+                    "web",
+                    "page",
+                    "keyboard",
+                    "shortcuts",
+                    "capture",
+                    "cmux",
+                    "vscode",
+                ],
+                defaultValue: SettingCatalog().browser.captureKeyboardShortcuts.defaultValue,
+                defaultsKey: SettingCatalog().browser.captureKeyboardShortcuts.userDefaultsKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "openTerminalLinksInCmuxBrowser",
                 settingsKey: "browser.openTerminalLinksInCmuxBrowser",
                 title: {

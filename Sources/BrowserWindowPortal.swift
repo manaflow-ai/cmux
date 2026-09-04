@@ -23,17 +23,6 @@ private func browserPortalDebugFrame(_ rect: NSRect) -> String {
 }
 #endif
 
-private extension NSResponder {
-    var browserPortalOwningView: NSView? {
-        if let editor = self as? NSTextView,
-           editor.isFieldEditor,
-           let editedView = editor.delegate as? NSView {
-            return editedView
-        }
-        return self as? NSView
-    }
-}
-
 private extension NSWindow {
     var browserPortalHasInteractiveSplitDividerDrag: Bool {
         get {
@@ -1673,6 +1662,70 @@ final class WindowBrowserSlotView: NSView {
         return nil
     }
 
+    /// Resolves focus ownership without scanning sibling browser slots.
+    ///
+    /// The first responder can be a native field editor whose owner is an
+    /// overlay control, so the lookup first projects it to its owning view and
+    /// then walks that view's superview chain. Unknown siblings are treated as
+    /// browser chrome instead of being guessed to belong to the page.
+    func focusOwner(for responder: NSResponder) -> BrowserPortalFocusOwner {
+        if let panelId = searchOverlayPanelId(for: responder) {
+            return .search(panelId: panelId)
+        }
+        if let designComposerHostingView,
+           responderBelongs(to: designComposerHostingView, responder: responder) {
+            return .designComposer
+        }
+        if let omnibarSuggestionsHostingView,
+           responderBelongs(to: omnibarSuggestionsHostingView, responder: responder) {
+            return .omnibarSuggestions
+        }
+
+        guard let hostedWebView else {
+            return .otherChrome
+        }
+
+        // Do not call `cmuxInspectorFrontendWebView()` here. That accessor
+        // reaches WebKit's lazy `_inspector` SPI and would initialize a
+        // developer-tools object merely because a key equivalent arrived.
+        // An already-focused inspector responder carries its own structural
+        // class/ancestor signal, which is sufficient for this ownership gate.
+        if cmuxIsLikelyWebInspectorResponder(responder) {
+            return .inspector
+        }
+
+        if let cmuxWebView = hostedWebView as? CmuxWebView,
+           pageContentOwns(responder, webView: hostedWebView) {
+            return .page(cmuxWebView)
+        }
+
+        // WebKit can attach inspector/companion views beside the primary page
+        // web view inside the presentation wrapper. They are intentionally not
+        // inferred as page focus; an unknown sibling is still chrome.
+        return .otherChrome
+    }
+
+    private func responderBelongs(to root: NSView, responder: NSResponder) -> Bool {
+        guard let view = responder.cmuxBrowserOwningView() else { return false }
+        return view === root || view.isDescendant(of: root)
+    }
+
+    private func pageContentOwns(_ responder: NSResponder, webView: WKWebView) -> Bool {
+        if responder === webView {
+            return true
+        }
+        // On macOS, WKWebView does not expose UIKit's `scrollView`. Its page
+        // content lives below a direct internal child (typically WKFlippedView),
+        // while WebKit inspector/companion views can be sibling children. Use
+        // that structural root so unknown siblings fail closed.
+        guard let pageRoot = webView.cmuxBrowserPageContentRoot(
+            owningResponder: responder
+        ) else {
+            return false
+        }
+        return responderBelongs(to: pageRoot, responder: responder)
+    }
+
     @discardableResult
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID, in window: NSWindow) -> Bool {
         guard let firstResponder = window.firstResponder,
@@ -1685,7 +1738,7 @@ final class WindowBrowserSlotView: NSView {
     @discardableResult
     private func yieldOwnedFirstResponderIfNeeded(in window: NSWindow, reason: String) -> Bool {
         guard let firstResponder = window.firstResponder,
-              let owningView = firstResponder.browserPortalOwningView,
+              let owningView = firstResponder.cmuxBrowserOwningView(),
               owningView === self || owningView.isDescendant(of: self) else {
             return false
         }
@@ -3054,6 +3107,25 @@ final class WindowBrowserPortal: NSObject {
         return nil
     }
 
+    /// Resolves a responder to its owning portal layer through the responder's
+    /// own slot ancestor. This is the hot-path counterpart to
+    /// ``searchOverlayPanelId(for:)`` and never scans every slot in the window.
+    func focusOwner(for responder: NSResponder) -> BrowserPortalFocusOwner? {
+        guard let slotView = slotView(containing: responder) else { return nil }
+        return slotView.focusOwner(for: responder)
+    }
+
+    private func slotView(containing responder: NSResponder) -> WindowBrowserSlotView? {
+        var current = responder.cmuxBrowserOwningView()
+        while let view = current {
+            if let slotView = view as? WindowBrowserSlotView {
+                return slotView
+            }
+            current = view.superview
+        }
+        return nil
+    }
+
     @discardableResult
     func yieldSearchOverlayFocusIfOwned(by panelId: UUID) -> Bool {
         guard let window else { return false }
@@ -4253,6 +4325,18 @@ enum BrowserWindowPortalRegistry {
         let windowId = ObjectIdentifier(window)
         guard let portal = portalsByWindowId[windowId] else { return nil }
         return portal.searchOverlayPanelId(for: responder)
+    }
+
+    /// Resolves keyboard focus through the responder's direct portal slot.
+    /// Unlike the legacy search-overlay lookup, this does not enumerate all
+    /// browser slots and is safe to call for every key equivalent.
+    static func focusOwner(
+        for responder: NSResponder,
+        in window: NSWindow
+    ) -> BrowserPortalFocusOwner? {
+        let windowId = ObjectIdentifier(window)
+        guard let portal = portalsByWindowId[windowId] else { return nil }
+        return portal.focusOwner(for: responder)
     }
 
     static func paneDropContext(for webView: WKWebView) -> BrowserPaneDropContext? {

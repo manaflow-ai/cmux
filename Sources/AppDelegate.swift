@@ -871,6 +871,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let firstStroke: ShortcutStroke
         let windowNumber: Int?
     }
+
     var pendingConfiguredShortcutChord: PendingConfiguredShortcutChord?
     var activeConfiguredShortcutChordPrefixForCurrentEvent: ShortcutStroke?
     var shortcutEventFocusContextCache: ShortcutEventFocusContextCache?
@@ -14316,6 +14317,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return false
         }
 
+        if shouldCaptureBrowserKeyboardShortcuts(for: event) {
+            // Capture evaluation may have materialized the broader focus
+            // snapshot. Release that event-scoped snapshot before the local
+            // monitor returns; the browser ownership cache is attached to the
+            // event and remains available to later AppKit boundaries.
+            clearShortcutEventFocusContextCache(for: event)
+#if DEBUG
+            cmuxDebugLog("browser.captureShortcuts.bypass \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            return false
+        }
+
+        // A popup is a standalone WebKit surface, not a BrowserPanel. Browser
+        // actions whose normal owner is a BrowserPanel would otherwise match
+        // here, beep because no panel can execute them, and claim the event
+        // before WebKit gets its native equivalent.
+        if shouldYieldPanelLessBrowserShortcut(event) {
+#if DEBUG
+            cmuxDebugLog("browser.popup.shortcut.bypass \(debugShortcutRouteSnapshot(event: event))")
+#endif
+            return false
+        }
+
         let normalizedFlags = flags.subtracting([.numericPad, .function, .capsLock])
         let commandPaletteTargetWindow = commandPaletteWindowForShortcutEvent(event)
         let isPlainEscape = normalizedFlags.isEmpty && event.keyCode == 53
@@ -17437,6 +17461,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if event.window is NSPanel || keyWindow is NSPanel || NSApp.modalWindow != nil || keyWindow?.attachedSheet != nil {
             return false
         }
+        if shouldCaptureBrowserKeyboardShortcuts(for: event) {
+            return false
+        }
         let flags = event.modifierFlags
             .intersection(.deviceIndependentFlagsMask)
             .subtracting([.numericPad, .function, .capsLock])
@@ -17979,6 +18006,518 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func isBrowserFocusModeActive(for webView: CmuxWebView) -> Bool {
         browserPanelOwning(webView)?.isBrowserFocusModeActive == true
+    }
+
+    /// Whether the focused browser page has opted into receiving cmux's
+    /// keyboard shortcuts as ordinary web-page input. The app, window, and
+    /// web-view routing layers all use the same responder-chain resolver and
+    /// its bounded direct owner signal rather than scanning every Dock and
+    /// workspace.
+    func shouldCaptureBrowserKeyboardShortcuts(
+        for event: NSEvent,
+        webView expectedWebView: CmuxWebView? = nil
+    ) -> Bool {
+        // Do not resolve or associate browser ownership for ordinary
+        // unmodified text. Space is the one supported bare shortcut key, and
+        // an active chord prefix can make an otherwise plain key relevant.
+        guard browserCaptureEventCanHaveShortcut(event) else {
+            return false
+        }
+
+        // UserDefaults.bool(forKey:) is a cheap live read. Keep it ahead of
+        // responder-chain ownership resolution so the default-off feature does
+        // not make disabled capture pay browser routing costs on every modified
+        // terminal keystroke. A NotificationCenter observer is intentionally
+        // not used here: UserDefaults posts its change notification on the
+        // process-wide standard center, not an injected test center.
+        guard KeyboardShortcutSettings.browserKeyboardShortcutCaptureEnabled() else {
+            return false
+        }
+
+        // Bare Space is the only common unmodified candidate. Preflight it
+        // before ownership resolution so ordinary spaces do not allocate an
+        // event cache; modified printable keys resolve the responder first so
+        // terminal Shift/Option typing does not pay matcher work at all.
+        let shouldPreflightCandidate = browserCaptureShouldRunCandidatePreflight(event)
+        let isBareSpace = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+            .isEmpty && event.characters == " "
+        var candidateContext: MainWindowContext?
+        if shouldPreflightCandidate && isBareSpace {
+            let context = preferredMainWindowContextForShortcutRouting(event: event)
+            guard browserCaptureHasShortcutCandidate(event: event, context: context) else {
+                return false
+            }
+            candidateContext = context
+        }
+
+        guard let webView = shortcutEventBrowserWebView(event),
+              expectedWebView == nil || expectedWebView === webView else {
+            return false
+        }
+
+        if shouldPreflightCandidate && !isBareSpace {
+            let context = preferredMainWindowContextForShortcutRouting(event: event)
+            guard browserCaptureHasShortcutCandidate(event: event, context: context) else {
+                return false
+            }
+            candidateContext = context
+        }
+
+        if let cache = event.cmuxBrowserWebViewCache,
+           let captureDecision = cache.captureDecision {
+            return captureDecision
+        }
+
+        guard let window = webView.window,
+              !isCommandPaletteEffectivelyVisible(for: window),
+              NSApp.modalWindow == nil,
+              window.attachedSheet == nil else {
+            event.cmuxBrowserWebViewCache?.captureDecision = false
+            return false
+        }
+
+        let captureDecision = browserCaptureMatchesCmuxShortcut(
+            event,
+            candidateContext: candidateContext
+        )
+        event.cmuxBrowserWebViewCache?.captureDecision = captureDecision
+        return captureDecision
+    }
+
+    /// Returns whether the event would otherwise be claimed by cmux's
+    /// configured shortcut dispatcher (including a stale default menu item).
+    /// Browser capture must not suppress unrelated native AppKit commands such
+    /// as Cmd+H, Cmd+M, or Cmd+`.
+    private func browserCaptureMatchesCmuxShortcut(
+        _ event: NSEvent,
+        candidateContext: MainWindowContext? = nil
+    ) -> Bool {
+        guard event.type == .keyDown else { return false }
+        // Ordinary page typing has no device-independent modifier. Avoid
+        // resolving every configured shortcut (and its UserDefaults/when
+        // clause) for those events; cmux's browser-conflicting bindings all
+        // carry a modifier in the browser surface.
+        guard browserCaptureEventCanHaveShortcut(event) else {
+            return false
+        }
+        if activeConfiguredShortcutChordPrefixForCurrentEvent == nil,
+           browserCaptureShouldRunCandidatePreflight(event) {
+            // The ownership caller normally performs this preflight before it
+            // resolves the web view. Keep the guard here for direct callers and
+            // for chord/menu re-entry paths that already hold the event cache.
+            let configuredContext = candidateContext
+                ?? preferredMainWindowContextForShortcutRouting(event: event)
+            guard browserCaptureHasShortcutCandidate(
+                event: event,
+                context: configuredContext
+            ) else {
+                return false
+            }
+        }
+
+        let configuredShortcutContext = candidateContext
+            ?? preferredMainWindowContextForShortcutRouting(event: event)
+        let snapshot = browserCaptureShortcutMatcherSnapshot(
+            for: configuredShortcutContext
+        )
+        let focusContext = shortcutEventFocusContext(event)
+
+        for entry in snapshot.actions {
+            guard entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
+                continue
+            }
+            return true
+        }
+
+        for entry in snapshot.configuredActions {
+            guard browserCaptureConfiguredEntryMatches(
+                entry,
+                event: event,
+                focusContext: focusContext
+            ) else { continue }
+            return true
+        }
+
+        // A remapped action leaves its old menu equivalent behind until the
+        // menu refreshes. Resolve menu-backing at match time because the live
+        // menu can change independently of the shortcut/config revisions.
+        for entry in snapshot.staleDefaults {
+            guard isMenuBackedShortcutAction(entry.action),
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    private func browserCaptureMatchesShortcut(
+        event: NSEvent,
+        shortcut: StoredShortcut,
+        usesNumberedDigitMatching: Bool = false
+    ) -> Bool {
+        if let prefix = activeConfiguredShortcutChordPrefixForCurrentEvent {
+            // Numbered selection actions are single-stroke families, not chord
+            // suffixes. If another action has armed a prefix, leave this event
+            // to the normal chord router rather than consuming the suffix as a
+            // numbered digit.
+            guard !usesNumberedDigitMatching else { return false }
+            guard shortcut.firstStroke == prefix,
+                  let secondStroke = shortcut.secondStroke else {
+                return false
+            }
+            return matchShortcutStroke(event: event, stroke: secondStroke)
+        }
+        if usesNumberedDigitMatching {
+            return numberedShortcutDigit(event: event, shortcut: shortcut) != nil
+        }
+        if shortcut.hasChord {
+            // Yield the prefix itself to the page. If it is captured, cmux
+            // never arms the chord and the page receives both strokes normally.
+            return matchShortcutStroke(event: event, stroke: shortcut.firstStroke)
+        }
+        return matchShortcut(event: event, shortcut: shortcut)
+    }
+
+    /// Returns whether this event can match a configured browser-capture
+    /// shortcut at all. The unmodified text path is deliberately skipped, with
+    /// bare Space retained because cmux's config format supports it as a
+    /// shortcut (including a chord prefix).
+    private func browserCaptureEventCanHaveShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else { return false }
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        return !normalizedFlags.isEmpty
+            || activeConfiguredShortcutChordPrefixForCurrentEvent != nil
+            || browserCaptureIsNonPrintableShortcutKey(event)
+    }
+
+    /// Whether the event should consult the bounded candidate index before
+    /// resolving browser ownership. This covers modifier-only printable and
+    /// special-key input plus supported bare-Space bindings, while leaving
+    /// Command/Control chords on the full matcher path.
+    private func browserCaptureShouldRunCandidatePreflight(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              activeConfiguredShortcutChordPrefixForCurrentEvent == nil else {
+            return false
+        }
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        let routingModifierFlags = normalizedFlags.intersection([.command, .control])
+        let isBareSpace = normalizedFlags.isEmpty && event.characters == " "
+        let isNonCommandSpecialKey = routingModifierFlags.isEmpty
+            && browserCaptureIsNonPrintableShortcutKey(event)
+        let isPrintableShiftOrOption = !normalizedFlags.isEmpty
+            && routingModifierFlags.isEmpty
+            && !isNonCommandSpecialKey
+        return isBareSpace || isNonCommandSpecialKey || isPrintableShiftOrOption
+    }
+
+    /// Returns the revision-keyed browser-capture matcher snapshot. It carries
+    /// the full built-in/configured action lists for command events as well as
+    /// the compact candidate-stroke set used by printable fast paths.
+    private func browserCaptureShortcutMatcherSnapshot(
+        for context: MainWindowContext?
+    ) -> KeyboardShortcutSettingsObserver.BrowserCaptureMatcherSnapshot {
+        let configOwner = context?.cmuxConfigStore
+        return KeyboardShortcutSettingsObserver.shared.browserCaptureMatcherSnapshot(
+            settingsOwner: KeyboardShortcutSettings.settingsFileStore,
+            configOwner: configOwner,
+            configRevision: configOwner?.configRevision,
+            configuredActions: {
+                configuredCmuxShortcutActions(for: context).compactMap {
+                    browserCaptureConfiguredMatcherEntry(for: $0)
+                }
+            }
+        )
+    }
+
+    /// Resolves a configured action to the built-in shortcut metadata that
+    /// governs browser capture. Custom action IDs have no built-in focus
+    /// restriction and therefore use an always-available clause; IDs that
+    /// mirror a keyboard action retain its configured `shortcuts.when` clause,
+    /// numbered-family semantics, and lifecycle protection.
+    private func browserCaptureConfiguredMatcherEntry(
+        for action: CmuxResolvedConfigAction
+    ) -> KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry? {
+        guard let shortcut = action.shortcut, !shortcut.isUnbound else { return nil }
+        let keyboardAction = browserCaptureKeyboardAction(for: action)
+        let collidesWithProtectedShortcut = browserCaptureConfiguredShortcutCollidesWithProtection(
+            shortcut,
+            keyboardAction: keyboardAction
+        )
+        return KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry(
+            action: action,
+            shortcut: shortcut,
+            whenClause: keyboardAction.map {
+                KeyboardShortcutSettings.effectiveWhenClause(for: $0)
+            } ?? .always,
+            usesNumberedDigitMatching: keyboardAction?.usesNumberedDigitMatching ?? false,
+            isProtectedFromBrowserCapture: keyboardAction?.isProtectedFromBrowserCapture == true
+                || collidesWithProtectedShortcut
+        )
+    }
+
+    /// A custom action can use the same keystroke as a protected lifecycle
+    /// action without sharing its keyboard-action ID. Compare normalized
+    /// strokes against both the current and default protected bindings so a
+    /// custom entry can never make the browser swallow Cmd+Q/Cmd+W/etc.
+    private func browserCaptureConfiguredShortcutCollidesWithProtection(
+        _ shortcut: StoredShortcut,
+        keyboardAction: KeyboardShortcutSettings.Action?
+    ) -> Bool {
+        if keyboardAction?.isProtectedFromBrowserCapture == true {
+            return true
+        }
+        let protectedActions = KeyboardShortcutSettings.Action.allCases.filter {
+            $0.isProtectedFromBrowserCapture
+        }
+        return protectedActions.contains { protectedAction in
+            let current = KeyboardShortcutSettings.shortcut(for: protectedAction)
+            return browserCaptureShortcutsShareNormalizedStrokes(shortcut, current)
+                || browserCaptureShortcutsShareNormalizedStrokes(
+                    shortcut,
+                    protectedAction.defaultShortcut
+                )
+        }
+    }
+
+    /// Compares shortcut strokes by their canonical key token and modifier
+    /// flags, intentionally ignoring recorded physical key codes so object
+    /// and string-form cmux.json bindings protect the same AppKit keystroke.
+    private func browserCaptureShortcutsShareNormalizedStrokes(
+        _ lhs: StoredShortcut,
+        _ rhs: StoredShortcut
+    ) -> Bool {
+        guard !lhs.isUnbound, !rhs.isUnbound else { return false }
+        func normalized(_ stroke: ShortcutStroke) -> (String, UInt) {
+            let normalizedKey: String
+            let rawKey = stroke.key
+            if rawKey == " " {
+                normalizedKey = "space"
+            } else if rawKey == "\t" {
+                normalizedKey = "\t"
+            } else if rawKey == "\r" {
+                normalizedKey = "\r"
+            } else {
+                switch rawKey.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+                case "space", "spacebar", "<space>":
+                    normalizedKey = "space"
+                case "tab":
+                    normalizedKey = "\t"
+                case "return", "enter", "↩":
+                    normalizedKey = "\r"
+                case "left", "arrowleft", "leftarrow", "←":
+                    normalizedKey = "←"
+                case "right", "arrowright", "rightarrow", "→":
+                    normalizedKey = "→"
+                case "up", "arrowup", "uparrow", "↑":
+                    normalizedKey = "↑"
+                case "down", "arrowdown", "downarrow", "↓":
+                    normalizedKey = "↓"
+                case "forward-delete", "forwarddelete":
+                    normalizedKey = "forwarddelete"
+                default:
+                    normalizedKey = rawKey.lowercased()
+                }
+            }
+            return (
+                normalizedKey,
+                stroke.modifierFlags.rawValue
+            )
+        }
+        let lhsStrokes = [lhs.firstStroke] + (lhs.secondStroke.map { [$0] } ?? [])
+        let rhsStrokes = [rhs.firstStroke] + (rhs.secondStroke.map { [$0] } ?? [])
+        return lhsStrokes.contains { lhsStroke in
+            rhsStrokes.contains { normalized(lhsStroke) == normalized($0) }
+        }
+    }
+
+    private func browserCaptureConfiguredEntryMatches(
+        _ entry: KeyboardShortcutSettingsObserver.BrowserCaptureConfiguredMatcherEntry,
+        event: NSEvent,
+        focusContext: ShortcutEventFocusContext
+    ) -> Bool {
+        !entry.isProtectedFromBrowserCapture
+            && entry.whenClause.evaluate(focusContext.shortcutContext)
+            && browserCaptureMatchesShortcut(
+                event: event,
+                shortcut: entry.shortcut,
+                usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+            )
+    }
+
+    /// Maps action-registry built-ins and direct keyboard-action IDs to the
+    /// app shortcut metadata used by the browser matcher. The registry's
+    /// namespaced built-in IDs intentionally differ from the keyboard action
+    /// names, so both forms are handled here.
+    private func browserCaptureKeyboardAction(
+        for action: CmuxResolvedConfigAction
+    ) -> KeyboardShortcutSettings.Action? {
+        if let directAction = KeyboardShortcutSettings.Action(rawValue: action.id) {
+            return directAction
+        }
+        switch action.action {
+        case .builtIn(.newWorkspace):
+            return .newTab
+        case .builtIn(.newTerminal):
+            return .newSurface
+        case .builtIn(.newBrowser):
+            return .newBrowserWorkspace
+        case .builtIn(.splitRight):
+            return .splitRight
+        case .builtIn(.splitDown):
+            return .splitDown
+        case .builtIn, .command, .agent, .workspaceCommand, .workspace, .actionReference:
+            return nil
+        }
+    }
+
+    /// Checks the compact modifier-only or bare-Space candidate set that can
+    /// make a printable event relevant to browser capture. The index is
+    /// replaced whenever shortcut settings or the selected config store
+    /// changes, so this hot path never retains stale or growing entries.
+    private func browserCaptureHasShortcutCandidate(
+        event: NSEvent,
+        context: MainWindowContext?
+    ) -> Bool {
+        let snapshot = browserCaptureShortcutMatcherSnapshot(for: context)
+        let normalizedFlags = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.numericPad, .function, .capsLock])
+        if snapshot.numberedDigitModifierRawValues.contains(normalizedFlags.rawValue),
+           eventCouldMatchNumberedShortcutDigit(event) {
+            return true
+        }
+        return snapshot.candidateStrokes.contains {
+            matchShortcutStroke(event: event, stroke: $0)
+        }
+    }
+
+    private func browserCaptureIsNonPrintableShortcutKey(_ event: NSEvent) -> Bool {
+        if event.specialKey != nil || event.characters == " " { // Space
+            return true
+        }
+
+        // The common printable path stays entirely in scalar/key-code checks;
+        // avoid canonicalization and Foundation CharacterSet work for every
+        // ordinary terminal/browser character.
+        if let characters = event.characters,
+           !characters.isEmpty,
+           characters.unicodeScalars.allSatisfy({ scalar in
+               scalar.value >= 0x20 && scalar.value < 0x7F
+           }) {
+            return false
+        }
+
+        if let recordedKey = recordedShortcutKey(
+            keyCode: event.keyCode,
+            charactersIgnoringModifiers: event.charactersIgnoringModifiers
+        ), StoredShortcut.isNonPrintableShortcutKey(recordedKey) {
+            return true
+        }
+
+        // Escape, Help, and future AppKit special keys may not expose a
+        // recordable token. Their control/private-use characters are still
+        // unambiguously non-printable, unlike Shift/Option text input. Keep
+        // this scalar classification shared with the persisted-key index.
+        return StoredShortcut.isNonPrintableShortcutKey(event.characters ?? "")
+    }
+
+    /// Returns whether a standalone popup web view has a browser-scoped
+    /// shortcut that should be offered to WebKit instead of the app router.
+    /// Panel-less states caused by transient pane rebinding deliberately do not
+    /// yield here: they must continue through normal ownership resolution.
+    func shouldYieldPanelLessBrowserShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown else {
+            return false
+        }
+        // Do not materialize the full focus snapshot for ordinary text input.
+        // Bare Space and non-printable keys remain eligible for popup-native
+        // browser handling through the shared classifier.
+        guard browserCaptureEventCanHaveShortcut(event) else {
+            return false
+        }
+
+        let focusContext = shortcutEventFocusContext(event)
+        guard focusContext.browserPopupWebViewFocused,
+              focusContext.browserPanel == nil else {
+            return false
+        }
+
+        let snapshot = browserCaptureShortcutMatcherSnapshot(
+            for: preferredMainWindowContextForShortcutRouting(event: event)
+        )
+        for entry in snapshot.actions {
+            guard entry.action.shortcutContext == .browserPanel
+                    || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
+                continue
+            }
+            return true
+        }
+
+        for entry in snapshot.configuredActions {
+            guard browserCaptureConfiguredEntryMatches(
+                entry,
+                event: event,
+                focusContext: focusContext
+            ) else { continue }
+            return true
+        }
+
+        // Apply the same menu-backed and effective-`when` eligibility as the
+        // app-level stale-menu suppression path.
+        for entry in snapshot.staleDefaults {
+            guard isMenuBackedShortcutAction(entry.action),
+                  entry.action.shortcutContext == .browserPanel
+                  || entry.action.shortcutContext == .browserOrFilePreviewTextEditor,
+                  entry.whenClause.evaluate(focusContext.shortcutContext),
+                  browserCaptureMatchesShortcut(
+                      event: event,
+                      shortcut: entry.shortcut,
+                      usesNumberedDigitMatching: entry.usesNumberedDigitMatching
+                  ) else {
+                continue
+            }
+            return true
+        }
+        return false
+    }
+
+    /// Delivers a remapped-away menu shortcut to the focused browser page.
+    /// Both application-level and window-level stale-menu guards use this one
+    /// path so a browser event cannot be dropped at either AppKit boundary.
+    @discardableResult
+    func forwardStaleShortcutToFocusedBrowser(_ event: NSEvent) -> Bool {
+        guard let browserWebView = shortcutEventBrowserWebView(event),
+              let window = browserWebView.window else {
+            return false
+        }
+        return window.cmuxForceDispatchKeyDownOnce(
+            event,
+            to: browserWebView,
+            reason: "stale cmux menu shortcut browser bypass"
+        )
     }
 
     private func isWebViewFocused(_ panel: BrowserPanel) -> Bool {
@@ -18632,6 +19171,15 @@ private extension NSApplication {
     }
 
     @objc func cmux_applicationSendEvent(_ event: NSEvent) {
+        defer {
+            // Browser ownership is only attached while routing key-downs. Do
+            // not touch Objective-C event associations for mouse/flags/system
+            // events that never enter shortcut dispatch.
+            if event.type == .keyDown {
+                AppDelegate.shared?.clearShortcutEventBrowserWebViewCache(for: event)
+                AppDelegate.shared?.clearShortcutEventFocusContextCache(for: event)
+            }
+        }
 #if DEBUG
         let typingTimingStart = event.type == .keyDown ? CmuxTypingTiming.start() : nil
         let phaseTotalStart = event.type == .keyDown ? ProcessInfo.processInfo.systemUptime : 0
@@ -18685,7 +19233,11 @@ private extension NSApplication {
             let responder = event.window?.firstResponder
                 ?? AppDelegate.shared?.shortcutRoutingKeyWindow?.firstResponder
                 ?? mainWindow?.firstResponder
-            if let ghosttyView = responder.cmuxTerminalKeyEquivalentOwningGhosttyView() {
+            if AppDelegate.shared?.forwardStaleShortcutToFocusedBrowser(event) == true {
+#if DEBUG
+                cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to browser")
+#endif
+            } else if let ghosttyView = responder.cmuxTerminalKeyEquivalentOwningGhosttyView() {
                 ghosttyView.keyDown(with: event)
 #if DEBUG
                 cmuxDebugLog("app.sendEvent suppressed stale cmux menu shortcut and forwarded to terminal")
@@ -19146,6 +19698,37 @@ private extension NSWindow {
         if ShortcutRecorderEventRouter.dispatchActiveRecordingEvent(event, preferredWindow: self) {
             return true
         }
+        if let firstResponderWebView,
+           AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(
+               for: event,
+               webView: firstResponderWebView
+           ) == true {
+            if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+                return true
+            }
+            let result = firstResponderWebView.performKeyEquivalent(with: event)
+#if DEBUG
+            cmuxDebugLog(
+                "  → browser capture setting routed before cmux/menu fallback handled=\(result ? 1 : 0)"
+            )
+#endif
+            if result {
+                return true
+            }
+            // A captured printable/non-Command equivalent can decline at the
+            // WebKit boundary while still needing one native keyDown. Claim
+            // the event after the single guarded dispatch so AppKit cannot
+            // continue into a competing menu equivalent.
+            guard !cmuxBrowserWebKitKeyDownDispatchIsActive() else {
+                return true
+            }
+            _ = cmuxForceDispatchKeyDownOnce(
+                event,
+                to: firstResponderWebView,
+                reason: "browser capture setting keyDown fallback"
+            )
+            return true
+        }
         let browserWebKitKeyDownReentry = firstResponderWebView != nil && cmuxBrowserWebKitKeyDownDispatchIsActive()
         let shouldBypassPrintableOptionText = shortcutRoutingShouldBypassForPrintableOptionText(event: event)
         // AppKit can send Option-only keys through a text/terminal fast path
@@ -19195,6 +19778,12 @@ private extension NSWindow {
             if AppDelegate.shared?.handleConfiguredShortcutKeyEquivalent(event) == true {
 #if DEBUG
                 cmuxDebugLog("  → consumed by configured shortcut before stale cmux menu shortcut")
+#endif
+                return true
+            }
+            if AppDelegate.shared?.forwardStaleShortcutToFocusedBrowser(event) == true {
+#if DEBUG
+                cmuxDebugLog("  → browser received command equivalent bypassing stale cmux menu shortcut")
 #endif
                 return true
             }

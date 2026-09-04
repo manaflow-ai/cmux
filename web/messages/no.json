@@ -1156,6 +1156,7 @@
           "defaultSearchEngine": "Standard søkemotor for søk i nettleserens adresselinje som ikke er URLer. Bruk custom med customSearchEngineURLTemplate for andre leverandører.",
           "customSearchEngineName": "Visningsnavn som brukes når defaultSearchEngine er custom.",
           "customSearchEngineURLTemplate": "Søke-URL som brukes når defaultSearchEngine er custom. Inkluder søkeplassholderen eller %s for det kodede søket. Uten plassholder legger cmux til q= i URLen.",
+          "captureKeyboardShortcuts": "La den fokuserte nettlesersiden motta tastatursnarveier som ellers ville utløse cmux-handlinger.",
           "urlAllowlist": "Verts- eller URL-mønstre som begrenser navigering i den innebygde nettleseren. Innstillinger foreslår lokale utviklingsopprinnelser; lagring av en liste aktiverer den valgfrie begrensningen. Fjern oppføringer for å blokkere dem, eller la brukerverdien være tom uten en administrert policy for å deaktivere begrensningen."
         },
         "workspaceGroups": {

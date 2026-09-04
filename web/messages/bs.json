@@ -1156,6 +1156,7 @@
           "defaultSearchEngine": "Zadani pretraživač za upite u adresnoj traci preglednika koji nisu URL-ovi. Koristite custom uz customSearchEngineURLTemplate za druge pružatelje.",
           "customSearchEngineName": "Prikazani naziv koji se koristi kada je defaultSearchEngine custom.",
           "customSearchEngineURLTemplate": "URL pretrage koji se koristi kada je defaultSearchEngine custom. Uključite rezervirano mjesto za upit ili %s za kodirani upit. Ako nema rezerviranog mjesta, cmux dodaje q= u URL.",
+          "captureKeyboardShortcuts": "Omogućava fokusiranoj stranici preglednika da primi prečice na tastaturi koje bi inače pokrenule cmux radnje.",
           "urlAllowlist": "Obrasci hostova ili URL-ova koji ograničavaju navigaciju u ugrađenom pregledniku. Postavke predlažu lokalne razvojne izvore; spremanje liste uključuje opcionalno ograničenje. Uklonite stavke da ih blokirate ili ostavite korisničku vrijednost praznom bez upravljane politike da isključite ograničenje."
         },
         "workspaceGroups": {

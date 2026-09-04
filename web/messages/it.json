@@ -1156,6 +1156,7 @@
           "defaultSearchEngine": "Motore di ricerca predefinito per le query nella barra degli indirizzi del browser che non sono URL. Usa custom con customSearchEngineURLTemplate per altri provider.",
           "customSearchEngineName": "Nome visualizzato quando defaultSearchEngine è custom.",
           "customSearchEngineURLTemplate": "URL di ricerca usato quando defaultSearchEngine è custom. Includi il segnaposto della query o %s per la query codificata. Senza segnaposto, cmux aggiunge q= all’URL.",
+          "captureKeyboardShortcuts": "Consente alla pagina del browser attiva di ricevere le scorciatoie da tastiera che altrimenti attiverebbero azioni di cmux.",
           "urlAllowlist": "Pattern di host o URL che limitano la navigazione nel browser incorporato. Le impostazioni suggeriscono le origini di sviluppo locale; salvare un elenco attiva la limitazione opzionale. Rimuovi le voci per bloccarle oppure lascia vuoto il valore utente, quando non esiste una policy gestita, per disattivare la limitazione."
         },
         "workspaceGroups": {

@@ -177739,6 +177739,256 @@
         }
       }
     },
+    "settings.browser.captureKeyboardShortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح للمتصفح بالتقاط اختصارات لوحة المفاتيح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli pregledniku da preuzme prečice na tastaturi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lad browseren overtage tastaturgenveje"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser erlauben, Tastaturkurzbefehle zu übernehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Browser to Capture Keyboard Shortcuts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que el navegador capture atajos de teclado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser le navigateur à intercepter les raccourcis clavier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti al browser di acquisire le scorciatoie da tastiera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウザにキーボードショートカットを渡す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យកម្មវិធីរុករកចាប់យកផ្លូវកាត់ក្តារចុច"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "브라우저가 키보드 단축키를 캡처하도록 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La nettleseren fange opp tastatursnarveier"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwól przeglądarce przechwytywać skróty klawiaturowe"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir que o navegador capture atalhos de teclado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить браузеру перехватывать сочетания клавиш"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตให้เบราว์เซอร์ดักจับแป้นพิมพ์ลัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarayıcının klavye kısayollarını yakalamasına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити браузеру перехоплювати комбінації клавіш"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许浏览器捕获键盘快捷键"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許瀏覽器擷取鍵盤快速鍵"
+          }
+        }
+      }
+    },
+    "settings.browser.captureKeyboardShortcuts.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند التفعيل، تستقبل صفحة الويب المركّزة الاختصارات التي كانت ستُشغّل إجراءات cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je uključeno, fokusirana web stranica prima prečice koje bi inače pokrenule cmux radnje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når funktionen er slået til, modtager den fokuserede webside genveje, der ellers ville udløse cmux-handlinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn aktiviert, empfängt die fokussierte Webseite Tastenkürzel, die sonst cmux-Aktionen auslösen würden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "When enabled, focused web pages receive shortcuts that would otherwise trigger cmux actions."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuando está activado, la página web enfocada recibe atajos que, de otro modo, activarían acciones de cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lorsqu’elle est activée, la page web active reçoit les raccourcis qui déclencheraient sinon des actions cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando è attiva, la pagina web con il focus riceve le scorciatoie che altrimenti attiverebbero azioni di cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有効にすると、通常は cmux の操作になるショートカットを、フォーカス中のWebページが受け取ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នៅពេលបើក ទំព័របណ្ដាញដែលកំពុងផ្តោតនឹងទទួលផ្លូវកាត់ដែលបើមិនដូច្នេះទេនឹងបើកសកម្មភាព cmux។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성화하면 포커스된 웹 페이지가 원래 cmux 동작을 실행할 단축키를 받습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når dette er aktivert, mottar den fokuserte nettsiden snarveier som ellers ville utløse cmux-handlinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po włączeniu aktywna strona internetowa odbiera skróty, które w przeciwnym razie uruchomiłyby działania cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quando ativada, a página da web em foco recebe atalhos que, de outra forma, acionariam ações do cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если включено, сфокусированная веб-страница получает сочетания клавиш, которые иначе запускали бы действия cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อเปิดใช้งาน หน้าเว็บที่มีโฟกัสจะรับแป้นพิมพ์ลัดที่ปกติจะเรียกใช้การทำงานของ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkinleştirildiğinde, odaktaki web sayfası aksi halde cmux işlemlerini tetikleyecek kısayolları alır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо ввімкнено, сфокусована вебсторінка отримує комбінації клавіш, які інакше запускали б дії cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启用后，获得焦点的网页会接收原本会触发 cmux 操作的快捷键。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "啟用後，目前聚焦的網頁會接收原本會觸發 cmux 動作的快速鍵。"
+          }
+        }
+      }
+    },
     "settings.browser.customSearchEngineName": {
       "extractionState": "manual",
       "localizations": {
@@ -202322,6 +202572,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail ダウンロード 保存先 保存パネル 添付ファイル PDF"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.browser.capture-keyboard-shortcuts": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.captureKeyboardShortcuts browser web page keyboard shortcuts capture cmux vscode command p focus"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "browser.captureKeyboardShortcuts ブラウザ Webページ キーボード ショートカット キャプチャ cmux VS Code コマンド P フォーカス"
           }
         }
       }

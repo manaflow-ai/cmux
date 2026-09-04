@@ -32,6 +32,7 @@ final class SettingsBrowserBehaviorUITests: SettingsUITestCase {
         "browserThemeMode",
         "browserHiddenWebViewDiscardEnabled",
         "browserHiddenWebViewDiscardDelaySeconds",
+        "browserCaptureKeyboardShortcuts",
         "browserInsecureHTTPAllowlist",
         "browserImportHintShowOnBlankTabs",
         "reactGrabVersion",

@@ -43,7 +43,43 @@ private func browserPopupPanelShouldSuppressStaleCloseTabShortcut(_ event: NSEve
 /// `cmux_performKeyEquivalent` can dispatch it to the main menu's
 /// "Close Tab" action (which would close the parent browser tab).
 final class BrowserPopupPanel: NSPanel {
+    /// The popup page hosted by this panel. Weak ownership avoids a panel ↔
+    /// web-view cycle while letting the panel yield its close shortcut when
+    /// browser capture is enabled.
+    weak var browserWebView: CmuxWebView?
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let browserWebView,
+           AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(
+               for: event,
+               webView: browserWebView
+           ) == true {
+            // Let CmuxWebView run the shared capture path before this panel's
+            // Close Tab interception can consume the same command.
+            if browserWebView.performKeyEquivalent(with: event) {
+                return true
+            }
+
+            // CmuxWebView owns every captured Command equivalent and consumes
+            // it after one WebKit/keyDown attempt. Only a non-Command capture
+            // (for example bare Space, Shift+S, or Option+P) can decline at
+            // that boundary and reach this fallback. Keep the popup's custom
+            // close handling for that case, then dispatch one guarded keyDown
+            // without walking back through `super.performKeyEquivalent`.
+            if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(
+                event: event,
+                popupWindow: self
+            ) == true {
+                return true
+            }
+            guard !cmuxBrowserWebKitKeyDownDispatchIsActive() else { return true }
+            _ = cmuxForceDispatchKeyDownOnce(
+                event,
+                to: browserWebView,
+                reason: "popup browser capture keyDown fallback"
+            )
+            return true
+        }
         if AppDelegate.shared?.handleBrowserPopupCloseShortcutKeyEquivalent(event: event, popupWindow: self) == true {
             return true
         }

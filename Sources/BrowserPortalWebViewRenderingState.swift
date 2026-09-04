@@ -16,6 +16,177 @@ private var cmuxBrowserPortalNeedsRenderingStateReattachKey: UInt8 = 0
 private var cmuxBrowserPortalNeedsFirstSizedRevealNudgeKey: UInt8 = 0
 private var cmuxBrowserPortalFirstSizedRevealNudgeGenerationKey: UInt8 = 0
 
+/// Resolves the primary page-content child of a macOS `WKWebView` without
+/// depending on WebKit's sibling ordering. Inspector/companion children are
+/// excluded explicitly. WebKit's structural page child (normally
+/// `WKFlippedView`) is preferred when present; otherwise a unique child
+/// covering the largest portion of the web view wins. Near-ties fail closed
+/// rather than being disambiguated by focus.
+extension WKWebView {
+    func cmuxBrowserPageContentRoot(owningResponder: NSResponder? = nil) -> NSView? {
+        let candidates = subviews.filter {
+            !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
+        }
+        let webBounds = bounds
+        let webArea = max(webBounds.width * webBounds.height, 1)
+        guard !candidates.isEmpty,
+              webBounds.width > 0,
+              webBounds.height > 0 else {
+            return nil
+        }
+        let structuralCandidates = candidates.filter { $0.cmuxBrowserIsPageContentCandidate }
+        let candidatePool = structuralCandidates.isEmpty ? candidates : structuralCandidates
+
+        guard candidatePool.count > 1 else {
+            guard let candidate = candidatePool.first else { return nil }
+
+            // A recognized WebKit page child remains authoritative while it is
+            // being resized or temporarily covered by a companion view. The
+            // responder ownership check still prevents an unknown sibling from
+            // being treated as page content.
+            if !structuralCandidates.isEmpty {
+                if let owningResponder {
+                    guard let responderView = owningResponder.cmuxBrowserOwningView() else {
+                        return nil
+                    }
+                    guard responderView === self
+                            || responderView === candidate
+                            || responderView.isDescendant(of: candidate) else {
+                        return nil
+                    }
+                }
+                return candidate
+            }
+
+            let intersection = candidate.frame.intersection(webBounds)
+            let coverage = max(0, intersection.width) * max(0, intersection.height) / webArea
+            guard coverage >= 0.5 else { return nil }
+            if let owningResponder {
+                guard let responderView = owningResponder.cmuxBrowserOwningView() else {
+                    return nil
+                }
+                guard responderView === candidate || responderView.isDescendant(of: candidate) else {
+                    return nil
+                }
+            }
+            return candidate
+        }
+
+        let scored = candidatePool.map { view in
+            let intersection = view.frame.intersection(webBounds)
+            let area = max(0, intersection.width) * max(0, intersection.height)
+            return (view: view, coverage: area / webArea)
+        }
+        guard let maximumCoverage = scored.map(\.coverage).max(), maximumCoverage > 0 else {
+            return nil
+        }
+
+        let winners = scored.filter { abs($0.coverage - maximumCoverage) <= 0.01 }
+        guard winners.count == 1 else { return nil }
+
+        if structuralCandidates.isEmpty {
+            // Unknown siblings must cover the web view like real page content
+            // before they can be treated as the page root.
+            guard maximumCoverage >= 0.5 else { return nil }
+        }
+        if let owningResponder {
+            guard let responderView = owningResponder.cmuxBrowserOwningView() else {
+                return nil
+            }
+            // A responder in a clearly smaller sibling is browser chrome. Do
+            // not use responder ownership to break a near-tie: an unknown
+            // full-size WebKit companion/overlay must remain fail-closed.
+            guard responderView === self
+                    || responderView === winners[0].view
+                    || responderView.isDescendant(of: winners[0].view) else {
+                return nil
+            }
+        }
+        return winners[0].view
+    }
+
+    /// Whether WebKit has not yet exposed a stable page-content structure.
+    /// Ambiguous populated hierarchies remain fail-closed; a lone unknown
+    /// child that is still being sized is the only populated transient case.
+    var cmuxBrowserPageContentStructureIsTransient: Bool {
+        let candidates = subviews.filter {
+            !$0.isHidden && $0.alphaValue > 0 && !cmuxIsWebInspectorObject($0)
+        }
+        guard bounds.width > 0, bounds.height > 0 else {
+            return true
+        }
+        if candidates.contains(where: { $0.cmuxBrowserIsPageContentCandidate }) {
+            return false
+        }
+        guard candidates.count == 1 else {
+            return candidates.isEmpty
+        }
+        let webArea = bounds.width * bounds.height
+        let intersection = candidates[0].frame.intersection(bounds)
+        let coverage = max(0, intersection.width) * max(0, intersection.height) / webArea
+        return coverage < 0.5
+    }
+}
+
+/// Returns the nearest view that owns a responder for browser focus routing.
+/// Field editors use their tracked owner first; all other responder
+/// chains are bounded so a malformed chain cannot add unbounded key-path work.
+extension NSResponder {
+    func cmuxBrowserOwningView() -> NSView? {
+        if let fieldEditor = self as? NSTextView, fieldEditor.isFieldEditor {
+            if let trackedOwner = cmuxTrackedFindFieldEditorOwner(fieldEditor) {
+                return trackedOwner
+            }
+            var current: NSResponder? = fieldEditor.nextResponder
+            var hops = 0
+            while let next = current, hops < 64 {
+                if let view = next as? NSView {
+                    return view
+                }
+                current = next.nextResponder
+                hops += 1
+            }
+            // A shared field editor's superview is a hosting detail, not an
+            // ownership contract. If its tracked owner and bounded responder
+            // chain do not identify a view, fail closed rather than assigning
+            // focus to an unrelated browser sibling.
+            return nil
+        }
+
+        if let view = self as? NSView {
+            return view
+        }
+        var current: NSResponder? = self
+        var hops = 0
+        while let next = current, hops < 64 {
+            if let view = next as? NSView {
+                return view
+            }
+            current = next.nextResponder
+            hops += 1
+        }
+        return nil
+    }
+}
+
+/// Whether a direct WebKit child is the structural page-content host rather
+/// than a companion/overlay. These private WebKit class names are the stable
+/// AppKit ownership signal available on supported macOS releases; geometry is
+/// retained as a compatibility fallback for future class-name changes.
+private extension NSView {
+    var cmuxBrowserIsPageContentCandidate: Bool {
+        let classNames = [
+            String(describing: type(of: self)),
+            NSStringFromClass(type(of: self)),
+        ]
+        return classNames.contains { className in
+            className == "WKFlippedView"
+                || className == "WKContentView"
+                || className == "WKScrollView"
+        }
+    }
+}
+
 #if DEBUG
 private func browserPortalRenderingStateDebugToken(_ view: NSView?) -> String {
     guard let view else { return "nil" }

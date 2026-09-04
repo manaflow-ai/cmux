@@ -24,7 +24,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
 
     let webView: CmuxWebView
     private let browserContext: BrowserPopupBrowserContext
-    private let panel: NSPanel
+    private let panel: BrowserPopupPanel
     private let urlLabel: NSTextField, urlLabelHeightConstraint: NSLayoutConstraint
     private weak var openerPanel: BrowserPanel?
     private weak var parentPopupController: BrowserPopupWindowController?
@@ -118,6 +118,7 @@ final class BrowserPopupWindowController: NSObject, NSWindowDelegate {
         panel.isReleasedWhenClosed = false
         panel.minSize = NSSize(width: minWidth, height: minHeight)
         panel.title = String(localized: "browser.popup.loadingTitle", defaultValue: "Loading\u{2026}")
+        panel.browserWebView = webView
         self.panel = panel
 
         let urlLabel = NSTextField(labelWithString: "")

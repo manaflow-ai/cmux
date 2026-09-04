@@ -1156,6 +1156,7 @@
           "defaultSearchEngine": "Motor de búsqueda predeterminado para consultas de la barra de direcciones del navegador que no son URL. Usa custom con customSearchEngineURLTemplate para otros proveedores.",
           "customSearchEngineName": "Nombre visible usado cuando defaultSearchEngine es custom.",
           "customSearchEngineURLTemplate": "URL de búsqueda usada cuando defaultSearchEngine es custom. Incluye el marcador de consulta o %s para la consulta codificada. Si no hay marcador, cmux añade q= a la URL.",
+          "captureKeyboardShortcuts": "Permite que la página del navegador enfocada reciba atajos de teclado que, de otro modo, activarían acciones de cmux.",
           "urlAllowlist": "Patrones de host o URL que restringen la navegación del navegador integrado. Ajustes sugiere orígenes de desarrollo local; guardar una lista activa la restricción opcional. Elimina entradas para bloquearlas o deja vacío el valor del usuario, si no hay una política administrada, para desactivar la restricción."
         },
         "workspaceGroups": {

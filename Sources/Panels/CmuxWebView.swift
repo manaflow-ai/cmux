@@ -12,6 +12,13 @@ import WebKit
 final class CmuxWebView: WKWebView {
     var browserViewportModel: BrowserViewportModel?
     var onBrowserViewportHierarchyChanged: (() -> Void)?
+    /// Whether this view is currently owned by a standalone browser popup panel.
+    /// The panel's weak relationship is the authoritative ownership record;
+    /// there is no independently mutable marker that can become stale.
+    var isOwnedByBrowserPopupPanel: Bool {
+        guard let popupPanel = window as? BrowserPopupPanel else { return false }
+        return popupPanel.browserWebView === self
+    }
 
     /// One-shot app-owned internal navigations (file/data/blob/etc.) that
     /// must pass the browser URL policy's trusted-load seam. Page callbacks
@@ -711,6 +718,31 @@ final class CmuxWebView: WKWebView {
         }
     }
 
+    /// Offers one captured equivalent to WebKit and, when a Command equivalent
+    /// is declined, delivers one guarded native keyDown so AppKit cannot route
+    /// the same event to a competing menu item. Popup and panel capture paths
+    /// share this sequence while retaining separate ownership predicates.
+    private func performCapturedBrowserKeyEquivalent(
+        _ event: NSEvent,
+        normalizedFlags: NSEvent.ModifierFlags,
+        fallbackReason: String
+    ) -> Bool {
+        if cmuxBrowserWebKitKeyDownDispatchIsActive() {
+            return true
+        }
+        let result = super.performKeyEquivalent(with: event)
+        guard !result,
+              normalizedFlags.contains(.command),
+              let window else {
+            return result
+        }
+        return window.cmuxForceDispatchKeyDownOnce(
+            event,
+            to: self,
+            reason: fallbackReason
+        )
+    }
+
     override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
         if item.action == #selector(pasteAsPlainText(_:)) {
             return pasteAsPlainTextTargetAvailable
@@ -772,6 +804,27 @@ final class CmuxWebView: WKWebView {
             case .consume:
                 return finish(true)
             }
+        }
+
+        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: event, webView: self) == true {
+            return finish(performCapturedBrowserKeyEquivalent(
+                event,
+                normalizedFlags: normalizedFlags,
+                fallbackReason: "browser capture setting keyDown fallback"
+            ))
+        }
+
+        // Standalone popup web views have no BrowserPanel action owner. Offer
+        // browser-scoped shortcuts to WebKit directly so the app router cannot
+        // beep or accidentally apply another panel's action to the popup. A
+        // transiently rebinding pane is intentionally not in this path; its
+        // ownership must settle through the normal browser-panel resolver.
+        if AppDelegate.shared?.shouldYieldPanelLessBrowserShortcut(event) == true {
+            return finish(performCapturedBrowserKeyEquivalent(
+                event,
+                normalizedFlags: normalizedFlags,
+                fallbackReason: "standalone browser popup shortcut keyDown fallback"
+            ))
         }
 
         if event.keyCode == 36 || event.keyCode == 76 {
@@ -901,6 +954,14 @@ final class CmuxWebView: WKWebView {
 #if DEBUG
             route = "webContentUndoRedo"
 #endif
+            return
+        }
+
+        if AppDelegate.shared?.shouldCaptureBrowserKeyboardShortcuts(for: event, webView: self) == true {
+#if DEBUG
+            route = "captureShortcutsWebView"
+#endif
+            forwardKeyDownToWebKit(event)
             return
         }
 
