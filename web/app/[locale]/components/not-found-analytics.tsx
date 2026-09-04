@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { posthog } from "../../lib/posthog-client";
 
 /**
@@ -9,16 +10,26 @@ import { posthog } from "../../lib/posthog-client";
  * provider's identity-resolution gate.
  */
 export function NotFoundAnalytics({ locale }: { locale: string }) {
-  const captured = useRef(false);
+  const pathname = usePathname();
+  const capturedKey = useRef<string | null>(null);
 
   useEffect(() => {
-    if (captured.current) return;
-    captured.current = true;
-    posthog.set_config({ before_send: (event) => event });
+    const key = `${locale}:${pathname}`;
+    if (capturedKey.current === key) return;
+    capturedKey.current = key;
+    posthog.set_config({
+      before_send: (event) => {
+        if (!event) return null;
+        const properties = { ...event.properties };
+        delete properties.$current_url;
+        delete properties.$pathname;
+        delete properties.$referrer;
+        return { ...event, properties };
+      },
+    });
     const properties = { location: "not_found", locale };
-    posthog.capture("$pageview", { $current_url: window.location.href });
     posthog.capture("cmuxterm_404_viewed", properties);
-  }, [locale]);
+  }, [locale, pathname]);
 
   return null;
 }
