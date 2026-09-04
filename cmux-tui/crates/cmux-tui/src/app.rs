@@ -25712,9 +25712,12 @@ impl App {
                     // carried by the hit instead of trusting its old index.
                     let Some((current_index, workspace_id)) =
                         self.machine_ui.as_ref().and_then(|ui| {
-                            ui.recoverable_workspaces().into_iter().enumerate().find(
-                                |(_, workspace)| sidebar_profile_token(&workspace.id) == token,
-                            )
+                            ui.recoverable_workspaces()
+                                .into_iter()
+                                .enumerate()
+                                .find(|(_, workspace)| {
+                                    sidebar_profile_token(&workspace.id) == token
+                                })
                                 .map(|(index, workspace)| (index, workspace.id.clone()))
                         })
                     else {
@@ -27513,12 +27516,9 @@ impl App {
                 Some(Hit::RecoverableWorkspace { index: _, token }) => {
                     if let Some((current_index, workspace)) =
                         self.machine_ui.as_ref().and_then(|ui| {
-                            ui.recoverable_workspaces()
-                                .into_iter()
-                                .enumerate()
-                                .find(|(_, workspace)| {
-                                    sidebar_profile_token(&workspace.id) == token
-                                })
+                            ui.recoverable_workspaces().into_iter().enumerate().find(
+                                |(_, workspace)| sidebar_profile_token(&workspace.id) == token,
+                            )
                         })
                     {
                         let mut actions = Vec::new();
