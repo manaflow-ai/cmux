@@ -2,7 +2,8 @@ import Darwin
 import Foundation
 
 extension VMTunnelManager {
-    /// Completes the server template with this build's private key and routes.
+    /// Completes the server template with this build's private key, routes, and
+    /// an optional exact-runtime-interface marker.
     ///
     /// When the network prefixes are known, routes are installed as macOS
     /// interface-scoped entries.  `wg-quick`'s default unscoped route insertion
@@ -11,7 +12,8 @@ extension VMTunnelManager {
     static func completedConfig(
         _ config: String,
         privateKey: String,
-        allowedIPs: [String] = []
+        allowedIPs: [String] = [],
+        runtimeMetadataPath: String? = nil
     ) throws -> String {
         var lines = config.components(separatedBy: "\n")
         let interfaceStart = try sectionStart("[Interface]", in: lines)
@@ -28,51 +30,70 @@ extension VMTunnelManager {
             interfaceEnd += 1
         }
 
-        guard !allowedIPs.isEmpty else {
-            return lines.joined(separator: "\n")
+        if !allowedIPs.isEmpty {
+            let routes = try normalizedRoutes(allowedIPs)
+            let peerStart = try sectionStart("[Peer]", in: lines)
+            let peerEnd = sectionEnd(after: peerStart, in: lines)
+            let allowedIPsLine = "AllowedIPs = \(routes.joined(separator: ", "))"
+            if let allowedIPsIndex = firstKeyIndex(
+                named: "allowedips",
+                in: peerStart..<peerEnd,
+                lines: lines
+            ) {
+                lines[allowedIPsIndex] = allowedIPsLine
+            } else {
+                lines.insert(allowedIPsLine, at: peerStart + 1)
+            }
+
+            // Recompute bounds after the peer edit.  The route directives must
+            // live in `[Interface]`; wg-quick only parses hook keys in that
+            // section.
+            interfaceEnd = sectionEnd(after: interfaceStart, in: lines)
+            if let tableIndex = firstKeyIndex(
+                named: "table",
+                in: interfaceStart..<interfaceEnd,
+                lines: lines
+            ) {
+                lines[tableIndex] = "Table = off"
+            } else {
+                lines.insert("Table = off", at: interfaceEnd)
+                interfaceEnd += 1
+            }
+
+            let routeHooks = routes.flatMap { route in
+                [
+                    routeHook(key: "PostUp", action: "add", route: route),
+                    routeHook(key: "PreDown", action: "delete", route: route),
+                ]
+            }
+            let existing = Set(lines[interfaceStart..<interfaceEnd])
+            let newHooks = routeHooks.filter { !existing.contains($0) }
+            lines.insert(contentsOf: newHooks, at: interfaceEnd)
+            interfaceEnd += newHooks.count
         }
 
-        let routes = try normalizedRoutes(allowedIPs)
-        let peerStart = try sectionStart("[Peer]", in: lines)
-        let peerEnd = sectionEnd(after: peerStart, in: lines)
-        let allowedIPsLine = "AllowedIPs = \(routes.joined(separator: ", "))"
-        if let allowedIPsIndex = firstKeyIndex(
-            named: "allowedips",
-            in: peerStart..<peerEnd,
-            lines: lines
-        ) {
-            lines[allowedIPsIndex] = allowedIPsLine
-        } else {
-            lines.insert(allowedIPsLine, at: peerStart + 1)
+        if let runtimeMetadataPath, !runtimeMetadataPath.isEmpty {
+            interfaceEnd = sectionEnd(after: interfaceStart, in: lines)
+            let metadataHooks = runtimeMetadataHooks(path: runtimeMetadataPath)
+            let existing = Set(lines[interfaceStart..<interfaceEnd])
+            let newHooks = metadataHooks.filter { !existing.contains($0) }
+            lines.insert(contentsOf: newHooks, at: interfaceEnd)
         }
 
-        // Recompute bounds after the peer edit.  The route directives must live
-        // in `[Interface]`; wg-quick only parses hook keys in that section.
-        interfaceEnd = sectionEnd(after: interfaceStart, in: lines)
-        if let tableIndex = firstKeyIndex(
-            named: "table",
-            in: interfaceStart..<interfaceEnd,
-            lines: lines
-        ) {
-            lines[tableIndex] = "Table = off"
-        } else {
-            lines.insert("Table = off", at: interfaceEnd)
-            interfaceEnd += 1
-        }
-
-        let hooks = routes.flatMap { route in
-            [
-                routeHook(key: "PostUp", action: "add", route: route),
-                routeHook(key: "PreDown", action: "delete", route: route),
-            ]
-        }
-        let existing = Set(lines[interfaceStart..<interfaceEnd])
-        let newHooks = hooks.filter { !existing.contains($0) }
-        guard !newHooks.isEmpty else {
-            return lines.joined(separator: "\n")
-        }
-        lines.insert(contentsOf: newHooks, at: interfaceEnd)
         return lines.joined(separator: "\n")
+    }
+
+    /// Hook commands run as root inside wg-quick, so they can publish the
+    /// actual `utunN` while keeping the marker itself non-secret and readable
+    /// by the unprivileged cmux app. `%i` is substituted by wg-quick with the
+    /// real interface, not the logical config basename.
+    private static func runtimeMetadataHooks(path: String) -> [String] {
+        let target = shellQuote(path)
+        let writeScript = "printf \"%s\\n\" \"%i\" > \(target) && chmod 444 \(target)"
+        return [
+            "PostUp = /bin/sh -c \(shellQuote(writeScript))",
+            "PreDown = /bin/rm -f \(target)",
+        ]
     }
 
     private static func sectionStart(_ header: String, in lines: [String]) throws -> Int {

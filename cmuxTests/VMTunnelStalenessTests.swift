@@ -86,6 +86,7 @@ struct VMTunnelStalenessTests {
         #expect(staging.configURL.lastPathComponent == "cmux-staging.conf")
         #expect(staging.appliedDigestURL.lastPathComponent == "cmux-staging.applied")
         #expect(staging.runtimeNameFileURL.path == "/var/run/wireguard/cmux-staging.name")
+        #expect(staging.runtimeInterfaceMetadataURL.path == "/var/run/wireguard/cmux-staging.cmux-runtime")
     }
 
     @Test("A production-targeted tagged DEV build never shares nightly's interface")
@@ -161,6 +162,17 @@ struct VMTunnelStalenessTests {
         // Nothing known about the network: the server's routes stay.
         let kept = try VMTunnelManager.completedConfig(server, privateKey: "k", allowedIPs: [])
         #expect(kept.contains("AllowedIPs = 10.0.0.0/8, fd00::/8"))
+
+        let runtimeMarked = try VMTunnelManager.completedConfig(
+            server,
+            privateKey: "k",
+            allowedIPs: ["10.16.170.0/24", "fd98:deb9:4c94::/64"],
+            runtimeMetadataPath: "/var/run/wireguard/cmux-nightly.cmux-runtime"
+        )
+        #expect(runtimeMarked.contains("PostUp = /bin/sh -c"))
+        #expect(runtimeMarked.contains("cmux-nightly.cmux-runtime"))
+        #expect(runtimeMarked.contains("PreDown = /bin/rm -f"))
+        #expect(runtimeMarked.contains("%i"))
     }
 
     @Test("Route hooks reject values that could escape the privileged command")

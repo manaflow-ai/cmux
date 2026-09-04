@@ -235,6 +235,15 @@ struct VMTunnelManager: Sendable {
         URL(fileURLWithPath: "/var/run/wireguard/\(interfaceName).name", isDirectory: false)
     }
 
+    /// A small, non-secret marker written by this config's `PostUp` hook with
+    /// wg-quick's actual `utunN` name. The stock `.name` file is root-only, so
+    /// its contents cannot be read by the app; this companion marker makes the
+    /// scope-to-interface association exact even when two sockets are created
+    /// in the same second. It is removed by the matching `PreDown` hook.
+    var runtimeInterfaceMetadataURL: URL {
+        URL(fileURLWithPath: "/var/run/wireguard/\(interfaceName).cmux-runtime", isDirectory: false)
+    }
+
     /// Whether this build can own the tunnel as a NetworkExtension VPN.
     ///
     /// Reads the signed entitlement rather than trying to configure a manager,
@@ -317,7 +326,12 @@ struct VMTunnelManager: Sendable {
             let isIPv6 = route.contains(":")
             return isIPv6 ? !hasIPv6NetworkRoute : !hasIPv4NetworkRoute
         }
-        let config = try Self.completedConfig(endpoint.clientConfig, privateKey: keys.privateKey, allowedIPs: allowedIPs)
+        let config = try Self.completedConfig(
+            endpoint.clientConfig,
+            privateKey: keys.privateKey,
+            allowedIPs: allowedIPs,
+            runtimeMetadataPath: runtimeInterfaceMetadataURL.path
+        )
         try ensureStateDir()
         try write(config, to: configURL)
         return LocalTunnelState(
@@ -415,13 +429,25 @@ struct VMTunnelManager: Sendable {
     /// through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        guard let runtimeInterfaceName = Self.runtimeInterfaceName(for: runtimeNameFileURL) else { return false }
+        let runtimeInterfaceName = Self.readRuntimeInterfaceName(from: runtimeInterfaceMetadataURL)
+            ?? Self.runtimeInterfaceName(for: runtimeNameFileURL)
+        guard let runtimeInterfaceName else { return false }
         return Self.interfaceIsUp(
             runtimeNamePresent: true,
             runtimeInterfaceName: runtimeInterfaceName,
             config: config,
             liveInterfaceAddressesByName: Self.currentInterfaceAddressesByName()
         )
+    }
+
+    /// Reads and validates the user-readable companion marker written by the
+    /// config's privileged `PostUp` hook. Invalid or stale contents fall back
+    /// to the stock wg-quick marker inference instead of being trusted.
+    private static func readRuntimeInterfaceName(from metadataURL: URL) -> String? {
+        guard let raw = try? String(contentsOf: metadataURL, encoding: .utf8) else { return nil }
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard value.range(of: #"^utun[0-9]+$"#, options: .regularExpression) != nil else { return nil }
+        return value
     }
 
     /// Combines the two unprivileged liveness signals used by ``wgQuickInterfaceUp``.
