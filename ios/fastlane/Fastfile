@@ -24,6 +24,17 @@ def reset_screenshot_simulators(device_names)
   UI.message("Reset #{udids.length} screenshot simulator(s) for a clean locale run")
 end
 
+# Fastlane accepts [language, locale] pairs. Use Apple's language identifier for
+# the first value and keep the App Store identifier for the output directory.
+# Script variants remain explicit (zh-Hant/zh-Hans); regional App Store IDs use
+# their base language for AppleLanguages (de-DE -> de).
+def snapshot_language_code(app_store_locale)
+  parts = app_store_locale.tr("_", "-").split("-")
+  language = parts.first.to_s
+  script = parts.drop(1).find { |part| part.match?(/\A[A-Za-z]{4}\z/) }
+  script ? "#{language}-#{script}" : language
+end
+
 # cmux iOS fastlane lanes. Scope is App Store screenshots for now; build/upload
 # of the binary lives in ios/scripts/upload-testflight.sh (--lane appstore).
 
@@ -53,7 +64,9 @@ platform :ios do
         # scheme invocation, which requires every test target in the scheme's
         # default plan to at least compile.
         devices: devices,
-        languages: [language],
+        # Keep AppleLanguages valid while retaining the App Store locale as
+        # the screenshot directory name.
+        languages: [[snapshot_language_code(language), language]],
         # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
         override_status_bar: true,
         # Capture in dark mode.
