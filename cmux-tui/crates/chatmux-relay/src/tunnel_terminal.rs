@@ -1377,6 +1377,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn two_maximum_pty_frames_leave_the_control_byte_reserve() {
+        let rig = rig().await;
+        let (connection, _writer_rx, _flow_rx) = test_connection(&rig);
+        let first = encode_pty_frame(&vec![1; MAX_TUNNEL_FRAME_BYTES]);
+        let second = encode_pty_frame(&vec![2; MAX_TUNNEL_FRAME_BYTES]);
+
+        assert!(connection.enqueue_frame(first, false));
+        assert!(connection.enqueue_frame(second, false));
+        assert!(!connection.finished.load(Ordering::SeqCst));
+
+        let control = encode_control_frame(&json!({ "t": "error", "code": "failed" }));
+        assert!(connection.enqueue_frame(control, true));
+        assert!(!connection.finished.load(Ordering::SeqCst));
+        rig.cancel.cancel();
+    }
+
+    #[tokio::test]
     async fn control_frame_survives_message_reserve_before_end() {
         let rig = rig().await;
         let (connection, mut writer_rx, _flow_rx) = test_connection(&rig);
