@@ -166,29 +166,21 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
             }
         }
     };
-    let tail_for = |include_overflow: bool,
-                    include_attention: bool,
-                    include_hidden: bool|
-     -> Vec<String> {
-        let mut tail = Vec::new();
-        if include_overflow
-            && let Some(overflow) = profile_overflow.as_ref()
-        {
-            tail.push(overflow.clone());
-        }
-        if include_attention
-            && let Some(attention) = attention.as_ref()
-        {
-            tail.push(attention.clone());
-        }
-        if include_hidden
-            && let Some(hidden) = hidden.as_ref()
-        {
-            tail.push(hidden.clone());
-        }
-        tail.push(manage.to_string());
-        tail
-    };
+    let tail_for =
+        |include_overflow: bool, include_attention: bool, include_hidden: bool| -> Vec<String> {
+            let mut tail = Vec::new();
+            if include_overflow && let Some(overflow) = profile_overflow.as_ref() {
+                tail.push(overflow.clone());
+            }
+            if include_attention && let Some(attention) = attention.as_ref() {
+                tail.push(attention.clone());
+            }
+            if include_hidden && let Some(hidden) = hidden.as_ref() {
+                tail.push(hidden.clone());
+            }
+            tail.push(manage.to_string());
+            tail
+        };
     try_candidate(&labels, tail_for(false, true, true));
     try_candidate(&labels, tail_for(false, true, false));
     try_candidate(&labels, tail_for(false, false, true));
