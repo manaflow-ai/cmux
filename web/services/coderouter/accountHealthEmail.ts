@@ -9,11 +9,11 @@
 // when present and fall back to English; the release localization pass owns
 // translations beyond the maintained English and Japanese catalogs.
 import { createHash } from "node:crypto";
-import { and, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Resend } from "resend";
 import { env } from "../../app/env";
 import { cloudDb } from "../../db/client";
-import { coderouterAccounts } from "../../db/schema";
+import { coderouterAccountHealthDeliveries, coderouterAccounts } from "../../db/schema";
 import englishMessages from "../../messages/en.json";
 import { loadMessages } from "../../i18n/messages";
 import { routing, type Locale } from "../../i18n/routing";
@@ -44,6 +44,8 @@ export type BrokenAccountNotice = {
   readonly brokenAt: Date | null;
   /** Stack user id of whoever added it, when the store records that. */
   readonly createdBy: string | null;
+  /** Recipient hashes that already accepted this account-health notice. */
+  readonly deliveredRecipientHashes: readonly string[];
 };
 
 export type Recipient = { readonly email: string; readonly name: string | null; readonly locale?: Locale };
@@ -62,6 +64,12 @@ export type AccountHealthEmail = {
 export type AccountHealthDependencies = {
   readonly brokenClaudeAccounts: () => Promise<readonly BrokenAccountNotice[]>;
   readonly brokenSubscriptionAccounts: () => Promise<readonly BrokenAccountNotice[]>;
+  /** Records a successful delivery for each notice and one normalized recipient hash. */
+  readonly markDelivered: (
+    notices: readonly BrokenAccountNotice[],
+    recipientHash: string,
+    at: Date,
+  ) => Promise<void>;
   readonly markNotified: (notices: readonly BrokenAccountNotice[], at: Date) => Promise<void>;
   /** Who to tell about a team's accounts; the creator when known, else the team. */
   readonly recipients: (notice: BrokenAccountNotice) => Promise<readonly Recipient[]>;
@@ -174,6 +182,7 @@ export async function runAccountHealthNotifications(
   // Batch: one email per recipient listing every account of theirs that broke.
   const byRecipient = new Map<string, { recipient: Recipient; notices: BrokenAccountNotice[]; noticeKeys: Set<string> }>();
   const expectedRecipients = new Map<string, Set<string>>();
+  const successfulRecipients = new Map<string, Set<string>>();
   const teamNames = new Map<string, string | null>();
   const teamRecipients = new Map<string, readonly Recipient[]>();
   let withoutRecipient = 0;
@@ -196,11 +205,18 @@ export async function runAccountHealthNotifications(
       continue;
     }
     for (const recipient of recipients) {
-      const key = recipient.email.trim().toLowerCase();
+      const key = normalizeRecipientEmail(recipient.email);
       if (!key) continue;
       const expected = expectedRecipients.get(noticeKey) ?? new Set<string>();
       expected.add(key);
       expectedRecipients.set(noticeKey, expected);
+      const recipientHash = accountHealthRecipientHash(key);
+      if (notice.deliveredRecipientHashes.includes(recipientHash)) {
+        const successful = successfulRecipients.get(noticeKey) ?? new Set<string>();
+        successful.add(key);
+        successfulRecipients.set(noticeKey, successful);
+        continue;
+      }
       const entry = byRecipient.get(key) ?? { recipient, notices: [], noticeKeys: new Set<string>() };
       if (!entry.noticeKeys.has(noticeKey)) {
         entry.noticeKeys.add(noticeKey);
@@ -216,7 +232,6 @@ export async function runAccountHealthNotifications(
 
   let emails = 0;
   let failures = 0;
-  const successfulRecipients = new Map<string, Set<string>>();
   for (const [recipientKey, { recipient, notices: mine }] of byRecipient) {
     try {
       const email = await buildAccountHealthEmail({
@@ -226,6 +241,7 @@ export async function runAccountHealthNotifications(
         teamNames,
       });
       await dependencies.send(email);
+      await dependencies.markDelivered(mine, accountHealthRecipientHash(recipientKey), at);
       emails += 1;
       for (const notice of mine) {
         const noticeKey = accountHealthNoticeKey(notice);
@@ -241,15 +257,16 @@ export async function runAccountHealthNotifications(
   // Accounts with nobody to tell are marked as well: the state is visible on
   // the dashboard and in the CLI, and retrying every run would never help.
   // When a team notice has several recipients, keep it pending until every
-  // distinct recipient accepts it. Resend's stable idempotency key makes the
-  // successful deliveries safe to retry on the next run.
+  // distinct recipient accepts it. The durable per-account, per-recipient
+  // receipt keeps a partial team batch from changing the successful
+  // recipient's retry payload on the next run.
   const unaddressedKeys = new Set(unaddressed.map(accountHealthNoticeKey));
   const done = notices.filter((notice) => {
     const noticeKey = accountHealthNoticeKey(notice);
     if (unaddressedKeys.has(noticeKey)) return true;
     const expected = expectedRecipients.get(noticeKey);
     const successful = successfulRecipients.get(noticeKey);
-    return !!expected && !!successful && [...expected].every((key) => successful.has(key));
+    return !!expected && expected.size > 0 && !!successful && [...expected].every((key) => successful.has(key));
   }).sort((left, right) => {
     // Keep the historical Claude-then-subscription order for the persistence
     // update, even though selection is interleaved for fairness.
@@ -292,6 +309,14 @@ export function selectAccountHealthNotices(
 
 function accountHealthNoticeKey(notice: BrokenAccountNotice): string {
   return `${notice.source}:${notice.accountId}`;
+}
+
+function normalizeRecipientEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+export function accountHealthRecipientHash(email: string): string {
+  return createHash("sha256").update(normalizeRecipientEmail(email), "utf8").digest("hex");
 }
 
 // Email copy.
@@ -502,7 +527,34 @@ export function noticeFromClaudeRow(row: ClaudeAccountRow): BrokenAccountNotice 
     failureCode: row.lastFailureCode ?? "invalid_credential",
     brokenAt: row.brokenAt,
     createdBy: row.createdBy,
+    deliveredRecipientHashes: [],
   };
+}
+
+type AccountHealthDeliverySource = BrokenAccountNotice["source"];
+
+async function loadDeliveryHashes(
+  source: AccountHealthDeliverySource,
+  accountIds: readonly string[],
+): Promise<ReadonlyMap<string, readonly string[]>> {
+  if (accountIds.length === 0) return new Map();
+  const rows = await cloudDb()
+    .select({
+      accountId: coderouterAccountHealthDeliveries.accountId,
+      recipientHash: coderouterAccountHealthDeliveries.recipientHash,
+    })
+    .from(coderouterAccountHealthDeliveries)
+    .where(and(
+      eq(coderouterAccountHealthDeliveries.source, source),
+      inArray(coderouterAccountHealthDeliveries.accountId, [...accountIds]),
+    ));
+  const hashes = new Map<string, string[]>();
+  for (const row of rows) {
+    const current = hashes.get(row.accountId) ?? [];
+    current.push(row.recipientHash);
+    hashes.set(row.accountId, current);
+  }
+  return hashes;
 }
 
 async function brokenSubscriptionRows(): Promise<readonly BrokenAccountNotice[]> {
@@ -518,6 +570,7 @@ async function brokenSubscriptionRows(): Promise<readonly BrokenAccountNotice[]>
     .from(coderouterAccounts)
     .where(and(inArray(coderouterAccounts.state, ["expired", "broken"]), isNull(coderouterAccounts.brokenNotifiedAt)))
     .limit(MAX_ACCOUNTS_PER_RUN);
+  const delivered = await loadDeliveryHashes("subscription", rows.map((row) => row.id));
   return rows.map((row) => ({
     source: "subscription" as const,
     accountId: row.id,
@@ -528,7 +581,28 @@ async function brokenSubscriptionRows(): Promise<readonly BrokenAccountNotice[]>
     failureCode: row.lastFailureCode ?? "refresh_failed",
     brokenAt: row.updatedAt,
     createdBy: null,
+    deliveredRecipientHashes: delivered.get(row.id) ?? [],
   }));
+}
+
+async function markAccountHealthDelivered(
+  notices: readonly BrokenAccountNotice[],
+  recipientHash: string,
+  at: Date,
+): Promise<void> {
+  const values = [...new Map(
+    notices.map((notice) => [accountHealthNoticeKey(notice), notice]),
+  ).values()].map((notice) => ({
+    source: notice.source,
+    accountId: notice.accountId,
+    recipientHash,
+    sentAt: at,
+  }));
+  if (values.length === 0) return;
+  await cloudDb()
+    .insert(coderouterAccountHealthDeliveries)
+    .values(values)
+    .onConflictDoNothing();
 }
 
 async function markSubscriptionsNotified(ids: readonly string[], at: Date): Promise<void> {
@@ -585,8 +659,16 @@ async function stackTeamName(teamId: string): Promise<string | null> {
 
 export function defaultDependencies(): AccountHealthDependencies {
   return {
-    brokenClaudeAccounts: async () => (await listBrokenClaudeAccounts()).map(noticeFromClaudeRow),
+    brokenClaudeAccounts: async () => {
+      const rows = await listBrokenClaudeAccounts();
+      const delivered = await loadDeliveryHashes("claude", rows.map((row) => row.id));
+      return rows.map((row) => ({
+        ...noticeFromClaudeRow(row),
+        deliveredRecipientHashes: delivered.get(row.id) ?? [],
+      }));
+    },
     brokenSubscriptionAccounts: brokenSubscriptionRows,
+    markDelivered: markAccountHealthDelivered,
     markNotified: async (notices, at) => {
       await markClaudeAccountsNotified(notices.filter((notice) => notice.source === "claude").map((notice) => notice.accountId));
       await markSubscriptionsNotified(notices.filter((notice) => notice.source === "subscription").map((notice) => notice.accountId), at);

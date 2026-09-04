@@ -13,7 +13,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
-import { coderouterClaudeAccounts } from "../../db/schema";
+import { coderouterAccountHealthDeliveries, coderouterClaudeAccounts } from "../../db/schema";
 import {
   decryptSecretEnvelope,
   encryptSecretEnvelope,
@@ -720,18 +720,36 @@ const drizzleStore: ClaudeAccountStore = {
     return written ? rowFromDb(written) : null;
   },
   async remove(teamId, accountId) {
-    const deleted = await cloudDb()
-      .delete(coderouterClaudeAccounts)
-      .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId)))
-      .returning({ id: coderouterClaudeAccounts.id });
-    return deleted.length > 0;
+    return await cloudDb().transaction(async (tx) => {
+      const deleted = await tx
+        .delete(coderouterClaudeAccounts)
+        .where(and(eq(coderouterClaudeAccounts.teamId, teamId), eq(coderouterClaudeAccounts.id, accountId)))
+        .returning({ id: coderouterClaudeAccounts.id });
+      if (deleted.length === 0) return false;
+      await tx
+        .delete(coderouterAccountHealthDeliveries)
+        .where(and(
+          eq(coderouterAccountHealthDeliveries.source, "claude"),
+          eq(coderouterAccountHealthDeliveries.accountId, accountId),
+        ));
+      return true;
+    });
   },
   async removeAll(teamId) {
-    const deleted = await cloudDb()
-      .delete(coderouterClaudeAccounts)
-      .where(eq(coderouterClaudeAccounts.teamId, teamId))
-      .returning({ id: coderouterClaudeAccounts.id });
-    return deleted.length;
+    return await cloudDb().transaction(async (tx) => {
+      const deleted = await tx
+        .delete(coderouterClaudeAccounts)
+        .where(eq(coderouterClaudeAccounts.teamId, teamId))
+        .returning({ id: coderouterClaudeAccounts.id });
+      if (deleted.length === 0) return 0;
+      await tx
+        .delete(coderouterAccountHealthDeliveries)
+        .where(and(
+          eq(coderouterAccountHealthDeliveries.source, "claude"),
+          inArray(coderouterAccountHealthDeliveries.accountId, deleted.map((row) => row.id)),
+        ));
+      return deleted.length;
+    });
   },
   async findByFingerprint(teamId, fingerprint) {
     if (!fingerprint) return null;

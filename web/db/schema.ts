@@ -999,6 +999,42 @@ export const coderouterAccounts = pgTable(
   ],
 );
 
+/**
+ * Durable delivery receipts for account-health notices. The recipient is a
+ * SHA-256 hash of its normalized email address, so the retry ledger does not
+ * add another plain-email copy to the account tables. There is no foreign key
+ * because notices come from both coderouter account stores; removal paths
+ * delete the matching receipts explicitly.
+ */
+export const coderouterAccountHealthDeliveries = pgTable(
+  "coderouter_account_health_deliveries",
+  {
+    source: text("source").$type<"claude" | "subscription">().notNull(),
+    accountId: text("account_id").notNull(),
+    recipientHash: text("recipient_hash").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "coderouter_account_health_deliveries_pkey",
+      columns: [table.source, table.accountId, table.recipientHash],
+    }),
+    check(
+      "coderouter_account_health_deliveries_source_check",
+      sql`${table.source} IN ('claude', 'subscription')`,
+    ),
+    check(
+      "coderouter_account_health_deliveries_hash_check",
+      sql`${table.recipientHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    index("coderouter_account_health_deliveries_account_idx").on(
+      table.source,
+      table.accountId,
+    ),
+  ],
+);
+
 export const coderouterRouteTokens = pgTable(
   "coderouter_route_tokens",
   {

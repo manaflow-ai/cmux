@@ -3,6 +3,7 @@ import { and, eq, gt, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
 import { runWithCloudDbQuerySignal } from "../../db/queryScope";
 import {
+  coderouterAccountHealthDeliveries,
   coderouterAccounts,
   coderouterCredentials,
   coderouterRouteTokens,
@@ -176,6 +177,13 @@ export async function deleteAccount(input: {
       ))
       .returning({ id: coderouterAccounts.id });
     if (!removed) return { removed: false, lastAccount: false };
+
+    await tx
+      .delete(coderouterAccountHealthDeliveries)
+      .where(and(
+        eq(coderouterAccountHealthDeliveries.source, "subscription"),
+        eq(coderouterAccountHealthDeliveries.accountId, input.accountId),
+      ));
 
     // coderouterCredentials is deleted by its account FK. If the workspace no
     // longer has an account, route tokens have no useful authority and should
