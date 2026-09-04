@@ -14,7 +14,7 @@ process.env.CMUX_ANALYTICS_TEST_MODE = "1";
 // Also replace the fallback credentials and host. This protects analytics
 // senders that do not yet use the module-level test guard.
 process.env.POSTHOG_PROJECT_KEY = "phc_test_only";
-process.env.POSTHOG_HOST = "http://127.0.0.1:1";
+process.env.POSTHOG_HOST = "https://127.0.0.1:1";
 process.env.RESEND_API_KEY ??= "re_test";
 process.env.STRIPE_FOUNDERS_WEBHOOK_SECRET ??= "whsec_founders_test";
 process.env.CMUX_FEEDBACK_FROM_EMAIL ??= "founders@manaflow.com";

@@ -52,7 +52,11 @@ final class CloudTreeNode: NSObject {
         /// raw address, never the `.internal` name: that name only resolves
         /// once `cmux vpn hosts` has synced `/etc/hosts`, so a link built from
         /// it would work only sometimes.
-        case port(SurfaceResource, url: String?)
+        /// `openIn` is the local workspace already showing the owning remote
+        /// workspace, when this is a workspace pointer rather than the machine
+        /// pool row. Keeping it on the node prevents a click from consulting
+        /// the globally selected workspace after a refresh.
+        case port(SurfaceResource, url: String?, openIn: UUID?)
         /// A single explanatory line (asleep, connecting, link error, empty).
         case placeholder(machine: SurfaceMachineID, CloudTreePlaceholder)
     }
@@ -123,7 +127,7 @@ final class CloudTreeNode: NSObject {
         case .localWorkspace: return .local
         case .terminal(let row): return row.resource.machine
         case .display(let resource, _): return resource.machine
-        case .port(let resource, _): return resource.machine
+        case .port(let resource, _, _): return resource.machine
         case .browser(let row): return row.resource.machine
         }
     }
@@ -151,7 +155,8 @@ final class CloudTreeNode: NSObject {
         case .browsersGroup: return String(localized: "cloudTree.group.browsers", defaultValue: "Browsers")
         case .browser(let row): return row.resource.title
         case .portsGroup: return String(localized: "cloudTree.group.ports", defaultValue: "Ports")
-        case .port(let resource, let url): return url ?? resource.port.map(String.init) ?? resource.title
+        case .port(let resource, let url, _):
+            return url ?? (resource.id.forwardedPort ?? resource.port).map(String.init) ?? resource.title
         case .placeholder(_, let placeholder): return placeholder.text
         }
     }
@@ -179,7 +184,7 @@ final class CloudTreeNode: NSObject {
         switch kind {
         case .terminal(let row): return row.resource
         case .browser(let row): return row.resource
-        case .display(let resource, _), .port(let resource, _): return resource
+        case .display(let resource, _), .port(let resource, _, _): return resource
         case .machine, .pendingMachine, .localMachine, .terminalsPool, .displaysPool, .workspacesGroup, .workspace, .localWorkspace, .browsersGroup, .portsGroup, .placeholder:
             return nil
         }
@@ -512,22 +517,39 @@ enum CloudTreeNodeBuilder {
         // paste (`http://<private-ip>:<port>`) when the machine has a private
         // address; the bare `:<port>` otherwise. Click opens it as a browser
         // pane; the row's menu copies the link.
-        // A regular workspace-tab browser can happen to point at a localhost
-        // port too (`browser.port` derives from the URL). Only orphan port
-        // rows belong here — one with a real workspace tab already shows
-        // under that workspace and would otherwise be listed twice. A daemon
-        // browser with neither a tab nor a port has no group of its own: the
-        // four groups are the machine's whole layout (it stays in the catalog
-        // for `cmux surface ls`).
+        // Snapshot parsing folds localhost browser views into the canonical
+        // `port:<n>` identity, so that identity remains in this machine index
+        // even when the daemon also reports a workspace pointer. Non-port
+        // browsers stay in their workspace layout; a browser with neither a
+        // tab nor a port has no group of its own (it remains addressable through
+        // `cmux surface ls`).
         let portBrowsers = resources
-            .filter { $0.kind == .browser && $0.port != nil && $0.remoteWorkspaces.isEmpty }
-            .sorted { ($0.port ?? 0) < ($1.port ?? 0) }
+            .filter { $0.id.isForwardedPort }
+            .sorted {
+                let left = ($0.id.forwardedPort ?? $0.port ?? 0, $0.id.key)
+                let right = ($1.id.forwardedPort ?? $1.port ?? 0, $1.id.key)
+                return left.0 != right.0 ? left.0 < right.0 : left.1 < right.1
+            }
         if !portBrowsers.isEmpty {
             children.append(CloudTreeNode(
                 id: nodeID(portsGroup: machine),
                 kind: .portsGroup(machine: machine),
                 children: portBrowsers.map {
-                    CloudTreeNode(id: nodeID(resource: $0.id), kind: .port($0, url: portURL(machine: machine, info: info, port: $0.port)))
+                    CloudTreeNode(
+                        id: nodeID(resource: $0.id),
+                        kind: .port(
+                            $0,
+                            url: $0.url ?? portURL(
+                                machine: machine,
+                                info: info,
+                                port: $0.id.forwardedPort ?? $0.port
+                            ),
+                            openIn: localWorkspaceShowing(
+                                [$0.id],
+                                projectionIndex: projectionsByResource
+                            )
+                        )
+                    )
                 }
             ))
         }
@@ -596,12 +618,27 @@ enum CloudTreeNodeBuilder {
                         projectionsByResource: projectionsByResource,
                         id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id)
                     )
-                } + members.browsers.map {
-                    CloudTreeNode(
-                        id: nodeID(resource: $0.id, inRemoteWorkspace: workspace.id),
+                } + members.browsers.map { browser in
+                    let id = nodeID(resource: browser.id, inRemoteWorkspace: workspace.id)
+                    if browser.id.isForwardedPort {
+                        return CloudTreeNode(
+                            id: id,
+                            kind: .port(
+                                browser,
+                                url: browser.url ?? portURL(
+                                    machine: machine,
+                                    info: info,
+                                    port: browser.id.forwardedPort ?? browser.port
+                                ),
+                                openIn: openInLocal
+                            )
+                        )
+                    }
+                    return CloudTreeNode(
+                        id: id,
                         kind: .browser(CloudTreeBrowserRow(
-                            resource: $0,
-                            isOpen: projectionsByResource[$0.id] != nil,
+                            resource: browser,
+                            isOpen: projectionsByResource[browser.id] != nil,
                             workspaceTitle: nil
                         ))
                     )

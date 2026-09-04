@@ -77,14 +77,14 @@ export type CreateOptions = {
   homeVolume?: string;
   /**
    * Machine size as memory in MB (vCPUs scale with memory on providers that size
-   * this way). Providers without sizing ignore it.
+   * this way). Providers without sizing ignore it. Storage is resized separately
+   * through the grow-only resize operation.
    */
   memoryMb?: number;
   /**
-   * The snapshot's own shape when the image is a sized ladder entry
-   * (services/vms/images/sizes.ts): the machine boots at the shape that was
-   * sold and the driver must not read it back or resize. Absent for size-less
-   * images, which are grown to `memoryMb`.
+   * The snapshot's own CPU and memory shape when the image is a sized ladder
+   * entry (services/vms/images/sizes.ts). Disk remains grow-only after create.
+   * Absent for size-less images, which are grown to `memoryMb`.
    */
   imageSize?: { readonly name: string; readonly cpu: number; readonly memoryMb: number; readonly storageMb: number } | null;
   /**
@@ -283,6 +283,13 @@ export type ExecOptions = {
   readonly providerMetadata?: Record<string, unknown>;
 };
 
+/** Grow-only resources accepted by a provider resize operation. */
+export type VMResizeOptions = {
+  readonly cpu?: number;
+  readonly memoryMb?: number;
+  readonly storageMb?: number;
+};
+
 export type SnapshotRef = {
   id: string;
   createdAt: number;
@@ -294,6 +301,8 @@ export interface VmCapabilities {
   readonly snapshot: boolean;
   readonly restore: boolean;
   readonly fork: boolean;
+  /** The provider can mint a browser preview URL for a machine port. */
+  readonly ports: boolean;
 }
 
 /** A private network that every machine belonging to one user shares. */
@@ -383,8 +392,9 @@ export interface VMProvider {
   readonly privateNetworking?: VMPrivateNetworking;
   /**
    * Optional-operation support. A driver that implements `snapshot`/`restore` only to
-   * throw NotImplementedError declares that here; `fork` defaults to whether the method
-   * exists. Everything omitted defaults to supported.
+   * throw NotImplementedError declares that here; `fork` and `ports` default
+   * to whether their methods exist. Everything omitted defaults to supported where a
+   * legacy client needs that compatibility behavior.
    */
   readonly capabilities?: Partial<VmCapabilities>;
 
@@ -407,6 +417,8 @@ export interface VMProvider {
   /// Live CPU/memory/disk for the Cloud panel's activity view. Must not wake a
   /// sleeping machine.
   getStats?(vmId: string): Promise<VMStats>;
+  /** Grow one or more VM resources. Freestyle currently uses storage only. */
+  resize?(vmId: string, options: VMResizeOptions): Promise<void>;
 
   pause(vmId: string): Promise<void>;
   resume(vmId: string): Promise<VMHandle>;

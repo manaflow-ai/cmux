@@ -119,12 +119,14 @@ struct CloudTreeRowContentView: View {
             )
         case .portsGroup:
             groupRow(title: String(localized: "cloudTree.group.ports", defaultValue: "Ports"))
-        case .port(let resource, let url):
+        case .port(let resource, let url, _):
             CloudTreeLeafRow(
                 style: style,
                 icon: "network",
                 tint: CloudTreeIconPalette.browser,
-                title: url.map(CloudTreePortLinkText.displayText) ?? resource.port.map(String.init) ?? resource.title,
+                title: url.map(CloudTreePortLinkText.displayText)
+                    ?? (resource.id.forwardedPort ?? resource.port).map(String.init)
+                    ?? resource.title,
                 titleIsLink: url != nil,
                 detail: url == nil ? (resource.detail?.isEmpty == false ? resource.detail : nil) : nil
             )
