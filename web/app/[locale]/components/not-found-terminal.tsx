@@ -8,12 +8,7 @@ type TerminalProps = {
   command: string;
   welcome: string;
   docsLabel: string;
-  discordLabel: string;
-  githubLabel: string;
-  emailLabel: string;
-  supportLabel: string;
   docsHref: string;
-  supportHref: string;
 };
 
 type AtlasTerminal = {
@@ -210,12 +205,7 @@ export function NotFoundTerminal({
   command,
   welcome,
   docsLabel,
-  discordLabel,
-  githubLabel,
-  emailLabel,
-  supportLabel,
   docsHref,
-  supportHref,
 }: TerminalProps) {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [artFrame, setArtFrame] = useState(0);
@@ -241,9 +231,11 @@ export function NotFoundTerminal({
 
   function moveDrag(event: ReactPointerEvent<HTMLDivElement>) {
     if (!drag.current || drag.current.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - drag.current.x;
+    const deltaY = event.clientY - drag.current.y;
     setOffset((current) => ({
-      x: current.x + event.clientX - drag.current!.x,
-      y: current.y + event.clientY - drag.current!.y,
+      x: current.x + deltaX,
+      y: current.y + deltaY,
     }));
     drag.current.x = event.clientX;
     drag.current.y = event.clientY;
@@ -255,25 +247,26 @@ export function NotFoundTerminal({
 
   return (
     <div
-      className="relative mx-auto w-full max-w-[52rem] lg:mx-0"
+      className="relative mx-auto w-full max-w-[72rem]"
       style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
-      <div className="overflow-hidden rounded-[0.9rem] border border-[#3a3f4b] bg-[#272822] shadow-[0_30px_80px_-28px_rgba(0,0,0,0.75)]">
+      <div className="overflow-hidden rounded-[10px] border border-[#3a3c42] bg-[#272822] shadow-[0_28px_70px_-30px_rgba(0,0,0,0.9)]">
         <div
-          className="flex h-11 cursor-grab items-center border-b border-[#2c3039] bg-[#1d2027] px-4 active:cursor-grabbing"
+          className="relative flex h-[38px] cursor-grab select-none items-center border-b border-[#34363b] bg-[#1f2025] px-4 active:cursor-grabbing"
           onPointerDown={beginDrag}
           onPointerMove={moveDrag}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           style={{ touchAction: "none" }}
           aria-label="Drag terminal window"
+          role="toolbar"
         >
-          <div className="flex gap-2" aria-hidden="true">
-            <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
-            <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
-            <span className="h-3 w-3 rounded-full bg-[#28c840]" />
+          <div className="absolute left-[13px] top-1/2 flex -translate-y-1/2 gap-[7px]" aria-hidden="true">
+            <span className="h-[12px] w-[12px] rounded-full bg-[#ff5f57] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.18)]" />
+            <span className="h-[12px] w-[12px] rounded-full bg-[#febc2e] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.18)]" />
+            <span className="h-[12px] w-[12px] rounded-full bg-[#28c840] shadow-[inset_0_0_0_0.5px_rgba(0,0,0,0.18)]" />
           </div>
-          <span className="mx-auto pr-14 font-mono text-[11px] text-[#aeb4c0]">{title}</span>
+          <span className="pointer-events-none absolute inset-x-0 text-center font-sans text-[13px] font-medium tracking-[-0.01em] text-[#aeb0b5]">{title}</span>
         </div>
         <div className="relative min-h-[45rem] overflow-hidden bg-[#272822] px-5 py-5 font-mono text-[11px] leading-[1.5] text-[#f2f4f8] sm:px-6 sm:text-xs">
           <div ref={atlasContainer} className="absolute inset-0" aria-hidden="true" />
@@ -283,16 +276,11 @@ export function NotFoundTerminal({
             <pre className="mt-3 whitespace-pre-wrap text-[#e7eaf0]">{renderFallbackWelcome(welcome.replace(" (please leave a star ⭐)", "\n                      (please leave a star ⭐)").replace(" (スターをお願いします ⭐)", "\n                      (スターをお願いします ⭐)"), artFrame)}</pre>
             <p className="mt-3"><span className="text-[#66d9ef]">user in ~/workspace on feat/404 ● ● λ</span> <span className="animate-blink inline-block h-3 w-1.5 bg-[#f2f4f8] align-[-1px]" /></p>
           </div>
-          <div className="relative mt-4 flex flex-wrap gap-x-4 gap-y-1 border-t border-[#2c3039] pt-3 text-[10px] text-[#9ddcff] sm:text-[11px]">
+          <div className="relative mt-4 border-t border-[#2c3039] pt-3 text-[10px] text-[#9ddcff] sm:text-[11px]">
             <NotFoundLink href={docsHref} action="docs" className="hover:text-white hover:underline">{docsLabel}</NotFoundLink>
-            <NotFoundLink href="https://discord.gg/xsgFEVrWCZ" action="discord" className="hover:text-white hover:underline" target="_blank" rel="noreferrer">{discordLabel}</NotFoundLink>
-            <NotFoundLink href="https://github.com/manaflow-ai/cmux" action="github" className="hover:text-white hover:underline" target="_blank" rel="noreferrer">{githubLabel}</NotFoundLink>
-            <a href="mailto:founders@manaflow.com" className="hover:text-white hover:underline">{emailLabel}</a>
-            <NotFoundLink href={supportHref} action="support" className="hover:text-white hover:underline">{supportLabel}</NotFoundLink>
           </div>
         </div>
       </div>
-      <span className="pointer-events-none absolute -bottom-7 left-5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted">drag the title bar</span>
     </div>
   );
 }
