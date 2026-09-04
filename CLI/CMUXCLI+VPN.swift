@@ -57,8 +57,12 @@ extension CMUXCLI {
             try runVPNRevoke(client: client, jsonOutput: jsonOutput)
         case "hosts":
             try runVPNHostsSync(client: client, jsonOutput: jsonOutput)
+        case "install":
+            try runVPNInstallAutostart(client: client, jsonOutput: jsonOutput)
+        case "uninstall":
+            try runVPNUninstallAutostart(jsonOutput: jsonOutput)
         default:
-            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke|hosts>")
+            throw CLIError(message: "Usage: cmux vpn <up|down|status|revoke|hosts|install|uninstall>")
         }
     }
 
@@ -395,5 +399,140 @@ extension CMUXCLI {
         }
         process.waitUntilExit()
         return process.terminationStatus
+    }
+
+    // MARK: - Automatic bring-up
+
+    /// launchd job that owns the tunnel once `cmux vpn install` has run.
+    static let autostartLabel = "com.cmuxterm.vpn.autostart"
+    static var autostartPlistPath: String { "/Library/LaunchDaemons/\(autostartLabel).plist" }
+    static var autostartScriptPath: String { "/usr/local/libexec/cmux-vpn-autostart" }
+
+    /// Installs a root launchd job that brings the tunnel up, so the person
+    /// never runs `cmux vpn up` again.
+    ///
+    /// The tunnel needs root to create a utun and install routes, and this
+    /// build has no NetworkExtension entitlement, so something privileged has
+    /// to own it. A LaunchDaemon is that something: authorize once here, and
+    /// launchd brings the tunnel up at boot from then on.
+    ///
+    /// It also watches the config. The app rewrites that file whenever the
+    /// enrollment changes (new keys, a different account), and a tunnel still
+    /// carrying the previous peer looks up while reaching nothing, so a write
+    /// re-applies it rather than waiting for the next reboot.
+    private func runVPNInstallAutostart(client: SocketClient, jsonOutput: Bool) throws {
+        let response = try client.sendV2(method: "vm.tunnel_config", responseTimeout: 120)
+        guard let configPath = response["config_path"] as? String, !configPath.isEmpty else {
+            throw CLIError(message: "The app did not report a tunnel config path. Sign in, then retry.")
+        }
+        guard let wgQuick = Self.wgQuickCandidates.first(where: {
+            FileManager.default.isExecutableFile(atPath: $0)
+        }) else {
+            throw CLIError(message: "wg-quick is not installed. Install with: brew install wireguard-tools")
+        }
+
+        // wg-quick needs its own directory on PATH: it shells out to `wg`, and
+        // launchd starts jobs with a minimal environment that does not include
+        // Homebrew.
+        let wgDirectory = (wgQuick as NSString).deletingLastPathComponent
+        let script = """
+        #!/bin/sh
+        # Installed by `cmux vpn install`. Brings up the cmux WireGuard tunnel.
+        set -e
+        PATH="\(wgDirectory):/usr/bin:/bin:/usr/sbin:/sbin"
+        export PATH
+        CONFIG="\(configPath)"
+        [ -f "$CONFIG" ] || exit 0
+        # Re-apply rather than skip: the config may name a peer the live
+        # interface does not have, which reads as up while reaching nothing.
+        wg-quick down "$CONFIG" 2>/dev/null || true
+        exec wg-quick up "$CONFIG"
+        """
+        let plist = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+          <key>Label</key><string>\(Self.autostartLabel)</string>
+          <key>ProgramArguments</key>
+          <array><string>\(Self.autostartScriptPath)</string></array>
+          <key>RunAtLoad</key><true/>
+          <key>WatchPaths</key>
+          <array><string>\(configPath)</string></array>
+          <key>StandardErrorPath</key><string>/var/log/cmux-vpn-autostart.log</string>
+        </dict>
+        </plist>
+        """
+
+        let scriptTemp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vpn-autostart-\(UUID().uuidString)")
+        let plistTemp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-vpn-autostart-\(UUID().uuidString).plist")
+        try script.write(to: scriptTemp, atomically: true, encoding: .utf8)
+        try plist.write(to: plistTemp, atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: scriptTemp)
+            try? FileManager.default.removeItem(at: plistTemp)
+        }
+
+        if !jsonOutput {
+            print(String(
+                localized: "cli.vpn.install.starting",
+                defaultValue: "Installing the tunnel autostart job (sudo will prompt for your password)…"
+            ))
+        }
+        // One sudo invocation for every privileged step, so a single cached
+        // credential covers the whole install.
+        let installScript = """
+        set -e
+        /usr/bin/install -d -o root -g wheel -m 755 "$(dirname '\(Self.autostartScriptPath)')"
+        /usr/bin/install -o root -g wheel -m 755 '\(scriptTemp.path)' '\(Self.autostartScriptPath)'
+        /usr/bin/install -o root -g wheel -m 644 '\(plistTemp.path)' '\(Self.autostartPlistPath)'
+        /bin/launchctl bootout system/\(Self.autostartLabel) 2>/dev/null || true
+        /bin/launchctl bootstrap system '\(Self.autostartPlistPath)'
+        """
+        let status = runInteractiveProcess(
+            executablePath: VPNTool.sudo,
+            arguments: ["/bin/sh", "-c", installScript]
+        )
+        guard status == 0 else {
+            throw CLIError(message: "Installing the autostart job failed (exit \(status)). Check the output above.")
+        }
+        if jsonOutput {
+            print(jsonString([
+                "installed": true,
+                "label": Self.autostartLabel,
+                "config_path": configPath,
+            ]))
+        } else {
+            print(String(
+                localized: "cli.vpn.install.done",
+                defaultValue: "The tunnel now comes up on its own at login and whenever your enrollment changes. `cmux vpn up` is no longer needed."
+            ))
+        }
+    }
+
+    /// Removes the autostart job. The tunnel itself is left as it is; `vpn
+    /// down` takes it down.
+    private func runVPNUninstallAutostart(jsonOutput: Bool) throws {
+        let removeScript = """
+        /bin/launchctl bootout system/\(Self.autostartLabel) 2>/dev/null || true
+        /bin/rm -f '\(Self.autostartPlistPath)' '\(Self.autostartScriptPath)'
+        """
+        let status = runInteractiveProcess(
+            executablePath: VPNTool.sudo,
+            arguments: ["/bin/sh", "-c", removeScript]
+        )
+        guard status == 0 else {
+            throw CLIError(message: "Removing the autostart job failed (exit \(status)).")
+        }
+        if jsonOutput {
+            print(jsonString(["installed": false, "label": Self.autostartLabel]))
+        } else {
+            print(String(
+                localized: "cli.vpn.uninstall.done",
+                defaultValue: "Removed the tunnel autostart job. Bring the tunnel up yourself with `cmux vpn up`."
+            ))
+        }
     }
 }
