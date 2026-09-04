@@ -1,6 +1,8 @@
 import AppKit
 import CmuxControlSocket
 import CmuxRemoteSession
+import CmuxTerminalCore
+import CmuxWorkspaces
 import Foundation
 import Testing
 
@@ -14,6 +16,15 @@ import Testing
 @Suite(.serialized)
 struct RemoteTmuxNotificationLifecycleTests {
     @MainActor
+    private final class RecordingFileOpener: FileOpening {
+        private(set) var opened: [URL] = []
+
+        func open(_ url: URL) {
+            opened.append(url)
+        }
+    }
+
+    @MainActor
     private final class Harness {
         let windowID: UUID
         let controller: RemoteTmuxController
@@ -24,11 +35,11 @@ struct RemoteTmuxNotificationLifecycleTests {
         let manager: TabManager
         let workspace: Workspace
 
-        init() throws {
+        init(controller: RemoteTmuxController? = nil) throws {
             let appDelegate = try #require(AppDelegate.shared)
             windowID = appDelegate.createMainWindow()
             manager = try #require(appDelegate.tabManagerFor(windowId: windowID))
-            controller = RemoteTmuxController()
+            self.controller = controller ?? RemoteTmuxController()
             host = RemoteTmuxHost(destination: "user@notification")
             connection = RemoteTmuxControlConnection(host: host, sessionName: "notification")
             pipe = Pipe()
@@ -43,8 +54,8 @@ struct RemoteTmuxNotificationLifecycleTests {
             connection.handleMessageForTesting(
                 .commandResult(commandNumber: 0, lines: [], isError: false)
             )
-            controller.cacheConnection(connection)
-            try controller.mirrorSession(host: host, sessionName: "notification", into: manager)
+            self.controller.cacheConnection(connection)
+            try self.controller.mirrorSession(host: host, sessionName: "notification", into: manager)
             let mirroredWorkspace = manager.tabs.first(where: \.isRemoteTmuxMirror)
             workspace = try #require(mirroredWorkspace)
         }
@@ -185,6 +196,7 @@ struct RemoteTmuxNotificationLifecycleTests {
         defaults.set(true, forKey: BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowserKey)
         var resolvedProjectedContainer = false
         var externallyOpenedURLs: [URL] = []
+        let fileOpener = RecordingFileOpener()
         let linkCoordinator = TerminalLinkOpenCoordinator(
             defaults: defaults,
             containerResolver: { preferredWorkspaceID, sourcePanelID in
@@ -200,6 +212,7 @@ struct RemoteTmuxNotificationLifecycleTests {
                 externallyOpenedURLs.append($0)
                 return true
             },
+            fileOpen: fileOpener,
             deferOperation: { $0() }
         )
         let projectedURL = try #require(URL(string: "https://example.com/projected-pane"))
@@ -219,15 +232,16 @@ struct RemoteTmuxNotificationLifecycleTests {
             .appendingPathComponent("projected-link-\(UUID().uuidString).swift")
         try "local-only".write(to: localOnlyPath, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: localOnlyPath) }
-        #expect(linkCoordinator.open(TerminalLinkOpenRequest(
+        let localOpenResult = linkCoordinator.open(TerminalLinkOpenRequest(
             rawValue: localOnlyPath.path,
             sourceWorkspaceId: harness.workspace.id,
             sourcePanelId: panePanel.id,
             workingDirectory: nil
-        )))
+        ))
+        #expect(localOpenResult)
         #expect(
-            externallyOpenedURLs.last == localOnlyPath,
-            "Remote transcript paths must fall back externally instead of opening the Mac-local file in cmux"
+            fileOpener.opened == [localOnlyPath],
+            "Remote transcript paths must use the external file-opening seam instead of opening in cmux"
         )
 
         #expect(harness.manager.focusedSurfaceId(for: harness.workspace.id) == panePanel.id)
@@ -329,6 +343,42 @@ struct RemoteTmuxNotificationLifecycleTests {
         #expect(
             appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)?.tabManager
                 === harness.manager
+        )
+    }
+
+    @Test
+    func retiringWindowlessRouteDetachesMirrorWhenWorkspaceOwnerIsAbsent() throws {
+        TerminalNotificationStore.shared.clearAll()
+        let appDelegate = try #require(AppDelegate.shared)
+        let harness = try Harness(controller: appDelegate.remoteTmuxController)
+        defer { harness.tearDown() }
+        try harness.publishSinglePane()
+
+        #expect(
+            appDelegate.remoteTmuxController.sessionMirror(
+                host: harness.host,
+                sessionName: "notification"
+            ) != nil
+        )
+        appDelegate.unregisterMainWindowContextForTesting(windowId: harness.windowID)
+        let route = try #require(
+            appDelegate.recoverableMainWindowRoute(windowId: harness.windowID)
+        )
+        route.window = nil
+        harness.manager.window = nil
+        let previousTabManager = appDelegate.tabManager
+        appDelegate.tabManager = nil
+        defer { appDelegate.tabManager = previousTabManager }
+
+        #expect(appDelegate.tabManagerFor(tabId: harness.workspace.id) == nil)
+
+        appDelegate.forgetRecoverableMainWindowRoute(windowId: harness.windowID)
+
+        #expect(
+            appDelegate.remoteTmuxController.sessionMirror(
+                host: harness.host,
+                sessionName: "notification"
+            ) == nil
         )
     }
 
