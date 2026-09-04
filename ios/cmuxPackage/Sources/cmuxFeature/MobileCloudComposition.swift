@@ -47,7 +47,7 @@ struct MobileCloudComposition {
         _ = appNamespace
         #else
         let identityStore: any CloudDeviceIdentityStoring = KeychainCloudDeviceIdentityStore(
-            service: appNamespace.keychainService(base: keychainServiceBase),
+            service: appNamespace.keychainService(base: Self.keychainServiceBase),
             accessGroup: auth.keychainAccessGroup
         )
         #endif
@@ -65,7 +65,7 @@ struct MobileCloudComposition {
     private func stateDirectory(fileManager: FileManager = .default) -> URL {
         let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.temporaryDirectory
-        let directory = base.appendingPathComponent(stateDirectoryName, isDirectory: true)
+        let directory = base.appendingPathComponent(Self.stateDirectoryName, isDirectory: true)
         try? fileManager.createDirectory(
             at: directory,
             withIntermediateDirectories: true,
