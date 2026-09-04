@@ -24328,17 +24328,21 @@ impl App {
             return Ok(RenderAction::None);
         }
         if let MouseEventKind::Down(button) = mouse.kind {
-            let another_button_active = self
-                .active_pointer_buttons
-                .iter()
-                .any(|active| *active != button)
-                || self.drag.as_ref().is_some_and(|drag| {
-                    let active = match drag {
-                        Drag::PtyMouse { button, .. } => *button,
-                        _ => MouseButton::Left,
-                    };
-                    active != button
-                });
+            // A lost secondary release must not poison a later gesture. Once
+            // no button owns the pointer, the next physical press starts a
+            // new admission epoch and retires any unreleased ignored marks.
+            if self.active_pointer_buttons.is_empty() && self.drag.is_none() {
+                self.ignored_pointer_buttons.clear();
+            }
+            let another_button_active =
+                self.active_pointer_buttons.iter().any(|active| *active != button)
+                    || self.drag.as_ref().is_some_and(|drag| {
+                        let active = match drag {
+                            Drag::PtyMouse { button, .. } => *button,
+                            _ => MouseButton::Left,
+                        };
+                        active != button
+                    });
             if another_button_active {
                 self.ignored_pointer_buttons.insert(button);
                 return Ok(RenderAction::None);
@@ -27925,6 +27929,12 @@ impl App {
                 RenderAction::None
             });
         }
+        // A native pointer gesture owns input until its release. Wheel input
+        // must not mutate the viewport underneath a live scrollbar, split,
+        // selection, browser, or PTY drag.
+        if self.drag.is_some() || !self.active_pointer_buttons.is_empty() {
+            return Ok(RenderAction::None);
+        }
         if self.prompt.is_some() {
             return Ok(RenderAction::None);
         }
@@ -28265,6 +28275,11 @@ impl App {
     ) -> anyhow::Result<RenderAction> {
         self.reset_selection_click_sequence();
         if self.menu.is_some() || self.prompt.is_some() {
+            return Ok(RenderAction::None);
+        }
+        // Keep horizontal scrolling under the same one-owner pointer policy
+        // as vertical scrolling. A live drag has exclusive viewport input.
+        if self.drag.is_some() || !self.active_pointer_buttons.is_empty() {
             return Ok(RenderAction::None);
         }
         let over_scrollbar = matches!(self.hit_at(x, y), Some(Hit::HorizontalScrollbar { .. }));
@@ -44749,12 +44764,7 @@ mod tests {
         });
         app.active_pointer_buttons.insert(MouseButton::Left);
         let offset = app.sidebar_files.scroll_offset();
-        let event = |kind| MouseEvent {
-            kind,
-            column: 20,
-            row: 4,
-            modifiers: KeyModifiers::SHIFT,
-        };
+        let event = |kind| MouseEvent { kind, column: 20, row: 4, modifiers: KeyModifiers::SHIFT };
 
         assert_eq!(
             app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right))).unwrap(),
@@ -44764,25 +44774,74 @@ mod tests {
             app.handle_mouse(event(MouseEventKind::Drag(MouseButton::Right))).unwrap(),
             RenderAction::None
         );
-        assert_eq!(
-            app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right))).unwrap(),
-            RenderAction::None
-        );
 
-        assert!(
-            app.menu.is_none(),
-            "a secondary button must not open a menu during a native drag"
-        );
+        assert!(app.menu.is_none(), "a secondary button must not open a menu during a native drag");
         assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
         assert_eq!(app.sidebar_files.scroll_offset(), offset);
         assert!(app.active_pointer_buttons.contains(&MouseButton::Left));
         assert!(!app.active_pointer_buttons.contains(&MouseButton::Right));
+        assert!(app.ignored_pointer_buttons.contains(&MouseButton::Right));
 
         app.handle_mouse(event(MouseEventKind::Up(MouseButton::Left))).unwrap();
-        assert!(
-            app.drag.is_none(),
-            "the owning button must still be able to finish its drag"
+        assert!(app.drag.is_none(), "the owning button must still be able to finish its drag");
+        assert!(app.active_pointer_buttons.is_empty());
+
+        // If the ignored secondary release was lost, it must not poison the
+        // next physical press after the owning gesture has ended.
+        app.handle_mouse(event(MouseEventKind::Down(MouseButton::Right))).unwrap();
+        assert!(app.menu.is_some(), "a fresh secondary press must start a new pointer epoch");
+        assert!(app.active_pointer_buttons.contains(&MouseButton::Right));
+        app.menu = None;
+        app.handle_mouse(event(MouseEventKind::Up(MouseButton::Right))).unwrap();
+        assert!(app.active_pointer_buttons.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn sidebar_scroll_is_blocked_while_native_pointer_capture_is_live() {
+        let temp = test_temp_dir("sidebar-scroll-pointer-owner");
+        for index in 0..8 {
+            std::fs::write(temp.join(format!("file-{index}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("sidebar-scroll-pointer-owner-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.set_viewport_height(2);
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+
+        let before = app.sidebar_files.scroll_offset();
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 5 },
+            total_rows: 8,
+            visible_rows: 2,
+            anchor_y: 2,
+            anchor_offset: before,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        assert_eq!(app.handle_scroll(20, 3, true, KeyModifiers::NONE).unwrap(), RenderAction::None);
+        assert_eq!(app.sidebar_files.scroll_offset(), before);
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+
+        assert_eq!(
+            app.handle_horizontal_scroll(20, 3, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::None
         );
+        assert!(matches!(app.drag, Some(Drag::FilesScrollbar { .. })));
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Up(MouseButton::Left),
+            column: 20,
+            row: 3,
+            modifiers: KeyModifiers::NONE,
+        })
+        .unwrap();
+        assert!(app.drag.is_none());
         assert!(app.active_pointer_buttons.is_empty());
 
         mux.close_surface(surface.id).unwrap();
