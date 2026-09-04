@@ -36,6 +36,8 @@ import {
 } from "../components/ai-account-forms";
 import { ClaudeUpstreamSection } from "../components/claude-upstream-forms";
 import { CoderouterPageHeader } from "../components/dashboard-page-headers";
+import { withPrioritySpan } from "@/services/telemetry";
+import { withStackAuthSpan } from "@/services/auth/stackTelemetry";
 
 // The page resolves as one server render. Keeping the auth and data work in
 // this Suspense boundary prevents a header-only response while the private
@@ -127,9 +129,11 @@ export async function CoderouterOverviewContent({
   // is no private page cache here, so a prefetched response cannot outlive a
   // team grant or expose management controls after revocation.
   const requestHeaders = await headers();
-  const authorization = await resolveCoderouterAuthorization(
-    requestHeaders,
-    team,
+  const authorization = await withPrioritySpan(
+    "cmux-coderouter-dashboard",
+    "cmux.coderouter.auth",
+    { "http.route": "/dashboard/coderouter", "cmux.locale": locale },
+    () => resolveCoderouterAuthorization(requestHeaders, team),
   );
   if (authorization.kind === "unavailable") {
     return renderCoderouterLoadError(locale);
@@ -145,10 +149,30 @@ export async function CoderouterOverviewContent({
   const [tPage, t, accountState, metrics, claudeUpstream, machineUsage] = await Promise.all([
     getTranslations({ locale, namespace: "dashboard.coderouter" }),
     getTranslations({ locale, namespace: "dashboard.aiAccounts" }),
-    loadAccounts(selectedTeam, accessToken),
-    loadCoderouterTeamMetrics(selectedTeam.id),
-    loadClaudeUpstream(selectedTeam.id),
-    loadMachineUsage(selectedTeam.id),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.accounts",
+      { "cmux.team_scope": "selected" },
+      () => loadAccounts(selectedTeam, accessToken),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.team_metrics",
+      { "cmux.team_scope": "selected" },
+      () => loadCoderouterTeamMetrics(selectedTeam.id),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.claude_upstream",
+      { "cmux.team_scope": "selected" },
+      () => loadClaudeUpstream(selectedTeam.id),
+    ),
+    withPrioritySpan(
+      "cmux-coderouter-dashboard",
+      "cmux.coderouter.machine_usage",
+      { "cmux.team_scope": "selected" },
+      () => loadMachineUsage(selectedTeam.id),
+    ),
   ]);
   const dateFormatter = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
@@ -294,13 +318,17 @@ async function resolveCoderouterAuthorization(
         if (!user) return null;
         const [authorized, authJson] = await Promise.all([
           authorizedSubrouterTeams(user),
-          getStackServerApp().getAuthJson({
-            tokenStore: {
-              headers: {
-                get: (name: string) => requestHeaders.get(name),
+          withStackAuthSpan(
+            "get_auth_json",
+            () => getStackServerApp().getAuthJson({
+              tokenStore: {
+                headers: {
+                  get: (name: string) => requestHeaders.get(name),
+                },
               },
-            },
-          }).catch(() => {
+            }),
+            { "cmux.auth.flow": "coderouter_dashboard" },
+          ).catch(() => {
             throw new SubrouterAuthorizationUnavailableError(
               "Stack session refresh unavailable",
             );

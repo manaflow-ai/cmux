@@ -136,6 +136,9 @@
          location = "group:CmuxCanvasUI">
       </FileRef>
       <FileRef
+         location = "group:CmuxCEF">
+      </FileRef>
+      <FileRef
          location = "group:CmuxCommandPalette">
       </FileRef>
       <FileRef

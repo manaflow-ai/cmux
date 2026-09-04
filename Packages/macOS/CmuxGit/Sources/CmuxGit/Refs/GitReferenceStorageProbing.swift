@@ -9,7 +9,7 @@ nonisolated protocol GitReferenceStorageProbing: Sendable {
 /// Probes reference-storage directories through Foundation's filesystem API.
 nonisolated struct SystemGitReferenceStorageProbe: GitReferenceStorageProbing {
     func isDirectory(atPath path: String) -> Bool {
-        var metadata = stat()
+        var metadata = Darwin.stat()
         return stat(path, &metadata) == 0
             && metadata.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR)
     }

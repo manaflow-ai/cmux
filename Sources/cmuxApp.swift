@@ -8,6 +8,7 @@ import CmuxWorkspaces
 import CmuxTestSupport
 import CmuxUpdater
 import CmuxUpdaterUI
+import CmuxCEF
 import SwiftUI
 import Observation
 import Darwin
@@ -39,6 +40,10 @@ enum CmuxMain {
         Bonsplit.DebugEventLog.setExternalSink { cmuxDebugLog($0) }
 #endif
         CmuxWorkerEntrypoint(arguments: CommandLine.arguments).runIfRequested()
+        // Chromium's allocator shim must own the malloc zone before the app
+        // allocates in earnest; a lazy dlopen minutes into the session
+        // corrupts the heap. See CEFRuntime.preloadFramework.
+        CEFRuntime.preloadFramework()
         SurfaceResumeApprovalStore.preloadSigningSecret()
         cmuxApp.main()
     }
@@ -58,6 +63,8 @@ struct cmuxApp: App {
     /// hosted-browser sign-in flow). Constructed once at app launch and
     /// injected into AppDelegate and the auth-consuming services.
     private let authComposition: MacAuthComposition
+    /// Composition-root owner for the config-backed automation bridge.
+    private let automationEngine: AutomationEngine
     @StateObject private var tabManager: TabManager
     @StateObject private var notificationStore: TerminalNotificationStore
     @StateObject var closedItemHistoryStore: ClosedItemHistoryStore
@@ -272,6 +279,21 @@ struct cmuxApp: App {
         _notificationStore = StateObject(wrappedValue: notificationStore)
         _closedItemHistoryStore = StateObject(wrappedValue: closedItemHistoryStore)
         _sidebarState = StateObject(wrappedValue: sidebarState)
+        let automationEngine = AutomationEngine(
+            workspaceTagsResolver: { workspaceID in
+                // Resolve through the app delegate's live window-context index;
+                // the bootstrap TabManager can be retired when the first real
+                // main window is adopted.
+                guard let manager = AppDelegate.shared?.tabManagerFor(tabId: workspaceID),
+                      let workspace = manager.workspacesById[workspaceID] else {
+                    return []
+                }
+                return workspace.sidebarStatusEntriesInDisplayOrder().flatMap { entry in
+                    [entry.key, entry.value]
+                }
+            }
+        )
+        self.automationEngine = automationEngine
         _historyMenuCoordinator = State(initialValue: historyMenuCoordinator)
         StartupBreadcrumbLog.append("app.init.tabManager.complete")
         // Migrate legacy and old-format socket mode values to the new enum.
@@ -307,6 +329,7 @@ struct cmuxApp: App {
             sidebarState: sidebarState,
             settingsRuntime: settingsRuntime,
             auth: authComposition,
+            automationEngine: automationEngine,
             computerUseRuntimeService: computerUseRuntimeService
         )
         historyMenuCoordinator.refreshIfNeeded()

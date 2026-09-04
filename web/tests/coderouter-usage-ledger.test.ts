@@ -206,6 +206,7 @@ describe("CodeRouter usage ledger rows", () => {
       rows: [{
         event_time: "2026-09-02 10:20:30.456",
         team_id: "",
+        stack_user_id: null,
         vm_id: null,
         provider: "codex",
         agent: "other",
@@ -223,6 +224,7 @@ describe("CodeRouter usage ledger rows", () => {
     expect(routeEventRow({
       requestId,
       teamId: "team-1",
+      stackUserId: "stack-user-1",
       vmId,
       provider: "claude",
       agent: "claude",
@@ -233,7 +235,7 @@ describe("CodeRouter usage ledger rows", () => {
       refreshRetryCount: 0,
       durationMs: 840,
       responseStreamed: true,
-    }, now())).toMatchObject({ team_id: "team-1", vm_id: vmId, response_streamed: 1 });
+    }, now())).toMatchObject({ team_id: "team-1", stack_user_id: "stack-user-1", vm_id: vmId, response_streamed: 1 });
   });
 
   test("reports insert failures without team data and stays silent when disabled", async () => {
@@ -339,6 +341,7 @@ describe("CodeRouter usage ledger wiring", () => {
       const usage = calls.find((call) => call.table === "usage_events");
       expect(route?.row).toMatchObject({
         team_id: "team-1",
+        stack_user_id: "stack-user-1",
         vm_id: vmId,
         provider: "claude",
         agent: "claude",
