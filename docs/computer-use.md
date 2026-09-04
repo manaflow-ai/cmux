@@ -21,19 +21,19 @@ helper.
 
 Codex's built-in `@computer` entry is an OpenAI-bundled plugin. cmux does not
 replace that plugin: it supplies its own local MCP server and the
-`$cmux-cua` skill. Agent launches are session-scoped by default: Claude gets a
-temporary `--add-dir=<path>` projection, while Codex's CLI does not support
-session skill discovery from `skills.config`, so Codex has no picker row until
-the user opts into a durable link. Starting an agent does not create or repair
-a user-global skill. For users who want a durable Codex or Claude picker entry, set
+`$cmux-cua` skill. Agent launches do not install a global skill or add an
+automatic skill directory. Codex's CLI does not support session skill discovery
+from `skills.config`, so Codex has no picker row until the user opts into a
+durable link. Claude's session skill directory is likewise opt-in. For users
+who want a durable Codex or Claude picker entry, set
 `CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1` explicitly; the wrapper then links
 only its own root (`~/.agents/skills/cmux-cua` for Codex or
 `~/.claude/skills/cmux-cua` for Claude). On each cmux launch, migration removes
 or retargets only links proven to point at a cmux app (including the legacy
 `cmux-computer-use` and `codex-cua` aliases); real directories, unrelated
 symlinks, and project skills are never overwritten or removed. Project and
-user-owned same-name skills retain precedence, and Claude's session fallback is
-withheld when it would create a second `cmux-cua` row. A project mirror that
+user-owned same-name skills retain precedence, and no automatic fallback is
+added when it would create a second `cmux-cua` row. A project mirror that
 resolves to the bundled document is one canonical identity, so it remains one
 entry. The skill directory ships no plugin manifest — Codex treats
 `.claude-plugin/plugin.json` as a plugin manifest and would namespace the skill

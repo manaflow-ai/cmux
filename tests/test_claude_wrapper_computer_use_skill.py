@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Regression tests for cmux-claude-wrapper's session-scoped cmux-cua skill
-projection, ownership-safe migration, and collision handling. Claude's
-session projection uses --add-dir; durable ~/.claude/skills installation is
-explicit opt-in, there is never a --plugin-dir injection, and legacy aliases
-are migrated only when their targets prove cmux ownership.
+Regression tests for cmux-claude-wrapper's explicit-install policy,
+ownership-safe migration, and collision handling. Ordinary Claude launches do
+not add a skill directory or plugin; legacy aliases are migrated only when
+their targets prove cmux ownership.
 """
 
 from __future__ import annotations
@@ -248,8 +247,7 @@ def test_claude_preserves_unverified_dangling_link_by_default(
         f"expected no plugin-qualified session skill, got {args}",
         failures,
     )
-    session_root = add_dir_arg(args)
-    expect(session_root is None, f"unverified global link must suppress duplicate session discovery, got {args}", failures)
+    expect(add_dir_arg(args) is None, f"default launch must not add an automatic skill directory, got {args}", failures)
 
 
 def test_claude_default_is_session_scoped_without_global_mutation(
@@ -266,14 +264,10 @@ def test_claude_default_is_session_scoped_without_global_mutation(
         f"default Claude launch unexpectedly wrote a global skill, got {link}",
         failures,
     )
-    expect(
-        add_dir_arg(args) is not None and add_dir_arg(args) != os.path.realpath(bundled_skill),
-        f"default Claude launch must use an external session-only skill root, got {args}",
-        failures,
-    )
+    expect(add_dir_arg(args) is None, f"default Claude launch must not add an automatic skill directory, got {args}", failures)
     expect(
         plugin_dir_arg(args) is None,
-        f"session fallback must not use a plugin-qualified path, got {args}",
+        f"ordinary launch must not use a plugin-qualified path, got {args}",
         failures,
     )
 
@@ -329,26 +323,17 @@ def test_claude_explicit_opt_in_preserves_unverified_dangling_link(
     )
 
 
-def test_claude_session_add_dir_preserves_positional_prompt(
+def test_claude_default_preserves_positional_prompt_without_skill_directory(
     failures: list[str],
 ) -> None:
-    """The variadic --add-dir boundary must not swallow the user's prompt."""
-    result, _, bundled_skill, args = run_wrapper(["fix this"])
+    """An ordinary launch preserves the user's positional prompt."""
+    result, _, _, args = run_wrapper(["fix this"])
     expect(
         result.returncode == 0,
         f"prompt-boundary wrapper exited {result.returncode}: {result.stderr}",
         failures,
     )
-    expect(
-        any(arg.startswith("--add-dir=") for arg in args),
-        f"session projection must use a single --add-dir=<path> token, got {args}",
-        failures,
-    )
-    session_root = add_dir_arg(args)
-    if session_root is not None:
-        projected = Path(session_root) / ".claude" / "skills" / "cmux-cua" / "SKILL.md"
-        expect(projected.is_file(), f"expected projected session skill at {projected}", failures)
-        expect((projected.stat().st_mode & 0o222) == 0, f"session projection must be read-only, got mode {oct(projected.stat().st_mode)}", failures)
+    expect(add_dir_arg(args) is None, f"ordinary launch must not add an automatic skill directory, got {args}", failures)
     expect(
         "POSITIONAL=fix this\n" in result.stdout,
         f"Claude's variadic parser must preserve the positional prompt, got {result.stdout!r}",
@@ -374,7 +359,7 @@ def test_claude_home_ancestor_is_not_project_collision(
         f"managed global Claude link should be cleaned, got {link}",
         failures,
     )
-    expect(add_dir_arg(args) is not None, f"HOME ancestor must not disable Claude session projection, got {args}", failures)
+    expect(add_dir_arg(args) is None, f"HOME ancestor must not add an automatic skill directory, got {args}", failures)
 
 
 def test_claude_collision_keeps_project_skill_and_avoids_second_row(
@@ -453,8 +438,8 @@ def test_claude_preserves_unverified_legacy_computer_use_link(failures: list[str
         failures,
     )
     expect(
-        add_dir_arg(args) is not None,
-        f"an unrelated-provider legacy link must not suppress Claude session discovery, got {args}",
+        add_dir_arg(args) is None,
+        f"an unrelated-provider legacy link must not add automatic Claude discovery, got {args}",
         failures,
     )
 
@@ -500,8 +485,8 @@ def test_claude_global_skill_can_be_disabled_explicitly(failures: list[str]) -> 
         failures,
     )
     expect(
-        add_dir_arg(args) is not None,
-        f"explicit opt-out must retain the Claude session projection, got {args}",
+        add_dir_arg(args) is None,
+        f"explicit opt-out must not add automatic Claude discovery, got {args}",
         failures,
     )
 
@@ -611,7 +596,7 @@ def main() -> int:
     test_claude_default_is_session_scoped_without_global_mutation(failures)
     test_claude_preserves_unverified_dangling_link_without_global_install(failures)
     test_claude_explicit_opt_in_preserves_unverified_dangling_link(failures)
-    test_claude_session_add_dir_preserves_positional_prompt(failures)
+    test_claude_default_preserves_positional_prompt_without_skill_directory(failures)
     test_claude_home_ancestor_is_not_project_collision(failures)
     test_claude_collision_keeps_project_skill_and_avoids_second_row(failures)
     test_claude_explicit_global_opt_in_remains_available(failures)

@@ -1193,30 +1193,6 @@ cmux_claude_reconcile_skill_links() {
     CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION="$CMUX_CUA_SKILL_PROJECT_COLLISION"
 }
 
-cmux_claude_session_skill_root() {
-    local self_dir resource_dir root projection skill_file
-    self_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)" || return 1
-    resource_dir="${self_dir%/bin}"
-    root="$resource_dir/cmux-cua"
-    skill_file="$root/SKILL.md"
-    [[ -f "$skill_file" ]] || return 1
-
-    # Claude's --add-dir grants write access to the directory it names. Never
-    # point it at the app bundle: a development bundle is user-writable and an
-    # agent could mutate the signed resource. Project only the immutable skill
-    # document into a per-session read-only directory.
-    projection="$(mktemp -d "${TMPDIR:-/tmp}/cmux-cua-session.XXXXXX")" || return 1
-    if ! mkdir -p "$projection/.claude/skills/cmux-cua" \
-        || ! cp "$skill_file" "$projection/.claude/skills/cmux-cua/SKILL.md" \
-        || ! chmod 0555 "$projection" "$projection/.claude" \
-            "$projection/.claude/skills" "$projection/.claude/skills/cmux-cua" \
-        || ! chmod 0444 "$projection/.claude/skills/cmux-cua/SKILL.md"; then
-        rm -rf -- "$projection"
-        return 1
-    fi
-    printf '%s' "$projection"
-}
-
 claude_interactive_entry_flag() {
     case "$1" in
         --print|--print=*|-p|--resume|--resume=*|-r|--continue|-c|\
@@ -1629,8 +1605,8 @@ if [[ "$cmux_claude_teams_wrapper_launch" != "1" ]]; then
 fi
 
 # Reconcile the bundled skill's discovery path before the session starts.
-# Normal launches clean up only links proven to be cmux-managed and use a
-# session-only --add-dir view when no same-name project/user skill exists.
+# Normal launches clean up only links proven to be cmux-managed. Skill
+# discovery remains inert unless durable installation is explicitly requested.
 # CMUX_COMPUTER_USE_INSTALL_GLOBAL_SKILL=1 is the explicit opt-in for a durable
 # user-global link.
 CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED=0
@@ -1638,17 +1614,6 @@ CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED=0
 CMUX_COMPUTER_USE_PROJECT_SKILL_COLLISION=0
 if cmux_claude_computer_use_enabled_for_invocation "$@"; then
     cmux_claude_reconcile_skill_links || true
-    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 \
-          && "${CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED:-0}" == 1 ]]; then
-        CMUX_COMPUTER_USE_SESSION_SKILL_ROOT="$(cmux_claude_session_skill_root 2>/dev/null)" \
-            || CMUX_COMPUTER_USE_SESSION_SKILL_ROOT=""
-        if [[ -n "$CMUX_COMPUTER_USE_SESSION_SKILL_ROOT" ]]; then
-            # Claude declares --add-dir as variadic. Keep the directory and
-            # the caller's positional prompt in one option token boundary so
-            # `claude "fix this"` cannot be consumed as another directory.
-            set -- "--add-dir=${CMUX_COMPUTER_USE_SESSION_SKILL_ROOT}" "$@"
-        fi
-    fi
 fi
 
 # Attach the cmux computer use MCP server. Prepended so a user-supplied
