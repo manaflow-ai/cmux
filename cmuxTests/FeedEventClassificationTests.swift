@@ -359,4 +359,37 @@ struct FeedEventClassificationTests {
         #expect(attentionCommand("claude", "PermissionRequest", tool: "Bash") == nil)
         #expect(attentionCommand("totally-new-agent", "PermissionRequest", tool: "Bash") == nil)
     }
+
+    // MARK: AtomCode (Claude-Code-compatible lifecycle hooks)
+
+    /// AtomCode's hooks are telemetry only: it has no verified cmux-side
+    /// approval bridge.  Its tool-failure event still maps to the completed
+    /// tool wire name, while StopFailure remains a terminal response signal.
+    @Test func atomcodeLifecycleAndToolHooksStayTelemetry() {
+        let cases = [
+            ("SessionStart", "SessionStart"),
+            ("session_start", "SessionStart"),
+            ("UserPromptSubmit", "UserPromptSubmit"),
+            ("user_prompt_submit", "UserPromptSubmit"),
+            ("PreToolUse", "PreToolUse"),
+            ("pre_tool_use", "PreToolUse"),
+            ("PostToolUse", "PostToolUse"),
+            ("post_tool_use", "PostToolUse"),
+            ("PostToolUseFailure", "PostToolUse"),
+            ("post_tool_use_failure", "PostToolUse"),
+            ("Stop", "Stop"),
+            ("stop", "Stop"),
+            ("StopFailure", "Stop"),
+            ("stop_failure", "Stop"),
+            ("SessionEnd", "SessionEnd"),
+            ("session_end", "SessionEnd"),
+        ]
+
+        for (event, expectedName) in cases {
+            let classification = classify("atomcode", event, tool: "shell")
+            #expect(classification.name == expectedName)
+            #expect(classification.actionable == false)
+            #expect(classification.notifiesNativeApprovalPrompt == false)
+        }
+    }
 }

@@ -76,6 +76,7 @@ Installs supported agent hooks whose binaries are on `PATH`. See [Agent hook int
 |--------------|-------------------------------------------|--------------------------|
 | Claude Code  | wrapper-injected                          | PermissionRequest        |
 | Codex        | `~/.codex/hooks.json`                     | PreToolUse / PermissionRequest telemetry |
+| AtomCode     | `~/.atomcode/hooks.json` or `$ATOMCODE_HOME/hooks.json` | PreToolUse / PostToolUse / PostToolUseFailure telemetry |
 | Grok         | `~/.grok/hooks/cmux-session.json`         | PreToolUse               |
 | OpenCode     | `~/.config/opencode/plugins/cmux-feed.js` | plugin event bus         |
 | Cursor CLI   | `~/.cursor/hooks.json`                    | beforeShellExecution     |

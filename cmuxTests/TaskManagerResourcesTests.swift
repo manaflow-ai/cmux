@@ -554,6 +554,7 @@ final class TaskManagerResourcesTests: XCTestCase {
         let cases: [(processName: String, expectedId: String)] = [
             ("claude_code", "claude"),
             ("codex", "codex"),
+            ("atomcode", "atomcode"),
             ("opencode", "opencode"),
             ("pi", "pi"),
             ("pi-coding-agent", "pi"),
@@ -583,6 +584,17 @@ final class TaskManagerResourcesTests: XCTestCase {
                 testCase.processName
             )
         }
+    }
+
+    func testAtomCodeDisplayNameRemainsStableBrand() {
+        let definition = CmuxTaskManagerCodingAgentDefinition.matchingDefinition(
+            processName: "atomcode",
+            processPath: nil,
+            arguments: [],
+            environment: [:]
+        )
+
+        XCTAssertEqual(definition?.displayName, "AtomCode")
     }
 
     private func resourceSummary() -> CmuxTopResourceSummary {
