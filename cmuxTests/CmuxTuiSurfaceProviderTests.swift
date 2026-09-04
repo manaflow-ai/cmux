@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 #if canImport(cmux_DEV)
@@ -338,17 +339,17 @@ import Testing
 
     @Test func clientArgvIsExact() {
         #expect(CloudTuiCommandLine.linkArguments(route: "wss://m.vm.cmux.sh/v1/link?t=1", deviceName: "cmux-mac", stateDir: "/s", inviteFilePath: "/i") ==
-            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--invite-file", "/i"])
+            ["remote", "connect", "wss://m.vm.cmux.sh/v1/link?t=1", "--device-name", "cmux-mac", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--invite-file", "/i"])
         #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil) ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json"])
-        // A private-network machine dials through the app's WireGuard hub; the flag is
-        // last so every earlier token stays byte-identical for older clients.
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
+        // A private-network machine dials through the app's WireGuard hub. Both long-lived
+        // helper processes must also stop if their app parent exits without cleanup.
         #expect(CloudTuiCommandLine.linkArguments(route: "ws://[fd00::10]:1337/v1/link", deviceName: "d", stateDir: "/s", inviteFilePath: "/i", wireguardHubSocket: "/h.sock") ==
-            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--invite-file", "/i", "--wireguard-hub", "/h.sock"])
+            ["remote", "connect", "ws://[fd00::10]:1337/v1/link", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent", "--invite-file", "/i", "--wireguard-hub", "/h.sock"])
         #expect(CloudTuiCommandLine.linkArguments(route: "r", deviceName: "d", stateDir: "/s", inviteFilePath: nil, wireguardHubSocket: "") ==
-            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json"])
+            ["remote", "connect", "r", "--device-name", "d", "--state-dir", "/s", "--headless", "--json", "--exit-with-parent"])
         #expect(CloudTuiCommandLine.wireGuardHubArguments(configPath: "/w/cmux-app.conf", socketPath: "/w/hub-1.sock") ==
-            ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock"])
+            ["wg", "hub", "--config", "/w/cmux-app.conf", "--socket", "/w/hub-1.sock", "--exit-with-parent"])
         #expect(CloudTuiCommandLine.snapshotArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--json", "session", "current", "snapshot"])
         #expect(CloudTuiCommandLine.eventsArguments(socketPath: "/k.sock") == ["--socket", "/k.sock", "--jsonl", "session", "current", "events"])
         #expect(CloudTuiCommandLine.runArguments(socketPath: "/k.sock", workspaceID: "ws_main", command: ["claude", "-p", "fix it"]) ==
@@ -441,6 +442,41 @@ import Testing
         let eof = CloudLinkFirstValue<String>()
         eof.resolve(nil)
         #expect(await eof.result == nil, "finished without a value reads as nil")
+    }
+
+    @Test func cancellingLinkCommandStopsItsChildBeforeReturning() async throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-cloud-command-\(UUID().uuidString.lowercased()).pid")
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let link = CloudMachineLink(
+            machineID: "test-machine",
+            clientURL: URL(fileURLWithPath: "/bin/sh"),
+            paths: CloudTuiClientPaths()
+        )
+        let task = Task {
+            try await link.run(
+                arguments: ["-c", "echo $$ > '\(pidFile.path)'; exec /bin/sleep 30"],
+                timeout: .seconds(60)
+            )
+        }
+        for _ in 0..<200 where !FileManager.default.fileExists(atPath: pidFile.path) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let rawPID = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try #require(Int32(rawPID))
+        defer { _ = Darwin.kill(pid, SIGKILL) }
+
+        task.cancel()
+        do {
+            _ = try await task.value
+            Issue.record("a cancelled link command must throw")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            Issue.record("a cancelled link command returned \(error) instead of CancellationError")
+        }
+        #expect(Darwin.kill(pid, 0) == -1 && errno == ESRCH, "the child must be reaped before run returns")
     }
 
     @Test func displayTabsPointWorkspacesAtTheMachineScreen() throws {

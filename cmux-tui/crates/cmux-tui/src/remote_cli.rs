@@ -2742,6 +2742,9 @@ mod tests {
         let flags = parse_connect_flags(&hub_only).unwrap();
         assert_eq!(flags.wireguard_hub, Some(PathBuf::from("/tmp/hub.sock")));
         assert!(flags.wireguard_config.is_none());
+        assert!(!flags.exit_with_parent);
+        let owned = ["ws://[fd00::1]:1337/v1/link", "--exit-with-parent"].map(str::to_string);
+        assert!(parse_connect_flags(&owned).unwrap().exit_with_parent);
     }
 
     #[test]
@@ -2751,6 +2754,16 @@ mod tests {
         let flags = parse_wg_hub_flags(&full[1..]).unwrap();
         assert_eq!(flags.config, PathBuf::from("/tmp/wg.conf"));
         assert_eq!(flags.socket, PathBuf::from("/tmp/wg.sock"));
+        assert!(!flags.exit_with_parent);
+        let owned = [
+            "--config",
+            "/tmp/wg.conf",
+            "--socket",
+            "/tmp/wg.sock",
+            "--exit-with-parent",
+        ]
+        .map(str::to_string);
+        assert!(parse_wg_hub_flags(&owned).unwrap().exit_with_parent);
         let missing = ["--config", "/tmp/wg.conf"].map(str::to_string);
         assert!(parse_wg_hub_flags(&missing).is_err());
         let unknown =
