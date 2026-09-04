@@ -730,6 +730,18 @@ function reservationMetadata(reservation: VmResourceReservation): Record<string,
   return withVmResourceReservationMetadata({}, reservation);
 }
 
+/** Provider responses cannot write control-plane reservation markers. */
+function providerMetadataPatchForPersistence(
+  metadata: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(metadata ?? {}).filter(([key]) =>
+      key !== VM_RESOURCE_RESERVATION_METADATA_KEY &&
+      key !== VM_RESOURCE_RESIZE_PENDING_METADATA_KEY,
+    ),
+  );
+}
+
 /** Build trusted numeric claim JSON without binding a JSON string as a JSON scalar. */
 function reservationMetadataJsonb(reservation: VmResourceReservation) {
   return sql`jsonb_build_object(
@@ -928,11 +940,10 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   mergeProviderMetadata: (input) =>
     dbEffect("mergeProviderMetadata", async () => {
       const db = cloudDb();
-      // The reservation is control-plane state. Provider metadata patches may
-      // add addresses and network ids, but cannot overwrite the quota claim.
-      const patch = Object.fromEntries(
-        Object.entries(input.patch).filter(([key]) => key !== VM_RESOURCE_RESERVATION_METADATA_KEY),
-      );
+      // Reservation and resize-generation markers are control-plane state.
+      // Provider metadata patches may add addresses and network ids, but cannot
+      // overwrite either quota claim or in-flight operation marker.
+      const patch = providerMetadataPatchForPersistence(input.patch);
       await db
         .update(cloudVms)
         .set({
@@ -1524,6 +1535,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markBaseCreateRunning: (input) =>
     dbEffect("markBaseCreateRunning", async () => {
       const db = cloudDb();
+      const providerMetadata = providerMetadataPatchForPersistence(input.providerMetadata);
       return await db.transaction(async (tx) => {
         const now = new Date();
         const [vm] = await tx
@@ -1536,7 +1548,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             // beginBaseOpen/reset even if a driver omits it or returns a stale
             // copy in its handle.
             providerMetadata: sql`(
-              coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(input.providerMetadata ?? {})}::jsonb
+              coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(providerMetadata)}::jsonb
             ) || case
               when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
               else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')
@@ -2155,6 +2167,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
   markCreateRunning: (input) =>
     dbEffect("markCreateRunning", async () => {
       const db = cloudDb();
+      const providerMetadata = providerMetadataPatchForPersistence(input.providerMetadata);
       const [vm] = await db
         .update(cloudVms)
         .set({
@@ -2164,7 +2177,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           // Keep the reservation from the transactional create claim. It is
           // the control-plane accounting record, not provider metadata.
           providerMetadata: sql`(
-            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(input.providerMetadata ?? {})}::jsonb
+            coalesce(${cloudVms.providerMetadata}, '{}'::jsonb) || ${JSON.stringify(providerMetadata)}::jsonb
           ) || case
             when ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}' is null then '{}'::jsonb
             else jsonb_build_object('${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}', ${cloudVms.providerMetadata}->'${sql.raw(VM_RESOURCE_RESERVATION_METADATA_KEY)}')

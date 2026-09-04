@@ -2901,6 +2901,29 @@ describe("VM Effect workflows", () => {
     }));
     expect(typeof first?.operationId).toBe("string");
 
+    await runRepo((repo) => repo.mergeProviderMetadata!({
+      id: vmId,
+      patch: {
+        networkId: "provider-network",
+        [VM_RESOURCE_RESIZE_PENDING_METADATA_KEY]: {
+          operationId: "provider-cannot-replace-generation",
+          requestedDiskMb: 131072,
+          previousDiskMb: 65536,
+        },
+      },
+    }));
+    const [protectedMarker] = await sql<{ operationId: string; networkId: string }[]>`
+      select
+        provider_metadata->'${VM_RESOURCE_RESIZE_PENDING_METADATA_KEY}'->>'operationId' as "operationId",
+        provider_metadata->>'networkId' as "networkId"
+      from cloud_vms
+      where id = ${vmId}
+    `;
+    expect(protectedMarker).toEqual({
+      operationId: first!.operationId,
+      networkId: "provider-network",
+    });
+
     await sql`
       update cloud_vms
       set provider_metadata = jsonb_set(
