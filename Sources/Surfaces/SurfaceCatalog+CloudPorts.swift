@@ -263,13 +263,14 @@ extension CmuxTuiSurfaceProvider {
         privateAddress: String?
     ) -> [SurfaceResource] {
         let previous: [SurfaceResourceID: SurfaceResource] = Dictionary(
-            previousResources.filter { $0.id.isForwardedPort },
-            uniquingKeysWith: { first, _ in first }
+            uniqueKeysWithValues: previousResources
+                .filter { $0.id.isForwardedPort }
+                .map { ($0.id, $0) }
         )
         guard let scannedPorts else {
             return previous.values.map { resource in
                 var refreshed = resource
-                if let port = resource.forwardedPort {
+                if let port = resource.id.forwardedPort {
                     refreshed.port = port
                     refreshed.url = privateAddress.map {
                         CmuxInternalHostnames.directPortURL(privateAddress: $0, port: port)
@@ -317,8 +318,9 @@ extension CmuxTuiSurfaceProvider {
         privateAddress: String?
     ) -> [SurfaceResource] {
         let priorPorts: [SurfaceResourceID: SurfaceResource] = Dictionary(
-            pool.filter { $0.id.isForwardedPort },
-            uniquingKeysWith: { first, _ in first }
+            uniqueKeysWithValues: pool
+                .filter { $0.id.isForwardedPort }
+                .map { ($0.id, $0) }
         )
         var parsedPortIDs = Set<SurfaceResourceID>()
         var parsedResources: [SurfaceResource] = []
