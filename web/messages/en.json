@@ -145,6 +145,8 @@
   "dashboard": {
     "nav": {
       "brand": "cmux",
+      "cloudGroup": "cloud",
+      "cloudDevices": "Mac access",
       "vaultGroup": "vault",
       "vaultOverview": "overview",
       "vaultSessions": "sessions",
@@ -161,6 +163,9 @@
     "home": {
       "title": "dashboard",
       "description": "choose a product dashboard.",
+      "cloudName": "Cloud Mac access",
+      "cloudDescription": "review and revoke the Macs that can reach your private Cloud VM network.",
+      "cloudLink": "manage Mac access",
       "vaultName": "vault",
       "vaultDescription": "browse synced agent sessions and manage cli access.",
       "vaultLink": "open vault",
@@ -170,6 +175,31 @@
       "iosAppName": "iOS app",
       "iosAppDescription": "install the cmux iOS app via TestFlight (beta access).",
       "iosLink": "open iOS app"
+    },
+    "cloud": {
+      "title": "Cloud Mac access",
+      "description": "These Macs have WireGuard access to your private Cloud VM network. iPhone and Iroh pairing records are separate.",
+      "empty": "No Mac has enrolled for Cloud VM access.",
+      "cmux": "cmux build",
+      "access": "network access",
+      "lastContact": "last control-plane contact",
+      "deviceId": "device ID",
+      "unknown": "unknown",
+      "none": "none",
+      "purpose": {
+        "terminal": "terminal",
+        "browser": "browser VPN"
+      },
+      "rename": "rename",
+      "revoke": "revoke",
+      "renameTitle": "Rename this Mac",
+      "nameLabel": "Name",
+      "cancel": "cancel",
+      "save": "save",
+      "renameError": "Could not rename this Mac.",
+      "revokeTitle": "Revoke {name}?",
+      "revokeBody": "This signs the Mac out and removes all of its Cloud VM network access.",
+      "revokeError": "Could not revoke this Mac."
     },
     "coderouter": {
       "metaTitle": "coderouter — cmux",

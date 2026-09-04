@@ -23,6 +23,7 @@ import type {
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
   VmRepository,
+  type CloudVmAccessGrantRow,
   type CloudVmNetworkRow,
   type CloudVmTunnelRow,
   type VmRepositoryShape,
@@ -74,9 +75,11 @@ function tunnelRow(overrides: Partial<CloudVmTunnelRow> = {}): CloudVmTunnelRow 
     id: "00000000-0000-4000-8000-0000000000bb",
     userId: "user-1",
     networkId: "00000000-0000-4000-8000-0000000000aa",
+    accessGrantId: "00000000-0000-4000-8000-0000000000c1",
     provider: "freestyle",
     providerTunnelId: "tun-test-1",
     deviceFingerprint: "device-1",
+    tunnelPurpose: "browser",
     deviceName: "Test Mac",
     clientPublicKey: CLIENT_KEY,
     addressV4: "10.40.0.2",
@@ -84,6 +87,28 @@ function tunnelRow(overrides: Partial<CloudVmTunnelRow> = {}): CloudVmTunnelRow 
     createdAt: new Date(),
     updatedAt: new Date(),
     lastConfigIssuedAt: new Date(),
+    revokedAt: null,
+    ...overrides,
+  };
+}
+
+function accessGrantRow(overrides: Partial<CloudVmAccessGrantRow> = {}): CloudVmAccessGrantRow {
+  return {
+    id: "00000000-0000-4000-8000-0000000000c1",
+    userId: "user-1",
+    deviceId: "mac-stable-1",
+    reportedName: "Test Mac",
+    displayName: null,
+    modelIdentifier: "Mac15,6",
+    osVersion: "26.0",
+    architecture: "arm64",
+    cmuxVersion: "0.65.0",
+    cmuxBuild: "103",
+    cmuxChannel: "nightly",
+    stackSessionId: "session-1",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastControlPlaneAt: new Date(),
     revokedAt: null,
     ...overrides,
   };
@@ -158,6 +183,13 @@ function testRepo(options: {
         });
       }),
     deleteNetwork: () => Effect.void,
+    findAccessGrant: () => Effect.succeed(accessGrantRow()),
+    findRevokedAccessGrantSession: () => Effect.succeed(null),
+    listUserAccessGrants: () => Effect.succeed([accessGrantRow()]),
+    upsertAccessGrant: () => Effect.succeed(accessGrantRow()),
+    renameAccessGrant: () => Effect.succeed(accessGrantRow()),
+    listAccessGrantTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
+    revokeAccessGrant: () => Effect.succeed(true),
     findTunnel: () => Effect.succeed(options.tunnel ?? null),
     listUserTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
     insertTunnel: (input) =>
@@ -165,7 +197,9 @@ function testRepo(options: {
         if (calls) calls.inserts += 1;
         return tunnelRow({
           providerTunnelId: input.providerTunnelId,
+          accessGrantId: input.accessGrantId,
           deviceFingerprint: input.deviceFingerprint,
+          tunnelPurpose: input.tunnelPurpose,
           clientPublicKey: input.clientPublicKey,
         });
       }),
@@ -290,7 +324,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         deviceName: "Test Mac",
         clientPublicKey: CLIENT_KEY,
       }).pipe(
@@ -312,7 +348,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: CLIENT_KEY,
       }).pipe(
         Effect.provide(layerFor(
@@ -334,7 +372,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: OTHER_KEY,
       }).pipe(
         Effect.provide(layerFor(
@@ -356,7 +396,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: CLIENT_KEY,
       }).pipe(
         Effect.provide(layerFor(
@@ -375,7 +417,9 @@ describe("enrollVmTunnel", () => {
       enrollVmTunnel({
         userId: "user-1",
         provider: "freestyle",
+        deviceId: "mac-stable-1",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
         clientPublicKey: CLIENT_KEY,
       }).pipe(
         Effect.provide(layerFor(testRepo(), testGateway({ supports: false }))),
@@ -393,6 +437,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "browser",
       }).pipe(
         Effect.provide(layerFor(testRepo({ network: networkRow() }), testGateway())),
         Effect.flip,
@@ -409,6 +454,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-1",
+        tunnelPurpose: "browser",
       }).pipe(
         Effect.provide(layerFor(
           testRepo({ calls: repoCalls, tunnel: tunnelRow() }),
@@ -427,6 +473,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "browser",
       }).pipe(Effect.provide(layerFor(testRepo(), testGateway()))),
     );
     expect(result.revoked).toBe(false);

@@ -44,6 +44,11 @@ export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundErr
   readonly deviceFingerprint: string;
 }> {}
 
+/** A remote revoke blocked this exact Stack login from enrolling the Mac again. */
+export class VmAccessGrantRevokedError extends Data.TaggedError("VmAccessGrantRevokedError")<{
+  readonly stackSessionId: string;
+}> {}
+
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
   readonly snapshotId: string;
 }> {}
@@ -173,6 +178,7 @@ export type VmWorkflowError =
   | VmAttachTransportUnsupportedError
   | VmPrivateNetworkUnavailableError
   | VmTunnelNotFoundError
+  | VmAccessGrantRevokedError
   | VmAccountDeletionIdentityRevocationError
   | VmModelPlaneError;
 
@@ -184,6 +190,10 @@ export function isVmPrivateNetworkUnavailableError(
 
 export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmTunnelNotFoundError";
+}
+
+export function isVmAccessGrantRevokedError(err: unknown): err is VmAccessGrantRevokedError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantRevokedError";
 }
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
@@ -281,6 +291,7 @@ const vmWorkflowErrorTagRecord = {
   VmAttachTransportUnsupportedError: true,
   VmPrivateNetworkUnavailableError: true,
   VmTunnelNotFoundError: true,
+  VmAccessGrantRevokedError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;

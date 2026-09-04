@@ -9,9 +9,10 @@ import { setSpanAttributes } from "../../../../services/telemetry";
 import {
   enrollVmTunnel,
   isWireGuardPublicKey,
+  listVmAccessGrants,
   listVmTunnels,
   readVmTunnel,
-  revokeVmTunnel,
+  revokeVmAccessGrant,
   runVmWorkflow,
   type VmTunnelDescriptor,
 } from "../../../../services/vms/workflows";
@@ -79,6 +80,15 @@ export async function POST(request: Request): Promise<Response> {
         return invalidDeviceFingerprint(err);
       }
       if (!deviceFingerprint) return missingDeviceFingerprint();
+      let deviceId: string | undefined;
+      try {
+        deviceId = optionalClientIdentifier(body.deviceId ?? body.device_id, "deviceId");
+      } catch (err) {
+        return invalidDeviceFingerprint(err);
+      }
+      if (!deviceId) return missingDeviceId();
+      const tunnelPurpose = parseTunnelPurpose(body.tunnelPurpose ?? body.tunnel_purpose);
+      if (!tunnelPurpose) return invalidTunnelPurpose();
 
       setSpanAttributes(span, {
         "cmux.vm.provider": provider.id,
@@ -88,8 +98,17 @@ export async function POST(request: Request): Promise<Response> {
       const tunnel = await runVmWorkflow(enrollVmTunnel({
         userId: user.id,
         provider: provider.id,
+        deviceId,
         deviceFingerprint,
+        tunnelPurpose,
         deviceName: deviceName(body),
+        modelIdentifier: boundedMetadata(body.modelIdentifier ?? body.model_identifier),
+        osVersion: boundedMetadata(body.osVersion ?? body.os_version),
+        architecture: boundedMetadata(body.architecture),
+        cmuxVersion: boundedMetadata(body.cmuxVersion ?? body.cmux_version),
+        cmuxBuild: boundedMetadata(body.cmuxBuild ?? body.cmux_build),
+        cmuxChannel: boundedMetadata(body.cmuxChannel ?? body.cmux_channel),
+        stackSessionId: stackSessionId(request),
         clientPublicKey,
       }));
       setSpanAttributes(span, {
@@ -129,8 +148,11 @@ export async function GET(request: Request): Promise<Response> {
       }
 
       if (!deviceFingerprint) {
-        const tunnels = await runVmWorkflow(listVmTunnels({ userId: user.id }));
-        return jsonResponse({ tunnels });
+        const [devices, tunnels] = await Promise.all([
+          runVmWorkflow(listVmAccessGrants({ userId: user.id })),
+          runVmWorkflow(listVmTunnels({ userId: user.id })),
+        ]);
+        return jsonResponse({ devices, tunnels });
       }
 
       const provider = providerFromRequest(request, {});
@@ -143,6 +165,7 @@ export async function GET(request: Request): Promise<Response> {
         userId: user.id,
         provider: provider.id,
         deviceFingerprint,
+        tunnelPurpose: parseTunnelPurpose(url.searchParams.get("tunnelPurpose")) ?? "browser",
       }));
       return jsonResponse(tunnelPayload(tunnel));
     },
@@ -162,27 +185,26 @@ export async function DELETE(request: Request): Promise<Response> {
 
       const url = new URL(request.url);
       const body = await parseLenientObjectBody(request);
-      let deviceFingerprint: string | undefined;
+      let deviceId: string | undefined;
       try {
-        deviceFingerprint = optionalClientIdentifier(
-          url.searchParams.get("deviceFingerprint") ?? body.deviceFingerprint ?? body.device_fingerprint,
-          "deviceFingerprint",
+        deviceId = optionalClientIdentifier(
+          url.searchParams.get("deviceId") ?? body.deviceId ?? body.device_id,
+          "deviceId",
         );
       } catch (err) {
         return invalidDeviceFingerprint(err);
       }
-      if (!deviceFingerprint) return missingDeviceFingerprint();
-
-      const provider = providerFromRequest(request, body);
-      if (!provider.ok) return provider.response;
+      const accessGrantId = optionalString(
+        url.searchParams.get("accessGrantId") ?? body.accessGrantId ?? body.access_grant_id,
+      );
+      if (!deviceId && !accessGrantId) return missingDeviceId();
       setSpanAttributes(span, {
-        "cmux.vm.provider": provider.id,
-        "cmux.vm.tunnel.device": deviceFingerprint,
+        "cmux.vm.access.device": deviceId ?? "by-grant-id",
       });
-      const result = await runVmWorkflow(revokeVmTunnel({
+      const result = await runVmWorkflow(revokeVmAccessGrant({
         userId: user.id,
-        provider: provider.id,
-        deviceFingerprint,
+        accessGrantId: accessGrantId ?? undefined,
+        deviceId,
       }));
       return jsonResponse(result);
     },
@@ -221,11 +243,37 @@ function deviceName(body: Record<string, unknown>): string | null {
   return raw ? raw.slice(0, MAX_DEVICE_NAME_LENGTH) : null;
 }
 
+function boundedMetadata(value: unknown): string | null {
+  return optionalString(value)?.slice(0, 128) ?? null;
+}
+
+function parseTunnelPurpose(value: unknown): "terminal" | "browser" | null {
+  const raw = optionalString(value);
+  return raw === "terminal" || raw === "browser" ? raw : null;
+}
+
+function stackSessionId(request: Request): string | null {
+  const authorization = request.headers.get("authorization");
+  if (!authorization?.toLowerCase().startsWith("bearer ")) return null;
+  const token = authorization.slice("bearer ".length).trim();
+  const payload = token.split(".")[1];
+  if (!payload) return null;
+  try {
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const decoded = JSON.parse(Buffer.from(normalized, "base64").toString("utf8"));
+    return optionalClientIdentifier(decoded.refresh_token_id, "stackSessionId") ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function tunnelPayload(tunnel: VmTunnelDescriptor) {
   return {
+    accessGrantId: tunnel.accessGrantId,
     tunnelId: tunnel.tunnelId,
     provider: tunnel.provider,
     deviceFingerprint: tunnel.deviceFingerprint,
+    tunnelPurpose: tunnel.tunnelPurpose,
     deviceName: tunnel.deviceName,
     clientConfig: tunnel.clientConfig,
     clientPublicKey: tunnel.clientPublicKey,
@@ -261,5 +309,27 @@ function missingDeviceFingerprint(): Response {
       "on the network across launches.",
     phase: "network",
     details: { field: "deviceFingerprint" },
+  });
+}
+
+function missingDeviceId(): Response {
+  return vmErrorResponse({
+    error: "invalid_request",
+    status: 400,
+    message: "deviceId is required.",
+    action: "Send this Mac's stable Cloud access device ID.",
+    phase: "network",
+    details: { field: "deviceId" },
+  });
+}
+
+function invalidTunnelPurpose(): Response {
+  return vmErrorResponse({
+    error: "invalid_request",
+    status: 400,
+    message: "tunnelPurpose must be terminal or browser.",
+    action: "Use terminal for the user-space peer or browser for the Network Extension peer.",
+    phase: "network",
+    details: { field: "tunnelPurpose" },
   });
 }

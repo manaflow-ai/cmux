@@ -75,9 +75,12 @@ export {
   enrollVmTunnel,
   isWireGuardPublicKey,
   listVmTunnels,
+  listVmAccessGrants,
   networkSlugForUser,
   readVmTunnel,
+  renameVmAccessGrant,
   resolveOwnerNetwork,
+  revokeVmAccessGrant,
   revokeVmTunnel,
   tunnelSlugForDevice,
 } from "./privateNetwork";

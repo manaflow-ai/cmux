@@ -101,12 +101,12 @@ extension TerminalController {
             // re-enrolls from scratch.
             return v2VmCall(id: id) {
                 let manager = VMTunnelManager()
-                let fingerprint = try manager.deviceFingerprint()
                 if let coordinator = await Self.cloudTunnelCoordinator() {
                     try await coordinator.revoke()
                 }
-                try await VMClient.shared.revokeTunnel(deviceFingerprint: fingerprint)
-                try? FileManager.default.removeItem(at: manager.configURL)
+                try await VMClient.shared.revokeCloudAccess(deviceID: MobileHostIdentity.deviceID())
+                VMTunnelManager(purpose: .browser).removeLocalCredentials()
+                VMTunnelManager(purpose: .terminal).removeLocalCredentials()
                 return ["revoked": true]
             }
         default:

@@ -22,9 +22,11 @@ extension AppDelegate {
     @MainActor
     func cloudTunnelAccessDidEnd() {
         guard let coordinator = cloudTunnelCoordinator else { return }
+        VMTunnelManager(purpose: .browser).removeLocalCredentials()
+        VMTunnelManager(purpose: .terminal).removeLocalCredentials()
         cloudTunnelTeardownTask?.cancel()
         cloudTunnelTeardownTask = Task {
-            await coordinator.accessDidEnd()
+            try? await coordinator.revoke()
         }
     }
 

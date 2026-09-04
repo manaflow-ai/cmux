@@ -40,6 +40,7 @@ import {
   isVmProviderOperationError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
+  isVmAccessGrantRevokedError,
   vmWorkflowErrorCause,
   type VmModelPlaneError,
   type VmOperationUnsupportedError,
@@ -661,6 +662,15 @@ export async function vmWorkflowErrorResponse(
       phase: "network",
       retryable: false,
       details: { deviceFingerprint: workflowError.deviceFingerprint },
+    });
+  }
+  if (isVmAccessGrantRevokedError(workflowError)) {
+    return vmErrorResponse({
+      error: "vm_access_revoked",
+      status: 403,
+      message: "Cloud access for this login session was revoked.",
+      action: "Sign out of cmux, then sign in again to enroll this Mac.",
+      phase: "network",
     });
   }
 

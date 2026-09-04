@@ -1,5 +1,6 @@
 import CryptoKit
 import CmuxSettings
+import Darwin
 import Foundation
 import Security
 
@@ -37,6 +38,11 @@ import Security
 /// source degrades to the CLI path when the capability or the extension is
 /// absent from the running build.
 struct VMTunnelManager: Sendable {
+    enum Purpose: String, Sendable {
+        case terminal
+        case browser
+    }
+
     struct LocalTunnelState: Sendable {
         let endpoint: VMTunnelEndpoint
         /// Path of the written wg-quick config (private key included, 0600).
@@ -74,17 +80,20 @@ struct VMTunnelManager: Sendable {
     /// tagged DEBUG build and nightly run on one Mac: both can enroll without
     /// overwriting each other's config, key, or device fingerprint.
     let interfaceName: String
+    let purpose: Purpose
 
     let home: URL
 
     init(
         home: URL = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true),
         interfaceName: String? = nil,
+        purpose: Purpose = .browser,
         bundleIdentifier: String? = Bundle.main.bundleIdentifier,
         environment: [String: String] = ProcessInfo.processInfo.environment,
         apiBaseURL: URL = AuthEnvironment.vmAPIBaseURL
     ) {
         self.home = home
+        self.purpose = purpose
         self.interfaceName = interfaceName ?? Self.interfaceName(
             bundleIdentifier: bundleIdentifier,
             environment: environment,
@@ -227,15 +236,24 @@ struct VMTunnelManager: Sendable {
     private var usesLegacyCredentialFiles: Bool { interfaceName == "cmux" }
 
     var privateKeyURL: URL {
-        let filename = usesLegacyCredentialFiles ? "private.key" : "\(interfaceName).private.key"
+        let filename = usesLegacyCredentialFiles && purpose == .browser
+            ? "private.key"
+            : "\(interfaceName).\(purpose.rawValue).private.key"
         return stateDir.appendingPathComponent(filename, isDirectory: false)
     }
 
     var deviceIDURL: URL {
-        let filename = usesLegacyCredentialFiles ? "device-id" : "\(interfaceName).device-id"
+        let filename = usesLegacyCredentialFiles && purpose == .browser
+            ? "device-id"
+            : "\(interfaceName).\(purpose.rawValue).device-id"
         return stateDir.appendingPathComponent(filename, isDirectory: false)
     }
-    var configURL: URL { stateDir.appendingPathComponent("\(interfaceName).conf", isDirectory: false) }
+    var configURL: URL {
+        let filename = usesLegacyCredentialFiles && purpose == .browser
+            ? "\(interfaceName).conf"
+            : "\(interfaceName).\(purpose.rawValue).conf"
+        return stateDir.appendingPathComponent(filename, isDirectory: false)
+    }
     /// wg-quick(8) records the created utun's name here. On macOS the file is
     /// root-only (0400), so its contents are out of reach, but its EXISTENCE is
     /// visible — and that is what tells this tunnel apart from another
@@ -305,8 +323,16 @@ struct VMTunnelManager: Sendable {
         let fingerprint = try deviceFingerprint()
         let endpoint = try await client.enrollTunnel(
             clientPublicKey: keys.publicKey,
+            deviceID: MobileHostIdentity.deviceID(),
             deviceFingerprint: fingerprint,
-            deviceName: deviceName ?? CloudTuiClientPaths.deviceName()
+            tunnelPurpose: purpose.rawValue,
+            deviceName: deviceName ?? MobileHostIdentity.baseDisplayName() ?? CloudTuiClientPaths.deviceName(),
+            modelIdentifier: Self.modelIdentifier(),
+            osVersion: Self.osVersion(),
+            architecture: Self.architecture,
+            cmuxVersion: MobileHostBuildIdentity.current().appVersion,
+            cmuxBuild: MobileHostBuildIdentity.current().appBuild,
+            cmuxChannel: Self.cmuxChannel()
         )
         // The provider may return broad 10/8 and fd00::/8 routes. Narrow them
         // to this owner's network so production and Dev interfaces can install
@@ -336,7 +362,12 @@ struct VMTunnelManager: Sendable {
     /// up` used to answer "already up" and change nothing. `vpn up` therefore
     /// records the digest of the config it brought up, `vpn down` clears it,
     /// and `isStale()` compares that record with the config on disk.
-    var appliedDigestURL: URL { stateDir.appendingPathComponent("\(interfaceName).applied", isDirectory: false) }
+    var appliedDigestURL: URL {
+        let filename = usesLegacyCredentialFiles && purpose == .browser
+            ? "\(interfaceName).applied"
+            : "\(interfaceName).\(purpose.rawValue).applied"
+        return stateDir.appendingPathComponent(filename, isDirectory: false)
+    }
 
     /// SHA-256 of the config on disk; nil when there is none.
     func configDigest() -> String? {
@@ -535,5 +566,44 @@ struct VMTunnelManager: Sendable {
         } catch {
             throw TunnelError.keyStorageFailed("\(url.path): \(error.localizedDescription)")
         }
+    }
+
+    /// Delete all local secrets for this tunnel role. Provider revoke happens first when online.
+    func removeLocalCredentials() {
+        for url in [privateKeyURL, deviceIDURL, configURL, appliedDigestURL] {
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    private static func modelIdentifier() -> String? {
+        var size = 0
+        guard sysctlbyname("hw.model", nil, &size, nil, 0) == 0, size > 1 else { return nil }
+        var bytes = [CChar](repeating: 0, count: size)
+        guard sysctlbyname("hw.model", &bytes, &size, nil, 0) == 0 else { return nil }
+        return String(cString: bytes)
+    }
+
+    private static func osVersion() -> String {
+        let value = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(value.majorVersion).\(value.minorVersion).\(value.patchVersion)"
+    }
+
+    private static var architecture: String {
+        #if arch(arm64)
+        "arm64"
+        #elseif arch(x86_64)
+        "x86_64"
+        #else
+        "unknown"
+        #endif
+    }
+
+    private static func cmuxChannel(bundleIdentifier: String? = Bundle.main.bundleIdentifier) -> String {
+        let id = bundleIdentifier?.lowercased() ?? ""
+        if id.contains("nightly") { return "nightly" }
+        if id.contains("staging") { return "staging" }
+        if id.hasSuffix(".rc") { return "rc" }
+        if id == "com.cmuxterm.app" { return "stable" }
+        return "dev"
     }
 }

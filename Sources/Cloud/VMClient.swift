@@ -648,9 +648,11 @@ enum VMAttachEndpoint {
 /// whose `PrivateKey` line is blank — the private key never leaves this Mac,
 /// so the caller fills it in from local state before use.
 struct VMTunnelEndpoint {
+    let accessGrantId: String
     let tunnelId: String
     let provider: String
     let deviceFingerprint: String
+    let tunnelPurpose: String
     let clientConfig: String
     let clientPublicKey: String
     let serverPublicKey: String
@@ -698,6 +700,21 @@ actor VMClient {
     ) async {
         guard let shared else { return }
         await shared.revokeEndpointLeases(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+        )
+    }
+
+    /// Revoke every Freestyle peer for this Mac during native sign-out.
+    @MainActor
+    static func revokeCloudAccess(
+        deviceID: String,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard let shared else { return }
+        await shared.revokeCloudAccess(
+            deviceID: deviceID,
             accessToken: accessToken,
             refreshToken: refreshToken
         )
@@ -1446,15 +1463,35 @@ actor VMClient {
     /// The server never sees a private key — only `clientPublicKey` travels.
     func enrollTunnel(
         clientPublicKey: String,
+        deviceID: String,
         deviceFingerprint: String,
-        deviceName: String? = nil
+        tunnelPurpose: String,
+        deviceName: String? = nil,
+        modelIdentifier: String? = nil,
+        osVersion: String? = nil,
+        architecture: String? = nil,
+        cmuxVersion: String? = nil,
+        cmuxBuild: String? = nil,
+        cmuxChannel: String? = nil
     ) async throws -> VMTunnelEndpoint {
         var body: [String: Any] = [
             "clientPublicKey": clientPublicKey,
+            "deviceId": deviceID,
             "deviceFingerprint": deviceFingerprint,
+            "tunnelPurpose": tunnelPurpose,
         ]
         if let deviceName, !deviceName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             body["deviceName"] = deviceName
+        }
+        for (key, value) in [
+            ("modelIdentifier", modelIdentifier),
+            ("osVersion", osVersion),
+            ("architecture", architecture),
+            ("cmuxVersion", cmuxVersion),
+            ("cmuxBuild", cmuxBuild),
+            ("cmuxChannel", cmuxChannel),
+        ] where value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
+            body[key] = value
         }
         let (data, http) = try await request("POST", path: "/api/vm/tunnel", jsonBody: body)
         try ensureOK(http, data: data)
@@ -1463,20 +1500,22 @@ actor VMClient {
 
     /// Unenroll this Mac. The server deletes the provider-side tunnel, so any
     /// config still on disk stops working immediately.
-    func revokeTunnel(deviceFingerprint: String) async throws {
+    func revokeCloudAccess(deviceID: String) async throws {
         guard var components = URLComponents(string: "/api/vm/tunnel") else {
             throw VMClientError.malformedResponse("could not build tunnel revoke path")
         }
-        components.queryItems = [URLQueryItem(name: "deviceFingerprint", value: deviceFingerprint)]
+        components.queryItems = [URLQueryItem(name: "deviceId", value: deviceID)]
         let path = components.string ?? "/api/vm/tunnel"
         let (data, http) = try await request("DELETE", path: path)
         try ensureOK(http, data: data)
     }
 
     private nonisolated static func decodeTunnelEndpoint(_ obj: [String: Any]) throws -> VMTunnelEndpoint {
-        guard let tunnelId = obj["tunnelId"] as? String,
+        guard let accessGrantId = obj["accessGrantId"] as? String,
+              let tunnelId = obj["tunnelId"] as? String,
               let provider = obj["provider"] as? String,
               let deviceFingerprint = obj["deviceFingerprint"] as? String,
+              let tunnelPurpose = obj["tunnelPurpose"] as? String,
               let clientConfig = obj["clientConfig"] as? String,
               let clientPublicKey = obj["clientPublicKey"] as? String,
               let serverPublicKey = obj["serverPublicKey"] as? String,
@@ -1487,9 +1526,11 @@ actor VMClient {
         let address = obj["address"] as? [String: Any]
         let network = obj["network"] as? [String: Any]
         return VMTunnelEndpoint(
+            accessGrantId: accessGrantId,
             tunnelId: tunnelId,
             provider: provider,
             deviceFingerprint: deviceFingerprint,
+            tunnelPurpose: tunnelPurpose,
             clientConfig: clientConfig,
             clientPublicKey: clientPublicKey,
             serverPublicKey: serverPublicKey,
@@ -1700,6 +1741,34 @@ actor VMClient {
             // service. Local workspace teardown and token deletion already
             // make this device signed out; the server lease cron is the retry
             // safety net when this tail cannot reach the API.
+        }
+    }
+
+    private func revokeCloudAccess(
+        deviceID: String,
+        accessToken: String?,
+        refreshToken: String?
+    ) async {
+        guard let accessToken = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !accessToken.isEmpty,
+              let refreshToken = refreshToken?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !refreshToken.isEmpty,
+              var url = URLComponents(url: AuthEnvironment.vmAPIBaseURL, resolvingAgainstBaseURL: false) else {
+            return
+        }
+        url.path = (url.path.hasSuffix("/") ? String(url.path.dropLast()) : url.path) + "/api/vm/tunnel"
+        url.queryItems = [URLQueryItem(name: "deviceId", value: deviceID)]
+        guard let resolved = url.url else { return }
+        var request = URLRequest(url: resolved)
+        request.httpMethod = "DELETE"
+        request.timeoutInterval = 8
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(refreshToken, forHTTPHeaderField: "X-Stack-Refresh-Token")
+        do {
+            _ = try await session.data(for: request)
+        } catch {
+            // Local key deletion still ends access from this Mac. A remote
+            // revoke remains available on cmux.com if the provider is offline.
         }
     }
 
