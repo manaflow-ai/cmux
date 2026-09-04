@@ -63,6 +63,11 @@ public struct MobileSurfacePreview: Identifiable, Equatable, Sendable {
 
     /// Stable Mac-local surface identifier.
     public let id: ID
+    /// Restart-stable surface identity used by durable navigation links.
+    public let stableID: ID?
+    /// Stable Mac-local pane identifier, when the host reports pane topology.
+    /// Older hosts omit this value; the surface remains routable by its own id.
+    public let paneID: ID?
     /// Open, forward-compatible surface kind.
     public let kind: Kind
     /// User-facing surface title.
@@ -81,9 +86,13 @@ public struct MobileSurfacePreview: Identifiable, Equatable, Sendable {
         title: String,
         filePath: String? = nil,
         todo: MobileTodoSnapshot? = nil,
-        isFocused: Bool = false
+        isFocused: Bool = false,
+        paneID: ID? = nil,
+        stableID: ID? = nil
     ) {
         self.id = id
+        self.stableID = stableID
+        self.paneID = paneID
         self.kind = kind
         self.title = title
         self.isFocused = isFocused

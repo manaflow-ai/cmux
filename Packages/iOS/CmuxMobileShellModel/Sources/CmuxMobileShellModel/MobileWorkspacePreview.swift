@@ -32,6 +32,9 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     /// multi-Mac list it may be scoped by the owning Mac so two Macs can expose
     /// the same local workspace id without colliding in SwiftUI navigation.
     public var id: ID
+    /// Restart-stable workspace identity used by durable navigation links.
+    /// `nil` when connected to a Mac that predates this additive field.
+    public var stableID: ID?
     /// The Mac-local workspace identifier to send back over RPC.
     ///
     /// Aggregated rows can use a Mac-scoped ``id`` for UI identity while keeping
@@ -143,6 +146,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
     ///   - surfaces: Every Mac-rendered surface, in spatial order.
     public init(
         id: ID,
+        stableID: ID? = nil,
         macDeviceID: String? = nil,
         macDisplayName: String? = nil,
         windowID: String? = nil,
@@ -163,6 +167,7 @@ public struct MobileWorkspacePreview: Identifiable, Equatable, Sendable {
         simulators: [MobileSimulatorPanelDescriptor] = []
     ) {
         self.id = id
+        self.stableID = stableID
         self.remoteWorkspaceID = nil
         self.macDeviceID = macDeviceID
         self.macDisplayName = macDisplayName
