@@ -294,10 +294,10 @@ jobs:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Full runs match the cache warmer and stable release lane. Fast branch
-    # dogfood uses the configured six-vCPU lane because the arm64 build fits
-    # its 24 GiB memory. Keep a fast-only override so a busy shared pool does
-    # not hold a user test build behind the full release queue.
-    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && (vars.MACOS_RUNNER_26_FAST || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-6vcpu-macos-26') || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
+    # dogfood always uses the dedicated Blacksmith image. A repository-wide
+    # runner override may point at a slower shared builder, which defeats the
+    # purpose of the one-architecture path.
+    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 45
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
