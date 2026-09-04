@@ -1135,10 +1135,7 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
     let explicit_localhost = value
         .get(..LOCALHOST_AUTHORITY.len())
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case(LOCALHOST_AUTHORITY))
-        && value
-            .as_bytes()
-            .get(LOCALHOST_AUTHORITY.len())
-            .is_none_or(|byte| *byte == b'/');
+        && value.as_bytes().get(LOCALHOST_AUTHORITY.len()).is_none_or(|byte| *byte == b'/');
     let parsed_host = url.host_str();
     let host = parsed_host.or_else(|| explicit_localhost.then_some("localhost"))?;
     if !terminal_pwd_host_is_local(host) {
