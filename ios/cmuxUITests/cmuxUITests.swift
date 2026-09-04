@@ -2921,7 +2921,7 @@ final class cmuxUITests: XCTestCase {
         let app = launchApp(mockData: false, environment: [
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW": "1",
             "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_COUNT": "60",
-            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "1",
+            "CMUX_UITEST_WORKSPACE_LIST_PREVIEW_LIVE_UPDATES": "sessions",
         ])
         defer { app.terminate() }
 
