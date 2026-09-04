@@ -110,6 +110,7 @@ pub const BROWSER_PROVIDER_CAPABILITY: &str = "browser-provider-v1";
 /// Advertises the `server-stats` command.
 pub const SERVER_STATS_CAPABILITY: &str = "server-stats-v1";
 pub const CLIENT_FOCUS_CAPABILITY: &str = "client-focus-v1";
+pub const DAEMON_SHUTDOWN_EVENT: &str = "daemon-shutdown";
 /// The daemon answers `machine-usage` and emits `machine-usage-changed`.
 pub const MACHINE_USAGE_CAPABILITY: &str = "machine-usage-v1";
 const INITIAL_BROWSER_RESIZE_TIMEOUT: Duration = Duration::from_secs(10);
@@ -5435,6 +5436,15 @@ fn authenticate_websocket(
 }
 
 fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
+    disconnect_client_with_notice(mux, client, send_detached, None)
+}
+
+fn disconnect_client_with_notice(
+    mux: &Arc<Mux>,
+    client: u64,
+    send_detached: bool,
+    notice: Option<&str>,
+) -> bool {
     let record = {
         let _lifecycle = mux.lock_client_sizing_lifecycle();
         let Some(record) = mux.control_clients.remove(client) else { return false };
@@ -5465,6 +5475,10 @@ fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool) -> bool {
     }
     if send_detached {
         let _ = record.writer.set_write_timeout(Some(CLIENT_DETACH_WRITE_TIMEOUT));
+        if let Some(event) = notice {
+            let _ = record.writer.send_control(&json!({"event": event}));
+            let _ = record.writer.flush_control(CLIENT_DETACH_WRITE_TIMEOUT);
+        }
         for (surface, attached) in &record.attached {
             for stream in attached.streams.values() {
                 let _ = record
@@ -5497,7 +5511,7 @@ fn complete_daemon_shutdown_after_ack(
     mux.request_daemon_shutdown();
     for peer in mux.control_clients.client_ids() {
         if peer != requesting_client {
-            disconnect_client(mux, peer, true);
+            disconnect_client_with_notice(mux, peer, true, Some(DAEMON_SHUTDOWN_EVENT));
         }
     }
     true
@@ -20072,7 +20086,9 @@ mod tests {
             MessageWriter::new(QueuedSink { outbound: accepted_outbound.clone(), control: None });
         let local =
             accepted.control_clients.register(ClientTransport::Unix, accepted_writer.clone());
-        let interactive = accepted.control_clients.register(ClientTransport::Unix, test_writer());
+        let (interactive_writer, interactive_outbound) = captured_writer();
+        let interactive =
+            accepted.control_clients.register(ClientTransport::Unix, interactive_writer);
         let (_, generation) = accepted.registry_identity();
         assert!(handle_message(
             &accepted,
@@ -20098,6 +20114,8 @@ mod tests {
         assert_eq!(response["data"]["generation"], generation);
         assert!(accepted.control_clients.contains(local));
         assert!(!accepted.control_clients.contains(interactive));
+        let shutdown = pop_json(&interactive_outbound);
+        assert_eq!(shutdown["event"], DAEMON_SHUTDOWN_EVENT);
     }
 
     #[test]
