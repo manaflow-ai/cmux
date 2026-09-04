@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { routing, type Locale } from "@/i18n/routing";
 import { ThemeBootstrapScript } from "./[locale]/theme-bootstrap-script";
 import { NotFoundDownloadLink } from "./[locale]/components/not-found-download-link";
+import { NotFoundAnalytics } from "./[locale]/components/not-found-analytics";
 import { NotFoundLink } from "./[locale]/components/not-found-link";
 
 const themeBootstrapScript = `(function(){try{var t=localStorage.getItem("theme");var light=t==="light"||(t==="system"&&window.matchMedia("(prefers-color-scheme:light)").matches);if(!light)document.documentElement.classList.add("dark")}catch(e){}})()`;
@@ -27,6 +28,7 @@ export default async function NotFound() {
   return (
     <>
       <ThemeBootstrapScript script={themeBootstrapScript} />
+      <NotFoundAnalytics locale={locale} />
       <main className="relative flex min-h-screen overflow-hidden px-6 py-8 sm:px-10 sm:py-10">
         <div
           aria-hidden="true"
