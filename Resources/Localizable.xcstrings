@@ -274305,7 +274305,7 @@
         "fr": { "stringUnit": { "state": "translated", "value": "fork: cet agent ne prend pas en charge le fork. Configurez une commande fork pour cet agent, puis réessayez." } },
         "it": { "stringUnit": { "state": "translated", "value": "fork: questo agente non supporta il fork. Configura un comando fork per questo agente, quindi riprova." } },
         "ja": { "stringUnit": { "state": "translated", "value": "fork: このエージェントはフォークをサポートしていません。このエージェントにフォークコマンドを設定してから、再試行してください。" } },
-        "km": { "stringUnit": { "state": "translated", "value": "fork: ភ្នាក់ងារនេះមិនគាំទ្រការក្លែងបន្លំទេ។ កំណត់រចនាសម្ព័ន្ធពាក្យបញ្ជា fork សម្រាប់ភ្នាក់ងារនេះ បន្ទាប់មកព្យាយាមម្តងទៀត។" } },
+        "km": { "stringUnit": { "state": "translated", "value": "fork: ភ្នាក់ងារនេះមិនគាំទ្រការបំបែកទេ។ កំណត់រចនាសម្ព័ន្ធពាក្យបញ្ជា fork សម្រាប់ភ្នាក់ងារនេះ បន្ទាប់មកព្យាយាមម្តងទៀត។" } },
         "ko": { "stringUnit": { "state": "translated", "value": "fork: 이 에이전트는 분기를 지원하지 않습니다. 이 에이전트에 대한 포크 명령을 구성한 후 다시 시도하세요." } },
         "nb": { "stringUnit": { "state": "translated", "value": "fork: denne agenten støtter ikke forking. Konfigurer en gaffelkommando for denne agenten, og prøv deretter på nytt." } },
         "pl": { "stringUnit": { "state": "translated", "value": "fork: ten agent nie obsługuje rozwidlania. Skonfiguruj polecenie fork dla tego agenta, a następnie spróbuj ponownie." } },
@@ -274471,7 +274471,7 @@
     "cli.fork.error.socketNotReady": {
       "extractionState": "manual",
       "localizations": {
-        "ar": { "stringUnit": { "state": "translated", "value": "fork: cmux لا يزال مفتوحًا. أعد محاولة أمر الشوكة المرئية بعد قليل." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "fork: cmux لا يزال قيد الفتح. أعد محاولة أمر الشوكة المرئية بعد قليل." } },
         "bs": { "stringUnit": { "state": "translated", "value": "fork: cmux se još uvijek otvara. Pokušajte ponovo sa komandom vidljive vilice za trenutak." } },
         "da": { "stringUnit": { "state": "translated", "value": "fork: cmux åbner stadig. Prøv kommandoen synlig gaffel igen om et øjeblik." } },
         "de": { "stringUnit": { "state": "translated", "value": "fork: cmux öffnet sich noch. Wiederholen Sie den Befehl „visible fork“ gleich noch einmal." } },
