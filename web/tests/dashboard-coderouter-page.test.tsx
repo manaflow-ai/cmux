@@ -351,9 +351,9 @@ describe("coderouter dashboard", () => {
   test("renders the Machines card for owned machines only", async () => {
     authorizationAvailable = true;
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({ team: "team-1" }),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
     });
     const html = renderToStaticMarkup(page);
 
@@ -370,9 +370,9 @@ describe("coderouter dashboard", () => {
     authorizationAvailable = true;
     machineMetricsKind = "unavailable";
 
-    const page = await CoderouterOverviewPage({
-      params: Promise.resolve({ locale: "en" }),
-      searchParams: Promise.resolve({ team: "team-1" }),
+    const page = await CoderouterOverviewContent({
+      locale: "en",
+      team: "team-1",
     });
     const html = renderToStaticMarkup(page);
 
