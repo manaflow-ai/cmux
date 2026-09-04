@@ -250,6 +250,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         return ObjectIdentifier(current) == ObjectIdentifier(self)
     }
 
+    /// Returns whether work started under `generation` may still mutate this
+    /// provider. Stopped providers keep their object alive until registry
+    /// cleanup completes, so identity alone is not sufficient.
+    func isCurrentLifecycleGeneration(_ generation: UInt64) -> Bool {
+        lifecycleGeneration == generation
+    }
+
     // MARK: - SurfaceProvider
 
     func refresh() async {
@@ -260,13 +267,13 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// its screen (opening it wakes the machine) and nothing else.
     func refresh(force: Bool) async {
         let generation = lifecycleGeneration
-        guard generation == lifecycleGeneration else { return }
+        guard isCurrentLifecycleGeneration(generation) else { return }
         let machine = self.machine
         var resources: [SurfaceResource] = []
         if summary.resolvedKind.hasDesktop {
             resources.append(CmuxTuiSnapshotParser.display(machine: machine))
         }
-        guard generation == lifecycleGeneration else { return }
+        guard isCurrentLifecycleGeneration(generation) else { return }
         guard isAwake, let client = VMClient.shared else {
             info = Self.info(from: summary, linkState: .asleep, linkError: nil, stats: nil)
             catalog.replaceResources(resources, on: machine, info: info, from: self)
@@ -275,7 +282,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         // The display opens over the HTTPS preview and never needs the link, so a
         // machine with no resources yet gets it published before the link attempt —
         // a slow or hanging connect must not leave the desktop unopenable.
-        guard generation == lifecycleGeneration else { return }
+        guard isCurrentLifecycleGeneration(generation) else { return }
         if !resources.isEmpty, !catalog.hasResources(on: machine) {
             catalog.replaceResources(resources, on: machine, info: info, from: self)
         }
@@ -287,11 +294,11 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         var linkError: String?
         var remoteWorkspaces: [SurfaceRemoteWorkspace]?
         do {
-            guard generation == lifecycleGeneration else { return }
+            guard isCurrentLifecycleGeneration(generation) else { return }
             let connected = try await links.connected(machineID: machineID)
-            guard generation == lifecycleGeneration else { return }
+            guard isCurrentLifecycleGeneration(generation) else { return }
             guard let link = await links.link(machineID: machineID) else { throw ProviderError.machineAsleep(machineID) }
-            guard generation == lifecycleGeneration else { return }
+            guard isCurrentLifecycleGeneration(generation) else { return }
             watchChanges(link: link, generation: generation)
             let data = try await link.run(arguments: CloudTuiCommandLine.snapshotArguments(socketPath: connected.socketPath))
             guard generation == lifecycleGeneration else { return }
@@ -316,7 +323,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                     socketPath: connected.socketPath,
                     link: link
                 )
-                guard generation == lifecycleGeneration else { return }
+                guard isCurrentLifecycleGeneration(generation) else { return }
                 var allSurfaceIDsResolved = true
                 for session in sessions {
                     switch resolutions[session.terminalID] {
@@ -344,9 +351,9 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 resources.append(CmuxTuiSnapshotParser.portBrowser(machine: machine, port: port, directURL: directURL))
             }
         } catch {
-            guard generation == lifecycleGeneration else { return }
+            guard isCurrentLifecycleGeneration(generation) else { return }
             let status = await links.status(machineID: machineID)
-            guard generation == lifecycleGeneration else { return }
+            guard isCurrentLifecycleGeneration(generation) else { return }
             linkState = status?.state ?? .error
             var text = status?.error ?? CloudMachineLink.errorText(error)
             // A machine on the private network is reachable only through this
@@ -360,12 +367,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
             cmuxDebugLog("cloud.provider.refreshFailed machine=\(machineID) state=\(linkState) error=\(String(reflecting: error))")
             #endif
         }
-        guard generation == lifecycleGeneration else { return }
+        guard isCurrentLifecycleGeneration(generation) else { return }
         info = Self.info(from: summary, linkState: linkState, linkError: linkError, stats: await stats, remoteWorkspaces: remoteWorkspaces)
-        guard generation == lifecycleGeneration else { return }
+        guard isCurrentLifecycleGeneration(generation) else { return }
         let accepted = catalog.replaceResources(resources, on: machine, info: info, from: self)
-        guard accepted, generation == lifecycleGeneration else { return }
-        reprojectRestoredPanes()
+        guard accepted, isCurrentLifecycleGeneration(generation) else { return }
+        reprojectRestoredPanes(generation: generation)
     }
 
     /// Runs one close-family command, reconnecting and retrying ONCE when the attempt
@@ -743,8 +750,8 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     /// the catalog resolved the record into a projection whose panel is a placeholder shell.
     /// Replace it in place with a real attach pane, as a tab of the same pane, then close
     /// the placeholder.
-    private func reprojectRestoredPanes() {
-        guard isRegisteredInCatalog() else { return }
+    private func reprojectRestoredPanes(generation: UInt64) {
+        guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
         let terminals = catalog.snapshot.resources(on: machine).filter { $0.kind == .terminal }
         for terminal in terminals {
             for projection in catalog.projections(of: terminal.id) where !materializedPanels.contains(projection.panelID) {
@@ -755,11 +762,12 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
                 // Claimed before the async hop so a burst of refreshes cannot re-project twice.
                 materializedPanels.insert(projection.panelID)
                 Task { @MainActor [weak self] in
-                    guard let self else { return }
+                    guard let self, self.isCurrentLifecycleGeneration(generation) else { return }
                     await self.reprojectManualMirror(
                         resource: terminal,
                         projection: projection,
-                        paneID: paneID
+                        paneID: paneID,
+                        generation: generation
                     )
                 }
             }
