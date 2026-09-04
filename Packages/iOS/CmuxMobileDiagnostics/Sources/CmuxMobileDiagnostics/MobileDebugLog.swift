@@ -60,9 +60,12 @@ public struct MobileDebugLog: Sendable {
     /// Clears both the in-memory buffer and the durable verbose-log file.
     @discardableResult
     public func clearPersistedLog() async -> Bool {
+        let wasFileLoggingEnabled = await sink.isFileLoggingEnabled()
         await sink.clear()
         let isFileLoggingEnabled = await sink.clearPersistedLog()
-        UserDefaults.standard.set(isFileLoggingEnabled, forKey: Self.verboseLogDefaultsKey)
+        if wasFileLoggingEnabled {
+            UserDefaults.standard.set(isFileLoggingEnabled, forKey: Self.verboseLogDefaultsKey)
+        }
         return isFileLoggingEnabled
     }
 

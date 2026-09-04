@@ -173,6 +173,31 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: rotatedLogURL(for: logURL).path))
     }
 
+    @Test func clearDisabledLoggingPreservesDisabledPreference() async throws {
+        let logURL = makeLogURL()
+        defer { removeLogFiles(at: logURL) }
+        let defaults = UserDefaults.standard
+        let key = MobileDebugLog.verboseLogDefaultsKey
+        let previous = defaults.object(forKey: key)
+        defer {
+            if let previous {
+                defaults.set(previous, forKey: key)
+            } else {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        defaults.set(false, forKey: key)
+
+        let sink = MobileDebugLogSink(
+            fileURL: logURL,
+            startsFileLoggingEnabled: false
+        )
+        let log = MobileDebugLog(sink: sink)
+
+        #expect(await log.clearPersistedLog())
+        #expect(!defaults.bool(forKey: key))
+    }
+
     private func makeLogURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-mobile-debug-log-tests-\(UUID().uuidString)")

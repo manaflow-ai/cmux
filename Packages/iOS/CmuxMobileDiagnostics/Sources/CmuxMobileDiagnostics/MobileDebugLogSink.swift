@@ -161,6 +161,10 @@ public actor MobileDebugLogSink {
         buffer.removeAll(keepingCapacity: true)
     }
 
+    func isFileLoggingEnabled() -> Bool {
+        fileLoggingEnabled
+    }
+
     /// Removes the durable verbose-log generations while keeping logging in the
     /// same state. DEBUG builds reopen a fresh file immediately; Release builds
     /// reopen only when the user has enabled verbose logging.
