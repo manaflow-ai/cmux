@@ -110,17 +110,34 @@ extension SurfaceResumeBindingSnapshot {
             repaired = suppressed
         }
         guard let restoreLaunch = AgentRestoreLaunch(kind: kind, sessionID: checkpointId) else { return repaired }
-        return restoreLaunch.applying(toStoredCommand: repaired)
+        return restoreLaunch.applying(
+            toStoredCommand: repaired,
+            routedLaunchCommand: launchCommand,
+            checkpointID: checkpointId
+        )
     }
 }
 
 extension AgentRestoreLaunch {
-    func applying(toStoredCommand command: String) -> String {
+    func applying(
+        toStoredCommand command: String,
+        routedLaunchCommand launchCommand: AgentLaunchCommandSnapshot? = nil,
+        checkpointID: String? = nil
+    ) -> String {
         let words = TerminalStartupWorkingDirectoryPrefix.shellWordRanges(command)
         guard let executableIndex = SurfaceResumeCommandCanonicalizer.commandExecutableWordIndex(
             in: words,
             command: command
         ) else { return command }
+        if let routed = applyingSubrouterCodexChildWrapper(
+            to: command,
+            words: words,
+            executableIndex: executableIndex,
+            launchCommand: launchCommand,
+            checkpointID: checkpointID
+        ) {
+            return routed
+        }
         let wrapperToken = wrapperShellExecutableToken
         let executable = words[executableIndex].value
         guard command.contains(wrapperToken) || (executable as NSString).lastPathComponent == executableName else {
@@ -146,6 +163,52 @@ extension AgentRestoreLaunch {
         return authorizing(
             leadingShell: String(routed[..<executableStart]),
             routedCommand: String(routed[executableStart...])
+        )
+    }
+
+    private func applyingSubrouterCodexChildWrapper(
+        to command: String,
+        words: [TerminalStartupWorkingDirectoryPrefix.ShellWordRange],
+        executableIndex: Int,
+        launchCommand: AgentLaunchCommandSnapshot?,
+        checkpointID: String?
+    ) -> String? {
+        guard executableName == "codex",
+              let launchCommand,
+              let checkpointID,
+              let routedPrefix = SubrouterCodexResumeRouting().resumeArguments(
+                  launcher: launchCommand.launcher,
+                  sessionID: checkpointID,
+                  launchArguments: launchCommand.arguments,
+                  environment: launchCommand.environment
+              ),
+              words.count >= executableIndex + routedPrefix.count,
+              Array(words[executableIndex..<(executableIndex + routedPrefix.count)]).map(\.value)
+                  == routedPrefix else {
+            return nil
+        }
+
+        let executableStart = words[executableIndex].range.lowerBound
+        var assignments: [String] = []
+        let capturedExecutable = SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+            in: launchCommand.environment,
+            fallbackExecutable: launchCommand.executablePath,
+            wrapperShim: wrapperShellExecutableToken
+        )
+        if let capturedExecutable {
+            assignments.append(
+                TerminalStartupShellQuoting.singleQuoted("CMUX_CUSTOM_CODEX_PATH=\(capturedExecutable)")
+            )
+        }
+        let routedExecutableToken = capturedExecutable.map {
+            AgentResumeArgv.codexWrapperShellExecutableToken(fallbackExecutable: $0)
+        } ?? wrapperShellExecutableToken
+        assignments.append("SUBROUTER_CODEX_BIN=\(routedExecutableToken)")
+        let routedCommand = "/usr/bin/env " + assignments.joined(separator: " ") + " "
+            + String(command[executableStart...])
+        return authorizing(
+            leadingShell: String(command[..<executableStart]),
+            routedCommand: portableWrapperShellCommand(posixCommand: routedCommand)
         )
     }
 }

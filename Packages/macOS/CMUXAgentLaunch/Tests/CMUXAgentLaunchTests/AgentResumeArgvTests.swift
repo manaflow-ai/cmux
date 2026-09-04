@@ -3,6 +3,13 @@ import Testing
 
 @Suite("AgentResumeArgv")
 struct AgentResumeArgvTests {
+    private func boundSubrouterMarker(_ command: String = "sr codex resume") -> [String: String] {
+        [
+            SubrouterCodexResumeRouting.environmentKey: command,
+            SubrouterCodexResumeRouting.launchBoundEnvironmentKey: command,
+        ]
+    }
+
     @Test("Built-in --option style kinds", arguments: [
         ("claude", "claude", ["claude", "--resume", "SID"]),
         ("grok", "grok", ["grok", "-r", "SID"]),
@@ -246,10 +253,246 @@ struct AgentResumeArgvTests {
                 launcher: "claude", sessionId: "SID", executablePath: nil, arguments: ["claude"]
             ) == .passthrough
         )
+
         #expect(
             AgentResumeArgv().launcherResolution(
                 launcher: nil, sessionId: "SID", executablePath: nil, arguments: []
             ) == .passthrough
+        )
+    }
+
+    @Test("Subrouter-routed Codex resumes through the captured explicit launcher")
+    func subrouterCodexResumeUsesCapturedExplicitLauncher() {
+        let routedArguments = [
+            "/opt/bin/codex",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model",
+            "gpt-test",
+            "-c",
+            "model_provider=subrouter",
+            "-c",
+            "model_providers.subrouter.base_url=\"http://router.example/v1\"",
+            "-c",
+            "model_reasoning_effort=high",
+        ]
+
+        let preserved = [
+            "-c", "check_for_update_on_startup=false",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model", "gpt-test",
+            "-c", "model_reasoning_effort=high",
+        ]
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: ["SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume"]
+            ) == .passthrough,
+            "An inherited raw marker without wrapper-bound proof must not reroute a direct Codex restore"
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: boundSubrouterMarker()
+            ) == .resolved(["sr", "codex", "resume", "SID"] + preserved)
+        )
+
+        for command in ["subrouter", "cx"] {
+            #expect(
+                AgentResumeArgv().launcherResolution(
+                    launcher: "codex",
+                    sessionId: "SID",
+                    executablePath: "/opt/bin/codex",
+                    arguments: routedArguments,
+                    environment: boundSubrouterMarker("\(command) codex resume")
+                ) == .resolved([command, "codex", "resume", "SID"] + preserved)
+            )
+        }
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex", "--config=model_provider=\"subrouter\""],
+                environment: boundSubrouterMarker("  sr   codex resume  ")
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: [:]
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=subrouter",
+                    "-c", "model_provider=openai",
+                ],
+                environment: boundSubrouterMarker()
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=openai",
+                    "--config=model_provider='subrouter'",
+                ],
+                environment: boundSubrouterMarker()
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: ["/opt/bin/codex"],
+                environment: boundSubrouterMarker()
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: boundSubrouterMarker("sr codex resume; echo unsafe")
+            ) == .passthrough
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: routedArguments,
+                environment: boundSubrouterMarker("router codex resume")
+            ) == .passthrough
+        )
+    }
+
+    @Test("Subrouter routing proof and filtering stop at the option terminator")
+    func subrouterRoutingStopsAtOptionTerminator() {
+        let marker = boundSubrouterMarker()
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "-c", "model_provider=subrouter",
+                    "--",
+                    "-c", "model_provider=openai",
+                ],
+                environment: marker
+            ) == .resolved([
+                "sr", "codex", "resume", "SID",
+                "-c", "check_for_update_on_startup=false",
+            ])
+        )
+
+        #expect(
+            AgentResumeArgv().launcherResolution(
+                launcher: "codex",
+                sessionId: "SID",
+                executablePath: "/opt/bin/codex",
+                arguments: [
+                    "/opt/bin/codex",
+                    "--",
+                    "--config=model_provider=subrouter",
+                ],
+                environment: marker
+            ) == .passthrough
+        )
+    }
+
+    @Test("Public Subrouter arguments redact config without nulling prompt text")
+    func publicSubrouterArgumentsAreStructurallyRedacted() {
+        #expect(SubrouterCodexResumeRouting().removingPrivateRoutingArguments(from: [
+            "codex",
+            "discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter",
+            "-c", "model_provider=\"subrouter\"",
+            "--config=model_providers.subrouter.base_url=https://router.example.test/v1",
+            "--",
+            "--config=model_provider=subrouter",
+        ]) == [
+            "codex",
+            "discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter",
+            "--",
+            "--config=model_provider=subrouter",
+        ])
+    }
+
+    @Test("Captured executable fallback outranks a stale Subrouter child path")
+    func capturedExecutableFallbackOutranksStaleSubrouterPath() {
+        #expect(SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+            in: ["SUBROUTER_CODEX_BIN": "/stale/cmux-codex-wrapper"],
+            fallbackExecutable: "/opt/bin/codex",
+            wrapperShim: "/managed/cmux-codex-wrapper"
+        ) == "/opt/bin/codex")
+    }
+
+    @Test("Subrouter routing proof survives prompt sanitization")
+    func subrouterRoutingProofSurvivesPromptSanitization() {
+        let router = SubrouterCodexResumeRouting()
+        let marker = boundSubrouterMarker()
+
+        #expect(router.retainingRoutingProof(
+            in: ["codex"],
+            from: ["codex", "fix this", "-c", "model_provider=subrouter"],
+            launcher: "codex",
+            environment: marker
+        ) == ["codex", "-c", "model_provider=subrouter"])
+
+        #expect(router.retainingRoutingProof(
+            in: ["codex", "--"],
+            from: ["codex", "fix this", "--", "-c", "model_provider=subrouter"],
+            launcher: "codex",
+            environment: marker
+        ) == ["codex", "--"])
+    }
+
+    @Test("Codex wrapper rendering does not rewrite sr's codex subcommand")
+    func renderedSubrouterResumeKeepsExplicitLauncher() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["sr", "codex", "resume", "SID"],
+                quote: quote
+            ) == "'sr' 'codex' 'resume' 'SID'"
         )
     }
 
@@ -289,11 +532,15 @@ struct AgentResumeArgvTests {
         )
     }
 
-    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM, degrading to bare codex")
+    @Test("Codex wrapper token resolves CMUX_CODEX_WRAPPER_SHIM with an explicit fallback")
     func codexWrapperShellExecutableToken() {
         #expect(
             AgentResumeArgv.codexWrapperShellExecutableToken
                 == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf codex)\""
+        )
+        #expect(
+            AgentResumeArgv.codexWrapperShellExecutableToken(fallbackExecutable: "/opt/team's codex")
+                == "\"$([ -x \"${CMUX_CODEX_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_CODEX_WRAPPER_SHIM\" || printf '%s' '/opt/team'\\''s codex')\""
         )
     }
 

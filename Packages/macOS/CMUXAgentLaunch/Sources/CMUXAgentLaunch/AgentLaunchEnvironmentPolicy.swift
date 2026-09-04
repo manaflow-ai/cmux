@@ -72,6 +72,7 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
+        "CMUX_CUSTOM_CODEX_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -142,6 +143,9 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
                 result.removeValue(forKey: key)
             }
         }
+        if normalizedKind != "codex" {
+            result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
         if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
                 result.removeValue(forKey: key)
@@ -171,6 +175,60 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
            let path = normalizedValue(env["PATH"]) {
             selected["PATH"] = path
         }
+        return selected
+    }
+
+    /// Returns the bounded environment metadata that may cross the structured
+    /// restore-record boundary. Subrouter's Codex resume marker is retained
+    /// only when the captured argv independently proves routed execution; the
+    /// ordinary restore policy still removes it before process replay.
+    public func selectedRestoreRecordEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreEnvironment(from: env, kind: kind)
+        let normalizedKind = kind?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedKind == "codex" else { return selected }
+
+        let router = SubrouterCodexResumeRouting()
+        guard router.resumeArguments(
+            launcher: launcher,
+            sessionID: "restore-record-validation",
+            launchArguments: arguments,
+            environment: env
+        ) != nil,
+        let marker = router.capturedMarker(in: env) else {
+            return selected
+        }
+        selected.merge(router.capturedRoutingEnvironment(in: env)) { _, routingValue in
+            routingValue
+        }
+        selected[SubrouterCodexResumeRouting.environmentKey] = marker
+        selected[SubrouterCodexResumeRouting.launchBoundEnvironmentKey] = marker
+        return selected
+    }
+
+    /// Returns replay-safe environment values for a rendered resume command.
+    /// Routed Codex resumes retain their bounded account/server inputs after
+    /// the metadata-only launcher marker has selected the explicit `sr` argv.
+    public func selectedReplayEnvironment(
+        from env: [String: String],
+        kind: String?,
+        launcher: String?,
+        arguments: [String]
+    ) -> [String: String] {
+        var selected = selectedRestoreRecordEnvironment(
+            from: env,
+            kind: kind,
+            launcher: launcher,
+            arguments: arguments
+        )
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.environmentKey)
+        selected.removeValue(forKey: SubrouterCodexResumeRouting.launchBoundEnvironmentKey)
         return selected
     }
 

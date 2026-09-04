@@ -217,6 +217,153 @@ import Testing
         )
     }
 
+    @Test func testSurfaceResumeJSONDoesNotExposePrivateSubrouterRoutingMetadata() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-resume-private-\(UUID().uuidString.prefix(8)).sock"
+        let privateRestoreRecord: [String: Any] = [
+            "kind": "codex",
+            "legacy_command": "env 'SUBROUTER_CODEX_USER_EMAIL=legacy-private@example.test' sr codex resume session-id",
+            "prepared_arguments": [
+                "/private/custom/codex",
+                "-c", "model_provider=subrouter",
+                "--config=model_providers.subrouter.base_url=https://prepared-router.example.test/v1",
+            ],
+            "launch_command": [
+                "arguments": [
+                    "/private/custom/codex", "-c", "model_provider=\"subrouter\"",
+                    "-c", "model_providers.subrouter.base_url=https://router.example.test/v1",
+                ],
+                "executable_path": "/private/custom/codex",
+                "environment": [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_ACCOUNT_ID": "private-account",
+                    "SUBROUTER_CODEX_BASE_URL": "https://router.example.test/v1",
+                    "SUBROUTER_CODEX_BIN": "/opt/bin/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_CUSTOM_CODEX_PATH": "/private/custom/codex",
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                    "SUBROUTER_CODEX_USER_EMAIL": "private@example.test",
+                ],
+            ],
+        ]
+        let response = try jsonResponse(result: [
+            "resume_binding": [
+                "command": "env 'SUBROUTER_CODEX_USER_EMAIL=private@example.test' sr codex resume session-id",
+                "environment": [
+                    "PATH": "/usr/bin:/bin",
+                    "SUBROUTER_CODEX_SERVER": "private-server",
+                ],
+            ],
+            "restore_record": privateRestoreRecord,
+        ])
+        let listResponse = try jsonResponse(result: [
+            "surfaces": [[
+                "id": UUID().uuidString.lowercased(),
+                "ref": "surface:1",
+                "type": "terminal",
+                "restore_record": privateRestoreRecord,
+            ]],
+        ])
+        let directCommand = "codex resume direct-session -- 'discuss SUBROUTER_CODEX_USER_EMAIL and model_provider=subrouter'"
+        let directResponse = try jsonResponse(result: [
+            "resume_binding": [
+                "command": directCommand,
+                "environment": ["PATH": "/usr/bin:/bin"],
+            ],
+        ])
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [response, response, listResponse, directResponse]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+        #expect(result.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(result.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(result.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(result.combinedOutput.contains("[private routing metadata]") == false)
+        #expect(result.combinedOutput.contains("model_provider") == false)
+        #expect(result.combinedOutput.contains("private@example.test") == false)
+        #expect(result.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(result.combinedOutput.contains("router.example.test") == false)
+        let payload = try #require(
+            JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any]
+        )
+        let record = try #require(payload["restore_record"] as? [String: Any])
+        #expect(record["legacy_command"] is NSNull)
+        let preparedArguments = try #require(record["prepared_arguments"] as? [Any])
+        #expect(preparedArguments.first is NSNull)
+        #expect(preparedArguments.count == 1)
+        let launchCommand = try #require(record["launch_command"] as? [String: Any])
+        #expect(launchCommand["executable_path"] is NSNull)
+        let launchArguments = try #require(launchCommand["arguments"] as? [Any])
+        #expect(launchArguments.first is NSNull)
+        #expect(launchArguments.count == 1)
+        let launchEnvironment = try #require(launchCommand["environment"] as? [String: Any])
+        #expect(Set(launchEnvironment.keys) == Set(["PATH"]))
+        #expect(launchEnvironment["PATH"] as? String == "/usr/bin:/bin")
+
+        let plainResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!plainResult.timedOut, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.status == 0, Comment(rawValue: plainResult.diagnostics))
+        #expect(plainResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == "null")
+        #expect(plainResult.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(plainResult.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(plainResult.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(plainResult.combinedOutput.contains("[private routing metadata]") == false)
+        #expect(plainResult.combinedOutput.contains("model_provider") == false)
+        #expect(plainResult.combinedOutput.contains("private@example.test") == false)
+        #expect(plainResult.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(plainResult.combinedOutput.contains("router.example.test") == false)
+
+        let listResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["list-panels", "--json"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!listResult.timedOut, Comment(rawValue: listResult.diagnostics))
+        #expect(listResult.status == 0, Comment(rawValue: listResult.diagnostics))
+        #expect(listResult.combinedOutput.contains("SUBROUTER_CODEX_") == false)
+        #expect(listResult.combinedOutput.contains("CMUX_CUSTOM_CODEX_PATH") == false)
+        #expect(listResult.combinedOutput.contains("/private/custom/codex") == false)
+        #expect(listResult.combinedOutput.contains("model_provider") == false)
+        #expect(listResult.combinedOutput.contains("private@example.test") == false)
+        #expect(listResult.combinedOutput.contains("legacy-private@example.test") == false)
+        #expect(listResult.combinedOutput.contains("router.example.test") == false)
+
+        let directResult = runProcess(
+            executablePath: cliPath,
+            arguments: ["surface", "resume", "show"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!directResult.timedOut, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.status == 0, Comment(rawValue: directResult.diagnostics))
+        #expect(directResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines) == directCommand)
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let workspaceID = UUID().uuidString.lowercased()

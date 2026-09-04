@@ -16,6 +16,57 @@ private let remoteShellPromptFishExecutablePath = [
 ].first { FileManager.default.isExecutableFile(atPath: $0) }
 
 struct RemoteShellPromptRelayTests {
+    @Test("remote session resource loader owns a dedicated source file")
+    func remoteSessionResourceLoaderOwnsDedicatedSourceFile() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let loaderSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("Sources/RemoteSessionBundledResourceLoader.swift"),
+            encoding: .utf8
+        )
+        let bootstrapSource = try String(
+            contentsOf: repositoryRoot
+                .appendingPathComponent("Sources/RemoteInteractiveShellBootstrapBuilder.swift"),
+            encoding: .utf8
+        )
+
+        #expect(loaderSource.contains("struct RemoteSessionBundledResourceLoader"))
+        #expect(!bootstrapSource.contains("struct RemoteSessionBundledResourceLoader"))
+    }
+
+    @Test("remote session resource loader reads the bundled Codex wrapper")
+    func remoteSessionResourceLoaderReadsBundledCodexWrapper() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-wrapper-resource-\(UUID().uuidString)", isDirectory: true)
+        let binDirectory = directory.appendingPathComponent("bin", isDirectory: true)
+        let wrapperURL = binDirectory.appendingPathComponent("cmux-codex-wrapper", isDirectory: false)
+        try FileManager.default.createDirectory(at: binDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try "#!/usr/bin/env bash\nexit 0\n".write(to: wrapperURL, atomically: true, encoding: .utf8)
+
+        let loader = RemoteSessionBundledResourceLoader(
+            resourceURL: directory,
+            fileManager: .default
+        )
+
+        #expect(loader.codexWrapperScript() == "#!/usr/bin/env bash\nexit 0\n")
+    }
+
+    @Test("remote shell re-exports the provisioned Codex wrapper shim")
+    func remoteShellExportsCodexWrapperShim() {
+        let script = RemoteInteractiveShellBootstrapBuilder.script(
+            remoteRelayPort: 64_044,
+            shellFeatures: "ssh-env,ssh-terminfo"
+        )
+
+        #expect(script.contains(
+            "unset CMUX_CODEX_WRAPPER_SHIM; if [ -x \"$HOME/.cmux/bin/cmux-codex-wrapper\" ]"
+        ))
+        #expect(script.contains("command -v bash"))
+    }
+
     @Test("remote zsh prompt reports Git metadata through the relay")
     func remoteZshPromptReportsGitMetadataThroughRelay() throws {
         let output = try runPrompt(

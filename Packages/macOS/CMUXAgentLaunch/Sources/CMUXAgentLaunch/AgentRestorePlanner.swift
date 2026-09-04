@@ -71,6 +71,11 @@ public struct AgentRestorePlanner: Sendable {
 
         var environment = ambientEnvironment
         let restoredEnvironment = restoredEnvironment(for: request, kind: kind)
+        if hasProvenRoutedCodexLaunch(request, kind: kind) {
+            for key in SubrouterCodexResumeRouting.restoreOwnedEnvironmentKeys {
+                environment.removeValue(forKey: key)
+            }
+        }
         environment.merge(restoredEnvironment) { _, restored in restored }
 
         var routedArguments = sanitizedArguments
@@ -140,7 +145,8 @@ public struct AgentRestorePlanner: Sendable {
                 launcher: launch?.launcher,
                 sessionId: checkpointID,
                 executablePath: launch?.executablePath,
-                arguments: launch?.arguments ?? []
+                arguments: launch?.arguments ?? [],
+                environment: launch?.environment
             ) {
             case .resolved(let arguments):
                 if let arguments {
@@ -166,7 +172,8 @@ public struct AgentRestorePlanner: Sendable {
         for request: AgentRestoreRequest,
         kind: String
     ) -> [String: String] {
-        var captured = request.launchCommand?.environment ?? [:]
+        let launchEnvironment = request.launchCommand?.environment ?? [:]
+        var captured = launchEnvironment
         captured.merge(request.environment) { _, binding in binding }
         if kind == "codex",
            let rawCodexHome = normalized(captured["CODEX_HOME"]),
@@ -185,10 +192,36 @@ public struct AgentRestorePlanner: Sendable {
         if request.mode == .direct {
             return captured
         }
-        var selected = AgentLaunchEnvironmentPolicy().selectedRestoreEnvironment(
+        let environmentPolicy = AgentLaunchEnvironmentPolicy()
+        var selected = environmentPolicy.selectedRestoreEnvironment(
             from: captured,
             kind: kind
         )
+        if kind == "codex" {
+            let router = SubrouterCodexResumeRouting()
+            if router.resumeArguments(
+                launcher: request.launchCommand?.launcher,
+                sessionID: "restore-environment-validation",
+                launchArguments: request.launchCommand?.arguments ?? [],
+                environment: launchEnvironment
+            ) != nil {
+                // Only the launch record can prove routed resume. Request environment
+                // remains authoritative for ordinary replay values, but presence and
+                // absence of restore-owned routing values come only from that proof.
+                for key in SubrouterCodexResumeRouting.restoreOwnedEnvironmentKeys {
+                    selected.removeValue(forKey: key)
+                }
+                selected.merge(router.capturedRoutingEnvironment(in: launchEnvironment)) { _, routingValue in
+                    routingValue
+                }
+                if let customCodexPath = environmentPolicy.sanitizedValue(
+                    key: "CMUX_CUSTOM_CODEX_PATH",
+                    value: launchEnvironment["CMUX_CUSTOM_CODEX_PATH"]
+                ) {
+                    selected["CMUX_CUSTOM_CODEX_PATH"] = customCodexPath
+                }
+            }
+        }
         if kind == "claude" {
             let keys = selected.keys.sorted().filter {
                 Self.claudeAuthSelectionEnvironmentKeys.contains($0)
@@ -199,6 +232,16 @@ public struct AgentRestorePlanner: Sendable {
             }
         }
         return selected
+    }
+
+    private func hasProvenRoutedCodexLaunch(_ request: AgentRestoreRequest, kind: String) -> Bool {
+        guard kind == "codex", request.mode != .direct else { return false }
+        return SubrouterCodexResumeRouting().resumeArguments(
+            launcher: request.launchCommand?.launcher,
+            sessionID: "restore-environment-validation",
+            launchArguments: request.launchCommand?.arguments ?? [],
+            environment: request.launchCommand?.environment
+        ) != nil
     }
 
     private func retargetPreparedWorkingDirectory(
@@ -234,11 +277,37 @@ public struct AgentRestorePlanner: Sendable {
         kind: String,
         environment: inout [String: String]
     ) -> [String] {
+        guard let restoreLaunch = AgentRestoreLaunch(
+            kind: kind,
+            sessionID: request.checkpointID
+        ) else {
+            return arguments
+        }
+
+        if kind == "codex",
+           let checkpointID = normalized(request.checkpointID),
+           let routedPrefix = SubrouterCodexResumeRouting().resumeArguments(
+               launcher: request.launchCommand?.launcher,
+               sessionID: checkpointID,
+               launchArguments: request.launchCommand?.arguments ?? [],
+               environment: request.launchCommand?.environment
+           ),
+           arguments.starts(with: routedPrefix),
+           let wrapperShim = normalized(environment[restoreLaunch.wrapperShimEnvironmentKey]),
+           isExecutableFile(wrapperShim) {
+            if let capturedExecutable = SubrouterCodexResumeRouting().preferredCustomCodexExecutable(
+                in: request.launchCommand?.environment,
+                fallbackExecutable: request.launchCommand?.executablePath,
+                wrapperShim: wrapperShim
+            ) {
+                environment[restoreLaunch.customExecutablePathEnvironmentKey] = capturedExecutable
+            }
+            environment["SUBROUTER_CODEX_BIN"] = wrapperShim
+            environment["CMUX_AGENT_RESTORE_LAUNCH"] = restoreLaunch.authorizationEnvironmentValue
+            return arguments
+        }
+
         guard let first = arguments.first,
-              let restoreLaunch = AgentRestoreLaunch(
-                  kind: kind,
-                  sessionID: request.checkpointID
-              ),
               (first as NSString).lastPathComponent == restoreLaunch.executableName else {
             return arguments
         }

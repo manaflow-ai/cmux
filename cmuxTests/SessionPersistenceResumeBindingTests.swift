@@ -145,6 +145,72 @@ import Testing
         #expect(startupInput.contains("CMUX_CUSTOM_\(kind.uppercased())_PATH="), "\(startupInput)")
     }
 
+    @Test func routedCodexBindingRoutesSubrouterChildThroughManagedWrapper() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'sr' 'codex' 'resume' '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            environment: ["SUBROUTER_CODEX_BIN": "/opt/company/bin/codex"],
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/company/bin/codex",
+                arguments: ["/opt/company/bin/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "SUBROUTER_CODEX_BIN": "/opt/company/bin/codex",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ],
+                capturedAt: 1,
+                source: "environment"
+            ),
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.inlineStartupInput)
+
+        #expect(startupInput.contains("CMUX_AGENT_RESTORE_LAUNCH=codex:\(sessionId)"), "\(startupInput)")
+        #expect(startupInput.contains("SUBROUTER_CODEX_BIN="), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CODEX_WRAPPER_SHIM"), "\(startupInput)")
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/company/bin/codex"), "\(startupInput)")
+        #expect(startupInput.contains("/bin/sh -c"), "\(startupInput)")
+    }
+
+    @Test func repeatedRoutedCodexBindingKeepsTheCapturedRealCodexExecutable() throws {
+        let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
+        let binding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "'sr' 'codex' 'resume' '\(sessionId)'",
+            checkpointId: sessionId,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/opt/custom/codex",
+                arguments: ["/opt/custom/codex", "-c", "model_provider=subrouter"],
+                workingDirectory: "/tmp/project",
+                environment: [
+                    "CMUX_AGENT_LAUNCH_SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                    "CMUX_CUSTOM_CODEX_PATH": "/opt/custom/codex",
+                    "SUBROUTER_CODEX_BIN": "${CMUX_CODEX_WRAPPER_SHIM:-codex}",
+                    "SUBROUTER_CODEX_RESUME_COMMAND": "sr codex resume",
+                ],
+                capturedAt: 1,
+                source: "environment"
+            ),
+            autoResume: true
+        )
+
+        let startupInput = try #require(binding.inlineStartupInput)
+
+        #expect(startupInput.contains("CMUX_CUSTOM_CODEX_PATH=/opt/custom/codex"), "\(startupInput)")
+        #expect(
+            !startupInput.contains("${CMUX_CODEX_WRAPPER_SHIM:-codex}"),
+            "\(startupInput)"
+        )
+    }
+
     @Test func restoreBindingAuthorizationRejectsUnownedOrUnboundCommands() throws {
         let sessionId = "a22293b7-bcef-4707-8439-2f538c8517a4"
         let nonHook = SurfaceResumeBindingSnapshot(
