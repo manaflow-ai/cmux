@@ -264,6 +264,21 @@ public final class BrowserAutomationNavigationCoordinator {
         finishMatching(instanceID: instanceID, navigationID: navigationID, with: .failed(message))
     }
 
+    /// Completes an engine-owned navigation using its exact current ticket.
+    ///
+    /// Chromium has CDP lifecycle signals instead of WKNavigation identities.
+    /// The adapter calls this only after the matching main-frame load finishes.
+    /// - Parameters:
+    ///   - ticket: The navigation ticket captured before the CDP command.
+    ///   - outcome: The renderer's terminal navigation outcome.
+    public func finishExternally(
+        _ ticket: BrowserAutomationNavigationTicket,
+        with outcome: BrowserAutomationNavigationOutcome
+    ) {
+        guard activeTicket == ticket else { return }
+        finish(ticket, with: outcome)
+    }
+
     /// Records a cancellation only when it belongs to the exact active navigation.
     public func didCancel(instanceID: UUID, navigationID: ObjectIdentifier?) {
         guard pendingReplacementNavigationID != navigationID else { return }

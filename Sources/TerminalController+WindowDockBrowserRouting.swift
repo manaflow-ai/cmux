@@ -273,6 +273,8 @@ extension TerminalController {
             "surface_ref": v2Ref(kind: .surface, uuid: context.surfaceId),
             "window_id": v2OrNull(windowID?.uuidString),
             "window_ref": v2Ref(kind: .window, uuid: windowID),
+            "engine": context.browserPanel.engineKind.rawValue,
+            "cdp_endpoint": v2OrNull(context.browserPanel.chromiumCDPEndpoint?.connectOverCDPURL?.absoluteString),
         ]
         for (key, value) in extra {
             payload[key] = value
