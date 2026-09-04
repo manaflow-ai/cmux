@@ -1,4 +1,5 @@
 import CoreGraphics
+import CmuxAgentChat
 import CmuxBrowser
 import CmuxCore
 import Foundation
@@ -489,6 +490,55 @@ struct SurfaceResumeBindingSnapshot: Codable, Equatable, Sendable {
 
     static func shellSingleQuoted(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+extension SurfaceResumeBindingSnapshot {
+    /// Builds manual-only recovery metadata for an ordinary shell command.
+    /// Existing agent/tmux bindings always win; semantic prompt history is
+    /// preferred, with the automatic process title used only while a command
+    /// was known to be running when the snapshot was captured.
+    static func recoveredShellCommandBinding(
+        existing: Self?,
+        restorableAgentExists: Bool,
+        shellActivityState: PanelShellActivityState,
+        automaticTitle: String?,
+        hasCustomTitle: Bool,
+        scrollback: String?,
+        workingDirectory: String?,
+        allowAutomaticTitleFallback: Bool = false
+    ) -> Self? {
+        let previousRecovery = existing?.source == "session-command" ? existing : nil
+        if restorableAgentExists { return existing }
+        if let existing, existing.source != "session-command" { return existing }
+
+        let parsedCommand: String? = scrollback.flatMap { text in
+            var parser = OSC133CommandParser()
+            parser.consume(text)
+            let command = parser.blocks.last?.command
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return command.isEmpty ? nil : command
+        }
+        let titleCandidate = automaticTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let genericTitles: Set<String> = ["terminal", "shell", "bash", "zsh", "fish", "nu", "sh"]
+        let runningTitle = (allowAutomaticTitleFallback || shellActivityState == .commandRunning) &&
+            !hasCustomTitle &&
+            titleCandidate.map { !genericTitles.contains($0.lowercased()) } == true
+                ? titleCandidate
+                : nil
+        let command = (parsedCommand ?? runningTitle)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let command, !command.isEmpty else { return previousRecovery }
+
+        return Self(
+            kind: "shell",
+            command: command,
+            cwd: workingDirectory,
+            source: "session-command",
+            autoResume: false,
+            approvalPolicy: .manual
+        )
     }
 }
 

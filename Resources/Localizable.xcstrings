@@ -1,6 +1,27 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "cli.lastCommand.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Usage: cmux last-command [show|run] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--json]\n\nShow the command recovered for a restored terminal, or explicitly run it in that same surface.\nWith no action, the command is only printed." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "使用方法: cmux last-command [show|run] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--json]\n\n復元されたターミナルから回収したコマンドを表示するか、同じサーフェスで明示的に実行します。\nアクションを省略すると、コマンドの表示のみを行います。" } }
+      }
+    },
+    "cli.surfaceResume.error.noCommand": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "No recoverable command is available for this surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このサーフェスには復元可能なコマンドがありません" } }
+      }
+    },
+    "cli.surfaceResume.help.run": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux surface resume run [--json] [flags]    Execute the saved command in that surface" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux surface resume run [--json] [flags]    保存されたコマンドをそのサーフェスで実行" } }
+      }
+    },
     "cli.help.readScreen": {
       "extractionState": "manual",
       "localizations": {

@@ -234,13 +234,23 @@ extension DockSplitStore {
         )
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
+        let persistedResumeBinding = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+            existing: terminalSnapshot.resumeBinding,
+            restorableAgentExists: terminalSnapshot.agent != nil,
+            shellActivityState: .unknown,
+            automaticTitle: snapshot.title,
+            hasCustomTitle: snapshot.customTitle != nil,
+            scrollback: terminalSnapshot.scrollback,
+            workingDirectory: terminalSnapshot.workingDirectory ?? snapshot.directory,
+            allowAutomaticTitleFallback: true
+        )
         let restorableAgent = Workspace.restorableAgentForSessionRestore(
             terminalSnapshot.agent,
-            resumeBinding: terminalSnapshot.resumeBinding
+            resumeBinding: persistedResumeBinding
         )
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
         let resumeBinding = Workspace.resumeBindingForSessionRestore(
-            terminalSnapshot.resumeBinding,
+            persistedResumeBinding,
             restorableAgent: restorableAgent
         )
         // A persisted agent snapshot can coexist with a non-agent binding

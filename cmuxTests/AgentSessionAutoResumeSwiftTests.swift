@@ -14,6 +14,7 @@ import Testing
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
     @Test("Plain shell snapshots retain a manual command when no agent resume binding exists")
+    @MainActor
     func plainShellCommandBecomesManualResumeBinding() throws {
         let cwd = "/tmp/cmux-last-command"
         let command = "python3 -m http.server 8080"
@@ -58,6 +59,17 @@ struct AgentSessionAutoResumeSwiftTests {
         )
         #expect(customTitle == nil)
 
+        let genericTitle = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+            existing: nil,
+            restorableAgentExists: false,
+            shellActivityState: .commandRunning,
+            automaticTitle: "Terminal",
+            hasCustomTitle: false,
+            scrollback: nil,
+            workingDirectory: cwd
+        )
+        #expect(genericTitle == nil)
+
         let agentBinding = SurfaceResumeBindingSnapshot(
             kind: "codex",
             command: "codex resume session-123",
@@ -75,6 +87,28 @@ struct AgentSessionAutoResumeSwiftTests {
             workingDirectory: cwd
         )
         #expect(preserved == agentBinding)
+
+        let source = Workspace()
+        defer { source.teardownAllPanels() }
+        let sourcePanelID = try #require(source.focusedPanelId)
+        #expect(source.updatePanelTitle(panelId: sourcePanelID, title: command))
+        var legacySnapshot = source.sessionSnapshot(includeScrollback: false)
+        let legacyPanelIndex = try #require(
+            legacySnapshot.panels.firstIndex { $0.id == sourcePanelID }
+        )
+        legacySnapshot.panels[legacyPanelIndex].terminal?.resumeBinding = nil
+
+        let restored = Workspace()
+        defer { restored.teardownAllPanels() }
+        let restoredIDs = restored.restoreSessionSnapshot(legacySnapshot)
+        let restoredPanelID = try #require(restoredIDs[sourcePanelID])
+        let restoredBinding = try #require(
+            restored.surfaceResumeBinding(panelId: restoredPanelID)
+        )
+        #expect(restoredBinding.command == command)
+        #expect(restoredBinding.source == "session-command")
+        #expect(restoredBinding.approvalPolicy == .manual)
+        #expect(restoredBinding.autoResume == false)
     }
 
     /// Regression for #9619: cmux-owned restore input is an implementation

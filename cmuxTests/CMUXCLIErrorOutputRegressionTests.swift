@@ -217,6 +217,59 @@ import Testing
         )
     }
 
+    @Test func testSurfaceResumeRunSendsRecoveredCommandToExactSurface() throws {
+        let cliPath = try bundledCLIPath()
+        let socketPath = "/tmp/cmux-resume-run-\(UUID().uuidString.prefix(8)).sock"
+        let workspaceID = UUID().uuidString.lowercased()
+        let surfaceID = UUID().uuidString.lowercased()
+        let command = "python3 -m http.server 8080"
+        let getResponseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "resume_binding": ["command": command],
+            ],
+        ])
+        let responder = try UnixSocketResponder(
+            path: socketPath,
+            responses: [
+                String(decoding: getResponseData, as: UTF8.self),
+                #"{"ok":true,"result":{"sent":true}}"#,
+            ]
+        )
+        defer { responder.stop() }
+
+        var environment = ProcessInfo.processInfo.environment
+        for key in Array(environment.keys) where key.hasPrefix("CMUX_") {
+            environment.removeValue(forKey: key)
+        }
+        environment["CMUX_SOCKET_PATH"] = socketPath
+        environment["CMUX_CLI_SENTRY_DISABLED"] = "1"
+
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["last-command", "run"],
+            environment: environment,
+            timeout: 5
+        )
+        #expect(!result.timedOut, Comment(rawValue: result.diagnostics))
+        #expect(result.status == 0, Comment(rawValue: result.diagnostics))
+
+        let requests = try responder.receivedRequests.map { request -> [String: Any] in
+            let data = try #require(request.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        #expect(requests.compactMap { $0["method"] as? String } == [
+            "surface.resume.get",
+            "surface.send_text",
+        ])
+        let sendParams = try #require(requests.last?["params"] as? [String: Any])
+        #expect(sendParams["workspace_id"] as? String == workspaceID)
+        #expect(sendParams["surface_id"] as? String == surfaceID)
+        #expect(sendParams["text"] as? String == command + "\n")
+    }
+
     @Test func testIOSContextFromTerminalFallsBackToWorkspaceSimulator() throws {
         let cliPath = try bundledCLIPath()
         let workspaceID = UUID().uuidString.lowercased()

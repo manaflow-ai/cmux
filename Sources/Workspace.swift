@@ -655,6 +655,15 @@ extension Workspace {
                 includeScrollback: includeScrollback,
                 allowFallbackScrollback: shouldPersistScrollback || allowDebugFallbackScrollback || hasRestoredScrollbackFallback
             )
+            let snapshotResumeBinding = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+                existing: resumeBinding,
+                restorableAgentExists: effectiveRestorableAgent != nil,
+                shellActivityState: panelShellActivityStates[panelId] ?? .unknown,
+                automaticTitle: panelTitle,
+                hasCustomTitle: customTitle != nil,
+                scrollback: resolvedScrollback,
+                workingDirectory: directory
+            )
             let sessionFontSize: Float32?
             let sessionFontSizeChangeTokens: [UUID]?
             if let terminalFontSizeSnapshotProjection {
@@ -685,7 +694,7 @@ extension Workspace {
                         lastActivityAt: $0.lastActivityAt.timeIntervalSince1970
                     )
                 },
-                resumeBinding: resumeBinding,
+                resumeBinding: snapshotResumeBinding,
                 textBoxDraft: terminalPanel.sessionTextBoxDraftSnapshot(),
                 isRemoteTerminal: activeRemoteTerminalSurfaceIds.contains(panelId),
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
@@ -1528,7 +1537,16 @@ extension Workspace {
         switch snapshot.type {
         case .terminal:
             let snapshotRestorableAgent = snapshot.terminal?.agent
-            let persistedResumeBinding = snapshot.terminal?.resumeBinding
+            let persistedResumeBinding = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+                existing: snapshot.terminal?.resumeBinding,
+                restorableAgentExists: snapshotRestorableAgent != nil,
+                shellActivityState: .unknown,
+                automaticTitle: snapshot.title,
+                hasCustomTitle: snapshot.customTitle != nil,
+                scrollback: snapshot.terminal?.scrollback,
+                workingDirectory: snapshot.terminal?.workingDirectory ?? snapshot.directory,
+                allowAutomaticTitleFallback: true
+            )
             let restorableAgent = Self.restorableAgentForSessionRestore(
                 snapshotRestorableAgent,
                 resumeBinding: persistedResumeBinding

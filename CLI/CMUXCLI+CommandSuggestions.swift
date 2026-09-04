@@ -124,6 +124,7 @@ extension CMUXCLI {
         "list-panes",
         "list-status",
         "list-windows",
+        "last-command",
         "list-workspaces",
         "log",
         "login",

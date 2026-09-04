@@ -4887,7 +4887,7 @@ struct CMUXCLI {
         if normalizedCommand == "window" {
             return false
         }
-        if normalizedCommand == "surface-resume" {
+        if normalizedCommand == "surface-resume" || normalizedCommand == "last-command" {
             return false
         }
         if normalizedCommand == "restore" {
@@ -7195,6 +7195,19 @@ struct CMUXCLI {
                 windowOverride: windowId
             )
 
+        case "last-command":
+            let action = commandArgs.first?.lowercased()
+            let resumeArgs = ["show", "get", "run", "execute"].contains(action ?? "")
+                ? commandArgs
+                : ["show"] + commandArgs
+            try runSurfaceResumeCommand(
+                commandArgs: resumeArgs,
+                client: client,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                windowOverride: windowId
+            )
+
         case "close-surface":
             let csWsFlag = optionValue(commandArgs, name: "--workspace")
             let windowRaw = windowFromArgsOrOverride(commandArgs, windowOverride: windowId)
@@ -9483,6 +9496,36 @@ struct CMUXCLI {
                 print("No resume binding")
             }
 
+        case "run", "execute":
+            try validateSurfaceResumeValueOptions(
+                rest,
+                optionNames: Self.surfaceResumeTargetValueOptions,
+                context: "surface resume \(subcommand)"
+            )
+            let params = try surfaceResumeTarget(rest, client: client, windowOverride: windowOverride).params
+            let payload = try client.sendV2(method: "surface.resume.get", params: params)
+            guard let binding = payload["resume_binding"] as? [String: Any],
+                  let command = binding["command"] as? String,
+                  !command.isEmpty,
+                  let workspaceID = payload["workspace_id"] as? String,
+                  let surfaceID = payload["surface_id"] as? String else {
+                throw CLIError(message: String(
+                    localized: "cli.surfaceResume.error.noCommand",
+                    defaultValue: "No recoverable command is available for this surface"
+                ))
+            }
+            let runPayload = try client.sendV2(method: "surface.send_text", params: [
+                "workspace_id": workspaceID,
+                "surface_id": surfaceID,
+                "text": command + "\n",
+            ])
+            printV2Payload(
+                runPayload,
+                jsonOutput: jsonOutput,
+                idFormat: idFormat,
+                fallbackText: v2SendSummary(runPayload, idFormat: idFormat)
+            )
+
         case "clear":
             try validateSurfaceResumeValueOptions(
                 rest,
@@ -9518,6 +9561,14 @@ struct CMUXCLI {
         }
         if command == "surface-resume" {
             try validateSurfaceResumeCommandValueOptions(commandArgs)
+            return
+        }
+        if command == "last-command" {
+            let action = commandArgs.first?.lowercased()
+            let resumeArgs = ["show", "get", "run", "execute"].contains(action ?? "")
+                ? commandArgs
+                : ["show"] + commandArgs
+            try validateSurfaceResumeCommandValueOptions(resumeArgs)
         }
     }
 
@@ -9532,7 +9583,7 @@ struct CMUXCLI {
                 context: "surface resume set"
             )
             try validateSurfaceResumeSetCommandTokensBeforeSocket(rest)
-        case "show", "get":
+        case "show", "get", "run", "execute":
             try validateSurfaceResumeValueOptions(
                 rest,
                 optionNames: Self.surfaceResumeTargetValueOptions,
@@ -19814,6 +19865,10 @@ struct CMUXCLI {
               cmux surface-health --workspace workspace:2
             """
         case "surface", "surface-resume":
+            let runHelp = String(
+                localized: "cli.surfaceResume.help.run",
+                defaultValue: "cmux surface resume run [--json] [flags]    Execute the saved command in that surface"
+            )
             return """
             Usage: cmux surface ls [<machine>|local] [--refresh] [--json]
                    cmux surface open <resource> [--workspace <id|ref|index>] [--pane <id|ref>] [--left|--right|--up|--down|--tab] [--new] [--focus <true|false>]
@@ -19822,6 +19877,7 @@ struct CMUXCLI {
                    cmux surface resume set [flags] --shell <command>
                    cmux surface resume show [--json] [flags]
                    cmux surface resume get [--json] [flags]
+                   \(runHelp)
                    cmux surface resume clear [flags]
 
             ls / open / new-terminal: the surface catalog. Terminals, VNC screens and browsers
@@ -19852,6 +19908,16 @@ struct CMUXCLI {
               cmux surface resume set --kind opencode --checkpoint ses_123 -- opencode --session ses_123
               cmux surface resume show --json
             """
+        case "last-command":
+            return String(
+                localized: "cli.lastCommand.help",
+                defaultValue: """
+                Usage: cmux last-command [show|run] [--workspace <id|ref|index>] [--surface <id|ref|index>] [--window <id|ref|index>] [--json]
+
+                Show the command recovered for a restored terminal, or explicitly run it in that same surface.
+                With no action, the command is only printed.
+                """
+            )
         case "debug-terminals":
             return """
             Usage: cmux debug-terminals
