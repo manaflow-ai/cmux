@@ -32,6 +32,33 @@ pub mod transport {
         imp::connect(path)
     }
 
+    pub fn connect_timeout(path: &Path, timeout: Duration) -> io::Result<Box<dyn Stream>> {
+        connect_timeout_with_cancel(path, timeout, || false)
+    }
+
+    /// Connect to a local session socket with a bounded deadline and a
+    /// cooperative cancellation callback. Unix implementations poll the
+    /// nonblocking socket in short intervals so cancellation does not wait
+    /// for the full deadline. Windows keeps its existing bounded Winsock
+    /// connect because `WSAPoll` owns the operation there.
+    pub fn connect_timeout_with_cancel<F>(
+        path: &Path,
+        timeout: Duration,
+        cancelled: F,
+    ) -> io::Result<Box<dyn Stream>>
+    where
+        F: Fn() -> bool,
+    {
+        if cancelled() {
+            return Err(cancelled_error());
+        }
+        imp::connect_timeout_with_cancel(path, timeout, cancelled)
+    }
+
+    fn cancelled_error() -> io::Error {
+        io::Error::new(io::ErrorKind::Interrupted, "session socket connection cancelled")
+    }
+
     impl Listener {
         pub fn accept(&self) -> io::Result<Box<dyn Stream>> {
             self.inner.accept()
@@ -41,9 +68,12 @@ pub mod transport {
     #[cfg(unix)]
     mod imp {
         use std::io;
+        use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
         use std::os::unix::net::{UnixListener, UnixStream};
         use std::path::Path;
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
+
+        use socket2::{Domain, SockAddr, Socket, Type};
 
         use super::Stream;
 
@@ -57,6 +87,104 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_timeout_with_cancel<F>(
+            path: &Path,
+            timeout: Duration,
+            cancelled: F,
+        ) -> io::Result<Box<dyn Stream>>
+        where
+            F: Fn() -> bool,
+        {
+            let socket = Socket::new(Domain::UNIX, Type::STREAM, None)?;
+            let address = SockAddr::unix(path)?;
+            socket.set_nonblocking(true)?;
+            let deadline = Instant::now().checked_add(timeout).unwrap_or_else(Instant::now);
+            match socket.connect(&address) {
+                Ok(()) => {}
+                Err(error) if connect_is_pending(&error) => {
+                    wait_for_socket(&socket, deadline, &cancelled)?;
+                }
+                Err(error) => return Err(error),
+            }
+            if cancelled() {
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "session socket connection cancelled",
+                ));
+            }
+            socket.set_nonblocking(false)?;
+            let stream = unsafe { UnixStream::from_raw_fd(socket.into_raw_fd()) };
+            Ok(Box::new(stream))
+        }
+
+        fn connect_is_pending(error: &io::Error) -> bool {
+            matches!(
+                error.raw_os_error(),
+                Some(code)
+                    if code == libc::EALREADY
+                        || code == libc::EAGAIN
+                        || code == libc::EINPROGRESS
+                        || code == libc::EINTR
+                        || code == libc::EWOULDBLOCK
+            )
+        }
+
+        fn wait_for_socket<F>(socket: &Socket, deadline: Instant, cancelled: &F) -> io::Result<()>
+        where
+            F: Fn() -> bool,
+        {
+            let mut descriptor = libc::pollfd {
+                fd: socket.as_raw_fd(),
+                events: (libc::POLLOUT | libc::POLLERR | libc::POLLHUP | libc::POLLNVAL)
+                    as libc::c_short,
+                revents: 0,
+            };
+            loop {
+                if cancelled() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::Interrupted,
+                        "session socket connection cancelled",
+                    ));
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "session socket connection timed out",
+                    ));
+                }
+                let timeout = remaining.as_millis().min(Duration::from_millis(50).as_millis());
+                let timeout = i32::try_from(timeout).unwrap_or(50);
+                let result = unsafe { libc::poll(&mut descriptor, 1, timeout) };
+                if result < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.kind() == io::ErrorKind::Interrupted {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if result == 0 {
+                    continue;
+                }
+                if descriptor.revents & libc::POLLNVAL as libc::c_short != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "session socket descriptor is invalid",
+                    ));
+                }
+                if let Some(error) = socket.take_error()? {
+                    return Err(error);
+                }
+                if descriptor.revents & libc::POLLOUT as libc::c_short != 0 {
+                    return Ok(());
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "session socket connection failed before becoming ready",
+                ));
+            }
         }
 
         impl Listener {
@@ -88,11 +216,17 @@ pub mod transport {
     #[cfg(windows)]
     mod imp {
         use std::io;
+        use std::os::windows::io::{AsRawSocket, FromRawSocket, IntoRawSocket};
         use std::path::Path;
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use super::Stream;
+        use socket2::{Domain, SockAddr, Socket, Type};
         use uds_windows::{UnixListener, UnixStream};
+        use windows_sys::Win32::Networking::WinSock::{
+            POLLERR, POLLHUP, POLLNVAL, POLLOUT, WSAEALREADY, WSAEINPROGRESS, WSAEINTR,
+            WSAEWOULDBLOCK, WSAPOLLFD, WSAPoll,
+        };
 
         pub(super) struct Listener {
             inner: UnixListener,
@@ -104,6 +238,102 @@ pub mod transport {
 
         pub(super) fn connect(path: &Path) -> io::Result<Box<dyn Stream>> {
             Ok(Box::new(UnixStream::connect(path)?))
+        }
+
+        pub(super) fn connect_timeout_with_cancel<F>(
+            path: &Path,
+            timeout: Duration,
+            cancelled: F,
+        ) -> io::Result<Box<dyn Stream>>
+        where
+            F: Fn() -> bool,
+        {
+            let socket = Socket::new(Domain::UNIX, Type::STREAM, None)?;
+            let address = SockAddr::unix(path)?;
+            socket.set_nonblocking(true)?;
+            let deadline = Instant::now().checked_add(timeout).unwrap_or_else(Instant::now);
+            match socket.connect(&address) {
+                Ok(()) => {}
+                Err(error) if connect_is_pending(&error) => {
+                    wait_for_socket(&socket, deadline, &cancelled)?;
+                }
+                Err(error) => return Err(error),
+            }
+            if cancelled() {
+                return Err(super::cancelled_error());
+            }
+            socket.set_nonblocking(false)?;
+            let stream = unsafe { UnixStream::from_raw_socket(socket.into_raw_socket()) };
+            Ok(Box::new(stream))
+        }
+
+        fn connect_is_pending(error: &io::Error) -> bool {
+            matches!(
+                error.raw_os_error(),
+                Some(code)
+                    if code == WSAEALREADY
+                        || code == WSAEINPROGRESS
+                        || code == WSAEINTR
+                        || code == WSAEWOULDBLOCK
+            )
+        }
+
+        fn wait_for_socket<F>(socket: &Socket, deadline: Instant, cancelled: &F) -> io::Result<()>
+        where
+            F: Fn() -> bool,
+        {
+            let raw_socket = usize::try_from(socket.as_raw_socket()).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "session socket handle is invalid")
+            })?;
+            let mut descriptor = WSAPOLLFD {
+                fd: raw_socket,
+                events: POLLOUT | POLLERR | POLLHUP | POLLNVAL,
+                revents: 0,
+            };
+            loop {
+                if cancelled() {
+                    return Err(super::cancelled_error());
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::TimedOut,
+                        "session socket connection timed out",
+                    ));
+                }
+                let timeout = remaining.as_millis().min(Duration::from_millis(50).as_millis());
+                let timeout = i32::try_from(timeout).unwrap_or(50);
+                let result = unsafe { WSAPoll(&mut descriptor, 1, timeout) };
+                if result < 0 {
+                    let error = io::Error::last_os_error();
+                    if error.raw_os_error() == Some(WSAEINTR) {
+                        continue;
+                    }
+                    return Err(error);
+                }
+                if result == 0 {
+                    continue;
+                }
+                if cancelled() {
+                    return Err(super::cancelled_error());
+                }
+                if descriptor.revents & POLLNVAL != 0 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "session socket descriptor is invalid",
+                    ));
+                }
+                if let Some(error) = socket.take_error()? {
+                    return Err(error);
+                }
+                if descriptor.revents & POLLOUT != 0 {
+                    return Ok(());
+                }
+                return Err(io::Error::new(
+                    io::ErrorKind::ConnectionAborted,
+                    "session socket connection failed before becoming ready",
+                ));
+            }
         }
 
         impl Listener {
@@ -1081,9 +1311,56 @@ mod tests {
     use std::ffi::OsString;
     #[cfg(windows)]
     use std::sync::Mutex;
+    #[cfg(windows)]
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[cfg(windows)]
     static RUNTIME_ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn unique_session_socket_path(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("cmux-{label}-{}-{nonce}.sock", std::process::id()))
+    }
+
+    #[test]
+    fn pre_cancelled_session_connect_returns_without_touching_the_socket() {
+        let path = unique_session_socket_path("cancelled-connect");
+        let result = transport::connect_timeout_with_cancel(
+            &path,
+            std::time::Duration::from_secs(30),
+            || true,
+        );
+        let error = match result {
+            Ok(_) => panic!("pre-cancelled session connect unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(!path.exists(), "pre-cancelled connect created a socket path");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_session_connect_observes_cancellation_after_connect_starts() {
+        let path = unique_session_socket_path("windows-cancelled-connect");
+        let listener = uds_windows::UnixListener::bind(&path).expect("bind session socket");
+        let callback_count = AtomicUsize::new(0);
+        let result = transport::connect_timeout_with_cancel(
+            &path,
+            std::time::Duration::from_secs(30),
+            || callback_count.fetch_add(1, Ordering::AcqRel) > 0,
+        );
+        let error = match result {
+            Ok(_) => panic!("cancelled Windows session connect unexpectedly succeeded"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), io::ErrorKind::Interrupted);
+        assert!(callback_count.load(Ordering::Acquire) >= 2);
+        drop(listener);
+        let _ = std::fs::remove_file(path);
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

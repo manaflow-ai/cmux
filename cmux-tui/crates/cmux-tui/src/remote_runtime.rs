@@ -49,6 +49,7 @@ use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::watch;
+use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use crate::localization::catalog;
@@ -62,7 +63,6 @@ const CLIENT_SOCKET_LOCK_RETRY: Duration = Duration::from_millis(10);
 const DAEMON_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 const DAEMON_AUTH_LEASE_RETRY_TIMEOUT: Duration = Duration::from_secs(5);
 const DAEMON_AUTH_LEASE_RETRY_INTERVAL: Duration = Duration::from_millis(10);
-const STARTUP_THREAD_REAP_TIMEOUT: Duration = Duration::from_millis(250);
 const REMOTE_RUNTIME_SHUTDOWN_TIMEOUT: Duration = Duration::from_millis(250);
 const MAX_DAEMON_SESSION_COMPONENT_BYTES: usize = 120;
 const DAEMON_SHUTDOWN_OUTCOME_VERSION: u32 = 1;
@@ -211,15 +211,13 @@ fn build_remote_runtime(thread_name: &str) -> anyhow::Result<tokio::runtime::Run
         .context("could not start remote Tokio runtime")
 }
 
-fn reap_failed_startup(runtime_thread: thread::JoinHandle<anyhow::Result<()>>, runtime_name: &str) {
-    let (finished_tx, finished_rx) = mpsc::sync_channel(1);
-    let reaper_name = format!("{runtime_name}-startup-reaper");
-    let reaper = thread::Builder::new().name(reaper_name).spawn(move || {
-        let _ = finished_tx.send(runtime_thread.join());
+fn reap_failed_startup(
+    runtime_thread: thread::JoinHandle<anyhow::Result<()>>,
+    _runtime_name: &str,
+) {
+    crate::machine_runtime::submit_cancellation_reap(move || {
+        let _ = runtime_thread.join();
     });
-    if reaper.is_ok() {
-        let _ = finished_rx.recv_timeout(STARTUP_THREAD_REAP_TIMEOUT);
-    }
 }
 
 #[derive(Clone)]
@@ -549,6 +547,7 @@ pub struct ClientRuntimeHandle {
     info: ClientRuntimeInfo,
     connection: Arc<ClientConnection>,
     multiplexer: Arc<ServiceMultiplexer>,
+    cancellation: CancellationToken,
     shutdown: watch::Sender<bool>,
     finished: watch::Receiver<bool>,
     thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
@@ -576,21 +575,82 @@ impl ClientRuntimeHandle {
     }
 
     pub fn shutdown(mut self) -> anyhow::Result<()> {
+        self.cancel_and_join()
+    }
+
+    fn cancel_and_join(&mut self) -> anyhow::Result<()> {
+        self.cancellation.cancel();
         let _ = self.shutdown.send(true);
-        match self.thread.take().expect("client runtime thread is present").join() {
-            Ok(result) => result,
-            Err(_) => Err(anyhow!("remote client runtime thread panicked")),
+        match self.thread.take() {
+            Some(thread) if thread.is_finished() => match thread.join() {
+                Ok(result) => result,
+                Err(_) => Err(anyhow!("remote client runtime thread panicked")),
+            },
+            Some(thread) => {
+                // Runtime shutdown is cooperative, but a provider can still
+                // hold a synchronous operation after cancellation. Transfer
+                // the live owner to the process supervisor so Drop and UI
+                // replacement stay bounded without detaching the thread.
+                crate::machine_runtime::submit_cancellation_reap(move || {
+                    let _ = thread.join();
+                });
+                Ok(())
+            }
+            None => Ok(()),
         }
     }
 }
 
 impl Drop for ClientRuntimeHandle {
     fn drop(&mut self) {
-        let _ = self.shutdown.send(true);
+        let _ = self.cancel_and_join();
     }
 }
 
+/// Starts a client runtime without an external machine-connection context.
+///
+/// Callers that own a connection attempt should use
+/// [`start_client_runtime_with_context`] so cancellation can stop startup
+/// before the startup deadline.
+#[allow(dead_code)]
 pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<ClientRuntimeHandle> {
+    start_client_runtime_inner(options, None)
+}
+
+pub(crate) fn start_client_runtime_with_context(
+    options: ClientRuntimeOptions,
+    context: &crate::machine_runtime::MachineConnectContext,
+) -> anyhow::Result<ClientRuntimeHandle> {
+    context.check()?;
+    start_client_runtime_inner(options, Some(context.clone()))
+}
+
+struct ClientRuntimeStartup {
+    cancellation: CancellationToken,
+    shutdown: watch::Sender<bool>,
+    thread: Option<thread::JoinHandle<anyhow::Result<()>>>,
+}
+
+impl ClientRuntimeStartup {
+    fn cancel_and_join(mut self) {
+        self.cancellation.cancel();
+        let _ = self.shutdown.send(true);
+        if let Some(thread) = self.thread.take() {
+            if thread.is_finished() {
+                let _ = thread.join();
+            } else {
+                crate::machine_runtime::submit_cancellation_reap(move || {
+                    let _ = thread.join();
+                });
+            }
+        }
+    }
+}
+
+fn start_client_runtime_inner(
+    options: ClientRuntimeOptions,
+    context: Option<crate::machine_runtime::MachineConnectContext>,
+) -> anyhow::Result<ClientRuntimeHandle> {
     if options.routes.is_empty() {
         return Err(anyhow!("remote connection has no route candidates"));
     }
@@ -602,40 +662,100 @@ pub fn start_client_runtime(options: ClientRuntimeOptions) -> anyhow::Result<Cli
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+    let cancellation = CancellationToken::new();
+    let worker_cancellation = cancellation.clone();
+    let worker_shutdown = shutdown_tx.clone();
     let thread = thread::Builder::new()
         .name("cmux-remote-client".into())
         .spawn(move || {
             let runtime = build_remote_runtime("cmux-remote-client-worker")
                 .context("could not start remote client Tokio runtime")?;
-            let result = runtime.block_on(run_client(options, shutdown_rx, ready_tx));
+            let result = runtime.block_on(async move {
+                let startup = run_client(options, shutdown_rx, ready_tx);
+                tokio::pin!(startup);
+                tokio::select! {
+                    result = &mut startup => result,
+                    _ = worker_cancellation.cancelled() => {
+                        let _ = worker_shutdown.send(true);
+                        // Dropping the startup future releases its local
+                        // connection owner immediately. The runtime thread
+                        // then performs only its bounded shutdown work; a
+                        // provider that ignores cancellation stays owned by
+                        // this thread and is reaped by its caller.
+                        Err(anyhow!("remote client startup was cancelled"))
+                    }
+                }
+            });
             runtime.shutdown_timeout(REMOTE_RUNTIME_SHUTDOWN_TIMEOUT);
             finished_tx.send_replace(true);
             result
         })
         .context("could not start remote client thread")?;
-    let ready = match ready_rx.recv_timeout(startup_timeout) {
-        Ok(Ok(ready)) => ready,
-        Ok(Err(error)) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
-            return Err(anyhow!(error));
+    let startup =
+        ClientRuntimeStartup { cancellation, shutdown: shutdown_tx, thread: Some(thread) };
+    let startup_deadline = std::time::Instant::now()
+        .checked_add(startup_timeout)
+        .unwrap_or_else(std::time::Instant::now);
+    let ready = loop {
+        if let Some(context) = context.as_ref()
+            && let Err(error) = context.check()
+        {
+            startup.cancel_and_join();
+            return Err(error);
         }
-        Err(error) => {
-            let _ = shutdown_tx.send(true);
-            reap_failed_startup(thread, "cmux-remote-client");
+        let startup_remaining =
+            startup_deadline.saturating_duration_since(std::time::Instant::now());
+        let wait = context
+            .as_ref()
+            .map(|context| context.remaining().unwrap_or_default().min(startup_remaining))
+            .unwrap_or(startup_remaining)
+            .min(Duration::from_millis(50));
+        if wait.is_zero() {
+            if let Some(context) = context.as_ref()
+                && let Err(error) = context.check()
+            {
+                startup.cancel_and_join();
+                return Err(error);
+            }
+            startup.cancel_and_join();
             return Err(anyhow!(
-                "remote connection did not become ready within {}s: {error}",
+                "remote connection did not become ready within {}s: timed out waiting on channel",
                 startup_timeout.as_secs()
             ));
         }
+        match ready_rx.recv_timeout(wait) {
+            Ok(Ok(ready)) => {
+                if let Some(context) = context.as_ref()
+                    && let Err(error) = context.check()
+                {
+                    startup.cancel_and_join();
+                    return Err(error);
+                }
+                break ready;
+            }
+            Ok(Err(error)) => {
+                startup.cancel_and_join();
+                return Err(anyhow!(error));
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) if context.is_some() => continue,
+            Err(error) => {
+                startup.cancel_and_join();
+                return Err(anyhow!(
+                    "remote connection did not become ready within {}s: {error}",
+                    startup_timeout.as_secs()
+                ));
+            }
+        }
     };
+    let ClientRuntimeStartup { cancellation, shutdown, thread } = startup;
     Ok(ClientRuntimeHandle {
         info: ready.info,
         connection: ready.connection,
         multiplexer: ready.multiplexer,
-        shutdown: shutdown_tx,
+        cancellation,
+        shutdown,
         finished: finished_rx,
-        thread: Some(thread),
+        thread,
     })
 }
 
@@ -2838,6 +2958,60 @@ mod tests {
         let mut endpoint = Url::parse("unix:///").unwrap();
         endpoint.set_path(path.to_str().unwrap());
         endpoint
+    }
+
+    #[test]
+    fn cancelling_noncooperative_client_startup_returns_before_worker_and_drops_ready() {
+        let release = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+        let late_ready_sent = Arc::new(AtomicBool::new(false));
+        let (ready_tx, ready_rx) = mpsc::sync_channel(1);
+        let worker = {
+            let release = Arc::clone(&release);
+            let finished = Arc::clone(&finished);
+            let late_ready_sent = Arc::clone(&late_ready_sent);
+            thread::spawn(move || {
+                while !release.load(Ordering::Acquire) {
+                    thread::yield_now();
+                }
+                late_ready_sent.store(ready_tx.send(()).is_ok(), Ordering::Release);
+                finished.store(true, Ordering::Release);
+                Ok(())
+            })
+        };
+        let (shutdown, _shutdown_rx) = watch::channel(false);
+        let startup = ClientRuntimeStartup {
+            cancellation: CancellationToken::new(),
+            shutdown,
+            thread: Some(worker),
+        };
+
+        let (returned_tx, returned_rx) = mpsc::sync_channel(1);
+        let cancellation = thread::spawn(move || {
+            startup.cancel_and_join();
+            // The startup owner drops its ready receiver before a late worker
+            // result can be published to the caller.
+            drop(ready_rx);
+            let _ = returned_tx.send(());
+        });
+
+        let returned_before_release = returned_rx.recv_timeout(Duration::from_millis(100)).is_ok();
+        release.store(true, Ordering::Release);
+        cancellation.join().expect("cancellation caller must finish");
+
+        let finished_deadline = std::time::Instant::now() + Duration::from_secs(1);
+        while !finished.load(Ordering::Acquire) {
+            assert!(std::time::Instant::now() < finished_deadline, "startup worker did not finish");
+            thread::yield_now();
+        }
+        assert!(
+            returned_before_release,
+            "cancelling a non-cooperative startup must not block its caller"
+        );
+        assert!(
+            !late_ready_sent.load(Ordering::Acquire),
+            "a late startup result must not be published after cancellation"
+        );
     }
 
     #[tokio::test]

@@ -3453,7 +3453,7 @@ mod tests {
         let connector = |key: machine::MachineKey| {
             let dropped = Arc::clone(&dropped);
             let connects = Arc::clone(&connects);
-            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move |_| {
                 connects.fetch_add(1, Ordering::SeqCst);
                 Ok(MachineConnection {
                     session: Session::Local(Mux::new(
@@ -3498,7 +3498,7 @@ mod tests {
         let dropped = Arc::new(AtomicUsize::new(0));
         let connector = |key: machine::MachineKey| {
             let dropped = Arc::clone(&dropped);
-            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move |_| {
                 Ok(MachineConnection {
                     session: Session::Local(Mux::new(
                         format!("machine-hub-presented-{}", key.0),
@@ -3549,7 +3549,7 @@ mod tests {
         let connector = |key: machine::MachineKey| {
             let dropped = Arc::clone(&dropped);
             let connects = Arc::clone(&connects);
-            let connector: machine_runtime::MachineConnectFn = Arc::new(move || {
+            let connector: machine_runtime::MachineConnectFn = Arc::new(move |_| {
                 connects.fetch_add(1, Ordering::SeqCst);
                 Ok(MachineConnection {
                     session: Session::Local(Mux::new(
@@ -3612,7 +3612,8 @@ mod tests {
         )
         .unwrap();
 
-        let connection = connector.connect().unwrap();
+        let context = machine_runtime::MachineConnectContext::new(Duration::from_secs(30));
+        let connection = connector.connect(&context).unwrap();
         let (_server, _) = listener.accept().unwrap();
         let (token, control, _) = connection.into_parts();
         assert_eq!(token.expose(), "edge-fixed-token");

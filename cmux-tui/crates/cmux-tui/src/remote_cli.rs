@@ -42,6 +42,7 @@ use url::Url;
 use zeroize::Zeroizing;
 
 use crate::localization::catalog;
+use crate::machine_runtime::MachineConnectContext;
 #[cfg(test)]
 use crate::remote_runtime::persist_daemon_lifecycle_fence;
 use crate::remote_runtime::{
@@ -49,7 +50,7 @@ use crate::remote_runtime::{
     ResolvedRouteCandidate, SshBootstrapOptions, acknowledge_failed_shutdown_outcome,
     acknowledge_legacy_shutdown_state, client_provider_registry, complete_verified_daemon_stop,
     daemon_paths, inactive_daemon_needs_legacy_acknowledgement, load_runtime_info,
-    load_shutdown_outcome, start_client_runtime, start_daemon_runtime,
+    load_shutdown_outcome, start_client_runtime_with_context, start_daemon_runtime,
 };
 use crate::session::{RemoteSession, Session};
 
@@ -572,7 +573,16 @@ struct ConnectedRuntime {
     route: String,
 }
 
-fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+fn start_connected(flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> {
+    let context = MachineConnectContext::new(Duration::from_secs(5 * 60));
+    start_connected_with_context(flags, &context)
+}
+
+fn start_connected_with_context(
+    mut flags: ConnectFlags,
+    context: &MachineConnectContext,
+) -> anyhow::Result<ConnectedRuntime> {
+    context.check()?;
     let startup_started = Instant::now();
     let invitation = flags
         .invitation
@@ -584,7 +594,8 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         .transpose()?;
     let total_startup_timeout = flags
         .startup_timeout
-        .unwrap_or_else(|| invitation.as_ref().map_or(DEFAULT_STARTUP_TIMEOUT, invitation_timeout));
+        .unwrap_or_else(|| invitation.as_ref().map_or(DEFAULT_STARTUP_TIMEOUT, invitation_timeout))
+        .min(context.remaining()?);
     let client_root = flags
         .state_dir
         .clone()
@@ -708,24 +719,33 @@ fn start_connected(mut flags: ConnectFlags) -> anyhow::Result<ConnectedRuntime> 
         }
     }
     let session = SessionId(*uuid::Uuid::new_v4().as_bytes());
-    let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?;
+    context.check()?;
+    let startup_timeout = remaining_startup_timeout(startup_started, total_startup_timeout)?
+        .min(context.remaining()?);
     let ssh_bootstrap = initial_ssh_bootstrap_options(&flags, startup_timeout);
-    let runtime = start_client_runtime(ClientRuntimeOptions {
-        routes,
-        providers,
-        identity: store.identity(),
-        expected_daemon,
-        auth,
-        device_name: flags.device_name.unwrap_or_else(default_device_name),
-        session,
-        lane_policy: flags.lanes,
-        reconnect: flags.reconnect,
-        startup_timeout,
-        state_dir: client_root,
-        local_socket: flags.local_socket,
-        ssh,
-        ssh_bootstrap,
-    })?;
+    let runtime = start_client_runtime_with_context(
+        ClientRuntimeOptions {
+            routes,
+            providers,
+            identity: store.identity(),
+            expected_daemon,
+            auth,
+            device_name: flags.device_name.unwrap_or_else(default_device_name),
+            session,
+            lane_policy: flags.lanes,
+            reconnect: flags.reconnect,
+            startup_timeout,
+            state_dir: client_root,
+            local_socket: flags.local_socket,
+            ssh,
+            ssh_bootstrap,
+        },
+        context,
+    )?;
+    if let Err(error) = context.check() {
+        let _ = runtime.shutdown();
+        return Err(error);
+    }
 
     if let Some(invitation) = &invitation {
         async_runtime.block_on(store.pin_daemon(
@@ -1185,7 +1205,9 @@ pub(crate) fn validate_managed_ssh_options(options: &ManagedSshOptions) -> anyho
 
 pub(crate) fn connect_managed_ssh(
     options: ManagedSshOptions,
+    context: &MachineConnectContext,
 ) -> anyhow::Result<ManagedSshConnection> {
+    context.check()?;
     let mut arguments = vec![
         options.destination,
         "--session".into(),
@@ -1198,9 +1220,9 @@ pub(crate) fn connect_managed_ssh(
         arguments.push(argument);
     }
 
-    let connected = start_connected(direct_ssh_flags(&arguments)?)?;
+    let connected = start_connected_with_context(direct_ssh_flags(&arguments)?, context)?;
     let local_socket = connected.runtime.info().local_socket.clone();
-    match RemoteSession::connect(&local_socket) {
+    match RemoteSession::connect_with_context(&local_socket, context) {
         Ok(remote) => Ok(ManagedSshConnection {
             session: Session::Remote(remote),
             lease: ManagedSshLease { runtime: Some(connected.runtime) },
@@ -2676,6 +2698,71 @@ mod tests {
         assert_ne!(bootstrap.attempt_timeout, flags.reconnect.attempt_timeout);
         assert!(bootstrap.auto_install);
         assert!(bootstrap.upgrade);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancelling_client_startup_joins_before_the_startup_timeout() {
+        use std::os::unix::net::UnixListener;
+
+        let directory = tempfile::tempdir().unwrap();
+        let remote_socket = directory.path().join("remote.sock");
+        let listener = UnixListener::bind(&remote_socket).unwrap();
+        let (accepted_tx, accepted_rx) = std::sync::mpsc::sync_channel(1);
+        let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            accepted_tx.send(()).unwrap();
+            let _ = release_rx.recv_timeout(Duration::from_secs(3));
+            drop(stream);
+        });
+
+        let context = MachineConnectContext::new(Duration::from_secs(30));
+        let worker_context = context.clone();
+        let (done_tx, done_rx) = std::sync::mpsc::sync_channel(1);
+        let state_dir = directory.path().join("state");
+        let local_socket = directory.path().join("client.sock");
+        let route = format!("unix://{}", remote_socket.display());
+        let caller = thread::spawn(move || {
+            let flags = ConnectFlags {
+                route: Some(route),
+                startup_timeout: Some(Duration::from_secs(2)),
+                state_dir: Some(state_dir),
+                local_socket: Some(local_socket),
+                lanes: LanePolicy::Single,
+                ssh_session: "main".into(),
+                ssh_binary: "ssh".into(),
+                remote_binary: "~/.local/bin/cmux-tui".into(),
+                auto_install: true,
+                ..ConnectFlags::default()
+            };
+            let result = start_connected_with_context(flags, &worker_context);
+            let _ = done_tx.send(result.map(|connected| connected.runtime.shutdown()));
+        });
+
+        accepted_rx
+            .recv_timeout(Duration::from_secs(1))
+            .expect("client startup did not reach the stalled remote handshake");
+        context.cancel();
+
+        let result = done_rx.recv_timeout(Duration::from_millis(500)).unwrap_or_else(|_| {
+            let _ = done_rx
+                .recv_timeout(Duration::from_secs(3))
+                .expect("client startup did not finish after its timeout");
+            panic!("client startup ignored cancellation until its startup timeout");
+        });
+        let error = match result {
+            Ok(_) => panic!("cancelled client startup published a ready runtime"),
+            Err(error) => error,
+        };
+        assert!(
+            error.to_string().contains("cancelled") || error.to_string().contains("canceled"),
+            "unexpected cancellation error: {error:#}"
+        );
+
+        let _ = release_tx.send(());
+        caller.join().unwrap();
+        server.join().unwrap();
     }
 
     #[test]
