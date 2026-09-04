@@ -13,6 +13,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 Keep ESLint as the full Next.js lint. Oxlint adds one incremental gate for
 cyclomatic complexity, configured in `.oxlintrc.json` with the classic variant
 and a maximum of 20. Run `bun run lint:complexity` from `web/` before handoff.
+The gate rejects changes to that limit or variant, and fails when a baseline
+entry becomes stale.
 
 The gate scans all production JavaScript and TypeScript and compares the
 findings with `oxlint-complexity-baseline.txt`. The baseline contains only the

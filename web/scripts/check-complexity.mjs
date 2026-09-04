@@ -5,6 +5,8 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const COMPLEXITY_CODE = "eslint(complexity)";
+const COMPLEXITY_LIMIT = 20;
+const COMPLEXITY_VARIANT = "classic";
 const BASELINE_FILE = "web/oxlint-complexity-baseline.txt";
 const SOURCE_EXTENSIONS = /\.(?:js|jsx|mjs|cjs|ts|tsx|mts|cts)$/;
 const EXCLUDED_PREFIXES = [
@@ -161,11 +163,10 @@ function configuredComplexityLimit(repoRoot) {
   const config = JSON.parse(readFileSync(path.join(repoRoot, "web", ".oxlintrc.json"), "utf8"));
   const rule = config.rules?.complexity;
   const options = Array.isArray(rule) ? rule[1] : undefined;
-  const limit = options?.max;
-  if (typeof limit !== "number" || !Number.isFinite(limit)) {
-    fail(".oxlintrc.json must set a numeric complexity max");
+  if (options?.max !== COMPLEXITY_LIMIT || options?.variant !== COMPLEXITY_VARIANT) {
+    fail(`.oxlintrc.json must keep complexity max ${COMPLEXITY_LIMIT} with the ${COMPLEXITY_VARIANT} variant`);
   }
-  return limit;
+  return COMPLEXITY_LIMIT;
 }
 
 function runOxlint(repoRoot, files) {
@@ -243,10 +244,19 @@ if (newFindings.length === 0) {
     currentCounts.set(key, (currentCounts.get(key) ?? 0) + 1);
   }
   let stale = 0;
-  for (const [entry, count] of baseline) stale += Math.max(0, count - (currentCounts.get(entry) ?? 0));
+  const staleEntries = [];
+  for (const [entry, count] of baseline) {
+    const missing = Math.max(0, count - (currentCounts.get(entry) ?? 0));
+    stale += missing;
+    for (let index = 0; index < missing; index += 1) staleEntries.push(entry);
+  }
+  if (stale > 0) {
+    console.error("complexity gate: remove stale entries from the baseline:");
+    for (const entry of staleEntries.sort()) console.error(`  ${entry}`);
+    process.exit(1);
+  }
   console.log(
-    `complexity gate: ${diagnostics.length} finding${diagnostics.length === 1 ? "" : "s"} matched the grandfathered baseline` +
-      (stale > 0 ? `; ${stale} stale entr${stale === 1 ? "y" : "ies"} can be removed` : ""),
+    `complexity gate: ${diagnostics.length} finding${diagnostics.length === 1 ? "" : "s"} matched the grandfathered baseline`,
   );
   process.exit(0);
 }
