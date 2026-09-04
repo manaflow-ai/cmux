@@ -115,7 +115,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         adapter.getRuntimeConfiguration { settings in
             // Peers, handshakes, transfer counters — never the keys.
-            let redacted = settings.map(runtimeConfigurationRedactor.redacted)
+            let redacted = settings.map(self.runtimeConfigurationRedactor.redacted)
             completionHandler(redacted?.data(using: .utf8))
         }
     }
