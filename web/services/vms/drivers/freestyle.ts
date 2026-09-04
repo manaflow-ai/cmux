@@ -839,45 +839,20 @@ class FreestylePrivateNetworking implements VMPrivateNetworking {
         "cmux.vm.network.id": options.networkId,
       },
       async (span) => {
-        const fs = freestyleClient();
         try {
           // clientPublicKey is always supplied, so the platform never mints or
           // holds a private key: the config comes back with a blank PrivateKey
-          // for the Mac to fill in from its own Keychain.
-          const data = await fs.tunnels.create({
-            slug: options.slug,
-            displayName: options.displayName,
-            clientPublicKey,
-            vpcs: [{ vpcId: options.networkId }],
+          // for the Mac to fill in from its own Keychain. A slug conflict is
+          // reconciled by the helper, which also preserves the operation
+          // outcome for the control-plane response.
+          const result = await createOrReuseFreestyleTunnel(freestyleClient().tunnels, options);
+          setSpanAttributes(span, { "cmux.vm.tunnel.id": result.tunnel.id });
+          setSpanAttributes(span, {
+            "cmux.vm.tunnel.created": result.created,
+            "cmux.vm.tunnel.rotated": result.rotated,
           });
           return result;
         } catch (err) {
-          // A previous request can commit the provider tunnel and lose the
-          // response before our database row is inserted (the exact recovery
-          // case after a local DB reset). Treat the provider's slug conflict as
-          // an idempotent success by reading that tunnel back and attaching the
-          // requested network. The slug is a hash of the authenticated user and
-          // device, so this cannot select another account's tunnel by accident;
-          // a key mismatch is still rejected rather than rotating a live
-          // Nightly/dev connection out from under it.
-          if (isConflict(err)) {
-            try {
-              const tunnel = await recoverFreestyleTunnelAfterConflict(
-                fs.tunnels,
-                options,
-                clientPublicKey,
-              );
-              setSpanAttributes(span, {
-                "cmux.vm.tunnel.id": tunnel.id,
-                "cmux.vm.tunnel.created": false,
-                "cmux.vm.tunnel.recovered": true,
-              });
-              return tunnel;
-            } catch (recoveryError) {
-              if (recoveryError instanceof ProviderError) throw recoveryError;
-              throw new ProviderError("freestyle", `recoverTunnel(${options.slug})`, recoveryError);
-            }
-          }
           throw new ProviderError("freestyle", `createTunnel(${options.slug})`, err);
         }
       },

@@ -57,6 +57,16 @@ export class VmTunnelNotFoundError extends Data.TaggedError("VmTunnelNotFoundErr
   readonly deviceFingerprint: string;
 }> {}
 
+/** Another request currently owns this device's provider enrollment lease. */
+export class VmTunnelEnrollmentBusyError extends Data.TaggedError("VmTunnelEnrollmentBusyError")<{
+  readonly retryAfterSeconds: number;
+}> {}
+
+/** The deployed control plane is missing the enrollment lease table/API. */
+export class VmTunnelEnrollmentUnavailableError extends Data.TaggedError("VmTunnelEnrollmentUnavailableError")<{
+  readonly reason: string;
+}> {}
+
 /** A remote revoke blocked this Stack login, or any older login on the same Mac. */
 export class VmAccessGrantRevokedError extends Data.TaggedError("VmAccessGrantRevokedError")<{
   readonly stackSessionId: string;
@@ -210,6 +220,8 @@ export type VmWorkflowError =
   | VmAttachTransportUnsupportedError
   | VmPrivateNetworkUnavailableError
   | VmTunnelNotFoundError
+  | VmTunnelEnrollmentBusyError
+  | VmTunnelEnrollmentUnavailableError
   | VmAccessGrantRevokedError
   | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
@@ -223,6 +235,16 @@ export function isVmPrivateNetworkUnavailableError(
 
 export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundError {
   return (err as { _tag?: string } | null)?._tag === "VmTunnelNotFoundError";
+}
+
+export function isVmTunnelEnrollmentBusyError(err: unknown): err is VmTunnelEnrollmentBusyError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelEnrollmentBusyError";
+}
+
+export function isVmTunnelEnrollmentUnavailableError(
+  err: unknown,
+): err is VmTunnelEnrollmentUnavailableError {
+  return (err as { _tag?: string } | null)?._tag === "VmTunnelEnrollmentUnavailableError";
 }
 
 export function isVmAccessGrantRevokedError(err: unknown): err is VmAccessGrantRevokedError {
@@ -345,6 +367,8 @@ const vmWorkflowErrorTagRecord = {
   VmAttachTransportUnsupportedError: true,
   VmPrivateNetworkUnavailableError: true,
   VmTunnelNotFoundError: true,
+  VmTunnelEnrollmentBusyError: true,
+  VmTunnelEnrollmentUnavailableError: true,
   VmAccessGrantRevokedError: true,
   VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,

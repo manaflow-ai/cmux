@@ -14,9 +14,11 @@ import {
 import {
   VmAccessGrantMutationBusyError,
   VmAccessGrantRevokedError,
+  VmDatabaseError,
   VmPrivateNetworkUnavailableError,
   VmProviderOperationError,
   VmTunnelNotFoundError,
+  VmTunnelEnrollmentUnavailableError,
 } from "../services/vms/errors";
 import type {
   CreateProviderTunnelOptions,
@@ -473,7 +475,7 @@ describe("enrollVmTunnel", () => {
       createTunnel: (_provider: string, options: CreateProviderTunnelOptions) =>
         Effect.sync(() => {
           events.push("provider-create");
-          return providerTunnel({ clientPublicKey: options.clientPublicKey });
+          return { tunnel: providerTunnel({ clientPublicKey: options.clientPublicKey }), created: true, rotated: false };
         }),
     } as VmProviderGatewayShape;
 
@@ -662,6 +664,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
           userId: "user-1",
           provider: "freestyle",
           deviceFingerprint: "device-1",
+          tunnelPurpose: "terminal",
         }).pipe(
           Effect.provide(layerFor(
             testRepo({ network: networkRow(), tunnel: tunnelRow() }),
@@ -687,6 +690,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
           userId: "user-1",
           provider: "freestyle",
           deviceFingerprint: "device-1",
+          tunnelPurpose: "terminal",
         }).pipe(
           Effect.provide(layerFor(
             testRepo({ network: networkRow(), tunnel: tunnelRow() }),
@@ -726,6 +730,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "terminal",
       }).pipe(
         Effect.provide(layerFor(
           testRepo({
@@ -785,6 +790,7 @@ describe("readVmTunnel / revokeVmTunnel", () => {
         userId: "user-1",
         provider: "freestyle",
         deviceFingerprint: "device-unknown",
+        tunnelPurpose: "terminal",
       }).pipe(
         Effect.provide(layerFor(
           testRepo({ calls: repoCalls, network: networkRow() }),

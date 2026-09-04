@@ -43,6 +43,8 @@ import {
   isVmSharedResourceLimitExceededError,
   isVmSnapshotNotFoundError,
   isVmTunnelNotFoundError,
+  isVmTunnelEnrollmentBusyError,
+  isVmTunnelEnrollmentUnavailableError,
   isVmAccessGrantRevokedError,
   isVmAccessGrantMutationBusyError,
   vmWorkflowErrorCause,

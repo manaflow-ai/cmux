@@ -469,16 +469,16 @@ export function enrollVmTunnel(input: {
         userId: input.userId,
         networkId: network.id,
         provider: input.provider,
-        providerTunnelId: created.id,
+        providerTunnelId: created.tunnel.id,
         accessGrantId: accessGrant.id,
         deviceFingerprint: input.deviceFingerprint,
         tunnelPurpose: input.tunnelPurpose,
         deviceName: input.deviceName ?? null,
-        clientPublicKey: created.clientPublicKey,
-        addressV4: created.addressV4,
-        addressV6: created.addressV6,
+        clientPublicKey: created.tunnel.clientPublicKey,
+        addressV4: created.tunnel.addressV4,
+        addressV6: created.tunnel.addressV6,
       });
-      return describeTunnel(created, row, network, { created: true, rotated: false });
+      return describeTunnel(created.tunnel, row, network, { created: true, rotated: created.rotated });
     }));
   });
 }
