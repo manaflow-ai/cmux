@@ -142,6 +142,9 @@ cmux web dev
   CMUX_WEB_EXTRA_SECRET_ENV_FILE=${CMUX_WEB_EXTRA_SECRET_ENV_FILE:-}
 EOF
 
+# This explicit opt-in is consumed by the billing guard. It is set only by
+# this local development launcher, never by preview or production config.
+export CMUX_LOCAL_DEV_PRO=1
 next dev --port "$CMUX_PORT" &
 next_pid=$!
 
