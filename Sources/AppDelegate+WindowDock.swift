@@ -68,12 +68,15 @@ extension AppDelegate.MainWindowContext {
     func windowDockSessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex?,
-        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?
+        surfaceResumeBindingIndex: SurfaceResumeBindingIndex?,
+        downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable: Bool = false
     ) -> SessionSplitContainerSnapshot? {
         existingWindowDock()?.sessionSnapshot(
             includeScrollback: includeScrollback,
             restorableAgentIndex: restorableAgentIndex,
-            surfaceResumeBindingIndex: surfaceResumeBindingIndex
+            surfaceResumeBindingIndex: surfaceResumeBindingIndex,
+            downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable:
+                downgradeStoredProcessDetectedResumeBindingsWhenDetectionUnavailable
         )
     }
 
@@ -155,7 +158,7 @@ extension AppDelegate {
         if let context = mainWindowContext(forWindowId: windowId) {
             return context.windowDockStore(notificationStore: notificationStore)
         }
-        return recoverableMainWindowRoute(windowId: windowId)?.windowDock
+        return recoverableMainWindowRoute(windowId: windowId)?.liveWindowDock
     }
 
     /// The Dock of `tabManager`'s window, created on first access for a live
@@ -174,7 +177,7 @@ extension AppDelegate {
         if let dock = mainWindowContext(forWindowId: windowId)?.existingWindowDock() {
             return dock
         }
-        return recoverableMainWindowRoute(windowId: windowId)?.windowDock
+        return recoverableMainWindowRoute(windowId: windowId)?.liveWindowDock
     }
 
     /// The `TabManager` owning the window Dock owner id `id` (== its window id),
