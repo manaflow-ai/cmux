@@ -31982,8 +31982,7 @@ mod tests {
             .hits
             .iter()
             .find_map(|(rect, hit)| {
-                matches!(hit, super::Hit::SidebarFile { index: 0, .. })
-                    .then_some(*rect)
+                matches!(hit, super::Hit::SidebarFile { index: 0, .. }).then_some(*rect)
             })
             .expect("the first rendered file row has a hit receipt");
         let rendered_path = app.sidebar_files.visible_entry(0).unwrap().path.clone();
