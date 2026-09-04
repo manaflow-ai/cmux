@@ -220,35 +220,29 @@ extension TerminalController {
             )
             return (resolution.value, nil)
         } catch let error as WorkspaceGroupIdentityResolution.ValidationError {
+            let message: String
             switch error {
             case .nonString:
-                return (nil, .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "workspaceGroup.error.idempotencyKeyMustBeString",
-                        defaultValue: "external_id and idempotency_key must be strings"
-                    ),
-                    data: nil
-                ))
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustBeString",
+                    defaultValue: "external_id and idempotency_key must be strings"
+                )
             case .empty:
-                return (nil, .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
-                        defaultValue: "The group identity must not be empty"
-                    ),
-                    data: nil
-                ))
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeyMustNotBeEmpty",
+                    defaultValue: "The group identity must not be empty"
+                )
             case .mismatchedAliases:
-                return (nil, .err(
-                    code: "invalid_params",
-                    message: String(
-                        localized: "workspaceGroup.error.idempotencyKeysMustMatch",
-                        defaultValue: "external_id and idempotency_key must match"
-                    ),
-                    data: nil
-                ))
+                message = String(
+                    localized: "workspaceGroup.error.idempotencyKeysMustMatch",
+                    defaultValue: "external_id and idempotency_key must match"
+                )
             }
+            return (nil, .err(
+                code: "invalid_params",
+                message: message,
+                data: nil
+            ))
         } catch {
             assertionFailure("Unexpected workspace-group identity validation error: \(error)")
             return (nil, .err(

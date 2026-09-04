@@ -78,11 +78,18 @@ final class NewMachineSheetPresenter {
             plan: plan,
             imageKinds: imageKinds,
             submit: { request in
-                coordinator.start(request) { arguments, progress, completion in
-                    MachineRowActions.openNewMachine(arguments: arguments, onOutput: progress) { result in
-                        completion(result)
-                    }
-                }
+                coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
+                    var cancellation: CloudVMActionLauncher.CancellationHandle?
+                    let didStart = MachineRowActions.openNewMachine(
+                        arguments: arguments,
+                        onOutput: progress,
+                        onCompletion: { result in
+                            completion(result)
+                        },
+                        onCancellationReady: { cancellation = $0 }
+                    )
+                    return didStart ? cancellation : nil
+                })
             }
         )
         present(model: model, preferredWindow: preferredWindow)

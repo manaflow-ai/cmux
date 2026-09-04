@@ -504,7 +504,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(count, 2, "every terminal the machine owns")
         } else { XCTFail("expected terminals pool") }
         // A listening port is a row of its own (the `cmux vm open <m>:port/<n>` address).
-        if case .port(let resource, _) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
+        if case .port(let resource, _, _) = byID["resource:vivid-newt/browser/port:3000"]!.kind {
             XCTAssertEqual(resource.port, 3000)
         } else { XCTFail("expected port row") }
         if case .localMachine(let row) = flattened[0].kind {

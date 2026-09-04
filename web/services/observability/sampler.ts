@@ -17,6 +17,15 @@ import {
  */
 export const VM_PRIORITY_PATH_PREFIX = "/api/vm";
 
+/**
+ * Coderouter is the second always-kept subsystem: its data plane (`/v1/*`,
+ * the OpenCode proxy) and control plane (`/api/coderouter/*`) carry paid
+ * model traffic at a few requests per minute, and every failed request is
+ * something a customer will ask about by request id.
+ */
+export const PRIORITY_PATH_PREFIXES = [VM_PRIORITY_PATH_PREFIX, "/v1", "/api/coderouter"] as const;
+const PRIORITY_SUBSYSTEMS: ReadonlySet<string> = new Set(["vm-cloud", "coderouter"]);
+
 const PRIORITY_PATH_ATTRIBUTE_KEYS = ["http.route", "url.path", "http.target"] as const;
 
 /**
@@ -38,10 +47,34 @@ export function isVmPrioritySpan(spanName: string, attributes: Attributes): bool
   );
 }
 
+export function isPrioritySpan(spanName: string, attributes: Attributes): boolean {
+  // A high-volume endpoint can opt out of the always-kept path set while
+  // retaining the same route wrapper and response headers.
+  if (attributes["cmux.priority"] === false) return false;
+  const subsystem = attributes["cmux.subsystem"];
+  if (typeof subsystem === "string" && PRIORITY_SUBSYSTEMS.has(subsystem)) return true;
+  for (const key of PRIORITY_PATH_ATTRIBUTE_KEYS) {
+    const value = attributes[key];
+    if (typeof value === "string" && isPriorityPath(value)) return true;
+  }
+  return PRIORITY_PATH_PREFIXES.some(
+    (prefix) => spanName.endsWith(` ${prefix}`) || spanName.includes(` ${prefix}/`),
+  );
+}
+
 /** Path-segment-aware prefix match: /api/vm and /api/vm/..., never /api/vmstats. */
 export function isVmPriorityPath(path: string): boolean {
-  if (!path.startsWith(VM_PRIORITY_PATH_PREFIX)) return false;
-  const next = path.charAt(VM_PRIORITY_PATH_PREFIX.length);
+  return hasPathPrefix(path, VM_PRIORITY_PATH_PREFIX);
+}
+
+/** Whether a request path belongs to an always-kept subsystem. */
+export function isPriorityPath(path: string): boolean {
+  return PRIORITY_PATH_PREFIXES.some((prefix) => hasPathPrefix(path, prefix));
+}
+
+function hasPathPrefix(path: string, prefix: string): boolean {
+  if (!path.startsWith(prefix)) return false;
+  const next = path.charAt(prefix.length);
   return next === "" || next === "/" || next === "?";
 }
 
@@ -50,7 +83,7 @@ class VmPriorityRootSampler implements Sampler {
 
   shouldSample(...args: Parameters<Sampler["shouldSample"]>): ReturnType<Sampler["shouldSample"]> {
     const [, , spanName, , attributes] = args;
-    if (isVmPrioritySpan(spanName, attributes)) {
+    if (isPrioritySpan(spanName, attributes)) {
       return { decision: SamplingDecision.RECORD_AND_SAMPLED };
     }
     return this.base.shouldSample(...args);
@@ -62,7 +95,7 @@ class VmPriorityRootSampler implements Sampler {
 }
 
 /**
- * The app-wide trace sampler: keep 100% of Cloud VM traces, head-sample
+ * The app-wide trace sampler: keep 100% of Cloud VM and coderouter traces, head-sample
  * everything else at `CMUX_OTEL_BASE_SAMPLE_RATIO` (default 2%). Children
  * follow their root's decision, so a kept VM trace keeps its pg/fetch/
  * provider child spans and a dropped page-load trace drops all of its own.

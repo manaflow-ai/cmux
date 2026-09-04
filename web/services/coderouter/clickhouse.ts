@@ -24,6 +24,13 @@ export type ClickHouseDependencies = {
   };
 };
 
+export type ClickHouseQueryOptions = {
+  /** Cancels the in-flight HTTP request when the caller's budget expires. */
+  readonly signal?: AbortSignal;
+  /** Optional per-call deadline, normally used by the health probe. */
+  readonly timeoutMs?: number;
+};
+
 export type ClickHouseFailure =
   | {
       readonly ok: false;
@@ -108,6 +115,7 @@ export async function query<Row>(
   sql: string,
   params: Readonly<Record<string, ClickHouseParamValue>>,
   dependencies: ClickHouseDependencies = defaultClickHouseDependencies,
+  options: ClickHouseQueryOptions = {},
 ): Promise<ClickHouseQueryResult<Row>> {
   const config = dependencies.config();
   if (!config) {
@@ -128,6 +136,14 @@ export async function query<Row>(
   }
   url.search = search.toString();
   const body = `${sql.replaceAll("{db}", config.database)}\nFORMAT JSONEachRow\n`;
+  const timeoutMs = options.timeoutMs ?? dependencies.timeoutMs?.query ?? QUERY_TIMEOUT_MS;
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort();
+    else options.signal.addEventListener("abort", abort, { once: true });
+  }
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   let text: string;
   try {
     const response = await dependencies.fetch(url, {
@@ -137,14 +153,15 @@ export async function query<Row>(
         "content-type": "text/plain; charset=utf-8",
       },
       body,
-      signal: AbortSignal.timeout(
-        dependencies.timeoutMs?.query ?? QUERY_TIMEOUT_MS,
-      ),
+      signal: controller.signal,
     });
     if (!response.ok) return { ok: false, reason: "status", status: response.status };
     text = await response.text();
   } catch {
     return { ok: false, reason: "request_failed" };
+  } finally {
+    clearTimeout(timer);
+    options.signal?.removeEventListener("abort", abort);
   }
   const rows: Row[] = [];
   for (const line of text.split("\n")) {
