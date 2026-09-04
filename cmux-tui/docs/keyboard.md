@@ -243,7 +243,12 @@ detach
 `prev-sidebar-profile` and `next-sidebar-profile` cycle native layouts when
 more than one profile is configured. The default bindings are `H` and `L`.
 While Files is focused, plain arrows keep their file-navigation meaning;
-`Alt-Up`/`Alt-Down` and `Alt-k`/`Alt-j` move between stacked sidebar rails.
+`Up`/`Down`, `Home`, `End`, and Page keys move through the visible file rows
+and configured workspace-host actions in their rendered order. `Ctrl-j` and
+`Ctrl-k` are the matching terminal-friendly Down and Up aliases. `Enter`
+activates the selected file or action. In the filter editor, `Esc` first clears
+the query, then exits the editor, then leaves the rail. `Alt-Up`/`Alt-Down`
+and `Alt-k`/`Alt-j` move between stacked sidebar rails.
 
 ## Chord Format
 

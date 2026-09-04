@@ -1078,6 +1078,11 @@ pub struct Sidebar {
     /// profile's resolved rail list so older consumers remain compatible.
     pub profiles: Vec<SidebarProfileSpec>,
     pub active_profile: String,
+    /// The raw `sidebar.profile` startup setting, when one was supplied.
+    /// `active_profile` is resolved to a usable profile, so it cannot by
+    /// itself distinguish an explicit invalid setting from an omitted one
+    /// during a live config reload.
+    pub(crate) profile_request: Option<String>,
     pub plugin: Option<SidebarPluginOptions>,
     /// Rows per rail entry: 2 keeps the subtitle line, 1 is name-only.
     pub row_height: u16,
@@ -1115,6 +1120,7 @@ impl Default for Sidebar {
             views_explicit: false,
             profiles,
             active_profile: "work".to_string(),
+            profile_request: None,
             plugin: None,
             row_height: 2,
             row_gap: 1,
@@ -1788,7 +1794,7 @@ fn resolve_sidebar_view_entry(
                 "cmux-tui: ignoring actions/scope on an {owner} split group; set them on its panes"
             );
         }
-        let id = match view.id.as_deref().map(str::trim) {
+        let (id, generated_id) = match view.id.as_deref().map(str::trim) {
             Some(id) if !id.is_empty() => {
                 if state.ids.contains(id) {
                     crate::client_log::stderr_log!(
@@ -1797,11 +1803,11 @@ fn resolve_sidebar_view_entry(
                     );
                     return None;
                 }
-                id.to_string()
+                (id.to_string(), false)
             }
-            _ => stable_sidebar_split_id(view),
+            _ => (stable_sidebar_split_id(view), true),
         };
-        if state.ids.contains(&id) || state.reserved_ids.contains(&id) {
+        if state.ids.contains(&id) || (generated_id && state.reserved_ids.contains(&id)) {
             crate::client_log::stderr_log!(
                 "config",
                 "cmux-tui: ignoring {owner} split group with a generated id collision; set an explicit id"
@@ -4090,6 +4096,13 @@ pub fn load() -> Config {
     config.cursor_blink = defaults.cursor_blink;
 
     let raw = load_raw_config();
+    config.sidebar.profile_request = raw
+        .sidebar
+        .profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+        .map(str::to_owned);
     let t = &raw.theme;
     if let Some(chrome) = t.chrome {
         config.chrome = chrome;

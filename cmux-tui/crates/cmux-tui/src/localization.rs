@@ -1710,7 +1710,7 @@ OPTIONS:
         profile_focus: "Focus",
         machines: "machines",
         workspaces: "workspaces",
-        files: "files",
+        files: "Files",
         panes: "panes",
         tabs: "tabs",
         agents: "agents",

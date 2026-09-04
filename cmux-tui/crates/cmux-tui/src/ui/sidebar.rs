@@ -18,7 +18,8 @@ use super::{
     ScrollbarState, ScrollbarStyle, middle_truncate, rail, truncate, viewport_thumb_geometry,
 };
 use crate::app::{
-    App, Hit, RailKind, SidebarHiddenReason, WorkspaceRailSelection, sidebar_profile_token,
+    App, FilesRailSelection, Hit, RailKind, SidebarHiddenReason, WorkspaceRailSelection,
+    sidebar_profile_token,
 };
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
@@ -112,69 +113,93 @@ pub fn draw_presentation(app: &mut App, frame: &mut Frame) {
         .enumerate()
         .map(|(index, profile)| (index, app.sidebar_profile_display_name(profile)))
         .collect::<Vec<_>>();
-    let all_profiles_width = labels
-        .iter()
-        .map(|(_, label)| UnicodeWidthStr::width(label.as_str()).saturating_add(2))
-        .sum::<usize>();
-    let base_tail_width =
-        hidden.as_ref().map_or(0, |value| UnicodeWidthStr::width(value.as_str()).saturating_add(1));
-    let profiles_fit =
-        all_profiles_width.saturating_add(base_tail_width).saturating_add(1) <= content_width;
-    let shown = if profiles_fit {
-        labels.iter().collect::<Vec<_>>()
-    } else {
-        labels.iter().filter(|(index, _)| *index == active_index).collect::<Vec<_>>()
+    // Measure the complete strip, including the manage control and every
+    // separator. The old calculation omitted those cells, so a profile could
+    // be silently dropped at an exact width boundary without an overflow
+    // marker. Choose a complete, self-consistent representation first, then
+    // truncate only the active label as the final fallback.
+    let joined_width = |parts: &[String]| {
+        parts
+            .iter()
+            .map(|part| UnicodeWidthStr::width(part.as_str()))
+            .sum::<usize>()
+            .saturating_add(parts.len().saturating_sub(1))
     };
-    let omitted = labels.len().saturating_sub(shown.len());
-    let profile_overflow = (omitted > 0).then(|| format!("+{omitted}"));
-    // Keep the active profile readable before adding the optional profile
-    // count. Hidden-view reasons and the management affordance are the
-    // stronger guarantees at narrow widths.
+    let profile_token_width =
+        |(_, label): &(usize, String)| UnicodeWidthStr::width(label.as_str()).saturating_add(2);
+    let profiles_width = |profiles: &[(usize, String)]| {
+        profiles
+            .iter()
+            .map(profile_token_width)
+            .sum::<usize>()
+            .saturating_add(profiles.len().saturating_sub(1))
+    };
+    let fits = |profiles: &[(usize, String)], tail: &[String]| {
+        let profile_width = profiles_width(profiles);
+        let tail_width = joined_width(tail);
+        profile_width
+            .saturating_add(usize::from(profile_width > 0 && tail_width > 0))
+            .saturating_add(tail_width)
+            <= content_width
+    };
+    let active = labels
+        .iter()
+        .find(|(index, _)| *index == active_index)
+        .cloned()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let profile_overflow = labels.len().saturating_sub(active.len());
+    let profile_overflow = (profile_overflow > 0).then(|| format!("+{profile_overflow}"));
+    let mandatory_tail = vec![manage.to_string()];
+    let hidden_tail = hidden.clone();
+
+    // Candidate order is deliberate. Keep all configured tabs when they fit;
+    // otherwise keep the active tab, disclose omitted profiles, and retain the
+    // hidden-view diagnostic when the strip has room for it. The manage control
+    // is present in every candidate and is never lost to truncation.
+    let candidates = [
+        (
+            labels.clone(),
+            [hidden_tail.clone(), Some(manage.to_string())].into_iter().flatten().collect(),
+        ),
+        (labels.clone(), mandatory_tail.clone()),
+        (
+            active.clone(),
+            [profile_overflow.clone(), hidden_tail.clone(), Some(manage.to_string())]
+                .into_iter()
+                .flatten()
+                .collect(),
+        ),
+        (
+            active.clone(),
+            [profile_overflow.clone(), Some(manage.to_string())].into_iter().flatten().collect(),
+        ),
+        (active.clone(), [hidden_tail, Some(manage.to_string())].into_iter().flatten().collect()),
+        (active.clone(), mandatory_tail),
+    ];
+    let (shown, tail_parts, profiles_fit) = candidates
+        .into_iter()
+        .find_map(|(profiles, tail)| {
+            fits(&profiles, &tail).then_some((profiles, tail, profiles.len() == labels.len()))
+        })
+        .unwrap_or_else(|| (Vec::new(), vec![manage.to_string()], false));
+
+    let tail = tail_parts.join(" ");
+    let tail_width = UnicodeWidthStr::width(tail.as_str()).min(content_width);
+    let profile_limit =
+        content_width.saturating_sub(tail_width).saturating_sub(usize::from(tail_width > 0));
     let active_name_width = labels
         .iter()
         .find(|(index, _)| *index == active_index)
-        .map_or(1, |(_, name)| UnicodeWidthStr::width(name.as_str()).clamp(1, 6));
-    let mut tail_parts = Vec::new();
-    if let Some(hidden) = hidden.as_deref() {
-        tail_parts.push(hidden.to_string());
-    }
-    tail_parts.push(manage.to_string());
-    let required_without_overflow = tail_parts
-        .iter()
-        .map(|part| UnicodeWidthStr::width(part.as_str()))
-        .sum::<usize>()
-        .saturating_add(tail_parts.len().saturating_sub(1));
-    if let Some(profile_overflow) = profile_overflow
-        && !profiles_fit
-        && required_without_overflow
-            .saturating_add(1)
-            .saturating_add(UnicodeWidthStr::width(profile_overflow.as_str()))
-            .saturating_add(active_name_width)
-            <= content_width
-    {
-        tail_parts.insert(0, profile_overflow);
-    }
-    let mut tail = tail_parts.join(" ");
-    let mut tail_width = UnicodeWidthStr::width(tail.as_str());
-    if tail_width >= content_width {
-        // A normal sidebar is at least ten cells wide. This fallback keeps
-        // the management entrypoint and, when possible, the reason glyph
-        // usable even if a caller supplies a smaller frame.
-        tail =
-            hidden.map(|hidden| format!("{hidden} {manage}")).unwrap_or_else(|| manage.to_string());
-        tail_width = UnicodeWidthStr::width(tail.as_str()).min(content_width);
-        if tail_width >= content_width && content_width > 1 {
-            tail = manage.to_string();
-            tail_width = 1;
-        }
-    }
-    let profile_limit = content_width.saturating_sub(tail_width);
+        .map_or(0, |(_, name)| UnicodeWidthStr::width(name.as_str()));
     let mut x = area.x;
     let mut used = 0usize;
-    for (index, label) in shown {
+    for (index, label) in &shown {
         let selectable = labels.len() > 1;
         let available = profile_limit.saturating_sub(2);
         let fitted = if profiles_fit {
+            label.clone()
+        } else if *index == active_index && active_name_width <= profile_limit {
             label.clone()
         } else if available > 0 {
             truncate(label, available)
@@ -1005,6 +1030,8 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         .fg(chrome.sidebar_selected_fg)
         .add_modifier(Modifier::BOLD);
     let focused = app.workspace_sidebar_focused();
+    app.reconcile_files_rail_selection();
+    app.reveal_files_action_selection();
     let actions = app.workspace_sidebar_action_rows();
     let actions_position = app.workspace_actions_position();
     let geometry = app.files_layout_geometry(area);
@@ -1012,6 +1039,9 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let body_height = usize::from(body.height);
     let top_action_rows = geometry.top_action_rows;
     let bottom_action_rows = geometry.bottom_action_rows;
+    let visible_action_rows = top_action_rows + bottom_action_rows;
+    let hidden_action_rows = actions.len().saturating_sub(visible_action_rows);
+    let action_offset = geometry.action_offset;
     app.sidebar_files.set_viewport_height(body_height);
     let border = base
         .fg(if focused { app.config.theme.border_active } else { chrome.sidebar_border })
@@ -1097,8 +1127,10 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         {
             let y = body_start + line as u16;
             let row_index = scroll_offset + line;
-            let style = if row_index == selected { selected_style } else { base };
-            if row_index == selected {
+            let file_selected =
+                app.files_rail_selection == FilesRailSelection::File && row_index == selected;
+            let style = if file_selected { selected_style } else { base };
+            if file_selected {
                 for x in area.x..area.x + content_width {
                     buf[(x, y)].set_style(style);
                 }
@@ -1163,12 +1195,20 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             let footer = if let Some(message) = message {
                 message
             } else {
-                format!(
+                let status = format!(
                     "{}/{}  .:{}  / filter",
                     entries.len(),
                     total,
                     if show_hidden { "on" } else { "off" }
-                )
+                );
+                if hidden_action_rows > 0 {
+                    format!(
+                        "+{hidden_action_rows} {} · {status}",
+                        localization::catalog().sidebar.provider_actions
+                    )
+                } else {
+                    status
+                }
             };
             buf.set_stringn(area.x, footer_y, truncate(&footer, content_w), content_w, dim);
         }
@@ -1184,24 +1224,42 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
         crate::config::ActionsPosition::Top => top_action_rows,
         crate::config::ActionsPosition::Bottom => bottom_action_rows,
     };
-    for (row, action) in actions.iter().take(visible_action_rows).enumerate() {
+    let hidden_actions_before = action_offset;
+    let hidden_actions_after =
+        actions.len().saturating_sub(action_offset.saturating_add(visible_action_rows));
+    for (row, action) in actions.iter().enumerate().skip(action_offset).take(visible_action_rows) {
+        let visible_row = row.saturating_sub(action_offset);
         let y = match actions_position {
-            crate::config::ActionsPosition::Top => area.y + 1 + row as u16,
+            crate::config::ActionsPosition::Top => area.y + 1 + visible_row as u16,
             crate::config::ActionsPosition::Bottom => {
                 let Some(status_y) = status_y else { continue };
-                status_y + 1 + row as u16
+                status_y
+                    .saturating_sub(u16::try_from(bottom_action_rows).unwrap_or(u16::MAX))
+                    .saturating_add(visible_row as u16)
             }
         };
         if y >= area.y.saturating_add(height) {
             continue;
         }
+        // Keep the action viewport discoverable even when a transient footer
+        // message replaces the numeric overflow summary. The marker is part
+        // of the row label, so it cannot consume a separate selectable row.
+        let label = match (
+            visible_row == 0 && hidden_actions_before > 0,
+            visible_row.saturating_add(1) == visible_action_rows && hidden_actions_after > 0,
+        ) {
+            (true, true) => format!("↑ {} ↓", action.label),
+            (true, false) => format!("↑ {}", action.label),
+            (false, true) => format!("{} ↓", action.label),
+            (false, false) => action.label.clone(),
+        };
         rail::action(
             frame,
             area,
             y,
-            &action.label,
+            &label,
             app.workspace_sidebar_focused()
-                && app.workspace_rail_selection.matches_action(action.target),
+                && app.files_rail_selection == FilesRailSelection::Action(action.target),
             rail::RailPalette::for_app(app, app.workspace_sidebar_focused()),
         );
         match action.target {

@@ -31,6 +31,10 @@ pub struct FileBrowser {
     /// First visible row in the filtered list. Selection is independent from
     /// this offset so wheel inspection never changes the Enter target.
     scroll_offset: usize,
+    /// Keyboard selection normally follows the selected row. A wheel changes
+    /// this to false so a periodic refresh can keep the inspected viewport
+    /// stable while the selected activation target remains unchanged.
+    viewport_follows_selection: bool,
     viewport_height: usize,
     show_hidden: bool,
     filter_mode: bool,
@@ -49,6 +53,7 @@ impl FileBrowser {
             visible: Vec::new(),
             selected: 0,
             scroll_offset: 0,
+            viewport_follows_selection: true,
             viewport_height: 0,
             show_hidden: false,
             filter_mode: false,
@@ -77,6 +82,10 @@ impl FileBrowser {
         self.visible.iter().map(|index| &self.entries[*index])
     }
 
+    pub fn visible_len(&self) -> usize {
+        self.visible.len()
+    }
+
     pub fn visible_entry(&self, index: usize) -> Option<&FileEntry> {
         self.visible.get(index).map(|entry| &self.entries[*entry])
     }
@@ -96,6 +105,9 @@ impl FileBrowser {
     pub fn set_scroll_offset(&mut self, offset: usize) -> bool {
         let before = self.scroll_offset;
         self.scroll_offset = offset.min(self.max_scroll_offset());
+        if self.scroll_offset != before {
+            self.viewport_follows_selection = false;
+        }
         self.scroll_offset != before
     }
 
@@ -107,6 +119,7 @@ impl FileBrowser {
         self.viewport_height = height;
         self.clamp_scroll_offset();
         if changed {
+            self.viewport_follows_selection = true;
             self.ensure_selected_visible();
         }
     }
@@ -138,6 +151,7 @@ impl FileBrowser {
         } else {
             self.selected = index.min(self.visible.len() - 1);
         }
+        self.viewport_follows_selection = true;
         self.ensure_selected_visible();
     }
 
@@ -151,6 +165,9 @@ impl FileBrowser {
         let before = self.scroll_offset;
         let max_offset = self.max_scroll_offset();
         self.scroll_offset = self.scroll_offset.saturating_add_signed(delta).min(max_offset);
+        if self.scroll_offset != before {
+            self.viewport_follows_selection = false;
+        }
         self.scroll_offset != before
     }
 
@@ -232,7 +249,7 @@ impl FileBrowser {
         let keep = self.selected_entry().map(|entry| entry.path);
         let changed = self.query.insert_str(text);
         if changed {
-            self.apply_filter(keep.as_deref());
+            self.apply_filter(keep.as_deref(), false);
         }
         changed
     }
@@ -256,7 +273,7 @@ impl FileBrowser {
             KeyCode::Esc if !self.query.as_str().is_empty() => {
                 let keep = self.selected_entry().map(|entry| entry.path);
                 self.query.clear();
-                self.apply_filter(keep.as_deref());
+                self.apply_filter(keep.as_deref(), false);
             }
             KeyCode::Esc => self.filter_mode = false,
             KeyCode::Enter => {
@@ -278,7 +295,7 @@ impl FileBrowser {
             _ => {
                 let keep = self.selected_entry().map(|entry| entry.path);
                 if self.query.handle_key(key) == InputEvent::Changed {
-                    self.apply_filter(keep.as_deref());
+                    self.apply_filter(keep.as_deref(), false);
                 }
             }
         }
@@ -291,6 +308,7 @@ impl FileBrowser {
         } else {
             self.selected = self.selected.saturating_add_signed(delta).min(self.visible.len() - 1);
         }
+        self.viewport_follows_selection = true;
         self.ensure_selected_visible();
     }
 
@@ -356,6 +374,15 @@ impl FileBrowser {
 
     fn reload_directory(&mut self) {
         let selected_path = self.selected_entry().map(|entry| entry.path);
+        // A wheel-positioned viewport is anchored to the first visible path,
+        // not to its numeric index. Directory insertions and removals before
+        // that path must not make the screen jump while the selected file
+        // remains valid.
+        let viewport_anchor = (!self.viewport_follows_selection)
+            .then(|| self.visible.get(self.scroll_offset))
+            .flatten()
+            .and_then(|index| self.entries.get(*index))
+            .map(|entry| entry.path.clone());
         match list_directory(self.navigation.current_dir(), self.show_hidden) {
             Ok(entries) => {
                 self.entries = entries;
@@ -367,20 +394,30 @@ impl FileBrowser {
             }
         }
         self.last_refresh = Instant::now();
-        self.apply_filter(selected_path.as_deref());
+        let preserve_viewport = !self.viewport_follows_selection;
+        self.apply_filter(selected_path.as_deref(), preserve_viewport);
+        if preserve_viewport
+            && let Some(anchor) = viewport_anchor
+            && let Some(offset) =
+                self.visible.iter().position(|index| self.entries[*index].path == anchor)
+        {
+            self.scroll_offset = offset.min(self.max_scroll_offset());
+        }
     }
 
-    fn apply_filter(&mut self, selected_path: Option<&Path>) {
+    fn apply_filter(&mut self, selected_path: Option<&Path>, preserve_viewport: bool) {
         self.visible = filtered_indices(&self.entries, self.query.as_str());
-        self.selected = selected_path
-            .and_then(|path| {
-                self.visible.iter().position(|index| self.entries[*index].path == path)
-            })
-            .unwrap_or_else(|| {
-                if self.visible.is_empty() { 0 } else { self.selected.min(self.visible.len() - 1) }
-            });
+        let selected_survives = selected_path.and_then(|path| {
+            self.visible.iter().position(|index| self.entries[*index].path == path)
+        });
+        self.selected = selected_survives.unwrap_or_else(|| {
+            if self.visible.is_empty() { 0 } else { self.selected.min(self.visible.len() - 1) }
+        });
         self.clamp_scroll_offset();
-        self.ensure_selected_visible();
+        if !(preserve_viewport && selected_survives.is_some()) {
+            self.viewport_follows_selection = true;
+            self.ensure_selected_visible();
+        }
     }
 
     fn max_scroll_offset(&self) -> usize {
@@ -573,6 +610,34 @@ mod tests {
         browser.set_viewport_height(0);
         assert_eq!(browser.scroll_offset(), 0);
         assert!(!browser.scroll_viewport(3));
+
+        fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn refresh_preserves_a_wheel_position_when_the_selected_path_survives() {
+        let temp = temp_dir("refresh-viewport");
+        for index in 0..12 {
+            write(temp.join(format!("file-{index:02}")), "").unwrap();
+        }
+        let mut browser = FileBrowser::new(temp.clone());
+        browser.set_viewport_height(3);
+        browser.select(1);
+        assert!(browser.scroll_viewport(3));
+        assert_eq!(browser.selected(), 1);
+        assert_eq!(browser.scroll_offset(), 3);
+
+        // A periodic directory refresh must not pull the viewport back to the
+        // selected activation target while the user is inspecting another
+        // region of the listing.
+        browser.refresh();
+        assert_eq!(browser.selected(), 1);
+        assert_eq!(browser.scroll_offset(), 3);
+
+        // Keyboard navigation explicitly resumes follow-selection behavior.
+        browser.handle_key(&key(KeyCode::Down));
+        assert_eq!(browser.selected(), 2);
+        assert_eq!(browser.scroll_offset(), 2);
 
         fs::remove_dir_all(temp).unwrap();
     }

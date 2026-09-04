@@ -138,9 +138,13 @@ pub(crate) fn sidebar_profile_token(id: &str) -> u64 {
 /// All mutable frontend state owned by one named sidebar profile. Stable
 /// profile, view, and split ids keep state attached to its semantic owner
 /// when configuration order changes.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct SidebarProfilePresentationState {
     projection_rails: HashMap<String, ProjectionRailState>,
+    /// Last resolved identity for each projection rail. A stable id can be
+    /// reused by a config edit, so its cursor and collapse state are valid
+    /// only while this semantic identity remains equal.
+    projection_identities: HashMap<String, SidebarViewIdentity>,
     agent_sort_overrides: HashMap<String, AgentSortMode>,
     /// The complete semantic identity of the last focused view. A profile
     /// may reuse an id for a different scope, filter, or sort, so an id alone
@@ -159,6 +163,36 @@ struct SidebarProfilePresentationState {
     content_mode: Option<SidebarView>,
     /// Preserve the user's Files intent while its workspace host is hidden.
     files_restore_pending: bool,
+    /// Scroll offset for configured action rows while the workspace host is
+    /// in Files mode. This is separate from the Workspaces rail footer and
+    /// follows the active profile when profiles are switched.
+    files_action_scroll: usize,
+    /// Whether keyboard or mouse selection should keep the selected Files
+    /// action in view. A wheel over the action section turns this off so the
+    /// user can inspect hidden actions without changing the activation target.
+    files_action_follow_selection: bool,
+}
+
+impl Default for SidebarProfilePresentationState {
+    fn default() -> Self {
+        Self {
+            projection_rails: HashMap::new(),
+            projection_identities: HashMap::new(),
+            agent_sort_overrides: HashMap::new(),
+            focused_view: None,
+            workspace_width: None,
+            machine_width: None,
+            tabs_width: None,
+            column_widths: HashMap::new(),
+            split_fractions: SidebarSplitFractions::default(),
+            hidden_views: HashSet::new(),
+            pinned_views: HashSet::new(),
+            content_mode: None,
+            files_restore_pending: false,
+            files_action_scroll: 0,
+            files_action_follow_selection: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -4214,6 +4248,17 @@ impl WorkspaceRailSelection {
     }
 }
 
+/// Selection inside the Files content mode of the workspace host. Keep this
+/// separate from workspace rows so a profile or mode change cannot make a
+/// stale workspace selection invoke a file action, or a file selection invoke
+/// a pinned workspace action.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum FilesRailSelection {
+    #[default]
+    File,
+    Action(SidebarActionTarget),
+}
+
 fn workspace_creation_selection(mode: Option<WorkspaceCreationMode>) -> WorkspaceRailSelection {
     WorkspaceRailSelection::Action(SidebarActionTarget::CreateWorkspace(mode))
 }
@@ -4222,6 +4267,12 @@ fn workspace_creation_selection(mode: Option<WorkspaceCreationMode>) -> Workspac
 enum WorkspaceRailTarget {
     Workspace(WorkspaceId),
     Recoverable(String),
+    Action(SidebarActionTarget),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilesRailTarget {
+    File(usize),
     Action(SidebarActionTarget),
 }
 
@@ -4242,6 +4293,19 @@ fn rail_navigation_index(key: &KeyEvent, current: usize, len: usize, page: usize
         KeyCode::PageDown => Some(current.saturating_add(page).min(len - 1)),
         _ => None,
     }
+}
+
+fn files_navigation_key(key: &KeyEvent) -> bool {
+    matches!(
+        key.code,
+        KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Home
+            | KeyCode::End
+            | KeyCode::PageUp
+            | KeyCode::PageDown
+    ) || key.modifiers.contains(KeyModifiers::CONTROL)
+        && matches!(key.code, KeyCode::Char('j' | 'k'))
 }
 
 impl RenderAction {
@@ -4537,6 +4601,7 @@ pub(crate) struct FilesLayoutGeometry {
     pub footer_y: Option<u16>,
     pub top_action_rows: usize,
     pub bottom_action_rows: usize,
+    pub action_offset: usize,
 }
 
 impl SidebarLayout {
@@ -7461,6 +7526,16 @@ pub struct App {
     durable_notice_ack_failures: u8,
     durable_notice_ack_retry_at: Option<Instant>,
     pub config: Config,
+    /// The profile selected by the last loaded configuration. Runtime profile
+    /// switches do not rewrite the config file, so reloads can distinguish an
+    /// actual setting change from an unrelated reload and preserve the user's
+    /// active profile when its stable id still exists.
+    configured_sidebar_profile: String,
+    /// Preserve the raw startup request separately from its resolved profile
+    /// id. An invalid request resolves to the first profile, so comparing only
+    /// `active_profile` would incorrectly preserve a runtime switch after the
+    /// user edits `sidebar.profile`.
+    configured_sidebar_profile_request: Option<String>,
     #[cfg(test)]
     config_reload_applications: usize,
     pub chrome: ChromeTheme,
@@ -7546,6 +7621,7 @@ pub struct App {
     machine_pointer_context_cache: Option<Arc<MachinePointerContext>>,
     pub sidebar_view: SidebarView,
     pub sidebar_files: FileBrowser,
+    pub(crate) files_rail_selection: FilesRailSelection,
     pub sidebar_workspace_selection: usize,
     pub(crate) sidebar_recoverable_workspace_selection: usize,
     pub(crate) workspace_rail_selection: WorkspaceRailSelection,
@@ -10233,6 +10309,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         }
     };
     let sidebar_view = config.sidebar.view;
+    let configured_sidebar_profile = config.sidebar.active_profile.clone();
+    let configured_sidebar_profile_request = config.sidebar.profile_request.clone();
     let fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let initial_machine_notice = initial_workspace_error
         .or_else(|| machine_ui.as_ref().and_then(|machine| machine.notice.clone()));
@@ -10285,6 +10363,8 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         durable_notice_ack_failures: 0,
         durable_notice_ack_retry_at: None,
         config,
+        configured_sidebar_profile,
+        configured_sidebar_profile_request,
         #[cfg(test)]
         config_reload_applications: 0,
         chrome,
@@ -10336,6 +10416,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         machine_pointer_context_cache: None,
         sidebar_view,
         sidebar_files: FileBrowser::new(fallback_cwd),
+        files_rail_selection: FilesRailSelection::default(),
         sidebar_workspace_selection: 0,
         sidebar_recoverable_workspace_selection: 0,
         workspace_rail_selection: WorkspaceRailSelection::default(),
@@ -11065,6 +11146,9 @@ impl App {
     }
 
     fn fallback_sidebar_area(&self, kind: RailKind, height: u16) -> Option<Rect> {
+        if !self.sidebar_visible || self.surface_only.is_some() {
+            return None;
+        }
         let width_for = |candidate| match candidate {
             RailKind::Machine => self.machine_sidebar_width,
             RailKind::Workspace => self.sidebar_width,
@@ -11091,19 +11175,33 @@ impl App {
     }
 
     pub fn machine_sidebar_area(&self, height: u16) -> Option<Rect> {
-        self.sidebar_layout
-            .machine
-            .or_else(|| self.fallback_sidebar_area(RailKind::Machine, height))
+        self.sidebar_layout.machine.or_else(|| {
+            self.sidebar_layout
+                .ordered
+                .is_empty()
+                .then(|| self.fallback_sidebar_area(RailKind::Machine, height))
+                .flatten()
+        })
     }
 
     pub fn workspace_sidebar_area(&self, height: u16) -> Option<Rect> {
-        self.sidebar_layout
-            .workspace
-            .or_else(|| self.fallback_sidebar_area(RailKind::Workspace, height))
+        self.sidebar_layout.workspace.or_else(|| {
+            self.sidebar_layout
+                .ordered
+                .is_empty()
+                .then(|| self.fallback_sidebar_area(RailKind::Workspace, height))
+                .flatten()
+        })
     }
 
     pub fn tabs_sidebar_area(&self, height: u16) -> Option<Rect> {
-        self.sidebar_layout.tabs.or_else(|| self.fallback_sidebar_area(RailKind::Tabs, height))
+        self.sidebar_layout.tabs.or_else(|| {
+            self.sidebar_layout
+                .ordered
+                .is_empty()
+                .then(|| self.fallback_sidebar_area(RailKind::Tabs, height))
+                .flatten()
+        })
     }
 
     pub(crate) fn projection_sidebar_area(&self, index: usize) -> Option<Rect> {
@@ -11125,6 +11223,30 @@ impl App {
     fn active_sidebar_profile_state_mut(&mut self) -> &mut SidebarProfilePresentationState {
         let profile = self.config.sidebar.active_profile.clone();
         self.sidebar_presentation.profiles.entry(profile).or_default()
+    }
+
+    fn remember_active_projection_identities(&mut self) {
+        let profile = self.config.sidebar.active_profile.clone();
+        let views = self.config.sidebar.views.clone();
+        let state = self.sidebar_presentation.profiles.entry(profile).or_default();
+        let valid = views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
+        for view in views {
+            let identity = SidebarViewIdentity::from_spec(&view);
+            let changed = state
+                .projection_identities
+                .get(&view.id)
+                .is_some_and(|previous| previous != &identity)
+                || state
+                    .focused_view
+                    .as_ref()
+                    .is_some_and(|previous| previous.id == view.id && previous != &identity);
+            if changed {
+                state.projection_rails.remove(&view.id);
+                state.agent_sort_overrides.remove(&view.id);
+            }
+            state.projection_identities.insert(view.id, identity);
+        }
+        state.projection_identities.retain(|id, _| valid.contains(id));
     }
 
     fn remember_active_sidebar_content_mode(&mut self) {
@@ -11174,6 +11296,7 @@ impl App {
     fn ensure_files_mode_supported(&mut self) {
         if self.surface_only.is_some()
             || self.sidebar_view != SidebarView::Files
+            || !self.sidebar_visible
             || self.config.sidebar.plugin.is_some()
         {
             return;
@@ -11478,7 +11601,15 @@ impl App {
     }
 
     fn cancel_sidebar_layout_drag(&mut self) {
-        if matches!(self.drag, Some(Drag::RailResize(_) | Drag::SidebarSplit { .. })) {
+        if matches!(
+            self.drag,
+            Some(
+                Drag::RailResize(_)
+                    | Drag::SidebarSplit { .. }
+                    | Drag::WorkspaceScrollbar { .. }
+                    | Drag::FilesScrollbar { .. }
+            )
+        ) {
             self.drag = None;
         }
     }
@@ -11497,6 +11628,7 @@ impl App {
         self.config.sidebar.active_profile = profile_id;
         self.config.sidebar.views = views;
         self.config.sidebar.layout = layout;
+        self.remember_active_projection_identities();
         if profile_changed {
             self.invalidate_projection_rows_cache();
             self.cancel_sidebar_layout_drag();
@@ -11630,25 +11762,216 @@ impl App {
             .unwrap_or_default()
     }
 
+    fn files_rail_target_at(
+        &self,
+        index: usize,
+        actions: &[SidebarActionRow],
+    ) -> Option<FilesRailTarget> {
+        let file_count = self.sidebar_files.visible_len();
+        match self.workspace_actions_position() {
+            crate::config::ActionsPosition::Top => {
+                if index < actions.len() {
+                    actions.get(index).map(|action| FilesRailTarget::Action(action.target))
+                } else {
+                    (index - actions.len() < file_count)
+                        .then_some(FilesRailTarget::File(index - actions.len()))
+                }
+            }
+            crate::config::ActionsPosition::Bottom => {
+                if index < file_count {
+                    Some(FilesRailTarget::File(index))
+                } else {
+                    actions
+                        .get(index - file_count)
+                        .map(|action| FilesRailTarget::Action(action.target))
+                }
+            }
+        }
+    }
+
+    fn files_rail_target_index(
+        &self,
+        target: FilesRailTarget,
+        actions: &[SidebarActionRow],
+    ) -> Option<usize> {
+        let file_count = self.sidebar_files.visible_len();
+        match target {
+            FilesRailTarget::File(index) if index < file_count => {
+                Some(match self.workspace_actions_position() {
+                    crate::config::ActionsPosition::Top => actions.len().saturating_add(index),
+                    crate::config::ActionsPosition::Bottom => index,
+                })
+            }
+            FilesRailTarget::Action(target) => actions
+                .iter()
+                .position(|action| action.target == target)
+                .map(|index| match self.workspace_actions_position() {
+                    crate::config::ActionsPosition::Top => index,
+                    crate::config::ActionsPosition::Bottom => file_count.saturating_add(index),
+                }),
+            FilesRailTarget::File(_) => None,
+        }
+    }
+
+    fn files_page_size(&self) -> usize {
+        self.sidebar_layout.workspace.map_or(1, |area| {
+            let geometry = self.files_layout_geometry(area);
+            usize::from(geometry.body.height)
+                .saturating_add(geometry.top_action_rows)
+                .saturating_add(geometry.bottom_action_rows)
+                .max(1)
+        })
+    }
+
+    fn files_visible_target_count(&self) -> usize {
+        self.sidebar_layout.workspace.map_or(0, |area| {
+            let geometry = self.files_layout_geometry(area);
+            usize::from(geometry.body.height)
+                .saturating_add(geometry.top_action_rows)
+                .saturating_add(geometry.bottom_action_rows)
+        })
+    }
+
+    fn selected_files_rail_target(&self, actions: &[SidebarActionRow]) -> Option<FilesRailTarget> {
+        match self.files_rail_selection {
+            FilesRailSelection::File => (self.sidebar_files.visible_len() > 0)
+                .then_some(FilesRailTarget::File(self.sidebar_files.selected()))
+                .and_then(|target| {
+                    self.files_rail_target_index(target, actions)
+                        .and_then(|index| self.files_rail_target_at(index, actions))
+                }),
+            FilesRailSelection::Action(target) => actions
+                .iter()
+                .any(|action| action.target == target)
+                .then_some(FilesRailTarget::Action(target)),
+        }
+    }
+
+    pub(crate) fn reconcile_files_rail_selection(&mut self) {
+        if let FilesRailSelection::Action(target) = self.files_rail_selection
+            && !self.workspace_sidebar_action_rows().iter().any(|action| action.target == target)
+        {
+            self.set_files_rail_selection(FilesRailSelection::File);
+        }
+    }
+
+    fn set_files_rail_selection(&mut self, selection: FilesRailSelection) {
+        self.files_rail_selection = selection;
+        self.active_sidebar_profile_state_mut().files_action_follow_selection = true;
+    }
+
+    fn reset_files_action_position(&mut self) {
+        self.files_rail_selection = FilesRailSelection::File;
+        let state = self.active_sidebar_profile_state_mut();
+        state.files_action_scroll = 0;
+        state.files_action_follow_selection = true;
+    }
+
+    /// Clear action selections at a configuration boundary. `Action::UserCommand`
+    /// stores a validated index into the loaded command list, so retaining a
+    /// selection across a reload could run a different command after an edit
+    /// reorders that list. The next frame selects the resource domain again and
+    /// rebuilds its hit map from the new configuration.
+    fn invalidate_sidebar_action_targets(&mut self) {
+        if matches!(self.workspace_rail_selection, WorkspaceRailSelection::Action(_)) {
+            self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
+        }
+        if matches!(self.files_rail_selection, FilesRailSelection::Action(_)) {
+            self.files_rail_selection = FilesRailSelection::File;
+        }
+        for state in self.sidebar_presentation.profiles.values_mut() {
+            state.files_action_follow_selection = true;
+            state.files_action_scroll = 0;
+            for rail in state.projection_rails.values_mut() {
+                rail.selected_action = None;
+            }
+        }
+        // A context menu can contain configured command actions too. Close it
+        // before the new config is exposed so Enter cannot dispatch an old
+        // positional command through the menu.
+        self.menu = None;
+        self.hits.clear();
+        // A rendered mouse route can be replayed after a config reload. Drop
+        // retained mouse input and advance its generation so a route that
+        // happens to have the same rectangle and command index cannot cross
+        // the configuration boundary.
+        self.advance_pointer_focus_generation();
+    }
+
+    pub(crate) fn reveal_files_action_selection(&mut self) {
+        self.reconcile_files_rail_selection();
+        let FilesRailSelection::Action(target) = self.files_rail_selection else { return };
+        if self
+            .active_sidebar_profile_state()
+            .is_some_and(|state| !state.files_action_follow_selection)
+        {
+            return;
+        }
+        let Some(area) = self.sidebar_layout.workspace else { return };
+        let actions = self.workspace_sidebar_action_rows();
+        let action_count = actions.len();
+        let Some(index) = actions.iter().position(|action| action.target == target) else {
+            return;
+        };
+        let geometry = self.files_layout_geometry(area);
+        let visible = geometry.top_action_rows + geometry.bottom_action_rows;
+        if visible == 0 || action_count == 0 {
+            self.active_sidebar_profile_state_mut().files_action_scroll = 0;
+            return;
+        }
+        let max_offset = action_count.saturating_sub(visible);
+        let current =
+            self.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll);
+        let mut offset = current.min(max_offset);
+        if index < offset {
+            offset = index;
+        } else if index >= offset.saturating_add(visible) {
+            offset = index.saturating_add(1).saturating_sub(visible);
+        }
+        self.active_sidebar_profile_state_mut().files_action_scroll = offset.min(max_offset);
+    }
+
+    fn reconcile_files_action_scroll(&mut self) {
+        let Some(area) = self.sidebar_layout.workspace else { return };
+        let action_count = self.workspace_sidebar_action_rows().len();
+        let geometry = self.files_layout_geometry(area);
+        let visible = geometry.top_action_rows + geometry.bottom_action_rows;
+        let max_offset = action_count.saturating_sub(visible);
+        let state = self.active_sidebar_profile_state_mut();
+        state.files_action_scroll = state.files_action_scroll.min(max_offset);
+        if visible == 0 {
+            state.files_action_follow_selection = true;
+        }
+    }
+
     /// Compute the Files host's header, body, footer, and action geometry.
-    /// The footer and action rows are clipped as a unit on short frames, so
-    /// they never overwrite the header or each other.
+    /// The footer is always the final row when it fits. Action rows occupy the
+    /// content rows immediately below the header or immediately above the
+    /// footer, so every hit region has one unambiguous owner.
     pub(crate) fn files_layout_geometry(&self, area: Rect) -> FilesLayoutGeometry {
         let actions = self.workspace_sidebar_action_rows();
         let footer_y = (area.height > 1).then(|| area.y.saturating_add(area.height - 1));
         let content_rows =
             usize::from(area.height.saturating_sub(if footer_y.is_some() { 2 } else { 1 }));
+        // Always keep one body row for a file, an empty-state label, or a
+        // listing error. Without this budget, a long configured action list
+        // can erase the Files browser until the user edits the config.
+        // Half-height allocation gives both domains a useful viewport.
+        let action_budget = content_rows.saturating_sub(1).min(content_rows.saturating_add(1) / 2);
         let (top_action_rows, bottom_action_rows) = match self.workspace_actions_position() {
-            crate::config::ActionsPosition::Top => (actions.len().min(content_rows), 0),
-            crate::config::ActionsPosition::Bottom => (0, actions.len().min(content_rows)),
+            crate::config::ActionsPosition::Top => (actions.len().min(action_budget), 0),
+            crate::config::ActionsPosition::Bottom => (0, actions.len().min(action_budget)),
         };
+        let action_rows = top_action_rows + bottom_action_rows;
+        let action_offset = self
+            .active_sidebar_profile_state()
+            .map_or(0, |state| state.files_action_scroll)
+            .min(actions.len().saturating_sub(action_rows));
         let body_height = content_rows.saturating_sub(top_action_rows + bottom_action_rows);
         let body_y = area
             .y
             .saturating_add(1)
             .saturating_add(u16::try_from(top_action_rows).unwrap_or(u16::MAX));
-        let footer_y = footer_y
-            .map(|y| y.saturating_sub(u16::try_from(bottom_action_rows).unwrap_or(u16::MAX)));
         FilesLayoutGeometry {
             body: Rect {
                 x: area.x,
@@ -11659,14 +11982,38 @@ impl App {
             footer_y,
             top_action_rows,
             bottom_action_rows,
+            action_offset,
         }
     }
 
     /// Body rectangle shared by Files rendering and wheel admission. The
     /// header, configured action rows, and footer are outside this rectangle
     /// and therefore never consume file viewport input.
+    #[cfg(test)]
     pub(crate) fn files_body_rect(&self, area: Rect) -> Rect {
         self.files_layout_geometry(area).body
+    }
+
+    /// Return the visible action section of a Files host, when it has rows.
+    /// The section is a separate wheel viewport from the file body.
+    fn files_action_rect(&self, area: Rect) -> Option<Rect> {
+        let geometry = self.files_layout_geometry(area);
+        let rows = geometry.top_action_rows + geometry.bottom_action_rows;
+        if rows == 0 {
+            return None;
+        }
+        let y = match self.workspace_actions_position() {
+            crate::config::ActionsPosition::Top => area.y.saturating_add(1),
+            crate::config::ActionsPosition::Bottom => {
+                geometry.footer_y?.saturating_sub(u16::try_from(rows).unwrap_or(u16::MAX))
+            }
+        };
+        Some(Rect {
+            x: area.x,
+            y,
+            width: area.width.saturating_sub(1),
+            height: u16::try_from(rows).unwrap_or(u16::MAX),
+        })
     }
 
     /// Expand the configured workspace row label template. The default
@@ -11959,6 +12306,13 @@ impl App {
         if let Some(focused_view) = focused_view {
             let state = self.active_sidebar_profile_state_mut();
             state.focused_view = Some(focused_view);
+        }
+        if kind == RailKind::Workspace
+            && self.sidebar_view == SidebarView::Files
+            && matches!(self.files_rail_selection, FilesRailSelection::Action(_))
+        {
+            self.active_sidebar_profile_state_mut().files_action_follow_selection = true;
+            self.reveal_files_action_selection();
         }
     }
 
@@ -15606,6 +15960,42 @@ impl App {
         }
     }
 
+    /// Re-apply a client-local profile choice after loading configuration.
+    /// `sidebar.profile` is a startup setting, while the active profile is
+    /// runtime state. The loaded startup id becomes the next comparison
+    /// baseline; an unavailable runtime id falls back to the loaded profile.
+    fn restore_runtime_sidebar_profile(
+        config: &mut Config,
+        previous_configured_profile: &str,
+        runtime_profile: &str,
+    ) -> String {
+        let loaded_configured_profile = config.sidebar.active_profile.clone();
+        if loaded_configured_profile == previous_configured_profile
+            && let Some(profile) = config
+                .sidebar
+                .profiles
+                .iter()
+                .find(|profile| profile.id == runtime_profile)
+                .cloned()
+        {
+            config.sidebar.active_profile = profile.id;
+            config.sidebar.views = profile.views.clone();
+            config.sidebar.layout = profile.layout.clone();
+            config.sidebar.columns = profile
+                .views
+                .iter()
+                .filter_map(|view| {
+                    view.legacy_kind().map(|kind| SidebarColumn {
+                        kind,
+                        width: view.width,
+                        max_width: view.max_width,
+                    })
+                })
+                .collect();
+        }
+        loaded_configured_profile
+    }
+
     fn reload_config(&mut self) {
         #[cfg(test)]
         {
@@ -15617,14 +16007,34 @@ impl App {
         // actual edit to that setting still wins on the next reload.
         let previous_configured_sidebar_view = self.config.sidebar.view;
         let runtime_sidebar_view = self.sidebar_view;
+        let previous_configured_sidebar_profile = self.configured_sidebar_profile.clone();
+        let previous_configured_sidebar_profile_request =
+            self.configured_sidebar_profile_request.clone();
+        let runtime_sidebar_profile = self.config.sidebar.active_profile.clone();
         let previous_projection = SidebarProjectionSpec::from_config(&self.config);
-        let focused_projection_id = match self.focus {
+        let focused_projection = match self.focus {
             FocusTarget::ProjectionRail(index) => {
-                self.config.sidebar.views.get(index).map(|view| view.id.clone())
+                self.config.sidebar.views.get(index).map(SidebarViewIdentity::from_spec)
             }
             _ => None,
         };
         let mut config = crate::config::load();
+        let loaded_profile_request = config.sidebar.profile_request.clone();
+        self.configured_sidebar_profile =
+            if loaded_profile_request == previous_configured_sidebar_profile_request {
+                Self::restore_runtime_sidebar_profile(
+                    &mut config,
+                    &previous_configured_sidebar_profile,
+                    &runtime_sidebar_profile,
+                )
+            } else {
+                // The raw startup request changed, including the case where a new
+                // invalid id resolves to the same first profile. Let the loaded
+                // configuration win instead of carrying a runtime-only profile
+                // choice across an explicit setting edit.
+                config.sidebar.active_profile.clone()
+            };
+        self.configured_sidebar_profile_request = loaded_profile_request;
         config.apply_chrome_defaults(self.chrome);
         let shortcut_rows = self
             .shortcut_help
@@ -15635,6 +16045,7 @@ impl App {
         self.sidebar_plugin_retry_at = None;
         self.session.apply_config(config.clone());
         self.config = config;
+        self.invalidate_sidebar_action_targets();
         let configured_sidebar_view_changed =
             self.config.sidebar.view != previous_configured_sidebar_view;
         self.sidebar_view = if configured_sidebar_view_changed {
@@ -15651,17 +16062,41 @@ impl App {
         self.ensure_files_mode_supported();
         self.invalidate_projection_rows_if_sidebar_spec_changed(previous_projection);
         self.reconcile_sidebar_presentation();
-        if let Some(id) = focused_projection_id {
-            if let Some((index, view)) =
-                self.config.sidebar.views.iter().enumerate().find(|(_, view)| view.id == id)
-            {
-                let kind =
-                    view.legacy_kind().map_or(RailKind::Projection(index), |kind| match kind {
-                        SidebarColumnKind::Machines => RailKind::Machine,
-                        SidebarColumnKind::Workspaces => RailKind::Workspace,
-                        SidebarColumnKind::Tabs => RailKind::Tabs,
-                    });
-                self.focus_rail(kind);
+        if let Some(identity) = focused_projection {
+            let target_index =
+                self.config
+                    .sidebar
+                    .views
+                    .iter()
+                    .enumerate()
+                    .find(|(_, view)| remembered_focus_matches(Some(&identity), view))
+                    .or_else(|| {
+                        // A changed view definition no longer owns the old
+                        // projection cursor. Keep the semantic workspace parent
+                        // when possible, then the same first resource level.
+                        identity
+                            .levels
+                            .contains(&SidebarResourceKind::Workspaces)
+                            .then(|| {
+                                self.config.sidebar.views.iter().enumerate().find(|(_, view)| {
+                                    view.includes(SidebarResourceKind::Workspaces)
+                                })
+                            })
+                            .flatten()
+                    })
+                    .or_else(|| {
+                        identity.levels.first().and_then(|kind| {
+                            self.config
+                                .sidebar
+                                .views
+                                .iter()
+                                .enumerate()
+                                .find(|(_, view)| view.levels.first() == Some(kind))
+                        })
+                    })
+                    .map(|(index, _)| index);
+            if let Some(index) = target_index {
+                self.focus_rail(self.rail_kind_for_view(index));
             } else {
                 self.focus = FocusTarget::Pane;
             }
@@ -15689,6 +16124,22 @@ impl App {
             };
             let mut valid_keys =
                 profile.views.iter().map(|view| view.id.clone()).collect::<HashSet<_>>();
+            for view in &profile.views {
+                let identity = SidebarViewIdentity::from_spec(view);
+                let changed = state
+                    .projection_identities
+                    .get(&view.id)
+                    .is_some_and(|previous| previous != &identity)
+                    || state
+                        .focused_view
+                        .as_ref()
+                        .is_some_and(|previous| previous.id == view.id && previous != &identity);
+                if changed {
+                    state.projection_rails.remove(&view.id);
+                    state.agent_sort_overrides.remove(&view.id);
+                }
+                state.projection_identities.insert(view.id.clone(), identity);
+            }
             if state.focused_view.as_ref().is_some_and(|identity| {
                 profile
                     .views
@@ -15699,6 +16150,7 @@ impl App {
                 state.focused_view = None;
             }
             state.projection_rails.retain(|id, _| valid_keys.contains(id));
+            state.projection_identities.retain(|id, _| valid_keys.contains(id));
             state.agent_sort_overrides.retain(|id, _| valid_keys.contains(id));
             state.hidden_views.retain(|id| valid_keys.contains(id));
             state.pinned_views.retain(|id| valid_keys.contains(id));
@@ -15914,6 +16366,12 @@ impl App {
         if !force && focused == self.sidebar_followed_surface {
             return false;
         }
+        if focused != self.sidebar_followed_surface {
+            // Provider actions are contextual to the focused surface. A
+            // surface switch must not leave Enter armed for an old action or
+            // reopen its old action viewport after the cwd follows.
+            self.reset_files_action_position();
+        }
         self.sidebar_followed_surface = focused;
         let Some(cwd) = self.focused_surface_cwd() else { return false };
         self.sidebar_files.follow_focused_cwd(&cwd)
@@ -16082,7 +16540,8 @@ impl App {
             // Files requires its workspace host to remain mounted while this
             // content mode is active. Other rails may collapse around it, but
             // the host itself must not disappear at a height/width boundary.
-            if self.sidebar_view == SidebarView::Files
+            if self.sidebar_visible
+                && self.sidebar_view == SidebarView::Files
                 && let Some(host_id) = files_host_id.clone()
             {
                 required_views.insert(host_id);
@@ -16147,7 +16606,8 @@ impl App {
                 self.sidebar_view = SidebarView::Files;
                 self.active_sidebar_profile_state_mut().files_restore_pending = false;
                 self.remember_active_sidebar_content_mode();
-            } else if self.sidebar_view == SidebarView::Files
+            } else if self.sidebar_visible
+                && self.sidebar_view == SidebarView::Files
                 && !required_views.is_empty()
                 && !host_mounted
             {
@@ -16167,6 +16627,7 @@ impl App {
             layout
         };
         self.sidebar_layout = sidebar_layout;
+        self.reconcile_files_action_scroll();
         self.sidebar_width = self.sidebar_layout.workspace.map_or(0, |rect| rect.width);
         self.machine_sidebar_width = self.sidebar_layout.machine.map_or(0, |rect| rect.width);
         self.tabs_sidebar_width = self.sidebar_layout.tabs.map_or(0, |rect| rect.width);
@@ -17905,6 +18366,7 @@ impl App {
     }
 
     fn advance_pointer_focus_generation(&mut self) {
+        self.discard_pointer_interaction();
         self.pointer_focus_generation = self.pointer_focus_generation.wrapping_add(1);
         self.deferred_input.retain(|input| !matches!(&input.event, TerminalInput::Mouse(_)));
         self.pending_pointer_motion = None;
@@ -20731,6 +21193,9 @@ impl App {
         if key.code == KeyCode::Tab {
             return self.run_action(Action::ToggleSidebarView);
         }
+        if self.sidebar_view == SidebarView::Files && self.sidebar_files.filter_mode() {
+            return self.handle_files_sidebar_key(key);
+        }
         // Files owns plain arrows for directory navigation. Option/Alt is
         // the explicit cross-rail escape, including the vertical direction
         // needed to reach a stacked Agents rail.
@@ -20746,15 +21211,21 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
-            let moved = self.focus_adjacent_rail(RailKind::Workspace, -1);
+            let files_owns_left = self.sidebar_view == SidebarView::Files
+                && matches!(self.files_rail_selection, FilesRailSelection::File);
+            let moved = !files_owns_left && self.focus_adjacent_rail(RailKind::Workspace, -1);
             if moved
                 || self.sidebar_view == SidebarView::Workspaces
+                || self.sidebar_view == SidebarView::Files
+                    && matches!(self.files_rail_selection, FilesRailSelection::Action(_))
                 || key.modifiers.contains(KeyModifiers::ALT)
             {
                 return Ok(RenderAction::Draw);
             }
         }
         if (self.sidebar_view == SidebarView::Workspaces
+            || self.sidebar_view == SidebarView::Files
+                && matches!(self.files_rail_selection, FilesRailSelection::Action(_))
             || key.modifiers.contains(KeyModifiers::ALT))
             && matches!(key.code, KeyCode::Right | KeyCode::Char('l'))
         {
@@ -20768,11 +21239,7 @@ impl App {
             return Ok(RenderAction::Draw);
         }
         match self.sidebar_view {
-            SidebarView::Files => {
-                if let Some(command) = self.sidebar_files.handle_key(key) {
-                    self.run_file_command(command);
-                }
-            }
+            SidebarView::Files => return self.handle_files_sidebar_key(key),
             SidebarView::Workspaces => {
                 if matches!(
                     key.code,
@@ -22384,6 +22851,7 @@ impl App {
         }
         match self.sidebar_view {
             SidebarView::Files => {
+                self.set_files_rail_selection(FilesRailSelection::File);
                 self.sidebar_followed_surface = None;
                 if !self.sync_sidebar_files_to_focus(true) {
                     self.sidebar_files.refresh();
@@ -22393,6 +22861,99 @@ impl App {
                 self.sidebar_workspace_selection = self.tree.active_workspace;
                 self.workspace_rail_selection = WorkspaceRailSelection::Workspace;
                 self.workspace_rail_follow_selection = true;
+            }
+        }
+    }
+
+    fn handle_files_sidebar_key(&mut self, key: &KeyEvent) -> anyhow::Result<RenderAction> {
+        // The filter editor owns Escape and navigation while it is active.
+        // This check must precede the outer sidebar Escape handler so the
+        // first Escape clears the query and the second one leaves the rail.
+        if self.sidebar_files.filter_mode() {
+            self.set_files_rail_selection(FilesRailSelection::File);
+            if let Some(command) = self.sidebar_files.handle_key(key) {
+                self.run_file_command(command);
+            }
+            return Ok(RenderAction::Draw);
+        }
+
+        let actions = self.workspace_sidebar_action_rows();
+        let visible_target_count = self.files_visible_target_count();
+        let visible_action_rows = self.sidebar_layout.workspace.map_or(0, |area| {
+            let geometry = self.files_layout_geometry(area);
+            geometry.top_action_rows + geometry.bottom_action_rows
+        });
+        let hidden_action_selection = visible_action_rows == 0
+            && matches!(self.files_rail_selection, FilesRailSelection::Action(_));
+        if hidden_action_selection {
+            self.set_files_rail_selection(FilesRailSelection::File);
+        }
+        let visible_action_count = if visible_action_rows > 0 { actions.len() } else { 0 };
+        let target_count = self.sidebar_files.visible_len().saturating_add(visible_action_count);
+        if files_navigation_key(key) && target_count > 0 && visible_target_count > 0 {
+            self.workspace_rail_follow_selection = true;
+            let current = self
+                .selected_files_rail_target(&actions)
+                .and_then(|target| self.files_rail_target_index(target, &actions));
+            let next = current
+                .and_then(|current| {
+                    rail_navigation_index(key, current, target_count, self.files_page_size())
+                })
+                .or_else(|| {
+                    let last = target_count.saturating_sub(1);
+                    matches!(key.code, KeyCode::Up | KeyCode::PageUp | KeyCode::Char('k'))
+                        .then_some(last)
+                        .or(Some(0))
+                });
+            if let Some(next) = next.and_then(|index| self.files_rail_target_at(index, &actions)) {
+                self.select_files_rail_target(next);
+            }
+            return Ok(RenderAction::Draw);
+        }
+
+        if key.code == KeyCode::Enter
+            && let FilesRailSelection::Action(target) = self.files_rail_selection
+        {
+            if visible_action_rows > 0 && actions.iter().any(|action| action.target == target) {
+                return self.invoke_sidebar_action(target);
+            }
+            self.set_files_rail_selection(FilesRailSelection::File);
+            return Ok(RenderAction::Draw);
+        }
+        // If a short frame just invalidated an action selection, consume the
+        // same Enter press. It must not fall through and activate the file
+        // that happens to occupy the first body row.
+        if hidden_action_selection && key.code == KeyCode::Enter {
+            return Ok(RenderAction::Draw);
+        }
+
+        // File commands operate on the file selection. Moving from an action
+        // to a file is explicit, so a stale file target cannot be activated by
+        // a command while an action row is selected.
+        if matches!(
+            key.code,
+            KeyCode::Left | KeyCode::Right | KeyCode::Char('.' | '/' | '~' | 'c' | 'o' | 'h')
+        ) {
+            self.set_files_rail_selection(FilesRailSelection::File);
+        }
+        if let Some(command) = self.sidebar_files.handle_key(key) {
+            self.run_file_command(command);
+        }
+        Ok(RenderAction::Draw)
+    }
+
+    fn select_files_rail_target(&mut self, target: FilesRailTarget) {
+        match target {
+            FilesRailTarget::File(index) => {
+                self.set_files_rail_selection(FilesRailSelection::File);
+                self.sidebar_files.select(index);
+            }
+            FilesRailTarget::Action(target) => {
+                if self.workspace_sidebar_action_rows().iter().any(|action| action.target == target)
+                {
+                    self.set_files_rail_selection(FilesRailSelection::Action(target));
+                    self.reveal_files_action_selection();
+                }
             }
         }
     }
@@ -23297,6 +23858,17 @@ impl App {
     }
 
     fn cancel_pointer_interaction(&mut self) -> bool {
+        self.cancel_pointer_interaction_with_split_settle(true)
+    }
+
+    /// Drop a pointer route at a topology/configuration boundary. A pane
+    /// resize must not commit a ratio computed against the old layout, while
+    /// browser and PTY drags still receive a best-effort release event.
+    fn discard_pointer_interaction(&mut self) -> bool {
+        self.cancel_pointer_interaction_with_split_settle(false)
+    }
+
+    fn cancel_pointer_interaction_with_split_settle(&mut self, settle_split: bool) -> bool {
         self.reset_selection_click_sequence();
         let menu_scrollbar_dragged =
             self.menu.as_mut().is_some_and(|menu| menu.finish_scrollbar_drag());
@@ -23318,7 +23890,7 @@ impl App {
                 BrowserMouseDispatch::new("mouseReleased", Some("left"), Some(1)),
             );
         } else {
-            let settle_split = matches!(self.drag, Some(Drag::ResizeSplit { .. }));
+            let settle_split = settle_split && matches!(self.drag, Some(Drag::ResizeSplit { .. }));
             self.drag = None;
             if settle_split {
                 self.session.settle_split_ratio();
@@ -24314,8 +24886,26 @@ impl App {
                     let kind = self.rail_kind_for_view(view);
                     match kind {
                         RailKind::Workspace => {
-                            self.workspace_rail_selection = WorkspaceRailSelection::Action(action);
-                            self.workspace_rail_follow_selection = true;
+                            if self.sidebar_view == SidebarView::Files {
+                                if !self
+                                    .workspace_sidebar_action_rows()
+                                    .iter()
+                                    .any(|candidate| candidate.target == action)
+                                {
+                                    // The rendered hit can outlive a config
+                                    // reload. A stale Files action must not
+                                    // invoke a command that is no longer in
+                                    // the active host definition.
+                                    self.set_files_rail_selection(FilesRailSelection::File);
+                                    return Ok(RenderAction::Draw);
+                                }
+                                self.set_files_rail_selection(FilesRailSelection::Action(action));
+                                self.reveal_files_action_selection();
+                            } else {
+                                self.workspace_rail_selection =
+                                    WorkspaceRailSelection::Action(action);
+                                self.workspace_rail_follow_selection = true;
+                            }
                         }
                         RailKind::Projection(_) => {
                             let action_index = self
@@ -24348,14 +24938,35 @@ impl App {
                 Hit::CreateWorkspace { mode } => {
                     self.workspace_rail_follow_selection = true;
                     self.workspace_rail_selection = workspace_creation_selection(mode);
+                    if self.sidebar_view == SidebarView::Files {
+                        let target = SidebarActionTarget::CreateWorkspace(mode);
+                        if !self
+                            .workspace_sidebar_action_rows()
+                            .iter()
+                            .any(|candidate| candidate.target == target)
+                        {
+                            self.set_files_rail_selection(FilesRailSelection::File);
+                            return Ok(RenderAction::Draw);
+                        }
+                        self.set_files_rail_selection(FilesRailSelection::Action(target));
+                        self.reveal_files_action_selection();
+                    }
                     self.create_workspace(mode, None)?;
                 }
                 Hit::SidebarFile { index } => {
                     self.focus = FocusTarget::WorkspaceRail;
+                    self.set_files_rail_selection(FilesRailSelection::File);
                     self.sidebar_files.select(index);
                 }
                 Hit::SidebarFilterInput => {
                     self.focus = FocusTarget::WorkspaceRail;
+                    if self.sidebar_view == SidebarView::Files {
+                        // Clicking the editor returns the activation target to
+                        // the file domain immediately. Without this reset the
+                        // next Enter could still invoke an action selected
+                        // before the filter click.
+                        self.set_files_rail_selection(FilesRailSelection::File);
+                    }
                     if let Some(area) =
                         self.workspace_sidebar_area(self.content_area.height.saturating_add(1))
                     {
@@ -25621,7 +26232,7 @@ impl App {
                 action: MenuAction::SetSidebarViewVisible { view: index, visible: false },
             }]
         };
-        if hidden.is_none() && state.is_some_and(|state| state.pinned_views.contains(&view.id)) {
+        if state.is_some_and(|state| state.pinned_views.contains(&view.id)) {
             items.push(MenuItem::LabeledAction {
                 label: messages.allow_sidebar_view_auto_hide.replace("{view}", &view_name),
                 action: MenuAction::SetSidebarViewPinned { view: index, pinned: false },
@@ -25824,6 +26435,11 @@ impl App {
                     .collect();
                 self.sidebar_visible = true;
                 self.sidebar_view = target_content_mode;
+                if changed {
+                    self.set_files_rail_selection(FilesRailSelection::File);
+                } else {
+                    self.reconcile_files_rail_selection();
+                }
                 self.ensure_files_mode_supported();
                 if restore_sidebar_focus {
                     if let Some(focused_view) = target_view
@@ -26265,11 +26881,31 @@ impl App {
             .filter(|area| area.contains(x, y))
         {
             if self.sidebar_view == SidebarView::Files {
+                let geometry = self.files_layout_geometry(area);
+                if self
+                    .files_action_rect(area)
+                    .is_some_and(|actions_rect| actions_rect.contains(x, y))
+                {
+                    let visible = geometry.top_action_rows + geometry.bottom_action_rows;
+                    let max_offset =
+                        self.workspace_sidebar_action_rows().len().saturating_sub(visible);
+                    let action_selected =
+                        matches!(self.files_rail_selection, FilesRailSelection::Action(_));
+                    let state = self.active_sidebar_profile_state_mut();
+                    let before = state.files_action_scroll;
+                    state.files_action_scroll =
+                        before.saturating_add_signed(if down { 1 } else { -1 }).min(max_offset);
+                    let changed = state.files_action_scroll != before;
+                    if action_selected && changed {
+                        state.files_action_follow_selection = false;
+                    }
+                    return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
+                }
                 // The Files cursor is the activation target. Do not move it
                 // when the renderer has no visible body, or when the wheel
                 // lands on the header/footer. The event is still consumed so
                 // it cannot leak into the focused PTY behind the rail.
-                let body = self.files_body_rect(area);
+                let body = geometry.body;
                 if body.height == 0 || !body.contains(x, y) {
                     return Ok(RenderAction::None);
                 }
@@ -29829,6 +30465,354 @@ mod tests {
     }
 
     #[test]
+    fn files_host_action_scroll_is_profile_local_and_starts_at_the_first_row() {
+        let temp = test_temp_dir("files-action-scroll-isolation");
+        std::fs::write(temp.join("workspace.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-action-scroll-isolation-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![
+            crate::config::SidebarActionSpec::plain(Action::NewTab),
+            crate::config::SidebarActionSpec::plain(Action::NewScreen),
+            crate::config::SidebarActionSpec::plain(Action::NewBrowserTab),
+            crate::config::SidebarActionSpec::plain(Action::NewPaneSmart),
+            crate::config::SidebarActionSpec::plain(Action::NextTab),
+            crate::config::SidebarActionSpec::plain(Action::PrevTab),
+            crate::config::SidebarActionSpec::plain(Action::RenameWorkspace),
+            crate::config::SidebarActionSpec::plain(Action::PrevScreen),
+            crate::config::SidebarActionSpec::plain(Action::NextScreen),
+            crate::config::SidebarActionSpec::plain(Action::NewWorkspace),
+        ];
+        let profile = SidebarProfileSpec {
+            id: "files-actions".into(),
+            name: "Files actions".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 9));
+        let actions = app.workspace_sidebar_action_rows();
+        assert!(actions.len() >= 8, "the test needs clipped action rows: {actions:?}");
+
+        // A Workspaces footer scroll must not become the initial Files action
+        // offset. The first configured action is the first action target after
+        // entering Files in this profile.
+        app.workspace_footer_scroll = 2;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.toggle_sidebar_view();
+        app.sync_layout((100, 9));
+        let area = app.workspace_sidebar_area(9).expect("Files workspace host");
+        let geometry = app.files_layout_geometry(area);
+        assert_eq!(geometry.action_offset, 0);
+        let mut terminal = Terminal::new(TestBackend::new(100, 9)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let hidden_actions =
+            actions.len().saturating_sub(geometry.top_action_rows + geometry.bottom_action_rows);
+        assert!(hidden_actions > 0);
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains(&format!(
+                "+{hidden_actions} {}",
+                localization::catalog().sidebar.provider_actions
+            )),
+            "a clipped action section must disclose its hidden rows"
+        );
+        assert!(
+            buffer_text(terminal.backend().buffer()).contains("↓"),
+            "the visible action boundary must disclose that more rows are below"
+        );
+        assert!(app.hits.iter().any(|(_, hit)| {
+            matches!(
+                hit,
+                super::Hit::SidebarAction { action, .. }
+                    if *action == actions[0].target
+            )
+        }));
+
+        // End crosses the file/action boundary and reveals the semantic last
+        // action. Its offset belongs to Files, not to the Workspaces footer.
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert_eq!(
+            app.files_rail_selection,
+            super::FilesRailSelection::Action(actions.last().unwrap().target)
+        );
+        let files_offset =
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll);
+        assert!(files_offset > 0);
+
+        // The action section has its own wheel viewport. Scrolling it keeps
+        // the semantic activation target, while allowing a clipped action to
+        // be inspected with the mouse.
+        let action_y = app.files_action_rect(area).expect("visible Files action section").y;
+        let before_action_offset = files_offset;
+        assert_eq!(
+            app.handle_scroll(area.x, action_y, false, KeyModifiers::NONE).unwrap(),
+            RenderAction::Draw
+        );
+        let after_action_offset =
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll);
+        assert!(after_action_offset < before_action_offset);
+        assert_eq!(
+            app.files_rail_selection,
+            super::FilesRailSelection::Action(actions.last().unwrap().target)
+        );
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        assert_eq!(
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll),
+            after_action_offset,
+            "a redraw must not snap a mouse-scrolled action viewport back"
+        );
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+        app.focus_rail(RailKind::Workspace);
+        assert_eq!(
+            app.active_sidebar_profile_state().map_or(0, |state| state.files_action_scroll),
+            files_offset,
+            "refocusing the Files host must reveal its semantic action target"
+        );
+
+        app.toggle_sidebar_view();
+        assert_eq!(app.sidebar_view, SidebarView::Workspaces);
+        assert_eq!(app.workspace_footer_scroll, 2);
+        app.workspace_footer_scroll = 0;
+        app.toggle_sidebar_view();
+        app.sync_layout((100, 9));
+        let area = app.workspace_sidebar_area(9).expect("Files workspace host");
+        assert_eq!(app.files_layout_geometry(area).action_offset, files_offset);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_host_keyboard_navigation_follows_action_position_and_invokes_semantic_targets() {
+        let temp = test_temp_dir("files-host-keyboard-actions");
+        std::fs::write(temp.join("a.txt"), "a").unwrap();
+        std::fs::write(temp.join("b.txt"), "b").unwrap();
+        let (mux, surface) = test_mux("files-host-keyboard-actions-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![
+            crate::config::SidebarActionSpec::plain(Action::NewTab),
+            crate::config::SidebarActionSpec::plain(Action::NewScreen),
+            crate::config::SidebarActionSpec::plain(Action::RenameWorkspace),
+        ];
+        let profile = SidebarProfileSpec {
+            id: "files-keyboard".into(),
+            name: "Files keyboard".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 16));
+        let actions = app.workspace_sidebar_action_rows();
+        assert_eq!(actions.len(), 3);
+
+        // Bottom actions follow the file rows. Ctrl-j/k are the explicit
+        // terminal-friendly aliases for Down/Up and cross the boundary.
+        app.files_rail_selection = super::FilesRailSelection::File;
+        app.sidebar_files.select(0);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_files.selected(), 1);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL))
+            .unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::Action(actions[0].target));
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL))
+            .unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert_eq!(app.sidebar_files.selected(), 1);
+
+        // Top actions are the first keyboard targets. Home and End therefore
+        // select the first action and the last file, respectively.
+        app.config.sidebar.views[0].actions_position = crate::config::ActionsPosition::Top;
+        app.config.sidebar.profiles[0].views[0].actions_position =
+            crate::config::ActionsPosition::Top;
+        app.files_rail_selection = super::FilesRailSelection::File;
+        app.sidebar_files.select(0);
+        app.sync_layout((100, 16));
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Home, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::Action(actions[0].target));
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert_eq!(app.sidebar_files.selected(), 1);
+
+        // Enter uses the same semantic action reducer as a configured
+        // keyboard command. Rename opens its workspace prompt.
+        app.files_rail_selection = super::FilesRailSelection::Action(actions[2].target);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert!(matches!(
+            app.prompt.as_ref().map(|prompt| prompt.target),
+            Some(PromptTarget::Workspace(_))
+        ));
+
+        // Removing the selected action makes the old semantic target stale.
+        // Enter must fail closed and must not activate the new first row.
+        app.prompt = None;
+        app.config.sidebar.views[0].actions.clear();
+        app.config.sidebar.profiles[0].views[0].actions.clear();
+        app.files_rail_selection = super::FilesRailSelection::Action(actions[2].target);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert!(app.prompt.is_none());
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_filter_escape_clears_then_exits_without_losing_rail_focus() {
+        let temp = test_temp_dir("files-filter-escape-focus");
+        std::fs::write(temp.join("filter-target.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-filter-escape-focus-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 16));
+        app.sidebar_files.handle_key(&KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+        assert!(app.sidebar_files.insert_filter_text("filter"));
+        app.files_rail_selection =
+            super::FilesRailSelection::Action(SidebarActionTarget::Run(Action::NewTab));
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.sidebar_files.query(), "");
+        assert!(app.sidebar_files.filter_mode());
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert!(!app.sidebar_files.filter_mode());
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::Pane);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_wheel_keeps_activation_target_and_file_click_clears_action_selection() {
+        let temp = test_temp_dir("files-wheel-action-selection");
+        for index in 0..16 {
+            std::fs::write(temp.join(format!("entry-{index:02}.txt")), "x").unwrap();
+        }
+        let (mux, surface) = test_mux("files-wheel-action-selection-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![crate::config::SidebarActionSpec::plain(Action::NewTab)];
+        let profile = SidebarProfileSpec {
+            id: "files-wheel".into(),
+            name: "Files wheel".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 12));
+        let action = app.workspace_sidebar_action_rows()[0].target;
+        app.files_rail_selection = super::FilesRailSelection::Action(action);
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let area = app.workspace_sidebar_area(12).expect("Files workspace host");
+        let body = app.files_body_rect(area);
+        let before = app.sidebar_files.scroll_offset();
+        assert_eq!(
+            app.handle_scroll(area.x, body.y, true, KeyModifiers::NONE).unwrap(),
+            RenderAction::Draw
+        );
+        assert!(app.sidebar_files.scroll_offset() > before);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::Action(action));
+
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let file_hit = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| matches!(hit, super::Hit::SidebarFile { .. }).then_some(*rect))
+            .expect("a visible file row");
+        app.handle_left_down(file_hit.x, file_hit.y, KeyModifiers::NONE).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
+    fn files_short_host_does_not_select_or_activate_invisible_rows() {
+        let temp = test_temp_dir("files-short-host-no-invisible-target");
+        std::fs::write(temp.join("visible.txt"), "x").unwrap();
+        let (mux, surface) = test_mux("files-short-host-no-invisible-target-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        let mut view = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 34, 0);
+        view.actions = vec![crate::config::SidebarActionSpec::plain(Action::NewTab)];
+        let profile = SidebarProfileSpec {
+            id: "files-short".into(),
+            name: "Files short".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&view)),
+            views: vec![view],
+        };
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout;
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_files.refresh();
+        app.sidebar_view = SidebarView::Files;
+        app.focus = FocusTarget::WorkspaceRail;
+        app.sync_layout((100, 3));
+        let area = app.workspace_sidebar_area(3).expect("Files workspace host");
+        let geometry = app.files_layout_geometry(area);
+        assert_eq!(geometry.body.height, 1, "this frame has only one Files body row");
+        assert_eq!(geometry.top_action_rows + geometry.bottom_action_rows, 0);
+        let action = app.workspace_sidebar_action_rows()[0].target;
+        app.files_rail_selection = super::FilesRailSelection::Action(action);
+
+        // Enter on an action that has no visible row is consumed after the
+        // selection returns to the file domain. It must not invoke the action
+        // or fall through to the first file row.
+        let pending_before = app.session.has_pending_mutations();
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert!(app.prompt.is_none());
+        assert_eq!(app.session.has_pending_mutations(), pending_before);
+
+        // End also clamps a stale action selection to the visible file
+        // domain. A later Enter is allowed to activate that file normally.
+        app.files_rail_selection = super::FilesRailSelection::Action(action);
+        app.handle_builtin_sidebar_key(&KeyEvent::new(KeyCode::End, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn single_profile_width_overflow_has_management_without_a_false_profile_tab() {
         let mux = Mux::new("single-profile-width-overflow-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -30168,16 +31152,17 @@ mod tests {
         assert_eq!(app.sidebar_files.selected(), selected);
         assert!(app.sidebar_files.scroll_offset() >= offset);
 
-        // Header, footer, and configured action rows are host chrome, not
-        // file viewport rows. Wheel input on each boundary is consumed as a
-        // no-op and cannot alter the independent Files offset.
+        // Header and footer are host chrome, not file viewport rows. Wheel
+        // input on those boundaries is consumed as a no-op and cannot alter
+        // the independent Files offset. An action section, when present, has
+        // its own viewport and is tested separately above.
         let offset = app.sidebar_files.scroll_offset();
         let geometry = app.files_layout_geometry(area);
         let footer_y = geometry.footer_y.unwrap_or(area.y);
         let action_y = match app.workspace_actions_position() {
             crate::config::ActionsPosition::Top if geometry.top_action_rows > 0 => Some(area.y + 1),
             crate::config::ActionsPosition::Bottom if geometry.bottom_action_rows > 0 => {
-                geometry.footer_y.map(|y| y + 1)
+                app.files_action_rect(area).map(|rect| rect.y)
             }
             _ => None,
         };
@@ -30469,6 +31454,7 @@ mod tests {
         ];
         app.config.sidebar.active_profile = "full".into();
         app.config.sidebar.views = full;
+        app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
         app.config.sidebar.views_explicit = true;
         app.sync_layout((120, 20));
 
@@ -30482,7 +31468,9 @@ mod tests {
         app.sync_layout((120, 20));
         assert_eq!(app.config.sidebar.views, focused);
         assert!(app.sidebar_layout.tabs.is_none());
-        assert_eq!(app.focus, FocusTarget::Pane);
+        // The focused profile contains the same workspace semantic parent in
+        // a projection rail, so focus follows that stable identity.
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(0));
 
         app.activate_sidebar_profile(0);
         app.set_sidebar_view_visible(1, false);
@@ -30574,7 +31562,11 @@ mod tests {
         let (mux, surface) = test_mux("sidebar-profile-focus-identity-test", None);
         let source_view = SidebarViewSpec {
             id: "shared-view".into(),
-            levels: vec![SidebarResourceKind::Tabs],
+            // A multi-level source is a real projection rail. A legacy
+            // single-level Tabs view resolves to the built-in Tabs rail, so
+            // forcing ProjectionRail(0) would make this test describe an
+            // impossible focus state instead of exercising identity restore.
+            levels: vec![SidebarResourceKind::Tabs, SidebarResourceKind::Agents],
             actions: Vec::new(),
             actions_position: crate::config::ActionsPosition::Bottom,
             width: 22,
@@ -30698,6 +31690,82 @@ mod tests {
             SidebarView::Workspaces,
             "a changed configured mode overrides a stale runtime mode"
         );
+    }
+
+    #[test]
+    fn config_reload_preserves_runtime_profile_until_startup_setting_changes() {
+        let mut unchanged = Config::default();
+        let focus = unchanged
+            .sidebar
+            .profiles
+            .iter()
+            .find(|profile| profile.id == "focus")
+            .cloned()
+            .expect("built-in Focus profile");
+
+        let configured = App::restore_runtime_sidebar_profile(&mut unchanged, "work", "focus");
+
+        assert_eq!(configured, "work");
+        assert_eq!(unchanged.sidebar.active_profile, "focus");
+        assert_eq!(unchanged.sidebar.views, focus.views);
+        assert_eq!(unchanged.sidebar.layout, focus.layout);
+
+        // An edit from Work to Focus is different from a runtime switch. It
+        // must replace a client-local Work choice on this reload.
+        let mut edited = Config::default();
+        edited.sidebar.active_profile = focus.id.clone();
+        edited.sidebar.views = focus.views.clone();
+        edited.sidebar.layout = focus.layout.clone();
+        let configured = App::restore_runtime_sidebar_profile(&mut edited, "work", "work");
+
+        assert_eq!(configured, "focus");
+        assert_eq!(edited.sidebar.active_profile, "focus");
+        assert_eq!(edited.sidebar.views, focus.views);
+
+        // Removing a runtime-selected profile fails closed to the loaded
+        // startup profile instead of leaving views and identity inconsistent.
+        let mut removed = Config::default();
+        let configured =
+            App::restore_runtime_sidebar_profile(&mut removed, "work", "removed-profile");
+        assert_eq!(configured, "work");
+        assert_eq!(removed.sidebar.active_profile, "work");
+    }
+
+    #[test]
+    fn config_boundary_clears_positional_sidebar_action_targets() {
+        let (mux, surface) = test_mux("sidebar-action-reload-invalidation", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        let user_action = Action::UserCommand(crate::config::UserCommandIndex::new(0).unwrap());
+        app.workspace_rail_selection =
+            WorkspaceRailSelection::Action(SidebarActionTarget::Run(user_action));
+        app.files_rail_selection =
+            super::FilesRailSelection::Action(SidebarActionTarget::Run(user_action));
+        app.active_sidebar_profile_state_mut()
+            .projection_rails
+            .entry("agents".into())
+            .or_default()
+            .selected_action = Some(3);
+        app.menu = Some(ContextMenu::with_groups(
+            1,
+            1,
+            vec![vec![MenuItem::LabeledAction {
+                label: "command".into(),
+                action: MenuAction::RunConfigured { action: user_action, pane: None },
+            }]],
+        ));
+        app.hits.push((Rect { x: 0, y: 0, width: 1, height: 1 }, super::Hit::StatusMessage));
+
+        app.invalidate_sidebar_action_targets();
+
+        assert_eq!(app.workspace_rail_selection, WorkspaceRailSelection::Workspace);
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
+        assert!(app.active_sidebar_profile_state().is_some_and(|state| {
+            state.projection_rails.values().all(|rail| rail.selected_action.is_none())
+        }));
+        assert!(app.menu.is_none());
+        assert!(app.hits.is_empty());
+
+        mux.close_surface(surface.id).unwrap();
     }
 
     #[test]
@@ -30956,6 +32024,13 @@ mod tests {
             max_width: 0,
             collapse_priority: 30,
         })];
+        config.sidebar.profiles = vec![SidebarProfileSpec {
+            id: "default".into(),
+            name: "Default".into(),
+            views: config.sidebar.views.clone(),
+            layout: config.sidebar.layout.clone(),
+        }];
+        config.sidebar.active_profile = "default".into();
         config
     }
 
@@ -44092,6 +45167,8 @@ mod tests {
             .unwrap();
         terminal.backend_mut().assert_cursor_position((input.x + 4, input.y));
 
+        app.files_rail_selection =
+            super::FilesRailSelection::Action(SidebarActionTarget::Run(Action::NewTab));
         app.handle_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: input.x + 1,
@@ -44099,6 +45176,7 @@ mod tests {
             modifiers: KeyModifiers::NONE,
         })
         .unwrap();
+        assert_eq!(app.files_rail_selection, super::FilesRailSelection::File);
         app.handle_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE)).unwrap();
         assert_eq!(app.sidebar_files.query(), "áb");
 
@@ -47110,6 +48188,104 @@ mod tests {
     }
 
     #[test]
+    fn wheel_over_workspace_does_not_use_a_pruned_machine_fallback() {
+        let mux = Mux::new("pruned-machine-wheel-test", SurfaceOptions::default());
+        for index in 0..8 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let machine = SidebarViewSpec::legacy(SidebarColumnKind::Machines, 22, 0);
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0);
+        let views = vec![machine, workspace];
+        let layout = crate::config::sidebar_layout_of_columns(&views);
+        let profile = SidebarProfileSpec {
+            id: "pruned-machine".into(),
+            name: "Pruned machine".into(),
+            views: views.clone(),
+            layout: layout.clone(),
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = views;
+        app.config.sidebar.layout = layout;
+        app.config.sidebar.profiles = vec![profile];
+        app.config.sidebar.active_profile = "pruned-machine".into();
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_view = SidebarView::Workspaces;
+        // No machine provider means the first leaf is pruned. Keep a stale
+        // legacy width to model an input event arriving during a layout
+        // transition. The ordered placement is the authoritative hit frame.
+        app.sync_layout((100, 12));
+        assert!(app.sidebar_layout.machine.is_none());
+        let workspace_area = app.sidebar_layout.workspace.expect("workspace rail remains visible");
+        assert!(!app.sidebar_layout.ordered.is_empty());
+        app.machine_sidebar_width = 22;
+
+        app.handle_scroll(workspace_area.x + 1, workspace_area.y + 2, true, KeyModifiers::NONE)
+            .unwrap();
+
+        assert_eq!(app.machine_rail_scroll, 0, "a pruned machine rail cannot consume the wheel");
+        assert!(app.workspace_rail_scroll > 0, "the visible workspace rail receives the wheel");
+    }
+
+    #[test]
+    fn wheel_over_projection_does_not_use_a_pruned_workspace_fallback() {
+        let mux = Mux::new("pruned-workspace-wheel-test", SurfaceOptions::default());
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 22, 0);
+        let agents = SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 22,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let views = vec![workspace, agents];
+        let layout = crate::config::sidebar_layout_of_columns(&views);
+        let profile = SidebarProfileSpec {
+            id: "pruned-workspace".into(),
+            name: "Pruned workspace".into(),
+            views: views.clone(),
+            layout: layout.clone(),
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.views = views;
+        app.config.sidebar.layout = layout;
+        app.config.sidebar.profiles = vec![profile];
+        app.config.sidebar.active_profile = "pruned-workspace".into();
+        app.config.sidebar.views_explicit = true;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.sync_layout((100, 20));
+        app.active_sidebar_profile_state_mut().hidden_views.insert("workspaces".into());
+        app.sync_layout((100, 20));
+        assert!(app.sidebar_layout.workspace.is_none());
+        let agents_area = app
+            .sidebar_layout
+            .rail(RailKind::Projection(1))
+            .expect("Agents projection remains visible");
+        assert!(!app.sidebar_layout.ordered.is_empty());
+        app.sidebar_width = 22;
+
+        app.handle_scroll(agents_area.x + 1, agents_area.y + 2, true, KeyModifiers::NONE).unwrap();
+
+        assert_eq!(
+            app.workspace_rail_scroll, 0,
+            "a pruned workspace rail cannot consume the wheel"
+        );
+        assert!(
+            app.active_sidebar_profile_state()
+                .and_then(|state| state.projection_rails.get("agents"))
+                .is_some_and(|state| state.scroll > 0),
+            "the visible Agents projection receives the wheel"
+        );
+    }
+
+    #[test]
     fn workspace_rail_scrollbar_is_visible_clickable_and_draggable() {
         let mux = Mux::new("workspace-rail-scrollbar-test", SurfaceOptions::default());
         for index in 0..6 {
@@ -48107,6 +49283,18 @@ mod tests {
             filter: AgentRowFilter::default(),
         }];
         app.config.sidebar.views_explicit = true;
+        // Keep the profile and resolved layout coherent with the replacement
+        // view. Production config loading does this normalization; the test
+        // must model the same runtime invariant before drawing the rail.
+        app.config.sidebar.layout =
+            crate::config::sidebar_layout_of_columns(&app.config.sidebar.views);
+        app.config.sidebar.profiles = vec![SidebarProfileSpec {
+            id: "agents-only".into(),
+            name: "Agents only".into(),
+            views: app.config.sidebar.views.clone(),
+            layout: app.config.sidebar.layout.clone(),
+        }];
+        app.config.sidebar.active_profile = "agents-only".into();
         app.replace_tree(app.session.tree());
 
         assert!(
@@ -50251,6 +51439,8 @@ mod tests {
             durable_notice_ack_failures: 0,
             durable_notice_ack_retry_at: None,
             config: Config::default(),
+            configured_sidebar_profile: "work".to_string(),
+            configured_sidebar_profile_request: None,
             config_reload_applications: 0,
             chrome: ChromeTheme::dark(),
             tree: TreeView::default(),
@@ -50301,6 +51491,7 @@ mod tests {
             machine_pointer_context_cache: None,
             sidebar_view: SidebarView::Files,
             sidebar_files: FileBrowser::new(std::env::temp_dir()),
+            files_rail_selection: super::FilesRailSelection::default(),
             sidebar_workspace_selection: 0,
             sidebar_recoverable_workspace_selection: 0,
             workspace_rail_selection: WorkspaceRailSelection::default(),
