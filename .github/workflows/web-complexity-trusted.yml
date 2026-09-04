@@ -26,9 +26,9 @@ concurrency:
 jobs:
   complexity:
     name: Web complexity
-    # The job reads untrusted source bytes. Keep it on an ephemeral GitHub
-    # hosted runner and never allow a repository variable to select the host.
-    runs-on: ubuntu-24.04
+    # Pull-request target runs read untrusted source bytes and stay on GitHub-hosted
+    # infrastructure; pushes use the repository's standard Linux runner.
+    runs-on: ${{ github.event_name == 'pull_request_target' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'ubuntu-24.04' }}
     timeout-minutes: 10
     steps:
       - name: Checkout trusted policy revision
@@ -40,8 +40,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Require GitHub-hosted runner
-        if: runner.environment != 'github-hosted'
+      - name: Require GitHub-hosted runner for pull-request target
+        if: github.event_name == 'pull_request_target' && runner.environment != 'github-hosted'
         run: |
           set -euo pipefail
           echo "::error::Web complexity requires a GitHub-hosted runner"
