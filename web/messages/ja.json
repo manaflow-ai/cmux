@@ -1,6 +1,20 @@
 {
   "billingRecovery": {
-    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください"
+    "message": "アカウントが見つかった場合は、メールで次の手順をご確認ください",
+    "metaTitle": "Founder 購入を接続",
+    "metaDescription": "Founder 購入時のメールアドレスを使って cmux アカウントを作成または復元します。",
+    "eyebrow": "Founder アクセス",
+    "title": "Founder 購入を接続",
+    "body": "Founder 購入時に使ったメールアドレスを入力してください。その購入に紐づく cmux アカウントを作成または復元するための安全なサインインリンクを送信します。",
+    "differentEmail": "別のメールアドレスで cmux アカウントをすでにお持ちですか？Founder のウェルカムメールに返信してください。両方のアドレスを確認して、安全にアクセスを移行します。",
+    "formAriaLabel": "Founder 購入を接続",
+    "emailLabel": "購入時のメールアドレス",
+    "emailPlaceholder": "you@example.com",
+    "submit": "サインインリンクを送信",
+    "submitting": "送信中…",
+    "success": "購入またはアカウントが見つかった場合は、メールで次の手順をお知らせします。",
+    "error": "リクエストを送信できませんでした。しばらくしてから再試行してください。",
+    "backToHome": "cmux に戻る"
   },
   "vmDesktop": {
     "invalidTitle": "このデスクトップリンクは無効です",
@@ -752,6 +766,7 @@
     "metaDescriptionNoVault": "cmux はAIコーディングエージェント向けの無料・オープンソースの macOS ターミナルです。Pro では分離された Cloud VM が使えます。Enterprise は SSO とセルフホストに対応します。",
     "metaDescriptionNoVaultShort": "cmux は無料・オープンソースの macOS ターミナルです。Pro では Cloud VM を利用でき、Enterprise では SSO とセルフホストに対応します。",
     "title": "料金",
+    "alreadyPaid": "購入済みですか？購入を接続する",
     "perMonth": "/月",
     "perMonthBilledYearly": "/月（年払い）",
     "perUserMonth": "/ユーザー/月",
