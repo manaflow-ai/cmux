@@ -1510,13 +1510,24 @@ actor VMClient {
     /// Unenroll this Mac. The server deletes the provider-side tunnel, so any
     /// config still on disk stops working immediately.
     func revokeCloudAccess(deviceID: String) async throws {
-        guard var components = URLComponents(string: "/api/vm/tunnel") else {
-            throw VMClientError.malformedResponse("could not build tunnel revoke path")
-        }
-        components.queryItems = [URLQueryItem(name: "deviceId", value: deviceID)]
-        let path = components.string ?? "/api/vm/tunnel"
-        let (data, http) = try await request("DELETE", path: path)
+        let revocation = Self.cloudAccessRevocationRequest(deviceID: deviceID)
+        let (data, http) = try await request(
+            "DELETE",
+            path: revocation.path,
+            jsonBody: revocation.body
+        )
         try ensureOK(http, data: data)
+    }
+
+    struct CloudAccessRevocationRequest: Sendable {
+        let path: String
+        let deviceID: String
+
+        var body: [String: Any] { ["deviceId": deviceID] }
+    }
+
+    nonisolated static func cloudAccessRevocationRequest(deviceID: String) -> CloudAccessRevocationRequest {
+        CloudAccessRevocationRequest(path: "/api/vm/tunnel", deviceID: deviceID)
     }
 
     private nonisolated static func decodeTunnelEndpoint(_ obj: [String: Any]) throws -> VMTunnelEndpoint {

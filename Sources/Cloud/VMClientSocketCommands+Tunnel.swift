@@ -78,16 +78,17 @@ extension TerminalController {
             }
         case "vm.tunnel_revoke":
             // Unenrolls this Mac server-side, deletes the VPN configuration on
-            // app-managed builds, and removes the local config so a later start
-            // re-enrolls from scratch.
+            // app-managed builds, stops user-space links, and removes the local
+            // config so a later explicit use re-enrolls from scratch.
             return v2VmCall(id: id) {
                 let manager = VMTunnelManager()
                 if let coordinator = await Self.cloudTunnelCoordinator() {
-                    try await coordinator.revoke()
+                    try? await coordinator.revoke()
                 }
-                try await VMClient.shared.revokeCloudAccess(deviceID: MobileHostIdentity.deviceID())
+                await CmuxTuiSurfaceProviderRegistry.shared.accessDidEnd()
                 VMTunnelManager(purpose: .browser).removeLocalCredentials()
                 VMTunnelManager(purpose: .terminal).removeLocalCredentials()
+                try await VMClient.shared.revokeCloudAccess(deviceID: MobileHostIdentity.deviceID())
                 return ["revoked": true]
             }
         default:

@@ -191,7 +191,7 @@ final class CmuxTuiSurfaceProviderRegistry {
         return true
     }
 
-    private func accessDidEnd() async {
+    func accessDidEnd() async {
         for provider in providers.values { provider.stop() }
         for id in providers.keys { catalog?.unregister(machine: .cloud(id)) }
         providers.removeAll()
