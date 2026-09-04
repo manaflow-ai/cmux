@@ -165,6 +165,40 @@ function functionNodeAt(sourceFile, characterOffset) {
   return match;
 }
 
+function directChild(parent, target) {
+  let child = target;
+  while (child.parent && child.parent !== parent) child = child.parent;
+  return child;
+}
+
+function containsFunctionBody(node) {
+  let found = false;
+  function visit(child) {
+    if (ts.isFunctionLike(child) && child.body) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(child, visit);
+  }
+  visit(node);
+  return found;
+}
+
+function isContextContainer(node) {
+  return (
+    ts.isBlock(node) ||
+    ts.isObjectLiteralExpression(node) ||
+    ts.isArrayLiteralExpression(node) ||
+    ts.isCaseBlock(node) ||
+    ts.isCaseClause(node) ||
+    ts.isIfStatement(node) ||
+    ts.isIterationStatement(node) ||
+    ts.isSwitchStatement(node) ||
+    ts.isTryStatement(node) ||
+    ts.isCatchClause(node)
+  );
+}
+
 function functionIdentity(sourceFile, node) {
   const parts = [`self:${nodeName(node, sourceFile) || "anonymous"}`, `header:${functionHeader(node, sourceFile)}`];
   let child = node;
@@ -188,6 +222,10 @@ function functionIdentity(sourceFile, node) {
       parts.push(`access:${normalizedSyntax(parent.name.getText(sourceFile))}`);
     } else if (ts.isElementAccessExpression(parent) && parent.argumentExpression) {
       parts.push(`element:${normalizedSyntax(parent.argumentExpression.getText(sourceFile))}`);
+    }
+    if (isContextContainer(parent)) {
+      const containingChildren = parent.getChildren(sourceFile).filter(containsFunctionBody);
+      parts.push(`container:${ts.SyntaxKind[parent.kind]}#${containingChildren.indexOf(directChild(parent, child))}`);
     }
     child = parent;
   }

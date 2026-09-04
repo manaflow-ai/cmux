@@ -7,23 +7,23 @@ app/[locale]/(landing)/deeplink/[kind]/page.tsx	52dddf9c0a0cd196602762e0c7196d4c
 app/[locale]/(landing)/docs/changelog/changelog-release.tsx	d48c9fbf906e5ed90c3faba92c6f1a4fe3a3bbcea9eff1a0b619c73f2aef2d6b	function `ChangelogRelease` has a complexity of 22. Maximum allowed is 20.
 app/[locale]/dashboard/admin/admin-pro-panel.tsx	03b339ad7e3e7afe48d16b496aeb96950d2e93ba30a7988a5814d8bc9298360b	function `AdminProPanel` has a complexity of 21. Maximum allowed is 20.
 app/[locale]/dashboard/billing/page.tsx	e7421ff4cd988618bb7617d3e3268b49c2a0ae7cded779f5fd7b68e22e1f3eec	async function `DashboardBillingPage` has a complexity of 26. Maximum allowed is 20.
-app/[locale]/posthog.tsx	e8a50630f66ccf583227e20e8594c4d9eb7626302aa3dc6c5028f8d216c8fd5b	async function has a complexity of 21. Maximum allowed is 20.
+app/[locale]/posthog.tsx	61384374efd58bf64d672af9fa10ca3fe1d9543f1b263e69cc8af54faf878b1b	async function has a complexity of 21. Maximum allowed is 20.
 app/api/account/route.ts	4b02cd775bfe2ad3da800c31ef33573dc7007eeeb3e02e5a0196ab228b2d2f2e	async function `deleteVaultRowsAndObjectsForAccountLocked` has a complexity of 21. Maximum allowed is 20.
 app/api/account/route.ts	c829bf817b292f3016c04306deeaad13c9da783572c071ca8ced96fc4ea1bbd9	async function `DELETE` has a complexity of 46. Maximum allowed is 20.
 app/api/account/route.ts	e23abe4474ed549d18876265c1dd2072bb3393d6440ea9ad752b21e2be07855a	async function `resolveUserBillingForAccountDeletion` has a complexity of 21. Maximum allowed is 20.
-app/api/analytics/events/route.ts	88c316212febe7cedb8b0c427faee5b33bf433e749cfaff276a49f891e00a0ac	async function `POST` has a complexity of 24. Maximum allowed is 20.
+app/api/analytics/events/route.ts	7b97979bc59de0b916c1a1e135d27e10cd5deb1701dc54a7e55bb302b2c67b82	async function `POST` has a complexity of 24. Maximum allowed is 20.
 app/api/devices/route-classification.ts	513b71ee5fa1c204ab467c27ca2444b7f5b354c41e75bae69234af13e586b6af	function `manualRoutesAreValid` has a complexity of 24. Maximum allowed is 20.
 app/api/devices/route.ts	efa8ebbabb3504addae597384da1583c5073c99743dc9760f6994b367d68b7be	async function `POST` has a complexity of 22. Maximum allowed is 20.
-app/api/enterprise/contact/route.ts	02da81a0bc8f816934e6ab1314d4bf321c4787c1c96d3f6896124fda4f219163	async function has a complexity of 21. Maximum allowed is 20.
+app/api/enterprise/contact/route.ts	c84dfeb4e993d8caa32597c55d22489657482b1c9e9a60166d94398cfd0e38a3	async function has a complexity of 21. Maximum allowed is 20.
 app/api/freestyle/forward-auth/route.ts	260875e349335e792f8c384a1297e9f43ef0d7f657421e070b32e247d998db18	async function `handleForwardAuthRequest` has a complexity of 24. Maximum allowed is 20.
 app/api/relay/token/route.ts	6ade4cdb012efa149c005e993066a799394f97204b9570d914e1302af530bac9	async function `handleRelayTokenRequest` has a complexity of 27. Maximum allowed is 20.
-app/api/stripe/founders-welcome/route.ts	c736161c12c2b422a15053c047a4e74c675f872dea71e6d7268861a20d1b27a5	async function has a complexity of 41. Maximum allowed is 20.
+app/api/stripe/founders-welcome/route.ts	e761f7c991a82cba3d94f6e671bcc7863393dc3ee3f705b491fa16dba13787aa	async function has a complexity of 41. Maximum allowed is 20.
 app/api/stripe/webhook/route.ts	214ba60f30a93ed61420bbc68fa93617b6d695549e763ec3c4154300bf58be7c	async function `processStripeEvent` has a complexity of 39. Maximum allowed is 20.
-app/api/support/contact/route.ts	02da81a0bc8f816934e6ab1314d4bf321c4787c1c96d3f6896124fda4f219163	async function has a complexity of 22. Maximum allowed is 20.
-app/api/vm/[id]/attach-endpoint/route.ts	57e0526b3d0a3b9ee3a2e5813076b88f4bf6182e5bdf3e55b40548b16da4df4a	async function has a complexity of 21. Maximum allowed is 20.
-app/api/vm/route.ts	28e74cd83e9cf47e6b0d7b21af1355e2263b095725f6d7ad44b041c89f4ab093	async function has a complexity of 68. Maximum allowed is 20.
-app/handler/after-sign-in/handler.ts	8e8784605248bedc8eac3b7eb42217d1551f860a665ba99a56ca153d6bed2841	async function `GET` has a complexity of 44. Maximum allowed is 20.
-app/handler/app-session-handoff/route.ts	f757b3868b17e74d6eef2b18d40370372cef459e3148a7e8513ef3da2f9f22a8	async function `POST` has a complexity of 25. Maximum allowed is 20.
+app/api/support/contact/route.ts	c84dfeb4e993d8caa32597c55d22489657482b1c9e9a60166d94398cfd0e38a3	async function has a complexity of 22. Maximum allowed is 20.
+app/api/vm/[id]/attach-endpoint/route.ts	cf7dc009ea554c4ea0dd95fd25710ccb0747f907b320f3098a0a52c35910a64e	async function has a complexity of 21. Maximum allowed is 20.
+app/api/vm/route.ts	583b62d1afd19ba002d8da9d3522d3245ba5f3646137036d19aa706332a60545	async function has a complexity of 68. Maximum allowed is 20.
+app/handler/after-sign-in/handler.ts	02f38f1a772db933921697b3799aa32da984512c64d35822f4a0f3f4960e7dcf	async function `GET` has a complexity of 44. Maximum allowed is 20.
+app/handler/app-session-handoff/route.ts	cef49c59e6043e4a21a010fa26bfeda8a17e95f32f7ecea84fa10dc89a03e01b	async function `POST` has a complexity of 25. Maximum allowed is 20.
 app/lib/browser-nightly-download.ts	cb98c6c83aaa369ce81b790afa7b8fb39d24768143d6ad530a2285f706838d2c	function `verifiedAssetLocation` has a complexity of 26. Maximum allowed is 20.
 app/lib/direct-dev-backend-origin.ts	cf7b4a29151651923eb58809508a9cedcb19685a9399788e8e29e81e7174934a	function `directDevBackendOrigin` has a complexity of 22. Maximum allowed is 20.
 proxy.ts	2a13a700512e3fd517e4ed5ebc601668ec7072a98ce2babb9fac46b421e559b9	function `middleware` has a complexity of 69. Maximum allowed is 20.
@@ -50,23 +50,23 @@ services/coderouter/requestTelemetry.ts	c4284110bfdb1e7a09d3741f70a58c102463ba40
 services/iroh/crypto.ts	07ec9a3ab00cf970ff77951eb293fe0ef05acbc510719fcc21ebab96dd5bb37b	function `validateEndpointAttestationClaims` has a complexity of 31. Maximum allowed is 20.
 services/iroh/crypto.ts	d74b00e4420d68199e7b68d5edb064f4d634a86b9b171bd4a31f9f1a1bf523f3	function `validatePairGrantClaims` has a complexity of 24. Maximum allowed is 20.
 services/iroh/model.ts	1e44131ef045c39c995643216f5eb4834b999df70e9567dcdcf322609da59192	function `classifyIpv4` has a complexity of 34. Maximum allowed is 20.
-services/iroh/repository.ts	1ace7240cf7e28e006f43bac6df40b879f552a6b69503799d919236b02c0f278	async function has a complexity of 33. Maximum allowed is 20.
-services/iroh/repository.ts	2f5e9cb25702f1a700cc2b148ac412f9e702d5a2646d37df1a7a55e86fe9c4ce	async function has a complexity of 27. Maximum allowed is 20.
-services/iroh/repository.ts	ecfd3e1b80ae3186af996aa30f99b9762e73ffe8d271a5b0057932d139eff4fb	async function has a complexity of 25. Maximum allowed is 20.
+services/iroh/repository.ts	bd0ab1e42a5f3e9d414a4cd3246110571faed9684c4b2eac145e76b28d90a74a	async function has a complexity of 27. Maximum allowed is 20.
+services/iroh/repository.ts	bde955383f903053bf91c063d4c3bc8f55c003fa653dd81f1ab26151855c2aa0	async function has a complexity of 25. Maximum allowed is 20.
+services/iroh/repository.ts	e85612815f40699f94b664c6e1223917fac1105b408838c6c22f3330470bf99b	async function has a complexity of 33. Maximum allowed is 20.
 services/iroh/routeHandler.ts	579270a0a986cbb30756df3b9250d438c5782e60898bff792f768642e70ffc6b	async function `handleIrohRoute` has a complexity of 21. Maximum allowed is 20.
 services/relay/http.ts	cced1df69361f1bc0f3662e5037e9965a3d95dc3d1350a6c947e950d8505466e	function `relayErrorResponse` has a complexity of 21. Maximum allowed is 20.
 services/subrouter/accountInput.ts	4938ed3780d6d4a540c37a67a8c6120b03ba988e82db41f04f28009bed70ede9	function `validateAccountInput` has a complexity of 24. Maximum allowed is 20.
 services/subrouter/hostedClient.ts	82062f7eeda90670adea4a1619e65dbf2cad2d1e05d02196fc191867b36ff7c4	function `parseCredentialLease` has a complexity of 22. Maximum allowed is 20.
 services/vms/auth.ts	ba533d2432614a986b1a1abe98aae8c6160ebb88690182936254192e4b2b73a1	async function `verifyRequest` has a complexity of 24. Maximum allowed is 20.
 services/vms/auth.ts	df85ccb9a0c7c9562e8f54f444b7d8b9beac6166080c5c79e242d0be7461a85a	async function `authedUserFromStackUser` has a complexity of 27. Maximum allowed is 20.
-services/vms/drivers/freestyle.ts	4d1160c29f47a7d12f496a0968e7b7fc4afe1b0de94435436a4a211353269758	async function has a complexity of 28. Maximum allowed is 20.
+services/vms/drivers/freestyle.ts	950355729a7bb1dd4a3a33f5b863187a1892f975034ba9b338ad405009f2c5d0	async function has a complexity of 28. Maximum allowed is 20.
 services/vms/observability.ts	b9d616cc0a88f719e82b2005194d7fbab28058e34613a794738972deade85334	function `captureVmRequestOutcome` has a complexity of 38. Maximum allowed is 20.
 services/vms/observability.ts	d15e28b21477d7ce31b23438b3d7640a95fb8313bbe77825400a6380617eed89	function `captureVmProvisionOutcome` has a complexity of 24. Maximum allowed is 20.
 services/vms/providerErrors.ts	5c4e725a638f14da834c9943f2e0bf129c59471a1a8399a83fe73150c9fce20c	function `isProviderNotFoundError` has a complexity of 24. Maximum allowed is 20.
 services/vms/providerErrors.ts	bdc837c342072c514341cf5deaf8a0b169fe0ab6daf23399580ea83da8fca688	function `isProviderIdentityNotFoundError` has a complexity of 22. Maximum allowed is 20.
-services/vms/reaper.ts	47ebeedd8dcaa1b027efed0b5945f3795771699010e128e3189e52d1d7320563	generator function has a complexity of 21. Maximum allowed is 20.
-services/vms/reaper.ts	56303d50705fd5695904911f2f4e4755e6a8587344f7f97fd7046d26b1ac97f9	generator function has a complexity of 27. Maximum allowed is 20.
-services/vms/repository.ts	71a04aebed063fa218668a15f081bfbacc7a5aa94333ffb5d09f8ab0ac22c511	async function has a complexity of 31. Maximum allowed is 20.
-services/vms/repository.ts	e226c534bb13db14e020c8c08890b6270621535b3af68bc4f2efdcafc3b7d2b8	async function has a complexity of 43. Maximum allowed is 20.
+services/vms/reaper.ts	83e4dfa17c809f17b3b3b1ab58b2d11c3d26d807357d9834ddf48ccc168c93ba	generator function has a complexity of 27. Maximum allowed is 20.
+services/vms/reaper.ts	f4f81689a417795bc639e2d453c8b82cb7fb7d0e11cf0254ba247689aa4a78b8	generator function has a complexity of 21. Maximum allowed is 20.
+services/vms/repository.ts	8ca397740dc4a4d1e543b90ecf3862ae01155f9a29219bb013b4391aedfd906e	async function has a complexity of 31. Maximum allowed is 20.
+services/vms/repository.ts	d804511edf92adf44b8986c45941501b2469486643b60b0164b548daf79b730e	async function has a complexity of 43. Maximum allowed is 20.
 services/vms/routeHelpers.ts	18b90e51fae8f7c3ab01144386b1a429f3545668f94176ede22ec316cf90bb85	async function `vmWorkflowErrorResponse` has a complexity of 29. Maximum allowed is 20.
 services/vms/routeHelpers.ts	2f1d2cd97250db5011f555474ddd6d999dbc6c4f09b335f625723a4b8c5012b7	function `vmErrorResponse` has a complexity of 22. Maximum allowed is 20.
