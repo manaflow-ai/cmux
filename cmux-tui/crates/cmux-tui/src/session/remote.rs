@@ -3901,10 +3901,42 @@ impl Drop for DirectoryStream {
 }
 
 #[cfg(unix)]
+struct DumpDirectoryLock<'a> {
+    directory: &'a fs::File,
+}
+
+#[cfg(unix)]
+impl Drop for DumpDirectoryLock<'_> {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        unsafe {
+            libc::flock(self.directory.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn lock_dump_directory(directory: &fs::File) -> io::Result<DumpDirectoryLock<'_>> {
+    use std::os::fd::AsRawFd;
+
+    loop {
+        if unsafe { libc::flock(directory.as_raw_fd(), libc::LOCK_EX) } == 0 {
+            return Ok(DumpDirectoryLock { directory });
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(error);
+        }
+    }
+}
+
+#[cfg(unix)]
 fn prune_stale_dump_temps(directory: &fs::File) -> io::Result<()> {
     use std::ffi::CString;
     use std::os::fd::{AsRawFd, FromRawFd};
 
+    let _directory_lock = lock_dump_directory(directory)?;
     let uid = unsafe { libc::geteuid() };
     let duplicate = unsafe { libc::dup(directory.as_raw_fd()) };
     if duplicate < 0 {
@@ -4009,6 +4041,7 @@ fn prune_dump_files_with_limits(
 ) -> io::Result<()> {
     use std::os::fd::{AsRawFd, FromRawFd};
 
+    let _directory_lock = lock_dump_directory(directory)?;
     struct DumpFile {
         name: Vec<u8>,
         modified: (u64, u32),
@@ -4247,6 +4280,7 @@ fn private_dump_file(directory: &fs::File, name: &str) -> io::Result<fs::File> {
     use std::os::fd::{AsRawFd, FromRawFd};
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
 
+    let _directory_lock = lock_dump_directory(directory)?;
     let name = CString::new(name)
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid dump file name"))?;
     let descriptor = unsafe {
@@ -4330,6 +4364,7 @@ where
         }
         return Err(error);
     }
+    let _output_lock = lock_dump_directory(&directory.output)?;
     let status = unsafe {
         libc::renameat(
             directory.temporary.as_raw_fd(),
