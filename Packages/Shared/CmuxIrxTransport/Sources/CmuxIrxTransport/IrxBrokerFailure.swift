@@ -67,6 +67,11 @@ public struct IrxBrokerFailure: Error, Codable, Equatable, Sendable {
                 // authoritative discovery path catches up. Never log the URL.
                 kind = .transient
                 errorCode = "unknown_relay_url"
+            case .deactivated:
+                // Lifecycle cancellation is terminal for this broker
+                // instance. It must never be fed back into activation retry.
+                kind = .invalid
+                errorCode = "deactivated"
             }
             statusCode = nil
             retryAfterSeconds = nil
@@ -225,6 +230,7 @@ private extension IrxBrokerFailure {
         "binding_replacement_requires_revocation",
         "challenge_rate_limited",
         "connectivity",
+        "deactivated",
         "cooldown:rate_limited",
         "cooldown:relay_rate_limited",
         "device_budget",

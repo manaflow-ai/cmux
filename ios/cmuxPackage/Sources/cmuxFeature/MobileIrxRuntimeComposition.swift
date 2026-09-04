@@ -176,23 +176,6 @@ public actor MobileIrxRuntimeComposition {
         IrxStateLocation.removeLegacySharedDirectory(base: appSupport)
     }
 
-    /// irx mints its own durable device UUID (persisted beside the identity),
-    /// giving the irx binding its own broker slot: it can never reincarnate
-    /// the legacy runtime's binding out from under another build.
-    private func irxDeviceID() -> String {
-        let url = stateDirectory.appendingPathComponent("device-id")
-        if let existing = try? String(contentsOf: url, encoding: .utf8),
-            !existing.isEmpty
-        {
-            return existing.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        let minted = UUID().uuidString.lowercased()
-        try? FileManager.default.createDirectory(
-            at: stateDirectory, withIntermediateDirectories: true)
-        try? minted.write(to: url, atomically: true, encoding: .utf8)
-        return minted
-    }
-
     // MARK: - Lifecycle
 
     public func configure(

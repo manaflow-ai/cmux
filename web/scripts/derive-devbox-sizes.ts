@@ -105,9 +105,14 @@ const masterShape = await measure(probe.vm);
 await probe.vm.delete();
 console.log(`master ${master}: ${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB, root ${masterShape.rootMb} MiB`);
 
+// The master's own slug: a derived md keeps the bare prefix only when that
+// is not already the master's name (a branch bake prefixed with its own slug
+// would otherwise try to take it).
+const masterSlug = (await fs.vms.snapshots.list()).snapshots.find((candidate) => candidate.id === master)?.slug ?? null;
+
 for (const name of sizes) {
   const size = vmImageSize(name);
-  const slug = name === "md" ? slugPrefix : `${slugPrefix}-${name}`;
+  const slug = name === "md" && slugPrefix !== masterSlug ? slugPrefix : `${slugPrefix}-${name}`;
   const t0 = Date.now();
   let imageId: string;
 

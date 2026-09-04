@@ -469,11 +469,12 @@ extension MobileIrxRuntimeComposition {
         claimedControlSessions.removeAll()
         claimedEventSessions.removeAll()
 
-        if let endpointSupervisor {
-            await endpointSupervisor.close()
-        }
+        let endpoint = endpointSupervisor
         endpointSupervisor = nil
-        broker = nil
+        await endpoint?.deactivate()
+        let broker = self.broker
+        self.broker = nil
+        await broker?.deactivate()
         identity = nil
         pendingBrokerAuthenticationRefreshOwnerToken = nil
         provisionedAccountID = retainedAccountID

@@ -4,7 +4,8 @@ struct AgentHibernationPlannerInput: Sendable {
     let key: AgentHibernationPanelKey
     let hasRestorableAgent: Bool
     let isLive: Bool
-    /// Live processes contribute to the cap; the controller owns termination safety.
+    /// Live-process evidence is used only to prove a lossless teardown scope;
+    /// aggregate pressure never imposes a usage cap.
     let hasLiveProcess: Bool
     /// Whether the controller's trigger-specific process scope permits teardown.
     let processSafetyAllowsHibernation: Bool
