@@ -7,6 +7,16 @@
 PRODUCT_BUNDLE_IDENTIFIER = dev.cmux.app.beta
 DEVELOPMENT_TEAM = 7WLXT3NR37
 
+// Release/TestFlight/App Store artifacts always use production authorities.
+// Keep these defaults in the configuration as a second line of defense behind
+// the archive scripts, so a new Release workflow cannot inherit staging from a
+// runner environment or a tagged development build.
+CMUX_IOS_AUTH_ENV = production
+CMUX_API_BASE_URL = https://cmux.com
+CMUX_IROH_BROKER_BASE_URL = https://cmux.com
+CMUX_PRESENCE_BASE_URL = https://presence.cmux.dev
+CMUX_DEV_TAG =
+
 // Distinguish the TestFlight beta on-device from a future App Store "cmux"
 // (overrides PRODUCT_DISPLAY_NAME = cmux from Shared.xcconfig). Debug stays "cmux".
 PRODUCT_DISPLAY_NAME = cmux BETA

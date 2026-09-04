@@ -8,7 +8,11 @@ import {
   cloudVmBaseGenerations,
   cloudVmBases,
   cloudVmBillingGrants,
+  cloudVmDomains,
   cloudVmLeases,
+  cloudVmPublicationAuthCodes,
+  cloudVmPublications,
+  cloudVmPublicationSessions,
   cloudVmSessions,
   cloudVmUsageEvents,
   cloudVms,
@@ -33,8 +37,6 @@ process.env.NEXT_PUBLIC_STACK_PROJECT_ID ??= "00000000-0000-4000-8000-0000000000
 process.env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY ??= "test-stack-publishable";
 process.env.SUBROUTER_STACK_TENANT_DELETE_TOKEN ??=
   "0123456789abcdef0123456789abcdef-test";
-process.env.SUBROUTER_ALLOWED_TEAM_IDS ??= "*";
-process.env.SUBROUTER_ENFORCE_STACK_PERMISSIONS ??= "0";
 process.env.SUBROUTER_STACK_AUTH_TIMEOUT_MS ??= "10000";
 
 const ACCOUNT_USER_ID = "account-user-1";
@@ -64,9 +66,19 @@ const realWithVaultUserQuotaLock = vaultUsageModule.withVaultUserQuotaLock;
 const vmErrorsModule = await import("../services/vms/errors");
 const workflowsModule = await import("../services/vms/workflows");
 const realDestroyVm = workflowsModule.destroyVm;
+const realDeletePrivateNetworkingForAccountDeletion =
+  workflowsModule.deletePrivateNetworkingForAccountDeletion;
 const realListUserVms = workflowsModule.listUserVms;
 const realRevokeUserIdentityLeasesForAccountDeletion = workflowsModule.revokeUserIdentityLeasesForAccountDeletion;
 const realRunVmWorkflow = workflowsModule.runVmWorkflow as (...args: unknown[]) => unknown;
+const publicationAccountDeletionModule = await import("../services/vm-publications/accountDeletion");
+const realDeleteVmPublicationRowsForAccountDeletion =
+  publicationAccountDeletionModule.deleteVmPublicationRowsForAccountDeletion;
+const realDeleteVmPublicationsForAccountDeletion =
+  publicationAccountDeletionModule.deleteVmPublicationsForAccountDeletion;
+type PublicationAccountDeletionTarget = Parameters<
+  NonNullable<Parameters<typeof realDeleteVmPublicationsForAccountDeletion>[0]["beforePublicationTeardown"]>
+>[0];
 type ListedAccountVm = string | {
   readonly providerVmId?: string | null;
   readonly provider?: ProviderId;
@@ -210,6 +222,10 @@ const revokeUserIdentityLeasesForAccountDeletion = mock((...args: unknown[]) => 
     afterBatch: input?.afterBatch,
   };
 });
+const deletePrivateNetworkingForAccountDeletion = mock((...args: unknown[]) => {
+  const [userId] = args as [string];
+  return { kind: "deletePrivateNetworking" as const, userId };
+});
 const destroyVm = mock((...args: unknown[]) => {
   const [input] = args as [{
     readonly userId: string;
@@ -239,6 +255,10 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
     if (revokeIdentityLeasesError) throw revokeIdentityLeasesError;
     return revokedIdentityLeaseCount;
   }
+  if (program.kind === "deletePrivateNetworking") {
+    routeEvents.push("delete-private-networking");
+    return { tunnels: 0, networks: 0 };
+  }
   routeEvents.push("destroy-vm");
   const destroyVmFailure = destroyVmFailureErrorsByProviderId.get(program.input.providerVmId);
   if (destroyVmFailure) throw destroyVmFailure;
@@ -249,6 +269,24 @@ const runVmWorkflow = mock(async (...args: unknown[]) => {
   const afterProviderError = destroyVmAfterProviderErrorsByProviderId.get(program.input.providerVmId);
   if (afterProviderError) throw afterProviderError;
   return undefined;
+});
+const deleteVmPublicationsForAccountDeletion = mock(async (...args: unknown[]) => {
+  const [input] = args as Parameters<typeof realDeleteVmPublicationsForAccountDeletion>;
+  const targets = publicationDeletionTargets.splice(0);
+  let providerRules = 0;
+  for (const target of targets) {
+    await input.beforePublicationTeardown?.(target);
+    routeEvents.push("delete-publication-rules");
+    if (publicationDeletionError) throw publicationDeletionError;
+    providerRules += 1;
+    await input.afterPublicationTeardown?.(target);
+  }
+  return { publications: targets.length, providerRules };
+});
+const deleteVmPublicationRowsForAccountDeletion = mock(async (...args: unknown[]) => {
+  await realDeleteVmPublicationRowsForAccountDeletion(
+    ...(args as Parameters<typeof realDeleteVmPublicationRowsForAccountDeletion>),
+  );
 });
 const deleteObject = mock(async (...args: unknown[]) => {
   const [objectKey] = args as [string];
@@ -361,6 +399,8 @@ let listedPersonalVmIds: ListedAccountVm[] = [];
 let listedPersonalVmIdsByBillingTeam: Record<string, ListedAccountVm[]> = {};
 let revokeIdentityLeasesError: unknown = null;
 let revokedIdentityLeaseCount = 2;
+let publicationDeletionTargets: PublicationAccountDeletionTarget[] = [];
+let publicationDeletionError: unknown = null;
 let stackUserSelectedTeam: unknown = null;
 let stackUserTeams: StackList = [];
 let stackUserClientReadOnlyMetadata: unknown = { cmuxPlan: "pro" };
@@ -394,6 +434,7 @@ type WorkflowProgram =
       readonly userId: string;
       readonly afterBatch?: () => unknown;
     }
+  | { readonly kind: "deletePrivateNetworking"; readonly userId: string }
   | {
       readonly kind: "destroyVm";
       readonly input: {
@@ -596,6 +637,11 @@ mock.module("../services/vms/workflows", () => ({
     if (input.userId === ACCOUNT_USER_ID) return destroyVm(...args);
     return realDestroyVm(...args);
   }) as typeof realDestroyVm,
+  deletePrivateNetworkingForAccountDeletion: ((...args: Parameters<typeof realDeletePrivateNetworkingForAccountDeletion>) => {
+    const [userId] = args;
+    if (userId === ACCOUNT_USER_ID) return deletePrivateNetworkingForAccountDeletion(...args);
+    return realDeletePrivateNetworkingForAccountDeletion(...args);
+  }) as typeof realDeletePrivateNetworkingForAccountDeletion,
   revokeUserIdentityLeasesForAccountDeletion: ((...args: Parameters<typeof realRevokeUserIdentityLeasesForAccountDeletion>) => {
     const [userId] = args;
     if (userId === ACCOUNT_USER_ID) return revokeUserIdentityLeasesForAccountDeletion(...args);
@@ -611,6 +657,25 @@ mock.module("../services/vms/workflows", () => ({
     if (isAccountDeletionWorkflowProgram(program)) return runVmWorkflow(...args);
     return realRunVmWorkflow(...args);
   }) as typeof workflowsModule.runVmWorkflow,
+}));
+
+mock.module("../services/vm-publications/accountDeletion", () => ({
+  ...publicationAccountDeletionModule,
+  deleteVmPublicationsForAccountDeletion: ((
+    ...args: Parameters<typeof realDeleteVmPublicationsForAccountDeletion>
+  ) => {
+    const [input] = args;
+    if (useAccountRouteStubs && input.ownerUserId === ACCOUNT_USER_ID) {
+      return deleteVmPublicationsForAccountDeletion(input);
+    }
+    return realDeleteVmPublicationsForAccountDeletion(...args);
+  }) as typeof realDeleteVmPublicationsForAccountDeletion,
+  deleteVmPublicationRowsForAccountDeletion: ((
+    ...args: Parameters<typeof realDeleteVmPublicationRowsForAccountDeletion>
+  ) => {
+    if (useAccountRouteStubs) return deleteVmPublicationRowsForAccountDeletion(...args);
+    return realDeleteVmPublicationRowsForAccountDeletion(...args);
+  }) as typeof realDeleteVmPublicationRowsForAccountDeletion,
 }));
 
 const { DELETE } = await import("../app/api/account/route");
@@ -647,6 +712,8 @@ beforeEach(() => {
   revokeUserIdentityLeasesForAccountDeletion.mockClear();
   destroyVm.mockClear();
   runVmWorkflow.mockClear();
+  deleteVmPublicationsForAccountDeletion.mockClear();
+  deleteVmPublicationRowsForAccountDeletion.mockClear();
   deleteObject.mockClear();
   cancelSubscription.mockClear();
   deleteCustomer.mockClear();
@@ -699,6 +766,8 @@ beforeEach(() => {
   listedPersonalVmIdsByBillingTeam = {};
   revokeIdentityLeasesError = null;
   revokedIdentityLeaseCount = 2;
+  publicationDeletionTargets = [];
+  publicationDeletionError = null;
   lastRevokeIdentityCall = null;
   stackUserSelectedTeam = null;
   stackUserTeams = [];
@@ -788,10 +857,16 @@ describe("account deletion route", () => {
     expect(transaction).toHaveBeenCalledTimes(4);
     expect(deletedTableCount).toBeGreaterThan(10);
     expect(deletedTables).toContain(cloudVmBillingGrants);
+    expect(deletedTables).toContain(cloudVmPublicationAuthCodes);
+    expect(deletedTables).toContain(cloudVmPublicationSessions);
+    expect(deletedTables).toContain(cloudVmPublications);
+    expect(deletedTables).not.toContain(cloudVmDomains);
     expect(deletedTables).toContain(devices);
     expect(deletedTables).toContain(proWelcomeFulfillments);
     const nonStripeUpdates = updatedRows.filter(({ table }) =>
-      table !== stripeSubscriptions && table !== stripeCustomers
+      table !== stripeSubscriptions &&
+      table !== stripeCustomers &&
+      table !== cloudVmDomains
     );
     expect(nonStripeUpdates.map(({ table, values }) => ({
       table,
@@ -884,6 +959,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "delete-private-networking",
       "vault-delete",
       "vault-delete",
       "vault-delete",
@@ -896,6 +972,55 @@ describe("account deletion route", () => {
       "transaction",
       "transaction-lock",
     ]);
+  });
+
+  test("removes publication ingress before destroying its VM", async () => {
+    publicationDeletionTargets = [
+      {
+        publicationId: "00000000-0000-4000-8000-000000000100",
+        provider: "freestyle",
+        hostname: "account.preview.example.test",
+        providerTlsRuleId: "tls-rule-account",
+      },
+    ];
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(200);
+    expect(deleteVmPublicationsForAccountDeletion).toHaveBeenCalled();
+    expect(routeEvents.indexOf("delete-publication-rules")).toBeGreaterThan(-1);
+    expect(routeEvents.indexOf("delete-publication-rules")).toBeLessThan(
+      routeEvents.indexOf("list-vms"),
+    );
+    expect(routeEvents.indexOf("delete-publication-rules")).toBeLessThan(
+      routeEvents.indexOf("destroy-vm"),
+    );
+  });
+
+  test("fails closed before VM teardown when publication ingress cleanup fails", async () => {
+    publicationDeletionTargets = [
+      {
+        publicationId: "00000000-0000-4000-8000-000000000101",
+        provider: "freestyle",
+        hostname: "account.preview.example.test",
+        providerTlsRuleId: "tls-rule-account",
+      },
+    ];
+    publicationDeletionError = new Error("Freestyle TLS delete unavailable");
+
+    const response = await DELETE(accountDeletionRequest());
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: "account_delete_retryable",
+      retryable: true,
+      destroyedVms: 0,
+    });
+    expect(routeEvents).toContain("delete-publication-rules");
+    expect(routeEvents).not.toContain("list-vms");
+    expect(routeEvents).not.toContain("destroy-vm");
+    expect(deleteStackUser).not.toHaveBeenCalled();
+    expect(updateStackUser).toHaveBeenCalledTimes(1);
   });
 
   test("blocks cmux row deletion while a phone push delivery lease is active", async () => {
@@ -2344,6 +2469,7 @@ describe("account deletion route", () => {
       "list-vms",
       "destroy-vm",
       "destroy-vm",
+      "delete-private-networking",
       "transaction",
       "transaction-lock",
       "stack-delete",
@@ -2568,6 +2694,7 @@ function isAccountDeletionWorkflowProgram(program: unknown): boolean {
   if (candidate.kind === "revokeUserIdentityLeasesForAccountDeletion") {
     return candidate.userId === ACCOUNT_USER_ID;
   }
+  if (candidate.kind === "deletePrivateNetworking") return candidate.userId === ACCOUNT_USER_ID;
   if (candidate.kind === "destroyVm") return candidate.input?.userId === ACCOUNT_USER_ID;
   return false;
 }
