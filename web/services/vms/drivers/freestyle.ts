@@ -832,8 +832,9 @@ export class FreestyleProvider implements VMProvider {
           });
           try {
             if (options.imageSize) {
-              // One snapshot per size: the machine already boots at the shape
-              // that was sold, so nothing is read back and nothing is grown.
+              // One snapshot per size: the machine already boots at the
+              // provider sizing profile, so nothing is read back and nothing
+              // is grown.
               setSpanAttributes(span, {
                 "cmux.vm.image_size": options.imageSize.name,
                 "cmux.vm.resources.cpu": options.imageSize.cpu,
@@ -843,8 +844,8 @@ export class FreestyleProvider implements VMProvider {
               });
             } else {
               // A size-less image boots at its snapshot's resources and only a
-              // grow-only resize raises them. Size first so the machine the
-              // daemon comes up on is the one that was sold.
+              // grow-only resize raises them. Size first so the daemon comes
+              // up on the provider profile requested by the server.
               await this.growToRequestedSize(fs, vm, vmId, options.memoryMb, span);
             }
             // The baked supervisor is already bringing the daemon up; the only
@@ -852,7 +853,7 @@ export class FreestyleProvider implements VMProvider {
           } catch (err) {
             // A VM that failed to size or configure must not survive as an
             // orphan, and an undersized machine must not ship as if it were
-            // the plan machine.
+            // the provider sizing profile.
             await vm.delete().catch((cleanupErr) => {
               console.error(`[freestyle] create rollback failed; VM ${vmId} may be orphaned`, cleanupErr);
             });
@@ -883,7 +884,7 @@ export class FreestyleProvider implements VMProvider {
   }
 
   /**
-   * Grow the VM to the requested memory (the plan machine when the caller
+   * Grow the VM to the requested memory (the provider profile when the caller
    * sent none), the vCPUs that memory implies, and the plan disk. Freestyle
    * resize is grow-only, so only larger dimensions are sent; a snapshot that
    * already carries the size is a no-op.

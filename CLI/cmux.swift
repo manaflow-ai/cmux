@@ -4337,9 +4337,9 @@ struct CMUXCLI {
     // never pins an image id unless the person passes `--image`: a pinned id
     // that drifted from the web deploy's manifest failed every create with
     // `vm_image_config_error`.
-    /// `--size` spellings → memory in MB. Every plan sells exactly the plan
-    /// machine (5 vCPU / 20 GB / 200 GB), so 20g is the only preset; the
-    /// backend resolves any other size to the plan machine.
+    /// `--size` spellings → memory in MB. The provider sizing profile is
+    /// 5 vCPU / 20 GB / 200 GB, so 20g is the only preset; pricing describes
+    /// those resources as shared across the plan's Cloud VMs.
     private static let cloudVMSizeAliases: [String: Int] = [
         "20g": 20480, "20gb": 20480,
     ]

@@ -150344,13 +150344,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 50 Cloud VMs, each with 5 vCPU, 20 GB RAM, and 200 GB disk"
+            "value": "Up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "最大 50 台の Cloud VM、各 5 vCPU / 20 GB RAM / 200 GB ディスク"
+            "value": "最大 50 台の Cloud VM、すべての VM で合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有"
           }
         }
       }
@@ -150565,13 +150565,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Every Cloud VM is 5 vCPU, 20 GB RAM, and 200 GB disk. Pro and Team include up to 50 machines with no metering or overages."
+            "value": "Pro includes up to 50 Cloud VMs, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk. Team includes the same allowance and shared capacity per user. There is no metering or overage billing."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべての Cloud VM は 5 vCPU / 20 GB RAM / 200 GB ディスクです。Pro と Team には最大 50 台のマシンが含まれ、従量課金や超過料金はありません。"
+            "value": "Pro では最大 50 台の Cloud VM で、合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有します。Team では同じ上限と共有容量がユーザーごとに含まれます。従量課金や超過料金はありません。"
           }
         }
       }
@@ -150633,13 +150633,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VM sizes"
+            "value": "Shared Cloud VM resources"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud VM サイズ"
+            "value": "Cloud VM 間で共有するリソース"
           }
         }
       }
@@ -150752,13 +150752,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to 50 Cloud VMs per user"
+            "value": "Up to 50 Cloud VMs per user, all sharing a total of 5 vCPU, 20 GB RAM, and 200 GB disk"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ユーザーごとに最大 50 台の Cloud VM"
+            "value": "ユーザーごとに最大 50 台の Cloud VM、すべての VM で合計 5 vCPU / 20 GB RAM / 200 GB ディスクを共有"
           }
         }
       }

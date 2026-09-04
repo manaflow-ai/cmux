@@ -129,11 +129,11 @@ function resolveBillingContext(
 }
 
 /**
- * Machine sizes a person can pick, as memory in MB. Every plan sells exactly
- * the plan machine (5 vCPU / 20 GB / 200 GB), so this is one entry: the
- * pricing copy promises that size, and a smaller machine would fall short of
- * it. vCPUs follow memory (vcpusForMemoryMb). Kept as a list so a future
- * size tier is one entry, not a new concept.
+ * Machine sizes a person can pick, as memory in MB. The provider currently
+ * accepts one sizing profile (5 vCPU / 20 GB / 200 GB); pricing describes
+ * those resources as shared across the plan's VMs. vCPUs follow memory
+ * (vcpusForMemoryMb). Kept as a list so a future size tier is one entry, not a
+ * new concept.
  */
 export const VM_MEMORY_OPTIONS_MB: readonly number[] = [PLAN_MACHINE_MEMORY_MB];
 
