@@ -1,8 +1,10 @@
 import Testing
 import AppKit
+import CmuxAppKitSupportUI
 import CmuxNotifications
 import CmuxUpdater
 import CoreGraphics
+import Combine
 import Observation
 import SwiftUI
 import Bonsplit
@@ -12,6 +14,42 @@ import Bonsplit
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@MainActor
+private final class WorkspaceSwitchSelectionModel: ObservableObject {
+    @Published var selectedWorkspaceID: UUID
+
+    init(selectedWorkspaceID: UUID) {
+        self.selectedWorkspaceID = selectedWorkspaceID
+    }
+}
+
+@MainActor
+private struct WorkspaceSwitchRenderingFixture: View {
+    let workspaces: [Workspace]
+    @ObservedObject var selection: WorkspaceSwitchSelectionModel
+    let windowAppearance: WindowAppearanceSnapshot
+
+    var body: some View {
+        ZStack {
+            ForEach(workspaces) { workspace in
+                let isSelected = selection.selectedWorkspaceID == workspace.id
+                WorkspaceContentView(
+                    workspace: workspace,
+                    isWorkspaceVisible: isSelected,
+                    isWorkspaceInputActive: isSelected,
+                    isFullScreen: false,
+                    workspacePortalPriority: isSelected ? 2 : 0,
+                    windowAppearance: windowAppearance,
+                    onThemeRefreshRequest: nil
+                )
+                .opacity(isSelected ? 1 : 0)
+                .zIndex(isSelected ? 1 : 0)
+            }
+        }
+        .environmentObject(TerminalNotificationStore.shared)
+    }
+}
 
 @Suite(.serialized)
 final class WorkspaceContentViewVisibilityTests {
@@ -279,6 +317,100 @@ final class WorkspaceContentViewVisibilityTests {
             counts.verticalTabsSidebarBody == 0,
             "Minimal-mode toggles must not rebuild the vertical sidebar render context."
         )
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func testWorkspaceSwitchFromSinglePaneReconcilesNestedSplitGeometry() async throws {
+        _ = NSApplication.shared
+
+        let firstSplitWorkspace = try Self.makeNestedSplitWorkspace()
+        let singlePaneWorkspace = Workspace()
+        let thirdSplitWorkspace = try Self.makeNestedSplitWorkspace()
+        let workspaces = [firstSplitWorkspace, singlePaneWorkspace, thirdSplitWorkspace]
+        let selection = WorkspaceSwitchSelectionModel(selectedWorkspaceID: firstSplitWorkspace.id)
+        let root = WorkspaceSwitchRenderingFixture(
+            workspaces: workspaces,
+            selection: selection,
+            windowAppearance: .rightSidebarPanelViewTestDefault
+        )
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 960, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            window.close()
+            workspaces.forEach { $0.teardownAllPanels() }
+        }
+
+        await Self.drainMainRunLoop(for: window, iterations: 40)
+
+        // Exercise the same retained-workspace handoff pattern as ContentView:
+        // the two nested layouts trade places, then the single-pane workspace is
+        // selected before a split layout is revealed again.
+        for workspace in [thirdSplitWorkspace, firstSplitWorkspace, thirdSplitWorkspace, singlePaneWorkspace] {
+            selection.selectedWorkspaceID = workspace.id
+            await Self.drainMainRunLoop(for: window, iterations: 12)
+        }
+
+        let splitPanels = firstSplitWorkspace.panels.values.compactMap { $0 as? TerminalPanel }
+        #expect(splitPanels.count == 3, "The fixture must retain the three nested split terminals")
+        splitPanels.forEach { $0.surface.resetDebugForceRefreshCount() }
+
+        // Let SwiftUI deliver the visibility change, but run the production
+        // follow-up at its safe boundary before the next queued reveal nudge.
+        // Without activation scheduling, this call is a no-op and the surfaces
+        // retain their pre-activation frame/refresh state.
+        selection.selectedWorkspaceID = firstSplitWorkspace.id
+        window.contentView?.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+#if DEBUG
+        firstSplitWorkspace.debugAttemptEventDrivenLayoutFollowUpForTesting()
+#endif
+
+        let refreshedSurfaceCount = splitPanels.reduce(0) {
+            $0 + $1.surface.debugForceRefreshCount()
+        }
+        #expect(
+            refreshedSurfaceCount > 0,
+            "Revealing a retained nested split after a single-pane workspace must request a geometry/render refresh"
+        )
+
+        await Self.drainMainRunLoop(for: window, iterations: 20)
+        for panel in splitPanels {
+            #expect(panel.hostedView.bounds.width > 1, "Split terminal width must be usable after activation")
+            #expect(panel.hostedView.bounds.height > 1, "Split terminal height must be usable after activation")
+            let pixelSize = panel.surface.debugCurrentPixelSize()
+            #expect(pixelSize.width > 0, "Split terminal surface width must be non-zero after activation")
+            #expect(pixelSize.height > 0, "Split terminal surface height must be non-zero after activation")
+        }
+    }
+
+    private static func makeNestedSplitWorkspace() throws -> Workspace {
+        let workspace = Workspace()
+        let initialPanelID = try #require(workspace.focusedPanelId)
+        let rightPanel = try #require(
+            workspace.newTerminalSplit(
+                from: initialPanelID,
+                orientation: .horizontal,
+                focus: false
+            )
+        )
+        _ = try #require(
+            workspace.newTerminalSplit(
+                from: initialPanelID,
+                orientation: .vertical,
+                focus: false
+            )
+        )
+        #expect(workspace.bonsplitController.allPaneIds.count == 3)
+        #expect(workspace.panels[rightPanel.id] != nil)
+        return workspace
     }
 
     @Test
