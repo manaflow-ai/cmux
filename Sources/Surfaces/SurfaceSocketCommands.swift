@@ -483,7 +483,7 @@ extension TerminalController {
               let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `id` and `terminal_id`.")
         }
-        guard let rawName = Self.surfaceString(params["name"]) else {
+        guard let rawName = Self.surfaceStringPreservingEmpty(params["name"]) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `name`.")
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
@@ -510,7 +510,7 @@ extension TerminalController {
               let terminalID = Self.surfaceString(params["terminal_id"]), !terminalID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `id` and `terminal_id`.")
         }
-        guard let rawName = Self.surfaceString(params["name"]) else {
+        guard let rawName = Self.surfaceStringPreservingEmpty(params["name"]) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.terminal_rename requires `name`.")
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
@@ -541,7 +541,7 @@ extension TerminalController {
               let tabID = Self.surfaceString(params["tab_id"]), !tabID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `id` and `tab_id`.")
         }
-        guard let rawName = Self.surfaceString(params["name"]) else {
+        guard let rawName = Self.surfaceStringPreservingEmpty(params["name"]) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `name`.")
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
@@ -561,7 +561,7 @@ extension TerminalController {
               let tabID = Self.surfaceString(params["tab_id"]), !tabID.isEmpty else {
             return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `id` and `tab_id`.")
         }
-        guard let rawName = Self.surfaceString(params["name"]) else {
+        guard let rawName = Self.surfaceStringPreservingEmpty(params["name"]) else {
             return v2Error(id: id, code: "invalid_params", message: "vm.tab_rename requires `name`.")
         }
         let name = CloudRemoteRenameName(rawValue: rawName).wireValue
@@ -1068,6 +1068,15 @@ extension TerminalController {
         guard let value = raw as? String else { return nil }
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Reads a required string while preserving an explicit empty value. Most
+    /// identifiers use ``surfaceString`` because empty means missing there.
+    /// Rename commands are different: an empty string is the wire-level clear
+    /// operation, while a missing or null value is a malformed request.
+    nonisolated static func surfaceStringPreservingEmpty(_ raw: Any?) -> String? {
+        guard let value = raw as? String else { return nil }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     nonisolated static func surfaceBool(_ raw: Any?) -> Bool? {

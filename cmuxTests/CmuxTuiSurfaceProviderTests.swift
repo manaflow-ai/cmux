@@ -855,6 +855,14 @@ import Testing
             ["--socket", "/k.sock", "--json", "--expected-revision", "9", "tab", "tab_1", "rename", "--name", "db shell"])
     }
 
+    @Test func socketRenameParameterPreservesExplicitEmptyValue() {
+        #expect(TerminalController.surfaceString("") == nil)
+        #expect(TerminalController.surfaceStringPreservingEmpty("") == "")
+        #expect(TerminalController.surfaceStringPreservingEmpty("  \n") == "")
+        #expect(TerminalController.surfaceStringPreservingEmpty(NSNull()) == nil)
+        #expect(TerminalController.surfaceStringPreservingEmpty("  db shell  ") == "db shell")
+    }
+
     @Test func clientPathsMirrorTheCLI() throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-cloud-paths-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: home) }
