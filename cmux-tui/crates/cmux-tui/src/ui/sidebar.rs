@@ -19,7 +19,7 @@ use super::{
 };
 use crate::app::{
     App, FilesRailSelection, Hit, RailKind, SidebarHiddenReason, WorkspaceRailSelection,
-    sidebar_profile_token, sidebar_split_divider_token, sidebar_view_token,
+    sidebar_file_token, sidebar_profile_token, sidebar_split_divider_token, sidebar_view_token,
 };
 use crate::config::{SidebarResourceKind, SidebarView};
 use crate::localization;
@@ -1144,7 +1144,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
     let entries = app
         .sidebar_files
         .visible_entries()
-        .map(|entry| (entry.name.clone(), entry.is_dir()))
+        .map(|entry| (entry.name.clone(), entry.is_dir(), sidebar_file_token(&entry.path)))
         .collect::<Vec<_>>();
     let selected = app.sidebar_files.selected();
     let current_dir = app.sidebar_files.current_dir().to_string_lossy().into_owned();
@@ -1207,7 +1207,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             buf.set_stringn(area.x, body_start, " No files", content_w, dim);
         }
     } else {
-        for (line, (name, is_dir)) in
+        for (line, (name, is_dir, token)) in
             entries.iter().skip(scroll_offset).take(body_height).enumerate()
         {
             let y = body_start + line as u16;
@@ -1226,7 +1226,7 @@ fn draw_files(app: &mut App, frame: &mut Frame) -> Option<(u16, u16)> {
             buf.set_stringn(area.x + 2, y, truncate(name, name_width), name_width, style);
             hits.push((
                 Rect { x: area.x, y, width: content_width, height: 1 },
-                Hit::SidebarFile { index: row_index },
+                Hit::SidebarFile { index: row_index, token: *token },
             ));
         }
     }

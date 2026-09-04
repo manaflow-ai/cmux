@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::panic::AssertUnwindSafe;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, TrySendError as StdTrySendError};
 use std::sync::{Arc, Condvar, Mutex};
@@ -134,6 +134,14 @@ pub(crate) fn sidebar_profile_token(id: &str) -> u64 {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     hash
+}
+
+/// Stable receipt for a rendered Files row. The row index is only a visual
+/// position, so dispatch resolves this token against the refreshed listing.
+pub(crate) fn sidebar_file_token(path: &Path) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    path.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// Semantic receipt for one rendered sidebar view. Unlike the profile token,
@@ -14477,7 +14485,7 @@ impl App {
                 .as_ref()
                 .and_then(|ui| ui.recoverable_workspaces().get(index).copied())
                 .map(|workspace| PointerHitIdentity::RecoverableWorkspace(workspace.id.clone())),
-            Hit::SidebarFile { index } => self
+            Hit::SidebarFile { index, .. } => self
                 .sidebar_files
                 .visible_entry(index)
                 .map(|entry| PointerHitIdentity::SidebarFile(entry.path.clone())),
@@ -25687,10 +25695,17 @@ impl App {
                     }
                     self.create_workspace(mode, None)?;
                 }
-                Hit::SidebarFile { index } => {
+                Hit::SidebarFile { index: _, token } => {
+                    let Some(current_index) = self
+                        .sidebar_files
+                        .visible_entries()
+                        .position(|entry| sidebar_file_token(&entry.path) == token)
+                    else {
+                        return Ok(RenderAction::Draw);
+                    };
                     self.focus = FocusTarget::WorkspaceRail;
                     self.set_files_rail_selection(FilesRailSelection::File);
-                    self.sidebar_files.select(index);
+                    self.sidebar_files.select(current_index);
                 }
                 Hit::SidebarFilterInput => {
                     self.focus = FocusTarget::WorkspaceRail;
@@ -31951,6 +31966,46 @@ mod tests {
     }
 
     #[test]
+    fn stale_files_row_click_resolves_the_rendered_path_after_reorder() {
+        let temp = test_temp_dir("files-stale-reorder-click");
+        std::fs::write(temp.join("alpha.txt"), "a").unwrap();
+        std::fs::write(temp.join("beta.txt"), "b").unwrap();
+        let (mux, surface) = test_mux("files-stale-reorder-click-test", Some(&temp));
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.sidebar_files = FileBrowser::new(temp.clone());
+        app.sidebar_view = SidebarView::Files;
+        app.sync_layout((100, 12));
+        let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+
+        let rect = app
+            .hits
+            .iter()
+            .find_map(|(rect, hit)| {
+                matches!(hit, super::Hit::SidebarFile { index: 0, .. })
+                    .then_some(*rect)
+            })
+            .expect("the first rendered file row has a hit receipt");
+        let rendered_path = app.sidebar_files.visible_entry(0).unwrap().path.clone();
+        assert_eq!(app.sidebar_files.visible_entry(0).unwrap().name, "alpha.txt");
+
+        // A refresh inserts a directory before the rendered file. Keep the
+        // old hit map and click its old coordinates to exercise delayed
+        // dispatch, as a pointer event can arrive before the next draw.
+        std::fs::create_dir(temp.join("00-new-directory")).unwrap();
+        app.sidebar_files.refresh();
+        assert_eq!(app.sidebar_files.visible_entry(0).unwrap().name, "00-new-directory");
+        app.handle_left_down(rect.x, rect.y, KeyModifiers::NONE).unwrap();
+
+        let selected = app.sidebar_files.selected();
+        assert_eq!(selected, 1);
+        assert_eq!(app.sidebar_files.visible_entry(selected).unwrap().path, rendered_path);
+
+        mux.close_surface(surface.id).unwrap();
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    #[test]
     fn files_sidebar_empty_body_and_wheel_are_consumed_by_the_workspace_host() {
         let temp = test_temp_dir("files-host-input");
         let (mux, surface) = test_mux("files-host-input-test", Some(&temp));
@@ -31985,7 +32040,10 @@ mod tests {
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
         let area = app.workspace_sidebar_area(12).unwrap();
         let row_y = area.y + 1;
-        assert!(matches!(app.hit_at(area.x, row_y), Some(super::Hit::SidebarFile { index: 0 })));
+        assert!(matches!(
+            app.hit_at(area.x, row_y),
+            Some(super::Hit::SidebarFile { index: 0, .. })
+        ));
         let before = app.sidebar_files.selected();
         app.sidebar_files.set_scroll_offset(0);
         terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
