@@ -4,7 +4,7 @@ import Foundation
 /// popovers. Keeping the key snapshot together with its timestamp means a
 /// page can derive the same status for entries that were not in the initial
 /// section projection.
-struct SessionIndexStatusSnapshot: Equatable, Sendable {
+nonisolated struct SessionIndexStatusSnapshot: Equatable, Sendable {
     let activeSessionKeys: Set<String>
     let liveSessionKeys: Set<String>
     let now: Date

@@ -5,7 +5,7 @@ import SwiftUI
 /// Presentation-level liveness for a Vault session row: whether the agent
 /// process behind the indexed transcript is currently running, and if so
 /// whether it has shown recent activity.
-enum VaultSessionLiveStatus: Equatable, Sendable {
+nonisolated enum VaultSessionLiveStatus: Equatable, Sendable {
     case live
     case idle
     case exited
