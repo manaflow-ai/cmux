@@ -383,25 +383,11 @@ cmux_codex_computer_use_enabled_for_invocation() {
 
 cmux_codex_emit_computer_use_args() {
     cmux_codex_computer_use_enabled_for_invocation "$@" || return 1
-    # Invocation-scoped fallback only: a skills.config entry displays
-    # dir-qualified (cmux-cua:cmux-cua) in Codex's picker, so it must not ride
-    # along when the plain ~/.agents/skills/cmux-cua link already covers this
-    # session.
-    local skill_path
-    skill_path=""
-    if [[ "${CMUX_COMPUTER_USE_GLOBAL_SKILL_INSTALLED:-0}" != 1 \
-          && "${CMUX_COMPUTER_USE_SKILL_FALLBACK_ALLOWED:-0}" == 1 ]]; then
-        skill_path="$(cmux_codex_computer_use_skill_path 2>/dev/null)" || skill_path=""
-    fi
-    if [[ -n "$skill_path" ]]; then
-        printf '%s\0' \
-            "-c" \
-            "skills.config=[{path=\"$(cmux_computer_use_json_escape "$skill_path")\",enabled=true}]"
-    fi
-
-    # Skill discovery is useful while onboarding is still preparing the
-    # helper. The MCP attachment itself remains fail-closed on cmux ownership,
-    # daemon credentials, and the installed approval broker.
+    # Codex v0.153 consumes skills.config as enable/disable rules only; it does
+    # not turn a session flag path into a discovery root. A picker-visible
+    # bundled skill therefore requires the explicit global-install opt-in
+    # reconciled above. The MCP attachment remains fail-closed on cmux
+    # ownership, daemon credentials, and the installed approval broker.
     cmux_computer_use_surface_socket_available || return 0
     local client default_session runtime_scope runtime_uid cua_socket state_dir auth_token
     client="$(cmux_computer_use_resolve_client)" || return 1

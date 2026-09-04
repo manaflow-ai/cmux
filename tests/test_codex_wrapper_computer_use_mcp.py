@@ -309,22 +309,18 @@ def _frontmatter_name(skill_file: Path) -> str | None:
 def discover_picker_entries(
     project_root: Path,
     global_root: Path,
-    session_skill: Path | None = None,
 ) -> list[dict[str, str]]:
     """Model the filesystem contract that Codex supplies to its picker.
 
     The final picker is Codex-owned. These entries intentionally inspect only
     generated fixture files and the two roots whose precedence is relevant to
-    this regression, so a test can prove whether cmux left duplicate rows for
-    the client to render.
+    this regression; they do not treat skills.config as a discovery root.
     """
     entries: list[dict[str, str]] = []
     candidates = [
         ("project", project_root / ".agents" / "skills" / "cmux-cua"),
         ("global", global_root / "cmux-cua"),
     ]
-    if session_skill is not None:
-        candidates.append(("session", session_skill.parent))
     for scope, skill_dir in candidates:
         skill_file = skill_dir / "SKILL.md"
         if not skill_file.is_file():
@@ -772,11 +768,9 @@ exit 1
                     if isinstance(value, dict):
                         trace.append(value)
                 skill_probe["mcp_trace"] = trace
-            configured = configured_skill_path(read_lines(args_log))
             skill_probe["picker_entries"] = discover_picker_entries(
                 tmp,
                 sandbox_home / ".agents" / "skills",
-                configured,
             )
         finally:
             if test_socket is not None:
@@ -950,12 +944,9 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
         failures,
     )
     expect("hello" in args, f"expected user prompt to survive, got {args}", failures)
-    # The default path is session-scoped; no user-global link is created.
-    expect(
-        configured_skill_path(args) is not None,
-        f"expected the invocation-scoped skill config by default, got {args}",
-        failures,
-    )
+    # Codex CLI does not discover skills from skills.config session flags; the
+    # default path is deliberately picker-inert and leaves global state absent.
+    expect(configured_skill_path(args) is None, f"Codex must not fake session picker discovery, got {args}", failures)
     expect(
         skill["exists"] is False and skill["is_symlink"] is False,
         f"default launch must not mutate Codex's global picker root, got {skill}",
@@ -1011,7 +1002,7 @@ def test_codex_gets_cmux_cua(failures: list[str]) -> None:
     )
 
 
-def test_codex_skill_uses_session_scope_without_global_install_by_default(
+def test_codex_default_does_not_mutate_global_or_fake_session_discovery(
     failures: list[str],
 ) -> None:
     code, args, stderr, skill = run_wrapper(["hello"])
@@ -1022,20 +1013,19 @@ def test_codex_skill_uses_session_scope_without_global_install_by_default(
         failures,
     )
     expect(
-        configured_skill_path(args) is not None,
-        f"expected an invocation-scoped skill path by default, got {args}",
+        configured_skill_path(args) is None,
+        f"Codex skills.config must not claim unsupported session discovery, got {args}",
         failures,
     )
     expect(
-        len(skill.get("picker_entries", [])) == 1
-        and skill["picker_entries"][0]["scope"] == "session",
-        f"session fallback should provide one picker row, got {skill.get('picker_entries')}",
+        len(skill.get("picker_entries", [])) == 0,
+        f"default Codex picker contract must have no global/session row, got {skill.get('picker_entries')}",
         failures,
     )
 
 
 def test_codex_default_skill_path_is_picker_safe(failures: list[str]) -> None:
-    """The fallback is present only when it cannot collide with a project row."""
+    """Without explicit installation Codex has no picker discovery root."""
     code, args, stderr, skill = run_wrapper(["hello"])
     expect(code == 0, f"default-scope wrapper exited {code}: {stderr}", failures)
     expect(
@@ -1043,15 +1033,10 @@ def test_codex_default_skill_path_is_picker_safe(failures: list[str]) -> None:
         f"default launch must not install a global picker link, got {skill}",
         failures,
     )
-    fallback = configured_skill_path(args)
+    expect(configured_skill_path(args) is None, f"Codex must not emit an unsupported session skill path, got {args}", failures)
     expect(
-        fallback is not None,
-        f"default launch must expose the bundled skill only for this session, got {args}",
-        failures,
-    )
-    expect(
-        len(skill.get("picker_entries", [])) == 1,
-        f"default picker contract should contain one row, got {skill.get('picker_entries')}",
+        len(skill.get("picker_entries", [])) == 0,
+        f"default picker contract should contain no row, got {skill.get('picker_entries')}",
         failures,
     )
 
@@ -1069,14 +1054,13 @@ def test_codex_removes_cmux_owned_stale_link_by_default(failures: list[str]) -> 
         failures,
     )
     expect(
-        configured_skill_path(args) is not None,
-        f"stale-link cleanup must retain the session fallback, got {args}",
+        configured_skill_path(args) is None,
+        f"stale-link cleanup must not emit unsupported session discovery, got {args}",
         failures,
     )
     expect(
-        len(skill.get("picker_entries", [])) == 1
-        and skill["picker_entries"][0]["scope"] == "session",
-        f"stale-link cleanup should leave one session row, got {skill.get('picker_entries')}",
+        len(skill.get("picker_entries", [])) == 0,
+        f"stale-link cleanup should leave no Codex picker row without opt-in, got {skill.get('picker_entries')}",
         failures,
     )
 
@@ -1104,7 +1088,7 @@ def test_codex_explicit_opt_in_retargets_managed_stale_link(failures: list[str])
 
 
 def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> None:
-    """A managed global link under HOME must not suppress the session fallback."""
+    """A managed global link under HOME must not become a project collision."""
     code, args, stderr, skill = run_wrapper(
         ["hello"],
         preexisting_valid_cmux_link=True,
@@ -1117,14 +1101,13 @@ def test_codex_home_ancestor_is_not_project_collision(failures: list[str]) -> No
         failures,
     )
     expect(
-        configured_skill_path(args) is not None,
-        f"HOME ancestor must not disable the session fallback, got {args}",
+        configured_skill_path(args) is None,
+        f"HOME ancestor must not produce an unsupported session path, got {args}",
         failures,
     )
     expect(
-        len(skill.get("picker_entries", [])) == 1
-        and skill["picker_entries"][0]["scope"] == "session",
-        f"cleanup should leave one session picker row, got {skill.get('picker_entries')}",
+        len(skill.get("picker_entries", [])) == 0,
+        f"cleanup should leave no Codex picker row without opt-in, got {skill.get('picker_entries')}",
         failures,
     )
 
@@ -1142,8 +1125,8 @@ def test_codex_cleans_deprecated_codex_home_link(failures: list[str]) -> None:
         failures,
     )
     expect(
-        configured_skill_path(args) is not None,
-        f"deprecated-root cleanup must retain the session fallback, got {args}",
+        configured_skill_path(args) is None,
+        f"deprecated-root cleanup must not emit unsupported session discovery, got {args}",
         failures,
     )
 
@@ -1269,8 +1252,8 @@ def test_codex_migrates_legacy_codex_cua_link(failures: list[str]) -> None:
         failures,
     )
     expect(
-        configured_skill_path(args) is not None,
-        f"legacy codex-cua migration must retain the session fallback, got {args}",
+        configured_skill_path(args) is None,
+        f"legacy codex-cua migration must not emit unsupported session discovery, got {args}",
         failures,
     )
     expect(
@@ -1279,8 +1262,8 @@ def test_codex_migrates_legacy_codex_cua_link(failures: list[str]) -> None:
         failures,
     )
     expect(
-        configured_skill_path(args) is not None,
-        f"legacy migration must retain the session fallback, got {args}",
+        configured_skill_path(args) is None,
+        f"legacy migration must not emit unsupported session discovery, got {args}",
         failures,
     )
 
@@ -1307,8 +1290,8 @@ def test_codex_global_skill_can_be_disabled_explicitly(failures: list[str]) -> N
     )
     expect(code == 0, f"opt-out skill wrapper exited {code}: {stderr}", failures)
     expect(
-        configured_skill_path(args) is not None,
-        f"expected session-scoped skill to remain active under opt-out, got {args}",
+        configured_skill_path(args) is None,
+        f"Codex opt-out must not emit unsupported session discovery, got {args}",
         failures,
     )
     expect(
@@ -1429,8 +1412,8 @@ def test_codex_skips_when_installed_broker_is_unavailable(failures: list[str]) -
         failures,
     )
     expect(
-        configured_skill_path(args) is not None,
-        f"expected the session fallback before the broker is available, got {args}",
+        configured_skill_path(args) is None,
+        f"missing broker must not emit unsupported session discovery, got {args}",
         failures,
     )
 
@@ -1556,7 +1539,7 @@ def main() -> int:
     test_codex_disabled_hooks_reports_inert_attachment(failures)
     test_codex_outside_cmux_reports_fail_closed_attachment(failures)
     test_codex_gets_cmux_cua(failures)
-    test_codex_skill_uses_session_scope_without_global_install_by_default(failures)
+    test_codex_default_does_not_mutate_global_or_fake_session_discovery(failures)
     test_codex_default_skill_path_is_picker_safe(failures)
     test_codex_removes_cmux_owned_stale_link_by_default(failures)
     test_codex_explicit_opt_in_retargets_managed_stale_link(failures)
