@@ -83,7 +83,7 @@ const CHECKS: readonly string[] = [
   // Devshell: ble.sh installed, bashrc chained, tmux pinned to bash, seed
   // history lands on first interactive shell.
   "test -f /usr/local/share/blesh/ble.sh && grep -q '/etc/cmux/bashrc' /etc/skel/.bashrc && echo bashrc-chain-ok",
-  "test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /usr/local/share/blesh/cache.d/0/term.xterm-256color && test -s /usr/local/share/blesh/cache.d/1000/term.xterm-256color && test "$(stat -c %u /usr/local/share/blesh/cache.d/1000)" = 1000 && echo blesh-cache-seed-ok",
+  "test -s /etc/cmux/blesh-cache-seed/blesh/*/term.xterm-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.screen-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.tmux-256color && test -s /etc/cmux/blesh-cache-seed/blesh/*/term.linux && test -s /usr/local/share/blesh/cache.d/0/term.xterm-256color && test -s /usr/local/share/blesh/cache.d/1000/term.xterm-256color && test \"$(stat -c %u /usr/local/share/blesh/cache.d/1000)\" = 1000 && echo blesh-cache-seed-ok",
   "grep default-shell /etc/tmux.conf",
   "bash -ic 'head -2 ~/.bash_history'",
   // Ghost-text smoke under a real PTY: type "cl" and expect ble.sh to render
