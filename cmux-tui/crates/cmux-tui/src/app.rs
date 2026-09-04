@@ -23978,18 +23978,85 @@ impl App {
 
     fn workspace_drop_target_at(&self, x: u16, y: u16) -> Option<usize> {
         let area = self.workspace_sidebar_area(self.content_area.height.saturating_add(1))?;
-        if area.width < 3 || x < area.x || x >= area.x + area.width.saturating_sub(1) || y < area.y
+        let content_right = area.x.saturating_add(area.width.saturating_sub(1));
+        if area.width < 3
+            || x < area.x
+            || x >= content_right
+            || y < area.y
+            || y >= area.y.saturating_add(area.height)
         {
             return None;
         }
+
+        // Use the same viewport calculation as the renderer to reject the
+        // header and configured action rows. A drag can arrive after a wheel
+        // event, so the app-owned offsets are copied and clamped exactly as
+        // draw_workspaces would clamp them for this frame.
         let len = self.tree.workspaces().len();
-        for index in 0..len {
-            let start = area.y + 2 + index as u16 * 3;
-            if y < start {
-                return Some(index);
+        let metrics = crate::ui::rail::RailMetrics::for_app(self);
+        let recoverable = self
+            .machine_ui
+            .as_ref()
+            .map_or(0, |ui| ui.recoverable_workspaces().len());
+        let body_rows = (len + recoverable).saturating_mul(metrics.stride);
+        let actions = self.workspace_sidebar_action_rows();
+        let mut body_offset = self.workspace_rail_scroll;
+        let mut footer_offset = self.workspace_footer_scroll;
+        let viewport = crate::ui::rail::viewport_positioned(
+            area,
+            body_rows,
+            actions.len(),
+            &mut body_offset,
+            &mut footer_offset,
+            None,
+            None,
+            self.workspace_actions_position(),
+        );
+        if !viewport.body.contains(x, y) || x >= content_right {
+            return None;
+        }
+
+        // The renderer emits one stable hit receipt for each visible line of
+        // each workspace. Aggregate those receipts into row spans instead of
+        // duplicating row height, gap, and scroll arithmetic here. A delayed
+        // tree update must not turn an old row index into a new workspace.
+        let mut rows = Vec::new();
+        for (rect, hit) in &self.hits {
+            let Hit::Workspace { index, id } = hit else { continue };
+            let Some(current_index) =
+                self.tree.workspaces().iter().position(|workspace| workspace.id == *id)
+            else {
+                return None;
+            };
+            if *index != current_index || current_index >= len {
+                return None;
             }
-            if y <= start + 1 {
-                return Some(if y == start { index } else { index + 1 }.min(len));
+            let end = rect.y.saturating_add(rect.height.max(1));
+            if let Some((_, top, bottom)) =
+                rows.iter_mut().find(|(row, _, _)| *row == current_index)
+            {
+                *top = (*top).min(rect.y);
+                *bottom = (*bottom).max(end);
+            } else {
+                rows.push((current_index, rect.y, end));
+            }
+        }
+        if rows.is_empty() {
+            return None;
+        }
+        rows.sort_unstable_by_key(|(index, top, _)| (*index, *top));
+
+        // The upper half of a rendered row inserts before that workspace;
+        // the lower half and the gap before the next row insert after it.
+        // This preserves the old two-line behavior while working for any
+        // configured row height, gap, action position, or scroll offset.
+        for (index, top, bottom) in rows {
+            if y < top {
+                return Some(index.min(len));
+            }
+            let midpoint = top.saturating_add(bottom.saturating_sub(top).saturating_sub(1) / 2);
+            if y <= midpoint {
+                return Some(index.min(len));
             }
         }
         Some(len)
@@ -49565,6 +49632,80 @@ mod tests {
                 terminal.backend().buffer()[(scrollbar_x, y)].symbol(),
                 "▕" | "▐"
             ))
+        );
+    }
+
+    #[test]
+    fn workspace_drop_target_follows_rendered_metrics_actions_and_scroll() {
+        let mux = Mux::new("workspace-drop-target-geometry-test", SurfaceOptions::default());
+        for index in 0..6 {
+            mux.new_workspace(Some(format!("workspace-{index}")), None).unwrap();
+        }
+        let mut workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 28, 0);
+        workspace.actions_position = crate::config::ActionsPosition::Top;
+        let profile = SidebarProfileSpec {
+            id: "workspace-drop-target".into(),
+            name: "Workspace drop target".into(),
+            layout: crate::config::sidebar_layout_of_columns(std::slice::from_ref(&workspace)),
+            views: vec![workspace],
+        };
+        let mut app = test_app(Session::Local(mux));
+        app.config.sidebar.columns.clear();
+        app.config.sidebar.profiles = vec![profile.clone()];
+        app.config.sidebar.active_profile = profile.id.clone();
+        app.config.sidebar.views = profile.views.clone();
+        app.config.sidebar.layout = profile.layout.clone();
+        app.config.sidebar.views_explicit = true;
+        app.config.sidebar.row_height = 1;
+        app.config.sidebar.row_gap = 2;
+        app.sidebar_view = SidebarView::Workspaces;
+        app.replace_tree(app.session.tree());
+        app.sync_layout((90, 12));
+
+        let mut terminal = Terminal::new(TestBackend::new(90, 12)).unwrap();
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let area = app.sidebar_layout.workspace.expect("workspace rail area");
+        let mut rows = app
+            .hits
+            .iter()
+            .filter_map(|(rect, hit)| match hit {
+                super::Hit::Workspace { index, .. } => Some((*index, *rect)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by_key(|(index, rect)| (*index, rect.y));
+        assert!(!rows.is_empty(), "the rendered workspace rows are required");
+
+        // The header and the configured top action own these cells. A drop
+        // there must not reorder a workspace behind the action hit map.
+        assert_eq!(app.workspace_drop_target_at(area.x + 1, area.y), None);
+        assert_eq!(app.workspace_drop_target_at(area.x + 1, area.y + 1), None);
+        let first_row = rows[0].1;
+        assert_eq!(app.workspace_drop_target_at(first_row.x, first_row.y), Some(0));
+        assert_eq!(
+            app.workspace_drop_target_at(first_row.x, first_row.y + 1),
+            Some(1),
+            "the configured gap inserts before the next rendered row"
+        );
+
+        // Scrolling changes the physical row positions. The same receipt-
+        // based hit test must follow the visible workspace rather than the
+        // old fixed three-line formula.
+        app.workspace_rail_scroll = 6;
+        terminal.draw(|frame| crate::ui::draw(&mut app, frame)).unwrap();
+        let scrolled = app
+            .hits
+            .iter()
+            .filter_map(|(rect, hit)| match hit {
+                super::Hit::Workspace { index, .. } => Some((*index, *rect)),
+                _ => None,
+            })
+            .min_by_key(|(_, rect)| rect.y)
+            .expect("a scrolled workspace row");
+        assert_eq!(scrolled.0, 2, "the scroll offset selects the third workspace");
+        assert_eq!(
+            app.workspace_drop_target_at(scrolled.1.x, scrolled.1.y),
+            Some(scrolled.0)
         );
     }
 
