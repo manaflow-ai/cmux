@@ -546,7 +546,7 @@ jobs:
             -disableAutomaticPackageResolution \
             -destination "platform=macOS" \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            INFOPLIST_KEY_CMUXBuildSourceSHA="$SOURCE_SHA" \
+            CMUXBuildSourceSHA="$SOURCE_SHA" \
             CMUX_CEF_ALLOW_DOWNLOAD=1 \
             CMUX_CEF_REQUIRED=1 \
             CMUX_SKIP_ZIG_BUILD=1 \
@@ -708,7 +708,7 @@ jobs:
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
               "$ONLY_TESTING"
               CMUX_SKIP_ZIG_BUILD=1
-              INFOPLIST_KEY_CMUXBuildSourceSHA="$CMUX_BUILD_SOURCE_SHA"
+              CMUXBuildSourceSHA="$CMUX_BUILD_SOURCE_SHA"
               test
             )
           else
@@ -720,7 +720,7 @@ jobs:
               -destination "platform=macOS"
               -maximum-test-execution-time-allowance "$TEST_TIMEOUT"
               "$ONLY_TESTING"
-              INFOPLIST_KEY_CMUXBuildSourceSHA="$CMUX_BUILD_SOURCE_SHA"
+              CMUXBuildSourceSHA="$CMUX_BUILD_SOURCE_SHA"
               test
             )
           fi

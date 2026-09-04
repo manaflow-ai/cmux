@@ -369,14 +369,14 @@ def test_all_mac_build_lanes_run_the_fail_closed_artifact_guard() -> None:
     for workflow in (ci, e2e):
         assert "verify_browser_runtime_artifact.py" in workflow
         assert "CMUX_CEF_ALLOW_DOWNLOAD" in workflow
-        assert "INFOPLIST_KEY_CMUXBuildSourceSHA" in workflow
+        assert "CMUXBuildSourceSHA=" in workflow
     assert "trusted-browser-verifier" in reload_build
     assert "github.workflow_sha" in reload_build
     assert 'verifier="$GITHUB_WORKSPACE/trusted-browser-verifier/scripts/ci/verify_browser_runtime_artifact.py"' in reload_build
     assert "trusted-browser-verifier" in ci
     assert "github.event.pull_request.base.sha || github.workflow_sha" in ci
     assert "CMUX_BUILD_SOURCE_SHA" in reload_build
-    assert "INFOPLIST_KEY_CMUXBuildSourceSHA" in (ROOT / "scripts" / "reload.sh").read_text(encoding="utf-8")
+    assert "CMUXBuildSourceSHA=\"${CMUX_BUILD_SOURCE_SHA}\"" in (ROOT / "scripts" / "reload.sh").read_text(encoding="utf-8")
 
 
 if __name__ == "__main__":

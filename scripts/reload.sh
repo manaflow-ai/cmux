@@ -1396,7 +1396,7 @@ if [[ -n "${CMUX_BUILD_SOURCE_SHA:-}" ]]; then
     echo "error: CMUX_BUILD_SOURCE_SHA must be a full 40-character commit SHA" >&2
     exit 1
   fi
-  XCODEBUILD_ARGS+=(INFOPLIST_KEY_CMUXBuildSourceSHA="${CMUX_BUILD_SOURCE_SHA}")
+  XCODEBUILD_ARGS+=(CMUXBuildSourceSHA="${CMUX_BUILD_SOURCE_SHA}")
 fi
 # The helper is assembled before Xcode emits the host's processed Info.plist.
 # Pass the final tagged display name explicitly so its TCC entry matches the
