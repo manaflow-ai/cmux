@@ -144,8 +144,8 @@ impl CapabilityToken {
 
     fn constant_time_eq(&self, other: &Self) -> bool {
         let mut difference = 0u8;
-        for index in 0..CAPABILITY_TOKEN_LEN {
-            difference |= self.0[index] ^ other.0[index];
+        for (&left, &right) in self.0.iter().zip(other.0.iter()) {
+            difference |= left ^ right;
         }
         difference == 0
     }

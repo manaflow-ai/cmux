@@ -34,7 +34,7 @@ export function authProviderErrorResponse(
   );
 }
 
-function hasAuthRateLimitSignal(
+export function hasAuthRateLimitSignal(
   value: unknown,
   state: { readonly seen: Set<object>; count: number } = {
     seen: new Set<object>(),

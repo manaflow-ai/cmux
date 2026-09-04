@@ -8,8 +8,16 @@ import Observation
 protocol SurfaceProvider: AnyObject {
     var machine: SurfaceMachineID { get }
     var info: SurfaceMachineInfo { get }
+    /// Whether this provider can materialize a machine port as a browser preview.
+    /// Providers with a direct private-network URL may report true even when no
+    /// control-plane `openPort` call is needed.
+    var supportsPortPreviews: Bool { get }
     /// Re-sync from the source of truth (machine list, link snapshot, local panels).
     func refresh() async
+    /// Re-sync this provider, optionally bypassing provider-side caches. The
+    /// default preserves the legacy provider contract; cloud providers use the
+    /// force bit for an explicit `--refresh` request.
+    func refresh(force: Bool) async
     /// Create the pane that shows `resource` at `destination` and return the panel it created
     /// (or reused). The catalog records the projection.
     func materialize(_ resource: SurfaceResource, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection
@@ -41,6 +49,14 @@ protocol SurfaceProvider: AnyObject {
 }
 
 extension SurfaceProvider {
+    /// Legacy providers predate the capability bit and are assumed to support
+    /// previews until their concrete implementation says otherwise.
+    var supportsPortPreviews: Bool { true }
+
+    func refresh(force: Bool) async {
+        await refresh()
+    }
+
     func closeTerminal(_ id: SurfaceResourceID) async throws {
         throw SurfaceCatalogError.unsupported("closing terminals on \(machine)")
     }
@@ -89,6 +105,9 @@ final class SurfaceCatalog {
     private(set) var machines: [SurfaceMachineID: SurfaceMachineInfo] = [:]
     private(set) var resources: [SurfaceResourceID: SurfaceResource] = [:]
     private(set) var projections: Set<SurfaceProjection> = []
+    /// Resource IDs grouped by machine so providers can answer presence checks
+    /// without sorting the full catalog snapshot on every refresh.
+    private var resourceIDsByMachine: [SurfaceMachineID: Set<SurfaceResourceID>] = [:]
     private var providers: [SurfaceMachineID: any SurfaceProvider] = [:]
     /// Materializations are asynchronous, so actor reentrancy can otherwise let two callers
     /// pass the reuse check before either provider has returned a projection.
@@ -161,12 +180,21 @@ final class SurfaceCatalog {
         }
         let provider = providers[machine]
         for projection in urlBacked {
-            provider?.discardMaterialization(projection)
+            if let provider {
+                provider.discardMaterialization(projection)
+            } else {
+                // The registry removes its provider before calling us during a
+                // fleet prune. There is still a real browser/display pane to
+                // close, even though no provider remains to do it for us.
+                SurfacePaneFactory.close(panelID: projection.panelID, in: projection.workspaceID)
+            }
         }
         providers[machine] = nil
         machines[machine] = nil
-        let gone = resources.keys.filter { $0.machine == machine }
-        for id in gone { resources[id] = nil }
+        for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
+        resourceIDsByMachine[machine] = nil
+        let pending = pendingRestoredProjections.keys.filter { $0.resource.machine == machine }
+        for record in pending { pendingRestoredProjections[record] = nil }
         projections = projections.filter { $0.resource.machine != machine }
         notifyChange()
     }
@@ -175,9 +203,44 @@ final class SurfaceCatalog {
         providers[machine]
     }
 
-    func refreshAll() async {
+    /// Only the registered provider of a cloud machine (or the local provider,
+    /// registered at launch) may write about it. A provider the fleet has just
+    /// pruned can still finish an in-flight refresh and write its machine back;
+    /// accepting that write brings a machine the backend already destroyed back
+    /// as a sidebar row nothing can refresh or delete.
+    private func accepts(writeFor machine: SurfaceMachineID, from source: (any SurfaceProvider)? = nil) -> Bool {
+        if machine.isLocal { return true }
+        guard let registered = providers[machine] else {
+#if DEBUG
+            cmuxDebugLog("catalog.write.ignored machine=\(machine.rawValue) reason=unregistered")
+#endif
+            return false
+        }
+        // Cloud providers refresh asynchronously. Once a replacement is
+        // registered, a late callback from the retired instance must not write
+        // through the replacement's catalog entry. Callers that do not have a
+        // provider (legacy socket paths) retain the current-provider behavior.
+        if let source,
+           (source.machine != machine || ObjectIdentifier(registered) != ObjectIdentifier(source)) {
+#if DEBUG
+            cmuxDebugLog("catalog.write.ignored machine=\(machine.rawValue) reason=retired-provider")
+#endif
+            return false
+        }
+        return true
+    }
+
+    /// Refreshes one machine without waiting on unrelated cloud links. A
+    /// machine-scoped CLI request must not be held hostage by another VM's
+    /// reconnect timeout.
+    func refresh(machine: SurfaceMachineID, force: Bool = false) async {
+        guard let provider = providers[machine] else { return }
+        await provider.refresh(force: force)
+    }
+
+    func refreshAll(force: Bool = false) async {
         for provider in providers.values {
-            await provider.refresh()
+            await provider.refresh(force: force)
         }
     }
 
@@ -186,31 +249,47 @@ final class SurfaceCatalog {
     /// Replace everything the catalog knows about one machine. Projections whose resource
     /// disappeared are kept only if the pane still exists (the pane shows an exited/unknown
     /// terminal until it is closed); the caller prunes dead panes through `endProjection`.
-    func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil) {
-        for id in resources.keys where id.machine == machine {
-            resources[id] = nil
-        }
+    /// `from` identifies the provider that produced the snapshot, when one is available.
+    @discardableResult
+    func replaceResources(_ list: [SurfaceResource], on machine: SurfaceMachineID, info: SurfaceMachineInfo? = nil, from source: (any SurfaceProvider)? = nil) -> Bool {
+        guard accepts(writeFor: machine, from: source) else { return false }
+        for id in resourceIDsByMachine[machine] ?? [] { resources[id] = nil }
+        resourceIDsByMachine[machine] = nil
         for resource in list {
             precondition(resource.machine == machine, "resource \(resource.id) reported by the wrong provider")
             resources[resource.id] = resource
+            resourceIDsByMachine[machine, default: []].insert(resource.id)
         }
         if let info { machines[machine] = info }
         resolvePendingRestoredProjections(on: machine)
         notifyChange()
+        return true
     }
 
-    func upsert(_ resource: SurfaceResource) {
+    /// Insert or replace one resource. A cloud provider may identify itself with `from` so a
+    /// result from a retired provider cannot overwrite a replacement registration.
+    func upsert(_ resource: SurfaceResource, from source: (any SurfaceProvider)? = nil) {
+        guard accepts(writeFor: resource.machine, from: source) else { return }
         resources[resource.id] = resource
+        resourceIDsByMachine[resource.machine, default: []].insert(resource.id)
         resolvePendingRestoredProjections(on: resource.machine)
         notifyChange()
     }
 
-    func remove(_ id: SurfaceResourceID) {
+    /// Remove a resource, optionally validating the provider that requested the mutation.
+    func remove(_ id: SurfaceResourceID, from source: (any SurfaceProvider)? = nil) {
+        guard accepts(writeFor: id.machine, from: source) else { return }
         resources[id] = nil
+        resourceIDsByMachine[id.machine]?.remove(id)
+        if resourceIDsByMachine[id.machine]?.isEmpty == true {
+            resourceIDsByMachine[id.machine] = nil
+        }
         notifyChange()
     }
 
-    func updateMachine(_ info: SurfaceMachineInfo) {
+    /// Update machine metadata, optionally validating the provider registration that supplied it.
+    func updateMachine(_ info: SurfaceMachineInfo, from source: (any SurfaceProvider)? = nil) {
+        guard accepts(writeFor: info.id, from: source) else { return }
         machines[info.id] = info
         notifyChange()
     }
@@ -659,6 +738,10 @@ final class SurfaceCatalog {
             for existing in projections where existing.panelID == projection.panelID && existing.resource.machine.isLocal {
                 projections.remove(existing)
                 resources[existing.resource] = nil
+                resourceIDsByMachine[existing.resource.machine]?.remove(existing.resource)
+                if resourceIDsByMachine[existing.resource.machine]?.isEmpty == true {
+                    resourceIDsByMachine[existing.resource.machine] = nil
+                }
             }
         }
         projections.insert(projection)
@@ -721,6 +804,20 @@ final class SurfaceCatalog {
             .filter { $0.workspaceID == workspaceID }
             .map { SurfaceProjectionRecord(panelID: $0.panelID, resource: $0.resource) }
             .sorted { $0.panelID.uuidString < $1.panelID.uuidString }
+    }
+
+    /// Cloud machine IDs referenced by restored panes that are waiting for a
+    /// provider to report their resources. The registry uses these IDs during
+    /// stale-machine reconciliation so a deleted ID cannot attach old panes
+    /// when a different machine later receives the same ID.
+    var pendingRestoredMachineIDs: Set<String> {
+        Set(pendingRestoredProjections.keys.compactMap { $0.resource.machine.cloudMachineID })
+    }
+
+    /// Returns whether at least one resource is currently published for a machine.
+    /// This is intentionally unsorted and does not materialize a snapshot.
+    func hasResources(on machine: SurfaceMachineID) -> Bool {
+        !(resourceIDsByMachine[machine]?.isEmpty ?? true)
     }
 
     private func resolvePendingRestoredProjections(on machine: SurfaceMachineID) {

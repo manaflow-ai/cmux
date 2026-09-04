@@ -23,6 +23,22 @@ final class CloudTreeNSOutlineView: NSOutlineView {
     /// style it lays rows out with (chevron centering depends on it).
     var treeStyle: CloudTreeStyle = CloudTreeStyleStore.current
 
+    /// Per-event context menu, the same presentation path the sidebar rows
+    /// use. The persistent `menu` + delegate `menuNeedsUpdate` route rendered
+    /// items whose actions never dispatched; building the menu in
+    /// `menu(for:)` is the pattern proven by every working cmux menu.
+    var contextMenuBuilder: ((_ row: Int) -> NSMenu?)?
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let contextMenuBuilder else { return super.menu(for: event) }
+        let point = convert(event.locationInWindow, from: nil)
+        let row = self.row(at: point)
+        if row >= 0, !selectedRowIndexes.contains(row) {
+            selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+        }
+        return contextMenuBuilder(row)
+    }
+
     var onOpenSelection: (() -> Void)?
     var onMoveSelection: ((Int) -> Void)?
     var onDisclosure: ((RightSidebarKeyboardNavigation.DisclosureAction) -> Void)?

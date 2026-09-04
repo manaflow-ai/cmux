@@ -13,6 +13,8 @@ mod app;
 mod browser_input;
 mod cli;
 mod client_log;
+#[cfg(unix)]
+mod coderouter_usage;
 mod config;
 mod host_colors;
 mod keys;
@@ -1408,7 +1410,7 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     let Some(command) = raw_args.get(index).cloned() else {
         return Ok(());
     };
-    if !crate::cli::is_remote_invocation(raw_args) {
+    if !cli::is_remote_invocation(raw_args) {
         return Ok(());
     }
     let rest = raw_args[index + 1..].to_vec();
@@ -1427,14 +1429,14 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
                         || value.starts_with("--session=")
                         || value.starts_with("--machine=") =>
                 {
-                    action_index += 1
+                    action_index += 1;
                 }
                 _ => break,
             }
         }
         if let Some(action) = raw_args.get(action_index).cloned() {
             raw_args.remove(action_index);
-            if let Some(command) = crate::cli::remote_action_command(&action) {
+            if let Some(command) = cli::remote_action_command(&action) {
                 raw_args.remove(0);
                 raw_args.insert(0, command.to_string());
                 return Ok(());
@@ -2136,6 +2138,10 @@ fn run_server(
     }
     let served_socket = pending_server.into_bound_path();
     let mut served_mux_cleanup = ServedMuxCleanup::new(mux.clone(), served_socket);
+    // Cloud VMs carry coderouter identity in their model-plane env; every
+    // other host resolves no source and gets no poller.
+    #[cfg(unix)]
+    let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
 
     let machine_runtime = (config.machine_sidebar.enabled
         || !config.machine_sidebar.create_sources.is_empty()
@@ -2178,6 +2184,10 @@ fn run_server(
         }
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
+    #[cfg(unix)]
+    if let Some(poller) = machine_usage_poller {
+        poller.stop();
+    }
     #[cfg(unix)]
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
     #[cfg(unix)]
@@ -2673,16 +2683,16 @@ fn run_tui_once(
         host_colors::probe_default_colors,
     );
     crossterm::terminal::disable_raw_mode()?;
-    app::run_with_machine_updates(
+    app::run_with_machine_updates(app::RunRequest {
         session,
         session_label,
-        colors,
+        default_colors: colors,
         surface_only,
         owner_mux,
         machine_ui,
         machine_controller,
-        config,
-    )
+        startup_config: config,
+    })
 }
 
 fn run_headless<F>(
@@ -3305,7 +3315,7 @@ mod tests {
 
         let application_background = cmux_tui_core::Rgb { r: 0x17, g: 0x1b, b: 0x2e };
         authoritative.write_bytes(b"\x1b]11;#171b2e\x1b\\\n").unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
         loop {
             let mut existing_render = ghostty_vt::RenderState::new().unwrap();
             let existing_background =
@@ -3322,7 +3332,7 @@ mod tests {
                 std::time::Instant::now() < deadline,
                 "application-authored OSC defaults did not reach both client projections"
             );
-            std::thread::sleep(std::time::Duration::from_millis(10));
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 

@@ -49,7 +49,7 @@ const { default: DashboardLayout } = await import(
   "../app/[locale]/dashboard/layout"
 );
 
-test("keeps Stack provider suspension inside the dashboard fallback", async () => {
+test("keeps a cold Stack provider load inside the dashboard fallback", async () => {
   stackProviderPending = true;
   const html = renderToStaticMarkup(
     await DashboardLayout({
