@@ -7,7 +7,7 @@ import Foundation
 extension WorkspaceArtifactsState {
     var ownership: ArtifactOwnership {
         let projectRoot = workingDirectory.map(identity.canonicalPath)
-        ArtifactOwnership(
+        return ArtifactOwnership(
             workspaceID: workspaceID?.uuidString,
             projectID: projectRoot.map(identity.stableTextDigest),
             projectRoot: projectRoot,
