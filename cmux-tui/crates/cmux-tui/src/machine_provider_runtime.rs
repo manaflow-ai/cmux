@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
@@ -36,6 +36,212 @@ use crate::machine_runtime::{
 use crate::session::{RemoteSession, Session};
 
 const PROVIDER_REFRESH_QUEUE_CAPACITY: usize = 64;
+const PROVIDER_CLOSE_QUEUE_CAPACITY: usize = 64;
+const PROVIDER_CLOSE_WORKER_COUNT: usize = 4;
+const PROVIDER_CONNECTION_ADMISSION_CAP: usize = 256;
+
+type ProviderCloseTask = Box<dyn FnOnce() + Send + 'static>;
+
+struct ProviderCloseWorker {
+    sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
+    reaper_sender: Option<crossbeam_channel::Sender<ProviderCloseTask>>,
+    shutdown_sender: Option<crossbeam_channel::Sender<()>>,
+    wake_sender: Option<crossbeam_channel::Sender<()>>,
+    threads: Vec<std::thread::JoinHandle<()>>,
+    pending: Arc<Mutex<HashMap<MachineKey, ProviderCloseTask>>>,
+}
+
+impl ProviderCloseWorker {
+    fn new() -> anyhow::Result<Self> {
+        Self::with_capacity(PROVIDER_CLOSE_QUEUE_CAPACITY)
+    }
+
+    fn with_capacity(queue_capacity: usize) -> anyhow::Result<Self> {
+        let (sender, receiver) = crossbeam_channel::bounded::<ProviderCloseTask>(queue_capacity);
+        let worker_count = PROVIDER_CLOSE_WORKER_COUNT.min(queue_capacity.max(1));
+        let (shutdown_sender, shutdown_receiver) =
+            crossbeam_channel::bounded::<()>(worker_count + 1);
+        let (wake_sender, wake_receiver) = crossbeam_channel::bounded::<()>(1);
+        let (reaper_sender, reaper_receiver) =
+            crossbeam_channel::bounded::<ProviderCloseTask>(PROVIDER_CONNECTION_ADMISSION_CAP);
+        let reaper_shutdown = shutdown_receiver.clone();
+        let reaper_thread = std::thread::Builder::new()
+            .name("provider-close-reaper".into())
+            .spawn(move || loop {
+                crossbeam_channel::select! {
+                    recv(reaper_shutdown) -> _ => {
+                        while let Ok(task) = reaper_receiver.try_recv() {
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+                        }
+                        break;
+                    }
+                    recv(reaper_receiver) -> task => match task {
+                        Ok(task) => {
+                            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(task));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            })?;
+        let pending = Arc::new(Mutex::new(HashMap::new()));
+        let mut threads = Vec::with_capacity(worker_count);
+        for index in 0..worker_count {
+            let receiver = receiver.clone();
+            let sender = sender.clone();
+            let pending = Arc::clone(&pending);
+            let shutdown_receiver = shutdown_receiver.clone();
+            let wake_receiver = wake_receiver.clone();
+            let thread = std::thread::Builder::new()
+                .name(format!("provider-close-machine-{index}"))
+                .spawn(move || {
+                    let mut stopping = false;
+                    loop {
+                        let close = if stopping {
+                            match receiver.try_recv() {
+                                Ok(close) => close,
+                                Err(crossbeam_channel::TryRecvError::Empty) => {
+                                    let pending_empty =
+                                        pending.lock().map_or(true, |pending| pending.is_empty());
+                                    if pending_empty {
+                                        break;
+                                    }
+                                    continue;
+                                }
+                                Err(crossbeam_channel::TryRecvError::Disconnected) => break,
+                            }
+                        } else {
+                            crossbeam_channel::select! {
+                                recv(shutdown_receiver) -> _ => {
+                                    stopping = true;
+                                    continue;
+                                }
+                                recv(wake_receiver) -> _ => {
+                                    let next = pending.lock().ok().and_then(|mut pending| {
+                                        let key = pending.keys().next().copied()?;
+                                        let close = pending.remove(&key)?;
+                                        Some(close)
+                                    });
+                                    let Some(close) = next else { continue };
+                                    close
+                                }
+                                recv(receiver) -> close => match close {
+                                    Ok(close) => close,
+                                    Err(_) => break,
+                                },
+                            }
+                        };
+                        {
+                            let close = close;
+                            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(close))
+                                .is_err()
+                            {
+                                crate::client_log::stderr_log!(
+                                    "provider",
+                                    "cmux-tui: provider machine close task panicked"
+                                );
+                            }
+                        }
+                        /*
+                         * Drain deferred tasks whenever a worker frees a queue
+                         * slot. The shutdown signal above exits promptly when
+                         * the runtime is dropped.
+                         */
+                        loop {
+                            let next = pending.lock().ok().and_then(|mut pending| {
+                                let key = pending.keys().next().copied()?;
+                                let close = pending.remove(&key)?;
+                                Some((key, close))
+                            });
+                            let Some((key, close)) = next else {
+                                break;
+                            };
+                            match sender.try_send(close) {
+                                Ok(()) => {}
+                                Err(crossbeam_channel::TrySendError::Full(close)) => {
+                                    if let Ok(mut pending) = pending.lock() {
+                                        pending.insert(key, close);
+                                    }
+                                    break;
+                                }
+                                Err(crossbeam_channel::TrySendError::Disconnected(_)) => break,
+                            }
+                        }
+                    }
+                })?;
+            threads.push(thread);
+        }
+        drop(receiver);
+        threads.push(reaper_thread);
+        Ok(Self {
+            sender: Some(sender),
+            reaper_sender: Some(reaper_sender),
+            shutdown_sender: Some(shutdown_sender),
+            wake_sender: Some(wake_sender),
+            threads,
+            pending,
+        })
+    }
+
+    fn schedule(
+        &self,
+        key: MachineKey,
+        close: ProviderCloseTask,
+    ) -> Result<(), crossbeam_channel::TrySendError<ProviderCloseTask>> {
+        let Some(sender) = self.sender.as_ref() else {
+            return Err(crossbeam_channel::TrySendError::Disconnected(close));
+        };
+        match sender.try_send(close) {
+            Ok(()) => Ok(()),
+            Err(crossbeam_channel::TrySendError::Full(close)) => {
+                if let Ok(mut pending) = self.pending.lock() {
+                    pending.insert(key, close);
+                    if let Some(wake_sender) = self.wake_sender.as_ref() {
+                        let _ = wake_sender.try_send(());
+                    }
+                    Ok(())
+                } else {
+                    Err(crossbeam_channel::TrySendError::Disconnected(close))
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn schedule_reaper(&self, task: ProviderCloseTask) -> Result<(), ProviderCloseTask> {
+        let Some(sender) = self.reaper_sender.as_ref() else {
+            return Err(task);
+        };
+        sender.try_send(task).map_err(|error| match error {
+            crossbeam_channel::TrySendError::Full(task)
+            | crossbeam_channel::TrySendError::Disconnected(task) => task,
+        })
+    }
+}
+
+impl Drop for ProviderCloseWorker {
+    fn drop(&mut self) {
+        if let Some(shutdown_sender) = self.shutdown_sender.take() {
+            for _ in &self.threads {
+                let _ = shutdown_sender.send(());
+            }
+        }
+        self.sender.take();
+        self.reaper_sender.take();
+        self.wake_sender.take();
+        for thread in self.threads.drain(..) {
+            // A close RPC has its own request deadline, but dropping the
+            // runtime must not wait for that remote deadline. Reap a worker
+            // that already finished; otherwise dropping the handle detaches
+            // the fixed worker while its in-flight close completes.
+            if thread.is_finished() && thread.join().is_err() {
+                crate::client_log::stderr_log!(
+                    "provider",
+                    "cmux-tui: provider machine close worker panicked"
+                );
+            }
+        }
+    }
+}
 
 #[derive(Clone)]
 struct OpenConnection {
@@ -48,18 +254,112 @@ struct ProviderMachineConnectionLease {
     open: OpenConnection,
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing: Arc<Mutex<HashSet<MachineKey>>>,
+    close_worker: Arc<ProviderCloseWorker>,
+    admissions: Arc<AtomicUsize>,
+}
+
+struct ProviderCloseCleanup {
+    registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing: Arc<Mutex<HashSet<MachineKey>>>,
+    key: MachineKey,
+    connection_id: protocol::OpaqueId,
+    admissions: Arc<AtomicUsize>,
+}
+
+impl Drop for ProviderCloseCleanup {
+    fn drop(&mut self) {
+        if let Ok(mut registry) = self.registry.lock()
+            && let Ok(mut closing_keys) = self.closing.lock()
+            && registry.get(&self.key).is_some_and(|open| open.connection_id == self.connection_id)
+        {
+            registry.remove(&self.key);
+            closing_keys.remove(&self.key);
+        }
+        self.admissions.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+struct ProviderConnectionReservation {
+    admissions: Arc<AtomicUsize>,
+    transitions: Arc<Mutex<HashSet<MachineKey>>>,
+    key: MachineKey,
+    active: bool,
+}
+
+impl ProviderConnectionReservation {
+    fn commit(&mut self) {
+        self.active = false;
+    }
+}
+
+impl Drop for ProviderConnectionReservation {
+    fn drop(&mut self) {
+        if self.active {
+            if let Ok(mut transitions) = self.transitions.lock() {
+                transitions.remove(&self.key);
+            }
+            self.admissions.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+}
+
+fn try_admit_provider_connection(admissions: &AtomicUsize) -> bool {
+    admissions
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            (count < PROVIDER_CONNECTION_ADMISSION_CAP).then_some(count + 1)
+        })
+        .is_ok()
 }
 
 impl Drop for ProviderMachineConnectionLease {
     fn drop(&mut self) {
-        if let Ok(mut registry) = self.registry.lock()
-            && registry
-                .get(&self.key)
-                .is_some_and(|open| open.connection_id == self.open.connection_id)
+        // Provider close is an RPC and may block on a remote provider. Keep
+        // session teardown non-blocking through the runtime-owned fixed worker
+        // pool, and never join a worker that has an in-flight close.
+        let client = Arc::clone(&self.open.client);
+        let connection_id = self.open.connection_id.clone();
+        let key = self.key;
+        let registry = Arc::clone(&self.registry);
+        let closing = Arc::clone(&self.closing);
+        if let Ok(registry_guard) = registry.lock()
+            && let Ok(mut closing_keys) = closing.lock()
+            && registry_guard.get(&key).is_some_and(|open| open.connection_id == connection_id)
         {
-            registry.remove(&self.key);
+            closing_keys.insert(key);
         }
-        let _ = self.open.client.close_machine(self.open.connection_id.clone());
+        let cleanup = ProviderCloseCleanup {
+            registry: Arc::clone(&registry),
+            closing: Arc::clone(&closing),
+            key,
+            connection_id: connection_id.clone(),
+            admissions: Arc::clone(&self.admissions),
+        };
+        if let Err(error) = self.close_worker.schedule(
+            key,
+            Box::new(move || {
+                let _cleanup = cleanup;
+                if let Err(error) = client.close_machine(connection_id) {
+                    crate::client_log::stderr_log!(
+                        "provider",
+                        "cmux-tui: failed to close provider machine connection: {error}"
+                    );
+                }
+            }),
+        ) {
+            let (reason, task) = match error {
+                crossbeam_channel::TrySendError::Full(task) => ("close backlog is full", task),
+                crossbeam_channel::TrySendError::Disconnected(task) => {
+                    ("close worker disconnected", task)
+                }
+            };
+            if self.close_worker.schedule_reaper(task).is_err() {
+                crate::client_log::stderr_log!(
+                    "provider",
+                    "cmux-tui: failed to preserve provider machine close after {reason}"
+                );
+            }
+        }
     }
 }
 
@@ -172,6 +472,7 @@ pub(crate) struct ProviderMachineRuntime {
     open: Option<OpenConnection>,
     connections: MachineConnectionHub,
     connection_registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
     pending: Option<PendingConnection>,
     pending_external_connect: Option<PendingExternalConnect>,
     accepted_selection: Option<AcceptedSelectionIntent>,
@@ -179,6 +480,8 @@ pub(crate) struct ProviderMachineRuntime {
     pending_notice_messages: HashSet<String>,
     notice: Option<String>,
     notice_identity: ProviderNoticeIdentity,
+    close_worker: Arc<ProviderCloseWorker>,
+    connection_admissions: Arc<AtomicUsize>,
 }
 
 /// Composes a provider-owned catalog with client-local socket and SSH targets.
@@ -553,6 +856,7 @@ impl ProviderMachineRuntime {
                 MachineConnectFn,
             )>()),
             connection_registry: Arc::new(Mutex::new(HashMap::new())),
+            closing_connections: Arc::new(Mutex::new(HashSet::new())),
             pending: None,
             pending_external_connect: None,
             accepted_selection: None,
@@ -560,6 +864,8 @@ impl ProviderMachineRuntime {
             pending_notice_messages: HashSet::new(),
             notice: None,
             notice_identity,
+            close_worker: Arc::new(ProviderCloseWorker::new()?),
+            connection_admissions: Arc::new(AtomicUsize::new(0)),
         };
         runtime.observe_snapshot_notice(
             runtime.snapshot.notice.clone(),
@@ -1125,6 +1431,9 @@ impl ProviderMachineRuntime {
         let keys = self.keys.clone();
         let connections = self.connections.clone();
         let connection_registry = self.connection_registry.clone();
+        let closing_connections = self.closing_connections.clone();
+        let close_worker = self.close_worker.clone();
+        let connection_admissions = self.connection_admissions.clone();
         let provider_connect_supported = client
             .supports_capability(protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY)
             .unwrap_or(false);
@@ -1429,6 +1738,9 @@ impl ProviderMachineRuntime {
                         &keys,
                         &connections,
                         &connection_registry,
+                        &closing_connections,
+                        &close_worker,
+                        &connection_admissions,
                     );
                     let session_available = snapshot.selected_machine_id.is_some()
                         && connected_session.as_ref().is_some_and(|(_, machine_id)| {
@@ -1891,6 +2203,9 @@ impl ProviderMachineRuntime {
             &self.keys,
             &self.connections,
             &self.connection_registry,
+            &self.closing_connections,
+            &self.close_worker,
+            &self.connection_admissions,
         );
     }
 
@@ -2225,6 +2540,9 @@ fn sync_provider_connection_hub(
     keys: &Arc<Mutex<KeyRegistry>>,
     connections: &MachineConnectionHub,
     registry: &Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: &Arc<Mutex<HashSet<MachineKey>>>,
+    close_worker: &Arc<ProviderCloseWorker>,
+    connection_admissions: &Arc<AtomicUsize>,
 ) {
     let visible =
         snapshot.machines.iter().map(|machine| machine.id.clone()).collect::<HashSet<_>>();
@@ -2247,6 +2565,9 @@ fn sync_provider_connection_hub(
                 machine.clone(),
                 key,
                 Arc::clone(registry),
+                Arc::clone(closing_connections),
+                Arc::clone(close_worker),
+                Arc::clone(connection_admissions),
             ),
         );
     }
@@ -2258,9 +2579,20 @@ fn provider_machine_connector(
     machine: protocol::MachineDescriptor,
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
+    close_worker: Arc<ProviderCloseWorker>,
+    connection_admissions: Arc<AtomicUsize>,
 ) -> MachineConnectFn {
     Arc::new(move || {
-        connect_provider_machine(Arc::clone(&client), machine.clone(), key, Arc::clone(&registry))
+        connect_provider_machine(
+            Arc::clone(&client),
+            machine.clone(),
+            key,
+            Arc::clone(&registry),
+            Arc::clone(&closing_connections),
+            Arc::clone(&close_worker),
+            Arc::clone(&connection_admissions),
+        )
     })
 }
 
@@ -2269,6 +2601,9 @@ fn connect_provider_machine(
     machine: protocol::MachineDescriptor,
     key: MachineKey,
     registry: Arc<Mutex<HashMap<MachineKey, OpenConnection>>>,
+    closing_connections: Arc<Mutex<HashSet<MachineKey>>>,
+    close_worker: Arc<ProviderCloseWorker>,
+    connection_admissions: Arc<AtomicUsize>,
 ) -> anyhow::Result<MachineConnection> {
     let provider_managed =
         matches!(machine.workspace_create, protocol::WorkspaceCreatePolicy::Provider { .. });
@@ -2277,6 +2612,34 @@ fn connect_provider_machine(
     {
         anyhow::bail!(localization::catalog().sidebar.machine_managed_authority_unsupported);
     }
+
+    // Reserve this key under the registry and transition locks, then release
+    // both before the provider RPC. Lease teardown takes the same locks when
+    // marking a key closing, so reconnects cannot race the open handoff.
+    let connections = registry
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider machine connection registry is poisoned"))?;
+    let mut transitions = closing_connections
+        .lock()
+        .map_err(|_| anyhow::anyhow!("provider machine closing registry is poisoned"))?;
+    if transitions.contains(&key) {
+        anyhow::bail!("provider machine connection is still closing");
+    }
+    if connections.contains_key(&key) {
+        anyhow::bail!("provider machine connection is already open");
+    }
+    if !try_admit_provider_connection(&connection_admissions) {
+        anyhow::bail!("provider machine connection capacity is temporarily exhausted");
+    }
+    transitions.insert(key);
+    drop(transitions);
+    drop(connections);
+    let mut reservation = ProviderConnectionReservation {
+        admissions: Arc::clone(&connection_admissions),
+        transitions: Arc::clone(&closing_connections),
+        key,
+        active: true,
+    };
 
     let opened = client.open_machine(machine.id.clone(), provider_managed)?;
     let connection_id = opened.connection_id.clone();
@@ -2314,15 +2677,35 @@ fn connect_provider_machine(
         Ok(connections) => connections,
         Err(_) => {
             session.begin_shutdown();
-            let _ = open.client.close_machine(open.connection_id);
+            let _ = open.client.close_machine(open.connection_id.clone());
             anyhow::bail!(localization::catalog().sidebar.machine_provider_update_failed);
         }
     };
+    let mut transitions = match closing_connections.lock() {
+        Ok(transitions) => transitions,
+        Err(_) => {
+            session.begin_shutdown();
+            let _ = open.client.close_machine(open.connection_id.clone());
+            anyhow::bail!(localization::catalog().sidebar.machine_provider_update_failed);
+        }
+    };
+    if !transitions.remove(&key) {
+        session.begin_shutdown();
+        let _ = open.client.close_machine(open.connection_id);
+        anyhow::bail!("provider machine connection reservation was lost");
+    }
     connections.insert(key, open.clone());
-    drop(connections);
+    reservation.commit();
     Ok(MachineConnection {
         session,
-        _lease: Some(Box::new(ProviderMachineConnectionLease { open, key, registry })),
+        _lease: Some(Box::new(ProviderMachineConnectionLease {
+            open,
+            key,
+            registry: Arc::clone(&registry),
+            closing: Arc::clone(&closing_connections),
+            close_worker,
+            admissions: Arc::clone(&connection_admissions),
+        })),
     })
 }
 
@@ -2630,6 +3013,72 @@ mod tests {
         protocol::BearerToken::new("runtime-test-token").unwrap()
     }
 
+    #[test]
+    fn provider_close_worker_bounds_queue_without_blocking_schedule() {
+        let worker = Arc::new(ProviderCloseWorker::with_capacity(1).unwrap());
+        let (started, started_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (finished, finished_rx) = mpsc::channel();
+        worker
+            .schedule(
+                MachineKey(1),
+                Box::new(move || {
+                    started.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                }),
+            )
+            .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        worker
+            .schedule(MachineKey(2), Box::new(|| {}))
+            .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
+        worker
+            .schedule(MachineKey(3), Box::new(move || finished.send(()).unwrap()))
+            .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
+        assert!(worker.pending.lock().unwrap().contains_key(&MachineKey(3)));
+        release.send(()).unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        drop(worker);
+    }
+
+    #[test]
+    fn provider_close_worker_drop_does_not_join_a_blocked_close() {
+        let worker = Arc::new(ProviderCloseWorker::with_capacity(1).unwrap());
+        let (started, started_rx) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (finished, finished_rx) = mpsc::channel();
+        worker
+            .schedule(
+                MachineKey(1),
+                Box::new(move || {
+                    started.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                    finished.send(()).unwrap();
+                }),
+            )
+            .unwrap_or_else(|_| panic!("close worker unexpectedly disconnected"));
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let drop_started = std::time::Instant::now();
+        drop(worker);
+        assert!(drop_started.elapsed() < Duration::from_secs(1));
+
+        release.send(()).unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    }
+
+    #[test]
+    fn provider_connection_admission_cap_is_explicit_and_reusable() {
+        let admissions = AtomicUsize::new(0);
+        for _ in 0..PROVIDER_CONNECTION_ADMISSION_CAP {
+            assert!(try_admit_provider_connection(&admissions));
+        }
+        assert!(!try_admit_provider_connection(&admissions));
+        admissions.fetch_sub(1, Ordering::AcqRel);
+        assert!(try_admit_provider_connection(&admissions));
+        assert_eq!(admissions.load(Ordering::Acquire), PROVIDER_CONNECTION_ADMISSION_CAP);
+    }
+
     fn cache_test_connection(
         runtime: &mut ProviderMachineRuntime,
         connection_id: &str,
@@ -2648,10 +3097,14 @@ mod tests {
         runtime.connections.register(key, connector);
         runtime.connection_registry.lock().unwrap().insert(key, open.clone());
         let lease = close_on_drop.then(|| {
+            runtime.connection_admissions.fetch_add(1, Ordering::AcqRel);
             Box::new(ProviderMachineConnectionLease {
                 open: open.clone(),
                 key,
                 registry: runtime.connection_registry.clone(),
+                closing: runtime.closing_connections.clone(),
+                close_worker: runtime.close_worker.clone(),
+                admissions: runtime.connection_admissions.clone(),
             }) as Box<dyn crate::machine_runtime::MachineConnectionLease>
         });
         runtime.connections.insert_ready(
@@ -5566,6 +6019,7 @@ mod tests {
             workspace_create: protocol::WorkspaceCreatePolicy::Session,
         });
         let server_catalog = catalog.clone();
+        let (close_received, wait_for_close) = mpsc::channel();
         let server = thread::spawn(move || {
             let (mut stream, mut reader) =
                 serve_initial_snapshot(&listener, server_catalog.clone());
@@ -5583,6 +6037,7 @@ mod tests {
                     protocol::CloseMachineResult { revision: 2 },
                 ),
             );
+            close_received.send(()).unwrap();
 
             let refresh: protocol::RequestEnvelope = read_frame(&mut reader);
             assert!(matches!(refresh.request, protocol::ProviderRequest::Snapshot(_)));
@@ -5620,6 +6075,7 @@ mod tests {
             default_mode: protocol::WorkspaceCreateMode::Isolated,
             modes: vec![protocol::WorkspaceCreateMode::Isolated],
         };
+        let candidate_key = key_for_id(&runtime.keys, &id("machine-2")).unwrap();
         let candidate_open =
             cache_test_connection(&mut runtime, "reject-second", "machine-2", true);
         runtime.stage_connection(Some(candidate_open), Some(rollback)).unwrap();
@@ -5636,6 +6092,23 @@ mod tests {
             runtime.open.as_ref().map(|open| open.connection_id.as_str()),
             Some("keep-first-open")
         );
+        assert!(runtime.connection_registry.lock().unwrap().contains_key(&candidate_key));
+        assert!(runtime.closing_connections.lock().unwrap().contains(&candidate_key));
+        let mut reconnect_machine = runtime.snapshot.machines[1].clone();
+        reconnect_machine.workspace_create = protocol::WorkspaceCreatePolicy::Session;
+        let reconnect_error = connect_provider_machine(
+            runtime.client.clone(),
+            reconnect_machine,
+            candidate_key,
+            runtime.connection_registry.clone(),
+            runtime.closing_connections.clone(),
+            runtime.close_worker.clone(),
+            runtime.connection_admissions.clone(),
+        )
+        .err()
+        .expect("reconnect must wait for the previous provider close");
+        assert!(reconnect_error.to_string().contains("still closing"));
+        wait_for_close.recv_timeout(Duration::from_secs(2)).unwrap();
         runtime.refresh().expect("provider control connection remains usable");
         drop(runtime);
         server.join().unwrap();
