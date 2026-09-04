@@ -12,36 +12,16 @@ import SwiftUI
 /// app-side until the workspace UI package exists. Moved out of
 /// `TabManager.swift` verbatim.
 enum WorkspaceTabColorSettings {
-    static let paletteKey = WorkspaceColorsCatalogSection().palette.userDefaultsKey
-
-    private static let legacyDefaultOverridesKey = "workspaceTabColor.defaultOverrides"
-    private static let legacyCustomColorsKey = "workspaceTabColor.customColors"
-
-    private static let originalPRPalette: [WorkspaceTabColorEntry] = [
-        WorkspaceTabColorEntry(name: "Red", hex: "#C0392B"),
-        WorkspaceTabColorEntry(name: "Crimson", hex: "#922B21"),
-        WorkspaceTabColorEntry(name: "Orange", hex: "#A04000"),
-        WorkspaceTabColorEntry(name: "Amber", hex: "#7D6608"),
-        WorkspaceTabColorEntry(name: "Olive", hex: "#4A5C18"),
-        WorkspaceTabColorEntry(name: "Green", hex: "#196F3D"),
-        WorkspaceTabColorEntry(name: "Teal", hex: "#006B6B"),
-        WorkspaceTabColorEntry(name: "Aqua", hex: "#0E6B8C"),
-        WorkspaceTabColorEntry(name: "Blue", hex: "#1565C0"),
-        WorkspaceTabColorEntry(name: "Navy", hex: "#1A5276"),
-        WorkspaceTabColorEntry(name: "Indigo", hex: "#283593"),
-        WorkspaceTabColorEntry(name: "Purple", hex: "#6A1B9A"),
-        WorkspaceTabColorEntry(name: "Magenta", hex: "#AD1457"),
-        WorkspaceTabColorEntry(name: "Rose", hex: "#880E4F"),
-        WorkspaceTabColorEntry(name: "Brown", hex: "#7B3F00"),
-        WorkspaceTabColorEntry(name: "Charcoal", hex: "#3E4B5E"),
-    ]
+    static let paletteKey = CmuxConfigWorkspaceColorPalette.paletteKey
 
     static var defaultPalette: [WorkspaceTabColorEntry] {
-        originalPRPalette
+        CmuxConfigWorkspaceColorPalette.defaultPalette.map {
+            WorkspaceTabColorEntry(name: $0.name, hex: $0.hex)
+        }
     }
 
     static func palette(defaults: UserDefaults = .standard) -> [WorkspaceTabColorEntry] {
-        let paletteMap = effectivePaletteMap(defaults: defaults)
+        let paletteMap = CmuxConfigWorkspaceColorPalette.effectivePaletteMap(defaults: defaults)
         let builtInOrder = defaultPalette.compactMap { entry -> WorkspaceTabColorEntry? in
             guard let hex = paletteMap[entry.name] else { return nil }
             return WorkspaceTabColorEntry(name: entry.name, hex: hex)
@@ -66,7 +46,7 @@ enum WorkspaceTabColorSettings {
     }
 
     static func currentColorHex(named name: String, defaults: UserDefaults = .standard) -> String? {
-        effectivePaletteMap(defaults: defaults)[name]
+        CmuxConfigWorkspaceColorPalette.effectivePaletteMap(defaults: defaults)[name]
     }
 
     static func setColor(named name: String, hex: String, defaults: UserDefaults = .standard) {
@@ -92,8 +72,8 @@ enum WorkspaceTabColorSettings {
         } else {
             defaults.set(normalizedPalette, forKey: paletteKey)
         }
-        defaults.removeObject(forKey: legacyDefaultOverridesKey)
-        defaults.removeObject(forKey: legacyCustomColorsKey)
+        defaults.removeObject(forKey: CmuxConfigWorkspaceColorPalette.legacyOverridesKey)
+        defaults.removeObject(forKey: CmuxConfigWorkspaceColorPalette.legacyCustomColorsKey)
     }
 
     static func backupPaletteMap(defaults: UserDefaults = .standard) -> [String: String]? {
@@ -121,17 +101,12 @@ enum WorkspaceTabColorSettings {
 
     static func reset(defaults: UserDefaults = .standard) {
         defaults.removeObject(forKey: paletteKey)
-        defaults.removeObject(forKey: legacyDefaultOverridesKey)
-        defaults.removeObject(forKey: legacyCustomColorsKey)
+        defaults.removeObject(forKey: CmuxConfigWorkspaceColorPalette.legacyOverridesKey)
+        defaults.removeObject(forKey: CmuxConfigWorkspaceColorPalette.legacyCustomColorsKey)
     }
 
     static func normalizedHex(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        let body = trimmed.hasPrefix("#") ? String(trimmed.dropFirst()) : trimmed
-        guard body.count == 6 else { return nil }
-        guard UInt64(body, radix: 16) != nil else { return nil }
-        return "#" + body.uppercased()
+        CmuxConfigWorkspaceColorPalette.normalizedHex(raw)
     }
 
     /// Compares normalized hex values so persisted formatting cannot hide a match.
@@ -172,95 +147,41 @@ enum WorkspaceTabColorSettings {
     }
 
     private static func effectivePaletteMap(defaults: UserDefaults) -> [String: String] {
-        if let stored = storedPaletteMap(defaults: defaults) {
-            return stored
-        }
-        if let legacy = legacyPaletteMap(defaults: defaults) {
-            return legacy
-        }
-        return defaultPaletteMap
+        CmuxConfigWorkspaceColorPalette.effectivePaletteMap(defaults: defaults)
     }
 
     private static func editablePaletteMap(defaults: UserDefaults) -> [String: String] {
-        if let stored = storedPaletteMap(defaults: defaults) {
-            return stored
-        }
-        if let legacy = legacyPaletteMap(defaults: defaults) {
-            return legacy
-        }
-        return defaultPaletteMap
+        CmuxConfigWorkspaceColorPalette.effectivePaletteMap(defaults: defaults)
     }
 
     private static func storedPaletteMap(defaults: UserDefaults) -> [String: String]? {
-        guard let raw = defaults.dictionary(forKey: paletteKey) as? [String: String] else { return nil }
-        return normalizedPaletteMap(raw)
+        CmuxConfigWorkspaceColorPalette.storedPaletteMap(defaults: defaults)
     }
 
     private static func legacyPaletteMap(defaults: UserDefaults) -> [String: String]? {
-        let hasLegacyOverrides = defaults.object(forKey: legacyDefaultOverridesKey) != nil
-        let hasLegacyCustomColors = defaults.object(forKey: legacyCustomColorsKey) != nil
-        guard hasLegacyOverrides || hasLegacyCustomColors else { return nil }
-
-        var palette = defaultPaletteMap
-
-        if let rawOverrides = defaults.dictionary(forKey: legacyDefaultOverridesKey) as? [String: String] {
-            let validNames = Set(defaultPalette.map(\.name))
-            for (name, hex) in rawOverrides {
-                guard validNames.contains(name),
-                      let normalized = normalizedHex(hex) else { continue }
-                palette[name] = normalized
-            }
-        }
-
-        if let rawCustomColors = defaults.array(forKey: legacyCustomColorsKey) as? [String] {
-            var index = 1
-            var seenCustomHexes: Set<String> = []
-            for rawHex in rawCustomColors {
-                guard let normalized = normalizedHex(rawHex),
-                      seenCustomHexes.insert(normalized).inserted else { continue }
-                let name = nextCustomColorName(
-                    existingNames: Set(palette.keys),
-                    startingAt: index
-                )
-                palette[name] = normalized
-                index += 1
-            }
-        }
-
-        return palette
+        CmuxConfigWorkspaceColorPalette.legacyPaletteMap(defaults: defaults)
     }
 
     private static func normalizedPaletteMap(_ rawPalette: [String: String]) -> [String: String] {
-        var normalized: [String: String] = [:]
-        for (rawName, rawHex) in rawPalette {
-            guard let name = normalizedColorName(rawName),
-                  let hex = normalizedHex(rawHex) else { continue }
-            normalized[name] = hex
-        }
-        return normalized
+        CmuxConfigWorkspaceColorPalette.normalizedPaletteMap(rawPalette)
     }
 
     private static var defaultPaletteMap: [String: String] {
-        Dictionary(uniqueKeysWithValues: defaultPalette.map { ($0.name, $0.hex) })
+        CmuxConfigWorkspaceColorPalette.defaultPaletteMap
     }
 
     private static func normalizedColorName(_ raw: String) -> String? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+        CmuxConfigWorkspaceColorPalette.normalizedColorName(raw)
     }
 
     private static func nextCustomColorName(
         existingNames: Set<String>,
         startingAt initialIndex: Int = 1
     ) -> String {
-        var index = max(1, initialIndex)
-        while true {
-            let candidate = "Custom \(index)"
-            if !existingNames.contains(where: { $0.caseInsensitiveCompare(candidate) == .orderedSame }) {
-                return candidate
-            }
-            index += 1
-        }
+        CmuxConfigWorkspaceColorPalette.nextCustomColorName(
+            existingNames: existingNames,
+            startingAt: initialIndex
+        )
     }
 
     private static func brightenedForDarkAppearance(_ color: NSColor) -> NSColor {

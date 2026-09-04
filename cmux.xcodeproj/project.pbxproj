@@ -822,13 +822,23 @@
 		C0DEF0A40000000000000001 /* CmuxConfigContextMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */; };
 		A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */; };
 		A5001652 /* CmuxConfigExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5001653 /* CmuxConfigExecutor.swift */; };
+		D1065304D1065304D1065304 /* CmuxConfigFileTolerantDecoding.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065305D1065305D1065305 /* CmuxConfigFileTolerantDecoding.swift */; };
 		E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */; };
 		A5FB130C /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */; };
 		A5FB130A /* CmuxConfigNewWorkspaceMenuTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */; };
+		D1065314D1065314D1065314 /* CmuxConfigReviewRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065313D1065313D1065313 /* CmuxConfigReviewRegressionTests.swift */; };
+		D1065316D1065316D1065316 /* CmuxConfigRuntimeValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */; };
+		D1065317D1065317D1065317 /* CmuxConfigRuntimeValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */; };
 		C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */ = {isa = PBXBuildFile; fileRef = C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */; };
 		C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */; };
 		C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DEF0A10000000000000002 /* CmuxConfigUI.swift */; };
+		D1065301D1065301D1065301 /* CmuxConfigValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065302D1065302D1065302 /* CmuxConfigValidation.swift */; };
+		D1065303D1065303D1065303 /* CmuxConfigValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065302D1065302D1065302 /* CmuxConfigValidation.swift */; };
+		D1065311D1065311D1065311 /* CmuxConfigValidationIssue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065310D1065310D1065310 /* CmuxConfigValidationIssue.swift */; };
+		D1065312D1065312D1065312 /* CmuxConfigValidationIssue.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065310D1065310D1065310 /* CmuxConfigValidationIssue.swift */; };
 		A5FB1205 /* CmuxConfigWorkspaceActionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */; };
+		D1065308D1065308D1065308 /* CmuxConfigWorkspaceColorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */; };
+		D1065309D1065309D1065309 /* CmuxConfigWorkspaceColorPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */; };
 		A79840010000000000000003 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		C750100000000000000000A3 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
 		C79470010000000000000005 /* CmuxControlSocket in Frameworks */ = {isa = PBXBuildFile; productRef = C750100000000000000000A2 /* CmuxControlSocket */; };
@@ -3976,13 +3986,19 @@
 		C0DEF0A40000000000000002 /* CmuxConfigContextMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigContextMenuTests.swift; sourceTree = "<group>"; };
 		A5FB120C /* CmuxConfigExecutor+WorkspaceLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigExecutor+WorkspaceLaunch.swift"; sourceTree = "<group>"; };
 		A5001653 /* CmuxConfigExecutor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigExecutor.swift; sourceTree = "<group>"; };
+		D1065305D1065305D1065305 /* CmuxConfigFileTolerantDecoding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigFileTolerantDecoding.swift; sourceTree = "<group>"; };
 		E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNamedColorTests.swift; sourceTree = "<group>"; };
 		A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNewWorkspaceDefaultLayoutTests.swift; sourceTree = "<group>"; };
 		A5FB130B /* CmuxConfigNewWorkspaceMenuTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigNewWorkspaceMenuTests.swift; sourceTree = "<group>"; };
+		D1065313D1065313D1065313 /* CmuxConfigReviewRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigReviewRegressionTests.swift; sourceTree = "<group>"; };
+		D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigRuntimeValidation.swift; sourceTree = "<group>"; };
 		C5D0DEC0CF00000000000B1 /* CmuxConfigStore+ConfigStoreReloading.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxConfigStore+ConfigStoreReloading.swift"; sourceTree = "<group>"; };
 		C1A2B3C4D5E6F70800000002 /* CmuxConfigTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigTests.swift; sourceTree = "<group>"; };
 		C0DEF0A10000000000000002 /* CmuxConfigUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigUI.swift; sourceTree = "<group>"; };
+		D1065302D1065302D1065302 /* CmuxConfigValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigValidation.swift; sourceTree = "<group>"; };
+		D1065310D1065310D1065310 /* CmuxConfigValidationIssue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigValidationIssue.swift; sourceTree = "<group>"; };
 		A5FB1206 /* CmuxConfigWorkspaceActionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigWorkspaceActionTests.swift; sourceTree = "<group>"; };
+		D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxConfigWorkspaceColorPalette.swift; sourceTree = "<group>"; };
 		9648F1A10000000000000001 /* CmuxDiffViewerURLSchemeHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Panels/CmuxDiffViewerURLSchemeHandler.swift; sourceTree = "<group>"; };
 		D1320AA0D1320AA0D1320AA5 /* CmuxDockTilePlugin.plugin */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = CmuxDockTilePlugin.plugin; sourceTree = BUILT_PRODUCTS_DIR; };
 		C54860040000000000000002 /* CmuxDurableDeepLinkRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxDurableDeepLinkRestoreTests.swift; sourceTree = "<group>"; };
@@ -8272,6 +8288,11 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5001641 /* RemoteRelayZshBootstrap.swift */,
 				C0DE43000000000000000002 /* CmuxAgentChatConfig.swift */,
 				A5001651 /* CmuxConfig.swift */,
+				D1065302D1065302D1065302 /* CmuxConfigValidation.swift */,
+				D1065318D1065318D1065318 /* CmuxConfigRuntimeValidation.swift */,
+				D1065310D1065310D1065310 /* CmuxConfigValidationIssue.swift */,
+				D1065305D1065305D1065305 /* CmuxConfigFileTolerantDecoding.swift */,
+				D1065307D1065307D1065307 /* CmuxConfigWorkspaceColorPalette.swift */,
 				468110000000000000000002 /* CmuxNotificationHookCache.swift */,
 				468140000000000000000006 /* CmuxNotificationHookCacheEntry.swift */,
 				468140000000000000000002 /* CmuxNotificationHookCacheKey.swift */,
@@ -9373,6 +9394,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB1401 /* NewWorkspaceMenuModelTests.swift */,
 				A5FB130D /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift */,
 				E30750000000000000000005 /* CmuxConfigNamedColorTests.swift */,
+				D1065313D1065313D1065313 /* CmuxConfigReviewRegressionTests.swift */,
 				FE002012 /* FileExplorerGitStatusProviderTests.swift */,
 				FE002001 /* FileExplorerRootResolverTests.swift */,
 				828800010000000000000001 /* FileExplorerStyleContrastTests.swift */,
@@ -10363,8 +10385,13 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				A5FB1201 /* CmuxConfigActionSaver.swift in Sources */,
 				A5FB120B /* CmuxConfigExecutor+WorkspaceLaunch.swift in Sources */,
 				A5001652 /* CmuxConfigExecutor.swift in Sources */,
+				D1065304D1065304D1065304 /* CmuxConfigFileTolerantDecoding.swift in Sources */,
+				D1065316D1065316D1065316 /* CmuxConfigRuntimeValidation.swift in Sources */,
 				C5D0DEC0CF00000000000A1 /* CmuxConfigStore+ConfigStoreReloading.swift in Sources */,
 				C0DEF0A10000000000000001 /* CmuxConfigUI.swift in Sources */,
+				D1065301D1065301D1065301 /* CmuxConfigValidation.swift in Sources */,
+				D1065311D1065311D1065311 /* CmuxConfigValidationIssue.swift in Sources */,
+				D1065308D1065308D1065308 /* CmuxConfigWorkspaceColorPalette.swift in Sources */,
 				9648F1A20000000000000002 /* CmuxDiffViewerURLSchemeHandler.swift in Sources */,
 				E7E000000000000000000005 /* CmuxEventBus.swift in Sources */,
 				E7E00000000000000000000D /* CmuxEventLogWriter.swift in Sources */,
@@ -12041,6 +12068,10 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				CC0033E15A1B2C3D4E5F0020 /* CMUXCLI+VMTui.swift in Sources */,
 				C8923639133F158AF1B6A0FB /* CMUXCLI+VPN.swift in Sources */,
 				06CC2F6C1340C7424D1C7E0A /* CMUXCLI+WorkspaceTodo.swift in Sources */,
+				D1065317D1065317D1065317 /* CmuxConfigRuntimeValidation.swift in Sources */,
+				D1065303D1065303D1065303 /* CmuxConfigValidation.swift in Sources */,
+				D1065312D1065312D1065312 /* CmuxConfigValidationIssue.swift in Sources */,
+				D1065309D1065309D1065309 /* CmuxConfigWorkspaceColorPalette.swift in Sources */,
 				918100000000000000000051 /* CodexHookFailureCandidate.swift in Sources */,
 				918100000000000000000041 /* CodexHookFailureSummary.swift in Sources */,
 				918100000000000000000061 /* CodexHookUserInputCandidate.swift in Sources */,
@@ -12367,6 +12398,7 @@ B8B056D80000000000000002 /* MobileHostIdentityTests.swift */ = {isa = PBXFileRef
 				E30750000000000000000006 /* CmuxConfigNamedColorTests.swift in Sources */,
 				A5FB130C /* CmuxConfigNewWorkspaceDefaultLayoutTests.swift in Sources */,
 				A5FB130A /* CmuxConfigNewWorkspaceMenuTests.swift in Sources */,
+				D1065314D1065314D1065314 /* CmuxConfigReviewRegressionTests.swift in Sources */,
 				C1A2B3C4D5E6F70800000001 /* CmuxConfigTests.swift in Sources */,
 				A5FB1205 /* CmuxConfigWorkspaceActionTests.swift in Sources */,
 				C54860040000000000000001 /* CmuxDurableDeepLinkRestoreTests.swift in Sources */,

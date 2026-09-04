@@ -13,31 +13,11 @@ enum CmuxSurfaceTabBarBuiltInAction: String, Codable, Sendable, CaseIterable, Ha
     case splitDown = "cmux.splitDown"
 
     init?(configID: String) {
-        switch configID {
-        case "cmux.newWorkspace", "newWorkspace":
-            self = .newWorkspace
-        case "cmux.newAgentChat", "cmux.agentChat", "newAgentChat", "new-agent-chat", "agentChat":
-            self = .newAgentChat
-        case "cmux.cloudvm", "cmux.cloudVM", "cloudVM", "cloudvm",
-             "cmux.newCloudVM", "cmux.newCloudVm", "newCloudVM", "newCloudVm",
-             "cmux.startCloudVM", "cmux.startCloudVm", "startCloudVM", "startCloudVm":
-            self = .cloudVM
-        case "cmux.mobileconnect", "cmux.mobileConnect", "mobileConnect", "mobileconnect",
-             "cmux.connectPhone", "connectPhone":
-            self = .mobileConnect
-        case "cmux.newTerminal", "newTerminal":
-            self = .newTerminal
-        case "cmux.newBrowser", "newBrowser":
-            self = .newBrowser
-        case "cmux.newSimulator", "newSimulator", "new-simulator", "simulator":
-            self = .newSimulator
-        case "cmux.splitRight", "splitRight":
-            self = .splitRight
-        case "cmux.splitDown", "splitDown":
-            self = .splitDown
-        default:
+        guard let canonicalID = CmuxConfigBuiltInActionCatalog().canonicalID(for: configID),
+              let action = Self(rawValue: canonicalID) else {
             return nil
         }
+        self = action
     }
 
     var configID: String {

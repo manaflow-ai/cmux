@@ -34,7 +34,12 @@
       "title": "actions",
       "description": "Action registry used by the surface tab bar, Command Palette, shortcuts, and plus-button menu. Each entry supports type \"builtin\", \"command\", \"agent\" (any CLI agent name, e.g. claude, codex, opencode, or a custom binary, with optional args), \"workspaceCommand\", or \"workspace\" (inline workspace with name/cwd/color/env/setup/layout, plus optional restart). Inline workspace entries are auto-offered in the new-workspace plus-button menu; set newWorkspaceMenu true/false on any action to override. \"Save Workspace as Layout\" in the plus-button menu writes entries here.",
       "type": "object",
-      "additionalProperties": true
+      "propertyNames": {
+        "pattern": "\\S"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/cmuxActionDefinition"
+      }
     },
     "ui": {
       "title": "ui",
@@ -61,8 +66,7 @@
       "description": "Custom shell commands and workspace layout definitions. Workspace definitions support name, cwd, color, env, layout, and setup (a bootstrap command sent to the first terminal before its own command).",
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": true
+        "$ref": "#/$defs/cmuxCommandDefinition"
       }
     },
     "computerUse": {
@@ -1876,6 +1880,319 @@
     }
   },
   "$defs": {
+    "cmuxActionDefinition": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "A command, agent, built-in, workspace-command, or inline workspace action. Actions without a type infer it from builtin, command, agent, or workspace.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "pattern": "^\\s*(?:builtin|command|agent|workspaceCommand|workspace)\\s*$",
+          "description": "Action type. cmux trims surrounding whitespace before decoding."
+        },
+        "builtin": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\s*(?:cmux\\.newWorkspace|newWorkspace|cmux\\.newAgentChat|cmux\\.agentChat|newAgentChat|new-agent-chat|agentChat|cmux\\.cloudvm|cmux\\.cloudVM|cloudVM|cloudvm|cmux\\.newCloudVM|cmux\\.newCloudVm|newCloudVM|newCloudVm|cmux\\.startCloudVM|cmux\\.startCloudVm|startCloudVM|startCloudVm|cmux\\.mobileconnect|cmux\\.mobileConnect|mobileConnect|mobileconnect|cmux\\.connectPhone|connectPhone|cmux\\.newTerminal|newTerminal|cmux\\.newBrowser|newBrowser|cmux\\.newSimulator|newSimulator|new-simulator|simulator|cmux\\.splitRight|splitRight|cmux\\.splitDown|splitDown)\\s*$",
+          "description": "Built-in action identifier. cmux trims surrounding whitespace before decoding."
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "commandName": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "agent": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^\\s*\\S+\\s*$",
+          "description": "Agent command name, optionally surrounded by whitespace; internal whitespace is not allowed."
+        },
+        "args": {
+          "type": "string"
+        },
+        "workspace": {
+          "$ref": "#/$defs/cmuxWorkspaceDefinition"
+        },
+        "restart": {
+          "$ref": "#/$defs/cmuxRestartBehavior"
+        },
+        "title": {
+          "type": "string"
+        },
+        "subtitle": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "palette": {
+          "type": "boolean"
+        },
+        "shortcut": {
+          "$ref": "#/$defs/cmuxActionShortcut"
+        },
+        "icon": {
+          "$ref": "#/$defs/cmuxIcon"
+        },
+        "tooltip": {
+          "type": "string"
+        },
+        "confirm": {
+          "type": "boolean"
+        },
+        "target": {
+          "type": "string",
+          "enum": ["currentTerminal", "newTabInCurrentPane"]
+        },
+        "newWorkspaceMenu": {
+          "type": "boolean"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": { "pattern": "^\\s*builtin\\s*$" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["builtin"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "pattern": "^\\s*command\\s*$" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["command"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "pattern": "^\\s*agent\\s*$" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["agent"] }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "pattern": "^\\s*workspaceCommand\\s*$" }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "anyOf": [
+              { "required": ["commandName"] },
+              { "required": ["name"] },
+              { "required": ["command"] }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": { "pattern": "^\\s*workspace\\s*$" }
+            },
+            "required": ["type"]
+          },
+          "then": { "required": ["workspace"] }
+        }
+      ]
+    },
+    "cmuxCommandDefinition": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string"
+        },
+        "keywords": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "restart": {
+          "$ref": "#/$defs/cmuxRestartBehavior"
+        },
+        "workspace": {
+          "$ref": "#/$defs/cmuxWorkspaceDefinition"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "confirm": {
+          "type": "boolean"
+        }
+      },
+      "oneOf": [
+        { "required": ["workspace"] },
+        { "required": ["command"] }
+      ]
+    },
+    "cmuxRestartBehavior": {
+      "type": "string",
+      "enum": ["new", "recreate", "ignore", "confirm"]
+    },
+    "cmuxWorkspaceDefinition": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "name": { "type": "string" },
+        "cwd": { "type": "string" },
+        "color": { "$ref": "#/$defs/cmuxWorkspaceColor" },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "setup": { "type": "string" },
+        "layout": { "$ref": "#/$defs/cmuxLayoutNode" }
+      }
+    },
+    "cmuxWorkspaceColor": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "A six-digit hex color (with or without #) or a name from the user's current workspace color palette. This static schema validates the non-blank shape; palette membership is runtime state and is checked by cmux config doctor/runtime decoding."
+    },
+    "cmuxLayoutNode": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["pane"],
+          "not": { "required": ["direction"] },
+          "properties": {
+            "pane": { "$ref": "#/$defs/cmuxPaneDefinition" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["direction", "children"],
+          "not": { "required": ["pane"] },
+          "properties": {
+            "direction": {
+              "type": "string",
+              "enum": ["horizontal", "vertical"]
+            },
+            "split": { "type": "number" },
+            "children": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": { "$ref": "#/$defs/cmuxLayoutNode" }
+            }
+          }
+        }
+      ]
+    },
+    "cmuxPaneDefinition": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["surfaces"],
+      "properties": {
+        "surfaces": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/cmuxSurfaceDefinition" }
+        }
+      }
+    },
+    "cmuxSurfaceDefinition": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["terminal", "browser", "project"]
+        },
+        "name": { "type": "string" },
+        "command": { "type": "string" },
+        "cwd": { "type": "string" },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "url": { "type": "string" },
+        "focus": { "type": "boolean" }
+      }
+    },
+    "cmuxIcon": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["type", "name"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "pattern": "^\\s*(?:symbol|sfSymbol|systemImage)\\s*$",
+              "description": "Symbol icon type; cmux trims surrounding whitespace."
+            },
+            "name": { "type": "string", "minLength": 1, "pattern": "\\S" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["type", "value"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "pattern": "^\\s*emoji\\s*$",
+              "description": "Emoji icon type; cmux trims surrounding whitespace."
+            },
+            "value": { "type": "string", "minLength": 1, "pattern": "\\S" },
+            "scale": { "type": "number", "exclusiveMinimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["type", "path"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "pattern": "^\\s*(?:image|file)\\s*$",
+              "description": "Image icon type; cmux trims surrounding whitespace."
+            },
+            "path": { "type": "string", "minLength": 1, "pattern": "\\S" }
+          }
+        }
+      ]
+    },
+    "cmuxActionShortcut": {
+      "$ref": "#/$defs/shortcutBinding"
+    },
     "colorHex": {
       "type": "string",
       "pattern": "^#[0-9A-Fa-f]{6}$",
