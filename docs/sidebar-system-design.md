@@ -300,6 +300,57 @@ These names remain proposed until they have schemas, inventory entries, SDK
 facades, and conformance fixtures. The existing raw frontend adapter is not a
 substitute for this contract.
 
+A catalog response should be sufficient to choose a target without guessing
+from a menu index:
+
+```json
+{
+  "revision": "catalog-19",
+  "regions": [
+    {
+      "region_id": "primary-sidebar-left",
+      "window_id": "window-7",
+      "active_profile_id": "work",
+      "profiles": ["work", "review", "focus"]
+    }
+  ],
+  "providers": [
+    {
+      "provider_id": "cmux.builtin.agents",
+      "placements": ["primary-sidebar-left", "secondary-sidebar-right"],
+      "actions": ["agent.focus", "agent.open-transcript"]
+    }
+  ],
+  "instances": [
+    {
+      "instance_id": "agents.current-workspace",
+      "provider_id": "cmux.builtin.agents",
+      "scope": {"workspace": "workspace-42"},
+      "mounts": ["mount-3"]
+    }
+  ]
+}
+```
+
+An invocation names the action, target, operation, and expected revision. A
+successful result is explicit about the authority that changed:
+
+```json
+{
+  "operation_id": "op-8d2",
+  "status": "completed",
+  "changed": true,
+  "target_id": "agent-17",
+  "authoritative_revision": "resource-904",
+  "presentation_revision": "frontend-43",
+  "error": null
+}
+```
+
+If a name selector matches two rows, the host returns an ambiguity error and
+the matching stable IDs. It does not choose the first row. A caller may use a
+stable ID or an explicit scope to retry.
+
 Every mutating request includes a caller-generated `operation_id` and may
 include `expected_revision`. The receipt is one of:
 `accepted`, `completed`, `rejected`, `unavailable`, or `indeterminate`.
