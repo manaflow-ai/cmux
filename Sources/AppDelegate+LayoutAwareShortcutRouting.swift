@@ -10,7 +10,8 @@ extension AppDelegate {
     /// authoritative.
     func shouldPreferPhysicalCloseTabFallbackOverSettings(event: NSEvent) -> Bool {
         guard event.type == .keyDown,
-              !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .openSettings) else {
+              !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: .openSettings),
+              shortcutWhenClauseAllows(action: .closeTab, event: event) else {
             return false
         }
 
