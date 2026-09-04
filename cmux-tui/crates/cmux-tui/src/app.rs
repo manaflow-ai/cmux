@@ -13995,11 +13995,19 @@ impl App {
         let notice = update.notice.clone();
         self.machine_ui = Some(update);
         let next_machine_topology = machine_sidebar_pointer_topology(self.machine_ui.as_ref());
-        if previous_machine_topology.recoverable_workspace_ids
-            != next_machine_topology.recoverable_workspace_ids
-            || previous_machine_topology.workspace_creation_policy
-                != next_machine_topology.workspace_creation_policy
-        {
+        let recoverable_workspaces_changed = previous_machine_topology.recoverable_workspace_ids
+            != next_machine_topology.recoverable_workspace_ids;
+        let workspace_creation_policy_changed = previous_machine_topology.workspace_creation_policy
+            != next_machine_topology.workspace_creation_policy;
+        if workspace_creation_policy_changed {
+            // Files and Workspaces share one host. Provider creation modes
+            // change the action footer and therefore the Files body and
+            // scrollbar coordinates too.
+            self.invalidate_sidebar_pointer_domains(&[
+                SidebarPointerDomain::Workspace,
+                SidebarPointerDomain::Files,
+            ]);
+        } else if recoverable_workspaces_changed {
             // Machine rows have no drag capture. Only the provider-owned
             // workspace rows can change a native target in this rail update.
             self.invalidate_sidebar_pointer_domains(&[SidebarPointerDomain::Workspace]);
@@ -44760,6 +44768,30 @@ mod tests {
         app.apply_machine_ui_update(provider_machine_ui_with_lifecycle());
 
         assert!(app.drag.is_none(), "new recoverable workspace rows must release old capture");
+        assert!(app.active_pointer_buttons.is_empty());
+    }
+
+    #[test]
+    fn machine_policy_refresh_cancels_files_capture_before_shared_host_moves() {
+        let mux = Mux::new("machine-policy-files-pointer-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.machine_ui = Some(provider_machine_ui());
+        app.drag = Some(Drag::FilesScrollbar {
+            track: Rect { x: 20, y: 1, width: 1, height: 4 },
+            total_rows: 8,
+            visible_rows: 4,
+            anchor_y: 2,
+            anchor_offset: 2,
+        });
+        app.active_pointer_buttons.insert(MouseButton::Left);
+
+        let update = provider_machine_ui_with_policy(
+            WorkspaceCreationMode::Host,
+            vec![WorkspaceCreationMode::Host],
+        );
+        app.apply_machine_ui_update(update);
+
+        assert!(app.drag.is_none(), "provider footer changes must release the old Files track");
         assert!(app.active_pointer_buttons.is_empty());
     }
 
