@@ -43,6 +43,7 @@ import {
 import {
   DEFAULT_VM_RESOURCE_RESERVATION,
   PLAN_SHARED_DISK_MB,
+  VM_DISK_MB_DEFAULT,
   VM_DISK_MB_MAX,
   VM_RESOURCE_RESERVATION_METADATA_KEY,
   VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY,
@@ -54,6 +55,7 @@ import {
   vmResourceReservationFromMetadata,
   vmResourceReconcileRetryFromMetadata,
   vmResourceResizePendingFromMetadata,
+  vmResourceResizeUnconfirmedFromMetadata,
   withVmResourceReservationMetadata,
   type VmResourceReservation,
 } from "./machineSpec";
@@ -1995,7 +1997,18 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           }
 
           const previous = vmResourceReservationFromMetadata(current.providerMetadata);
-          const previousDiskMb = Math.max(previous.diskMb, input.currentDiskMb ?? 0);
+          const unconfirmed = vmResourceResizeUnconfirmedFromMetadata(current.providerMetadata);
+          const isNoopResize = input.currentDiskMb !== undefined && input.storageMb === input.currentDiskMb;
+          // An unconfirmed resize deliberately holds the maximum disk claim.
+          // A later no-op retry must use the marker's prior/current size, not
+          // that temporary maximum, or it can clear the marker while keeping a
+          // permanent 256 GB reservation.
+          const previousDiskMb = unconfirmed
+            ? Math.max(
+              unconfirmed.previousDiskMb ?? VM_DISK_MB_DEFAULT,
+              input.currentDiskMb ?? 0,
+            )
+            : Math.max(previous.diskMb, input.currentDiskMb ?? 0);
           const requestedDiskMb = Math.max(previousDiskMb, input.storageMb);
           const requested = {
             ...previous,
@@ -2003,6 +2016,19 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
             // shrink. The workflow already validates grow-only semantics.
             diskMb: requestedDiskMb,
           };
+          const unconfirmedStillPending = isNoopResize &&
+            unconfirmed !== null &&
+            (input.currentDiskMb ?? 0) < unconfirmed.requestedDiskMb;
+          if (unconfirmedStillPending) {
+            // The observed provider size is still below the requested resize.
+            // Leave the conservative marker for the background recovery pass.
+            return {
+              previousDiskMb,
+              reservedDiskMb: previous.diskMb,
+              requestedDiskMb: unconfirmed.requestedDiskMb,
+              operationId: unconfirmed.operationId,
+            };
+          }
           const billingTeamId = current.billingTeamId ?? requestedTeamId;
           const capacity = sharedResourceCapacityForInput(
             input.maxActiveVms ?? null,
@@ -2035,7 +2061,6 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           // a concurrent create cannot consume the bytes needed by the final
           // provider-confirmed claim. A no-op only backfills the measured
           // provider size and does not need a pending headroom reservation.
-          const isNoopResize = input.currentDiskMb !== undefined && input.storageMb === input.currentDiskMb;
           const operationId = randomUUID();
           const createdAtMs = Date.now();
           const diskMb = isNoopResize
