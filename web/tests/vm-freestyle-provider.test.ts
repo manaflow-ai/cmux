@@ -431,8 +431,7 @@ describe("Freestyle client configuration", () => {
 });
 
 describe("Freestyle machine sizing", () => {
-  test("the plan machine is 5 vCPU / 20 GB / 32 GB, vCPUs following memory", () => {
-    expect(freestyleTargetResources(20480, {})).toEqual({ cpu: 5, memory: 20480, storage: 32768 });
+  test("the default plan machine is 2 vCPU / 8 GB / 32 GB, vCPUs following memory", () => {
     expect(freestyleTargetResources(8192, {})).toEqual({ cpu: 2, memory: 8192, storage: 32768 });
     expect(freestyleTargetResources(4096, { CMUX_VM_DISK_MB: "65536" })).toEqual({
       cpu: 1,

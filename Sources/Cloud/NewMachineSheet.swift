@@ -1,7 +1,7 @@
 import CmuxFoundation
 import SwiftUI
 
-/// The New Machine sheet: name, kind, size, and what the plan allows.
+/// The New Machine sheet: one base-image size and what the plan allows.
 /// Presented by ``NewMachineSheetPresenter`` as a window sheet on the main
 /// window. Create closes it at once; the machine coming up is shown by the
 /// Machines panel, not here, so the sheet never holds the window.
@@ -46,42 +46,27 @@ struct NewMachineSheet: View {
 
     private var fields: some View {
         Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
-            if model.supportsName {
+            if model.supportsSize {
                 GridRow {
-                    label(String(localized: "machines.new.name.label", defaultValue: "Name"))
-                    TextField(
-                        String(localized: "machines.new.name.placeholder", defaultValue: "Optional label"),
-                        text: $model.name
-                    )
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityIdentifier("NewMachineSheet.name")
-                }
-            }
-            GridRow {
-                label(String(localized: "machines.new.kind.label", defaultValue: "Kind"))
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker("", selection: $model.kind) {
-                        ForEach(model.selectableKinds, id: \.self) { kind in
-                            Text(kind.displayName).tag(kind)
+                    label(String(localized: "machines.new.size.label", defaultValue: "Size"))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("", selection: $model.memoryMb) {
+                            ForEach(model.memoryOptions, id: \.self) { memoryMb in
+                                if let size = MachineSizeOption(memoryMb: memoryMb) {
+                                    Text(size.title).tag(memoryMb)
+                                }
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .accessibilityIdentifier("NewMachineSheet.size")
+                        if let size = model.selectedSize {
+                            Text(size.detail)
+                                .cmuxFont(size: 11)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .accessibilityIdentifier("NewMachineSheet.kind")
-                    Text(model.kind.summary)
-                        .cmuxFont(size: 11)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
-            if let image = model.selectedImage {
-                GridRow {
-                    label(String(localized: "machines.new.image.label", defaultValue: "Image"))
-                    Text(image)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .accessibilityIdentifier("NewMachineSheet.image")
                 }
             }
         }

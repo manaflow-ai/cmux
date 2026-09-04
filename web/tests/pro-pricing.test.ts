@@ -12,7 +12,6 @@ import {
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   PLAN_MACHINE_MEMORY_MB,
   VM_DISK_MB_DEFAULT,
-  vcpusForMemoryMb,
 } from "../services/vms/entitlements";
 
 describe("pricing plans", () => {
@@ -95,13 +94,11 @@ describe("pricing copy matches the plan policy", () => {
   // numbers to the entitlement constants that enforce them. A price or spec
   // change that forgets the copy (or the copy that forgets the policy) fails
   // here instead of on the live page.
-  const vcpus = vcpusForMemoryMb(PLAN_MACHINE_MEMORY_MB);
   const memoryGb = PLAN_MACHINE_MEMORY_MB / 1024;
   const diskGb = VM_DISK_MB_DEFAULT / 1024;
 
-  test("the plan machine is 5 vCPU, 20 GB RAM, 32 GB disk, up to 50 machines", () => {
-    expect(vcpus).toBe(5);
-    expect(memoryGb).toBe(20);
+  test("the default machine is 8 GB RAM, 32 GB disk, up to 50 machines", () => {
+    expect(memoryGb).toBe(8);
     expect(diskGb).toBe(32);
     expect(PAID_MAX_ACTIVE_VMS_DEFAULT).toBe(50);
   });
@@ -114,7 +111,6 @@ describe("pricing copy matches the plan policy", () => {
       const pricing = messages.pricing;
       const proFeatures = pricing.pro.features.join("\n");
       expect(proFeatures).toContain(`${PAID_MAX_ACTIVE_VMS_DEFAULT} `);
-      expect(proFeatures).toContain(`${vcpus} vCPU`);
       expect(proFeatures).toContain(`${memoryGb} GB`);
       expect(proFeatures).toContain(`${diskGb} GB`);
 
@@ -122,7 +118,9 @@ describe("pricing copy matches the plan policy", () => {
         row.label.includes("Cloud VM") && row.pro === String(PAID_MAX_ACTIVE_VMS_DEFAULT),
       );
       expect(vmRow).toBeDefined();
-      const sizeRow = pricing.compare.rows.find((row) => row.pro.includes(`${vcpus} vCPU`));
+      const sizeRow = pricing.compare.rows.find((row) =>
+        row.label.includes("Cloud VM") && typeof row.pro === "string" && row.pro.includes(`${memoryGb} GB`),
+      );
       expect(sizeRow?.pro).toContain(`${memoryGb} GB`);
       expect(sizeRow?.pro).toContain(`${diskGb} GB`);
 
