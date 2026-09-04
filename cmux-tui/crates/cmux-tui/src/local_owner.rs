@@ -22,13 +22,13 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use cmux_tui_core::platform::{self, transport};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 /// Total time an ensure may spend probing, spawning, and waiting for the
 /// owner to accept clients. Matches the lifecycle CLI exchange deadline.
-pub(crate) const ENSURE_DEADLINE: Duration = Duration::from_secs(10);
+pub(crate) const ENSURE_DEADLINE: Duration = cmux_tui_core::budgets::OWNER_ENSURE;
 
-const POLL_INTERVAL: Duration = Duration::from_millis(25);
+const POLL_INTERVAL: Duration = cmux_tui_core::budgets::OWNER_POLL;
 
 /// The reaper's only job is clearing a zombie when the owner exits early
 /// (a lost bind race or a crash), and `terminate` reaps synchronously
@@ -60,6 +60,7 @@ pub(crate) enum Ensured {
     Started(ReadyOwner),
 }
 
+#[derive(Debug)]
 pub(crate) enum EnsureError {
     /// The owner process could not be spawned (or the spawn lock failed).
     Spawn(io::Error),
@@ -82,6 +83,102 @@ enum Attempt {
     /// A cmux-tui server answered but is not lifecycle-ready yet.
     Starting,
     Ready(ReadyOwner),
+}
+
+/// A throwaway bench-owned session: a spawned owner and the temporary state
+/// root to clean up when the bench stops.
+pub(crate) struct EnsuredOwnerHandle {
+    pid: u64,
+    generation: String,
+    state_root: Option<PathBuf>,
+}
+
+impl EnsuredOwnerHandle {
+    /// Process id of the owner; terminal hosts it spawned are its children
+    /// while it runs, which is how the bench audits for leaked hosts.
+    pub(crate) fn pid(&self) -> u64 {
+        self.pid
+    }
+
+    /// Ask the owner to shut down (best effort) and remove the temp state root.
+    pub(crate) fn stop(self, socket: &Path) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        if let Ok(stream) = transport::connect(socket) {
+            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+            let mut connection = BufReader::new(stream);
+            let request = json!({
+                "id": 1,
+                "cmd": "shutdown-daemon",
+                "pid": self.pid,
+                "generation": self.generation,
+            });
+            if writeln!(connection.get_mut(), "{request}")
+                .and_then(|()| connection.get_mut().flush())
+                .is_ok()
+            {
+                // Drain until the socket closes or the deadline passes.
+                loop {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                    let mut bytes = Vec::new();
+                    match connection.by_ref().take(4096).read_until(b'\n', &mut bytes) {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {}
+                    }
+                }
+            }
+        }
+        if let Some(root) = self.state_root {
+            let _ = std::fs::remove_dir_all(root);
+            // `SocketStartLock` deliberately leaves `<socket>.spawn-lock` in
+            // place for durable sessions, because unlinking it reopens the
+            // stale-socket start race for that session name. A bench session
+            // name is random and never started again, so removing its lock
+            // after the owner we spawned has been asked to exit leaves nothing
+            // behind under the runtime directory.
+            let mut name = socket.file_name().unwrap_or_default().to_os_string();
+            name.push(".spawn-lock");
+            let _ = std::fs::remove_file(socket.with_file_name(name));
+        }
+    }
+}
+
+/// Spawn (or adopt) a headless owner for a bench session and return a handle
+/// that can stop it. Uses a private temporary state root so a throwaway
+/// session never touches the default durable state.
+pub(crate) fn ensure_owner_for_bench(
+    session: &str,
+    socket: &Path,
+) -> Result<EnsuredOwnerHandle, String> {
+    let state_root = std::env::temp_dir().join(format!("cmux-bench-{session}"));
+    std::fs::create_dir_all(&state_root).map_err(|error| format!("state dir: {error}"))?;
+    let spec = OwnerSpec {
+        session: session.to_string(),
+        socket: socket.to_path_buf(),
+        socket_is_derived: true,
+        state: Some(state_root.clone()),
+        term: None,
+    };
+    let deadline = Instant::now() + ENSURE_DEADLINE;
+    match ensure_owner(&spec, Some(session), deadline) {
+        Ok(Ensured::Running(ready)) => Ok(EnsuredOwnerHandle {
+            pid: ready.pid,
+            generation: ready.generation,
+            // The owner predates this bench; do not remove its state root.
+            state_root: None,
+        }),
+        Ok(Ensured::Started(ready)) => Ok(EnsuredOwnerHandle {
+            pid: ready.pid,
+            generation: ready.generation,
+            state_root: Some(state_root),
+        }),
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&state_root);
+            Err(format!("ensure bench owner: {error:?}"))
+        }
+    }
 }
 
 /// Connect to a ready owner for `spec.session` on `spec.socket`, spawning a
