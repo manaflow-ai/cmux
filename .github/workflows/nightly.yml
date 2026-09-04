@@ -239,7 +239,7 @@ jobs:
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Zig 0.15.2 cannot link the real helper on macOS 26. Match the stable
     # release workflow by building and verifying it on macOS 15 instead.
-    runs-on: ${{ vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
+    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-15' || vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15' }}
     timeout-minutes: 20
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
@@ -293,9 +293,10 @@ jobs:
   build-nightly-app:
     needs: decide
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
-    # Match the cache warmer and stable release app build exactly. Keeping the
-    # runner and pinned Xcode identical makes their compilation caches reusable.
-    runs-on: ${{ vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
+    # Full runs match the cache warmer and stable release lane. Fast branch
+    # dogfood uses the larger Blacksmith runner so it does not inherit a slower
+    # repository-wide runner override.
+    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-12vcpu-macos-26' || vars.MACOS_RUNNER_26_NIGHTLY_BUILD || 'blacksmith-12vcpu-macos-26' }}
     timeout-minutes: 45
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
@@ -508,7 +509,7 @@ jobs:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app]
     if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *')
     # Sign and notarize on the same macOS 26 lane proven by stable releases.
-    runs-on: ${{ vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ needs.decide.outputs.fast_build == 'true' && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     # Start the standalone helper submission early so
     # Apple's first wait overlaps useful work; finish it before the final DMG.
     # Delta generation against two previous builds adds about 15 minutes.
