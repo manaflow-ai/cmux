@@ -103,21 +103,23 @@ extension AppDelegate {
         } else {
             target = (tabId, surfaceId)
         }
-        let payload: [String: Any] = [
-            "id": UUID().uuidString,
-            "method": "surface.send_text",
-            "params": [
-                "workspace_id": target.tabId.uuidString,
-                "surface_id": surfaceId.uuidString,
-                "text": text + "\r",
-            ],
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload),
-              let line = String(data: data, encoding: .utf8),
-              let responseData = TerminalController.shared.handleSocketLine(line).data(using: .utf8),
-              let response = try? JSONSerialization.jsonObject(with: responseData) as? [String: Any]
-        else { return false }
-        return response["ok"] as? Bool == true
+        // Use the dedicated paste path so the reply text and its submit key
+        // remain separate. `surface.send_text` plus a trailing carriage return
+        // writes a raw byte, which full-screen agent editors render as a
+        // newline instead of treating it as Return.
+        switch TerminalController.shared.v2MobileTerminalPaste(params: [
+            "workspace_id": target.tabId.uuidString,
+            "surface_id": surfaceId.uuidString,
+            "text": text,
+            "submit_key": "return",
+        ]) {
+        case .ok(let result):
+            // `submitted` was added with terminal.paste. Treat a missing field
+            // as success for an older host that only acknowledged the paste.
+            return (result as? [String: Any])?["submitted"] as? Bool ?? true
+        case .err:
+            return false
+        }
     }
 
     private static func workstreamDecision(from decision: NotificationFeedDecision) -> WorkstreamDecision {

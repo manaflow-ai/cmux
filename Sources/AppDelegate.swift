@@ -2441,12 +2441,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         PresenceHeartbeatClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxClient.shared.configure(auth: auth.coordinator)
         PhoneReplyInboxCoordinator.shared.configure(client: PhoneReplyInboxClient.shared)
-        // Relayed phone replies type through the SAME entrypoint as the phone's
-        // direct RPC sends, so both lanes share claim resolution and injection.
+        // Relayed phone replies type through the SAME paste-and-submit
+        // entrypoint as the phone's direct RPC sends, so both lanes share claim
+        // resolution and key-event submission semantics.
         PhoneReplyInboxCoordinator.shared.injectTerminalInput = { params in
-            switch TerminalController.shared.v2MobileTerminalInput(params: params) {
-            case .ok:
-                return .delivered
+            switch TerminalController.shared.v2MobileTerminalPaste(params: params) {
+            case .ok(let result):
+                // The host's paste result includes whether the named submit
+                // key was accepted. Older hosts may omit it while still
+                // acknowledging the paste, which is the success contract they
+                // exposed before this field existed.
+                let submitted = (result as? [String: Any])?["submitted"] as? Bool ?? true
+                return submitted ? .delivered : .retryable
             case .err(let code, _, _):
                 // `not_found` is transient here, not proof the target is gone:
                 // the sweep can run while session restore is still loading the

@@ -1317,8 +1317,8 @@ public final class MobilePushCoordinator {
         }
 
         replySendInFlight = true
-        let sent = await store.sendTerminalInput(
-            ready.text + "\r",
+        let sent = await store.sendTerminalPaste(
+            ready.text,
             workspaceID: workspaceTarget,
             terminalID: MobileTerminalPreview.ID(rawValue: surfaceId)
         )

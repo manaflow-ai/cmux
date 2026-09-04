@@ -9003,6 +9003,35 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         )
     }
 
+    /// Sends one notification reply to an explicitly captured terminal as a
+    /// bracketed paste followed by a single Return key event. Inline replies
+    /// must use this path instead of ``sendTerminalInput(_:workspaceID:terminalID:)``:
+    /// appending ``\r`` to terminal input is interpreted as a raw byte by the
+    /// socket grammar, which inserts a newline in full-screen agent editors
+    /// instead of submitting the prompt.
+    ///
+    /// This does not change selection or composer state. The target workspace
+    /// and terminal are validated before the request is sent, and the existing
+    /// paste helper supplies the same viewport and hibernation handling as the
+    /// on-device composer.
+    @discardableResult
+    public func sendTerminalPaste(
+        _ text: String,
+        workspaceID: MobileWorkspacePreview.ID,
+        terminalID: MobileTerminalPreview.ID
+    ) async -> Bool {
+        guard !text.isEmpty,
+              workspace(workspaceID, containsSurfaceID: terminalID.rawValue) else {
+            return false
+        }
+        return await sendRemoteTerminalPaste(
+            text,
+            submitKey: "return",
+            workspaceID: workspaceID,
+            terminalID: terminalID
+        )
+    }
+
     /// Submit the composer's text to an explicitly captured terminal. Used by
     /// ``submitComposer()`` so a terminal switch mid-send cannot reroute the text
     /// to whatever is selected when the (awaited) image sends return: the target
