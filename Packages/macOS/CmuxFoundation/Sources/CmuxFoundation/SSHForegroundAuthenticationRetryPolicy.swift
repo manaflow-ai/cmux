@@ -2132,6 +2132,32 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
             fi
             exit 0
           fi
+          # A large authenticated tree is already fully stopped and
+          # identity-fenced at this point. Avoid the additional TERM/event
+          # discovery passes for it: each pass launches several process-table
+          # helpers, which can exhaust a host's process ceiling and deliver a
+          # group hangup to the cleanup shell. The stopped ownership journal
+          # is sufficient for a bounded individual KILL sweep.
+          if [ "$cmux_ssh_auth_initial_count" -gt 32 ]; then
+            cmux_ssh_auth_debug "large tree; direct stopped-owner force pass"
+            cmux_ssh_auth_force_stopped_owned() {
+              [ -s "$cmux_ssh_auth_owned" ] || return 1
+              while IFS=' ' read -r cmux_ssh_auth_force_depth cmux_ssh_auth_force_pid \
+                cmux_ssh_auth_force_parent cmux_ssh_auth_force_group \
+                cmux_ssh_auth_force_state cmux_ssh_auth_force_started; do
+                case "$cmux_ssh_auth_force_pid" in
+                  [1-9][0-9]*) kill -KILL "$cmux_ssh_auth_force_pid" >/dev/null 2>&1 || true ;;
+                esac
+              done < "$cmux_ssh_auth_owned"
+              return 0
+            }
+            if cmux_ssh_auth_force_stopped_owned; then
+              cmux_ssh_auth_cleanup_complete=1
+            else
+              cmux_ssh_auth_cleanup_needs_root_abort=1
+            fi
+            exit 0
+          fi
           # Once the shared deadline has elapsed, do not start another
           # process-table scan for the graceful TERM phase. On a saturated
           # runner that scan can receive a group HUP/TERM and abort before the
