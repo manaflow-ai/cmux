@@ -29,7 +29,6 @@ struct MarkdownPanelView: View {
     @State private var focusFlashAnimationGeneration: Int = 0
     @State private var copyConfirmation: CopyConfirmation? = nil
     @State private var copyConfirmationGeneration: Int = 0
-    @AppStorage(FilePreviewWordWrapSettings.key) private var fileEditorWordWrap = FilePreviewWordWrapSettings.defaultEnabled
 
     private enum CopyConfirmation: Equatable {
         case markdown
@@ -101,8 +100,7 @@ struct MarkdownPanelView: View {
                     isVisibleInUI: isVisibleInUI,
                     themeBackgroundColor: appearance.contentBackgroundColor,
                     themeForegroundColor: themeForegroundColor,
-                    drawsBackground: appearance.drawsContentBackground,
-                    wordWrap: fileEditorWordWrap
+                    drawsBackground: appearance.drawsContentBackground
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

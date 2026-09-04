@@ -1,5 +1,8 @@
 import AppKit
 import Carbon.HIToolbox
+import Combine
+import CmuxFoundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -31,6 +34,265 @@ import Testing
 @MainActor
 @Suite("File preview editor TextKit backing", .serialized)
 struct FilePreviewTextEditorTextKitTests {
+    @Test("file editor typography settings clamp and resolve defaults")
+    func editorTypographySettingsResolveDefaults() throws {
+        #expect(FilePreviewFontSizeSettings.clamp(4) == FilePreviewFontSizeSettings.minimumPointSize)
+        #expect(FilePreviewFontSizeSettings.clamp(100) == FilePreviewFontSizeSettings.maximumPointSize)
+        #expect(FilePreviewLineHeightSettings.clamp(0.1) == FilePreviewLineHeightSettings.minimumMultiplier)
+        #expect(FilePreviewLineHeightSettings.clamp(10) == FilePreviewLineHeightSettings.maximumMultiplier)
+
+        let suiteName = "cmux.fileEditorTypographyTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let fontSizeSettings = FilePreviewFontSizeSettings(defaults: defaults)
+        let fontFamilySettings = FilePreviewFontFamilySettings(defaults: defaults)
+        let lineHeightSettings = FilePreviewLineHeightSettings(defaults: defaults)
+        #expect(fontSizeSettings.resolvedDefault == 13)
+        #expect(fontFamilySettings.resolvedDefault.isEmpty)
+        #expect(lineHeightSettings.resolvedDefault == 1)
+
+        defaults.set(19.6, forKey: FilePreviewFontSizeSettings.key)
+        defaults.set("  Helvetica  ", forKey: FilePreviewFontFamilySettings.key)
+        defaults.set(1.86, forKey: FilePreviewLineHeightSettings.key)
+        #expect(fontSizeSettings.resolvedDefault == 20)
+        #expect(fontFamilySettings.resolvedDefault == "Helvetica")
+        #expect(lineHeightSettings.resolvedDefault == 1.9)
+
+        fontSizeSettings.setDefault(21.4)
+        fontFamilySettings.setDefault("  Avenir Next  ")
+        lineHeightSettings.setDefault(1.86)
+        #expect(fontSizeSettings.resolvedDefault == 21)
+        #expect(fontFamilySettings.resolvedDefault == "Avenir Next")
+        #expect(lineHeightSettings.resolvedDefault == 1.9)
+
+        defaults.set(true, forKey: FilePreviewFontSizeSettings.key)
+        defaults.set(true, forKey: FilePreviewLineHeightSettings.key)
+        #expect(fontSizeSettings.resolvedDefault == 13)
+        #expect(lineHeightSettings.resolvedDefault == 1)
+    }
+
+    @Test("settings file imports file editor typography defaults")
+    func settingsFileImportsFileEditorTypographyDefaults() throws {
+        let defaults = UserDefaults.standard
+        try withPreservedUserDefaults(keys: [
+            FilePreviewFontSizeSettings.key,
+            FilePreviewFontFamilySettings.key,
+            FilePreviewLineHeightSettings.key,
+            "cmux.settingsFile.backups.v1",
+            "cmux.settingsFile.importedManagedDefaults.v1",
+        ]) {
+            defaults.removeObject(forKey: FilePreviewFontSizeSettings.key)
+            defaults.removeObject(forKey: FilePreviewFontFamilySettings.key)
+            defaults.removeObject(forKey: FilePreviewLineHeightSettings.key)
+            defaults.removeObject(forKey: "cmux.settingsFile.backups.v1")
+            defaults.removeObject(forKey: "cmux.settingsFile.importedManagedDefaults.v1")
+
+            let settingsFileURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-file-editor-typography-\(UUID().uuidString).json")
+            defer { try? FileManager.default.removeItem(at: settingsFileURL) }
+            try """
+            {
+              "fileEditor": {
+                "fontSize": 19,
+                "fontFamily": "  Helvetica  ",
+                "lineHeight": 1.86
+              }
+            }
+            """.write(to: settingsFileURL, atomically: true, encoding: .utf8)
+
+            let store = KeyboardShortcutSettingsFileStore(
+                primaryPath: settingsFileURL.path,
+                fallbackPath: nil,
+                additionalFallbackPaths: [],
+                startWatching: false
+            )
+            withExtendedLifetime(store) {
+                #expect(defaults.integer(forKey: FilePreviewFontSizeSettings.key) == 19)
+                #expect(defaults.string(forKey: FilePreviewFontFamilySettings.key) == "Helvetica")
+                #expect(abs(defaults.double(forKey: FilePreviewLineHeightSettings.key) - 1.9) < 0.01)
+            }
+        }
+    }
+
+    @Test("file editor applies configured family, size, and line height")
+    func editorAppliesConfiguredTypography() throws {
+        try withDefaultShortcutSettings {
+            let fallbackTextView = SavingTextView.makeFilePreviewTextView(
+                fontFamily: "",
+                fontSize: 17,
+                lineHeight: 1
+            )
+            let fallbackFont = try #require(fallbackTextView.font)
+            let expectedFallbackFont = GlobalFontMagnification.monospacedSystemFont(ofSize: 17, weight: .regular)
+            #expect(fallbackFont.fontName == expectedFallbackFont.fontName)
+
+            let textView = SavingTextView.makeFilePreviewTextView(
+                fontFamily: "Helvetica",
+                fontSize: 17,
+                lineHeight: 1.5
+            )
+            textView.string = "first line\nsecond line"
+            textView.applyCurrentPreviewLineHeight()
+
+            let font = try #require(textView.font)
+            #expect(font.familyName?.localizedCaseInsensitiveCompare("Helvetica") == .orderedSame)
+            #expect(abs(font.pointSize - GlobalFontMagnification.scaledSize(17)) < 0.01)
+
+            let paragraphStyle = try #require(
+                textView.textStorage?.attribute(
+                    .paragraphStyle,
+                    at: 0,
+                    effectiveRange: nil
+                ) as? NSParagraphStyle
+            )
+            #expect(abs(paragraphStyle.lineHeightMultiple - 1.5) < 0.01)
+
+            #expect(textView.zoomPreviewFontIn())
+            #expect(textView.resetPreviewFontSize())
+            #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+
+            let reset = try #require(Self.keyEvent(characters: "0", keyCode: UInt16(kVK_ANSI_0)))
+            #expect(textView.performKeyEquivalent(with: reset))
+            #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+            #expect(
+                (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)
+                    .map { abs($0.lineHeightMultiple - 1.5) < 0.01 } == true
+            )
+        }
+    }
+
+    @Test("resetting line height preserves unrelated paragraph attributes")
+    func editorPreservesParagraphAttributesWhenResettingLineHeight() throws {
+        let textView = SavingTextView.makeFilePreviewTextView(
+            fontFamily: "Helvetica",
+            fontSize: 17,
+            lineHeight: 1.5
+        )
+        textView.string = "first line\nsecond line"
+
+        let configuredStyle = NSMutableParagraphStyle()
+        configuredStyle.alignment = .right
+        configuredStyle.paragraphSpacing = 7
+        configuredStyle.lineSpacing = 2
+        configuredStyle.firstLineHeadIndent = 4
+        configuredStyle.tabStops = [NSTextTab(textAlignment: .left, location: 40)]
+        textView.textStorage?.addAttribute(
+            .paragraphStyle,
+            value: configuredStyle,
+            range: NSRange(location: 0, length: textView.textStorage?.length ?? 0)
+        )
+        textView.applyCurrentPreviewLineHeight()
+
+        textView.configurePreviewTypography(
+            fontFamily: "Helvetica",
+            defaultFontSize: 17,
+            lineHeight: 1
+        )
+        textView.applyCurrentPreviewLineHeight()
+        let naturalStyle = try #require(
+            textView.textStorage?.attribute(
+                .paragraphStyle,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSParagraphStyle
+        )
+        #expect(naturalStyle.alignment == .right)
+        #expect(abs(naturalStyle.paragraphSpacing - 7) < 0.01)
+        #expect(abs(naturalStyle.lineSpacing - 2) < 0.01)
+        #expect(abs(naturalStyle.firstLineHeadIndent - 4) < 0.01)
+        #expect(naturalStyle.tabStops.count == 1)
+        #expect(abs(naturalStyle.lineHeightMultiple) < 0.01)
+    }
+
+    @Test("typography synchronization does not publish stale editor text")
+    func editorTypographySynchronizationSuppressesTextChanges() throws {
+        let defaults = UserDefaults.standard
+        try withPreservedUserDefaults(keys: [
+            FilePreviewFontSizeSettings.key,
+            FilePreviewFontFamilySettings.key,
+            FilePreviewLineHeightSettings.key,
+        ]) {
+            defaults.set(17, forKey: FilePreviewFontSizeSettings.key)
+            defaults.set("Helvetica", forKey: FilePreviewFontFamilySettings.key)
+            defaults.set(1.5, forKey: FilePreviewLineHeightSettings.key)
+
+            let panel = ObservableTextEditingPanelSpy(textContent: "fresh")
+            let editor = FilePreviewTextEditor<ObservableTextEditingPanelSpy>(
+                panel: panel,
+                isVisibleInUI: true,
+                themeBackgroundColor: .white,
+                themeForegroundColor: .black,
+                drawsBackground: true
+            )
+            let hostingView = NSHostingView(rootView: editor)
+            hostingView.frame = NSRect(x: 0, y: 0, width: 320, height: 240)
+            let window = NSWindow(
+                contentRect: NSRect(x: -4000, y: -4000, width: 320, height: 240),
+                styleMask: [.borderless],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.contentView = hostingView
+            defer {
+                window.contentView = nil
+                window.close()
+            }
+
+            hostingView.layoutSubtreeIfNeeded()
+            let scrollView = try #require(Self.firstDescendant(ofType: NSScrollView.self, in: hostingView))
+            let textView = try #require(scrollView.documentView as? SavingTextView)
+            let delegate = textView.delegate
+            textView.delegate = nil
+            textView.string = "stale"
+            textView.delegate = delegate
+
+            // Re-render the actual representable. Its updateNSView path must
+            // replace stale editor text while the delegate guard suppresses the
+            // notification emitted by that replacement.
+            hostingView.rootView = editor
+            hostingView.layoutSubtreeIfNeeded()
+
+            #expect(textView.string == "fresh")
+            #expect(panel.textContent == "fresh")
+            #expect(panel.updateCount == 0)
+            #expect(textView.font?.familyName?.localizedCaseInsensitiveCompare("Helvetica") == .orderedSame)
+            #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(17)) < 0.01)
+            #expect(
+                (textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle)
+                    .map { abs($0.lineHeightMultiple - 1.5) < 0.01 } == true
+            )
+        }
+    }
+
+    @Test("zoomed editor keeps its override across matching and later default changes")
+    func editorPreservesExplicitZoomAcrossDefaultChanges() throws {
+        let textView = SavingTextView.makeFilePreviewTextView(
+            fontFamily: "Helvetica",
+            fontSize: 13,
+            lineHeight: 1
+        )
+        #expect(textView.zoomPreviewFontIn())
+        let zoomedSize = textView.previewFontSize
+
+        textView.configurePreviewTypography(
+            fontFamily: "Helvetica",
+            defaultFontSize: zoomedSize,
+            lineHeight: 1
+        )
+        textView.configurePreviewTypography(
+            fontFamily: "Helvetica",
+            defaultFontSize: zoomedSize + 1,
+            lineHeight: 1
+        )
+
+        #expect(abs(textView.previewFontSize - zoomedSize) < 0.0001)
+        #expect(abs((textView.font?.pointSize ?? 0) - GlobalFontMagnification.scaledSize(zoomedSize)) < 0.01)
+        #expect(textView.resetPreviewFontSize())
+        #expect(abs(textView.previewFontSize - (zoomedSize + 1)) < 0.0001)
+    }
+
     @Test("makeFilePreviewTextView is a pure TextKit 1 view (no TextKit 2 selection path)")
     func editorIsPureTextKit1() {
         let textView = SavingTextView.makeFilePreviewTextView()
@@ -341,6 +603,35 @@ struct FilePreviewTextEditorTextKitTests {
         try body()
     }
 
+    private func withPreservedUserDefaults(keys: [String], _ body: () throws -> Void) rethrows {
+        let defaults = UserDefaults.standard
+        let domainName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        let persisted = defaults.persistentDomain(forName: domainName) ?? [:]
+        let previousValues = keys.map { (key: $0, value: persisted[$0]) }
+        defer {
+            for previous in previousValues {
+                if let value = previous.value {
+                    defaults.set(value, forKey: previous.key)
+                } else {
+                    defaults.removeObject(forKey: previous.key)
+                }
+            }
+        }
+        try body()
+    }
+
+    private static func firstDescendant<ViewType: NSView>(ofType type: ViewType.Type, in root: NSView) -> ViewType? {
+        for subview in root.subviews {
+            if let match = subview as? ViewType {
+                return match
+            }
+            if let match = firstDescendant(ofType: type, in: subview) {
+                return match
+            }
+        }
+        return nil
+    }
+
     private static func controlKChord(secondKey: String, secondKeyCode: UInt16) -> StoredShortcut {
         StoredShortcut(
             first: ShortcutStroke(
@@ -395,6 +686,30 @@ struct FilePreviewTextEditorTextKitTests {
         func saveTextContent() -> Task<Void, Never>? {
             saveCount += 1
             return nil
+        }
+    }
+
+    @MainActor
+    private final class ObservableTextEditingPanelSpy: ObservableObject, FilePreviewTextEditingPanel {
+        var textContent: String
+        var updateCount = 0
+
+        init(textContent: String) {
+            self.textContent = textContent
+        }
+
+        deinit {}
+
+        func attachTextView(_: NSTextView) {}
+        func retryPendingFocus() {}
+
+        func updateTextContent(_ nextContent: String) {
+            updateCount += 1
+            textContent = nextContent
+        }
+
+        func saveTextContent() -> Task<Void, Never>? {
+            nil
         }
     }
 }
