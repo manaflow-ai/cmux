@@ -241,6 +241,30 @@ public actor CmxIrohRelayPolicyService {
         }
     }
 
+    /// Builds a fail-closed policy for an expired managed endpoint authority.
+    ///
+    /// Expiry is based on the profile that the endpoint actually accepted, not
+    /// the service's latest resolved preference. This lets an older managed
+    /// profile be revoked even when a concurrent settings mutation has already
+    /// resolved a custom profile. The operation is deliberately read-only and
+    /// does not wait on broker, persistence, or keychain work.
+    ///
+    /// - Parameter appliedPolicy: The policy snapshot most recently accepted
+    ///   by the live endpoint.
+    /// - Returns: A managed-unavailable effective policy with no relay URLs,
+    ///   or `nil` when the applied endpoint profile is not managed.
+    public nonisolated func expireManagedPolicy(
+        appliedPolicy: CmxIrohEffectiveRelayPolicy
+    ) -> CmxIrohEffectiveRelayPolicy? {
+        guard appliedPolicy.source == .managed else { return nil }
+        return Resolver.unavailableResolution(
+            configuration: appliedPolicy.requestedConfiguration,
+            revision: appliedPolicy.preferenceRevision,
+            source: .managedUnavailable,
+            failure: .policyExpired
+        ).effective
+    }
+
     /// Updates only the active preference while retaining dormant account fields.
     @discardableResult
     public func setPreference(

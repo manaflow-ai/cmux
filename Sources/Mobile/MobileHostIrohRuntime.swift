@@ -73,6 +73,7 @@ final class MobileHostIrohRuntime {
         case unavailable
         case incompleteCustomRelay
         case missingCustomRelay
+        case superseded
     }
     static let shared = MobileHostIrohRuntime()
 
@@ -108,11 +109,37 @@ final class MobileHostIrohRuntime {
     var transitionTask: Task<Void, Never>?
     var runtime: CmxIrohHostRuntime?
     var relayPolicyService: CmxIrohRelayPolicyService?
+    /// The policy most recently accepted by the live endpoint. The policy
+    /// service may resolve a newer value before the endpoint installs it, so
+    /// lifecycle expiry decisions must retain this applied snapshot separately
+    /// from `relayPolicyEffective` (the service's latest resolved value).
+    var relayPolicyAppliedEffective: CmxIrohEffectiveRelayPolicy?
+    /// Failure attached to the endpoint-applied snapshot when it intentionally
+    /// diverges from the service's latest resolved policy (currently local
+    /// managed-authority expiry).
+    var relayPolicyAppliedFailure: CmxIrohRelayPolicyFailure?
     var relayPolicyEffective: CmxIrohEffectiveRelayPolicy?
     var relayPolicyDiagnostics: CmxIrohRelayDiagnosticsSnapshot?
     var relayPolicyEndpointID: CmxIrohPeerIdentity?
     var relayPolicyObservationTask: Task<Void, Never>?
     var relayPolicyRefreshTask: Task<Void, Never>?
+    var relayPolicyRefreshTaskID: UUID?
+    var relayPolicyRefreshService: CmxIrohRelayPolicyService?
+    var relayPolicyRefreshAccountID: String?
+    var relayPolicyRefreshEndpointID: CmxIrohPeerIdentity?
+    var relayPolicyRefreshTrustRoot: CmxIrohRelayPolicyTrustRoot?
+    var relayPolicyRefreshRevision: UInt64?
+    /// Serial owner for endpoint policy replacement. Every caller submits one
+    /// request to this tail; a newer request advances the generation so an
+    /// older request cannot start a second replacement after it resumes.
+    var relayPolicyApplicationTail: Task<Bool, Error>?
+    var relayPolicyApplicationTaskID: UUID?
+    var relayPolicyApplicationGeneration: UInt64 = 0
+    /// Last platform path state. `nil` means the path observer has not emitted
+    /// its first sample yet; activation and relay-policy probes remain parked
+    /// until an authoritative usable-path sample.
+    var relayPolicyNetworkReachable: Bool?
+    var relayPolicyRefreshClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
     var selectedPathObservationTask: Task<Void, Never>?
     var irohSettingsContinuations: [UUID: AsyncStream<CmxIrohSettingsSnapshot>.Continuation] = [:]
     var desiredActive = false
@@ -139,6 +166,10 @@ final class MobileHostIrohRuntime {
     var retryInspectionRevision: UInt64 = 0
     var failureRecoveryFailureCount = 0
     var failureRecoveryClock: any CmxIrohRelayClock = CmxIrohSystemRelayClock()
+    /// Terminal endpoint recovery remains on the short host-runtime ladder.
+    /// Relay-policy refreshes select their longer broker-specific schedule in
+    /// `scheduleRelayPolicyRefresh`; keeping this profile separate prevents a
+    /// broker outage from stranding endpoint activation for hours.
     var failureRecoverySchedule = CmxIrohRetrySchedule()
     var failureRecoveryJitter: @Sendable () -> Double = {
         Double.random(in: 0 ... 1)
@@ -149,7 +180,13 @@ final class MobileHostIrohRuntime {
     /// Single-flight owner for revision reconciliation: one task in flight,
     /// later signals coalesce at the greatest observed revision.
     var serverSignalRefreshTask: Task<Void, Never>?
+    var serverSignalRefreshTaskID: UUID?
+    var serverSignalRefreshRevision: UInt64?
     var serverSignalPendingRevision: UInt64?
+    /// Account scope of the in-flight or queued server revision. Keeping it
+    /// with the revision prevents an offline wake from crossing an account
+    /// transition.
+    var serverSignalAccountID: String?
 
     private init() {
         let installState = CmxIrohUserDefaultsInstallStateStore()
@@ -243,9 +280,52 @@ final class MobileHostIrohRuntime {
         eraseAccountState: Bool,
         restartActiveRuntime: Bool = false
     ) -> Task<Void, Never> {
+        let targetAccountID = signOutIntentActive
+            ? nil
+            : (desiredActive ? observedAccountID : nil)
+        let replacesRuntime = eraseAccountState
+            || restartActiveRuntime
+            || activeAccountID != targetAccountID
+            || targetAccountID == nil
+        let serverSignalScope = serverSignalAccountID ?? activeAccountID
+        let preservesServerSignal = !replacesRuntime
+            && desiredActive
+            && !signOutIntentActive
+            && serverSignalScope == targetAccountID
         lifecycleRevision &+= 1
+        invalidateRelayPolicyApplications()
+        if replacesRuntime {
+            cancelRelayPolicyRefresh()
+        } else {
+            // A same-account reconcile advances lifecycleRevision even though
+            // the endpoint stays active. Restart the task with that new
+            // revision so its captured owner token does not self-retire.
+            relayPolicyRefreshTask?.cancel()
+            relayPolicyRefreshTask = nil
+            relayPolicyRefreshTaskID = nil
+            if relayPolicyRefreshRevision != nil {
+                relayPolicyRefreshRevision = lifecycleRevision
+            }
+        }
         cancelRetryInspection()
         bindingPersistenceQueue.cancel()
+        serverSignalRefreshTask?.cancel()
+        let inFlightServerSignalRevision = serverSignalRefreshRevision
+        serverSignalRefreshTask = nil
+        serverSignalRefreshTaskID = nil
+        serverSignalRefreshRevision = nil
+        if preservesServerSignal {
+            serverSignalAccountID = targetAccountID
+            if let refreshRevision = inFlightServerSignalRevision {
+                serverSignalPendingRevision = max(
+                    serverSignalPendingRevision ?? refreshRevision,
+                    refreshRevision
+                )
+            }
+        } else {
+            serverSignalPendingRevision = nil
+            serverSignalAccountID = nil
+        }
         let revision = lifecycleRevision
         let previous = transitionTask
         previous?.cancel()
@@ -262,10 +342,29 @@ final class MobileHostIrohRuntime {
             )
             if revision == self.lifecycleRevision {
                 self.transitionTask = nil
+                if !replacesRuntime {
+                    self.rearmRelayPolicyRefreshIfNeeded()
+                }
+                self.replayPendingServerSignalIfReachable()
             }
         }
         transitionTask = task
         return task
+    }
+
+    /// Replays a connectivity revision retained across a same-account
+    /// lifecycle reconcile once the path and runtime are both usable.
+    private func replayPendingServerSignalIfReachable() {
+        guard relayPolicyNetworkReachable == true,
+              desiredActive,
+              !signOutIntentActive,
+              let activeAccountID,
+              serverSignalAccountID == activeAccountID,
+              let pendingRevision = serverSignalPendingRevision,
+              runtime != nil else { return }
+        serverSignalPendingRevision = nil
+        serverSignalAccountID = nil
+        reconcileConnectivityFromServerSignal(revision: pendingRevision)
     }
 
     func reconcile(
@@ -306,6 +405,7 @@ final class MobileHostIrohRuntime {
               !Task.isCancelled,
               !signOutIntentActive,
               desiredActive,
+              Self.shouldStartIrohActivation(networkReachable: relayPolicyNetworkReachable),
               let targetAccountID,
               runtime == nil else { return }
 
@@ -329,8 +429,25 @@ final class MobileHostIrohRuntime {
             mobileHostIrohLog.error(
                 "Iroh host activation failed kind=\(failureKind.rawValue, privacy: .public) type=\(failureType, privacy: .public) detail=\(String(describing: error), privacy: .private)"
             )
+            guard !Self.shouldPauseRelayPolicyRetry(
+                failure: failureKind,
+                networkReachable: relayPolicyNetworkReachable
+            ) else { return }
             scheduleFailureRecovery()
         }
+    }
+
+    /// Returns whether a host activation may begin with the current path state.
+    /// Activation waits for the path monitor's authoritative first sample so a
+    /// stopped-and-restarted service cannot reuse stale reachability.
+    nonisolated static func shouldStartIrohActivation(networkReachable: Bool?) -> Bool {
+        networkReachable == true
+    }
+
+    /// Returns whether an externally delivered connectivity signal must be
+    /// retained until the path monitor reports a usable route.
+    nonisolated static func shouldDeferServerConnectivitySignal(networkReachable: Bool?) -> Bool {
+        networkReachable != true
     }
 
     nonisolated static func diagnosticFailureKind(
@@ -344,32 +461,101 @@ final class MobileHostIrohRuntime {
     /// bursts coalesce at the greatest revision instead of creating one waiter
     /// per frame. Terminal evidence rebuilds through the shared lifecycle path.
     func reconcileConnectivityFromServerSignal(revision: UInt64) {
+        guard !Self.shouldDeferServerConnectivitySignal(
+            networkReachable: relayPolicyNetworkReachable
+        ) else {
+            serverSignalPendingRevision = max(
+                serverSignalPendingRevision ?? revision,
+                revision
+            )
+            serverSignalAccountID = serverSignalAccountID
+                ?? activeAccountID
+                ?? observedAccountID
+            return
+        }
         if serverSignalRefreshTask != nil {
             serverSignalPendingRevision = max(
                 serverSignalPendingRevision ?? revision,
                 revision
             )
+            serverSignalAccountID = serverSignalAccountID
+                ?? activeAccountID
+                ?? observedAccountID
             return
         }
         guard let signalRuntime = runtime else {
+            serverSignalAccountID = serverSignalAccountID
+                ?? activeAccountID
+                ?? observedAccountID
             retryIfNeeded()
             return
         }
+        let taskID = UUID()
+        serverSignalAccountID = activeAccountID ?? observedAccountID
+        serverSignalRefreshTaskID = taskID
+        serverSignalRefreshRevision = revision
         serverSignalRefreshTask = Task { @MainActor [weak self] in
+            defer {
+                if let self,
+                   self.serverSignalRefreshTaskID == taskID {
+                    self.serverSignalRefreshTask = nil
+                    self.serverSignalRefreshTaskID = nil
+                    self.serverSignalRefreshRevision = nil
+                    if self.serverSignalPendingRevision == nil {
+                        self.serverSignalAccountID = nil
+                    }
+                }
+            }
+            guard let self,
+                  self.serverSignalRefreshTaskID == taskID,
+                  !Task.isCancelled,
+                  self.relayPolicyNetworkReachable == true else {
+                if let self,
+                   self.serverSignalRefreshTaskID == taskID,
+                   self.relayPolicyNetworkReachable != true {
+                    self.serverSignalPendingRevision = max(
+                        self.serverSignalPendingRevision ?? revision,
+                        revision
+                    )
+                }
+                return
+            }
             _ = await signalRuntime.reconcileConnectivityRevision(revision)
-            guard let self else { return }
-            self.serverSignalRefreshTask = nil
+            guard self.serverSignalRefreshTaskID == taskID else { return }
             let replayRevision = self.serverSignalPendingRevision
             self.serverSignalPendingRevision = nil
+            guard !Task.isCancelled,
+                  self.relayPolicyNetworkReachable == true else {
+                self.serverSignalPendingRevision = max(
+                    replayRevision ?? revision,
+                    revision
+                )
+                return
+            }
             guard self.runtime === signalRuntime,
                   self.desiredActive,
                   !self.signOutIntentActive,
-                  self.transitionTask == nil else { return }
+                  self.transitionTask == nil,
+                  self.relayPolicyNetworkReachable == true else {
+                if self.relayPolicyNetworkReachable != true {
+                    self.serverSignalPendingRevision = max(
+                        replayRevision ?? revision,
+                        revision
+                    )
+                }
+                return
+            }
+            // Release this single-flight slot before replaying a coalesced
+            // revision; otherwise the recursive call would only requeue it.
+            self.serverSignalRefreshTask = nil
+            self.serverSignalRefreshTaskID = nil
+            self.serverSignalRefreshRevision = nil
             if await signalRuntime.snapshot().state == .failed {
                 guard self.runtime === signalRuntime,
                       self.desiredActive,
                       !self.signOutIntentActive,
-                      self.transitionTask == nil else { return }
+                      self.transitionTask == nil,
+                      self.relayPolicyNetworkReachable == true else { return }
                 self.scheduleReconcile(
                     eraseAccountState: false,
                     restartActiveRuntime: true

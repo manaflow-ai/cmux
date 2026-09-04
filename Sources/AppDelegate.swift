@@ -1631,7 +1631,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // if tracing is ever re-enabled) child performance span before
                 // it leaves the device.
                 let scrubber = SentryEventScrubber()
-                options.beforeSend = { event in scrubber.scrub(event) }
+                let noiseFilter = TransportSentryEventNoiseFilter()
+                options.beforeSend = { event in
+                    noiseFilter.filter(scrubber.scrub(event))
+                }
                 options.beforeBreadcrumb = { breadcrumb in scrubber.scrub(breadcrumb) }
                 options.beforeSendSpan = { span in scrubber.scrub(span) }
                 options.beforeSendLog = { log in scrubber.scrub(log) }
@@ -1642,7 +1645,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // The tap delivers on the ring's drain task, off the main thread.
             let transportReporter = TransportSentryReporter(
                 role: .macHost,
-                exportRing: { await MobileHostIrohRuntime.hostDiagnosticLog.export() }
+                exportRing: { await MobileHostIrohRuntime.hostDiagnosticLog.export() },
+                incidentConfiguration: .macHost,
+                logsPerHour: 60
             )
             transportSentryReporter = transportReporter
             MobileHostIrohRuntime.hostDiagnosticLog.setEventTap { event in

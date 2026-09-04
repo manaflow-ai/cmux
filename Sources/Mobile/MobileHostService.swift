@@ -1045,11 +1045,20 @@ final class MobileHostService {
                 mobileHostLog.info("legacy mobile host listener disabled; starting Iroh only")
             }
             if plan.activatesIroh {
+                // Keep a path observer alive even when the legacy TCP listener
+                // is disabled. The Iroh host still needs reachability signals
+                // to pause relay-policy retries while offline and wake them
+                // when a network returns.
+                startNetworkPathMonitorIfNeeded()
                 MobileHostIrohRuntime.shared.setDesiredActive(true)
             }
             return
         }
 
+        // The Iroh lifecycle can be scheduled even when both TCP bind
+        // attempts fail. Start the reachability owner first so a failed
+        // activation still receives the path event that wakes recovery.
+        startNetworkPathMonitorIfNeeded()
         CmxIrohTCPFirstActivation.start(
             startTCP: { startListener(usePreferredPort: true) },
             scheduleIroh: { MobileHostIrohRuntime.shared.setDesiredActive(true) }
@@ -1132,6 +1141,8 @@ final class MobileHostService {
 
     func stop() {
         MobileHostIrohRuntime.shared.setDesiredActive(false)
+        MobileHostIrohRuntime.shared.resetNetworkReachability()
+        stopNetworkPathMonitor()
         stopLegacyListener(reason: "service stopped")
         for connection in MobileHostConnectionRegistry.shared.removeAll() {
             Task { await connection.close(reason: "service stopped") }
@@ -1143,7 +1154,9 @@ final class MobileHostService {
     }
 
     private func stopLegacyListener(reason: String) {
-        stopNetworkPathMonitor()
+        // A settings change can disable only the legacy listener while the
+        // account-scoped Iroh host remains active. The reachability observer is
+        // owned by the Iroh lifecycle and is stopped by stop().
         listenerGeneration = UUID()
         listenerUsesEphemeralFallback = false
         listener?.stateUpdateHandler = nil
@@ -1288,6 +1301,7 @@ final class MobileHostService {
         let defaults = UserDefaults.standard
         // Settings control only the legacy TCP/Tailscale listener. Account-
         // authenticated Iroh stays available for signed-in Macs.
+        startNetworkPathMonitorIfNeeded()
         MobileHostIrohRuntime.shared.setDesiredActive(true)
         // An invalid stored port (`resolvedDesiredPort == nil`, e.g. mid-edit)
         // must not restart a running listener. Treat it as "no change" by
@@ -1917,9 +1931,14 @@ final class MobileHostService {
     /// the lifetime of the listener and is stopped by ``stop()``.
     private func startNetworkPathMonitorIfNeeded() {
         guard pathMonitor == nil else { return }
-        let monitor = MobileHostNetworkPathMonitor { [weak self] in
-            self?.handleNetworkPathChange()
-        }
+        let monitor = MobileHostNetworkPathMonitor(
+            onPathChange: { [weak self] in
+                self?.handleNetworkPathChange()
+            },
+            onReachabilityChange: { isOnline in
+                MobileHostIrohRuntime.shared.handleNetworkReachabilityChange(isOnline)
+            }
+        )
         monitor.start(queue: callbackQueue)
         pathMonitor = monitor
     }

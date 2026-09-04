@@ -87,4 +87,33 @@ struct CmxIrohRetryScheduleTests {
             jitterUnitInterval: 0
         ) == 30)
     }
+
+    @Test
+    func macHostRelayPolicyStartsSlowAndCapsAtAnIdleCadence() {
+        let schedule = CmxIrohRetrySchedule.macHostRelayPolicy
+        #expect(CmxIrohRetrySchedule().maximumDelay < schedule.maximumDelay)
+        #expect(schedule.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) >= 60)
+        #expect(schedule.delay(
+            failureCount: 20,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) <= 21_600)
+        #expect(CmxIrohRetrySchedule(for: .offline) == schedule)
+
+        let authorization = CmxIrohRetrySchedule(for: .authorizationFailed)
+        #expect(authorization.delay(
+            failureCount: 0,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 30)
+        #expect(authorization.delay(
+            failureCount: 20,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: 0
+        ) == 600)
+    }
 }

@@ -1,6 +1,7 @@
 import CMUXMobileCore
 import CmuxIrohTransport
 import Foundation
+import Network
 import Testing
 
 #if canImport(cmux_DEV)
@@ -124,6 +125,151 @@ import Testing
         ) == true)
     }
 
+    @Test func pathStatusMapsToReachabilityForTransportTelemetry() {
+        #expect(MobileHostNetworkPathMonitor.isOnline(status: .satisfied))
+        #expect(!MobileHostNetworkPathMonitor.isOnline(status: .unsatisfied))
+        #expect(!MobileHostNetworkPathMonitor.isOnline(status: .requiresConnection))
+    }
+
+    @Test func reachabilityCallbackOnlyReportsBooleanTransitions() {
+        #expect(MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: nil,
+            newReachability: true
+        ))
+        #expect(!MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: true,
+            newReachability: true
+        ))
+        #expect(MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: true,
+            newReachability: false
+        ))
+        #expect(!MobileHostNetworkPathMonitor.shouldReportReachabilityChange(
+            previousReachability: false,
+            newReachability: false
+        ))
+    }
+
+    @Test func relayPolicyRetryParksOnlyForOfflineEvidence() {
+        #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .offline,
+            networkReachable: nil
+        ))
+        #expect(!MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .offline,
+            networkReachable: true
+        ))
+        #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .policyUnavailable,
+            networkReachable: false
+        ))
+        #expect(MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .policyUnavailable,
+            networkReachable: nil
+        ))
+        #expect(!MobileHostIrohRuntime.shouldPauseRelayPolicyRetry(
+            failure: .policyUnavailable,
+            networkReachable: true
+        ))
+    }
+
+    @Test func hostRelayRefreshWithoutExpiryUsesIdleCadence() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let attempt = MobileHostIrohRuntime.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: nil,
+            retryAt: nil,
+            now: now
+        )
+        #expect(attempt.timeIntervalSince(now) == 60)
+    }
+
+    @Test func armedRetryWinsWhenCachedPolicyExpiryIsAlreadyPast() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let retryAt = now.addingTimeInterval(60)
+        let attempt = MobileHostIrohRuntime.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: now.addingTimeInterval(-1),
+            retryAt: retryAt,
+            now: now
+        )
+
+        #expect(attempt == retryAt)
+    }
+
+    @Test func offlineRelayPolicyKeepsALocalExpiryDeadline() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let futureExpiry = now.addingTimeInterval(300)
+
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: futureExpiry,
+                now: now
+            ) == futureExpiry
+        )
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: now.addingTimeInterval(-1),
+                now: now
+            ) == now
+        )
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: nil,
+                now: now
+            ) == nil
+        )
+    }
+
+    @Test func offlineDeadlineUsesTheEarlierAppliedOrCachedExpiry() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let appliedExpiry = now.addingTimeInterval(120)
+        let cachedRenewalExpiry = now.addingTimeInterval(900)
+
+        #expect(
+            MobileHostIrohRuntime.earliestRelayPolicyExpiry(
+                servicePolicyExpiresAt: cachedRenewalExpiry,
+                appliedPolicyExpiresAt: appliedExpiry
+            ) == appliedExpiry
+        )
+        #expect(
+            MobileHostIrohRuntime.earliestRelayPolicyExpiry(
+                servicePolicyExpiresAt: appliedExpiry,
+                appliedPolicyExpiresAt: cachedRenewalExpiry
+            ) == appliedExpiry
+        )
+        #expect(
+            MobileHostIrohRuntime.earliestRelayPolicyExpiry(
+                servicePolicyExpiresAt: nil,
+                appliedPolicyExpiresAt: appliedExpiry
+            ) == appliedExpiry
+        )
+    }
+
+    @Test func failedOfflineDeactivationUsesItsBoundedRetryDeadline() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let expiredAt = now.addingTimeInterval(-1)
+        let retryAt = now.addingTimeInterval(60)
+
+        #expect(
+            MobileHostIrohRuntime.relayPolicyOfflineExpiryAttemptDate(
+                policyExpiresAt: expiredAt,
+                retryAt: retryAt,
+                now: now
+            ) == retryAt
+        )
+    }
+
+    @Test func activationRequiresAnAuthoritativeUsablePath() {
+        #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: nil))
+        #expect(!MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: false))
+        #expect(MobileHostIrohRuntime.shouldStartIrohActivation(networkReachable: true))
+    }
+
+    @Test func serverConnectivitySignalsWaitForReachabilityBeforeReconciliation() {
+        #expect(MobileHostIrohRuntime.shouldDeferServerConnectivitySignal(networkReachable: nil))
+        #expect(MobileHostIrohRuntime.shouldDeferServerConnectivitySignal(networkReachable: false))
+        #expect(!MobileHostIrohRuntime.shouldDeferServerConnectivitySignal(networkReachable: true))
+    }
+
     // MARK: - Resolver cache invalidation
 
     private func tailscaleHosts(in snapshot: MobileHostRouteSnapshot) -> [String] {
@@ -159,31 +305,23 @@ import Testing
 
     @Test func resolutionRacingInvalidationCannotRepolluteCache() async {
         let resolver = MobileRouteResolver()
-        // Two-way handshake: `started` proves the resolution is genuinely in
-        // flight (its cache generation already captured) before the
-        // invalidation runs — `async let` alone does not guarantee the child
-        // has begun — and `gate` holds it there until after the invalidation.
-        let started = DispatchSemaphore(value: 0)
-        let gate = DispatchSemaphore(value: 0)
-        // Start a resolution that represents the OLD network and hold it
-        // in flight while the path changes underneath it.
-        async let staleResolution = resolver.routesResolvingTailscaleDNS(
+        // The resolver captures its cache generation before it invokes this
+        // closure. Invalidating from inside the closure therefore exercises
+        // the real in-flight race without blocking a cooperative executor
+        // thread on a semaphore.
+        let staleResolution = await resolver.routesResolvingTailscaleDNS(
             port: 51000,
             resolveHosts: {
-                started.signal()
-                gate.wait()
-                return ["stale-old-net.tail1234.ts.net"]
+                resolver.invalidateResolvedTailscaleHostCache()
+                return ["100.64.0.99"]
             }
         )
-        started.wait()
-        resolver.invalidateResolvedTailscaleHostCache()
-        gate.signal()
         // The awaiting caller still gets the hosts it resolved (it asked
         // before the change), but the cache write is discarded by the
         // generation guard, so later reads cannot see the old network.
-        _ = await staleResolution
+        #expect(tailscaleHosts(in: staleResolution) == ["100.64.0.99"])
         let afterStaleStore = resolver.routes(port: 51000, now: Date(), immediateHosts: { [] })
-        #expect(!tailscaleHosts(in: afterStaleStore).contains("stale-old-net.tail1234.ts.net"))
+        #expect(!tailscaleHosts(in: afterStaleStore).contains("100.64.0.99"))
     }
 }
 
@@ -312,6 +450,155 @@ struct MobileHostIrohStartupRetryTests {
         runtime.observedAccountID = originalObservedAccountID
         runtime.preparedSignOut = originalPreparedSignOut
         runtime.signOutIntentActive = originalSignOutIntentActive
+        runtime.lifecycleRevision = originalRevision
+    }
+
+    @Test
+    func reconcileInvalidatesPendingRelayApplicationsImmediately() {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let originalApplicationGeneration = runtime.relayPolicyApplicationGeneration
+        let originalTransitionTask = runtime.transitionTask
+
+        let reconciliation = runtime.scheduleReconcile(eraseAccountState: false)
+        #expect(
+            runtime.relayPolicyApplicationGeneration
+                == originalApplicationGeneration &+ 1
+        )
+
+        reconciliation.cancel()
+        runtime.transitionTask = originalTransitionTask
+        runtime.lifecycleRevision = originalRevision
+        runtime.relayPolicyApplicationGeneration = originalApplicationGeneration
+    }
+
+    @Test
+    func deactivationRetryStillRequiresTheCurrentPolicyToBeExpired() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        // A pending retry is only a wake-up hint. The refresh loop must
+        // re-check the endpoint policy's current expiry before revoking it.
+        #expect(
+            !MobileHostIrohRuntime.shouldDeactivateRelayPolicy(
+                policyExpiresAt: now.addingTimeInterval(300),
+                now: now
+            )
+        )
+        #expect(
+            MobileHostIrohRuntime.shouldDeactivateRelayPolicy(
+                policyExpiresAt: now.addingTimeInterval(-1),
+                now: now
+            )
+        )
+    }
+
+    @Test
+    func signedCatalogExpiryRemainsTheRefreshDeadlineForCustomRelayMode() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let catalogExpiry = now.addingTimeInterval(300)
+        let attempt = MobileHostIrohRuntime.relayPolicyRefreshAttemptDate(
+            policyExpiresAt: catalogExpiry,
+            retryAt: nil,
+            now: now
+        )
+
+        #expect(attempt == catalogExpiry.addingTimeInterval(-60))
+    }
+
+    @Test
+    func reconcileCancelsAndReleasesTheLongLivedRelayRefreshOwner() throws {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let originalTransitionTask = runtime.transitionTask
+        let originalRefreshTask = runtime.relayPolicyRefreshTask
+        let originalRefreshTaskID = runtime.relayPolicyRefreshTaskID
+        let originalRefreshService = runtime.relayPolicyRefreshService
+        let originalRefreshAccountID = runtime.relayPolicyRefreshAccountID
+        let originalRefreshEndpointID = runtime.relayPolicyRefreshEndpointID
+        let originalRefreshTrustRoot = runtime.relayPolicyRefreshTrustRoot
+        let originalRefreshRevision = runtime.relayPolicyRefreshRevision
+
+        runtime.relayPolicyRefreshTask = Task {}
+        runtime.relayPolicyRefreshTaskID = UUID()
+        runtime.relayPolicyRefreshService = CmxIrohRelayPolicyService()
+        runtime.relayPolicyRefreshAccountID = "stale-account"
+        runtime.relayPolicyRefreshEndpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "b", count: 64)
+        )
+        let key = try CmxIrohRelayPolicyVerificationKey(
+            keyID: "test-key",
+            rawPublicKeyBase64: Data(repeating: 0, count: 32).base64EncodedString()
+        )
+        runtime.relayPolicyRefreshTrustRoot = try CmxIrohRelayPolicyTrustRoot(
+            keys: [key]
+        )
+        runtime.relayPolicyRefreshRevision = originalRevision
+        let reconciliation = runtime.scheduleReconcile(eraseAccountState: false)
+
+        #expect(runtime.relayPolicyRefreshTask == nil)
+        #expect(runtime.relayPolicyRefreshTaskID == nil)
+        #expect(runtime.relayPolicyRefreshService == nil)
+        #expect(runtime.relayPolicyRefreshAccountID == nil)
+        #expect(runtime.relayPolicyRefreshEndpointID == nil)
+        #expect(runtime.relayPolicyRefreshTrustRoot == nil)
+        #expect(runtime.relayPolicyRefreshRevision == nil)
+
+        reconciliation.cancel()
+        runtime.transitionTask = originalTransitionTask
+        runtime.lifecycleRevision = originalRevision
+        runtime.relayPolicyRefreshTask = originalRefreshTask
+        runtime.relayPolicyRefreshTaskID = originalRefreshTaskID
+        runtime.relayPolicyRefreshService = originalRefreshService
+        runtime.relayPolicyRefreshAccountID = originalRefreshAccountID
+        runtime.relayPolicyRefreshEndpointID = originalRefreshEndpointID
+        runtime.relayPolicyRefreshTrustRoot = originalRefreshTrustRoot
+        runtime.relayPolicyRefreshRevision = originalRefreshRevision
+    }
+
+    @Test
+    func retainedRefreshContextCanRearmAfterLifecycleRevisionAdvances() throws {
+        let runtime = MobileHostIrohRuntime.shared
+        let originalRevision = runtime.lifecycleRevision
+        let originalActiveAccountID = runtime.activeAccountID
+        let originalRefreshTask = runtime.relayPolicyRefreshTask
+        let originalRefreshTaskID = runtime.relayPolicyRefreshTaskID
+        let originalRefreshService = runtime.relayPolicyRefreshService
+        let originalRefreshAccountID = runtime.relayPolicyRefreshAccountID
+        let originalRefreshEndpointID = runtime.relayPolicyRefreshEndpointID
+        let originalRefreshTrustRoot = runtime.relayPolicyRefreshTrustRoot
+        let originalRefreshRevision = runtime.relayPolicyRefreshRevision
+
+        runtime.activeAccountID = "same-account"
+        runtime.relayPolicyRefreshTask = nil
+        runtime.relayPolicyRefreshTaskID = nil
+        runtime.relayPolicyRefreshService = CmxIrohRelayPolicyService()
+        runtime.relayPolicyRefreshAccountID = "same-account"
+        runtime.relayPolicyRefreshEndpointID = try CmxIrohPeerIdentity(
+            endpointID: String(repeating: "c", count: 64)
+        )
+        let key = try CmxIrohRelayPolicyVerificationKey(
+            keyID: "rearm-key",
+            rawPublicKeyBase64: Data(repeating: 1, count: 32).base64EncodedString()
+        )
+        runtime.relayPolicyRefreshTrustRoot = try CmxIrohRelayPolicyTrustRoot(
+            keys: [key]
+        )
+        runtime.relayPolicyRefreshRevision = originalRevision
+
+        runtime.lifecycleRevision &+= 1
+        runtime.relayPolicyRefreshRevision = runtime.lifecycleRevision
+        runtime.rearmRelayPolicyRefreshIfNeeded()
+
+        #expect(runtime.relayPolicyRefreshTask != nil)
+
+        runtime.relayPolicyRefreshTask?.cancel()
+        runtime.relayPolicyRefreshTask = originalRefreshTask
+        runtime.relayPolicyRefreshTaskID = originalRefreshTaskID
+        runtime.relayPolicyRefreshService = originalRefreshService
+        runtime.relayPolicyRefreshAccountID = originalRefreshAccountID
+        runtime.relayPolicyRefreshEndpointID = originalRefreshEndpointID
+        runtime.relayPolicyRefreshTrustRoot = originalRefreshTrustRoot
+        runtime.relayPolicyRefreshRevision = originalRefreshRevision
+        runtime.activeAccountID = originalActiveAccountID
         runtime.lifecycleRevision = originalRevision
     }
 

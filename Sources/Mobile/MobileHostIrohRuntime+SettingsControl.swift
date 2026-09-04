@@ -65,7 +65,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective)
+        guard try await applyRelayPolicy(
+            effective,
+            expectedServicePolicy: effective
+        ) else {
+            throw SettingsError.superseded
+        }
         await refreshRelayPolicyAfterMutation(context)
     }
 
@@ -106,7 +111,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective)
+        guard try await applyRelayPolicy(
+            effective,
+            expectedServicePolicy: effective
+        ) else {
+            throw SettingsError.superseded
+        }
         if definition.authMode == .staticToken, let deviceSecret {
             effective = try await context.service.setStaticCredential(
                 deviceSecret,
@@ -116,7 +126,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 trustRoot: context.trustRoot,
                 now: Date()
             )
-            try await applyRelayPolicy(effective)
+            guard try await applyRelayPolicy(
+                effective,
+                expectedServicePolicy: effective
+            ) else {
+                throw SettingsError.superseded
+            }
         }
         await refreshRelayPolicyAfterMutation(context)
     }
@@ -134,7 +149,12 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             trustRoot: context.trustRoot,
             now: Date()
         )
-        try await applyRelayPolicy(effective)
+        guard try await applyRelayPolicy(
+            effective,
+            expectedServicePolicy: effective
+        ) else {
+            throw SettingsError.superseded
+        }
         await refreshRelayPolicyAfterMutation(context)
     }
 
@@ -168,11 +188,13 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         let snapshot = await irohSettingsSnapshot()
         let diagnostics = await irohDiagnosticReport()
         let relayReachability: CmxIrohConnectionCheckReport.RelayReachability
+        // Connection diagnostics must describe the policy the live endpoint
+        // accepted, not a newer service-side resolution.
         if transportVerificationMode == .directOnly {
             // Relays are administratively excluded by the transport mode; a
             // failed relay probe here must not send users to corporate IT.
             relayReachability = .notConfigured
-        } else if let profile = await relayPolicyService?.effectivePolicy()?.endpointRelayProfile,
+        } else if let profile = relayPolicyAppliedEffective?.endpointRelayProfile,
                   !profile.allowedRelayURLs.isEmpty {
             if let isReachable = await runtime?.hasReachableRelay(in: profile.allowedRelayURLs) {
                 relayReachability = isReachable ? .reachable : .unreachable
@@ -195,6 +217,7 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
             publishIrohSettingsUpdate()
             return
         }
+        let refreshRevision = lifecycleRevision
         diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
         do {
             let effective = try await context.service.refresh(
@@ -203,9 +226,24 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 trustRoot: context.trustRoot,
                 now: Date()
             )
-            try await applyRelayPolicy(effective)
+            guard refreshRevision == lifecycleRevision,
+                  relayPolicyService === context.service,
+                  activeAccountID == context.accountID,
+                  relayPolicyEndpointID == context.endpointID else {
+                return
+            }
+            guard try await applyRelayPolicy(
+                effective,
+                expectedServicePolicy: effective
+            ) else { return }
             diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
         } catch {
+            guard refreshRevision == lifecycleRevision,
+                  relayPolicyService === context.service,
+                  activeAccountID == context.accountID,
+                  relayPolicyEndpointID == context.endpointID else {
+                return
+            }
             diagnosticLog.record(DiagnosticEvent(
                 .relayPolicyRefreshFailed,
                 b: Self.diagnosticFailureKind(for: error).rawValue
@@ -264,7 +302,8 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                       self.activeAccountID == accountID,
                       self.runtime === runtime else { return }
                 let selectedPath = await runtime.selectedTransportPath(
-                    relayPolicy: self.relayPolicyEffective
+                    relayPolicy: self.relayPolicyAppliedEffective
+                        ?? self.relayPolicyEffective
                 )
                 self.diagnosticLog.record(DiagnosticEvent(
                     .selectedPathChanged,
@@ -287,101 +326,331 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         revision: UInt64,
         refreshImmediately: Bool
     ) {
-        relayPolicyRefreshTask?.cancel()
+        cancelRelayPolicyRefresh()
         guard let service, let trustRoot else {
-            relayPolicyRefreshTask = nil
             return
         }
+        relayPolicyRefreshService = service
+        relayPolicyRefreshAccountID = accountID
+        relayPolicyRefreshEndpointID = endpointID
+        relayPolicyRefreshTrustRoot = trustRoot
+        relayPolicyRefreshRevision = revision
+        let taskID = UUID()
+        relayPolicyRefreshTaskID = taskID
         relayPolicyRefreshTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, self.relayPolicyRefreshTaskID == taskID {
+                    self.relayPolicyRefreshTask = nil
+                    self.relayPolicyRefreshTaskID = nil
+                }
+            }
             var retryAt: Date?
             var failureCount = 0
             var relayAuthorityExpired = false
+            var deactivationRetryAt: Date?
+            var deactivationRetryAppliedPolicy: CmxIrohEffectiveRelayPolicy?
+            var deactivationFailureCount = 0
             var shouldRefreshImmediately = refreshImmediately
             while !Task.isCancelled {
                 guard let self,
-                      revision == self.lifecycleRevision,
-                      self.activeAccountID == accountID,
-                      self.relayPolicyService === service else { return }
+                      self.ownsRelayPolicyRefresh(
+                          taskID: taskID,
+                          service: service,
+                          accountID: accountID,
+                          revision: revision
+                      ) else { return }
                 let snapshot = await service.diagnosticsSnapshot()
-                let current = Date()
+                let clock = self.relayPolicyRefreshClock
+                let current = clock.now()
+                if let retryPolicy = deactivationRetryAppliedPolicy,
+                   self.relayPolicyAppliedEffective != retryPolicy {
+                    // A failed application can be superseded by a settings
+                    // mutation while its retry deadline is pending. Do not
+                    // let that old deadline drive expiry work for a different
+                    // endpoint policy generation.
+                    deactivationRetryAt = nil
+                    deactivationRetryAppliedPolicy = nil
+                    deactivationFailureCount = 0
+                }
+                let refreshPolicyExpiresAt = snapshot.policyExpiresAt
+                let deactivationPolicyExpiresAt = self.usesManagedRelayAuthority
+                    ? Self.earliestRelayPolicyExpiry(
+                        servicePolicyExpiresAt: refreshPolicyExpiresAt,
+                        appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
+                    )
+                    : nil
                 let attemptAt: Date
-                if shouldRefreshImmediately {
+                if self.relayPolicyNetworkReachable != true {
+                    // Keep a local expiry deadline alive while broker work is
+                    // parked. There is no network request on this path; it
+                    // only wakes to remove expired relay authority.
+                    guard let policyExpiresAt = Self.relayPolicyOfflineExpiryAttemptDate(
+                        policyExpiresAt: deactivationPolicyExpiresAt,
+                        retryAt: deactivationRetryAt,
+                        now: current
+                    ) else {
+                        return
+                    }
+                    attemptAt = policyExpiresAt
+                } else if shouldRefreshImmediately {
                     attemptAt = current
                     shouldRefreshImmediately = false
                 } else {
-                    attemptAt = Self.relayPolicyRefreshAttemptDate(
+                    let nextRetryAt = [retryAt, deactivationRetryAt]
+                        .compactMap { $0 }
+                        .min()
+                    let refreshAttemptAt = Self.relayPolicyRefreshAttemptDate(
                         policyExpiresAt: relayAuthorityExpired
                             ? nil
-                            : snapshot.policyExpiresAt,
-                        retryAt: retryAt,
+                            : refreshPolicyExpiresAt,
+                        retryAt: nextRetryAt,
                         now: current
                     )
+                    // Keep the endpoint's applied authority on its own wake
+                    // path. A newer service catalog may expire later while an
+                    // older managed profile is still installed and must be
+                    // revoked at its earlier expiry.
+                    let deactivationAttemptAt = relayAuthorityExpired
+                        ? nil
+                        : (deactivationRetryAt ?? deactivationPolicyExpiresAt)
+                    attemptAt = [refreshAttemptAt, deactivationAttemptAt]
+                        .compactMap { $0 }
+                        .min() ?? refreshAttemptAt
                 }
                 let delay = attemptAt.timeIntervalSince(current)
                 if delay > 0 {
                     do {
-                        try await Task.sleep(for: .seconds(delay))
+                        // This is the bounded retry deadline itself, not a
+                        // polling/settling sleep. A reachable-path transition
+                        // cancels it and owns the immediate recovery wake;
+                        // an offline transition keeps the local expiry wake.
+                        try await clock.sleep(until: attemptAt)
                     } catch {
                         return
                     }
                 }
-                let wakeDate = Date()
-                if let retryAt,
-                   retryAt > wakeDate,
-                   Self.shouldDeactivateRelayPolicy(
-                       policyExpiresAt: snapshot.policyExpiresAt,
-                       now: wakeDate
-                   ) {
-                    let expired = await service.restore(
-                        accountID: accountID,
-                        trustRoot: trustRoot,
+                let wakeDate = clock.now()
+                guard !Task.isCancelled,
+                      self.ownsRelayPolicyRefresh(
+                          taskID: taskID,
+                          service: service,
+                          accountID: accountID,
+                          revision: revision
+                      ) else { return }
+                let wakeSnapshot = await service.diagnosticsSnapshot()
+                guard !Task.isCancelled,
+                      self.ownsRelayPolicyRefresh(
+                          taskID: taskID,
+                          service: service,
+                          accountID: accountID,
+                          revision: revision
+                      ) else { return }
+                let wakeDeactivationPolicyExpiresAt = self.usesManagedRelayAuthority
+                    ? Self.earliestRelayPolicyExpiry(
+                        servicePolicyExpiresAt: wakeSnapshot.policyExpiresAt,
+                        appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
+                    )
+                    : nil
+                if let retryPolicy = deactivationRetryAppliedPolicy,
+                   self.relayPolicyAppliedEffective != retryPolicy {
+                    // A failed application can be superseded by a settings
+                    // mutation while its retry deadline is pending. Do not
+                    // let that old deadline drive expiry work for a different
+                    // endpoint policy generation.
+                    deactivationRetryAt = nil
+                    deactivationRetryAppliedPolicy = nil
+                    deactivationFailureCount = 0
+                }
+                let shouldAttemptDeactivation = !relayAuthorityExpired
+                    && Self.shouldDeactivateRelayPolicy(
+                        policyExpiresAt: wakeDeactivationPolicyExpiresAt,
                         now: wakeDate
                     )
-                    try? await self.applyRelayPolicy(expired)
-                    relayAuthorityExpired = true
+                if shouldAttemptDeactivation {
+                    let expectedReachability = self.relayPolicyNetworkReachable == true
+                    do {
+                        let didApply = try await self.expireAndApplyRelayPolicy(
+                            service: service,
+                            accountID: accountID,
+                            taskID: taskID,
+                            expectedReachability: expectedReachability
+                        )
+                        guard didApply else {
+                            guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                            self.armRelayPolicyDeactivationRetry(
+                                now: clock.now(),
+                                appliedPolicy: self.relayPolicyAppliedEffective,
+                                retryPolicy: &deactivationRetryAppliedPolicy,
+                                failureCount: &deactivationFailureCount,
+                                retryAt: &deactivationRetryAt
+                            )
+                            continue
+                        }
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        relayAuthorityExpired = true
+                        deactivationRetryAt = nil
+                        deactivationRetryAppliedPolicy = nil
+                        deactivationFailureCount = 0
+                    } catch {
+                        // Keep the endpoint fail-closed goal alive when a local
+                        // replacement is transiently rejected. The retry is a
+                        // bounded deadline, not a network poll.
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        self.armRelayPolicyDeactivationRetry(
+                            now: clock.now(),
+                            appliedPolicy: self.relayPolicyAppliedEffective,
+                            retryPolicy: &deactivationRetryAppliedPolicy,
+                            failureCount: &deactivationFailureCount,
+                            retryAt: &deactivationRetryAt
+                        )
+                        continue
+                    }
+                    guard self.relayPolicyNetworkReachable == true else { return }
                     continue
                 }
-                guard !Task.isCancelled,
-                      revision == self.lifecycleRevision,
-                      self.activeAccountID == accountID,
-                      self.relayPolicyService === service else { return }
+                if self.relayPolicyNetworkReachable != true {
+                    // A pre-existing retry deadline may wake before policy
+                    // expiry. Re-enter the parked branch so it retains the
+                    // later local deactivation deadline instead of dropping
+                    // the task.
+                    continue
+                }
                 self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshStarted))
                 do {
                     let effective = try await service.refresh(
                         endpointID: endpointID,
                         accountID: accountID,
                         trustRoot: trustRoot,
-                        now: Date()
+                        now: clock.now()
                     )
-                    try await self.applyRelayPolicy(effective)
+                    guard !Task.isCancelled,
+                          self.ownsRelayPolicyRefresh(
+                              taskID: taskID,
+                              service: service,
+                              accountID: accountID,
+                              revision: revision
+                          ) else { return }
+                    guard self.relayPolicyNetworkReachable == true else {
+                        // The broker result may have completed as the path
+                        // dropped. Leave endpoint state untouched and let the
+                        // offline expiry branch own the next local action.
+                        continue
+                    }
+                    guard await service.effectivePolicy() == effective else {
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        retryAt = clock.now().addingTimeInterval(
+                            CmxIrohRetrySchedule.macHostRelayPolicy.initialDelay
+                        )
+                        continue
+                    }
+                    let expectedAppliedPolicy = self.relayPolicyAppliedEffective
+                    let didApply = try await self.applyRelayPolicy(
+                        effective,
+                        refreshTaskID: taskID,
+                        expectedServicePolicy: effective,
+                        expectedAppliedPolicy: expectedAppliedPolicy,
+                        requireAppliedPolicyMatch: true
+                    )
+                    guard didApply else {
+                        // A path transition can invalidate an otherwise valid
+                        // broker result while the local replacement suspends.
+                        // Re-enter the loop so the offline expiry deadline is
+                        // still honored instead of dropping the task. Keep a
+                        // bounded retry deadline so an invalidated result
+                        // cannot spin the main actor.
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        retryAt = clock.now().addingTimeInterval(
+                            CmxIrohRetrySchedule.macHostRelayPolicy.initialDelay
+                        )
+                        continue
+                    }
+                    guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
                     retryAt = nil
                     failureCount = 0
                     relayAuthorityExpired = false
+                    deactivationRetryAt = nil
+                    deactivationRetryAppliedPolicy = nil
+                    deactivationFailureCount = 0
                     self.diagnosticLog.record(DiagnosticEvent(.relayPolicyRefreshSucceeded))
+                } catch is CancellationError {
+                    return
                 } catch {
+                    guard !Task.isCancelled,
+                          self.ownsRelayPolicyRefresh(
+                              taskID: taskID,
+                              service: service,
+                              accountID: accountID,
+                              revision: revision
+                          ) else { return }
+                    let failureKind = Self.diagnosticFailureKind(for: error)
                     self.diagnosticLog.record(DiagnosticEvent(
                         .relayPolicyRefreshFailed,
-                        b: Self.diagnosticFailureKind(for: error).rawValue
+                        b: failureKind.rawValue
                     ))
-                    let failureDate = Date()
+                    // An explicit offline classification, or a path observer
+                    // that says the host is offline, parks this loop. The
+                    // reachability callback owns the next wake, so no timer
+                    // continues polling a captive portal or asleep laptop.
+                    guard !Self.shouldPauseRelayPolicyRetry(
+                        failure: failureKind,
+                        networkReachable: self.relayPolicyNetworkReachable
+                    ) else { continue }
+                    let failureDate = clock.now()
                     if Self.shouldDeactivateRelayPolicy(
-                        policyExpiresAt: snapshot.policyExpiresAt,
+                        policyExpiresAt: Self.earliestRelayPolicyExpiry(
+                            servicePolicyExpiresAt: self.usesManagedRelayAuthority
+                                ? snapshot.policyExpiresAt
+                                : nil,
+                            appliedPolicyExpiresAt: self.appliedRelayPolicyExpiresAt
+                        ),
                         now: failureDate
                     ) {
-                        let expired = await service.restore(
-                            accountID: accountID,
-                            trustRoot: trustRoot,
-                            now: failureDate
-                        )
-                        try? await self.applyRelayPolicy(expired)
-                        relayAuthorityExpired = true
+                        let expectedReachability = self.relayPolicyNetworkReachable == true
+                        do {
+                            let didApply = try await self.expireAndApplyRelayPolicy(
+                                service: service,
+                                accountID: accountID,
+                                taskID: taskID,
+                                expectedReachability: expectedReachability
+                            )
+                            guard didApply else {
+                                guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                                self.armRelayPolicyDeactivationRetry(
+                                    now: clock.now(),
+                                    appliedPolicy: self.relayPolicyAppliedEffective,
+                                    retryPolicy: &deactivationRetryAppliedPolicy,
+                                    failureCount: &deactivationFailureCount,
+                                    retryAt: &deactivationRetryAt
+                                )
+                                continue
+                            }
+                            guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                            relayAuthorityExpired = true
+                            deactivationRetryAt = nil
+                            deactivationRetryAppliedPolicy = nil
+                            deactivationFailureCount = 0
+                        } catch {
+                            // A failed live replacement must not be marked as
+                            // expired authority; retain a bounded local retry
+                            // so an offline/expired endpoint cannot keep its
+                            // old relay profile indefinitely.
+                            guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                            self.armRelayPolicyDeactivationRetry(
+                                now: failureDate,
+                                appliedPolicy: self.relayPolicyAppliedEffective,
+                                retryPolicy: &deactivationRetryAppliedPolicy,
+                                failureCount: &deactivationFailureCount,
+                                retryAt: &deactivationRetryAt
+                            )
+                            continue
+                        }
                     } else {
-                        self.relayPolicyDiagnostics = await service.diagnosticsSnapshot()
+                        let diagnostics = await service.diagnosticsSnapshot()
+                        guard self.ownsRelayPolicyRefreshTask(taskID) else { return }
+                        self.relayPolicyDiagnostics = diagnostics
                         self.publishIrohSettingsUpdate()
                     }
-                    let retryDelay = CmxIrohRetrySchedule.relayPolicy(
-                        for: Self.diagnosticFailureKind(for: error)
-                    ).delay(
+                    let retryDelay = CmxIrohRetrySchedule(for: failureKind).delay(
                         failureCount: failureCount,
                         retryAfterSeconds: (error as? any CmxRetryAfterProviding)?
                             .retryAfterSeconds,
@@ -399,18 +668,141 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
         }
     }
 
+    private func ownsRelayPolicyRefresh(
+        taskID: UUID,
+        service: CmxIrohRelayPolicyService,
+        accountID: String,
+        revision: UInt64
+    ) -> Bool {
+        relayPolicyRefreshTaskID == taskID
+            && revision == lifecycleRevision
+            && activeAccountID == accountID
+            && relayPolicyService === service
+    }
+
+    /// Checks the stored refresh context after an awaited policy operation.
+    private func ownsRelayPolicyRefreshTask(_ taskID: UUID) -> Bool {
+        guard relayPolicyRefreshTaskID == taskID,
+              relayPolicyRefreshRevision == lifecycleRevision,
+              relayPolicyRefreshAccountID == activeAccountID,
+              let refreshService = relayPolicyRefreshService,
+              let currentService = relayPolicyService else { return false }
+        return refreshService === currentService
+    }
+
+    /// Arms the bounded local retry used when expiry application is
+    /// invalidated by a concurrent path or policy generation change.
+    private func armRelayPolicyDeactivationRetry(
+        now: Date,
+        appliedPolicy: CmxIrohEffectiveRelayPolicy?,
+        retryPolicy: inout CmxIrohEffectiveRelayPolicy?,
+        failureCount: inout Int,
+        retryAt: inout Date?
+    ) {
+        guard let appliedPolicy, appliedPolicy.source == .managed else {
+            retryPolicy = nil
+            failureCount = 0
+            retryAt = nil
+            return
+        }
+        retryPolicy = appliedPolicy
+        let retryDelay = CmxIrohRetrySchedule.macHostRelayPolicy.delay(
+            failureCount: failureCount,
+            retryAfterSeconds: nil,
+            jitterUnitInterval: relayPolicyRetryJitter()
+        )
+        failureCount = min(failureCount + 1, 20)
+        retryAt = now.addingTimeInterval(retryDelay)
+        diagnosticLog.record(DiagnosticEvent(
+            .retryScheduled,
+            ms: UInt32(clamping: Int(retryDelay * 1_000)),
+            a: DiagnosticTransportKind.iroh.rawValue
+        ))
+    }
+
+    /// Produces and installs the empty managed profile used at endpoint-policy
+    /// expiry, retaining the reachability class that was observed before the
+    /// suspending service operation.
+    private func expireAndApplyRelayPolicy(
+        service: CmxIrohRelayPolicyService,
+        accountID: String,
+        taskID: UUID,
+        expectedReachability: Bool
+    ) async throws -> Bool {
+        // Do not restore from the service cache here. A refresh may have
+        // committed a newer catalog while its endpoint installation was
+        // suspended; this operation intentionally creates an empty managed
+        // profile for the authority that is actually installed.
+        guard let appliedPolicy = relayPolicyAppliedEffective,
+              appliedPolicy.source == .managed,
+              let expired = service.expireManagedPolicy(
+                  appliedPolicy: appliedPolicy
+              ) else {
+            return false
+        }
+        guard !Task.isCancelled,
+              ownsRelayPolicyRefreshTask(taskID),
+              relayPolicyAppliedEffective == appliedPolicy,
+              (relayPolicyNetworkReachable == true) == expectedReachability else {
+            return false
+        }
+        return try await applyRelayPolicy(
+            expired,
+            refreshTaskID: taskID,
+            allowOffline: true,
+            expectedReachability: expectedReachability,
+            expectedAppliedPolicy: appliedPolicy,
+            requireAppliedPolicyMatch: true,
+            appliedFailure: .policyExpired,
+            updatesResolvedState: false
+        )
+    }
+
+    /// Expiry of the policy installed on the endpoint, rather than a newer
+    /// policy that the service may have resolved but not yet applied.
+    private var appliedRelayPolicyExpiresAt: Date? {
+        guard let effective = relayPolicyAppliedEffective,
+              effective.source == .managed,
+              let policy = effective.managedPolicy else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(policy.expiresAt))
+    }
+
+    /// Whether the live endpoint currently uses a broker-managed profile.
+    /// Custom relay profiles may retain a managed catalog for display, but its
+    /// catalog expiry is not an authority expiry for the custom endpoint.
+    private var usesManagedRelayAuthority: Bool {
+        relayPolicyAppliedEffective?.source == .managed
+    }
+
+    /// Whether a failed broker round should park until a path transition.
+    /// Reachability is fail-closed: `nil` parks the loop until the platform
+    /// observer supplies an authoritative path state. An offline-classified
+    /// failure on a usable path still receives the ordinary long backoff, so a
+    /// captive portal cannot permanently stop future policy refreshes.
+    nonisolated static func shouldPauseRelayPolicyRetry(
+        failure _: DiagnosticFailureKind,
+        networkReachable: Bool?
+    ) -> Bool {
+        networkReachable != true
+    }
+
     nonisolated static func relayPolicyRefreshAttemptDate(
         policyExpiresAt: Date?,
         retryAt: Date?,
         now: Date
     ) -> Date {
         if let retryAt {
-            return min(retryAt, policyExpiresAt ?? retryAt)
+            // Once the cached authority is already expired, it is no longer
+            // an earlier refresh deadline. Keep the armed retry backoff; using
+            // the stale expiry here would turn every failed restore into an
+            // immediate retry loop.
+            guard let policyExpiresAt, policyExpiresAt > now else { return retryAt }
+            return min(retryAt, policyExpiresAt)
         }
         if let policyExpiresAt {
             return policyExpiresAt.addingTimeInterval(-60)
         }
-        return now.addingTimeInterval(30)
+        return now.addingTimeInterval(CmxIrohRetrySchedule.macHostRelayPolicy.initialDelay)
     }
 
     nonisolated static func shouldDeactivateRelayPolicy(
@@ -419,6 +811,33 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
     ) -> Bool {
         guard let policyExpiresAt else { return false }
         return now >= policyExpiresAt
+    }
+
+    /// Returns the local deadline that remains actionable while broker refresh
+    /// is parked by an unavailable path. A missing expiry means there is no
+    /// local authority to revoke, so the caller can end the parked task and
+    /// let the next reachable-path callback recreate it.
+    nonisolated static func relayPolicyOfflineExpiryAttemptDate(
+        policyExpiresAt: Date?,
+        retryAt: Date? = nil,
+        now: Date
+    ) -> Date? {
+        guard let policyExpiresAt else { return nil }
+        guard retryAt != nil else { return max(now, policyExpiresAt) }
+        return relayPolicyRefreshAttemptDate(
+            policyExpiresAt: policyExpiresAt,
+            retryAt: retryAt,
+            now: now
+        )
+    }
+
+    /// Chooses the earliest known policy expiry so a newer uninstalled cache
+    /// value can never postpone revocation of the live endpoint authority.
+    nonisolated static func earliestRelayPolicyExpiry(
+        servicePolicyExpiresAt: Date?,
+        appliedPolicyExpiresAt: Date?
+    ) -> Date? {
+        [servicePolicyExpiresAt, appliedPolicyExpiresAt].compactMap { $0 }.min()
     }
 
     func publishIrohSettingsUpdate() {
@@ -465,30 +884,262 @@ extension MobileHostIrohRuntime: CmxIrohSettingsControlling {
                 trustRoot: context.trustRoot,
                 now: Date()
             )
-            try await applyRelayPolicy(effective)
+            guard await context.service.effectivePolicy() == effective else { return }
+            guard try await applyRelayPolicy(
+                effective,
+                expectedServicePolicy: effective
+            ) else { return }
         } catch {
+            guard relayPolicyService === context.service,
+                  activeAccountID == context.accountID else { return }
             relayPolicyDiagnostics = await context.service.diagnosticsSnapshot()
             publishIrohSettingsUpdate()
         }
     }
 
+    /// Installs a policy, optionally fenced to one refresh-task generation.
+    @discardableResult
     private func applyRelayPolicy(
-        _ effective: CmxIrohEffectiveRelayPolicy
-    ) async throws {
-        relayPolicyEffective = effective
-        relayPolicyDiagnostics = await relayPolicyService?.diagnosticsSnapshot()
-        if let runtime {
-            try await runtime.replaceRelayPolicy(effective)
+        _ effective: CmxIrohEffectiveRelayPolicy,
+        refreshTaskID: UUID? = nil,
+        allowOffline: Bool = false,
+        expectedReachability: Bool? = nil,
+        expectedServicePolicy: CmxIrohEffectiveRelayPolicy? = nil,
+        expectedAppliedPolicy: CmxIrohEffectiveRelayPolicy? = nil,
+        requireAppliedPolicyMatch: Bool = false,
+        appliedFailure: CmxIrohRelayPolicyFailure? = nil,
+        updatesResolvedState: Bool = true
+    ) async throws -> Bool {
+        relayPolicyApplicationGeneration &+= 1
+        let applicationGeneration = relayPolicyApplicationGeneration
+        let requestID = UUID()
+        let previous = relayPolicyApplicationTail
+        let expectedRuntime = runtime
+        let task = Task { @MainActor [weak self] () throws -> Bool in
+            if let previous {
+                _ = try? await previous.value
+            }
+            guard let self,
+                  self.relayPolicyApplicationGeneration == applicationGeneration,
+                  self.relayPolicyApplicationTaskID == requestID,
+                  self.ownsRelayPolicyRuntime(expectedRuntime) else {
+                return false
+            }
+            return try await self.performRelayPolicyApplication(
+                effective,
+                expectedRuntime: expectedRuntime,
+                refreshTaskID: refreshTaskID,
+                allowOffline: allowOffline,
+                expectedReachability: expectedReachability,
+                expectedServicePolicy: expectedServicePolicy,
+                expectedAppliedPolicy: expectedAppliedPolicy,
+                requireAppliedPolicyMatch: requireAppliedPolicyMatch,
+                appliedFailure: appliedFailure,
+                updatesResolvedState: updatesResolvedState,
+                applicationGeneration: applicationGeneration
+            )
         }
-        publishIrohSettingsUpdate()
+        relayPolicyApplicationTail = task
+        relayPolicyApplicationTaskID = requestID
+        defer {
+            if relayPolicyApplicationTaskID == requestID {
+                relayPolicyApplicationTail = nil
+                relayPolicyApplicationTaskID = nil
+            }
+        }
+        return try await task.value
     }
 
+    private func performRelayPolicyApplication(
+        _ effective: CmxIrohEffectiveRelayPolicy,
+        expectedRuntime: CmxIrohHostRuntime?,
+        refreshTaskID: UUID?,
+        allowOffline: Bool,
+        expectedReachability: Bool?,
+        expectedServicePolicy: CmxIrohEffectiveRelayPolicy?,
+        expectedAppliedPolicy: CmxIrohEffectiveRelayPolicy?,
+        requireAppliedPolicyMatch: Bool,
+        appliedFailure: CmxIrohRelayPolicyFailure?,
+        updatesResolvedState: Bool,
+        applicationGeneration: UInt64
+    ) async throws -> Bool {
+        guard relayPolicyApplicationGeneration == applicationGeneration,
+              ownsRelayPolicyRuntime(expectedRuntime) else {
+            return false
+        }
+        let diagnostics = await relayPolicyService?.diagnosticsSnapshot()
+        guard relayPolicyApplicationGeneration == applicationGeneration,
+              ownsRelayPolicyRuntime(expectedRuntime) else {
+            return false
+        }
+        if let refreshTaskID {
+            guard ownsRelayPolicyRefreshTask(refreshTaskID),
+                  canApplyRelayPolicy(
+                      allowOffline: allowOffline,
+                      expectedReachability: expectedReachability
+                  ) else {
+                return false
+            }
+        }
+        if let expectedServicePolicy {
+            guard let service = relayPolicyService,
+                  await service.effectivePolicy() == expectedServicePolicy else {
+                return false
+            }
+        }
+        if requireAppliedPolicyMatch {
+            guard relayPolicyAppliedEffective == expectedAppliedPolicy else {
+                return false
+            }
+        }
+        if let expectedRuntime {
+            guard relayPolicyApplicationGeneration == applicationGeneration,
+                  ownsRelayPolicyRuntime(expectedRuntime) else {
+                return false
+            }
+            if let refreshTaskID {
+                guard ownsRelayPolicyRefreshTask(refreshTaskID),
+                      canApplyRelayPolicy(
+                          allowOffline: allowOffline,
+                          expectedReachability: expectedReachability
+                      ) else {
+                    return false
+                }
+            }
+            try await expectedRuntime.replaceRelayPolicy(effective)
+            // The endpoint replacement suspends. A lifecycle transition or a
+            // newer request may have taken ownership while it was in flight;
+            // never commit the stale result into that newer state.
+            guard relayPolicyApplicationGeneration == applicationGeneration,
+                  ownsRelayPolicyRuntime(expectedRuntime) else {
+                return false
+            }
+        }
+        // The endpoint mutation is authoritative for expiry bookkeeping. Do
+        // not wait for the service-side fence before recording what it
+        // accepted; a concurrent preference refresh may legitimately publish a
+        // different resolved snapshot while this replacement suspends.
+        if !requireAppliedPolicyMatch || relayPolicyAppliedEffective == expectedAppliedPolicy {
+            relayPolicyAppliedEffective = effective
+            relayPolicyAppliedFailure = appliedFailure
+        }
+        guard relayPolicyApplicationGeneration == applicationGeneration else {
+            return false
+        }
+        if requireAppliedPolicyMatch {
+            guard relayPolicyAppliedEffective == effective else {
+                return false
+            }
+        }
+        if let expectedServicePolicy {
+            guard let service = relayPolicyService,
+                  await service.effectivePolicy() == expectedServicePolicy else {
+                return false
+            }
+        }
+        if let refreshTaskID {
+            guard ownsRelayPolicyRefreshTask(refreshTaskID),
+                  canApplyRelayPolicy(
+                      allowOffline: allowOffline,
+                      expectedReachability: expectedReachability
+                  ) else {
+                return false
+            }
+        }
+        if updatesResolvedState {
+            relayPolicyEffective = effective
+            relayPolicyDiagnostics = diagnostics
+        }
+        publishIrohSettingsUpdate()
+        return true
+    }
+
+    /// Validates the path state for a refresh-task policy application. Local
+    /// expiry revocation may proceed while offline, but only if the reachability
+    /// class observed before the operation is still current after it suspends.
+    private func canApplyRelayPolicy(
+        allowOffline: Bool,
+        expectedReachability: Bool?
+    ) -> Bool {
+        if let expectedReachability {
+            guard (relayPolicyNetworkReachable == true) == expectedReachability else {
+                return false
+            }
+            return expectedReachability || allowOffline
+        }
+        return allowOffline || relayPolicyNetworkReachable == true
+    }
+
+    /// Cancels the long-lived relay refresh task and clears its captured
+    /// account context at every lifecycle boundary.
+    func cancelRelayPolicyRefresh() {
+        relayPolicyRefreshTask?.cancel()
+        relayPolicyRefreshTask = nil
+        relayPolicyRefreshTaskID = nil
+        relayPolicyRefreshService = nil
+        relayPolicyRefreshAccountID = nil
+        relayPolicyRefreshEndpointID = nil
+        relayPolicyRefreshTrustRoot = nil
+        relayPolicyRefreshRevision = nil
+    }
+
+    /// Re-arms a refresh whose lifecycle owner was retained while an active
+    /// same-account reconcile completed without replacing the endpoint.
+    func rearmRelayPolicyRefreshIfNeeded() {
+        guard relayPolicyRefreshTask == nil,
+              let service = relayPolicyRefreshService,
+              let accountID = relayPolicyRefreshAccountID,
+              let endpointID = relayPolicyRefreshEndpointID,
+              let trustRoot = relayPolicyRefreshTrustRoot,
+              let revision = relayPolicyRefreshRevision,
+              revision == lifecycleRevision,
+              activeAccountID == accountID else { return }
+        scheduleRelayPolicyRefresh(
+            service: service,
+            accountID: accountID,
+            endpointID: endpointID,
+            trustRoot: trustRoot,
+            revision: revision,
+            refreshImmediately: false
+        )
+    }
+
+    /// Returns whether the endpoint captured by a policy application is still
+    /// the runtime owned by this lifecycle generation. A captured nil asserts
+    /// that no endpoint existed when the request began.
+    private func ownsRelayPolicyRuntime(
+        _ expectedRuntime: CmxIrohHostRuntime?
+    ) -> Bool {
+        guard let expectedRuntime else { return runtime == nil }
+        guard let runtime else { return false }
+        return runtime === expectedRuntime
+    }
+
+    /// Invalidates endpoint policy replacements before a lifecycle transition
+    /// can suspend while stopping or activating a runtime.
+    func invalidateRelayPolicyApplications() {
+        relayPolicyApplicationGeneration &+= 1
+        relayPolicyApplicationTail?.cancel()
+        relayPolicyApplicationTail = nil
+        relayPolicyApplicationTaskID = nil
+    }
+
+    /// Cancels relay-policy observers and clears the account-scoped refresh
+    /// context without discarding the platform's last reachability sample.
     func clearRelayPolicyRuntimeState() {
         relayPolicyObservationTask?.cancel()
         relayPolicyObservationTask = nil
-        relayPolicyRefreshTask?.cancel()
-        relayPolicyRefreshTask = nil
+        cancelRelayPolicyRefresh()
+        invalidateRelayPolicyApplications()
+        serverSignalRefreshTask?.cancel()
+        serverSignalRefreshTask = nil
+        serverSignalRefreshTaskID = nil
+        serverSignalRefreshRevision = nil
+        serverSignalPendingRevision = nil
+        serverSignalAccountID = nil
         relayPolicyService = nil
+        relayPolicyAppliedEffective = nil
+        relayPolicyAppliedFailure = nil
         relayPolicyEffective = nil
         relayPolicyDiagnostics = nil
         relayPolicyEndpointID = nil

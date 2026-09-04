@@ -39,6 +39,14 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
         maximumDelay: CmxIrohReconnectBackoffConfiguration.foreground.cap
     )
 
+    /// Long-lived macOS host profile. A broker outage is normally invisible to
+    /// the user, so the daemon backs off to an idle cadence instead of polling
+    /// every few seconds for the rest of the process lifetime.
+    public static let macHostRelayPolicy = CmxIrohRetrySchedule(
+        initialDelay: 60,
+        maximumDelay: 21_600
+    )
+
     /// Returns a retry delay that never precedes a server-provided floor.
     ///
     /// - Parameters:
@@ -73,5 +81,18 @@ public struct CmxIrohRetrySchedule: Equatable, Sendable {
         failureKind == .authorizationFailed
             ? Self(initialDelay: 2, maximumDelay: 120)
             : Self()
+    }
+
+    /// Creates the cause-aware retry profile for the macOS host's
+    /// relay-policy loop. Authentication transitions get a short recovery
+    /// window; network and policy availability failures use the long-lived
+    /// idle cadence.
+    ///
+    /// - Parameter failureKind: The diagnostic cause that selected the retry
+    ///   profile.
+    public init(for failureKind: DiagnosticFailureKind) {
+        self = failureKind == .authorizationFailed
+            ? Self(initialDelay: 30, maximumDelay: 600)
+            : .macHostRelayPolicy
     }
 }

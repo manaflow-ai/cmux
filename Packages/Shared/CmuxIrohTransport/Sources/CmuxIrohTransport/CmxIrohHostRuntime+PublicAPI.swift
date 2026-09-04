@@ -87,24 +87,38 @@ extension CmxIrohHostRuntime {
         guard lifecyclePhase == .active,
               let connectivityEngine,
               let admissionController,
-              localBinding != nil else {
+              localBinding != nil,
+              !Task.isCancelled else {
             return .failed(.endpointUnavailable)
         }
         while let refresh = registrationRefreshTask {
             await refresh.value
+            guard !Task.isCancelled else {
+                return .failed(.superseded)
+            }
         }
         guard lifecyclePhase == .active,
-              self.connectivityEngine === connectivityEngine else {
+              self.connectivityEngine === connectivityEngine,
+              !Task.isCancelled else {
             return .failed(.endpointUnavailable)
         }
         if let installed = await connectivityEngine.snapshot().routeRevision,
            installed >= hintedRevision {
+            guard !Task.isCancelled else {
+                return .failed(.superseded)
+            }
             return .refreshed
+        }
+        guard !Task.isCancelled else {
+            return .failed(.superseded)
         }
         let revision = lifecycleRevision
         do {
             let discovery = try await discoverAuthoritatively()
             try requireCurrent(revision)
+            guard !Task.isCancelled else {
+                return .failed(.superseded)
+            }
             guard let discoveredRevision = discovery.revision,
                   discoveredRevision >= hintedRevision else {
                 throw CmxIrohTrustBrokerClientError.invalidResponse
@@ -127,16 +141,21 @@ extension CmxIrohHostRuntime {
             }
             let endpointID = try await connectivityEngine.localEndpointIdentity()
             try validateLocalBinding(discovered, endpointID: endpointID)
+            try requireCurrent(revision)
             let attestation = try? await broker.issueEndpointAttestation(
                 bindingID: discovered.bindingID
             )
             try requireCurrent(revision)
+            guard !Task.isCancelled else {
+                return .failed(.superseded)
+            }
             let metadata = CmxIrohBrokerBindingMetadata(binding: discovered)
             await admissionController.update(
                 keys: discovery.grantVerificationKeys,
                 acceptor: grantPeer(for: metadata),
                 pairingEnabled: discovered.pairingEnabled
             )
+            try requireCurrent(revision)
             self.localBinding = metadata
             endpointAttestation = attestation ?? endpointAttestation
             lanRendezvous = discovery.lanRendezvous
@@ -150,12 +169,22 @@ extension CmxIrohHostRuntime {
                 attestation
             )
             try requireCurrent(revision)
+            guard !Task.isCancelled else {
+                return .failed(.superseded)
+            }
             await handleRoute(metadata, discovered.pathHints)
             try requireCurrent(revision)
+            guard !Task.isCancelled else {
+                return .failed(.superseded)
+            }
             await connectivityEngine.didInstallRouteRevision(
                 discoveredRevision,
                 routes: discovery
             )
+            try requireCurrent(revision)
+            guard !Task.isCancelled else {
+                return .failed(.superseded)
+            }
             scheduleLANPublication(
                 binding: metadata,
                 rendezvous: discovery.lanRendezvous,
@@ -169,7 +198,8 @@ extension CmxIrohHostRuntime {
             return .refreshed
         } catch {
             guard lifecyclePhase == .active,
-                  lifecycleRevision == revision else {
+                  lifecycleRevision == revision,
+                  !Task.isCancelled else {
                 return .failed(.superseded)
             }
             if CmxIrohTrustBrokerClientError
