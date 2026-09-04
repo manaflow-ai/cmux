@@ -384,7 +384,7 @@ struct VaultPaneTransferLifecycleTests {
             })
             let orderedPanelIDs = dock.bonsplitController.tabs(inPane: targetPane).compactMap { tab in
                 dock.panels.keys.first { panelID in
-                    dock.surfaceId(forPanelId: panelID)?.id == tab.id
+                    dock.surfaceId(forPanelId: panelID) == tab.id
                 }
             }
             #expect(orderedPanelIDs.first == droppedPanelID)
