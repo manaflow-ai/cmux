@@ -5272,7 +5272,7 @@ struct CMUXCLI {
             bundleIdentifier: cliBundleIdentifier,
             environment: processEnv
         )
-        let socketPathSource: CLISocketPathSource
+        var socketPathSource: CLISocketPathSource
         if explicitSocketPath != nil {
             socketPathSource = .explicitFlag
         } else if envSocketPath != nil {
@@ -5293,6 +5293,15 @@ struct CMUXCLI {
             environment: processEnv,
             bundleIdentifier: cliBundleIdentifier
         )
+        // A terminal can outlive the app that created it (and tmux can retain
+        // that terminal's environment). Treat the inherited socket as a hint
+        // for VPN, never as authority: privileged tunnel mutations must resolve
+        // against this CLI's own build variant. Explicit `--socket` remains a
+        // deliberate escape hatch and stays pinned below.
+        if command == "vpn",
+           socketPathSource == .environment {
+            socketPathSource = .implicitDefault
+        }
         let socketResolution = socketResolver.resolve(
             requestedPath: socketPath,
             source: socketPathSource,

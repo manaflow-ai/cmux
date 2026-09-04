@@ -227,9 +227,13 @@ struct CLISocketPathResolver {
 
     /// Resolves a socket using one ordered, liveness-aware discovery pass.
     ///
-    /// Explicit flag and environment paths are deliberately returned verbatim and are
-    /// never probed or rerouted. Implicit discovery only selects a path after a real
-    /// non-blocking connect succeeds; a stale socket file is never handed to the client.
+    /// Explicit flag paths are deliberately returned verbatim and are never probed or
+    /// rerouted. Ordinary environment paths keep that same compatibility behavior. A
+    /// side-effecting caller such as `vpn` passes an implicit source with
+    /// `allowCrossVariantFallback` disabled, which limits discovery to this build's
+    /// own socket and marker files. Implicit discovery only selects a path after a
+    /// real non-blocking connect succeeds; a stale socket file is never handed to the
+    /// client.
     func resolve(
         requestedPath: String,
         source: CLISocketPathSource,
@@ -277,6 +281,19 @@ struct CLISocketPathResolver {
         // implicit discovery. The caller can still opt into the historical
         // cross-variant fallback for read-only/general CLI commands.
         guard allowCrossVariantFallback else {
+            // A stable release may have moved to its user-scoped socket, and a
+            // tagged build may use a reload-managed/custom path. Keep those
+            // paths available only when this variant itself published them;
+            // never accept an arbitrary environment path in the strict mode.
+            let ownMarkers = readLastSocketPaths(
+                bundleIdentifier: bundleIdentifier,
+                environment: environment
+            )
+            candidates.append(contentsOf: ownMarkers)
+            if Self.pathsMatch(requestedPath, ownDefaultPath)
+                || ownMarkers.contains(where: { Self.pathsMatch($0, requestedPath) }) {
+                candidates.append(requestedPath)
+            }
             return candidates
         }
 
