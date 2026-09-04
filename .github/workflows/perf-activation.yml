@@ -254,7 +254,9 @@ jobs:
 
           CONSOLE_USER="$(stat -f %Su /dev/console 2>/dev/null || true)"
           if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && CONSOLE_UID="$(id -u "$CONSOLE_USER" 2>/dev/null)" && sudo -n true 2>/dev/null; then
-            CONSOLE_HOME="$( (dscl . -read "/Users/$CONSOLE_USER" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
+            # shellcheck source=scripts/ci/console-home.sh
+            source scripts/ci/console-home.sh
+            CONSOLE_HOME="$(cmux_console_home "$CONSOLE_USER")"
             if [ -z "$CONSOLE_HOME" ]; then
               CONSOLE_HOME="$HOME"
             fi
@@ -350,9 +352,7 @@ jobs:
 
       - name: Cleanup tagged app
         if: always()
-        run: |
-          pkill -f "cmux DEV ${PERF_TAG}.app/Contents/MacOS/cmux DEV" || true
-          rm -f "/tmp/cmux-debug-${PERF_TAG}.sock"
+        run: ./scripts/ci/cleanup-target-scale.sh "$PERF_TAG"
 
   activation-session:
     needs:

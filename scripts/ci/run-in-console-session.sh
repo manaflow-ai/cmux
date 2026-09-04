@@ -25,6 +25,8 @@ set -euo pipefail
 ci_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/ci/app-host-isolation.sh
 source "$ci_script_dir/app-host-isolation.sh"
+# shellcheck source=scripts/ci/console-home.sh
+source "$ci_script_dir/console-home.sh"
 
 if [ "$#" -eq 0 ]; then
   echo "usage: $0 <command> [args...]" >&2
@@ -196,7 +198,7 @@ prepare_app_host_home_for_console_user() {
 console_user="$(stat -f %Su /dev/console 2>/dev/null || true)"
 if [ -n "$console_user" ] && [ "$console_user" != "root" ] \
   && console_uid="$(id -u "$console_user" 2>/dev/null)" && sudo -n true 2>/dev/null; then
-  console_home="$( (dscl . -read "/Users/$console_user" NFSHomeDirectory 2>/dev/null || true) | awk '{print $2}')"
+  console_home="$(cmux_console_home "$console_user")"
   [ -n "$console_home" ] || console_home="$HOME"
   prepare_app_host_home_for_console_user \
     "$console_user" "$cleanup_app_host_home_requested"
