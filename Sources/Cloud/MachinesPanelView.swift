@@ -1016,6 +1016,20 @@ private struct MachinesTunnelSetupCard: View {
         }
     }
 
+    /// Polls until the tunnel is actually up, or gives up. Cheap enough to
+    /// poll: it reads the config and the interface list.
+    private func waitForTunnel(manager: VMTunnelManager) async -> Bool {
+        for _ in 0..<40 {
+            if manager.wgQuickInterfaceUp() { return true }
+            do {
+                try await Task.sleep(for: .milliseconds(250))
+            } catch {
+                return manager.wgQuickInterfaceUp()
+            }
+        }
+        return manager.wgQuickInterfaceUp()
+    }
+
     private func setUp() {
         guard setupTask == nil else { return }
         errorText = nil
@@ -1047,6 +1061,14 @@ private struct MachinesTunnelSetupCard: View {
                     }
                 }.value
                 if case .failure(let error) = result { throw error }
+                // launchctl returns once the job is loaded, not once the
+                // tunnel is up: wg-quick runs a moment later. Re-checking
+                // immediately found the tunnel still down, so the card stayed
+                // put and a setup that had in fact just succeeded looked like
+                // a button that did nothing.
+                guard await waitForTunnel(manager: manager) else {
+                    throw VMTunnelAutostart.InstallError.didNotComeUp
+                }
             } catch is CancellationError {
                 return
             } catch {

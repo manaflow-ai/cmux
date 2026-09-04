@@ -11,6 +11,7 @@ enum VMTunnelAutostart {
         case wireGuardMissing
         case notEnrolled
         case notSignedIn
+        case didNotComeUp
         /// Anything else. Carries no command output: the underlying tools
         /// report paths and system detail that mean nothing to the person
         /// reading a banner, so the detail is logged and this stays product
@@ -28,6 +29,11 @@ enum VMTunnelAutostart {
                 return String(
                     localized: "cloud.tunnel.autostart.notSignedIn",
                     defaultValue: "Sign in to cmux Cloud first, then connect this Mac."
+                )
+            case .didNotComeUp:
+                return String(
+                    localized: "cloud.tunnel.autostart.didNotComeUp",
+                    defaultValue: "The private network was set up but did not connect. Try again, or restart this Mac."
                 )
             case .notEnrolled:
                 return String(
