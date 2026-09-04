@@ -2146,8 +2146,6 @@ final class MenuBarIconDebugSettingsTests: XCTestCase {
 }
 
 @MainActor
-
-
 final class MenuBarIconRendererTests: XCTestCase {
     func testImageWidthDoesNotShiftWhenBadgeAppears() {
         let noBadge = MenuBarIconRenderer.makeImage(unreadCount: 0)
