@@ -148,7 +148,7 @@ end https://end.example/c
         \u{1B}]8;;\(third)\u{07}three\u{1B}]8;;\u{07}\
         \(ignoredPlainURL)
         \(recoveredPlainURL)
-        """
+        """ + "\n"
 
         let links = scanner.consume(bytes(output))
 
