@@ -159,6 +159,20 @@ export default function middleware(incomingRequest: NextRequest) {
     });
   }
 
+  // Founder purchases can be completed before a Stack account exists. Keep
+  // the recovery URL stable in emails and payment-link follow-up while
+  // rendering the localized public page.
+  if (pathname === "/billing/recover" || pathname === "/billing/recover/") {
+    const locale = preferredAppRouteLocale(request);
+    const url = request.nextUrl.clone();
+    url.pathname = `/${locale}/billing/recover`;
+    const requestHeaders = new Headers(request.headers);
+    requestHeaders.set("x-next-intl-locale", locale);
+    return NextResponse.rewrite(url, {
+      request: { headers: requestHeaders },
+    });
+  }
+
   // Other post-checkout pages still live outside the [locale] tree, like
   // /app-pricing. Without this bypass next-intl rewrites them into /<locale>/
   // billing/... which has no route and 404s through the pass-through layout.
