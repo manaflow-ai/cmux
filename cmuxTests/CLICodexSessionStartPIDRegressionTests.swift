@@ -6,7 +6,7 @@ import Testing
 struct CLICodexSessionStartPIDRegressionTests {
     @Test
     func newPIDSessionStartRetainsCompletedTurnMarkerForDuplicateGuard() throws {
-        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: Self.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundleToken.self)
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-codex-new-pid-start-\(UUID().uuidString)", isDirectory: true)
         let socketPath = makeCodexHookSocketPath("codex-new-pid")
@@ -113,4 +113,6 @@ struct CLICodexSessionStartPIDRegressionTests {
             "A duplicate SessionStart must not publish another resume binding"
         )
     }
+
+    private final class BundleToken {}
 }
