@@ -82,7 +82,8 @@ extension DockSplitStore {
         let ownerWindow = ownerManager
             .flatMap { appDelegate.windowId(for: $0) }
             .flatMap { appDelegate.mainWindow(for: $0) }
-        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: ownerWindow ?? window)
+        guard let ownerWindow else { return }
+        appDelegate.noteRightSidebarKeyboardFocusIntent(mode: .dock, in: ownerWindow)
     }
 
     func scheduleDockPortalReconcile(reason: String) {
