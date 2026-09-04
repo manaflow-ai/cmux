@@ -18,8 +18,6 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
-  // Warm the Freestyle connection while the caller is being verified.
-  preconnectFreestyle();
   return withAuthedVmApiRoute(
     request,
     "/api/vm/[id]/attach-endpoint",
@@ -84,6 +82,10 @@ export async function POST(
           message: `Unknown attach transport "${transport}". Use "websocket" or "cmux-remote".`,
         }, 400);
       }
+      // Legacy provider transports still benefit from a warmed SDK client.
+      // Private cmux-tui attach has no Freestyle call, so do not spend a
+      // speculative request on its critical path.
+      preconnectFreestyle();
       setSpanAttributes(span, { "cmux.vm.attach.require_daemon": requireDaemon });
       if (sessionId) setSpanAttributes(span, { "cmux.vm.attach.session_id": sessionId });
       try {

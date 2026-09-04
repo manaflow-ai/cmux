@@ -193,6 +193,8 @@ export type CmuxRemoteEndpoint = {
   /** Ingress token (hashed into the lease ledger, never persisted raw). */
   token: string;
   expiresAtUnix: number;
+  /** Short-lived server-signed authorization for a private daemon. */
+  grant?: string;
   /** Daemon session name inside the VM (`server start --session`). */
   session: string;
   /**

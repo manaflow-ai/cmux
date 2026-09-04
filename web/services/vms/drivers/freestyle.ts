@@ -1148,6 +1148,28 @@ export class FreestyleProvider implements VMProvider {
           const route = freestyleCmuxRemoteRoute(data, vmId);
           span.setAttribute("cmux.vm.network.private", (data.vpcs ?? data.networks ?? []).length > 0);
           span.setAttribute("cmux.vm.route.source", persisted ? "row" : "provider");
+          // A baked private machine is already listening. Its route is fully
+          // represented by the persisted VPC address, so attaching must not
+          // probe Freestyle or execute a guest repair command. The control
+          // plane supplies a signed grant after this method returns.
+          if (persisted) {
+            const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
+            const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
+            const addresses = freestyleNetworkAddressMetadata(data);
+            const networkAddresses = {
+              ...(addresses.networkIpv4 ? { ipv4: addresses.networkIpv4 } : {}),
+              ...(addresses.networkIpv6 ? { ipv6: addresses.networkIpv6 } : {}),
+            };
+            span.setAttribute("cmux.vm.cmux_remote.mode", "persisted-private-direct");
+            return {
+              transport: "cmux-remote" as const,
+              route,
+              token,
+              expiresAtUnix,
+              session: CMUX_TUI_SESSION,
+              ...(Object.keys(networkAddresses).length ? { networkAddresses } : {}),
+            };
+          }
           // Direct-IPv6 carries no URL token; this one exists only for the
           // lease ledger. The daemon's Noise enrollment is the session gate —
           // the same trust model as E2B's public proxy route.

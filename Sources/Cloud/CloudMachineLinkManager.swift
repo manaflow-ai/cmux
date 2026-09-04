@@ -119,6 +119,7 @@ actor CloudMachineLinkManager {
                     route: endpoint.route,
                     session: endpoint.session,
                     invitationURI: endpoint.invitation?.uri,
+                    grant: endpoint.grant,
                     // Enrollment rides this same window (see enrollingConnectTimeout).
                     timeout: endpoint.invitation == nil ? connectTimeout : enrollingConnectTimeout
                 )

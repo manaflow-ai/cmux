@@ -88,7 +88,6 @@ import {
   devboxFileBytes,
   devboxGhosttyDebSha256,
   devboxGhosttyDebUrl,
-  devboxParkDaemonCommand,
   emitBakeResult,
   hasFlag,
   manifestEntrySkeleton,
@@ -397,6 +396,24 @@ try {
   );
 
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
+  // The image contains only the public verification key. The private signing
+  // key stays in the control plane and is never sent through Freestyle.
+  const cloudGrantPublicKeySpki = (() => {
+    const raw = process.env.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON;
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as { current_kid?: unknown; keys?: unknown };
+      const currentKid = typeof parsed.current_kid === "string" ? parsed.current_kid : null;
+      const keys = Array.isArray(parsed.keys) ? parsed.keys : [];
+      const current = keys.find((entry) =>
+        entry && typeof entry === "object" &&
+        (entry as { kid?: unknown }).kid === currentKid,
+      ) as { spki_der_base64?: unknown } | undefined;
+      return typeof current?.spki_der_base64 === "string" ? current.spki_der_base64 : null;
+    } catch {
+      return null;
+    }
+  })();
   const service = [
     "[Unit]",
     "Description=cmux-tui session daemon supervisor",
@@ -410,6 +427,7 @@ try {
     // defaults to 0.0.0.0 for the container providers, whose runtimes may have
     // IPv6 disabled entirely.
     "Environment=CMUX_TUI_REMOTE_WS_BIND=[::]:1337",
+    ...(cloudGrantPublicKeySpki ? [`Environment=CMUX_REMOTE_GRANT_PUBLIC_KEY_SPKI_BASE64=${cloudGrantPublicKeySpki}`] : []),
     // Pane shells inherit this PATH; /usr/local/bin carries the base's Node
     // and every pinned agent as symlinks, so no login shell is needed.
     "Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
@@ -432,10 +450,9 @@ try {
     "cmux-tui-daemon-up",
     `for i in $(seq 1 30); do env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} >/dev/null 2>&1 && grep -qi ':0539 ' /proc/net/tcp6 && break; sleep 1; done && env HOME=/root /root/.cmux/bin/cmux-tui server status --session ${CMUX_TUI_SESSION} && grep -qi ':0539 ' /proc/net/tcp6 && test "$(cat /etc/cmux/daemon-instance-id)" = "$(${instanceIdCommand})" && echo daemon-up-bound-to-builder`,
   );
-  // Park it (devboxParkDaemonCommand): the supervisor stops the daemon while
-  // the machine's id equals the recorded bake id, its identity and session
-  // state are wiped, and a clone (different id) starts fresh within one tick.
-  await step("cmux-tui-daemon-park", devboxParkDaemonCommand());
+  // Keep the daemon listening in the snapshot. A clone's supervisor compares
+  // the platform instance id, stops the inherited process, wipes its identity,
+  // and starts a fresh daemon before a signed grant can authorize a connection.
 
   await step(
     "ghost-text-smoke",

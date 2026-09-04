@@ -66,6 +66,7 @@ import {
   type VmRepositoryShape,
 } from "./repository";
 import { measureVmEffect, type VmTimingSink } from "./timings";
+import { signCloudVmGrant } from "./cloudGrant";
 
 export {
   homeVolumeNameForUser,
@@ -2063,15 +2064,7 @@ export function openVmCmuxRemote(input: {
         }),
       );
     }
-    yield* preflightResumeIfSuspended(
-      repo,
-      providers,
-      vm,
-      input.providerVmId,
-      "attach",
-      { forceProviderProbe: true },
-    );
-    const endpoint = yield* withResumeOnSuspendedAfterFailure(
+    const providerEndpoint = yield* withResumeOnSuspendedAfterFailure(
       repo,
       providers,
       vm,
@@ -2083,6 +2076,24 @@ export function openVmCmuxRemote(input: {
         providerMetadata: vm.providerMetadata,
       }),
     );
+    const endpoint = yield* Effect.try({
+      try: () => {
+        if (!providerEndpoint.networkAddresses) return providerEndpoint;
+        if (!input.deviceFingerprint) {
+          throw new Error("private cmux-tui attach requires the caller device fingerprint");
+        }
+        const grant = signCloudVmGrant({
+          vmId: input.providerVmId,
+          deviceFingerprint: input.deviceFingerprint,
+        });
+        return { ...providerEndpoint, grant: grant.token, expiresAtUnix: Math.min(providerEndpoint.expiresAtUnix, grant.expiresAtUnix) };
+      },
+      catch: (cause) => new VmProviderOperationError({
+        provider: vm.provider,
+        operation: "signCmuxRemoteGrant",
+        cause,
+      }),
+    });
     yield* repo.recordLease({
       vmId: vm.id,
       userId: input.userId,

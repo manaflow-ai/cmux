@@ -598,6 +598,7 @@ struct VMCmuxRemoteEndpoint {
     let token: String
     let expiresAtUnix: Int64
     let session: String
+    let grant: String?
     let invitation: Invitation?
     /// The machine daemon's build identity, for naming a protocol mismatch.
     struct DaemonBuild {
@@ -1371,6 +1372,7 @@ actor VMClient {
             token: token,
             expiresAtUnix: expiresAtUnix,
             session: session,
+            grant: (obj["grant"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             invitation: invitation,
             daemonBuild: daemonBuild
         )

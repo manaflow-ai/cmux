@@ -24,11 +24,9 @@
 #     state dir holds. A different id means "this is a clone": a running
 #     daemon (another machine's identity) is stopped, the remote state is
 #     wiped, and the daemon starts with a fresh identity bound to this id.
-#   * /etc/cmux/bake-instance-id is the machine a snapshot is being taken
-#     from. While it matches, the daemon is kept parked so the snapshot never
-#     carries a live identity. The bake and derive scripts write it right
-#     before they snapshot; a clone has a different id and starts its daemon
-#     within one tick of resume.
+#   * The snapshot may contain a listening daemon. A clone has a different id,
+#     so this supervisor stops the inherited process, wipes its identity, and
+#     starts a fresh daemon before a signed cloud grant can authorize a link.
 # Without a metadata service (containers) the id is empty and the daemon
 # simply runs, keeping whatever identity the state dir already holds.
 #
@@ -53,7 +51,6 @@ DESKTOP_DISPLAY=:1
 # cmux-remote's default state dir for root on Linux; identity.json lives under sessions/<session>/auth.
 REMOTE_STATE_DIR=/root/.local/state/cmux/remote
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
-BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
 METADATA=http://169.254.169.254
 
 instance_id() {
@@ -92,19 +89,15 @@ while true; do
   start_desktop
   if [ -x "$BIN" ]; then
     id=$(instance_id 2>/dev/null) || id=""
-    if [ -n "$id" ] && [ -f "$BAKE_INSTANCE_FILE" ] && [ "$id" = "$(cat "$BAKE_INSTANCE_FILE")" ]; then
-      stop_daemon # the machine being snapshotted: parked until the snapshot is taken
-    else
-      if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
-        stop_daemon
-        rm -rf "$REMOTE_STATE_DIR"
-        mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
-      fi
-      if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null; then
-        [ -n "$daemon_pid" ] && wait "$daemon_pid" 2>/dev/null
-        (cd /root && exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind) &
-        daemon_pid=$!
-      fi
+    if [ -n "$id" ] && [ "$id" != "$(cat "$BOUND_INSTANCE_FILE" 2>/dev/null)" ]; then
+      stop_daemon
+      rm -rf "$REMOTE_STATE_DIR"
+      mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
+    fi
+    if [ -z "$daemon_pid" ] || ! kill -0 "$daemon_pid" 2>/dev/null; then
+      [ -n "$daemon_pid" ] && wait "$daemon_pid" 2>/dev/null
+      (cd /root && exec env HOME=/root TERM=xterm-256color /root/.cmux/bin/cmux-tui server start --session cloud --remote-ws "${CMUX_TUI_REMOTE_WS_BIND:-0.0.0.0:1337}" --remote-ws-insecure-bind) &
+      daemon_pid=$!
     fi
   fi
   sleep 1
