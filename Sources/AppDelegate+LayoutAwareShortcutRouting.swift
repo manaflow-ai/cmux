@@ -18,20 +18,10 @@ extension AppDelegate {
         // a deliberate precedence rule.
         guard action == .openSettings,
               !KeyboardShortcutSettings.hasExplicitShortcutOverride(for: action),
-              ShortcutStroke.isCommandPunctuationFromPhysicalLetter(event) else {
+              shouldPreferPhysicalCloseTabFallbackOverSettings(event: event) else {
             return false
         }
-
-        let shortcut = KeyboardShortcutSettings.shortcut(for: action)
-        guard !shortcut.isUnbound,
-              !shortcut.hasChord else {
-            return false
-        }
-
-        let key = shortcut.firstStroke.key.lowercased()
-        let isDigit = key.count == 1 && key.first?.isNumber == true
-        let isLetter = key.count == 1 && key.first?.isLetter == true
-        return !isLetter && !isDigit
+        return true
     }
 
     /// Whether a Close Tab match must outrank a Settings menu equivalent.
