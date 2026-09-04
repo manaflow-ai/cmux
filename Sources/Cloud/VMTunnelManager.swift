@@ -303,9 +303,20 @@ struct VMTunnelManager: Sendable {
         // overlaps unrelated account networks. Each network is a /24 (and a
         // /64) the enrollment reports; `completedConfig` installs those as
         // interface-scoped routes so a second build can use the same network.
-        let allowedIPs = [endpoint.networkCidr, endpoint.networkCidrV6]
+        let networkRoutes = [endpoint.networkCidr, endpoint.networkCidrV6]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+        // Older control-plane responses may not include the nested `network`
+        // object even though the provider already returned its precise route
+        // list. Keep those responses safe for concurrent builds too: use the
+        // provider routes as a fallback, and fill only a missing address family
+        // when the network wrapper is partial.
+        let hasIPv4NetworkRoute = networkRoutes.contains { !$0.contains(":") }
+        let hasIPv6NetworkRoute = networkRoutes.contains { $0.contains(":") }
+        let allowedIPs = networkRoutes + endpoint.routes.filter { route in
+            let isIPv6 = route.contains(":")
+            return isIPv6 ? !hasIPv6NetworkRoute : !hasIPv4NetworkRoute
+        }
         let config = try Self.completedConfig(endpoint.clientConfig, privateKey: keys.privateKey, allowedIPs: allowedIPs)
         try ensureStateDir()
         try write(config, to: configURL)
@@ -402,22 +413,44 @@ struct VMTunnelManager: Sendable {
     /// really configured (a name file can outlive a crash until reboot). A
     /// future NetworkExtension tunnel reports through NEVPNStatus instead.
     func wgQuickInterfaceUp() -> Bool {
-        guard FileManager.default.fileExists(atPath: runtimeNameFileURL.path) else { return false }
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return false }
-        let expected = Self.interfaceAddresses(in: config)
+        let runtimeNamePresent = FileManager.default.fileExists(atPath: runtimeNameFileURL.path)
+        return Self.interfaceIsUp(
+            runtimeNamePresent: runtimeNamePresent,
+            config: config,
+            liveInterfaceAddresses: Self.currentInterfaceAddresses()
+        )
+    }
+
+    /// Combines the two unprivileged liveness signals used by ``wgQuickInterfaceUp``.
+    ///
+    /// Keeping this decision pure gives tests a deterministic way to cover the
+    /// root-owned marker requirement without creating files under `/var/run`.
+    static func interfaceIsUp(
+        runtimeNamePresent: Bool,
+        config: String,
+        liveInterfaceAddresses: Set<String>
+    ) -> Bool {
+        guard runtimeNamePresent else { return false }
+        let expected = interfaceAddresses(in: config)
         guard !expected.isEmpty else { return false }
+        return !expected.isDisjoint(with: liveInterfaceAddresses)
+    }
+
+    /// Numeric addresses currently assigned to local interfaces.
+    private static func currentInterfaceAddresses() -> Set<String> {
+        var addresses = Set<String>()
         var addrs: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&addrs) == 0 else { return false }
+        guard getifaddrs(&addrs) == 0 else { return addresses }
         defer { freeifaddrs(addrs) }
         var cursor = addrs
         while let current = cursor {
-            if let sa = current.pointee.ifa_addr, let address = Self.numericAddress(sa),
-               expected.contains(address) {
-                return true
+            if let sa = current.pointee.ifa_addr, let address = Self.numericAddress(sa) {
+                addresses.insert(address)
             }
             cursor = current.pointee.ifa_next
         }
-        return false
+        return addresses
     }
 
     /// The `Address =` values in a wg-quick config's `[Interface]` section,
