@@ -6530,6 +6530,14 @@ final class cmuxUITests: XCTestCase {
         defer { app.terminate() }
 
         XCTAssertTrue(app.otherElements["MobileTerminalSurface"].waitForExistence(timeout: 12))
+        let composerField = app.descendants(matching: .any)[Composer.field]
+        XCTAssertTrue(composerField.waitForExistence(timeout: 8))
+        composerField.tap()
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForExistence(timeout: 8),
+            "Keyboard must be visible before checking the terminal accessory control"
+        )
+
         let keyboardToggle = app.buttons["terminal.inputAccessory.hideKeyboard"]
         let attachment = app.descendants(matching: .any)[Composer.attachButton]
         XCTAssertTrue(keyboardToggle.waitForExistence(timeout: 8))
