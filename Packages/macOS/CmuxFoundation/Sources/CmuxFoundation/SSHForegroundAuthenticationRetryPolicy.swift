@@ -702,6 +702,7 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_tree_frozen=0
           cmux_ssh_auth_force_frozen=0
           cmux_ssh_auth_force_backstop_used=0
+          cmux_ssh_auth_force_killed_pids=
           if [ "$(uname -s 2>/dev/null || true)" = Darwin ]; then
             cmux_ssh_auth_signal_backend=darwin
           fi
@@ -1874,25 +1875,65 @@ public struct SSHForegroundAuthenticationRetryPolicy: Sendable {
           cmux_ssh_auth_force_confirmed_journal() {
             cmux_ssh_auth_force_journal_path="$1"
             [ -r "$cmux_ssh_auth_force_journal_path" ] || return 0
+            [ -n "$cmux_ssh_auth_force_killed_pids" ] || cmux_ssh_auth_force_killed_pids=" "
             while IFS=' ' read -r cmux_ssh_auth_force_depth \
               cmux_ssh_auth_force_pid cmux_ssh_auth_force_parent \
               cmux_ssh_auth_force_group cmux_ssh_auth_force_original_state \
               cmux_ssh_auth_force_started cmux_ssh_auth_force_extra; do
               [ -z "$cmux_ssh_auth_force_extra" ] || continue
-              case "$cmux_ssh_auth_force_depth:$cmux_ssh_auth_force_pid:$cmux_ssh_auth_force_parent:$cmux_ssh_auth_force_group" in
-                ''|*[!0-9:]*|*:|*:) continue ;;
+              case "$cmux_ssh_auth_force_depth" in
+                ''|*[!0-9]*) continue ;;
               esac
               case "$cmux_ssh_auth_force_pid" in
-                ''|0|0*|*[!0-9]*) continue ;;
+                ''|0|*[!0-9]*) continue ;;
+              esac
+              case "$cmux_ssh_auth_force_parent" in
+                ''|*[!0-9]*) continue ;;
+              esac
+              case "$cmux_ssh_auth_force_group" in
+                ''|0|*[!0-9]*) continue ;;
               esac
               case "$cmux_ssh_auth_force_started" in
-                P_[1-9][0-9]*_0_0_0_0|K_[1-9][0-9]*_[0-9]*_0_0) ;;
+                P_*)
+                  cmux_ssh_auth_force_start="${cmux_ssh_auth_force_started#P_}"
+                  cmux_ssh_auth_force_start_value="${cmux_ssh_auth_force_start%%_*}"
+                  cmux_ssh_auth_force_start_suffix="${cmux_ssh_auth_force_start#*_}"
+                  case "$cmux_ssh_auth_force_start_value" in
+                    ''|0|*[!0-9]*) continue ;;
+                  esac
+                  case "$cmux_ssh_auth_force_start_suffix" in
+                    0_0_0_0) ;;
+                    *) continue ;;
+                  esac
+                  ;;
+                K_*)
+                  cmux_ssh_auth_force_start="${cmux_ssh_auth_force_started#K_}"
+                  cmux_ssh_auth_force_seconds="${cmux_ssh_auth_force_start%%_*}"
+                  cmux_ssh_auth_force_remainder="${cmux_ssh_auth_force_start#*_}"
+                  cmux_ssh_auth_force_microseconds="${cmux_ssh_auth_force_remainder%%_*}"
+                  cmux_ssh_auth_force_suffix="${cmux_ssh_auth_force_remainder#*_}"
+                  case "$cmux_ssh_auth_force_seconds" in
+                    ''|0|*[!0-9]*) continue ;;
+                  esac
+                  case "$cmux_ssh_auth_force_microseconds" in
+                    ''|*[!0-9]*) continue ;;
+                  esac
+                  case "$cmux_ssh_auth_force_suffix" in
+                    0_0) ;;
+                    *) continue ;;
+                  esac
+                  [ "$cmux_ssh_auth_force_microseconds" -lt 1000000 ] || continue
+                  ;;
                 *) continue ;;
+              esac
+              case "$cmux_ssh_auth_force_killed_pids" in
+                *" $cmux_ssh_auth_force_pid "*) continue ;;
               esac
               # SIGKILL is sufficient for a stopped process. Do not send CONT
               # afterward: once KILL is delivered, a reused PID must never be
               # signaled by a second operation.
               kill -KILL "$cmux_ssh_auth_force_pid" >/dev/null 2>&1 || true
+              cmux_ssh_auth_force_killed_pids="$cmux_ssh_auth_force_killed_pids$cmux_ssh_auth_force_pid "
             done < "$cmux_ssh_auth_force_journal_path"
             return 0
           }
