@@ -1,3 +1,4 @@
+import Foundation
 import CmuxSettings
 import Testing
 
@@ -8,7 +9,7 @@ import Testing
 #endif
 
 /// Exhaustive decision-table coverage for the app-side agent notification gate
-/// and the `c=<category>;p=<0|1>` meta parser it consumes.
+/// and the category/approval meta parser it consumes.
 @Suite struct AgentNotificationGateTests {
     @Test func needsPermissionFollowsToggleAndIgnoresPending() {
         for pending in [false, true] {
@@ -75,6 +76,24 @@ import Testing
         #expect(c?.pending == true)
     }
 
+    @Test func metaParsesCanonicalApprovalCorrelation() {
+        let approvalID = "111111111111111111111111.aaaaaaaaaaaaaaaaaaaaaaaa"
+        let meta = AgentNotificationMeta(
+            meta: "c=needs-permission;p=0;a=\(approvalID)"
+        )
+
+        #expect(meta?.category == .needsPermission)
+        #expect(meta?.pending == false)
+        #expect(meta?.approvalID?.rawValue == approvalID)
+        #expect(meta?.approvalID?.scope.rawValue == "111111111111111111111111")
+        #expect(meta?.approvalIDIsDerived == false)
+
+        let derived = AgentNotificationMeta(
+            meta: "c=needs-permission;p=0;a=\(approvalID);d=1"
+        )
+        #expect(derived?.approvalIDIsDerived == true)
+    }
+
     @Test func metaUnknownCategoryIsRejected() {
         // Only the three known category literals are wire-valid; anything else
         // (including "c=other") stays part of the legacy notification body.
@@ -98,12 +117,16 @@ import Testing
     }
 
     @Test func metaRequiresExactCanonicalForm() {
-        // Only the CLI's exact canonical serialization parses; reordered,
-        // duplicated, or trailing fields stay part of the legacy body.
+        // Only the CLI's exact canonical serialization (including the
+        // approval extension) parses; reordered, duplicated, or trailing fields
+        // stay part of the legacy body.
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;note") == nil)
         #expect(AgentNotificationMeta(meta: "p=1;c=turn-complete") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;c=turn-complete;p=1") == nil)
         #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;") == nil)
+        #expect(AgentNotificationMeta(meta: "c=turn-complete;p=1;a=111111111111111111111111.aaaaaaaaaaaaaaaaaaaaaaaa") == nil)
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;a=not a token") == nil)
+        #expect(AgentNotificationMeta(meta: "c=needs-permission;p=0;a=111111111111111111111111.AAAAAAAAAAAAAAAAAAAAAAAA") == nil)
     }
 
     @Test func legacyTwoFieldMetaParsesWithoutAgentContext() {
@@ -112,6 +135,8 @@ import Testing
         let parsed = AgentNotificationMeta(meta: "c=turn-complete;p=0")
         #expect(parsed?.category == .turnComplete)
         #expect(parsed?.pending == false)
+        #expect(parsed?.approvalID == nil)
+        #expect(parsed?.approvalIDIsDerived == false)
         #expect(parsed?.agentKind == nil)
         #expect(parsed?.isSubagent == nil)
     }
@@ -225,5 +250,573 @@ import Testing
             AgentNotificationMeta(meta: "c=other;p=0;a=claude;s=errorStalled")?.soundContext
                 == NotificationSoundOverrideContext(agentID: "claude", alertType: .errorStalled)
         )
+    }
+}
+
+@MainActor
+@Suite struct AgentApprovalNotificationCoordinatorTests {
+    private static let workspaceID = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+    private static let surfaceID = UUID(uuidString: "66666666-7777-8888-9999-AAAAAAAAAAAA")!
+    private static let firstApprovalID = AgentApprovalCorrelationID(
+        rawValue: "111111111111111111111111.aaaaaaaaaaaaaaaaaaaaaaaa"
+    )!
+    private static let secondApprovalID = AgentApprovalCorrelationID(
+        rawValue: "111111111111111111111111.bbbbbbbbbbbbbbbbbbbbbbbb"
+    )!
+
+    @Test func autoResolvedApprovalProducesNoNotification() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.isEmpty)
+        #expect(fixture.clears.isEmpty)
+    }
+
+    @Test func genuinelyBlockingApprovalNotifiesAfterSettleWindow() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        #expect(fixture.deliveries.isEmpty)
+
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.deliveries.first?.body == "shell needs approval")
+    }
+
+    @Test func delayedApprovalPreservesAgentContextAndProducerCorrelation() throws {
+        let fixture = Fixture()
+        let context = TerminalNotificationPolicyAgentContext(
+            kind: "codex",
+            category: AgentNotifyCategory.needsPermission.rawValue,
+            pending: true,
+            isSubagent: true
+        )
+        let producerKey = "11111111-1111-1111-1111-111111111111"
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID,
+            agent: context,
+            producerCorrelationKey: producerKey
+        )
+        fixture.scheduler.runAll()
+
+        let delivery = try #require(fixture.deliveries.first)
+        #expect(delivery.agent == context)
+        #expect(delivery.producerCorrelationKey == producerKey)
+    }
+
+    @Test func candidateOverflowKeepsDisplayedApprovalResolvable() throws {
+        let fixture = Fixture()
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "displayed approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+        _ = try #require(fixture.deliveries.first)
+
+        for index in 0..<64 {
+            let suffix = String(format: "%024x", index + 1)
+            let approvalID = AgentApprovalCorrelationID(
+                rawValue: "111111111111111111111111.\(suffix)"
+            )!
+            fixture.coordinator.stage(
+                workspaceID: Self.workspaceID,
+                surfaceID: Self.surfaceID,
+                title: "Codex",
+                subtitle: "Permission",
+                body: "queued \(index)",
+                approvalID: approvalID
+            )
+        }
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        #expect(fixture.clears.count == 1)
+    }
+
+    @Test func deliveredApprovalClearsWhenItResolves() throws {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+        let delivery = try #require(fixture.deliveries.first)
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+
+        #expect(fixture.clears.count == 1)
+        #expect(fixture.clears.first?.surfaceID == Self.surfaceID)
+        #expect(fixture.clears.first?.correlationKey == delivery.correlationKey)
+    }
+
+    @Test func pendingApprovalsInOnePaneCoalesceIntoOneNotification() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "first tool needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "second tool needs approval",
+            approvalID: Self.secondApprovalID
+        )
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.deliveries.first?.body == "second tool needs approval")
+        #expect(fixture.clears.isEmpty)
+
+        // The older request may resolve after the shared banner is already
+        // visible. Its completion must not clear the still-pending second one.
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.clears.isEmpty)
+    }
+
+    @Test func resolvingDisplayedApprovalRefreshesCoalescedNotification() throws {
+        let fixture = Fixture()
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "first tool needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "newer tool needs approval",
+            approvalID: Self.secondApprovalID
+        )
+        fixture.scheduler.runAll()
+        let displayed = try #require(fixture.deliveries.first)
+        #expect(displayed.body == "newer tool needs approval")
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.secondApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.clears.count == 1)
+        #expect(fixture.clears.first?.correlationKey == displayed.correlationKey)
+        #expect(fixture.deliveries.count == 2)
+        #expect(fixture.deliveries.last?.body == "first tool needs approval")
+    }
+
+    @Test func turnResolutionCancelsDeniedApprovalBeforeDelivery() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalScope: Self.firstApprovalID.scope
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.isEmpty)
+    }
+
+    @Test func reorderedOldResolutionDoesNotCancelNewApproval() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "new tool needs approval",
+            approvalID: Self.secondApprovalID
+        )
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "old tool needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "duplicate old tool needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.deliveries.first?.body == "new tool needs approval")
+    }
+
+    @Test func duplicateApprovalSignalsRequireScopeResolution() {
+        let fixture = Fixture()
+
+        for body in ["first identical call", "second identical call"] {
+            fixture.coordinator.stage(
+                workspaceID: Self.workspaceID,
+                surfaceID: Self.surfaceID,
+                title: "Codex",
+                subtitle: "Permission",
+                body: body,
+                approvalID: Self.firstApprovalID,
+                isDerived: true
+            )
+        }
+        fixture.scheduler.runAll()
+        #expect(fixture.deliveries.count == 1)
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        // Without a provider call id, the identical signals may represent two
+        // distinct executions. An exact completion must fail closed instead of
+        // clearing both through one derived identity.
+        #expect(fixture.clears.isEmpty)
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalScope: Self.firstApprovalID.scope
+        )
+        #expect(fixture.clears.count == 1)
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "delayed duplicate",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.clears.count == 1)
+    }
+
+    @Test func authoritativeDuplicateSignalsResolveByExactID() {
+        let fixture = Fixture()
+
+        for body in ["first delivery", "retry delivery"] {
+            fixture.coordinator.stage(
+                workspaceID: Self.workspaceID,
+                surfaceID: Self.surfaceID,
+                title: "Codex",
+                subtitle: "Permission",
+                body: body,
+                approvalID: Self.firstApprovalID,
+                isDerived: false
+            )
+        }
+        fixture.scheduler.runAll()
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+
+        #expect(fixture.clears.count == 1)
+    }
+
+    @Test func staleSurfaceFanoutIsBounded() {
+        let fixture = Fixture()
+        let count = AgentApprovalNotificationCoordinator.maxTrackedPanes + 32
+
+        for index in 0..<count {
+            let hex = String(index, radix: 16)
+            let suffix = String(repeating: "0", count: max(0, 12 - hex.count)) + hex
+            let surfaceID = UUID(uuidString: "00000000-0000-0000-0000-\(suffix)")!
+            fixture.coordinator.stage(
+                workspaceID: Self.workspaceID,
+                surfaceID: surfaceID,
+                title: "Codex",
+                subtitle: "Permission",
+                body: "stale surface needs approval",
+                approvalID: Self.firstApprovalID
+            )
+        }
+
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == AgentApprovalNotificationCoordinator.maxTrackedPanes)
+    }
+
+    @Test func dismissedApprovalDoesNotResurfaceFromLateDuplicate() throws {
+        let fixture = Fixture()
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+        let delivery = try #require(fixture.deliveries.first)
+
+        #expect(fixture.coordinator.dismissDelivered(correlationKey: delivery.correlationKey) == Self.surfaceID)
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "late duplicate",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.clears.isEmpty)
+    }
+
+    @Test func finiteEpisodeExpiryRenotifiesUnresolvedApproval() throws {
+        let fixture = Fixture(episodeLifetime: 1)
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "still waiting",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.advance(by: 0.1)
+        let firstDelivery = try #require(fixture.deliveries.first)
+
+        fixture.scheduler.advance(by: 1)
+
+        #expect(fixture.deliveries.count == 2)
+        #expect(fixture.clears.count == 1)
+        #expect(fixture.clears.first?.correlationKey == firstDelivery.correlationKey)
+    }
+
+    @Test func laterRequestsDoNotPostponeAnOlderBlockingApproval() {
+        let fixture = Fixture()
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "older blocking approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.advance(by: 0.09)
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "new arrival",
+            approvalID: Self.secondApprovalID
+        )
+
+        fixture.scheduler.advance(by: 0.02)
+
+        #expect(fixture.deliveries.count == 1)
+        #expect(fixture.deliveries.first?.body == "older blocking approval")
+    }
+
+    @Test func resolutionAppliedBeforeQueuedDeadlinePreventsDelivery() {
+        let fixture = Fixture(defersScheduledActions: true)
+
+        fixture.coordinator.stage(
+            workspaceID: Self.workspaceID,
+            surfaceID: Self.surfaceID,
+            title: "Codex",
+            subtitle: "Permission",
+            body: "shell needs approval",
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduler.runAll()
+
+        fixture.coordinator.resolve(
+            surfaceID: Self.surfaceID,
+            approvalID: Self.firstApprovalID
+        )
+        fixture.scheduledActionDispatcher.runAll()
+
+        #expect(fixture.deliveries.isEmpty)
+        #expect(fixture.clears.isEmpty)
+    }
+
+    @MainActor
+    private final class Fixture {
+        let scheduler = ManualScheduler()
+        let scheduledActionDispatcher = ManualActionDispatcher()
+        let defersScheduledActions: Bool
+        let episodeLifetime: TimeInterval
+        var deliveries: [AgentApprovalNotificationCoordinator.Delivery] = []
+        var clears: [AgentApprovalNotificationCoordinator.Clear] = []
+
+        init(
+            defersScheduledActions: Bool = false,
+            episodeLifetime: TimeInterval = .infinity
+        ) {
+            self.defersScheduledActions = defersScheduledActions
+            self.episodeLifetime = episodeLifetime
+        }
+
+        lazy var coordinator = AgentApprovalNotificationCoordinator(
+            settleDelay: 0.1,
+            episodeLifetime: episodeLifetime,
+            now: { [scheduler] in scheduler.now },
+            schedule: scheduler.schedule(delay:action:),
+            dispatchScheduledAction: { [weak self] action in
+                guard let self else { return }
+                if defersScheduledActions {
+                    scheduledActionDispatcher.enqueue(action)
+                } else {
+                    action()
+                }
+            },
+            deliver: { [weak self] in self?.deliveries.append($0) },
+            clear: { [weak self] in self?.clears.append($0) }
+        )
+    }
+
+    @MainActor
+    private final class ManualActionDispatcher {
+        private var actions: [AgentApprovalNotificationCoordinator.Action] = []
+
+        func enqueue(_ action: @escaping AgentApprovalNotificationCoordinator.Action) {
+            actions.append(action)
+        }
+
+        func runAll() {
+            let pending = actions
+            actions.removeAll()
+            for action in pending {
+                action()
+            }
+        }
+    }
+
+    @MainActor
+    private final class ManualScheduler {
+        @MainActor
+        private final class Entry {
+            var isCancelled = false
+            let deadline: TimeInterval
+            let action: AgentApprovalNotificationCoordinator.Action
+
+            init(
+                deadline: TimeInterval,
+                action: @escaping AgentApprovalNotificationCoordinator.Action
+            ) {
+                self.deadline = deadline
+                self.action = action
+            }
+        }
+
+        private(set) var now: TimeInterval = 0
+        private var entries: [Entry] = []
+
+        func schedule(
+            delay: TimeInterval,
+            action: @escaping AgentApprovalNotificationCoordinator.Action
+        ) -> AgentApprovalNotificationCoordinator.Cancellation {
+            let entry = Entry(deadline: now + delay, action: action)
+            entries.append(entry)
+            return { entry.isCancelled = true }
+        }
+
+        func runAll() {
+            run(until: .infinity)
+        }
+
+        func advance(by interval: TimeInterval) {
+            run(until: now + interval)
+        }
+
+        private func run(until deadline: TimeInterval) {
+            while let index = entries.indices.min(by: {
+                entries[$0].deadline < entries[$1].deadline
+            }) {
+                let entry = entries[index]
+                if entry.isCancelled {
+                    entries.remove(at: index)
+                    continue
+                }
+                guard entry.deadline <= deadline + 0.000_001 else { break }
+                entries.remove(at: index)
+                now = max(now, entry.deadline)
+                entry.action()
+            }
+            if deadline.isFinite {
+                now = max(now, deadline)
+            }
+        }
     }
 }

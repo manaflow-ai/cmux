@@ -452,7 +452,11 @@ final class ClaudeHookSessionStore {
     func lookup(sessionId: String, deadline: Date? = nil) throws -> ClaudeHookSessionRecord? {
         let normalized = normalizeSessionId(sessionId)
         guard !normalized.isEmpty else { return nil }
-        return try withLockedState(deadline: deadline, persist: false) { state in
+        // Feed fallback lookups run for every native Codex approval event.
+        // They never mutate state, so use a shared lock and avoid the full
+        // JSON encode/atomic replace that `withLockedState` performs after
+        // every read. This keeps hook bursts from turning into disk I/O.
+        return try withSharedState(deadline: deadline) { state in
             state.sessions[normalized]
         }
     }
@@ -2605,7 +2609,48 @@ final class ClaudeHookSessionStore {
         )
     }
 
+    private func withSharedState<T>(
+        deadline: Date? = nil,
+        _ body: (ClaudeHookSessionStoreFile) throws -> T
+    ) throws -> T {
+        let lockPath = statePath + ".lock"
+        try fileManager.createDirectory(
+            at: URL(fileURLWithPath: lockPath).deletingLastPathComponent(),
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: NSNumber(value: Int16(0o700))]
+        )
+        let fd = open(lockPath, O_CREAT | O_RDWR, mode_t(S_IRUSR | S_IWUSR))
+        if fd < 0 {
+            throw CLIError(message: "Failed to open Claude hook state lock: \(lockPath)")
+        }
+        defer { Darwin.close(fd) }
+
+        if let deadline {
+            while flock(fd, LOCK_SH | LOCK_NB) != 0 {
+                guard errno == EWOULDBLOCK || errno == EAGAIN, Date.now < deadline else {
+                    throw CLIError(message: "Timed out locking Claude hook state: \(lockPath)")
+                }
+                usleep(5_000)
+            }
+        } else if flock(fd, LOCK_SH) != 0 {
+            throw CLIError(message: "Failed to lock Claude hook state: \(lockPath)")
+        }
+        defer { _ = flock(fd, LOCK_UN) }
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
+        // Preserve expiry semantics without encoding and replacing the state
+        // file for a read-only lookup.
+        var state = try loadUnlocked(deadline: deadline)
+        if let deadline, Date.now >= deadline {
+            throw CLIError(message: "Claude hook state deadline exceeded: \(lockPath)")
+        }
+        pruneExpired(&state)
+        return try body(state)
+    }
+
     private func loadUnlocked(deadline: Date? = nil) throws -> ClaudeHookSessionStoreFile {
+
         guard fileManager.fileExists(atPath: statePath) else {
             return ClaudeHookSessionStoreFile()
         }
@@ -34285,9 +34330,18 @@ export default CMUXSessionRestore;
             resolvedDirectWorkspaceArg ?? processBinding()?.workspaceId
         }
 
-        let rawInput = rawInputOverride
-            ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
-            ?? ""
+        let rawInputData: Data = if let rawInputOverride {
+            Data(rawInputOverride.utf8)
+        } else if def.name == "codex" {
+            // Codex hooks are invoked synchronously by the agent. Keep a
+            // malformed/model-controlled stdin payload from holding the hook
+            // (and its socket) indefinitely or allocating unbounded memory.
+            Self.readBoundedFeedHookStdin(maxBytes: Self.genericCodexHookMaxStdinBytes)
+                ?? Data()
+        } else {
+            FileHandle.standardInput.readDataToEndOfFile()
+        }
+        let rawInput = String(data: rawInputData, encoding: .utf8) ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
         let persistedHookEventName = reportedHookEventName(from: input)
             ?? Self.feedEventName(forClaudeSubcommand: subcommand)
@@ -36331,6 +36385,21 @@ export default CMUXSessionRestore;
                 responseTimeout: def.name == "cursor" ? cursorCriticalTimeout() : nil
             )
 
+            // Scope-clearing is intentionally after the freshness checks above.
+            // A delayed Stop from an older turn must not tombstone a newer
+            // approval before we know this stop still owns the pane.
+            if def.name == "codex",
+               !suppressVisibleMutations,
+               let approvalScope = CodexApprovalNotificationIdentity.makeScope(
+                   rawObject: input.rawObject ?? input.object,
+                   fallbackSessionID: input.sessionId
+               ) {
+                _ = try? sendV1Command(
+                    "clear_notifications --tab=\(workspaceId)\(socketPanelOption(surfaceId)) --approval-scope=\(approvalScope)",
+                    client: client
+                )
+            }
+
             if !sessionId.isEmpty, !suppressVisibleMutations {
                 _ = try? store.upsert(sessionId: sessionId, workspaceId: workspaceId, surfaceId: surfaceId, cwd: cwd,
                     transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
@@ -36822,6 +36891,41 @@ export default CMUXSessionRestore;
                 return
             }
 
+            let approvalIdentity = def.name == "codex" && summary.notifyCategory == .needsPermission
+                ? CodexApprovalNotificationIdentity.make(
+                    rawObject: input.rawObject ?? input.object,
+                    fallbackSessionID: input.sessionId
+                )
+                : nil
+            if def.name == "codex", summary.notifyCategory == .needsPermission {
+                let isAutoReviewed = CodexApprovalNotificationPolicy().isAutoReviewed(
+                    rawObject: input.rawObject ?? input.object ?? [:],
+                    transcriptPath: input.transcriptPath ?? mapped?.transcriptPath,
+                    readRolloutLines: { path, maxBytes in
+                        readRecentTextFileLines(path: path, maxBytes: maxBytes)
+                    }
+                )
+                if isAutoReviewed {
+#if DEBUG
+                    agentHookDebugLog(
+                        "agentHook.notification.skip agent=codex session=\(agentHookDebugShort(sessionId)) reason=autoReview",
+                        socketPath: client.socketPath,
+                        env: env
+                    )
+#endif
+                    sendAgentFeedTelemetryUnlessSuppressed(
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId
+                    )
+                    print("{}")
+                    return
+                }
+                // Older Codex payloads can omit the structured turn/tool
+                // fields. They still represent a blocked native prompt, so
+                // keep the legacy pane-scoped notification fallback; only an
+                // exact completion is allowed to clear by approval ID.
+            }
+
             if antigravitySuppressDuplicateIdleWhileBackgroundWork {
 #if DEBUG
                 agentHookDebugLog(
@@ -36976,7 +37080,11 @@ export default CMUXSessionRestore;
                 category: summary.notifyCategory,
                 body: summary.body
             )
-            if !summary.body.isEmpty, shouldSendNotification(fingerprint: notificationFingerprint) {
+            let shouldRouteThroughApprovalCoordinator = def.name == "codex"
+                && summary.notifyCategory == .needsPermission
+                && approvalIdentity != nil
+            if (!summary.body.isEmpty || approvalIdentity != nil)
+                && (approvalIdentity != nil || shouldSendNotification(fingerprint: notificationFingerprint)) {
                 // One ancestry walk per delivered notification, feeding the
                 // notify payload's subagent tag below.
                 let notificationEventPID = preferredAgentHookEventPID(
@@ -36998,20 +37106,37 @@ export default CMUXSessionRestore;
                 // Completions AND waiting nags are both "pending" while
                 // background work is live, so a fullyIdle=false Antigravity
                 // waiting cue doesn't deliver a false "waiting for input".
-                // Error status wins over a classifier category so every
-                // error carries the contextual error sound tag, even if an
-                // integration supplied an inconsistent category.
-                let notificationMeta = Self.agentNotificationMeta(
-                    category: summary.notifyCategory,
-                    isError: summary.status == .error,
-                    pending: (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
-                        && hasActiveAntigravityBackgroundWork(),
-                    agentID: def.name,
-                    isSubagent: isNestedAgentSession,
-                    correlationKey: cursorShellNeedsApproval
-                        ? cursorApprovalNotificationCorrelationKey
-                        : nil
-                )
+                let notificationPending = (summary.notifyCategory == .turnComplete || summary.notifyCategory == .idleReminder)
+                    && hasActiveAntigravityBackgroundWork()
+                let notificationMeta: String?
+                if let approvalIdentity {
+                    notificationMeta = summary.notifyCategory.metaSegment(
+                        pending: notificationPending,
+                        approvalID: approvalIdentity.approvalID,
+                        approvalIDIsDerived: !approvalIdentity.isAuthoritative
+                    )
+                } else if def.name == "codex", summary.notifyCategory == .needsPermission {
+                    // Preserve the pre-correlation Codex wire form when the
+                    // payload cannot provide a stable identity.
+                    notificationMeta = summary.notifyCategory.metaSegment(
+                        pending: notificationPending,
+                        approvalID: nil
+                    )
+                } else {
+                    // Error status wins over a classifier category so every
+                    // error carries the contextual error sound tag, even if
+                    // an integration supplied an inconsistent category.
+                    notificationMeta = Self.agentNotificationMeta(
+                        category: summary.notifyCategory,
+                        isError: summary.status == .error,
+                        pending: notificationPending,
+                        agentID: def.name,
+                        isSubagent: isNestedAgentSession,
+                        correlationKey: cursorShellNeedsApproval
+                            ? cursorApprovalNotificationCorrelationKey
+                            : nil
+                    )
+                }
                 let payload = notificationPayload(
                     title: notificationTitle(workspaceId: workspaceId, surfaceId: surfaceId),
                     subtitle: summary.subtitle,
@@ -37044,7 +37169,9 @@ export default CMUXSessionRestore;
                         env: env
                     )
 #endif
-                    markNotificationSent(fingerprint: notificationFingerprint)
+                    if approvalIdentity == nil {
+                        markNotificationSent(fingerprint: notificationFingerprint)
+                    }
                 } catch {
 #if DEBUG
                     agentHookDebugLog(
@@ -37222,7 +37349,25 @@ export default CMUXSessionRestore;
             }
 
         case .noop:
-            break
+            if def.name == "codex", subcommand == "post-tool-use",
+               let approvalIdentity = CodexApprovalNotificationIdentity.make(
+                   rawObject: input.rawObject ?? input.object,
+                   fallbackSessionID: input.sessionId
+               ) {
+                let mapped = sessionId.isEmpty ? nil : (try? store.lookup(sessionId: sessionId))
+                if let target = resolveAgentHookTarget(mapped: mapped) {
+                    // This wrapper path runs in a detached fire-and-forget
+                    // worker. Never let a stalled daemon hold one worker for
+                    // the SocketClient's 15-second default; Codex can emit a
+                    // completion for every tool and otherwise accumulate
+                    // blocked child processes. The synchronous feed lane has
+                    // its own longer acknowledgement budget.
+                    _ = try? client.send(
+                        command: "clear_notifications --tab=\(target.workspaceId)\(socketPanelOption(target.surfaceId)) --approval-id=\(approvalIdentity.approvalID)",
+                        responseTimeout: Self.codexApprovalResolutionResponseTimeoutSeconds
+                    )
+                }
+            }
         }
 
         print(def.name == "pi" ? piHookResolvedTargetOutput(strictPiTarget) : hookResponse)
@@ -37255,6 +37400,11 @@ export default CMUXSessionRestore;
     /// delivery (connect, authentication, live-target resolution, and the
     /// acknowledged send) before the feed hook gives up and returns.
     static let feedAttentionAcknowledgeTimeoutSeconds: TimeInterval = 2
+
+    /// Short response budget for correlated clears emitted by Codex's detached
+    /// wrapper worker. This path is best-effort and must not accumulate one
+    /// blocked process per completed tool while the app socket is unhealthy.
+    static let codexApprovalResolutionResponseTimeoutSeconds: TimeInterval = 0.5
 
     /// Portion of the attention deadline reserved for the essential
     /// notify/clear send. The optional live-target probe may never consume
@@ -37404,15 +37554,11 @@ export default CMUXSessionRestore;
         guard let data = try? JSONSerialization.data(withJSONObject: frame),
               let line = String(data: data, encoding: .utf8)
         else { return }
-        // Deliberately NO native-approval-prompt clear on this lane: the
-        // wrapper-injected codex hooks that reach it (`hooks codex
-        // post-tool-use`) run as fire-and-forget nohup workers with no
-        // ordering guarantee, so a delayed completion worker's clear could
-        // erase a NEWER request's live permission notification — silencing a
-        // blocked agent (#9592). Only the synchronous feed-hook path
-        // (`runFeedHook`), whose events arrive in codex's own order, emits
-        // the clear; wrapper-path staleness self-heals at the next
-        // `prompt-submit`, which already clears the pane.
+        // Attention commands do not ride this one-way telemetry connection.
+        // The generic Codex notification and post-tool handlers send their
+        // correlated stage/resolve commands through the acknowledged V1 lane;
+        // keeping them separate also prevents a delayed fire-and-forget
+        // completion worker from clearing a newer request (#9592).
         sendBestEffortFeedTelemetry(socketPath: client.socketPath, line: line, socketPassword: socketPassword)
     }
 
@@ -39346,6 +39492,7 @@ export default CMUXSessionRestore;
         classification: FeedEventClassification,
         source: String,
         toolName: String,
+        approvalIdentity: CodexApprovalNotificationIdentity?,
         eventDict: [String: Any],
         env: [String: String],
         client: SocketClient?,
@@ -39398,7 +39545,9 @@ export default CMUXSessionRestore;
             workspaceId: liveTarget?.workspaceId ?? ambientWorkspaceId,
             surfaceId: liveTarget?.surfaceId ?? ambientSurfaceId,
             agentID: source,
-            includeAgentContext: true
+            includeAgentContext: true,
+            source: source,
+            approvalIdentity: approvalIdentity
         ) else { return }
         _ = try? activeClient.send(
             command: attentionLine,
@@ -39591,10 +39740,12 @@ export default CMUXSessionRestore;
             print(compactedFeedOutput)
             return
         }
-        let sessionId = firstString(
+        let rawSessionId = firstString(
             in: stdinObj,
             keys: ["session_id", "sessionId", "conversation_id", "conversationId"]
-        ) ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
+        )
+        let sessionId = rawSessionId
+            ?? stableFallbackFeedSessionId(source: source, rawObject: stdinObj, agentPid: agentPid)
         guard let workstreamID = Self.feedWorkstreamID(
             source: source,
             sessionID: sessionId
@@ -39602,6 +39753,27 @@ export default CMUXSessionRestore;
             print("{}")
             return
         }
+        let rawTranscriptPath = firstString(
+            in: stdinObj,
+            keys: ["transcript_path", "transcriptPath"]
+        )
+        let mappedTranscriptPath: String? = {
+            guard source == "codex",
+                  classification.notifiesNativeApprovalPrompt,
+                  rawTranscriptPath == nil,
+                  let rawSessionId,
+                  let def = Self.agentDef(named: source) else {
+                return nil
+            }
+            let store = ClaudeHookSessionStore(processEnv: env.merging(
+                ["CMUX_CLAUDE_HOOK_STATE_PATH": agentHookStatePath(
+                    sessionStoreSuffix: def.sessionStoreSuffix,
+                    env: env
+                )],
+                uniquingKeysWith: { _, new in new }
+            ))
+            return (try? store.lookup(sessionId: rawSessionId))?.transcriptPath
+        }()
         var validatedCodexFeedTarget: (workspaceId: String, surfaceId: String)?
 
         // Native Codex child events are committed before their telemetry frame
@@ -39756,6 +39928,30 @@ export default CMUXSessionRestore;
                 return
             }
         }
+        // Identity derivation canonicalizes the tool input and computes two
+        // SHA-256 digests.  Most feed events are ordinary telemetry and can
+        // never touch the native approval banner, so avoid that work unless
+        // this event actually raises or resolves one.
+        let needsApprovalCorrelation = source == "codex"
+            && (classification.notifiesNativeApprovalPrompt
+                || classification.clearsNativeApprovalPrompt)
+        let approvalIdentity = needsApprovalCorrelation
+            ? CodexApprovalNotificationIdentity.make(
+                rawObject: stdinObj,
+                // Never use the synthetic Feed fallback (which is derived
+                // from PID/pane context) as an approval identity.
+                fallbackSessionID: rawSessionId
+            )
+            : nil
+        let codexApprovalIsAutoReviewed = source == "codex"
+            && classification.notifiesNativeApprovalPrompt
+            && CodexApprovalNotificationPolicy().isAutoReviewed(
+                rawObject: stdinObj,
+                transcriptPath: rawTranscriptPath ?? mappedTranscriptPath,
+                readRolloutLines: { path, maxBytes in
+                    readRecentTextFileLines(path: path, maxBytes: maxBytes)
+                }
+            )
 
         var eventDict: [String: Any] = [
             "session_id": workstreamID,
@@ -39861,21 +40057,21 @@ export default CMUXSessionRestore;
             // implicit reconnect inside `sendOneWay` is not bounded by the
             // write timeout.
             //
-            // Known accepted residual: codex's fire-and-forget prompt-submit
-            // worker clears the pane at turn start from a DETACHED process.
-            // If that worker is slower than the model's first approval-needing
-            // tool call, its late clear can remove this notification — the
-            // same pre-existing exposure the wrapper-path notification
-            // (`hooks codex notification`) has always had. Fencing clears by
-            // origin time is a cross-layer protocol change deliberately out
-            // of scope here.
-            let sendsAttention = classification.notifiesNativeApprovalPrompt
+            // Prompt and completion are correlated in the app-side settle
+            // coordinator. A completion that reaches the app first leaves a
+            // short tombstone, while an old completion can only resolve its
+            // own request id — never a newer blocking prompt in the pane.
+            let sendsAttention = (
+                classification.notifiesNativeApprovalPrompt
+                    && !codexApprovalIsAutoReviewed
+            )
                 || classification.clearsNativeApprovalPrompt
             if sendsAttention {
                 deliverNativeApprovalPromptAttention(
                     classification: classification,
                     source: source,
                     toolName: toolName,
+                    approvalIdentity: approvalIdentity,
                     eventDict: eventDict,
                     env: env,
                     client: client,
@@ -40009,24 +40205,30 @@ export default CMUXSessionRestore;
     }
 
     private static let feedHookMaxStdinBytes = 1 * 1024 * 1024
+    /// Generic Codex hooks also read model-controlled JSON from stdin, but
+    /// unlike the Feed path they historically used read-to-EOF. Keep the
+    /// synchronous hook bounded to the same one-megabyte safety envelope.
+    private static let genericCodexHookMaxStdinBytes = 1 * 1024 * 1024
     private static let piFeedHookMaxStdinBytes = 128 * 1024
 
     private static func readBoundedFeedHookStdin(
         maxBytes: Int,
         handle: FileHandle = .standardInput
     ) -> Data? {
+        guard maxBytes > 0 else { return Data() }
         var data = Data()
-        while data.count <= maxBytes {
-            let remainingBytes = maxBytes + 1 - data.count
+        while data.count < maxBytes {
+            let remainingBytes = maxBytes - data.count
             let chunkSize = min(64 * 1024, remainingBytes)
             let chunk = (try? handle.read(upToCount: chunkSize)) ?? Data()
             guard !chunk.isEmpty else { return data }
             data.append(chunk)
         }
-        guard data.count <= maxBytes else {
-            while !((try? handle.read(upToCount: 64 * 1024)) ?? Data()).isEmpty {}
-            return nil
-        }
+        // Stop as soon as the bounded window is full. Do not perform a probe
+        // read for a possible extra byte: a producer may keep stdin open while
+        // waiting for its hook consumer, and that probe would reintroduce a
+        // hang at exactly the limit. A payload that fills the window is parsed
+        // as usual; truncated/oversized JSON fails closed at the parser.
         return data
     }
 

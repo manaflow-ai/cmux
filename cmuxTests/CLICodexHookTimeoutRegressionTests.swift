@@ -167,6 +167,22 @@ struct CLICodexHookTimeoutRegressionTests {
             connectionLimit: 16
         )
 
+        let approvalObject: [String: Any] = [
+            "session_id": "codex-permission-session",
+            "turn_id": "turn-1",
+            "cwd": root.path,
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "shell",
+            "tool_input": ["command": "git status"],
+            "message": "approval required",
+        ]
+        let approvalData = try JSONSerialization.data(withJSONObject: approvalObject, options: [.sortedKeys])
+        let approvalInput = try #require(String(data: approvalData, encoding: .utf8))
+        let approvalIdentity = try #require(CodexApprovalNotificationIdentity.make(
+            rawObject: approvalObject,
+            fallbackSessionID: nil
+        ))
+
         let result = runCodexHookProcess(
             executablePath: cliPath,
             arguments: ["hooks", "codex", "notification"],
@@ -180,7 +196,7 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
             ],
-            standardInput: #"{"session_id":"codex-permission-session","cwd":"\#(root.path)","hook_event_name":"PermissionRequest","message":"approval required"}"#,
+            standardInput: approvalInput,
             timeout: 5
         )
 
@@ -203,6 +219,153 @@ struct CLICodexHookTimeoutRegressionTests {
                 && capture.agentKey == "codex"
                 && capture.workspaceId == workspaceId
                 && capture.surfaceId == surfaceId
+        })
+        #expect(commands.snapshot().contains {
+            $0.hasPrefix("notify_target_async \(workspaceId) \(surfaceId) ")
+                && $0.hasSuffix("|c=needs-permission;p=0;a=\(approvalIdentity.approvalID);d=1")
+        })
+
+        let completionObject: [String: Any] = [
+            "session_id": "codex-permission-session",
+            "turn_id": "turn-1",
+            "cwd": root.path,
+            "hook_event_name": "PostToolUse",
+            "tool_name": "shell",
+            "tool_input": ["command": "git status"],
+            "tool_response": ["exit_code": 0],
+            "tool_use_id": "post-review-only-id",
+        ]
+        let completionData = try JSONSerialization.data(withJSONObject: completionObject, options: [.sortedKeys])
+        let completionInput = try #require(String(data: completionData, encoding: .utf8))
+        let completion = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "post-tool-use"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: completionInput,
+            timeout: 5
+        )
+
+        #expect(!completion.timedOut, Comment(rawValue: completion.stderr))
+        #expect(completion.status == 0, Comment(rawValue: completion.stderr))
+        #expect(waitForConditionBlocking(timeout: 1) {
+            commands.snapshot().contains(
+                "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) --approval-id=\(approvalIdentity.approvalID)"
+            )
+        })
+
+        let stop = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "stop"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: """
+                {"session_id":"codex-permission-session","turn_id":"turn-1","cwd":"\(root.path)","hook_event_name":"Stop","last_assistant_message":"Denied"}
+                """,
+            timeout: 5
+        )
+
+        #expect(!stop.timedOut, Comment(rawValue: stop.stderr))
+        #expect(stop.status == 0, Comment(rawValue: stop.stderr))
+        #expect(waitForConditionBlocking(timeout: 1) {
+            commands.snapshot().contains(
+                "clear_notifications --tab=\(workspaceId) --panel=\(surfaceId) --approval-scope=\(approvalIdentity.scope)"
+            )
+        })
+    }
+
+    @Test func codexAutoReviewedPermissionRequestProducesNoUserAttention() throws {
+        let cliPath = try bundledCLIPath()
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-auto-review-\(UUID().uuidString)", isDirectory: true)
+        let transcriptURL = root.appendingPathComponent("rollout.jsonl", isDirectory: false)
+        let socketPath = makeCodexHookSocketPath("codex-auto-review")
+        let listenerFD = try bindCodexHookUnixSocket(at: socketPath)
+        let commands = CodexHookCapturedSocketCommands()
+        let workspaceId = "33333333-3333-3333-3333-333333333333"
+        let surfaceId = "44444444-4444-4444-4444-444444444444"
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try """
+            {"type":"turn_context","payload":{"turn_id":"turn-auto","approvals_reviewer":"auto_review"}}
+            """.write(to: transcriptURL, atomically: true, encoding: .utf8)
+        defer {
+            Darwin.close(listenerFD)
+            unlink(socketPath)
+            try? FileManager.default.removeItem(at: root)
+        }
+        startCodexHookMockSocketServerAccepting(
+            listenerFD: listenerFD,
+            commands: commands,
+            surfaceId: surfaceId,
+            connectionLimit: 8
+        )
+
+        let approvalObject: [String: Any] = [
+            "session_id": "codex-auto-review-session",
+            "turn_id": "turn-auto",
+            "transcript_path": transcriptURL.path,
+            "cwd": root.path,
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "shell",
+            "tool_input": ["command": "sleep 10"],
+            "message": "approval required",
+        ]
+        let approvalData = try JSONSerialization.data(
+            withJSONObject: approvalObject,
+            options: [.sortedKeys]
+        )
+        let approvalInput = try #require(String(data: approvalData, encoding: .utf8))
+        let result = runCodexHookProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "codex", "notification"],
+            environment: [
+                "HOME": root.path,
+                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "PWD": root.path,
+                "CMUX_SOCKET_PATH": socketPath,
+                "CMUX_WORKSPACE_ID": workspaceId,
+                "CMUX_SURFACE_ID": surfaceId,
+                "CMUX_AGENT_HOOK_STATE_DIR": root.path,
+                "CMUX_CLI_SENTRY_DISABLED": "1",
+            ],
+            standardInput: approvalInput,
+            timeout: 5
+        )
+
+        #expect(!result.timedOut, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(result.stdout == "{}\n")
+        #expect(waitForConditionBlocking(timeout: 1) {
+            commands.snapshot().contains { command in
+                guard let object = codexHookJSONObject(command),
+                      object["method"] as? String == "feed.push",
+                      let params = object["params"] as? [String: Any],
+                      let event = params["event"] as? [String: Any] else {
+                    return false
+                }
+                return event["hook_event_name"] as? String == "PreToolUse"
+            }
+        })
+        #expect(waitForConditionToRemainTrueBlocking(duration: 0.3) {
+            let snapshot = commands.snapshot()
+            return !snapshot.contains { $0.hasPrefix("notify_target_async ") }
+                && !snapshot.contains { $0.hasPrefix("set_agent_lifecycle codex needsInput ") }
         })
     }
 
@@ -400,11 +563,33 @@ struct CLICodexHookTimeoutRegressionTests {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let sleepPID = try #require(Int32(sleepPIDText))
         defer { _ = Darwin.kill(sleepPID, SIGKILL) }
+        let processSnapshot: () -> String = {
+            let process = Process()
+            let output = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/bin/ps")
+            process.arguments = ["-o", "pid=,ppid=,pgid=,state=,command=", "-p", sleepPIDText]
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            do {
+                try process.run()
+                process.waitUntilExit()
+                return String(
+                    data: output.fileHandleForReading.readDataToEndOfFile(),
+                    encoding: .utf8
+                )?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "<no ps output>"
+            } catch {
+                return "<ps failed: \(error)>"
+            }
+        }
         #expect(
-            waitForConditionBlocking(timeout: 1) {
+            // The detached hook and its supervisor are separate processes;
+            // hosted macOS can defer the final reaping turn under a cold app
+            // test launch. Keep this well below the 30-second watchdog
+            // deadline so a genuinely orphaned timer still fails promptly.
+            waitForConditionBlocking(timeout: 5) {
                 Darwin.kill(sleepPID, 0) == -1 && errno == ESRCH
             },
-            "The watchdog timer process \(sleepPID) outlived its completed hook invocation"
+            "The watchdog timer process \(sleepPID) outlived its completed hook invocation (ps: \(processSnapshot()))"
         )
     }
 
@@ -632,7 +817,11 @@ struct CLICodexHookTimeoutRegressionTests {
             listenerFD: listenerFD,
             commands: commands,
             surfaceId: surfaceId,
-            connectionLimit: 24
+            // Each generated hook performs several bounded target probes and
+            // emits telemetry on its own connection. Keep the fixture's
+            // accept budget above the complete prompt/prompt/stop episode so
+            // a valid lifecycle cannot be truncated by the mock itself.
+            connectionLimit: 64
         )
 
         let install = runCodexHookProcess(
@@ -647,9 +836,13 @@ struct CLICodexHookTimeoutRegressionTests {
         let promptCommand = try #require(
             codexHookEntries(in: codexHome).first { $0.eventName == "UserPromptSubmit" }?.command
         )
+        let sessionStartCommand = try #require(
+            codexHookEntries(in: codexHome).first { $0.eventName == "SessionStart" }?.command
+        )
         let stopCommand = try #require(
             codexHookEntries(in: codexHome).first { $0.eventName == "Stop" }?.command
         )
+        let ledgerURL = root.appendingPathComponent("codex-turn-ledger.json", isDirectory: false)
         let environment = [
             "HOME": root.path,
             "CODEX_HOME": codexHome.path,
@@ -663,7 +856,23 @@ struct CLICodexHookTimeoutRegressionTests {
             "CMUX_CLI_SENTRY_DISABLED": "1",
             "CMUX_BUNDLED_CLI_PATH": cliPath,
             "CMUX_CODEX_PID": "4242",
+            "CMUX_CODEX_INVOCATION_ID": "installed-\(sessionId)",
+            "CMUX_CODEX_TURN_LEDGER_PATH": ledgerURL.path,
         ]
+
+        // Tokenized Codex hooks normally receive SessionStart before prompt
+        // callbacks. Seed that owner record here so the stale-stop assertions
+        // exercise the modern ledger path rather than the legacy fallback.
+        let sessionStart = runCodexHookProcess(
+            executablePath: "/bin/sh",
+            arguments: ["-c", sessionStartCommand],
+            environment: environment,
+            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            timeout: 3
+        )
+        #expect(sessionStart.status == 0, Comment(rawValue: sessionStart.stderr))
+        #expect(sessionStart.stdout == "{}\n")
+        #expect(waitForFile(ledgerURL, containing: sessionId, timeout: 2))
 
         let oldPrompt = runCodexHookProcess(
             executablePath: "/bin/sh",
@@ -894,7 +1103,20 @@ struct CLICodexHookTimeoutRegressionTests {
         let surfaceId = "22222222-2222-2222-2222-222222222222"
         let sessionId = "codex-fresh-session"
         let stateURL = root.appendingPathComponent("codex-hook-sessions.json")
+        let codexHome = root.appendingPathComponent(".codex", isDirectory: true)
+        let rolloutURL = codexHome
+            .appendingPathComponent("sessions/2026/08/12/rollout-\(sessionId).jsonl", isDirectory: false)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: rolloutURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        let rolloutLine: [String: Any] = [
+            "type": "session_meta",
+            "payload": ["id": sessionId, "cwd": root.path, "source": "cli"],
+        ]
+        try JSONSerialization.data(withJSONObject: rolloutLine, options: [.sortedKeys])
+            .write(to: rolloutURL, options: .atomic)
         defer {
             Darwin.close(listenerFD)
             unlink(socketPath)
@@ -941,8 +1163,13 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_SURFACE_ID": surfaceId,
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
+                "CODEX_HOME": codexHome.path,
+                "CMUX_CODEX_TURN_LEDGER_PATH": root.appendingPathComponent("codex-turn-ledger.json").path,
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+                "CMUX_AGENT_LAUNCH_CWD": root.path,
             ],
-            standardInput: #"{"session_id":"\#(sessionId)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
+            standardInput: #"{"session_id":"\#(sessionId)","transcript_path":"\#(rolloutURL.path)","cwd":"\#(root.path)","hook_event_name":"SessionStart"}"#,
             timeout: 5
         )
 
@@ -979,6 +1206,11 @@ struct CLICodexHookTimeoutRegressionTests {
                 "CMUX_AGENT_HOOK_STATE_DIR": root.path,
                 "CMUX_CLI_SENTRY_DISABLED": "1",
                 "CMUX_CODEX_PID": "1",
+                "CODEX_HOME": codexHome.path,
+                "CMUX_CODEX_TURN_LEDGER_PATH": root.appendingPathComponent("codex-turn-ledger.json").path,
+                "CMUX_AGENT_LAUNCH_KIND": "codex",
+                "CMUX_AGENT_LAUNCH_EXECUTABLE": "/usr/local/bin/codex",
+                "CMUX_AGENT_LAUNCH_CWD": root.path,
             ],
             standardInput: #"{"session_id":"\#(sessionId)","turn_id":"turn-done","cwd":"\#(root.path)","hook_event_name":"UserPromptSubmit","prompt":"late"}"#,
             timeout: 5

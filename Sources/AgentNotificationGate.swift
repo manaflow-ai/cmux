@@ -26,20 +26,23 @@ enum AgentTurnCompleteMode: String {
     case never
 }
 
-/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind>][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
+/// Parsed `c=<category>;p=<0|1>[;a=<agent-kind-or-approval-id>][;d=1][;n=<0|1>][;s=<alert>][;k=<uuid>]` meta segment.
 /// Returns `nil` unless BOTH a KNOWN category literal and a valid `p=0|1`
 /// pending flag are present, so the reserved suffix grammar stays exactly the
 /// three known categories — any other `c=...` tail stays part of the legacy
-/// notification body. (`.other` never rides the wire: senders omit the meta
-/// entirely for ungated alerts.)
+/// notification body. (`.other` only rides the wire when it carries an
+/// explicit error sound context.)
 ///
 /// The optional trailing fields carry agent-event context for the user's
-/// notification-policy hooks: `a=` is the case-preserving registry identifier
-/// (`claude`, `codex`, `MyAgent`, …) and `n=` marks a nested subagent session.
-/// Pre-extension senders emit only `c=;p=` and parse exactly as before.
+/// notification-policy hooks: `a=` is either the case-preserving registry
+/// identifier or a correlated approval id, `d=1` marks a derived approval id,
+/// and `n=` marks a nested subagent session. Pre-extension senders emit only
+/// `c=;p=` and parse exactly as before.
 struct AgentNotificationMeta {
     let category: AgentNotifyCategory
     let pending: Bool
+    let approvalID: AgentApprovalCorrelationID?
+    let approvalIDIsDerived: Bool
     let agentKind: String?
     let isSubagent: Bool?
     let soundContext: NotificationSoundOverrideContext?
@@ -49,31 +52,50 @@ struct AgentNotificationMeta {
 
     init?(meta: String) {
         // Accept ONLY the canonical serialization the CLI emits (`c=` then
-        // `p=`, optionally followed by `a=`, `n=`, `s=`, then `k=`, this order,
-        // no duplicates or extras). Anything else — reordered, duplicated, or
-        // unknown trailing fields — is not metadata and stays part of the
-        // legacy notification body.
+        // `p=`, optionally followed by `a=`, `d=`, `n=`, `s=`, then `k=`, this
+        // order, no duplicates or extras). Anything else — reordered,
+        // duplicated, or unknown trailing fields — is not metadata and stays
+        // part of the legacy notification body.
         let fields = meta.split(separator: ";", omittingEmptySubsequences: false)
-        guard (2...6).contains(fields.count),
+        guard (2...7).contains(fields.count),
               fields[0].hasPrefix("c="),
               fields[1].hasPrefix("p=") else { return nil }
         guard let known = AgentNotifyCategory(rawValue: String(fields[0].dropFirst(2))) else {
             return nil
         }
+        let pending: Bool
         switch fields[1].dropFirst(2) {
-        case "1": self.pending = true
-        case "0": self.pending = false
+        case "1": pending = true
+        case "0": pending = false
         default: return nil
         }
         var agentKind: String? = nil
         var isSubagent: Bool? = nil
         var soundContext: NotificationSoundOverrideContext? = nil
         var correlationKey: String? = nil
+        var approvalID: AgentApprovalCorrelationID? = nil
+        var approvalIDIsDerived = false
         var index = 2
         if index < fields.count, fields[index].hasPrefix("a=") {
-            let kind = String(fields[index].dropFirst(2))
-            guard Self.isValidAgentKindTag(kind) else { return nil }
-            agentKind = kind
+            let value = String(fields[index].dropFirst(2))
+            if let parsedApprovalID = AgentApprovalCorrelationID(rawValue: value) {
+                guard known == .needsPermission else { return nil }
+                approvalID = parsedApprovalID
+            } else {
+                // A value shaped like an approval id but failing its strict
+                // lowercase-hex grammar must not be reinterpreted as an agent
+                // slug. That would turn malformed correlated metadata into a
+                // seemingly valid notification and defeat exact clearing.
+                guard !Self.looksLikeApprovalID(value), Self.isValidAgentKindTag(value) else {
+                    return nil
+                }
+                agentKind = value
+            }
+            index += 1
+        }
+        if index < fields.count, fields[index].hasPrefix("d=") {
+            guard approvalID != nil, fields[index].dropFirst(2) == "1" else { return nil }
+            approvalIDIsDerived = true
             index += 1
         }
         if index < fields.count, fields[index].hasPrefix("n=") {
@@ -108,6 +130,9 @@ struct AgentNotificationMeta {
         guard index == fields.count else { return nil }
         guard known != .other || soundContext != nil else { return nil }
         self.category = known
+        self.pending = pending
+        self.approvalID = approvalID
+        self.approvalIDIsDerived = approvalIDIsDerived
         self.agentKind = agentKind
         self.isSubagent = isSubagent
         self.soundContext = soundContext
@@ -123,6 +148,11 @@ struct AgentNotificationMeta {
 
     static func isValidCorrelationKey(_ value: String) -> Bool {
         UUID(uuidString: value) != nil
+    }
+
+    private static func looksLikeApprovalID(_ value: String) -> Bool {
+        let pieces = value.split(separator: ".", omittingEmptySubsequences: false)
+        return pieces.count == 2 && pieces.allSatisfy { $0.utf8.count == 24 }
     }
 }
 

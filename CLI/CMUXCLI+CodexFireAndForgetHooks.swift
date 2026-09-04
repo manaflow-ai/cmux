@@ -260,9 +260,11 @@ extension CMUXCLI {
     }
 
     /// Removes obsolete regular files only when their names prove cmux ownership.
-    /// Live Codex sessions may still hold paths from another tagged build, and
-    /// concurrent launches can briefly overlap script generation, so collection
-    /// waits until no Codex process is running and leaves recent files alone.
+    /// This runs only during an explicit hook install, never on wrapper launch
+    /// or automatic reconciliation. Since an older immutable script may still
+    /// be referenced by a long-lived Codex process, fail closed whenever any
+    /// Codex process is running; the process probe is intentionally outside the
+    /// launch path.
     static func garbageCollectCodexHookScripts(retaining filenames: Set<String>) {
         guard !hasRunningCodexProcess(),
               let directory = codexHookScriptsDirectory(),
@@ -274,8 +276,9 @@ extension CMUXCLI {
             return
         }
 
-        let newestRemovableDate = Date().addingTimeInterval(-60)
-        for url in contents where !filenames.contains(url.lastPathComponent) {
+        let newestRemovableDate = Date().addingTimeInterval(-24 * 60 * 60)
+        let removableCandidates = contents.compactMap { url -> (url: URL, date: Date)? in
+            guard !filenames.contains(url.lastPathComponent) else { return nil }
             let values = try? url.resourceValues(forKeys: [
                 .contentModificationDateKey,
                 .isRegularFileKey,
@@ -284,13 +287,28 @@ extension CMUXCLI {
                   values?.isRegularFile == true,
                   let modificationDate = values?.contentModificationDate,
                   modificationDate < newestRemovableDate else {
-                continue
+                return nil
             }
-            try? FileManager.default.removeItem(at: url)
+            return (url, modificationDate)
+        }
+        // Keep cleanup bounded if a damaged or very old installation has
+        // accumulated an unexpectedly large number of generated files, while
+        // deleting the oldest batch so later explicit installs make progress.
+        let boundedCandidates = removableCandidates
+            .sorted { lhs, rhs in
+                if lhs.date != rhs.date { return lhs.date < rhs.date }
+                return lhs.url.lastPathComponent < rhs.url.lastPathComponent
+            }
+            .prefix(256)
+        for url in boundedCandidates {
+            try? FileManager.default.removeItem(at: url.url)
         }
     }
 
-    /// Conservatively detects sessions that may still reference an older hook generation.
+    /// A running Codex process may have loaded an immutable hook path that is
+    /// absent from the current config. Cleanup is explicit-install-only, so a
+    /// synchronous fail-closed probe protects that process without adding
+    /// launch latency or a background polling task.
     private static func hasRunningCodexProcess() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
@@ -308,7 +326,11 @@ extension CMUXCLI {
 
     static func codexFireAndForgetAgentHookShellCommand(_ command: String, for def: AgentHookDef) -> String {
         let routedArguments = command.hasPrefix("cmux ") ? String(command.dropFirst("cmux ".count)) : command
-        let runner = "payload=\"$1\"; shift; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( timer=; trap \"kill \\$timer 2>/dev/null || true; wait \\$timer 2>/dev/null || true; exit 0\" HUP INT TERM; sleep 30 & timer=\"$!\"; wait \"$timer\" 2>/dev/null || true; timer=; kill \"$child\" 2>/dev/null || true ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; rm -f \"$payload\""
+        // Keep timer ownership in one process and stop it through a file
+        // handshake. A signal-based supervisor can receive TERM before its
+        // trap/timer assignment is installed, orphaning the timer for a fast
+        // child; the explicit parent-owned timer is always waited/reaped.
+        let runner = "payload=\"$1\"; shift; timer_stop=\"$payload.timer-stop\"; timer_done=\"$payload.timer-done\"; kill_timer_tree() { timer_root=\"$1\"; for timer_child in $(/usr/bin/pgrep -P \"$timer_root\" 2>/dev/null || true); do kill_timer_tree \"$timer_child\"; done; kill -KILL \"$timer_root\" 2>/dev/null || true; }; rm -f \"$timer_stop\" \"$timer_done\"; ( sleep 30 & timer=\"$!\"; while [ ! -e \"$timer_stop\" ]; do timer_state=$(/bin/ps -o state= -p \"$timer\" 2>/dev/null | /usr/bin/tr -d \"[:space:]\"); case \"$timer_state\" in \"\"|Z*) wait \"$timer\" 2>/dev/null || true; printf done >\"$timer_done\"; exit 0;; esac; /bin/sleep 0.05; done; kill_timer_tree \"$timer\"; wait \"$timer\" 2>/dev/null || true; exit 0 ) & timer_supervisor=\"$!\"; \"$@\" <\"$payload\" >/dev/null 2>&1 & child=\"$!\"; ( while [ ! -s \"$timer_done\" ] && [ ! -e \"$timer_stop\" ]; do /bin/sleep 0.05; done; if [ -s \"$timer_done\" ]; then kill \"$child\" 2>/dev/null || true; fi ) & watchdog=\"$!\"; wait \"$child\" 2>/dev/null || true; : >\"$timer_stop\"; kill \"$watchdog\" 2>/dev/null || true; wait \"$watchdog\" 2>/dev/null || true; wait \"$timer_supervisor\" 2>/dev/null || true; rm -f \"$payload\" \"$timer_stop\" \"$timer_done\""
         let noOp = stdinDrainingHookNoOpShellCommand
         return [
             "cmux_cli=\"${CMUX_BUNDLED_CLI_PATH:-}\"",

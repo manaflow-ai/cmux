@@ -36,21 +36,16 @@ struct FeedEventClassification: Equatable {
     /// A tool COMPLETED for an agent whose approval prompts notify via
     /// ``notifiesNativeApprovalPrompt`` — execution strictly follows any
     /// approval, so the prompt resolved (approved by the user or by the
-    /// agent's own auto-reviewer) and the bridge clears the pane's stale
-    /// notifications. Only tool COMPLETION qualifies: pre-tool events fire
+    /// agent's own auto-reviewer) and the bridge resolves the correlated
+    /// approval notification. Only tool COMPLETION qualifies: pre-tool events fire
     /// when the agent intends to run a tool, with no ordering guarantee
     /// against the approval-prompt hook, so clearing there could erase a
     /// just-raised prompt while the agent is still blocked.
     ///
-    /// The clear is deliberately pane-wide and uncorrelated with any single
-    /// request: notifications carry no request identity anywhere in cmux,
-    /// and every agent integration clears the same way on progress signals —
-    /// Claude's `session-start`/`prompt-submit`/`pre-tool-use` hooks, the
-    /// generic `.approvalResponse` action (Hermes' resolved native
-    /// approvals), and codex's own `prompt-submit` hook (which also clears
-    /// deny-without-further-tools residue at the next turn). Pane
-    /// notifications are attention signals; agent progress in the pane makes
-    /// them stale as a set.
+    /// Newer Codex payloads carry an approval/call id; older payloads fall back
+    /// to a bounded session/turn/tool/input identity. The app-side coordinator
+    /// marks repeated derived identities ambiguous, so one completion cannot
+    /// settle multiple identical requests.
     let clearsNativeApprovalPrompt: Bool
 }
 
@@ -198,8 +193,8 @@ struct FeedEventClassifier {
         case .toolEnd:
             // A completed tool ran, and execution strictly follows any
             // approval — so this is the earliest progress signal that can
-            // safely clear a resolved native approval prompt (approved by
-            // the user or by the agent's own auto-reviewer). Scoped to
+            // safely resolve its correlated native approval prompt (approved
+            // by the user or by the agent's own auto-reviewer). Scoped to
             // sources that raise those prompts so other agents' tool
             // telemetry never touches the notification queue.
             return FeedEventClassification(
@@ -436,14 +431,14 @@ struct FeedEventClassifier {
 
     /// Builds the pane-attention V1 socket command a classified feed event
     /// carries — the `needs-permission`-gated `notify_target_async` for a
-    /// native approval prompt, or the pane-scoped `clear_notifications` for
-    /// a resolved one. Pure so the exact wire command (UUID gating, payload
-    /// shape, gate meta) is unit-testable; the CLI feed hook sends the
+    /// native approval prompt, or the correlated `clear_notifications` for a
+    /// resolved one. Pure so the exact wire command (UUID gating, payload
+    /// shape, gate/correlation meta) is unit-testable; the CLI feed hook sends the
     /// returned line request/response and awaits the app's acknowledgement.
     ///
-    /// Returns `nil` when the classification carries no attention side
-    /// effect or when either identity is missing/not a UUID: the command is
-    /// advisory and must never fail the hook.
+    /// Returns `nil` when the classification carries no attention side effect,
+    /// when targets are invalid, or when an exact Codex completion lacks its
+    /// identity. A legacy prompt may still use the pane-scoped notify form.
     ///
     /// The notification body deliberately names only the TOOL — mirroring
     /// the in-app Feed approval banner (`feed.notification.permission.body`)
@@ -457,7 +452,9 @@ struct FeedEventClassifier {
         workspaceId: String?,
         surfaceId: String?,
         agentID: String = "codex",
-        includeAgentContext: Bool = false
+        includeAgentContext: Bool = false,
+        source: String? = nil,
+        approvalIdentity: CodexApprovalNotificationIdentity? = nil
     ) -> String? {
         guard classification.notifiesNativeApprovalPrompt
                 || classification.clearsNativeApprovalPrompt else { return nil }
@@ -466,7 +463,28 @@ struct FeedEventClassifier {
               let surfaceRaw = surfaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
               let surfaceUUID = UUID(uuidString: surfaceRaw)
         else { return nil }
+        // A Codex completion is correlated by an exact identity. Other native
+        // approval producers retain the historical pane-scoped command shape;
+        // callers that omit `source` are treated as Codex for compatibility
+        // with the strict completion path.
+        let requiresCorrelatedIdentity = source?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() == "codex" || source == nil
+        // A hook payload is bounded, but a single tool-name field could still
+        // consume nearly the entire budget and force large socket/UI copies.
+        // Keep attention lines small and predictable on the synchronous path.
+        guard !classification.clearsNativeApprovalPrompt
+                || !requiresCorrelatedIdentity
+                || approvalIdentity != nil else {
+            return nil
+        }
         if classification.clearsNativeApprovalPrompt {
+            if let approvalIdentity {
+                return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString) --approval-id=\(approvalIdentity.approvalID)"
+            }
+            // Legacy non-Codex producers have no exact approval identity and
+            // historically clear their own pane-scoped prompt.
+            guard !requiresCorrelatedIdentity else { return nil }
             return "clear_notifications --tab=\(workspaceUUID.uuidString) --panel=\(surfaceUUID.uuidString)"
         }
         let subtitle = String(
@@ -487,7 +505,13 @@ struct FeedEventClassifier {
             )
         }
         let meta: String?
-        if includeAgentContext {
+        if let approvalIdentity {
+            meta = AgentHookNotifyCategory.needsPermission.metaSegment(
+                pending: false,
+                approvalID: approvalIdentity.approvalID,
+                approvalIDIsDerived: !approvalIdentity.isAuthoritative
+            )
+        } else if includeAgentContext {
             meta = AgentHookNotifyCategory.needsPermission.metaSegment(
                 pending: false,
                 agentID: agentID
@@ -507,7 +531,8 @@ struct FeedEventClassifier {
     /// tool names are payload-controlled input, so normalize them the same
     /// way `notificationPayload` sanitizes its fields.
     private static func attentionNotificationField(_ value: String) -> String {
-        value
+        let bounded = String(value.prefix(240))
+        return bounded
             .components(separatedBy: .newlines)
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
