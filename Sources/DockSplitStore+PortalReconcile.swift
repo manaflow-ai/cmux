@@ -57,29 +57,24 @@ extension DockSplitStore {
     func noteKeyboardFocusIntent(window: NSWindow?) {
         guard let appDelegate = AppDelegate.shared else { return }
         let ownerManager = appDelegate.dockReferenceTabManager(for: self)
+        let resolvedOwnerManager = ownerManager
+            ?? appDelegate.tabManagerFor(tabId: workspaceId)
         if let window,
-           let ownerManager,
            let matchingContext = appDelegate.mainWindowContexts.values.first(where: {
-               $0.tabManager === ownerManager && $0.window === window
+               $0.window === window &&
+                   (resolvedOwnerManager == nil || $0.tabManager === resolvedOwnerManager)
            }) {
             matchingContext.keyboardFocusCoordinator.noteRightSidebarInteraction(mode: .dock)
             return
         }
-        if let ownerContext = appDelegate.mainWindowContexts.values.first(where: {
-            $0.windowId == workspaceId
+        if let resolvedOwnerManager,
+           let ownerContext = appDelegate.mainWindowContexts.values.first(where: {
+               $0.tabManager === resolvedOwnerManager
         }) {
             ownerContext.keyboardFocusCoordinator.noteRightSidebarInteraction(mode: .dock)
             return
         }
-        if window == nil,
-           let ownerManager,
-           let ownerContext = appDelegate.mainWindowContexts.values.first(where: {
-               $0.tabManager === ownerManager
-           }) {
-            ownerContext.keyboardFocusCoordinator.noteRightSidebarInteraction(mode: .dock)
-            return
-        }
-        let ownerWindow = ownerManager
+        let ownerWindow = resolvedOwnerManager
             .flatMap { appDelegate.windowId(for: $0) }
             .flatMap { appDelegate.mainWindow(for: $0) }
         guard let ownerWindow else { return }
