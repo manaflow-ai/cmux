@@ -158,19 +158,23 @@ private struct NotificationFeedList: View {
                                 NotificationFeedRow(model: model, actions: actions)
                             } else {
                                 DisclosureGroup {
-                                    ForEach(group.items) { model in
+                                    ForEach(Array(group.items.dropFirst())) { model in
                                         NotificationFeedRow(model: model, actions: actions)
+                                            .equatable()
                                     }
                                 } label: {
-                                    NotificationFeedRow(model: group.items[0], actions: actions)
-                                        .overlay(alignment: .topTrailing) {
-                                            Text("\(group.items.count) " + L10n.string("mobile.notificationFeed.updates", defaultValue: "updates"))
-                                                .font(.caption2.weight(.semibold))
-                                                .foregroundStyle(.secondary)
-                                                .padding(.top, 4)
-                                        }
+                                    HStack {
+                                        Text(group.items[0].presentation.headline)
+                                            .font(.body.weight(.semibold))
+                                        Spacer()
+                                        Text("\(group.items.count) updates")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.vertical, 8)
                                 }
                             }
+                            .equatable()
                         }
                         .disabled(hasStaleSourceSections)
                         .allowsHitTesting(!hasStaleSourceSections)
