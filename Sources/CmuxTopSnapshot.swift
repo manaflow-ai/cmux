@@ -257,6 +257,46 @@ final class CmuxTopProcessSnapshot: @unchecked Sendable {
         Set(pidsByCMUXSurfaceID[surfaceID] ?? [])
     }
 
+    /// Splits a surface's TTY population into processes cmux can prove it owns and
+    /// processes that merely share the TTY device.
+    ///
+    /// Sharing a TTY is not ownership: a process reparented to launchd keeps the
+    /// controlling TTY of the terminal it was launched from, so a detached REPL or dev
+    /// server would otherwise be summed into the surface's memory.
+    /// See https://github.com/manaflow-ai/cmux/issues/11004.
+    ///
+    /// - Parameters:
+    ///   - ttyPIDs: every PID sharing the surface's TTY device.
+    ///   - surfaceID: the surface being annotated, when it has an identifier.
+    ///   - cmuxOwnedPIDs: the window's app processes and their descendants, used as launch
+    ///     evidence for a process whose parent sits off the TTY.
+    ///   - provenPIDs: PIDs already proven through the cmux-scoped process tree.
+    /// - Returns: the proven set, the unattributed set, and the reason for each PID.
+    func ttyOwnership(
+        ttyPIDs: Set<Int>,
+        surfaceID: UUID?,
+        cmuxOwnedPIDs: Set<Int>,
+        provenPIDs: Set<Int> = []
+    ) -> CmuxTopTTYOwnership {
+        var ownershipProcesses: [Int: CmuxTopTTYOwnershipProcess] = [:]
+        ownershipProcesses.reserveCapacity(ttyPIDs.count)
+        for pid in ttyPIDs {
+            guard let process = processesByPID[pid] else { continue }
+            ownershipProcesses[pid] = CmuxTopTTYOwnershipProcess(
+                pid: process.pid,
+                parentPID: process.parentPID,
+                processGroupID: process.processGroupID,
+                cmuxSurfaceID: process.cmuxSurfaceID
+            )
+        }
+        return CmuxTopTTYOwnershipResolver(cmuxOwnedPIDs: cmuxOwnedPIDs).resolve(
+            candidates: ttyPIDs,
+            processes: ownershipProcesses,
+            surfaceID: surfaceID,
+            provenPIDs: provenPIDs
+        )
+    }
+
     func pids(forProcessGroupID processGroupID: Int) -> Set<Int> {
         Set(pidsByProcessGroupID[processGroupID] ?? [])
     }
