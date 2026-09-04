@@ -147,6 +147,16 @@ export type VmRepositoryShape = {
     readonly displayName: string | null;
   }) => Effect.Effect<CloudVmAccessGrantRow | null, VmDatabaseError>;
   readonly listAccessGrantTunnels?: (accessGrantId: string) => Effect.Effect<CloudVmTunnelRow[], VmDatabaseError>;
+  readonly claimAccessGrantMutation?: (input: {
+    readonly id: string;
+    readonly leaseId: string;
+    readonly now: Date;
+    readonly leaseExpiresAt: Date;
+  }) => Effect.Effect<boolean, VmDatabaseError>;
+  readonly releaseAccessGrantMutation?: (input: {
+    readonly id: string;
+    readonly leaseId: string;
+  }) => Effect.Effect<void, VmDatabaseError>;
   readonly revokeAccessGrant?: (id: string) => Effect.Effect<boolean, VmDatabaseError>;
   /** The live (unrevoked) tunnel row for one of the owner's devices. */
   readonly findTunnel?: (input: {
@@ -750,6 +760,45 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
           isNull(cloudVmTunnels.revokedAt),
         ))
         .orderBy(asc(cloudVmTunnels.createdAt));
+    }),
+
+  claimAccessGrantMutation: (input) =>
+    dbEffect("claimAccessGrantMutation", async () => {
+      const db = cloudDb();
+      const rows = await db
+        .update(cloudVmAccessGrants)
+        .set({
+          mutationLeaseId: input.leaseId,
+          mutationLeaseExpiresAt: input.leaseExpiresAt,
+          updatedAt: input.now,
+        })
+        .where(and(
+          eq(cloudVmAccessGrants.id, input.id),
+          isNull(cloudVmAccessGrants.revokedAt),
+          or(
+            isNull(cloudVmAccessGrants.mutationLeaseId),
+            lt(cloudVmAccessGrants.mutationLeaseExpiresAt, input.now),
+            eq(cloudVmAccessGrants.mutationLeaseId, input.leaseId),
+          ),
+        ))
+        .returning({ id: cloudVmAccessGrants.id });
+      return rows.length > 0;
+    }),
+
+  releaseAccessGrantMutation: (input) =>
+    dbEffect("releaseAccessGrantMutation", async () => {
+      const db = cloudDb();
+      await db
+        .update(cloudVmAccessGrants)
+        .set({
+          mutationLeaseId: null,
+          mutationLeaseExpiresAt: null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(cloudVmAccessGrants.id, input.id),
+          eq(cloudVmAccessGrants.mutationLeaseId, input.leaseId),
+        ));
     }),
 
   revokeAccessGrant: (id) =>

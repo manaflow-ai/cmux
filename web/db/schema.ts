@@ -269,6 +269,9 @@ export const cloudVmAccessGrants = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     lastControlPlaneAt: timestamp("last_control_plane_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Short durable fence for provider peer create, rotate, and revoke. */
+    mutationLeaseId: uuid("mutation_lease_id"),
+    mutationLeaseExpiresAt: timestamp("mutation_lease_expires_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => [
@@ -276,6 +279,10 @@ export const cloudVmAccessGrants = pgTable(
       .on(table.userId, table.deviceId)
       .where(sql`${table.revokedAt} is null`),
     index("cloud_vm_access_grants_user_idx").on(table.userId),
+    check(
+      "cloud_vm_access_grants_mutation_lease_pair",
+      sql`(${table.mutationLeaseId} is null) = (${table.mutationLeaseExpiresAt} is null)`,
+    ),
   ],
 );
 

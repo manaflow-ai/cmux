@@ -57,6 +57,11 @@ export class VmAccessGrantRevokedError extends Data.TaggedError("VmAccessGrantRe
   readonly stackSessionId: string;
 }> {}
 
+/** Another enrollment or revoke owns this physical Mac's provider mutation. */
+export class VmAccessGrantMutationBusyError extends Data.TaggedError("VmAccessGrantMutationBusyError")<{
+  readonly accessGrantId: string;
+}> {}
+
 export class VmSnapshotNotFoundError extends Data.TaggedError("VmSnapshotNotFoundError")<{
   readonly snapshotId: string;
 }> {}
@@ -188,6 +193,7 @@ export type VmWorkflowError =
   | VmPrivateNetworkUnavailableError
   | VmTunnelNotFoundError
   | VmAccessGrantRevokedError
+  | VmAccessGrantMutationBusyError
   | VmAccountDeletionIdentityRevocationError
   | VmModelPlaneError;
 
@@ -203,6 +209,10 @@ export function isVmTunnelNotFoundError(err: unknown): err is VmTunnelNotFoundEr
 
 export function isVmAccessGrantRevokedError(err: unknown): err is VmAccessGrantRevokedError {
   return (err as { _tag?: string } | null)?._tag === "VmAccessGrantRevokedError";
+}
+
+export function isVmAccessGrantMutationBusyError(err: unknown): err is VmAccessGrantMutationBusyError {
+  return (err as { _tag?: string } | null)?._tag === "VmAccessGrantMutationBusyError";
 }
 
 export function isVmNotFoundError(err: unknown): err is VmNotFoundError {
@@ -306,6 +316,7 @@ const vmWorkflowErrorTagRecord = {
   VmPrivateNetworkUnavailableError: true,
   VmTunnelNotFoundError: true,
   VmAccessGrantRevokedError: true,
+  VmAccessGrantMutationBusyError: true,
   VmAccountDeletionIdentityRevocationError: true,
   VmModelPlaneError: true,
 } as const satisfies Record<VmWorkflowError["_tag"], true>;

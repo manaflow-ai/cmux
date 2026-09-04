@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as Effect from "effect/Effect";
 import type { ProviderId } from "./drivers";
 import { vmPrivateNetworkEnabled, type VmRuntimeEnv } from "./config";
 import {
   VmAccessGrantRevokedError,
+  VmAccessGrantMutationBusyError,
   VmPrivateNetworkUnavailableError,
   VmTunnelNotFoundError,
   type VmDatabaseError,
@@ -160,6 +161,8 @@ type PrivateAccessRepo = PrivateNetworkingRepo & {
   readonly listAccessGrantSessionIds: NonNullable<VmRepositoryShape["listAccessGrantSessionIds"]>;
   readonly renameAccessGrant: NonNullable<VmRepositoryShape["renameAccessGrant"]>;
   readonly listAccessGrantTunnels: NonNullable<VmRepositoryShape["listAccessGrantTunnels"]>;
+  readonly claimAccessGrantMutation: NonNullable<VmRepositoryShape["claimAccessGrantMutation"]>;
+  readonly releaseAccessGrantMutation: NonNullable<VmRepositoryShape["releaseAccessGrantMutation"]>;
   readonly revokeAccessGrant: NonNullable<VmRepositoryShape["revokeAccessGrant"]>;
 };
 
@@ -209,13 +212,16 @@ function privateAccessRepo(repo: VmRepositoryShape): PrivateAccessRepo | null {
     listAccessGrantSessionIds,
     renameAccessGrant,
     listAccessGrantTunnels,
+    claimAccessGrantMutation,
+    releaseAccessGrantMutation,
     revokeAccessGrant,
   } = repo;
   if (
     !networking || !findAccessGrant || !findBlockingRevokedAccessGrant
     || !listUserAccessGrants || !upsertAccessGrant || !upsertAccessGrantSession
     || !listAccessGrantSessionIds || !renameAccessGrant
-    || !listAccessGrantTunnels || !revokeAccessGrant
+    || !listAccessGrantTunnels || !claimAccessGrantMutation
+    || !releaseAccessGrantMutation || !revokeAccessGrant
   ) return null;
   return {
     ...networking,
@@ -227,8 +233,41 @@ function privateAccessRepo(repo: VmRepositoryShape): PrivateAccessRepo | null {
     listAccessGrantSessionIds,
     renameAccessGrant,
     listAccessGrantTunnels,
+    claimAccessGrantMutation,
+    releaseAccessGrantMutation,
     revokeAccessGrant,
   };
+}
+
+const ACCESS_GRANT_MUTATION_LEASE_MS = 60_000;
+
+/**
+ * Serializes provider peer mutations for one physical Mac across serverless
+ * instances. A crashed request releases the fence by expiry; a successful
+ * request releases it immediately. We return busy instead of doing an
+ * unfenced provider call.
+ */
+function withAccessGrantMutationLease<A, E, R>(
+  repo: PrivateAccessRepo,
+  accessGrantId: string,
+  operation: Effect.Effect<A, E, R>,
+) {
+  return Effect.gen(function* () {
+    const leaseId = randomUUID();
+    const now = new Date();
+    const claimed = yield* repo.claimAccessGrantMutation({
+      id: accessGrantId,
+      leaseId,
+      now,
+      leaseExpiresAt: new Date(now.getTime() + ACCESS_GRANT_MUTATION_LEASE_MS),
+    });
+    if (!claimed) {
+      return yield* Effect.fail(new VmAccessGrantMutationBusyError({ accessGrantId }));
+    }
+    return yield* operation.pipe(Effect.ensuring(
+      repo.releaseAccessGrantMutation({ id: accessGrantId, leaseId }).pipe(Effect.ignore),
+    ));
+  });
 }
 
 /**
@@ -353,74 +392,86 @@ export function enrollVmTunnel(input: {
       cmuxBuild: input.cmuxBuild,
       cmuxChannel: input.cmuxChannel,
     });
-    if (input.stackSessionId && input.sessionIssuedAt) {
-      yield* repo.upsertAccessGrantSession({
-        accessGrantId: accessGrant.id,
-        userId: input.userId,
-        stackSessionId: input.stackSessionId,
-        sessionIssuedAt: input.sessionIssuedAt,
-      });
-    }
-
-    const existing = yield* repo.findTunnel({
-      userId: input.userId,
-      deviceFingerprint: input.deviceFingerprint,
-      tunnelPurpose: input.tunnelPurpose,
-    });
-
-    if (existing) {
-      const live = yield* providers.getTunnel(
-        input.provider,
-        existing.providerTunnelId,
-        network.providerNetworkId,
-      );
-      if (live) {
-        const rotated = live.clientPublicKey.trim() !== clientPublicKey;
-        const current = rotated
-          ? yield* providers.rotateTunnelKey(
-            input.provider,
-            existing.providerTunnelId,
-            clientPublicKey,
-            network.providerNetworkId,
-          )
-          : live;
-        const row = yield* repo.updateTunnel({
-          id: existing.id,
-          clientPublicKey: current.clientPublicKey,
-          deviceName: input.deviceName ?? existing.deviceName,
-          addressV4: current.addressV4,
-          addressV6: current.addressV6,
-          configIssued: true,
+    return yield* withAccessGrantMutationLease(repo, accessGrant.id, Effect.gen(function* () {
+      // Recheck after the lease. A revoke can win between the first session
+      // check and the access-grant upsert; an old login must not continue.
+      if (input.stackSessionId && input.sessionIssuedAt) {
+        const revokedSession = yield* repo.findBlockingRevokedAccessGrant({
+          userId: input.userId,
+          deviceId: input.deviceId,
+          stackSessionId: input.stackSessionId,
+          sessionIssuedAt: input.sessionIssuedAt,
         });
-        return describeTunnel(current, row, network, { created: false, rotated });
+        if (revokedSession) {
+          return yield* Effect.fail(new VmAccessGrantRevokedError({
+            stackSessionId: input.stackSessionId,
+          }));
+        }
+        yield* repo.upsertAccessGrantSession({
+          accessGrantId: accessGrant.id,
+          userId: input.userId,
+          stackSessionId: input.stackSessionId,
+          sessionIssuedAt: input.sessionIssuedAt,
+        });
       }
-      // The control plane has a row for a tunnel the provider no longer has —
-      // deleted out of band. Revoke the stale row and fall through to enroll a
-      // fresh one, so the device recovers on this call rather than failing
-      // every call until someone intervenes.
-      yield* repo.revokeTunnel(existing.id);
-    }
 
-    const created = yield* providers.createTunnel(input.provider, {
-      slug: tunnelSlugForDevice(input.userId, input.deviceFingerprint, input.tunnelPurpose),
-      displayName: input.deviceName?.trim() || "cmux computer",
-      clientPublicKey,
-      networkId: network.providerNetworkId,
-    });
-    const row = yield* repo.insertTunnel({
-      userId: input.userId,
-      networkId: network.id,
-      provider: input.provider,
-      providerTunnelId: created.id,
-      accessGrantId: accessGrant.id,
-      deviceFingerprint: input.deviceFingerprint,
-      tunnelPurpose: input.tunnelPurpose,
-      deviceName: input.deviceName ?? null,
-      clientPublicKey: created.clientPublicKey,
-      addressV4: created.addressV4,
-      addressV6: created.addressV6,
-    });
-    return describeTunnel(created, row, network, { created: true, rotated: false });
+      const existing = yield* repo.findTunnel({
+        userId: input.userId,
+        deviceFingerprint: input.deviceFingerprint,
+        tunnelPurpose: input.tunnelPurpose,
+      });
+
+      if (existing) {
+        const live = yield* providers.getTunnel(
+          input.provider,
+          existing.providerTunnelId,
+          network.providerNetworkId,
+        );
+        if (live) {
+          const rotated = live.clientPublicKey.trim() !== clientPublicKey;
+          const current = rotated
+            ? yield* providers.rotateTunnelKey(
+              input.provider,
+              existing.providerTunnelId,
+              clientPublicKey,
+              network.providerNetworkId,
+            )
+            : live;
+          const row = yield* repo.updateTunnel({
+            id: existing.id,
+            clientPublicKey: current.clientPublicKey,
+            deviceName: input.deviceName ?? existing.deviceName,
+            addressV4: current.addressV4,
+            addressV6: current.addressV6,
+            configIssued: true,
+          });
+          return describeTunnel(current, row, network, { created: false, rotated });
+        }
+        // The control plane has a row for a tunnel the provider no longer has.
+        yield* repo.revokeTunnel(existing.id);
+      }
+
+      const created = yield* providers.createTunnel(input.provider, {
+        slug: tunnelSlugForDevice(input.userId, input.deviceFingerprint, input.tunnelPurpose),
+        displayName: input.deviceName?.trim() || "cmux computer",
+        clientPublicKey,
+        networkId: network.providerNetworkId,
+      });
+      const row = yield* repo.insertTunnel({
+        userId: input.userId,
+        networkId: network.id,
+        provider: input.provider,
+        providerTunnelId: created.id,
+        accessGrantId: accessGrant.id,
+        deviceFingerprint: input.deviceFingerprint,
+        tunnelPurpose: input.tunnelPurpose,
+        deviceName: input.deviceName ?? null,
+        clientPublicKey: created.clientPublicKey,
+        addressV4: created.addressV4,
+        addressV6: created.addressV6,
+      });
+      return describeTunnel(created, row, network, { created: true, rotated: false });
+    }));
   });
 }
 
@@ -503,17 +554,19 @@ export function revokeVmAccessGrant(input: {
       deviceId: input.deviceId,
     });
     if (!grant) return { revoked: false, stackSessionIds: [] as string[] } as const;
-    const gateway = yield* VmProviderGateway;
-    const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
-    const tunnels = yield* repo.listAccessGrantTunnels(grant.id);
-    for (const tunnel of tunnels) {
-      if (gateway.deleteTunnel) {
-        yield* gateway.deleteTunnel(tunnel.provider, tunnel.providerTunnelId);
+    return yield* withAccessGrantMutationLease(repo, grant.id, Effect.gen(function* () {
+      const gateway = yield* VmProviderGateway;
+      const stackSessionIds = yield* repo.listAccessGrantSessionIds(grant.id);
+      const tunnels = yield* repo.listAccessGrantTunnels(grant.id);
+      for (const tunnel of tunnels) {
+        if (gateway.deleteTunnel) {
+          yield* gateway.deleteTunnel(tunnel.provider, tunnel.providerTunnelId);
+        }
+        yield* repo.revokeTunnel(tunnel.id);
       }
-      yield* repo.revokeTunnel(tunnel.id);
-    }
-    const revoked = yield* repo.revokeAccessGrant(grant.id);
-    return { revoked, stackSessionIds } as const;
+      const revoked = yield* repo.revokeAccessGrant(grant.id);
+      return { revoked, stackSessionIds } as const;
+    }));
   });
 }
 

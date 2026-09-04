@@ -12,8 +12,10 @@ import {
   tunnelSlugForDevice,
 } from "../services/vms/privateNetwork";
 import {
+  VmAccessGrantMutationBusyError,
   VmAccessGrantRevokedError,
   VmPrivateNetworkUnavailableError,
+  VmProviderOperationError,
   VmTunnelNotFoundError,
 } from "../services/vms/errors";
 import type {
@@ -109,6 +111,8 @@ function accessGrantRow(overrides: Partial<CloudVmAccessGrantRow> = {}): CloudVm
     createdAt: new Date(),
     updatedAt: new Date(),
     lastControlPlaneAt: new Date(),
+    mutationLeaseId: null,
+    mutationLeaseExpiresAt: null,
     revokedAt: null,
     ...overrides,
   };
@@ -191,6 +195,8 @@ function testRepo(options: {
     listAccessGrantSessionIds: () => Effect.succeed(["session-1"]),
     renameAccessGrant: () => Effect.succeed(accessGrantRow()),
     listAccessGrantTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
+    claimAccessGrantMutation: () => Effect.succeed(true),
+    releaseAccessGrantMutation: () => Effect.void,
     revokeAccessGrant: () => Effect.succeed(true),
     findTunnel: () => Effect.succeed(options.tunnel ?? null),
     listUserTunnels: () => Effect.succeed(options.tunnel ? [options.tunnel] : []),
@@ -321,6 +327,69 @@ describe("resolveOwnerNetwork", () => {
 });
 
 describe("enrollVmTunnel", () => {
+  test("fails closed when another provider mutation owns the Mac", async () => {
+    const gatewayCalls = newGatewayCalls();
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      claimAccessGrantMutation: () => Effect.succeed(false),
+    } as VmRepositoryShape;
+
+    const error = await Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "device-1",
+        tunnelPurpose: "terminal",
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(
+        Effect.provide(layerFor(repo, testGateway({ calls: gatewayCalls }))),
+        Effect.flip,
+      ),
+    );
+
+    expect(error).toBeInstanceOf(VmAccessGrantMutationBusyError);
+    expect(gatewayCalls.createTunnel).toHaveLength(0);
+  });
+
+  test("releases the Mac mutation lease when provider enrollment fails", async () => {
+    const events: string[] = [];
+    const repo = {
+      ...testRepo({ network: networkRow() }),
+      claimAccessGrantMutation: () => Effect.sync(() => {
+        events.push("claim");
+        return true;
+      }),
+      releaseAccessGrantMutation: () => Effect.sync(() => {
+        events.push("release");
+      }),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      createTunnel: () => Effect.sync(() => {
+        events.push("provider-create");
+        throw new VmProviderOperationError({
+          provider: "freestyle",
+          operation: "createTunnel",
+          cause: new Error("provider unavailable"),
+        });
+      }),
+    } as VmProviderGatewayShape;
+
+    await expect(Effect.runPromise(
+      enrollVmTunnel({
+        userId: "user-1",
+        provider: "freestyle",
+        deviceId: "mac-stable-1",
+        deviceFingerprint: "device-1",
+        tunnelPurpose: "terminal",
+        clientPublicKey: CLIENT_KEY,
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    )).rejects.toBeDefined();
+
+    expect(events).toEqual(["claim", "provider-create", "release"]);
+  });
+
   test("holds the physical Mac mutation lease through provider enrollment", async () => {
     const events: string[] = [];
     const repo = {
@@ -643,6 +712,8 @@ describe("Cloud VM access grant revocation", () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         lastControlPlaneAt: new Date(),
+        mutationLeaseId: null,
+        mutationLeaseExpiresAt: null,
         revokedAt: null,
       }),
       listAccessGrantTunnels: () => Effect.succeed(rows),
