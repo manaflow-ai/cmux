@@ -21,8 +21,10 @@ The gate scans all production JavaScript and TypeScript and compares the
 findings with `oxlint-complexity-baseline.txt`. The baseline contains only the
 legacy findings present when this gate was introduced. Any new finding fails
 CI, including a complexity increase in an existing function. When a function
-is fixed, remove its baseline line in the same change. Do not add baseline
-entries. Use a narrow, single-line `oxlint` suppression only for an intentional
-exception, with its reason in the comment and pull request. Do not add a broad
-disable or raise the limit to accept new code. Lower the limit in a separate
-cleanup wave as the remaining debt is removed.
+is fixed, remove its baseline line in the same change. The checker uses a
+stable AST-context fingerprint and a sibling discriminator, so do not hand-edit
+fingerprints. Do not add baseline entries. Use a narrow, single-line `oxlint`
+suppression only for an intentional exception, with its reason in the comment
+and pull request. Do not add a broad disable or raise the limit to accept new
+code. Lower the limit in a separate cleanup wave as the remaining debt is
+removed.

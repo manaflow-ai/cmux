@@ -86,7 +86,11 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = "pull_request" ]; then
             base_sha="$PR_BASE_SHA"
-          else
+            bun run lint:complexity -- --base "$base_sha" --head "$HEAD_SHA"
+          elif [ -n "${PUSH_BASE_SHA:-}" ] && [ "$PUSH_BASE_SHA" != "0000000000000000000000000000000000000000" ]; then
             base_sha="$PUSH_BASE_SHA"
+            bun run lint:complexity -- --base "$base_sha" --head "$HEAD_SHA"
+          else
+            echo "No previous push revision; checking the current baseline without a comparison."
+            bun run lint:complexity
           fi
-          bun run lint:complexity -- --base "$base_sha" --head "$HEAD_SHA"

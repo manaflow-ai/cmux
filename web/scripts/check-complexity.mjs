@@ -174,6 +174,50 @@ function functionBodyAnchor(node, sourceFile) {
   return normalizedSyntax(node.body.getText(sourceFile)).slice(0, 200);
 }
 
+function directChild(parent, target) {
+  let child = target;
+  while (child.parent && child.parent !== parent) child = child.parent;
+  return child;
+}
+
+function containsFunctionBody(node) {
+  let found = false;
+  function visit(child) {
+    if (ts.isFunctionLike(child) && child.body) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(child, visit);
+  }
+  visit(node);
+  return found;
+}
+
+function functionSignature(node, sourceFile) {
+  return `${ts.SyntaxKind[node.kind]}:${nodeName(node, sourceFile)}:${functionHeader(node, sourceFile)}`;
+}
+
+function childFunctionSignature(node, sourceFile) {
+  const signatures = [];
+  function visit(child) {
+    if (ts.isFunctionLike(child) && child.body) {
+      signatures.push(functionSignature(child, sourceFile));
+      return;
+    }
+    ts.forEachChild(child, visit);
+  }
+  visit(node);
+  return signatures.join("|");
+}
+
+function siblingOrdinal(parent, child, sourceFile) {
+  const targetChild = directChild(parent, child);
+  const targetSignature = childFunctionSignature(targetChild, sourceFile);
+  const siblings = parent.getChildren(sourceFile).filter(containsFunctionBody);
+  const matchingSiblings = siblings.filter((sibling) => childFunctionSignature(sibling, sourceFile) === targetSignature);
+  return matchingSiblings.indexOf(targetChild);
+}
+
 function contextDescriptor(node, sourceFile) {
   if (ts.isIfStatement(node)) return `if:${normalizedSyntax(node.expression.getText(sourceFile))}`;
   if (ts.isIterationStatement(node)) return `loop:${normalizedSyntax(node.expression?.getText(sourceFile) ?? "")}`;
@@ -215,7 +259,10 @@ function functionIdentity(sourceFile, node) {
       parts.push(`element:${normalizedSyntax(parent.argumentExpression.getText(sourceFile))}`);
     }
     const context = contextDescriptor(parent, sourceFile);
-    if (context) parts.push(`context:${context}`);
+    if (context) {
+      parts.push(`context:${context}`);
+      parts.push(`sibling:${siblingOrdinal(parent, child, sourceFile)}`);
+    }
     child = parent;
   }
   return parts.reverse().join("/");
