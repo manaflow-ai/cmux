@@ -310,6 +310,8 @@ export type VmRepositoryShape = {
     readonly expectedDiskMb: number;
     /** The requested claim; the temporary headroom hold may be larger. */
     readonly minimumDiskMb?: number;
+    /** The claim to restore if the provider never reaches the request. */
+    readonly previousDiskMb: number;
     /** Unique generation returned by reserveVmResize. */
     readonly operationId: string;
   }) => Effect.Effect<boolean, VmDatabaseError>;
@@ -793,12 +795,16 @@ function resizePendingMetadataJsonb(input: {
 function resizeUnconfirmedMetadataJsonb(input: {
   readonly operationId: string;
   readonly requestedDiskMb: number;
+  readonly previousDiskMb: number;
+  readonly markedAtMs: number;
 }) {
   return sql`jsonb_build_object(
     ${sql.raw(`'${VM_RESOURCE_RESIZE_UNCONFIRMED_METADATA_KEY}'`)},
     jsonb_build_object(
       'operationId', ${input.operationId}::text,
-      'requestedDiskMb', ${input.requestedDiskMb}::integer
+      'requestedDiskMb', ${input.requestedDiskMb}::integer,
+      'previousDiskMb', ${input.previousDiskMb}::integer,
+      'markedAtMs', ${input.markedAtMs}::bigint
     )
   )`;
 }
@@ -2136,10 +2142,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       const minimumDiskMb = input.minimumDiskMb === undefined
         ? expectedDiskMb
         : positiveReservationInteger(input.minimumDiskMb);
+      const previousDiskMb = positiveReservationInteger(input.previousDiskMb);
       const operationId = typeof input.operationId === "string" ? input.operationId.trim() : "";
       if (
         expectedDiskMb === null ||
         minimumDiskMb === null ||
+        previousDiskMb === null ||
         operationId.length === 0 ||
         operationId.length > 200
       ) {
@@ -2167,10 +2175,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 '{cmuxResourceReservation,diskMb}',
                 to_jsonb(${VM_DISK_MB_MAX}::integer),
                 true
-              )
+            )
               || ${resizeUnconfirmedMetadataJsonb({
                 operationId,
                 requestedDiskMb: minimumDiskMb,
+                previousDiskMb,
+                markedAtMs: Date.now(),
               })}
             ) #- '{${sql.raw(VM_RESOURCE_RESIZE_PENDING_METADATA_KEY)}}'
               #- '{${sql.raw(VM_RESOURCE_RECONCILE_RETRY_METADATA_KEY)}}'`,

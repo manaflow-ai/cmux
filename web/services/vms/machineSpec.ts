@@ -197,6 +197,10 @@ export type VmResourceResizeUnconfirmed = {
   readonly operationId: string;
   /** Minimum provider size expected after the completed resize. */
   readonly requestedDiskMb: number;
+  /** Disk claim to restore when the provider never reaches the request. */
+  readonly previousDiskMb?: number;
+  /** Millisecond timestamp at which conservative recovery started. */
+  readonly markedAtMs?: number;
 };
 
 /** Read a validated completed-resize marker awaiting provider stats. */
@@ -208,13 +212,22 @@ export function vmResourceResizeUnconfirmedFromMetadata(
   const candidate = raw as Record<string, unknown>;
   const operationId = candidate.operationId;
   const requestedDiskMb = candidate.requestedDiskMb;
+  const previousDiskMb = candidate.previousDiskMb;
+  const markedAtMs = candidate.markedAtMs;
   if (
     typeof operationId !== "string" ||
     operationId.trim().length === 0 ||
     operationId.length > 200 ||
-    !isPositiveSafeInteger(requestedDiskMb)
+    !isPositiveSafeInteger(requestedDiskMb) ||
+    (previousDiskMb !== undefined && !isPositiveSafeInteger(previousDiskMb)) ||
+    (markedAtMs !== undefined && !isPositiveSafeInteger(markedAtMs))
   ) return null;
-  return { operationId: operationId.trim(), requestedDiskMb };
+  return {
+    operationId: operationId.trim(),
+    requestedDiskMb,
+    ...(previousDiskMb === undefined ? {} : { previousDiskMb }),
+    ...(markedAtMs === undefined ? {} : { markedAtMs }),
+  };
 }
 
 export type VmResourceReconcileRetry = {

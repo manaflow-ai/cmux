@@ -191,6 +191,7 @@ const LEGACY_RESOURCE_RECONCILE_RETRY_AFTER_MS = 5 * 60 * 1000;
 // in a short-lived cron invocation, even when a provider is fully hung.
 const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
+const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
 
 type ExistingVmAccessInput = {
@@ -1546,6 +1547,7 @@ function reconcileLegacyResourceCandidate(
           id: vm.id,
           expectedDiskMb: existing.diskMb,
           minimumDiskMb: pending.requestedDiskMb,
+          previousDiskMb: pending.previousDiskMb,
           operationId: pending.operationId,
         }).pipe(
           Effect.asVoid,
@@ -1557,7 +1559,29 @@ function reconcileLegacyResourceCandidate(
         // Clearing the marker before the requested size is observed would
         // permanently undercount the shared disk pool.
         if (diskMb < unconfirmed.requestedDiskMb) {
-          return deferLegacyResourceCandidate(repo, vm);
+          if (!unconfirmedResizeRecoveryHasExpired(vm, unconfirmed)) {
+            return deferLegacyResourceCandidate(repo, vm);
+          }
+          // The provider stayed below the requested size for the complete
+          // recovery window. Assume the resize never applied and release the
+          // temporary maximum claim, retaining the recorded previous claim or
+          // the larger observed disk. Older markers lack the previous claim,
+          // so the provider's current size is the only trustworthy fallback.
+          const reservation = {
+            ...existing,
+            vcpus: positiveResourceSize(stats.cpus) ?? existing.vcpus,
+            memoryMb: positiveResourceSize(stats.memoryTotalMb) ?? existing.memoryMb,
+            diskMb: Math.max(
+              DEFAULT_VM_RESOURCE_RESERVATION.diskMb,
+              unconfirmed.previousDiskMb ?? 0,
+              diskMb,
+            ),
+          };
+          return setReservation({
+            id: vm.id,
+            reservation,
+            expectedResizeUnconfirmedOperationId: unconfirmed.operationId,
+          }).pipe(Effect.asVoid);
         }
         const reservation = {
           ...existing,
@@ -1606,6 +1630,14 @@ function resizePendingHasExpired(
   if (pending.createdAtMs === undefined) return true;
   const startedAtMs = pending.createdAtMs;
   return Date.now() - startedAtMs >= RESIZE_PENDING_RECOVERY_AFTER_MS;
+}
+
+function unconfirmedResizeRecoveryHasExpired(
+  vm: Pick<CloudVmRow, "updatedAt">,
+  unconfirmed: { readonly markedAtMs?: number },
+): boolean {
+  const markedAtMs = unconfirmed.markedAtMs ?? vm.updatedAt.getTime();
+  return Date.now() - markedAtMs >= RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS;
 }
 
 /** Refresh live provider state before retrying a count or shared-resource limit conflict. */
@@ -2484,6 +2516,7 @@ function finalizeUnobservedResize(
     ...(reservation.requestedDiskMb === undefined
       ? {}
       : { minimumDiskMb: reservation.requestedDiskMb }),
+    previousDiskMb: reservation.previousDiskMb,
     operationId: reservation.operationId,
   }).pipe(
     Effect.asVoid,
