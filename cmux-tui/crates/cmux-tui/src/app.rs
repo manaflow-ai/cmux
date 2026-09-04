@@ -53489,7 +53489,7 @@ mod tests {
         }));
         assert!(matches!(
             received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
-            Ok(BrowserInputKind::Mouse {
+            Some(BrowserInputKind::Mouse {
                 event_type: "mousePressed",
                 x,
                 y,
@@ -53513,7 +53513,7 @@ mod tests {
         assert!(app.canceled_pointer_buttons.contains(&MouseButton::Left));
         assert!(matches!(
             received.recv_timeout(Duration::from_secs(1)).map(|event| event.kind),
-            Ok(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
+            Some(BrowserInputKind::Mouse { event_type: "mouseReleased", .. })
         ));
 
         mux.close_surface(surface.id).unwrap();
