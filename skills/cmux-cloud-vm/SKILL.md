@@ -1,11 +1,35 @@
 ---
 name: cmux-cloud-vm
-description: Route work to cmux Cloud machines (persistent cloud VMs) from the CLI — `cmux vm route`/`run`/`agent` pick a machine for you; `vm tree` / `surface ls` show the surface catalog (This Mac and every machine: terminals, VNC screens, browsers) and `vm open` / `surface open` put any of them in a pane; plus create, exec, push/pull, ports, checkpoints, forks. Use when an agent should run builds, tests, servers, desktop/browser tasks, or another agent on a cloud machine instead of the local Mac, or when the user says "cloud machine", "cloud VM", "run it in the cloud", or "cmux vm".
+description: Route work to cmux Cloud machines (persistent cloud VMs) from the CLI. `cmux vm route`/`run`/`agent` pick a machine for you; `vm tree` / `surface ls` show Cloud resources and `vm open` / `surface open` project them for a human. Use when an agent should run builds, tests, servers, desktop/browser tasks, or another agent on a cloud machine instead of the local Mac, or when the user says "cloud machine", "cloud VM", "run it in the cloud", or "cmux vm".
 ---
 
 # cmux Cloud Machines
 
-Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). Requires the cmux app running and a signed-in account (`cmux auth status`, `cmux auth login`). All of it is plain CLI, so it works for Claude Code, Codex, OpenCode, Pi, or any harness — and `cmux vm prompt` bootstraps an agent that has no skill loaded: it installs the app-bundled cmux-cloud skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt pointing at it (`--open <agent>` starts a local agent terminal with that prompt directly).
+Everything the Cloud sidebar can do, from the host CLI, plus agent-only primitives (`route`, `run`, `agent`, `exec`, `push`, `pull`, `wait`). It works for Claude Code, Codex, OpenCode, Pi, or any harness. `cmux vm prompt` bootstraps an agent that has no skill loaded: it installs the app-bundled cmux-cloud skill at `~/.config/cmux/skills/cmux-cloud.md` and prints a kickoff prompt pointing at it.
+
+## Execution context and trust boundary
+
+This skill has two execution contexts. A host orchestrator manages accounts,
+machines, domains, VPN enrollment, and projections. An agent running inside a
+Cloud VM is a guest and talks only to that VM's local cmux daemon.
+
+Guest commands are limited to the machine and the explicit workspace lease
+given to the agent. They may create, move, rename, and close VM-owned
+workspaces, tabs, panes, terminals, viewers, and browser surfaces in that
+lease. They never enumerate or mutate the Mac, another machine, or an
+unleased workspace.
+
+The guest image has no host cmux socket, host `CMUX_SOCKET_PATH`, host path,
+host browser profile, clipboard, keychain, SSH agent, or generic host RPC.
+Never add one as a workaround. A missing or ambiguous scope is a denial, not a
+fallback to the local socket.
+
+`open`, `diff`, and `markdown` resolve paths inside the VM project root and
+create VM-owned viewer surfaces. `browser open` runs the browser in the VM;
+the Mac may display its pixels and send explicit user input, but it does not
+load the URL in a Mac WebView. VM browser downloads stay in the VM. A host
+file is available only after the user performs an explicit, bounded transfer
+with `cmux vm pull` or an equivalent host-side import.
 
 ## What a machine is
 
@@ -15,7 +39,7 @@ Everything the Cloud sidebar can do, from the CLI — plus agent-only primitives
 | **Contents** | Ubuntu 24.04 (shared devbox image): node, bun, uv, git, gh, ripgrep, fd, jq, tmux, xdotool, Chrome, `cua-driver`. **Claude Code, Codex, OpenCode, and Pi are preinstalled**. Desktop-kind machines (the default; `vm new --base` makes a shell-only machine with no screen) boot a desktop: TigerVNC on `:1` with an openbox session, a dock (Chrome, Files, Ghostty) and noVNC on 6901 — the **Desktop** row in the sidebar / `vm open <m>:desktop` shows it. Shells on the machine get `DISPLAY=:1` (and the accessibility bus) while the desktop is up, so `agent-browser`, `xdotool` and `cua-driver mcp` act on that screen. |
 | **Session** | Every machine runs the **cmux-tui remote daemon**: its own workspaces → terminals, visible in `cmux vm tree`. A terminal you start there keeps running when the Mac disconnects. |
 | **Workspaces** | One machine hosts **many** cmux-tui workspaces: the machine is the big box, workspaces are the desks in it. Make a workspace per task *inside* a machine (`cmux vm workspace new <id> --name <task>`, the machine's ⌘N) — not a machine per task. The Cloud sidebar shows them grouped under the machine's Workspaces group. |
-| **Surface** | A terminal, VNC screen or browser — on This Mac or on a machine — with a stable id `<machine>/<kind>/<key>` (`cmux surface ls --json`). Panes *project* surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
+| **Surface** | A terminal, VNC screen, browser, file viewer, diff, or Markdown viewer owned by a machine. A host projection is a separate local placement binding, not a guest resource. Panes project surfaces: `cmux surface open <id>` reuses the pane already showing one, or lands it at a pane edge you choose; closing a pane never kills a machine's terminal. |
 | **Base** | The one pinned persistent machine (`cmux vm base open`) — use it for the user's ongoing work. |
 | **Pool** | Machines the router provisioned for agent work (`agent-pool` in `vm ls`). `vm run`/`vm agent` only draft these; hand-made machines need `--machine <id>`. |
 | **Plan meter** | `cmux vm ls` prints `N of M machines`. Free plans get **1 machine and a 7-day cloud window**; `vm ls --json` carries `limits.freeAccessExpiresAt`. At the cap, creates fail with an upgrade action. Never delete machines to make room without asking. |
@@ -38,9 +62,9 @@ cmux vm route                                            # which machine would b
 cmux vm run -- uname -a                                  # routed, executed, exit code passed through
 cmux vm run --sync -- bun test                           # push cwd to work/<dir> first, run there
 cmux vm agent --agent claude --sync -- "run the tests and fix failures"   # a detached Claude Code session on the routed machine
-cmux vm tree                                             # the surface catalog: This Mac, then every machine, workspace, terminal, desktop, port
+cmux vm tree                                             # host view of Cloud machines, workspaces, terminals, desktop, and ports
 cmux vm open vivid-newt/main/term_2f9c                   # show the human one terminal (reuses its pane if open)
-cmux surface open vivid-newt/display/display:1 --pane pane:2 --left   # any surface, at a pane edge (same drop rules as the sidebar)
+cmux surface open vivid-newt/display/display:1 --pane pane:2 --left   # host projection, at a pane edge
 ```
 
 Repeat runs from the same directory hit the same machine (sticky binding), so synced checkouts and dependencies stay warm. `--new` forces a fresh machine; `--machine <id>` pins one.
@@ -54,7 +78,7 @@ Repeat runs from the same directory hit the same machine (sticky binding), so sy
 
 ## Running work
 
-Opening a machine (`cmux vm shell <id>`, `vm new`, `vm base open`, the sidebar) gives a **plain terminal** on it — one terminal in the machine's cmux-tui session, attached in a pane like an ssh session; it keeps running if the pane closes and shows up in `cmux vm tree` (reattach with the `cmux vm open <m>/<ws>/<term>` address the `OK` line prints). `cmux vm tui <id>` is the only command that opens the full cmux-tui client.
+Opening a machine from the host (`cmux vm shell <id>`, `vm new`, `vm base open`, the sidebar) gives a **plain terminal** on it, one terminal in the machine's cmux-tui session, attached in a host projection pane like an SSH session. It keeps running if the pane closes and shows up in `cmux vm tree` (reattach with the `cmux vm open <m>/<ws>/<term>` address the `OK` line prints). `cmux vm tui <id>` is the only host command that opens the full cmux-tui client.
 
 ```bash
 cmux vm run --sync --pull work/app/dist -- sh -c 'cd work/app && bun run build'
@@ -72,25 +96,56 @@ cmux vm terminal read <id> <term>       # the visible screen — what a person a
 
 `vm agent` starts the agent as a **detached terminal in the machine's cmux-tui session**: it survives closed panes and reconnects from any device (`cmux vm open <machine>/<ws>/<term>`). Long shell work should also be backgrounded (see recipes) — never hold a long `exec` open.
 
+## Guest topology and viewers
+
+Use these commands from a Claude or other agent running inside the VM. They
+resolve against the VM-local daemon and the agent's leased workspace only:
+
+```bash
+cmux workspace list --json
+cmux surface ls --workspace "$CMUX_WORKSPACE_ID" --json
+cmux surface move "$SURFACE_ID" --workspace "$CMUX_WORKSPACE_ID" --before "$OTHER_ID"
+cmux open ./README.md
+cmux diff --repo .
+cmux markdown open ./docs/plan.md
+cmux browser open http://127.0.0.1:3000
+```
+
+`cmux open`, `cmux diff`, and `cmux markdown open` reject traversal,
+symlink escapes, host paths, and remote URLs. `cmux browser open` allows the
+VM loopback, the VM's own interfaces, and exact approved VPC peer addresses.
+It does not allow the Mac gateway, host LAN, metadata services, or an
+unscoped private address. Browser redirects, subresources, WebSockets, and
+downloads use the same policy.
+
+The guest must not use `local` resource IDs, host placement flags such as
+`--here` or `--pane`, `CMUX_SOCKET_PATH`, reverse relays, or a host browser
+handoff. The host user can project a VM surface with `cmux cloud projection`
+or explicitly pull a selected file. Those are host-side actions.
+
 ## Watching and reporting back
 
 ```bash
-cmux vm tree <id>                       # live: terminals with title, cwd, agent state, (open: surface)
+cmux vm tree <id>                       # host view: terminals with title, cwd, agent state, (open: projection)
 cmux vm open <id>                       # the machine's shell (+ its screen on desktop machines)
 cmux vm open <id>/<ws>/<term>           # one terminal as a pane; reuses the pane already showing it
-cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # a whole workspace: new local workspace, or into this one
+cmux vm workspace open <id> <ws> [--here|--tabs|--pane <p> --left]   # host-only projection placement
 cmux vm workspace rename <id> <ws> <name>   # rename it; `close` keeps its terminals (they detach into the pool), `rm` deletes it AND kills them
-cmux vm open <id>:desktop               # the noVNC screen
-cmux vm open <id>:port/3000 [--print]   # private tokened URL for an HTTP port (--print: URL only)
-cmux surface ls --json                  # every surface (local + cloud) with ids, lifecycle, and which panes show it
-cmux surface open <resource> [--new] [--pane <p> --left|--right|--up|--down|--tab]   # one open path for all of them
-cmux surface new-terminal --machine <id> --cwd /root/work/app -- bun test          # a terminal on the machine, opened as a pane
+cmux vm open <id>:desktop               # host projection of the VM screen
+cmux vm open <id>:port/3000 [--print]   # host-user-only private tokened URL
+cmux surface ls --json                  # host catalog of Cloud resources and projections
+cmux surface open <resource> [--new] [--pane <p> --left|--right|--up|--down|--tab]   # host projection path
+cmux surface new-terminal --machine <id> --cwd /root/work/app -- bun test          # host-created VM terminal
 cmux notify --title "Cloud build done" --body "…"
 ```
 
 The user cannot see inside the machine: print URLs, pull artifacts, or open a pane when there is something to look at, and `cmux notify` for long work. Only share URLs minted by `cmux vm open`. Never guess raw deployment URLs.
 
-A pane showing a machine surface is an ordinary local pane: move, split, reorder, or close it with the local topology verbs (`../cmux/SKILL.md`) and the surface catalog follows the pane; closing a pane never kills the machine's terminal. Rearranging the machine's own cmux-tui topology from inside is what `cmux vm tui <id>` is for.
+A pane showing a machine surface is a host projection. The host user may
+move, split, reorder, or close that projection without changing the VM
+layout. Rearranging the VM's own cmux-tui topology happens through the guest
+commands above or `cmux vm tui <id>` from the host. A remote agent cannot move
+the host projection or any local resource.
 
 ## Domains and publication
 

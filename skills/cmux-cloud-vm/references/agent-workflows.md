@@ -1,6 +1,14 @@
 # Agent workflows on cmux Cloud machines
 
-Recipes for doing the user's work *on* a machine while keeping the user in the loop. All of them assume `cmux auth status` reports signed-in.
+Recipes for doing the user's work *on* a machine while keeping the user in the loop. The recipes are host-orchestrator workflows and assume `cmux auth status` reports signed-in.
+
+If these instructions are read by Claude or another agent inside the Cloud VM,
+use only the VM-local guest commands. The guest may control resources in its
+leased VM workspace and may open VM files, diffs, Markdown, and browser URLs.
+It may not use host IDs, `local`, host paths, host browser profiles, host
+clipboard, host keychain, SSH-agent forwarding, reverse relays, or
+`CMUX_SOCKET_PATH`. A host projection is display-only and is created by the
+host user. Use `cmux vm pull` for an explicit, bounded VM-to-host transfer.
 
 ## 0. Decide and route (every task starts here)
 
@@ -86,12 +94,27 @@ cmux vm rm "$fork_a"; cmux vm rm "$fork_b"             # only the forks you crea
 
 ## 6. Desktop and browser tasks
 
-Desktop machines run xfce + TigerVNC + noVNC and the CUA driver (`cua-computer-server`, the computer-use API that screenshots/clicks/types on display `:1`). Drive it from inside the machine (`vm agent` with a computer-use-capable agent, or your own script against the server), and show the human the screen:
+Desktop machines run xfce + TigerVNC + noVNC and the CUA driver (`cua-computer-server`, the computer-use API that screenshots/clicks/types on display `:1`). Drive the VM desktop from inside the machine (`vm agent` with a computer-use-capable agent, or your own script against the server). A host user may project the resulting screen:
 
 ```bash
 cmux vm open <id>:desktop              # the screen as a browser pane beside the shell
 cmux vm exec <id> -- sh -c 'DISPLAY=:1 xdotool key ctrl+l'   # quick desktop pokes
 ```
+
+For a remote agent's normal web task, keep the browser in the VM and use the
+VM-local browser verbs. This keeps DOM state, cookies, storage, downloads, and
+network traffic in the VM:
+
+```bash
+cmux browser open http://127.0.0.1:3000
+cmux browser <browser-id> navigate http://127.0.0.1:3000
+cmux browser <browser-id> input --text "search"
+```
+
+The browser may reach VM loopback, VM interfaces, and exact directed VPC peer
+addresses. It may not reach the Mac gateway, the host LAN, metadata services,
+or an unscoped private address. Do not replace this with a host WebView or a
+raw URL handoff.
 
 ## 7. Showing the human
 

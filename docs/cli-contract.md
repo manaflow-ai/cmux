@@ -8,6 +8,9 @@ a PR explicitly calls out an intentional contract change.
 The current implementation is a hand-rolled parser. This spec is deliberately
 written around user-visible behavior so the implementation can change behind it.
 
+For a standalone visual view of the Cloud contract, open
+[cli-contract.html](cli-contract.html).
+
 ## Migration Rules
 
 - Keep `cmux --help`, `cmux -h`, `cmux --version`, and `cmux -v` working without

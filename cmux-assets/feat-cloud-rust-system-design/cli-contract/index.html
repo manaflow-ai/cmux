@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b1020">
+  <title>cmux Cloud Rust CLI contract</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0b1020;
+      --panel: #121a2c;
+      --panel-2: #18233a;
+      --line: #2b3a58;
+      --text: #edf3ff;
+      --muted: #aebbd2;
+      --quiet: #7e8ca6;
+      --blue: #78b7ff;
+      --green: #8be0b0;
+      --amber: #ffd48a;
+      --red: #ff9c9c;
+      --code: #0a0f1b;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --panel-2: #eef3fb;
+        --line: #d5deed;
+        --text: #172033;
+        --muted: #4d5c75;
+        --quiet: #697993;
+        --blue: #075fb6;
+        --green: #08753f;
+        --amber: #925d00;
+        --red: #a32121;
+        --code: #edf2f9;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    main { max-width: 1120px; margin: 0 auto; padding: 42px 28px 84px; }
+    header { margin-bottom: 28px; }
+    .kicker { margin: 0 0 7px; color: var(--blue); font: 650 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; }
+    h1 { margin: 0; max-width: 800px; font-size: clamp(30px, 5vw, 48px); line-height: 1.05; letter-spacing: -.035em; }
+    .lede { max-width: 820px; margin: 16px 0 0; color: var(--muted); font-size: 18px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 22px 0 34px; }
+    nav a, .link { color: var(--blue); text-decoration: none; }
+    nav a { border: 1px solid var(--line); border-radius: 999px; padding: 6px 11px; background: var(--panel); font-size: 13px; }
+    nav a:hover, nav a:focus-visible { border-color: var(--blue); }
+    section { margin: 30px 0; }
+    h2 { margin: 0 0 12px; font-size: 22px; letter-spacing: -.02em; }
+    h3 { margin: 20px 0 8px; font-size: 16px; }
+    p { margin: 8px 0; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+    .card { padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    .card strong { display: block; margin-bottom: 5px; }
+    .card p { margin: 0; font-size: 14px; }
+    .decision { border-left: 4px solid var(--green); }
+    .warning { border-left: 4px solid var(--amber); }
+    .danger { border-left: 4px solid var(--red); }
+    .tag { display: inline-block; margin-right: 5px; padding: 2px 7px; border-radius: 5px; background: var(--panel-2); color: var(--quiet); font: 650 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; letter-spacing: .05em; }
+    table { width: 100%; border-collapse: collapse; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    th, td { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--quiet); background: var(--panel-2); font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { white-space: nowrap; }
+    code, pre { font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    code { padding: 1px 4px; border-radius: 4px; background: var(--code); color: var(--text); }
+    pre { margin: 12px 0; padding: 15px; overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--code); color: var(--text); }
+    .flow { counter-reset: step; display: grid; gap: 8px; }
+    .flow div { counter-increment: step; display: grid; grid-template-columns: 30px 1fr; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+    .flow div::before { content: counter(step); display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--panel-2); color: var(--blue); font-weight: 700; }
+    .flow p { margin: 0; }
+    .small { color: var(--quiet); font-size: 13px; }
+    footer { margin-top: 45px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--quiet); font-size: 13px; }
+    @media (max-width: 680px) {
+      main { padding: 28px 16px 60px; }
+      th, td { padding: 8px; }
+      td:first-child { white-space: normal; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="kicker">cmux Cloud · Rust CLI · design contract</p>
+    <h1>One command surface, two trust domains</h1>
+    <p class="lede">A Claude process in a Cloud VM can operate its leased cmux workspaces and viewers. It can show those resources on the Mac through a narrow projection stream. It cannot read or control the Mac.</p>
+    <nav aria-label="Sections">
+      <a href="#boundary">Boundary</a>
+      <a href="#verbs">Verbs</a>
+      <a href="#viewers">Viewers</a>
+      <a href="#browser">Browser network</a>
+      <a href="#domains">Domains</a>
+      <a href="#reuse">Code reuse</a>
+      <a href="#build">Build</a>
+    </nav>
+    <div class="grid">
+      <div class="card decision"><strong>VM owns remote state</strong><p>Workspace, tab, pane, terminal, browser, file, diff, and Markdown resources live in the VM daemon. The lease limits the agent to one task scope.</p></div>
+      <div class="card decision"><strong>Mac renders a projection</strong><p>The Mac reconciles remote events into a dedicated Cloud workspace. A projection is not a shared folder, host browser, or host socket.</p></div>
+      <div class="card warning"><strong>Host actions stay explicit</strong><p>Only the user can attach, move, or detach a projection, or pull a selected VM file to a selected local destination.</p></div>
+    </div>
+  </header>
+
+  <section id="boundary">
+    <h2>Trust boundary</h2>
+    <p>Assume every process in a VM is compromised. The only inbound authority is a lease for a machine, session, and remote workspace. The host starts the authenticated outbound stream and never exposes its local cmux socket.</p>
+    <table>
+      <thead><tr><th>Principal</th><th>Allowed</th><th>Denied</th></tr></thead>
+      <tbody>
+        <tr><td><span class="tag">guest</span> Claude in VM</td><td>List, create, rename, move, reorder, and close VM resources in its lease. Read VM files. Run the VM browser. Use exact approved VPC peers.</td><td>Mac IDs, other leases, host paths, host URLs, host browser profiles, clipboard, keychain, SSH agent, host focus, local processes, and reverse relays.</td></tr>
+        <tr><td><span class="tag">host</span> Cloud client</td><td>Authenticate, manage machines, sessions, domains, VPN enrollment, and projection bindings. Send explicit user input to a VM projection.</td><td>Resolve a VM path on the Mac, load a VM URL in a Mac WebView, or silently import a VM file.</td></tr>
+        <tr><td><span class="tag">local</span> Mac client</td><td>Manage local workspaces, panes, browsers, and files.</td><td>Receive a remote agent request that names a local resource.</td></tr>
+      </tbody>
+    </table>
+    <pre>remote Claude
+  → VM-local cmux daemon
+  → lease and revision check
+  → VM event or bounded snapshot
+  → host projection reconciler
+  → dedicated local Cloud workspace</pre>
+    <div class="card danger"><strong>Fail closed</strong><p>A guest with no VM daemon or no matching lease gets <code>transport.unavailable</code> or <code>scope.denied</code>. It never tries a host socket or a local fallback.</p></div>
+  </section>
+
+  <section id="verbs">
+    <h2>Command contract</h2>
+    <p>Use familiar noun-first verbs. The same Rust protocol models power the standalone packages, the desktop app, and the in-VM client. Host-only placement options are separate from guest topology.</p>
+    <table>
+      <thead><tr><th>Guest command</th><th>Effect</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>cmux workspace list|create|rename|move|close</code></td><td>Manage leased VM workspaces.</td><td>Remote workspace ID and revision.</td></tr>
+        <tr><td><code>cmux tab list|create|rename|move|close</code></td><td>Manage tabs in a leased workspace.</td><td>Remote tab ID and revision.</td></tr>
+        <tr><td><code>cmux pane list|create|split|move|close</code></td><td>Manage pane topology in a leased workspace.</td><td>Remote pane ID and revision.</td></tr>
+        <tr><td><code>cmux surface list|open|move|close</code></td><td>Manage terminals, browsers, and viewers owned by the VM.</td><td>Remote surface ID and revision.</td></tr>
+        <tr><td><code>cmux open ./file</code></td><td>Open one VM file as an immutable viewer surface.</td><td>Bounded snapshot, digest, and remote surface ID.</td></tr>
+        <tr><td><code>cmux diff --repo .</code></td><td>Render structured VM repository hunks.</td><td>Hunks and expected blob hashes. Mutations stay in the VM repository.</td></tr>
+        <tr><td><code>cmux markdown open ./plan.md</code></td><td>Render inert Markdown from the VM.</td><td>Safe render model. Scripts and host fetches are disabled.</td></tr>
+        <tr><td><code>cmux browser open &lt;url&gt;</code></td><td>Start a browser process inside the VM.</td><td>Remote browser surface. DOM, cookies, storage, and downloads stay in the VM.</td></tr>
+      </tbody>
+    </table>
+    <p class="small">A remote move emits a revisioned event. The host moves only the matching remote projection. It never moves a local tab or pane.</p>
+  </section>
+
+  <section id="viewers">
+    <h2>Files, diff, Markdown, and desktop</h2>
+    <div class="grid">
+      <div class="card"><strong>File viewer</strong><p>Canonicalize against the VM project grant. Reject traversal, unsafe symlinks, host paths, and oversized payloads. Send a bounded immutable snapshot.</p></div>
+      <div class="card"><strong>Diff viewer</strong><p>Send structured hunks and expected blob hashes. A click or edit returns to the VM repository. The Mac does not open the path.</p></div>
+      <div class="card"><strong>Markdown viewer</strong><p>Render an inert model. Block scripts, active HTML, remote subresources, custom schemes, and host file access.</p></div>
+      <div class="card"><strong>Desktop viewer</strong><p>VNC or noVNC frames travel VM to Mac. Input is explicit Mac to VM. The VM never receives Mac screen, camera, microphone, or accessibility data.</p></div>
+    </div>
+    <h3>Local file rule</h3>
+    <p>A remote agent cannot request a Mac picker or receive a host file handle. The user may choose one file, the host scans and bounds it, and an expiring guest path plus digest is sent to the VM. A directory mount is not part of the first release.</p>
+    <pre>user selects local file
+  → host creates one-time transfer grant
+  → VM receives guest path + digest
+  → Claude opens the VM copy
+  → lease expiry revokes the grant</pre>
+  </section>
+
+  <section id="browser">
+    <h2>Browser network policy</h2>
+    <p>The local cmux pane is a pixel and input viewer. It is never a Mac WebView that loads the remote URL. The browser process, DOM, JavaScript, cookies, storage, downloads, and network stack stay in the VM.</p>
+    <table>
+      <thead><tr><th>Destination</th><th>Default</th><th>Rule</th></tr></thead>
+      <tbody>
+        <tr><td>VM loopback and assigned interfaces</td><td>Allow</td><td>Used for local servers and the VM desktop.</td></tr>
+        <tr><td>VPC peer</td><td>Deny</td><td>Allow only an exact machine, IP, port, and protocol grant.</td></tr>
+        <tr><td>Public internet</td><td>Deny</td><td>Enable only with an explicit machine or team <code>internet</code> policy.</td></tr>
+        <tr><td>Mac gateway, LAN, link-local, metadata, unscoped private ranges</td><td>Deny</td><td>Block after canonicalizing IPv4, IPv6, mapped, integer, and DNS forms.</td></tr>
+      </tbody>
+    </table>
+    <p>Apply the check before every redirect, subresource, WebSocket, WebRTC, DNS result, and download. VPC reachability gives network access only. It does not give another VM's cmux authority.</p>
+  </section>
+
+  <section id="domains">
+    <h2>Domains and publication</h2>
+    <p>Keep the established Ben Swerdlow domain verbs and order. A domain is a publication resource, not a port-open alias.</p>
+    <pre>cmux cloud domains list
+cmux cloud domains zones
+cmux cloud domains verify example.com
+cmux cloud domains publish &lt;vm&gt; &lt;port&gt; --domain app.example.com --access team --team &lt;team-id&gt;
+cmux cloud domains access app.example.com public
+cmux cloud domains rm app.example.com</pre>
+    <div class="flow">
+      <div><p><strong>Discover.</strong> List owned domains and available zones. Generated names skip customer DNS proof.</p></div>
+      <div><p><strong>Verify.</strong> The first call prints a labelled DNS checklist. Run the same verb again after the user changes DNS.</p></div>
+      <div><p><strong>Publish.</strong> Bind one verified hostname to one VM port and choose <code>personal</code>, <code>team</code>, or <code>public</code> access.</p></div>
+      <div><p><strong>Use.</strong> Human output starts with the URL. Protected viewers show sign-in or denial.</p></div>
+      <div><p><strong>Remove.</strong> <code>rm</code> takes the hostname and removes the route and certificate binding in one no-prompt migration command.</p></div>
+    </div>
+  </section>
+
+  <section id="reuse">
+    <h2>Code reuse without authority leaks</h2>
+    <p>Put pure protocol and model code in shared Rust crates. Keep authority adapters separate.</p>
+    <table>
+      <thead><tr><th>Shared crate</th><th>Frontends</th><th>Must stay separate</th></tr></thead>
+      <tbody>
+        <tr><td>Result envelopes, action IDs, typed errors, request IDs, JSON and JSONL render models</td><td><code>cmux</code>, desktop app, npm launcher, PyPI launcher</td><td>TTY presentation and host UI focus rules</td></tr>
+        <tr><td>Cloud API client, auth refresh, team context, VM models, domains, leases, retries, idempotency</td><td>cmux Cloud client and control-plane services</td><td>Keyring namespaces and local config paths</td></tr>
+        <tr><td>CodeRouter model-plane client, account/session schemas, usage fixtures</td><td>Standalone <code>coderouter</code> package and <code>cmux coderouter</code></td><td>Compute, VM lifecycle, terminal authority, and credential storage</td></tr>
+        <tr><td>Remote resource IDs, revisions, snapshots, projection events</td><td>VM daemon, host reconciler, mobile data-plane client</td><td>VM authority versus host placement authority</td></tr>
+      </tbody>
+    </table>
+    <p class="small">The standalone CodeRouter command and the cmux namespace must produce the same action IDs, envelopes, errors, and usage fixtures. They may use different TTY frontends and separate keyring entries.</p>
+  </section>
+
+  <section id="build">
+    <h2>Build target</h2>
+    <p>This page is the implementation target. The first complete path should work from a clean npm or PyPI install and does not require the desktop app:</p>
+    <pre>cmux auth login
+cmux cloud vm list
+cmux cloud vm create
+cmux cloud session attach &lt;session&gt;
+cmux workspace create --name task
+cmux open ./README.md
+cmux diff --repo .
+cmux browser open http://127.0.0.1:3000
+cmux coderouter status
+disconnect → reconnect → cmux vm pull → cmux cloud vm destroy</pre>
+    <div class="grid">
+      <div class="card decision"><strong>Fast create</strong><p>Claim a scrubbed warm machine. Readiness means the daemon, private route, and initial workspace lease are usable.</p></div>
+      <div class="card decision"><strong>Reconnect</strong><p>Keep VM sessions and viewer state durable. Resume by event cursor or request a bounded snapshot. Never spawn a replacement shell silently.</p></div>
+      <div class="card decision"><strong>Revoke</strong><p>Session revoke or machine destroy invalidates projection bindings, input leases, browser streams, transfer grants, and peer grants.</p></div>
+    </div>
+    <h3>Deliberate first-release limits</h3>
+    <p>Do not ship host browser handoff, recursive host mounts, mixed local and remote layout control, implicit clipboard transfers, or raw host socket relays. These features add a host data channel before the resource contract is safe.</p>
+  </section>
+
+  <footer>
+    <p>Source documents: <a class="link" href="../../../docs/cli-contract.md">CLI contract</a>, <a class="link" href="../../../docs/cloud-rust-system-design.md">Cloud Rust system design</a>, <a class="link" href="../../../plans/feat-cloud-rust-cli/DESIGN.md">Rust CLI plan</a>.</p>
+    <p>Design update is tracked in <a class="link" href="https://github.com/manaflow-ai/cmux/pull/11896">PR 11896 by Lawrence Chen</a>. This page describes the target contract. Runtime implementation and behavior tests remain to be built.</p>
+  </footer>
+</main>
+</body>
+</html>
