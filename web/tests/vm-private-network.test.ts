@@ -7,6 +7,7 @@ import {
   networkSlugForUser,
   readVmTunnel,
   resolveOwnerNetwork,
+  revokeVmAccessGrant,
   revokeVmTunnel,
   tunnelSlugForDevice,
 } from "../services/vms/privateNetwork";
@@ -429,5 +430,69 @@ describe("readVmTunnel / revokeVmTunnel", () => {
       }).pipe(Effect.provide(layerFor(testRepo(), testGateway()))),
     );
     expect(result.revoked).toBe(false);
+  });
+});
+
+describe("Cloud VM access grant revocation", () => {
+  test("revokes every tunnel role for one Mac", async () => {
+    const deleted: string[] = [];
+    const revoked: string[] = [];
+    const rows = [
+      tunnelRow({
+        id: "00000000-0000-4000-8000-0000000000b1",
+        providerTunnelId: "tun-userspace",
+        tunnelPurpose: "terminal",
+      }),
+      tunnelRow({
+        id: "00000000-0000-4000-8000-0000000000b2",
+        providerTunnelId: "tun-vpn",
+        tunnelPurpose: "browser",
+      }),
+    ];
+    const repo = {
+      ...testRepo(),
+      findAccessGrant: () => Effect.succeed({
+        id: "00000000-0000-4000-8000-0000000000c1",
+        userId: "user-1",
+        deviceId: "mac-stable-1",
+        reportedName: "Lawrence’s MacBook Pro",
+        displayName: null,
+        modelIdentifier: "Mac15,6",
+        osVersion: "26.0",
+        architecture: "arm64",
+        cmuxVersion: "0.65.0",
+        cmuxBuild: "103",
+        cmuxChannel: "nightly",
+        stackSessionId: "session-1",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        lastControlPlaneAt: new Date(),
+        revokedAt: null,
+      }),
+      listAccessGrantTunnels: () => Effect.succeed(rows),
+      revokeTunnel: (id: string) => Effect.sync(() => {
+        revoked.push(id);
+        return true;
+      }),
+      revokeAccessGrant: () => Effect.succeed(true),
+    } as VmRepositoryShape;
+    const gateway = {
+      ...testGateway(),
+      deleteTunnel: (_provider: string, tunnelId: string) => Effect.sync(() => {
+        deleted.push(tunnelId);
+      }),
+    } as VmProviderGatewayShape;
+
+    const result = await Effect.runPromise(
+      revokeVmAccessGrant({
+        userId: "user-1",
+        accessGrantId: "00000000-0000-4000-8000-0000000000c1",
+      }).pipe(Effect.provide(layerFor(repo, gateway))),
+    );
+
+    expect(result.revoked).toBe(true);
+    expect(result.stackSessionId).toBe("session-1");
+    expect(deleted).toEqual(["tun-userspace", "tun-vpn"]);
+    expect(revoked).toEqual(rows.map((row) => row.id));
   });
 });
