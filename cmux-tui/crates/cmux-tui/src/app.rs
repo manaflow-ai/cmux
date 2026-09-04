@@ -4391,6 +4391,21 @@ fn rail_navigation_index(key: &KeyEvent, current: usize, len: usize, page: usize
     }
 }
 
+fn is_vertical_rail_navigation_key(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'))
+}
+
+fn alt_vertical_rail_direction(key: &KeyEvent) -> Option<Direction> {
+    if !key.modifiers.contains(KeyModifiers::ALT) {
+        return None;
+    }
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(Direction::Up),
+        KeyCode::Down | KeyCode::Char('j') => Some(Direction::Down),
+        _ => None,
+    }
+}
+
 fn files_navigation_key(key: &KeyEvent) -> bool {
     matches!(
         key.code,
@@ -6753,7 +6768,19 @@ impl RenderedPointerFrame {
                 row: y.saturating_sub(rect.y),
             };
         }
-        if let Some(route) = self.hits.iter().find(|route| route.rect.contains(x, y)) {
+        // Split dividers are explicit semantic handles. They are drawn after
+        // rail borders, so prefer their receipt before the generic border hit
+        // can classify the same cell as a rail-width resize.
+        let hit_route = self
+            .hits
+            .iter()
+            .rev()
+            .find(|route| {
+                matches!(route.hit, Hit::SidebarSplitDivider { .. })
+                    && route.rect.contains(x, y)
+            })
+            .or_else(|| self.hits.iter().find(|route| route.rect.contains(x, y)));
+        if let Some(route) = hit_route {
             return PointerRouteIdentity::Hit {
                 rect: route.rect,
                 hit: route.hit,
@@ -7826,6 +7853,10 @@ pub struct App {
     pub machine_sidebar_width: u16,
     pub tabs_sidebar_width: u16,
     pub sidebar_layout: SidebarLayout,
+    /// Projection identity that produced the committed sidebar layout. The
+    /// hysteresis solver may reuse a prior layout only for the same profile
+    /// and view topology; a profile switch must pack its new rails afresh.
+    sidebar_layout_projection: Option<SidebarProjectionSpec>,
     pub sidebar_plugin_surface: Option<SurfaceId>,
     pub sidebar_plugin_error: Option<String>,
     pub sidebar_plugin_retry_after_ms: Option<u64>,
@@ -10607,6 +10638,7 @@ fn run_with_machine_updates_inner(request: RunRequest) -> anyhow::Result<RunOutc
         machine_sidebar_width: 0,
         tabs_sidebar_width: 0,
         sidebar_layout: SidebarLayout::default(),
+        sidebar_layout_projection: None,
         sidebar_plugin_surface: None,
         sidebar_plugin_error: None,
         sidebar_plugin_retry_after_ms: None,
@@ -11521,12 +11553,8 @@ impl App {
     /// strip. The row itself remains the source of the detailed reason.
     pub(crate) fn agent_attention_summary(&mut self) -> Option<String> {
         let agents = self.session.agents();
-        if let Some(surface) = self.tree.active_surface() {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_millis() as u64)
-                .unwrap_or(0);
-            self.agent_focus_stamps.insert(surface, now_ms);
+        if self.refresh_agent_focus_stamp(&agents) {
+            self.invalidate_projection_rows_cache();
         }
         let attention = agents
             .iter()
@@ -11560,6 +11588,17 @@ impl App {
         let Some(spec) = self.config.sidebar.views.get(index).cloned() else {
             return Arc::<[ProjectionRow]>::from(Vec::new());
         };
+        let agents = if spec.includes(SidebarResourceKind::Agents) {
+            self.session.agents()
+        } else {
+            Vec::new()
+        };
+        // Refresh the client-local seen stamp before consulting the LRU. A
+        // projection can be requested before the profile strip is drawn, and
+        // a cache hit must not reuse the pre-seen ordering from that frame.
+        if !agents.is_empty() && self.refresh_agent_focus_stamp(&agents) {
+            self.invalidate_projection_rows_cache();
+        }
         let collapsed = self
             .active_sidebar_profile_state()
             .and_then(|state| state.projection_rails.get(&spec.id))
@@ -11596,15 +11635,6 @@ impl App {
             self.projection_rows_cache.push_front(cache);
             rows
         } else {
-            let agents = if spec.includes(SidebarResourceKind::Agents) {
-                // Keep lifecycle policy in the projection layer. This lets an
-                // explicit `filter.state` request historical `done` or
-                // temporarily `unknown` records without making local and
-                // remote callers disagree about what a view means.
-                self.session.agents()
-            } else {
-                Vec::new()
-            };
             let seen_idle = self.seen_idle_agent_surfaces(&agents);
             let rows = crate::sidebar_projection::rows(
                 &spec,
@@ -11640,24 +11670,35 @@ impl App {
         rows
     }
 
-    /// Stamp the focused surface, then derive which idle agents this client
-    /// has seen: the surface was focused at or after its idle transition.
-    /// The stamps live only in this client (presentation state); ordering
-    /// can therefore differ between two attached clients, by design. The
-    /// projection cache stays coherent because both seen inputs already
-    /// key it: a focus move changes the focus key and an agent transition
-    /// bumps the invalidation revision.
+    /// Refresh the focused surface's local seen stamp. Return true only when
+    /// an idle agent changes from unseen to seen, because that is the only
+    /// transition that changes a cached projection's ordering or filter.
+    /// Stamps remain client-local, so attached clients can rank the same idle
+    /// agent differently by design.
+    fn refresh_agent_focus_stamp(&mut self, agents: &[AgentInfo]) -> bool {
+        let Some(surface) = self.tree.active_surface() else { return false };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis() as u64)
+            .unwrap_or(0);
+        let previous = self.agent_focus_stamps.get(&surface).copied();
+        let newly_seen = agents.iter().any(|agent| {
+            agent.surface == surface
+                && agent.state == "idle"
+                && !previous.is_some_and(|stamp| stamp >= agent.updated_at_ms)
+                && now_ms >= agent.updated_at_ms
+        });
+        self.agent_focus_stamps.insert(surface, now_ms);
+        newly_seen
+    }
+
+    /// Derive which idle agents this client has seen: the surface was focused
+    /// at or after its idle transition. The caller refreshes the active stamp
+    /// before consulting the projection cache.
     fn seen_idle_agent_surfaces(
         &mut self,
         agents: &[AgentInfo],
     ) -> crate::sidebar_projection::SeenIdleSurfaces {
-        if let Some(surface) = self.tree.active_surface() {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|elapsed| elapsed.as_millis() as u64)
-                .unwrap_or(0);
-            self.agent_focus_stamps.insert(surface, now_ms);
-        }
         // Closed tabs leave stale stamps behind; bound the map instead of
         // walking the tree every render.
         if self.agent_focus_stamps.len() > 4_096 {
@@ -15783,6 +15824,7 @@ impl App {
 
     fn clear_empty_frame_geometry(&mut self) {
         self.sidebar_layout = SidebarLayout::default();
+        self.sidebar_layout_projection = None;
         self.sidebar_width = 0;
         self.machine_sidebar_width = 0;
         self.tabs_sidebar_width = 0;
@@ -16853,6 +16895,7 @@ impl App {
         let (width, height) = size;
         self.outer_size = size;
         self.ensure_files_mode_supported();
+        let current_sidebar_projection = SidebarProjectionSpec::from_config(&self.config);
         let sidebar_layout = if self.surface_only.is_some() {
             SidebarLayout {
                 content: Rect { x: 0, y: 0, width, height },
@@ -16874,8 +16917,13 @@ impl App {
             {
                 required_views.insert(host_id);
             }
-            let previous =
-                (!self.sidebar_layout.ordered.is_empty()).then_some(&self.sidebar_layout);
+            let previous = if !self.sidebar_layout.ordered.is_empty()
+                && self.sidebar_layout_projection.as_ref() == Some(&current_sidebar_projection)
+            {
+                Some(&self.sidebar_layout)
+            } else {
+                None
+            };
             let mut layout = sidebar_layout_for_presentation_state_with_requirements(
                 &self.config,
                 self.sidebar_visible,
@@ -16981,6 +17029,10 @@ impl App {
             layout
         };
         self.sidebar_layout = sidebar_layout;
+        self.sidebar_layout_projection = self
+            .surface_only
+            .is_none()
+            .then_some(current_sidebar_projection);
         // The solver is the authority for mounted views. Rebuild wake
         // dependencies at the same boundary, so a rail hidden by a resize or
         // sidebar toggle cannot keep AgentChanged/TitleChanged repainting it.
@@ -21034,6 +21086,10 @@ impl App {
             let _ = self.open_provider_rail_menu(1, 2);
             return RenderAction::Draw;
         }
+        if let Some(direction) = alt_vertical_rail_direction(key) {
+            self.move_focus_between_sidebar_rails(direction);
+            return RenderAction::Draw;
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             self.focus_adjacent_rail(RailKind::Machine, -1);
             return RenderAction::Draw;
@@ -21098,9 +21154,15 @@ impl App {
                 // keys. A valid provider-menu binding may intentionally use
                 // j, k, h, l, or an arrow key.
                 Some(MachineRailCommand::ProviderMenu)
+            } else if targets.is_empty() && is_vertical_rail_navigation_key(key) {
+                // An empty rail still owns its rectangle. Let vertical
+                // navigation cross its boundary instead of trapping focus in
+                // a rail with no selectable target.
+                continue_past_boundary = true;
+                None
             } else if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
                 continue_past_boundary = next == current
-                    && matches!(key.code, KeyCode::Up | KeyCode::Down | KeyCode::Char('j' | 'k'));
+                    && is_vertical_rail_navigation_key(key);
                 if let Some(target) = targets.get(next).copied() {
                     machine.select_rail_target(target);
                 }
@@ -21195,6 +21257,10 @@ impl App {
     ) -> anyhow::Result<RenderAction> {
         if key.code == KeyCode::Esc {
             self.focus = FocusTarget::Pane;
+            return Ok(RenderAction::Draw);
+        }
+        if let Some(direction) = alt_vertical_rail_direction(key) {
+            self.move_focus_between_sidebar_rails(direction);
             return Ok(RenderAction::Draw);
         }
         let rows = self.projection_rows(view_index);
@@ -21757,13 +21823,21 @@ impl App {
                     self.workspace_rail_follow_selection = true;
                 }
                 let targets = self.workspace_rail_targets();
+                if targets.is_empty()
+                    && is_vertical_rail_navigation_key(key)
+                    && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                {
+                    return Ok(RenderAction::Draw);
+                }
                 let current = self
                     .workspace_rail_target()
                     .and_then(|selected| targets.iter().position(|target| target == &selected))
                     .unwrap_or_default();
                 let page = self.workspace_rail_page_size();
                 if let Some(next) = rail_navigation_index(key, current, targets.len(), page) {
-                    if next == current && self.continue_past_rail_boundary(RailKind::Workspace, key)
+                    if next == current
+                        && is_vertical_rail_navigation_key(key)
+                        && self.continue_past_rail_boundary(RailKind::Workspace, key)
                     {
                         return Ok(RenderAction::Draw);
                     }
@@ -21799,6 +21873,10 @@ impl App {
     }
 
     fn handle_tabs_sidebar_key(&mut self, key: &KeyEvent) -> anyhow::Result<RenderAction> {
+        if let Some(direction) = alt_vertical_rail_direction(key) {
+            self.move_focus_between_sidebar_rails(direction);
+            return Ok(RenderAction::Draw);
+        }
         if matches!(key.code, KeyCode::Left | KeyCode::Char('h')) {
             self.focus_adjacent_rail(RailKind::Tabs, -1);
             return Ok(RenderAction::Draw);
@@ -21826,6 +21904,12 @@ impl App {
             self.tabs_rail_follow_selection = true;
         }
         let targets = self.sidebar_tab_targets();
+        if targets.is_empty()
+            && is_vertical_rail_navigation_key(key)
+            && self.continue_past_rail_boundary(RailKind::Tabs, key)
+        {
+            return Ok(RenderAction::Draw);
+        }
         self.tabs_rail_selection = self.tabs_rail_selection.min(targets.len().saturating_sub(1));
         let page =
             rail_page_size(self.sidebar_layout.tabs, crate::ui::rail::RailMetrics::for_app(self));
@@ -21833,6 +21917,7 @@ impl App {
             rail_navigation_index(key, self.tabs_rail_selection, targets.len(), page)
         {
             if next == self.tabs_rail_selection
+                && is_vertical_rail_navigation_key(key)
                 && self.continue_past_rail_boundary(RailKind::Tabs, key)
             {
                 return Ok(RenderAction::Draw);
@@ -23317,13 +23402,26 @@ impl App {
         let requested = self.config.sidebar.plugin.is_some() && self.sync_sidebar_plugin(true);
         if self.config.sidebar.plugin.is_none() || self.sidebar_plugin_surface.is_some() {
             let order = self.focusable_rail_order();
-            let preferred = order
-                .iter()
-                .copied()
-                .find(|kind| {
-                    self.view_index_for_rail(*kind)
-                        .and_then(|index| self.config.sidebar.views.get(index))
-                        .is_some_and(|view| view.includes(SidebarResourceKind::Workspaces))
+            let remembered_focus = self
+                .active_sidebar_profile_state()
+                .and_then(|state| state.focused_view.clone());
+            let preferred = remembered_focus
+                .as_ref()
+                .and_then(|identity| {
+                    order.iter().copied().find(|kind| {
+                        self.view_index_for_rail(*kind)
+                            .and_then(|index| self.config.sidebar.views.get(index))
+                            .is_some_and(|view| {
+                                identity == &SidebarViewIdentity::from_spec(view)
+                            })
+                    })
+                })
+                .or_else(|| {
+                    order.iter().copied().find(|kind| {
+                        self.view_index_for_rail(*kind)
+                            .and_then(|index| self.config.sidebar.views.get(index))
+                            .is_some_and(|view| view.includes(SidebarResourceKind::Workspaces))
+                    })
                 })
                 .or_else(|| order.first().copied());
             if let Some(kind) = preferred {
@@ -23412,6 +23510,12 @@ impl App {
         }
         let visible_action_count = if visible_action_rows > 0 { actions.len() } else { 0 };
         let target_count = self.sidebar_files.visible_len().saturating_add(visible_action_count);
+        if target_count == 0
+            && is_vertical_rail_navigation_key(key)
+            && self.continue_past_rail_boundary(RailKind::Workspace, key)
+        {
+            return Ok(RenderAction::Draw);
+        }
         if files_navigation_key(key) && target_count > 0 && visible_target_count > 0 {
             self.workspace_rail_follow_selection = true;
             let current = self
@@ -23770,6 +23874,7 @@ impl App {
         // semantic receipt priority over the rail's generic resize hit.
         self.hits
             .iter()
+            .rev()
             .find(|(rect, hit)| {
                 matches!(hit, Hit::SidebarSplitDivider { .. }) && rect.contains(x, y)
             })
@@ -32221,6 +32326,58 @@ mod tests {
     }
 
     #[test]
+    fn profile_switch_repacks_against_the_new_profile_at_the_width_boundary() {
+        let mux = Mux::new("sidebar-profile-width-boundary-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        let workspace = SidebarViewSpec::legacy(SidebarColumnKind::Workspaces, 10, 0);
+        let agents = SidebarViewSpec {
+            id: "agents".into(),
+            levels: vec![SidebarResourceKind::Agents],
+            actions: Vec::new(),
+            actions_position: crate::config::ActionsPosition::Bottom,
+            width: 10,
+            max_width: 0,
+            collapse_priority: 20,
+            row_lines: 1,
+            scope: SidebarViewScope::All,
+            sort: AgentSortMode::default(),
+            filter: AgentRowFilter::default(),
+        };
+        let narrow_views = vec![workspace.clone()];
+        let wide_views = vec![workspace, agents];
+        app.config.sidebar.profiles = vec![
+            SidebarProfileSpec {
+                id: "narrow".into(),
+                name: "Narrow".into(),
+                layout: crate::config::sidebar_layout_of_columns(&narrow_views),
+                views: narrow_views.clone(),
+            },
+            SidebarProfileSpec {
+                id: "wide".into(),
+                name: "Wide".into(),
+                layout: crate::config::sidebar_layout_of_columns(&wide_views),
+                views: wide_views.clone(),
+            },
+        ];
+        app.config.sidebar.active_profile = "narrow".into();
+        app.config.sidebar.views = narrow_views;
+        app.config.sidebar.layout = app.config.sidebar.profiles[0].layout.clone();
+        app.config.sidebar.views_explicit = true;
+
+        // At 60 columns, 40 columns remain for content and exactly two
+        // ten-cell rails. The old profile's one-column frame must not add
+        // reveal hysteresis to the new profile's second rail.
+        app.sync_layout((60, 20));
+        assert_eq!(app.sidebar_layout.ordered.len(), 1);
+
+        app.activate_sidebar_profile(1);
+        app.sync_layout((60, 20));
+        assert_eq!(app.config.sidebar.active_profile, "wide");
+        assert_eq!(app.sidebar_layout.ordered.len(), 2);
+        assert!(app.sidebar_layout.rail(RailKind::Projection(1)).is_some());
+    }
+
+    #[test]
     fn profile_switch_rebuilds_projection_when_view_id_is_reused() {
         let (mux, surface) = test_mux("sidebar-profile-projection-cache-test", None);
         mux.report_agent(
@@ -33139,6 +33296,21 @@ mod tests {
         assert_eq!(app.focus, FocusTarget::WorkspaceRail);
 
         app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE)).unwrap();
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
+    }
+
+    #[test]
+    fn alt_vertical_navigation_crosses_a_nonempty_stacked_projection() {
+        let mux = Mux::new("alt-stacked-projection-navigation-test", SurfaceOptions::default());
+        let mut app = test_app(Session::Local(mux));
+        app.config = split_sidebar_config();
+        app.sync_layout((120, 31));
+
+        app.focus = FocusTarget::ProjectionRail(1);
+        app.handle_key(KeyEvent::new(KeyCode::Up, KeyModifiers::ALT)).unwrap();
+        assert_eq!(app.focus, FocusTarget::WorkspaceRail);
+
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::ALT)).unwrap();
         assert_eq!(app.focus, FocusTarget::ProjectionRail(1));
     }
 
@@ -46064,6 +46236,21 @@ mod tests {
     }
 
     #[test]
+    fn focus_sidebar_restores_the_last_focused_profile_rail() {
+        let (mux, surface) = test_mux("focus-sidebar-restores-rail-test", None);
+        let mut app = test_app(Session::Local(mux.clone()));
+        app.tree = notify_tree(surface.id, false);
+        app.sync_layout((100, 24));
+
+        app.focus_rail(RailKind::Projection(2));
+        app.focus = FocusTarget::Pane;
+        app.focus_sidebar();
+
+        assert_eq!(app.focus, FocusTarget::ProjectionRail(2));
+        mux.close_surface(surface.id).unwrap();
+    }
+
+    #[test]
     fn focus_sidebar_uses_only_visible_rails() {
         let mux = Mux::new("focus-visible-rails-test", SurfaceOptions::default());
         let mut app = test_app(Session::Local(mux));
@@ -52470,6 +52657,7 @@ mod tests {
             machine_sidebar_width: 0,
             tabs_sidebar_width: 0,
             sidebar_layout: SidebarLayout::default(),
+            sidebar_layout_projection: None,
             sidebar_plugin_surface: None,
             sidebar_plugin_error: None,
             sidebar_plugin_retry_after_ms: None,

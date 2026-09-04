@@ -109,6 +109,10 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         app.shortcut_help = None;
     }
 
+    // Update the client-local agent seen state before any projection renderer
+    // can consult its cache. The profile strip is a status surface, not a
+    // later side effect of rail rendering.
+    sidebar::draw_presentation(app, frame);
     let mut sidebar_input_cursor = None;
     if app.sidebar_layout.ordered.is_empty() {
         // Preserve the pre-layout fallback used during startup, recovery, and
@@ -145,8 +149,6 @@ pub fn draw(app: &mut App, frame: &mut Frame) {
         app.sidebar_kind_scratch = ordered_kinds;
         sidebar::draw_split_dividers(app, frame);
     }
-    sidebar::draw_presentation(app, frame);
-
     let pane_cursors = if draw_machine_transition(app, frame) {
         pane::DrawCursors::default()
     } else {

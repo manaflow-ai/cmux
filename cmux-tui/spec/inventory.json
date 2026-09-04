@@ -731,6 +731,18 @@
       "route": "frontend action adapter"
     },
     {
+      "variant": "PrevSidebarProfile",
+      "key": "prev-sidebar-profile",
+      "classification": "presentation-only",
+      "route": "frontend sidebar presentation reducer"
+    },
+    {
+      "variant": "NextSidebarProfile",
+      "key": "next-sidebar-profile",
+      "classification": "presentation-only",
+      "route": "frontend sidebar presentation reducer"
+    },
+    {
       "variant": "FocusSidebar",
       "key": "focus-sidebar",
       "classification": "presentation-only",
@@ -1059,6 +1071,11 @@
       "variant": "SetSidebarViewVisible",
       "classification": "presentation-only",
       "route": "frontend per-profile view visibility"
+    },
+    {
+      "variant": "SetSidebarViewPinned",
+      "classification": "presentation-only",
+      "route": "frontend per-profile view pinning"
     },
     {
       "variant": "ShowShortcuts",
