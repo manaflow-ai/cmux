@@ -58,6 +58,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "warn-before-closing-tab", title: "Warn Before Closing Tab", synonyms: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: "Warn Before Tab Close Button", synonyms: "app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(section: .app, id: "hide-tab-close-button", title: "Hide Tab Close Button", synonyms: "app.hideTabCloseButton hide x button close tab terminal surface"),
+            .init(section: .app, id: "tab-bar-wrap", title: String(localized: "settings.app.tabBarWrap", defaultValue: "Wrap Tabs into Multiple Rows"), synonyms: "app.tabBarWrap tab bar tabs wrap rows overflow multi-row horizontal scroll"),
             .init(section: .app, id: "rename-selects-name", title: "Rename Selects Existing Name", synonyms: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
             .init(section: .app, id: "palette-search-all", title: "Command Palette Searches All Surfaces", synonyms: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
             .init(

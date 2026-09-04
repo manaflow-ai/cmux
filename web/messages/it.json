@@ -1134,7 +1134,8 @@
           "warnBeforeClosingTabXButton": "Mostra una conferma prima di chiudere una scheda con il pulsante di chiusura scheda.",
           "hideTabCloseButton": "Nasconde i pulsanti di chiusura scheda nella barra delle schede del riquadro.",
           "forkConversationDefaultDestination": "Destinazione predefinita per l'azione principale Fork Conversation nel menu contestuale della scheda. Il sottomenu mostra comunque tutte le destinazioni.",
-          "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso."
+          "globalFontMagnification": "Ridimensiona di questa percentuale terminali, titoli delle schede, barre laterali, impostazioni, overlay e chrome dell'app gestiti da cmux. Il contenuto renderizzato delle pagine del browser è escluso.",
+          "tabBarWrap": "Manda le schede del pannello che eccedono su righe aggiuntive invece di scorrerle orizzontalmente. Il riordino nativo tramite trascinamento non è disponibile quando il ritorno a capo è attivo."
         },
         "terminal": {
           "sessionContentMaxWidth": "Larghezza massima facoltativa, in punti, per il contenuto del terminale e della chat agente integrata. Imposta false per usare l’intera larghezza del riquadro.",

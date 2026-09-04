@@ -502,6 +502,12 @@
           "descriptionKey": "schemaDescriptions.app.globalFontMagnification",
           "description": "Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded."
         },
+        "tabBarWrap": {
+          "type": "boolean",
+          "default": false,
+          "descriptionKey": "schemaDescriptions.app.tabBarWrap",
+          "description": "Wrap overflowing pane tabs onto additional rows instead of scrolling them horizontally. Native drag-reordering is unavailable while wrapping is enabled."
+        },
         "reorderOnNotification": {
           "type": "boolean",
           "default": true,

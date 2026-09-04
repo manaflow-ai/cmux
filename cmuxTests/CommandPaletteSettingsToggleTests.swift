@@ -40,6 +40,25 @@ final class CommandPaletteSettingsToggleTests: XCTestCase {
         }
     }
 
+    func testTabBarWrapCommandTogglesDefaultAndReportsState() throws {
+        try withTemporaryDefaults { defaults in
+            let descriptor = try XCTUnwrap(
+                CommandPaletteSettingsToggleCommands.descriptor(
+                    commandId: "palette.toggleSetting.tabBarWrap"
+                )
+            )
+
+            XCTAssertFalse(descriptor.isOn(defaults))
+            descriptor.toggle(defaults: defaults, notificationCenter: NotificationCenter())
+
+            XCTAssertEqual(
+                defaults.object(forKey: AppCatalogSection().tabBarWrap.userDefaultsKey) as? Bool,
+                true
+            )
+            XCTAssertTrue(descriptor.isOn(defaults))
+        }
+    }
+
     func testTerminalScrollBarTogglePostsChangeNotification() throws {
         try withTemporaryDefaults { defaults in
             let descriptor = try XCTUnwrap(

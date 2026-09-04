@@ -97,6 +97,10 @@ enum SettingsSearchAliasIndex {
             "settings.search.alias.setting.app.hide-tab-close-button",
             defaultValue: "app.hideTabCloseButton hide close tab x button terminal surface"
         ),
+        "app:tab-bar-wrap": localized(
+            "settings.search.alias.setting.app.tab-bar-wrap",
+            defaultValue: "app.tabBarWrap tab bar tabs wrap rows overflow multi-row horizontal scroll"
+        ),
         "app:rename-selects-name": localized("settings.search.alias.setting.app.rename-selects-name", defaultValue: "app.renameSelectsExistingName rename select all existing title command palette workspace name"),
         "app:palette-search-all": localized("settings.search.alias.setting.app.palette-search-all", defaultValue: "app.commandPaletteSearchesAllSurfaces command palette search all surfaces cmd-p terminal browser markdown"),
         "app:canvas-pane-gap": localized("settings.search.alias.setting.app.canvas-pane-gap", defaultValue: "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),

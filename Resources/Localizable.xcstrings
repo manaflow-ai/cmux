@@ -162341,6 +162341,381 @@
         }
       }
     },
+    "settings.app.tabBarWrap": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لفّ علامات التبويب إلى صفوف متعددة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prelamanje kartica u više redova"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombryd faner til flere rækker"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tabs in mehrere Zeilen umbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wrap Tabs into Multiple Rows"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustar pestañas en varias filas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renvoyer les onglets sur plusieurs lignes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manda le schede su più righe"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブを複数行に折り返す"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បត់ផ្ទាំងទៅជាជួរច្រើន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭을 여러 행으로 줄바꿈"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bryt faner over flere rader"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zawijaj karty do wielu wierszy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quebrar abas em várias linhas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносить вкладки на несколько строк"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงแท็บหลายแถว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekmeleri birden çok satıra kaydır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Переносити вкладки на кілька рядків"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将标签页换行到多行"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將分頁換行至多列"
+          }
+        }
+      }
+    },
+    "settings.app.tabBarWrap.subtitleOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أبقِ التبويبات في صف أفقي واحد ومرّر عند تجاوزها المساحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zadrži jedan vodoravni red i pomjeraj ga kada kartice pređu širinu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bevar én vandret række, og rul, når fanerne løber over."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine horizontale Zeile beibehalten und bei Überlauf horizontal scrollen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep one horizontal row and scroll when tabs overflow."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener una sola fila horizontal y desplazarse cuando las pestañas desborden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conserver une seule ligne horizontale et faire défiler lorsque les onglets débordent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni una sola riga orizzontale e scorri quando le schede eccedono lo spazio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブがあふれたときも、1 行のまま横スクロールします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រក្សាទុកជួរផ្ដេកមួយ ហើយរំកិលនៅពេលផ្ទាំងលើសទំហំ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 가로 행을 유지하고 탭이 넘치면 스크롤합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Behold én vannrett rad og rull når fanene går over bredden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachowaj jeden poziomy wiersz i przewijaj, gdy karty się nie mieszczą."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter uma única linha horizontal e rolar quando as abas ultrapassarem o espaço."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оставлять одну горизонтальную строку и прокручивать её при переполнении вкладками."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คงแท็บไว้ในแถวแนวนอนเดียวและเลื่อนเมื่อแท็บล้นพื้นที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tek bir yatay satırı koru ve sekmeler sığmadığında kaydır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Залишати один горизонтальний рядок і прокручувати його, коли вкладки не вміщуються."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持单行水平排列，标签页超出空间时可滚动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "維持單一水平列，分頁超出空間時可捲動。"
+          }
+        }
+      }
+    },
+    "settings.app.tabBarWrap.subtitleOn": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اعرض كل تبويب في العدد اللازم من الصفوف. لا يتوفر السحب الأصلي لإعادة الترتيب أثناء تفعيل الالتفاف."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži svaku karticu u onoliko redova koliko je potrebno. Izvorno prevlačenje za preuređivanje nije dostupno dok je prelamanje uključeno."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis alle faner i så mange rækker som nødvendigt. Indbygget træk-og-slip-omarrangering er ikke tilgængelig, når ombrydning er slået til."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Tabs werden in so vielen Zeilen wie nötig angezeigt. Das native Ziehen zum Neuanordnen ist beim Umbrechen nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show every tab in as many rows as needed. Native drag-reordering is unavailable while wrapping is enabled."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar todas las pestañas en tantas filas como sea necesario. El reordenamiento nativo mediante arrastre no está disponible al activar el ajuste."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher chaque onglet sur autant de lignes que nécessaire. Le réordonnancement natif par glisser-déposer n’est pas disponible lorsque le renvoi est activé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra tutte le schede su tutte le righe necessarie. Il riordino nativo tramite trascinamento non è disponibile quando il ritorno a capo è attivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要な行数に折り返してすべてのタブを表示します。折り返し中はネイティブのドラッグ並べ替えを利用できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញផ្ទាំងទាំងអស់ក្នុងចំនួនជួរដែលចាំបាច់។ មិនអាចអូសដើមដើម្បីរៀបចំលំដាប់ឡើងវិញបានទេ នៅពេលបើកការបត់ជួរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필요한 만큼 여러 행에 모든 탭을 표시합니다. 줄바꿈이 활성화된 동안에는 기본 드래그 재정렬을 사용할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis alle faner på så mange rader som trengs. Innebygd dra-og-slipp for omorganisering er ikke tilgjengelig når bryting er aktivert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż każdą kartę w tylu wierszach, ilu potrzeba. Natywne przeciąganie do zmiany kolejności jest niedostępne, gdy zawijanie jest włączone."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar todas as abas em quantas linhas forem necessárias. A reorganização nativa por arrastar não fica disponível enquanto a quebra estiver ativada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать все вкладки в необходимом количестве строк. Перетаскивание для нативной смены порядка недоступно, пока включён перенос."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงทุกแท็บในจำนวนแถวที่จำเป็น การลากเพื่อจัดลำดับใหม่แบบเนทีฟจะใช้ไม่ได้เมื่อเปิดการตัดบรรทัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm sekmeleri gerektiği kadar satırda göster. Yerel sürükleyerek yeniden sıralama, sarma etkin olduğunda kullanılamaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати всі вкладки в потрібній кількості рядків. Нативне перетягування для зміни порядку недоступне, коли перенесення ввімкнено."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据需要将所有标签页显示在多行中。启用换行时无法使用原生拖拽重新排序。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將所有分頁顯示在所需的多列中。啟用換行時無法使用原生拖曳重新排序。"
+          }
+        }
+      }
+    },
     "settings.app.hideTabCloseButton": {
       "extractionState": "manual",
       "localizations": {
@@ -198347,6 +198722,131 @@
           "stringUnit": {
             "state": "translated",
             "value": "app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor 應用程式 一般 偏好設定 行為 Dock 選單列 狀態 側邊欄 設定 設定檔 檔案 json 結構描述 文件 參考 編輯器 程式碼 開啟 路徑 App"
+          }
+        }
+      }
+    },
+    "settings.search.alias.setting.app.tab-bar-wrap": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap شريط التبويبات التبويبات التفاف صفوف متعدد الصفوف تجاوز تمرير أفقي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap traka kartica kartice prelamanje redovi višeredno višak vodoravno pomjeranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap fanelinje faner ombrydning rækker flere rækker overfyldt vandret rulning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap Tab-Leiste Tabs umbrechen Zeilen mehrere Zeilen Überlauf horizontal scrollen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap tab bar tabs wrap rows overflow multi-row horizontal scroll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap barra de pestañas pestañas ajustar filas varias filas desbordamiento desplazamiento horizontal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap barre d’onglets onglets renvoi lignes plusieurs lignes débordement défilement horizontal"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap barra delle schede schede ritorno a capo righe più righe overflow scorrimento orizzontale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap タブバー タブ 折り返し 行 あふれ 複数行 横スクロール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap របារផ្ទាំង ផ្ទាំង បត់ ជួរ ច្រើនជួរ លើសទំហំ រំកិលផ្ដេក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap 탭 바 탭 줄바꿈 행 여러 행 오버플로 가로 스크롤"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap fanelinje faner bryting rader flere rader overflyt vannrett rulling"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap pasek kart karty zawijanie wiersze wiele wierszy przepełnienie przewijanie poziome"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap barra de abas abas quebra linhas várias linhas excesso rolagem horizontal"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap панель вкладок вкладки перенос строки несколько строк переполнение горизонтальная прокрутка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap แถบแท็บ แท็บ ตัดบรรทัด หลายแถว ล้น เลื่อนแนวนอน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap sekme çubuğu sekmeler satır kaydırma çok satır taşma yatay kaydırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap панель вкладок вкладки перенесення рядки кілька рядків переповнення горизонтальне прокручування"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap 标签栏 标签页 换行 多行 溢出 水平滚动"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "app.tabBarWrap 分頁列 分頁 換行 多列 超出 水平捲動"
           }
         }
       }

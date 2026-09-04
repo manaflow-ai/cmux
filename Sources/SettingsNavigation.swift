@@ -398,6 +398,12 @@ enum SettingsSearchIndex {
             String(localized: "settings.app.hideTabCloseButton", defaultValue: "Hide Tab Close Button"),
             "hide x button close tab"
         ),
+        setting(
+            .app,
+            "tab-bar-wrap",
+            String(localized: "settings.app.tabBarWrap", defaultValue: "Wrap Tabs into Multiple Rows"),
+            "app.tabBarWrap tab bar tabs wrap rows overflow multi-row horizontal scroll"
+        ),
         setting(.app, "rename-selects-name", String(localized: "settings.app.renameSelectsName", defaultValue: "Rename Selects Existing Name"), "command palette rename text selection"),
         setting(.app, "palette-search-all", String(localized: "settings.app.commandPaletteSearchAllSurfaces", defaultValue: "Command Palette Searches All Surfaces"), "cmd p search terminal browser markdown"),
         setting(.app, "canvas-pane-gap", String(localized: "settings.app.canvasPaneGap", defaultValue: "Canvas Pane Gap"), "canvas.paneGap canvas pane gap spacing freeform layout panes snapping tidy distribute align"),
@@ -557,6 +563,7 @@ enum SettingsSearchIndex {
         "app.warnBeforeClosingTab": settingID(for: .app, idSuffix: "warn-before-closing-tab"),
         "app.warnBeforeClosingTabXButton": settingID(for: .app, idSuffix: "warn-before-closing-tab-x-button"),
         "app.hideTabCloseButton": settingID(for: .app, idSuffix: "hide-tab-close-button"),
+        "app.tabBarWrap": settingID(for: .app, idSuffix: "tab-bar-wrap"),
         "app.renameSelectsExistingName": settingID(for: .app, idSuffix: "rename-selects-name"),
         "app.commandPaletteSearchesAllSurfaces": settingID(for: .app, idSuffix: "palette-search-all"),
         "canvas.paneGap": settingID(for: .app, idSuffix: "canvas-pane-gap"),
