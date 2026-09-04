@@ -329,6 +329,7 @@ extension TerminalController: ControlPaneContext {
                 preferredProfileID: preferredBrowserProfileID,
                 focus: focus,
                 creationPolicy: .automationPreload,
+                engine: inputs.engine,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) }
             )?.id
         } else if panelType == .simulator {
