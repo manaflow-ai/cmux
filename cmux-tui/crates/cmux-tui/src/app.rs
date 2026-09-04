@@ -11468,9 +11468,7 @@ impl App {
     }
 
     pub(crate) fn active_sidebar_rail_scroll(&self) -> SidebarRailScrollState {
-        self.active_sidebar_profile_state()
-            .map(|state| state.rail_scroll)
-            .unwrap_or_default()
+        self.active_sidebar_profile_state().map(|state| state.rail_scroll).unwrap_or_default()
     }
 
     pub(crate) fn active_sidebar_rail_scroll_mut(&mut self) -> &mut SidebarRailScrollState {
@@ -11618,10 +11616,10 @@ impl App {
             .filter(|agent| {
                 agent.state == "blocked"
                     || agent.state == "idle"
-                    && self
-                        .agent_focus_stamps
-                        .get(&agent.surface)
-                        .is_none_or(|stamp| *stamp < agent.updated_at_ms)
+                        && self
+                            .agent_focus_stamps
+                            .get(&agent.surface)
+                            .is_none_or(|stamp| *stamp < agent.updated_at_ms)
             })
             .count();
         let working = agents.iter().filter(|agent| agent.state == "working").count();
@@ -12529,8 +12527,8 @@ impl App {
                 self.claim_active_terminal_geometry(true);
                 Ok(true)
             }
-            ProjectionTarget::Surface { workspace, screen, pane, index, surface, .. } => {
-                self.activate_sidebar_tab(&SidebarTabTarget {
+            ProjectionTarget::Surface { workspace, screen, pane, index, surface, .. } => self
+                .activate_sidebar_tab(&SidebarTabTarget {
                     workspace,
                     screen,
                     pane,
@@ -12539,8 +12537,7 @@ impl App {
                     name: String::new(),
                     subtitle: String::new(),
                     active: false,
-                })
-            }
+                }),
         }
     }
 
@@ -22028,11 +22025,8 @@ impl App {
                     .ok()
                     .filter(|value| !value.is_empty())
                     .unwrap_or_else(|| "vi".to_string());
-                let cwd = path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("/"))
-                    .to_string_lossy()
-                    .into_owned();
+                let cwd =
+                    path.parent().unwrap_or_else(|| Path::new("/")).to_string_lossy().into_owned();
                 self.session.run_command(
                     vec![editor, path.to_string_lossy().into_owned()],
                     self.active_pane(),
@@ -24000,10 +23994,8 @@ impl App {
         // draw_workspaces would clamp them for this frame.
         let len = self.tree.workspaces().len();
         let metrics = crate::ui::rail::RailMetrics::for_app(self);
-        let recoverable = self
-            .machine_ui
-            .as_ref()
-            .map_or(0, |ui| ui.recoverable_workspaces().len());
+        let recoverable =
+            self.machine_ui.as_ref().map_or(0, |ui| ui.recoverable_workspaces().len());
         let body_rows = (len + recoverable).saturating_mul(metrics.stride);
         let actions = self.workspace_sidebar_action_rows();
         let scroll = self.active_sidebar_rail_scroll();
@@ -25720,12 +25712,9 @@ impl App {
                     // carried by the hit instead of trusting its old index.
                     let Some((current_index, workspace_id)) =
                         self.machine_ui.as_ref().and_then(|ui| {
-                            ui.recoverable_workspaces()
-                                .into_iter()
-                                .enumerate()
-                                .find(|(_, workspace)| {
-                                    sidebar_profile_token(&workspace.id) == token
-                                })
+                            ui.recoverable_workspaces().into_iter().enumerate().find(
+                                |(_, workspace)| sidebar_profile_token(&workspace.id) == token,
+                            )
                                 .map(|(index, workspace)| (index, workspace.id.clone()))
                         })
                     else {
@@ -27888,16 +27877,15 @@ impl App {
                     crate::config::ActionsPosition::Bottom,
                 )
             };
-            let changed = viewport.body.contains(x, y)
-                && {
-                    let scroll = self.active_sidebar_rail_scroll_mut();
-                    scroll_rail_offset(
-                        &mut scroll.tabs_rail_scroll,
-                        body_rows,
-                        viewport.body.height as usize,
-                        if down { 3 } else { -3 },
-                    )
-                };
+            let changed = viewport.body.contains(x, y) && {
+                let scroll = self.active_sidebar_rail_scroll_mut();
+                scroll_rail_offset(
+                    &mut scroll.tabs_rail_scroll,
+                    body_rows,
+                    viewport.body.height as usize,
+                    if down { 3 } else { -3 },
+                )
+            };
             self.tabs_rail_follow_selection = false;
             return Ok(if changed { RenderAction::Draw } else { RenderAction::None });
         }
@@ -44610,7 +44598,8 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert_eq!(
-            app.active_sidebar_rail_scroll().machine_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().machine_rail_scroll,
+            0,
             "a wheel event captured outside the old frame must not scroll a newly drawn rail"
         );
         assert_eq!(app.active_sidebar_rail_scroll().machine_footer_scroll, 0);
@@ -44644,7 +44633,8 @@ mod tests {
         app.replay_deferred_input().unwrap();
 
         assert_eq!(
-            app.active_sidebar_rail_scroll().workspace_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().workspace_rail_scroll,
+            0,
             "a wheel event captured outside the old frame must not scroll a newly drawn rail"
         );
         assert_eq!(app.active_sidebar_rail_scroll().workspace_footer_scroll, 0);
@@ -49654,7 +49644,8 @@ mod tests {
         app.handle_scroll(agents_area.x + 1, agents_area.y + 2, true, KeyModifiers::NONE).unwrap();
 
         assert_eq!(
-            app.active_sidebar_rail_scroll().workspace_rail_scroll, 0,
+            app.active_sidebar_rail_scroll().workspace_rail_scroll,
+            0,
             "a pruned workspace rail cannot consume the wheel"
         );
         assert!(
@@ -49833,10 +49824,7 @@ mod tests {
             .min_by_key(|(_, rect)| rect.y)
             .expect("a scrolled workspace row");
         assert_eq!(scrolled.0, 2, "the scroll offset selects the third workspace");
-        assert_eq!(
-            app.workspace_drop_target_at(scrolled.1.x, scrolled.1.y),
-            Some(scrolled.0)
-        );
+        assert_eq!(app.workspace_drop_target_at(scrolled.1.x, scrolled.1.y), Some(scrolled.0));
     }
 
     #[test]
