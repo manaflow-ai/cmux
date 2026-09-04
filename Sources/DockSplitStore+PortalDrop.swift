@@ -98,15 +98,25 @@ extension DockSplitStore {
         // admits the identical `cmux restore` selector and snapshot.
         let initialInput = launch.startupInput(for: .loginShell)
         switch destination {
-        case .insert(let paneId, _):
-            return newSurface(
+        case .insert(let paneId, let targetIndex):
+            guard let panelID = newSurface(
                 kind: .terminal,
                 inPane: paneId,
                 workingDirectory: launch.workingDirectory,
                 initialInput: initialInput,
                 startupRestoreAgent: launch.startupRestoreAgent,
                 focus: true
-            ) != nil
+            ) else {
+                return false
+            }
+            // The tab-strip drop handler supplies an insertion gap for external
+            // sources. Keep Dock placement identical to the main workspace
+            // Vault path after the restore record has been committed.
+            if let targetIndex,
+               let tabID = surfaceId(forPanelId: panelID) {
+                _ = bonsplitController.reorderTab(tabID, toIndex: targetIndex)
+            }
+            return true
         case .split(let paneId, let orientation, let insertFirst):
             let sourcePanelId = selectedPanelForPaneDrop(in: paneId)?.panelId
             return newSplit(

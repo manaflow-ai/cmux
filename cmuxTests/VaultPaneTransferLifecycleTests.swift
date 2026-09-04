@@ -361,6 +361,37 @@ struct VaultPaneTransferLifecycleTests {
         }
     }
 
+    @Test("Dock tab-strip Vault drops preserve the requested insertion index")
+    func dockVaultDropPreservesRequestedTabIndex() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let fixture = try VaultPaneAppFixture()
+            defer { fixture.tearDown() }
+
+            let dock = try #require(fixture.workspace.dockSplit)
+            let targetPane = try #require(dock.bonsplitController.allPaneIds.first)
+            _ = try #require(dock.newSurface(kind: .terminal, inPane: targetPane, focus: false))
+            _ = try #require(dock.newSurface(kind: .terminal, inPane: targetPane, focus: false))
+            let entry = Self.makeEntry(sessionID: "dock-indexed-vault-drop")
+            let baselinePanelIDs = Set(dock.panels.keys)
+
+            #expect(dock.performPortalVaultSessionDrop(
+                entry: entry,
+                destination: .insert(targetPane: targetPane, targetIndex: 0)
+            ))
+
+            let droppedPanelID = try #require(dock.panels.keys.first {
+                !baselinePanelIDs.contains($0)
+            })
+            let orderedPanelIDs = dock.bonsplitController.tabs(inPane: targetPane).compactMap { tab in
+                dock.panels.keys.first { panelID in
+                    dock.surfaceId(forPanelId: panelID)?.id == tab.id
+                }
+            }
+            #expect(orderedPanelIDs.first == droppedPanelID)
+            #expect(dock.restoredAgentLifecycle.snapshotsByPanelId[droppedPanelID]?.sessionId == entry.sessionId)
+        }
+    }
+
     @Test("Every repeated Vault row survives prior drag cleanup")
     func repeatedVaultRowsSurvivePriorDragCleanup() async throws {
         try await AppContextSerialGate.withExclusiveAppContext {
