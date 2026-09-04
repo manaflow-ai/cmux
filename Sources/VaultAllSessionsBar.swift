@@ -179,7 +179,7 @@ struct VaultAllSessionsBar: View {
             }
             .pickerStyle(.inline)
         } label: {
-            VaultToolbarIcon(systemName: "ellipsis")
+            VaultToolbarIcon(systemName: "ellipsis.vertical")
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
