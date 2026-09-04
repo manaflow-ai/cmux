@@ -646,6 +646,12 @@ extension DockSplitStore {
             return nil
         }
         panels[panel.id] = panel
+        if snapshot.customTitle != nil {
+            panelCustomTitleSourcesByPanelId[panel.id] =
+                snapshot.customTitleSource ?? .user
+        } else {
+            panelCustomTitleSourcesByPanelId.removeValue(forKey: panel.id)
+        }
         let title = snapshot.customTitle ?? snapshot.title ?? panel.displayTitle
         let isAudioMuted = resolvedAudioMuted(for: panel)
         guard let tabId = bonsplitController.createTab(
