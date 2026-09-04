@@ -326,9 +326,10 @@ struct CloudTreeNodeActions {
                     current: current,
                     allowsClear: true
                 ), name != current else { return }
-                let operationKey = name.isEmpty ? "cloudTree.operation.clearTerminal" : "cloudTree.operation.renameTerminal"
-                let operationDefault = name.isEmpty ? "Clearing %@\u{2026}" : "Renaming %@\u{2026}"
-                run(String(format: String(localized: operationKey, defaultValue: operationDefault), current)) { catalog in
+                let operationLabel = name.isEmpty
+                    ? String(format: String(localized: "cloudTree.operation.clearTerminal", defaultValue: "Clearing %@\u{2026}"), current)
+                    : String(format: String(localized: "cloudTree.operation.renameTerminal", defaultValue: "Renaming %@\u{2026}"), current)
+                run(operationLabel) { catalog in
                     if let view {
                         try await catalog.renameRemoteTab(on: resource.machine, id: view.tabID, name: name)
                     } else {
