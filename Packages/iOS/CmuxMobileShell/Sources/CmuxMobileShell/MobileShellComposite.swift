@@ -3181,6 +3181,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
 
         var firstCandidateNeedingMacUpdate: MobilePairedMac?
         var attemptedAutomaticIroh = false
+        var strictTailscaleFailure = false
         var lastDialOutcome: StoredMacReconnectOutcome = .failed(.noRoute)
         // Try each candidate until one connects, so a single offline Mac never
         // blocks the others.
@@ -3196,7 +3197,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                   ) else { break }
             // Tailscale Only excludes Iroh for every pairing. Automatic may
             // use Iroh, while Direct has its own address allowlist.
-            let irohReconnectIsBlocked = connectionMethod(for: mac) == .tailscale
+            let candidateUsesStrictTailscale = connectionMethod(for: mac) == .tailscale
+            let irohReconnectIsBlocked = candidateUsesStrictTailscale
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
@@ -3232,7 +3234,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                     }
                 )
             }
-            if connectionState != .connected, !tailscaleOnly,
+            if connectionState != .connected,
+               !candidateUsesStrictTailscale,
                !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
                 switch await freshReconnectRoutesAfterLocalFailure(
                     for: mac,
@@ -3265,6 +3268,14 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 }
             }
             if connectionState == .connected { break }
+            if candidateUsesStrictTailscale {
+                // An explicit Tailscale selection owns this reconnect pass.
+                // Do not promote another saved Mac or discover an Iroh peer
+                // after its authorized Tailscale route fails.
+                applyOperationalError(MobileShellConnectionError.insecureManualRoute)
+                strictTailscaleFailure = true
+                break
+            }
         }
         // A saved authenticated route is the cheapest and most authoritative
         // recovery path. Broker discovery can be slow for accounts with a large
@@ -3273,6 +3284,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // behind an unrelated account-wide discovery request.
         var zeroTouchCandidates: [MobilePairedMac] = []
         if connectionState != .connected, !tailscaleOnly,
+           !strictTailscaleFailure,
            !automaticIrohReconnectIsBlocked(accountID: scope.userID) {
             zeroTouchCandidates = await discoverZeroTouchIrohCandidates(
                 scope: scope,
