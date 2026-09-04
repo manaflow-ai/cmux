@@ -89,7 +89,7 @@ struct CloudTerminalCatalogContent: View {
             .disabled(connection.isCreatingTerminal)
             .accessibilityIdentifier("CloudNewTerminalButton")
             if let failure = connection.lastError {
-                Text(CloudFailureCopy.message(for: failure))
+                Text(failure.localizedMessage)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text(failure.detail)

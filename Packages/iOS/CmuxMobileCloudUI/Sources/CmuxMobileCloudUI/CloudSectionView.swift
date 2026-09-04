@@ -145,7 +145,7 @@ struct CloudTunnelUnavailableView: View {
 }
 
 /// Localized copy for each failure kind.
-private extension CloudSessionFailure {
+extension CloudSessionFailure {
     var localizedMessage: String {
         switch kind {
         case .signedOut:
