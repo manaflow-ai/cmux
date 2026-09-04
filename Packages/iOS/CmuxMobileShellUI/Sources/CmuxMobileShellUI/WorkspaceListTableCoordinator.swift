@@ -318,6 +318,24 @@ final class WorkspaceListTableCoordinator: NSObject, UITableViewDelegate,
         if structureChanged {
             dataSource.replaceItems(next.items, in: tableView)
             appliedItems = next.items
+        } else if !changedRowHeightsStable {
+            // Keep the existing cells when a response adds or removes a
+            // description line. Replacing rows at high update rates can leave
+            // the old and new self-sizing hosts composited together while
+            // UIKit is still reconciling their heights. Configure the visible
+            // cells in place, then let one begin/end update pass remeasure all
+            // rows from the latest item map.
+            for item in changedToApply {
+                guard
+                    let indexPath = dataSource.indexPath(for: item),
+                    let cell = tableView.cellForRow(at: indexPath)
+                else { continue }
+                configure(cell, for: configuredItemsByID[item.id] ?? item)
+            }
+            UIView.performWithoutAnimation {
+                tableView.beginUpdates()
+                tableView.endUpdates()
+            }
         } else {
             let changedIndexPaths = changedToApply.compactMap { dataSource.indexPath(for: $0) }
             if !changedIndexPaths.isEmpty {
