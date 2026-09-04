@@ -169,15 +169,11 @@ fn request_receipted_creation(
 }
 
 pub(crate) fn is_remote_transport_failure(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<RemoteRequestError>()
-        .is_some_and(RemoteRequestError::is_transport_failure)
+    error.downcast_ref::<RemoteRequestError>().is_some_and(RemoteRequestError::is_transport_failure)
 }
 
 pub(crate) fn is_remote_timeout(error: &anyhow::Error) -> bool {
-    error
-        .downcast_ref::<RemoteRequestError>()
-        .is_some_and(RemoteRequestError::is_timeout)
+    error.downcast_ref::<RemoteRequestError>().is_some_and(RemoteRequestError::is_timeout)
 }
 
 pub(crate) fn is_remote_surface_unavailable(error: &anyhow::Error, surface: SurfaceId) -> bool {
@@ -295,8 +291,7 @@ pub(crate) fn test_remote_rejected_error() -> anyhow::Error {
 
 #[cfg(test)]
 pub(crate) fn test_remote_rejected_error_with_message(message: &str) -> anyhow::Error {
-    RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }
-        .into()
+    RemoteRequestError::Rejected { error: message.to_string(), code: None, delivery: None }.into()
 }
 
 #[cfg(test)]
