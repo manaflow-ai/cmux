@@ -770,11 +770,14 @@ public actor AppLog {
         for generation in additionalURLs.reversed() {
             guard let data = try? Data(contentsOf: generation) else { return nil }
             for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-                guard !existingLines.contains(line) else { continue }
+                let lineData = Data(line)
+                guard !existingLines.contains(line), merged.range(of: lineData) == nil else {
+                    continue
+                }
                 if !merged.isEmpty, merged.last != 0x0A {
                     merged.append(0x0A)
                 }
-                merged.append(contentsOf: line)
+                merged.append(contentsOf: lineData)
                 merged.append(0x0A)
                 existingLines.insert(line)
             }
