@@ -3194,12 +3194,9 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                       instanceTag: mac.instanceTag,
                       scope: scope
                   ) else { break }
-            // Tailscale Only blocks the Iroh lane only for legacy pairings
-            // without an Iroh identity; an identified pairing rides Iroh
-            // pinned to its Tailscale addresses (same lane the terminal
-            // lanes ride, same admission authority).
-            let irohReconnectIsBlocked = (connectionMethod(for: mac) == .tailscale
-                && !mac.routes.contains { $0.kind == .iroh })
+            // Tailscale Only excludes Iroh for every pairing. Automatic may
+            // use Iroh, while Direct has its own address allowlist.
+            let irohReconnectIsBlocked = connectionMethod(for: mac) == .tailscale
                 || automaticIrohReconnectIsBlocked(accountID: scope.userID)
             let localRoutes = storedReconnectRoutes(mac).filter {
                 !irohReconnectIsBlocked || $0.kind != .iroh
@@ -3218,8 +3215,8 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
                 && mac.routes.contains { $0.kind == .tailscale }
 
             // Raw Tailscale/TCP is bearer-capable only for an exact local route
-            // grandfathered during the v7-to-v8 migration. Every fresh, changed,
-            // restored, or registry route remains a hint for discovering Iroh.
+            // retained by the pairing. A selected Tailscale method has no Iroh
+            // fallback, so an absent or stale grant remains unavailable.
             if localCanConnectSecurely {
                 attemptedAutomaticIroh = attemptedAutomaticIroh || localHasIroh
                 lastDialOutcome = await connectStoredMacOutcome(
@@ -9674,15 +9671,19 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         // allowlist from their freshly loaded row and pass it in; ticket
         // dials resolve it here from the published pairing list, using the
         // caller's pairing identity so a sibling build sharing the device id
-        // cannot supply the wrong method. `nil` means the target's method
-        // pins no addresses (automatic, or a legacy pairing without an Iroh
-        // identity).
+        // cannot supply the wrong method. Tailscale never supplies Iroh dial
+        // candidates, because its selected route must remain Tailscale.
+        let resolvedMethod = connectionMethod(
+            forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
+            instanceTag: instanceTagExpectation.expectedTag
+        )
         let directOnlyDialCandidates = directOnlyDialCandidates
             ?? (userTailscalePairingAuthorizations.isEmpty
+                && resolvedMethod == .direct
                 ? irohMethodPinnedDialCandidates(
                     forMacDeviceID: requestedMacDeviceID ?? ticket.macDeviceID,
                     instanceTag: instanceTagExpectation.expectedTag
-                )
+                ) ?? []
                 : nil)
         let supportedRoutes = supportedRoutes(
             for: ticket,

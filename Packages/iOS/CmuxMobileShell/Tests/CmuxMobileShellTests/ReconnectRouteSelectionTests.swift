@@ -619,12 +619,22 @@ import Testing
             stackUserID: base.stackUserID,
             legacyTailscaleRoutes: [stale]
         )
+        let irohBacked = MobilePairedMac(
+            macDeviceID: base.macDeviceID,
+            displayName: base.displayName,
+            routes: [current, try iroh()],
+            createdAt: base.createdAt,
+            lastSeenAt: base.lastSeenAt,
+            isActive: base.isActive,
+            stackUserID: base.stackUserID
+        )
 
         #expect(MobileShellComposite.hasUsableTailscaleAuthorization(in: [authorized]))
         #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [base]))
         #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(
             in: [staleAuthorization]
         ))
+        #expect(!MobileShellComposite.hasUsableTailscaleAuthorization(in: [irohBacked]))
     }
 
     @Test func usableTailscaleAuthorizationFindsLastMacInLargeSnapshot() throws {
@@ -874,6 +884,7 @@ import Testing
         }
         #expect(failed)
         #expect(store.activeRoute == nil)
+        #expect(store.connectionError != nil)
         #expect(factory.attemptedKinds() == [.iroh, .tailscale])
     }
 }
