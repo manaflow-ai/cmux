@@ -137,6 +137,7 @@ bills and caps:
 | `sm` | 2 | 4 GiB | 16 GB | `freestyle/ubuntu-sm` |
 | `md` | 4 | 8 GiB | 32 GB | `freestyle/ubuntu` |
 | `lg` | 8 | 16 GiB | 64 GB | `freestyle/ubuntu-lg` |
+| `lgx` | 12 | 24 GiB | 96 GB | derived snapshot |
 | `xl` | 16 | 32 GiB | 128 GB | `freestyle/ubuntu-xl` |
 | `2xl` | 32 | 64 GiB | 128 GB | `freestyle/ubuntu-2xl` |
 
@@ -157,7 +158,7 @@ it. `promote-devbox-image.ts` is the only sanctioned writer:
 
 ```bash
 # from web/, with the Freestyle key in env
-FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,xl,2xl -> manifest
+FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle                     # bake -> verify -> sm,md,lg,lgx,xl,2xl -> manifest
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes lg,xl       # a subset of the ladder
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --sizes none        # one size-less entry (pre-ladder behaviour)
 FREESTYLE_API_KEY=... bun run devbox:promote -- freestyle --image sh-…        # verify + derive + record an existing bake

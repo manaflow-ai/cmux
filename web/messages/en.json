@@ -785,7 +785,7 @@
       "featuresLead": "Everything in Free, plus:",
       "features": [
         "Cloud agents on Cloud VMs in isolated remote sandboxes",
-        "Up to 50 Cloud VMs, each with 8 GB RAM and 32 GB disk by default; larger sizes are available",
+        "Up to 50 Cloud VMs, each with 8 GB RAM and 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
         "Unlimited workspaces",
         "The cmux iOS app and email support"
       ],
@@ -885,8 +885,8 @@
         {
           "label": "Cloud VM size",
           "free": "false",
-          "pro": "8 GB RAM, 32 GB disk by default; larger sizes are available",
-          "team": "8 GB RAM, 32 GB disk by default; larger sizes are available",
+          "pro": "8 GB RAM, 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
+          "team": "8 GB RAM, 32 GB disk by default; sizes from 4 to 64 GB RAM are available",
           "enterprise": "Custom"
         },
         {
@@ -965,7 +965,7 @@
         },
         {
           "q": "What are Cloud VMs?",
-          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with a configurable 8, 16, or 32 GB of RAM and 32, 64, or 128 GB of disk."
+          "a": "Persistent Linux machines in the cloud: pets, not cattle. Following the Zen of cmux, a machine is a primitive, not a managed solution: it keeps its files, installed tools, and state, and what you build on it is yours. Agents clone repositories, run commands, and open pull requests there without touching your Mac. Pro and Team include up to 50 machines per user, each with configurable 4, 8, 16, 24, 32, or 64 GB of RAM and 16, 32, 64, 96, or 128 GB of disk."
         },
         {
           "q": "What is cmux Vault?",

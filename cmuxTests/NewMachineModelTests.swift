@@ -31,18 +31,24 @@ struct NewMachineModelTests {
 
     @Test func defaultSizeIsTheSmallestSupportedBaseImage() {
         let (model, _) = makeModel()
-        #expect(model.memoryOptions == [8192, 16384, 32768])
+        #expect(model.memoryOptions == [4096, 8192, 16384, 24576, 32768, 65536])
         #expect(model.memoryMb == 8192)
         #expect(model.selectedSize == MachineSizeOption(memoryMb: 8192))
     }
 
     @Test func sizeLabelsDescribeMemoryAndDisk() {
+        #expect(MachineSizeOption(memoryMb: 4096)?.title == "4 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 4096)?.detail == "16 GB disk included")
         #expect(MachineSizeOption(memoryMb: 8192)?.title == "8 GB RAM")
         #expect(MachineSizeOption(memoryMb: 8192)?.detail == "32 GB disk included")
         #expect(MachineSizeOption(memoryMb: 16384)?.title == "16 GB RAM")
         #expect(MachineSizeOption(memoryMb: 16384)?.detail == "64 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 24576)?.title == "24 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 24576)?.detail == "96 GB disk included")
         #expect(MachineSizeOption(memoryMb: 32768)?.title == "32 GB RAM")
         #expect(MachineSizeOption(memoryMb: 32768)?.detail == "128 GB disk included")
+        #expect(MachineSizeOption(memoryMb: 65536)?.title == "64 GB RAM")
+        #expect(MachineSizeOption(memoryMb: 65536)?.detail == "128 GB disk included")
     }
 
     @Test func serverOptionsAreUsedInPickerOrder() {
@@ -54,12 +60,12 @@ struct NewMachineModelTests {
 
     @Test func selectedSizeTravelsAsBaseSizeFlagOnly() {
         let (model, recorder) = makeModel()
-        model.memoryMb = 32768
+        model.memoryMb = 65536
         model.create()
         let request = recorder.value.first
         #expect(request?.kind == .base)
         #expect(request?.name == nil)
-        #expect(request?.arguments == ["vm", "new", "--base", "--size", "32768", "--focus", "false"])
+        #expect(request?.arguments == ["vm", "new", "--base", "--size", "65536", "--focus", "false"])
     }
 
     @Test func baseSetupHasNoSizeFlag() {

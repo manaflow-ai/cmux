@@ -7,9 +7,12 @@ struct MachineSizeOption: Equatable, Sendable {
 
     init?(memoryMb: Int) {
         switch memoryMb {
+        case 4096: self.init(memoryMb: memoryMb, diskMb: 16384)
         case 8192: self.init(memoryMb: memoryMb, diskMb: 32768)
         case 16384: self.init(memoryMb: memoryMb, diskMb: 65536)
+        case 24576: self.init(memoryMb: memoryMb, diskMb: 98304)
         case 32768: self.init(memoryMb: memoryMb, diskMb: 131072)
+        case 65536: self.init(memoryMb: memoryMb, diskMb: 131072)
         default: return nil
         }
     }
@@ -67,9 +70,11 @@ final class NewMachineModel {
     typealias Submit = @MainActor (MachineCreateRequest) -> Bool
 
     /// The base-image sizes the backend exposes, in ascending memory order.
-    /// Each row is a validated Freestyle snapshot: 8/32, 16/64, or 32/128 GB
-    /// of memory/disk. The server's list trims this set for plan limits.
-    static let memoryOptionsMb: [Int] = [8192, 16384, 32768]
+    /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
+    /// 24/96, 32/128, or 64/128 GB of memory/disk. The server's list trims
+    /// this set for plan limits. The 128 MiB BusyBox image is intentionally
+    /// not a coding-machine option because it has no baked dev tools.
+    static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
     static let planMachineMemoryMb = 8192
     /// Mirrors `maxMemoryMbForPlan`: development and paid plans may use the
     /// largest supported base image unless an operator sets a lower ceiling.

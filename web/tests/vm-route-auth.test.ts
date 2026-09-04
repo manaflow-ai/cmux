@@ -650,7 +650,7 @@ describe("VM REST auth", () => {
 
   test("resolves a legacy client's oversized memory request to the plan machine", async () => {
     // Nightlies built before the 2026-09-02 pricing change send their old
-    // 24 GB default on every create; the server must still hand them the
+    // 128 GB default on every create; the server must still hand them the
     // plan machine instead of failing every New Machine until they update.
     process.env.CMUX_VM_ALLOW_FREE_PROVISIONING = "1";
     getUser.mockResolvedValue(freePlanStackUser());
@@ -666,7 +666,7 @@ describe("VM REST auth", () => {
       new Request("https://cmux.test/api/vm", {
         method: "POST",
         headers: { origin: "https://cmux.test" },
-        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 24576 }),
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 131072 }),
       }),
     );
 
