@@ -1,10 +1,46 @@
+require "json"
+require "fileutils"
+
 default_platform(:ios)
+
+# Fastlane reuses the same named simulator across language runs. The app's
+# snapshot harness writes launch-time locale and preview state into simulator
+# preferences, so a later locale can inherit a poisoned process/data state and
+# never reach the first screenshot. Erase only the simulator instances that
+# this lane selected before each language, keeping each locale independent.
+def reset_screenshot_simulators(device_names)
+  data = JSON.parse(
+    sh("xcrun", "simctl", "list", "devices", "available", "-j", log: false)
+  )
+  udids = data.fetch("devices", {}).values.flatten.filter_map do |device|
+    device["udid"] if device["isAvailable"] != false && device_names.include?(device["name"])
+  end.uniq
+  udids.each do |udid|
+    # simctl reports status 149 when the device is already shut down. `system`
+    # keeps that expected state non-fatal while the following erase remains a
+    # checked Fastlane command.
+    system("xcrun", "simctl", "shutdown", udid, out: File::NULL, err: File::NULL)
+    sh("xcrun", "simctl", "erase", udid, log: false)
+  end
+  UI.message("Reset #{udids.length} screenshot simulator(s) for a clean locale run")
+end
+
+# Fastlane accepts [language, locale] pairs. Use Apple's language identifier for
+# the first value and keep the App Store identifier for the output directory.
+# Script variants remain explicit (zh-Hant/zh-Hans); regional App Store IDs use
+# their base language for AppleLanguages (de-DE -> de).
+def snapshot_language_code(app_store_locale)
+  parts = app_store_locale.tr("_", "-").split("-")
+  language = parts.first.to_s
+  script = parts.drop(1).find { |part| part.match?(/\A[A-Za-z]{4}\z/) }
+  script ? "#{language}-#{script}" : language
+end
 
 # cmux iOS fastlane lanes. Scope is App Store screenshots for now; build/upload
 # of the binary lives in ios/scripts/upload-testflight.sh (--lane appstore).
 
 platform :ios do
-  desc "Capture App Store screenshots (en-US + ja; iPhone 6.9\" + iPad 13\")"
+  desc "Capture App Store screenshots for all nine app languages (iPhone 6.9\" + iPad 13\")"
   desc "Uses a DEBUG build with CMUX_UITEST_MOCK_DATA; no Apple signing required."
   desc "CI overrides device names per Xcode version via SNAPSHOT_DEVICES (the model"
   desc "names in Snapfile drift between Xcode releases, so CI resolves them at runtime)."
@@ -16,17 +52,36 @@ platform :ios do
     # via env.
     devices = (ENV["SNAPSHOT_DEVICES"] || "iPhone 16 Pro Max,iPad Pro 13-inch (M4)")
               .split(",").map(&:strip).reject(&:empty?)
-    languages = (ENV["SNAPSHOT_LANGUAGES"] || "en-US,ja")
+    languages = (ENV["SNAPSHOT_LANGUAGES"] ||
+                 "en-US,de-DE,fr-FR,ar-SA,es-ES,zh-Hant,zh-Hans,ko,ja")
                 .split(",").map(&:strip).reject(&:empty?)
-    capture_screenshots(
-      scheme: "cmux-ios",
-      devices: devices,
-      languages: languages,
-      # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
-      override_status_bar: true,
-      # Capture in dark mode.
-      dark_mode: true
-    )
+    # Snapshot's `clear_previous_screenshots` option is useful for one capture,
+    # but this lane invokes Snapshot once per locale. Clear the root exactly
+    # once, then preserve each locale directory across serial invocations.
+    screenshot_root = File.expand_path("screenshots", __dir__)
+    FileUtils.rm_rf(screenshot_root)
+    FileUtils.mkdir_p(screenshot_root)
+    languages.each do |language|
+      reset_screenshot_simulators(devices)
+      capture_screenshots(
+        scheme: "cmux-ios",
+        # NOTE: do not pass `testplan:` here. With -testPlan, the UI test runs
+        # and passes but fastlane collects zero screenshots (verified on CI runs
+        # 33479247651 vs the green 32219546960); the known-good path is the plain
+        # scheme invocation, which requires every test target in the scheme's
+        # default plan to at least compile.
+        devices: devices,
+        # Keep AppleLanguages valid while retaining the App Store locale as
+        # the screenshot directory name.
+        languages: [[snapshot_language_code(language), language]],
+        output_directory: screenshot_root,
+        clear_previous_screenshots: false,
+        # Clean, deterministic status bar (9:41, full battery/wifi) on every shot.
+        override_status_bar: true,
+        # Capture in dark mode.
+        dark_mode: true
+      )
+    end
     UI.message("Screenshots written to ios/fastlane/screenshots/<lang>/")
     frame unless ENV["SNAPSHOT_SKIP_FRAME"] == "1"
   end
@@ -35,9 +90,9 @@ platform :ios do
   desc "localized titles (fastlane frameit). Requires imagemagick."
   lane :frame do
     ss = File.expand_path("screenshots", __dir__)
-    # Capture only shoots en-US + ja (the only localized app UI). Fan those raws
-    # out to every App Store locale before framing so all ~39 locales get a
-    # localized-title screenshot. No-op when the locale dirs are already present.
+    # Capture the nine localized app languages, then fan them out to every App
+    # Store locale before framing. Listing locales without a binary translation
+    # reuse the English raw; each locale still receives its own title.
     sh("python3", File.expand_path("frame_assets/propagate_locales.py", __dir__), ss)
     # Premium composition: stitch the screenshot into the real iPhone device
     # frame (frameit's frame PNG) and place it large under a bold header; iPad is

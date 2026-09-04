@@ -4,6 +4,7 @@ import SwiftUI
 
 import CmuxFoundation
 import CmuxSettings
+import CmuxWorkspaces
 
 #if canImport(cmux_DEV)
 @testable import cmux_DEV
@@ -225,6 +226,89 @@ struct WorkspaceGroupTests {
             group.anchorWorkspaceId,
             originalIds[3],
         ])
+    }
+
+    @Test func staleGroupReferenceInsideGroupRunRendersAsRootRow() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(
+            name: String(repeating: "A very long workspace group title ", count: 4),
+            childWorkspaceIds: Array(originalIds.dropFirst())
+        ))
+        let group = try #require(manager.workspaceGroups.first { $0.id == groupId })
+        let staleMember = try #require(manager.tabs.first {
+            $0.groupId == groupId && $0.id != group.anchorWorkspaceId
+        })
+        let staleGroupId = UUID()
+        staleMember.groupId = staleGroupId
+
+        let groupsById = Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        let effectiveMembership = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
+            tabs: manager.tabs,
+            groupsById: groupsById
+        )
+        let memberWorkspaceIdsByGroupId = SidebarWorkspaceRenderItem.memberWorkspaceIdsByGroupId(
+            tabs: manager.tabs,
+            groupsById: groupsById
+        )
+        let renderItems = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: groupsById
+        )
+
+        // The row is physically between grouped members in tab order, but its
+        // stale reference must not inherit the member indent. The render-item
+        // projection and row-input projection therefore agree on root-level
+        // membership, which keeps long titles left-aligned with other roots.
+        #expect(effectiveMembership[staleMember.id] == nil)
+        #expect(!memberWorkspaceIdsByGroupId[groupId, default: []].contains(staleMember.id))
+        #expect(renderItems.contains { item in
+            if case .workspace(let workspaceId) = item {
+                return workspaceId == staleMember.id
+            }
+            return false
+        })
+        #expect(!renderItems.contains { item in
+            if case .groupHeader(let renderedGroupId, _) = item {
+                return renderedGroupId == staleGroupId
+            }
+            return false
+        })
+    }
+
+    @Test func nonemptyGroupWithMissingAnchorDoesNotBecomeGhostEmptyHeader() throws {
+        let manager = makeTabManager()
+        manager.addWorkspace(autoWelcomeIfNeeded: false)
+        let originalIds = manager.tabs.map(\.id)
+        let groupId = try #require(manager.createWorkspaceGroup(
+            name: "Stale anchor",
+            childWorkspaceIds: [originalIds[1]]
+        ))
+        guard let groupIndex = manager.workspaceGroups.firstIndex(where: { $0.id == groupId }) else {
+            Issue.record("created group disappeared")
+            return
+        }
+        manager.workspaceGroups[groupIndex].anchorWorkspaceId = UUID()
+
+        let groupsById = Dictionary(uniqueKeysWithValues: manager.workspaceGroups.map { ($0.id, $0) })
+        let items = SidebarWorkspaceRenderItem.renderItems(
+            tabs: manager.tabs,
+            groupsById: groupsById
+        )
+
+        #expect(!items.contains { item in
+            if case .groupHeader(let renderedGroupId, _) = item {
+                return renderedGroupId == groupId
+            }
+            return false
+        })
+        #expect(items.compactMap { item -> UUID? in
+            guard case .workspace(let workspaceId) = item else { return nil }
+            return workspaceId
+        } == manager.tabs.map(\.id))
     }
 
     @Test func groupHeaderEdgeDropUsesTopLevelIndicatorScope() throws {
@@ -1082,7 +1166,11 @@ struct WorkspaceGroupTests {
     @Test func sessionSnapshotRoundtripPreservesGroups() throws {
         let manager = makeTabManager()
         let child = manager.tabs[0].id
-        let groupId = manager.createWorkspaceGroup(name: "Round Trip", childWorkspaceIds: [child])!
+        let groupId = manager.createWorkspaceGroup(
+            name: "Round Trip",
+            childWorkspaceIds: [child],
+            externalID: "repo:round-trip"
+        )!
         manager.toggleWorkspaceGroupPinned(groupId: groupId)
         manager.toggleWorkspaceGroupCollapsed(groupId: groupId)
         manager.setWorkspaceGroupColor(groupId: groupId, hex: "#123456")
@@ -1096,6 +1184,8 @@ struct WorkspaceGroupTests {
         #expect(g.isPinned == true)
         #expect(g.customColor == "#123456")
         #expect(g.iconSymbol == "leaf.fill")
+        #expect(g.externalID == "repo:round-trip")
+        #expect(g.anchorWorkspaceProvenance == WorkspaceGroupAnchorProvenance.generated.rawValue)
 
         let restored = TabManager()
         restored.restoreSessionSnapshot(snapshot)
@@ -1105,6 +1195,8 @@ struct WorkspaceGroupTests {
         #expect(restoredGroup.isPinned == true)
         #expect(restoredGroup.customColor == "#123456")
         #expect(restoredGroup.iconSymbol == "leaf.fill")
+        #expect(restoredGroup.externalID == "repo:round-trip")
+        #expect(restoredGroup.anchorWorkspaceProvenance == .generated)
     }
 
     @Test func workspaceGroupIconSymbolResolutionFallsBackToRenderableIcon() {

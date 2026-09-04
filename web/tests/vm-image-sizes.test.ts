@@ -13,9 +13,9 @@ import {
   type DevboxManifestEntry,
 } from "../scripts/devbox-image-common";
 
-// Machine sizes are Freestyle's t-shirt ladder (freestyle-vms
-// catalog/snapshots.json), one cmux snapshot per size, picked by the plan's
-// memory. These pin the ladder and the per-size promotion semantics.
+// Machine sizes are Freestyle's t-shirt ladder plus cmux's validated 24 GiB
+// intermediate snapshot, one cmux snapshot per size, picked by plan memory.
+// These pin the ladder and the per-size promotion semantics.
 
 const entry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntry => ({
   provider: "freestyle",
@@ -32,12 +32,13 @@ const entry = (overrides: Partial<DevboxManifestEntry> = {}): DevboxManifestEntr
 });
 
 describe("size ladder", () => {
-  test("mirrors Freestyle's catalog exactly, smallest first", () => {
-    expect(VM_IMAGE_SIZE_NAMES).toEqual(["sm", "md", "lg", "xl", "2xl"]);
+  test("keeps the Freestyle ladder and cmux intermediate size, smallest first", () => {
+    expect(VM_IMAGE_SIZE_NAMES).toEqual(["sm", "md", "lg", "lgx", "xl", "2xl"]);
     expect(VM_IMAGE_SIZES.map((s) => [s.name, s.cpu, s.memoryMb, s.storageMb, s.freestyleBase])).toEqual([
       ["sm", 2, 4096, 16384, "freestyle/ubuntu-sm"],
       ["md", 4, 8192, 32768, "freestyle/ubuntu"],
       ["lg", 8, 16384, 65536, "freestyle/ubuntu-lg"],
+      ["lgx", 12, 24576, 98304, undefined],
       ["xl", 16, 32768, 131072, "freestyle/ubuntu-xl"],
       ["2xl", 32, 65536, 131072, "freestyle/ubuntu-2xl"],
     ]);
@@ -58,7 +59,9 @@ describe("size ladder", () => {
     expect(pickVmImageSizeForMemory(4096)?.name).toBe("sm");
     expect(pickVmImageSizeForMemory(4097)?.name).toBe("md");
     // cmux's paid default (24 GiB) is between lg and xl: it gets xl.
-    expect(pickVmImageSizeForMemory(24576)?.name).toBe("xl");
+    expect(pickVmImageSizeForMemory(20480)?.name).toBe("lgx");
+    expect(pickVmImageSizeForMemory(24576)?.name).toBe("lgx");
+    expect(pickVmImageSizeForMemory(24577)?.name).toBe("xl");
     expect(pickVmImageSizeForMemory(32768)?.name).toBe("xl");
     expect(pickVmImageSizeForMemory(65536)?.name).toBe("2xl");
     expect(pickVmImageSizeForMemory(65537)).toBeNull();

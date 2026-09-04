@@ -162,6 +162,7 @@
       "list-clients",
       "list-terminals",
       "list-workspaces",
+      "machine-usage",
       "move-tab",
       "move-terminal",
       "move-workspace",
@@ -236,6 +237,7 @@
       "detach-attached-view"
     ],
     "local-admin": [
+      "server-stats",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",
@@ -305,6 +307,12 @@
       ]
     },
     {
+      "name": "daemon-shutdown",
+      "streams": [
+        "control"
+      ]
+    },
+    {
       "name": "detached",
       "streams": [
         "attach-byte",
@@ -338,6 +346,12 @@
     },
     {
       "name": "layout-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "machine-usage-changed",
       "streams": [
         "subscribe"
       ]

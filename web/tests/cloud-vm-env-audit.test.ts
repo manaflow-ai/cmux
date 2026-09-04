@@ -21,8 +21,12 @@ import {
 } from "../scripts/cloud-vm/freeProvisioningAudit.mjs";
 import {
   legacyCloudVmEnvKeys,
+  mergeVercelSensitiveMetadata,
   recommendedRuntimeEnvKeys,
+  requiredRuntimeEnvAlternativeGroups,
+  requiredRuntimeEnvKeySatisfied,
   requiredRuntimeEnvKeys,
+  VERCEL_SENSITIVE_PLACEHOLDER,
 } from "../scripts/cloud-vm/projects.mjs";
 import { defaultProviderId } from "../services/vms/drivers";
 import { isVmFreeProvisioningAllowed } from "../services/vms/entitlements";
@@ -39,9 +43,17 @@ type Manifest = {
   }>;
 };
 
+type Readiness = {
+  provider: string;
+  envVar: string | null;
+  image: string | null;
+  imageSource?: string;
+  problems: string[];
+};
+
 type Coherence = {
-  selected: { provider: string } | null;
-  codeDefault: { provider: string } | null;
+  selected: Readiness | null;
+  codeDefault: Readiness | null;
   problems: string[];
 };
 
@@ -89,9 +101,9 @@ describe("cloud VM provider coherence audit", () => {
   test("the manifest's validated base default is the deployed image", () => {
     // The committed manifest is the only source of truth (resolver
     // defaultForKind). A clean env is one with the API key set.
-    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as {
+    const result = auditProviderReadiness("freestyle", { FREESTYLE_API_KEY: "x" }, realManifest) as unknown as {
       image: string | null;
-      imageSource: string;
+      imageSource: string | null;
       problems: string[];
     };
     expect(result).toMatchObject({ image: freestyleBaseDefault.imageId, imageSource: "manifest", problems: [] });
@@ -133,6 +145,22 @@ describe("cloud VM provider coherence audit", () => {
     expect(result.problems).toEqual([]);
   });
 
+  test("the Stack token pair is a complete Freestyle credential form", () => {
+    const ready = auditProviderReadiness(
+      "freestyle",
+      { FREESTYLE_STACK_ACCESS_TOKEN: "token", FREESTYLE_TEAM_ID: "team" },
+      realManifest,
+    ) as { problems: string[] };
+    expect(ready.problems).toEqual([]);
+
+    const partial = auditProviderReadiness(
+      "freestyle",
+      { FREESTYLE_STACK_ACCESS_TOKEN: "token" },
+      realManifest,
+    ) as { problems: string[] };
+    expect(partial.problems.join("\n")).toContain("no complete credential form");
+  });
+
   test("a disabled Freestyle flag fails the selected default audit", () => {
     const result = auditCloudVmProviderCoherence(
       {
@@ -171,6 +199,22 @@ describe("cloud VM provider coherence audit", () => {
 });
 
 describe("sensitive env placeholders", () => {
+  test("Vercel metadata preserves a configured Sensitive credential without exposing it", () => {
+    const merged = mergeVercelSensitiveMetadata(
+      { FREESTYLE_API_KEY: "", CMUX_VM_DEFAULT_PROVIDER: "freestyle", PLAIN_EMPTY: "" },
+      [
+        { key: "FREESTYLE_API_KEY", type: "sensitive" },
+        { key: "PLAIN_EMPTY", type: "plain" },
+      ],
+    );
+    expect(merged.FREESTYLE_API_KEY).toBe(VERCEL_SENSITIVE_PLACEHOLDER);
+    expect(merged.CMUX_VM_DEFAULT_PROVIDER).toBe("freestyle");
+    expect(merged.PLAIN_EMPTY).toBe("");
+
+    const result = auditProviderReadiness("freestyle", merged, realManifest) as { problems: string[] };
+    expect(result.problems).toEqual([]);
+  });
+
   test("a Sensitive default-provider value is itself a problem", () => {
     const result = auditCloudVmProviderCoherence(
       { CMUX_VM_DEFAULT_PROVIDER: "[SENSITIVE]" },
@@ -236,6 +280,44 @@ describe("required runtime env keys cover the production provider path", () => {
     ]) {
       expect(requiredRuntimeEnvKeys).toContain(key);
     }
+    expect(requiredRuntimeEnvAlternativeGroups).toContainEqual({
+      requiredKeys: ["FREESTYLE_API_KEY"],
+      alternatives: [["FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID"]],
+    });
+    expect(requiredRuntimeEnvKeySatisfied(
+      "FREESTYLE_API_KEY",
+      new Set(["FREESTYLE_STACK_ACCESS_TOKEN", "FREESTYLE_TEAM_ID"]),
+    )).toBe(true);
+    expect(requiredRuntimeEnvKeySatisfied(
+      "FREESTYLE_API_KEY",
+      new Set(["FREESTYLE_STACK_ACCESS_TOKEN"]),
+    )).toBe(false);
+  });
+
+  test("coderouter ledger and vault keys are required; the retired isolated PostHog project is legacy", () => {
+    for (const key of [
+      "CLICKHOUSE_URL",
+      "CLICKHOUSE_USER",
+      "CLICKHOUSE_PASSWORD",
+      "CLICKHOUSE_DATABASE",
+      "CODEROUTER_KMS_KEY_ID",
+    ]) {
+      expect(requiredRuntimeEnvKeys).toContain(key);
+    }
+    for (const key of [
+      "POSTHOG_CODEROUTER_API_HOST",
+      "POSTHOG_CODEROUTER_ENDPOINT_NAME",
+      "POSTHOG_CODEROUTER_ENDPOINT_SECRET",
+      "POSTHOG_CODEROUTER_ENVIRONMENT_ID",
+      "POSTHOG_CODEROUTER_INGEST_HOST",
+      "POSTHOG_CODEROUTER_PERSONAL_API_KEY",
+      "POSTHOG_CODEROUTER_PROJECT_ID",
+      "POSTHOG_CODEROUTER_PROJECT_KEY",
+      "CODEROUTER_ANALYTICS_SCOPE_SECRET",
+    ]) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
+    }
   });
 
   test("no removed provider's env keys are still demanded", () => {
@@ -243,6 +325,20 @@ describe("required runtime env keys cover the production provider path", () => {
       "BL_API_KEY", "BL_WORKSPACE", "BLAXEL_SANDBOX_IMAGE", "BLAXEL_SANDBOX_DESKTOP_IMAGE", "CMUX_VM_BLAXEL_ENABLED",
       "E2B_API_KEY", "E2B_CMUXD_WS_TEMPLATE", "E2B_SANDBOX_TEMPLATE", "CMUX_VM_E2B_ENABLED",
       "DAYTONA_API_KEY", "DAYTONA_API_URL", "DAYTONA_SANDBOX_SNAPSHOT", "CMUX_VM_DAYTONA_ENABLED",
+    ]) {
+      expect(requiredRuntimeEnvKeys).not.toContain(key);
+      expect(recommendedRuntimeEnvKeys).not.toContain(key);
+      expect(legacyCloudVmEnvKeys).toContain(key);
+    }
+  });
+
+  test("retired subrouter and coderouter access-gate keys are flagged as legacy, not demanded", () => {
+    // Access is team membership only; the runtime ignores these keys, so the
+    // audit must tell operators to delete them rather than ask for them.
+    for (const key of [
+      "SUBROUTER_ENFORCE_STACK_PERMISSIONS",
+      "SUBROUTER_ALLOWED_TEAM_IDS",
+      "CODEROUTER_HOSTED_PRO_REQUIRED",
     ]) {
       expect(requiredRuntimeEnvKeys).not.toContain(key);
       expect(recommendedRuntimeEnvKeys).not.toContain(key);

@@ -7,8 +7,11 @@
 ```bash
 cmux auth status                       # signed in?
 cmux vm ls                             # NAME / LABEL / STATE / PROVIDER / IMAGE + plan meter (+ free-window countdown)
-cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
-cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → workspaces/ → terminals, desktop, ports/
+cmux vm ls --json                      # {vms: [{id, status, image, createdAt, freeAccessExpiresAt, capabilities: {ports, …}}], limits: {maxActiveVms, planId, freeAccessWindowDays, freeAccessExpiresAt}}
+cmux vpn status                        # this build's WireGuard tunnel to its private machine network (machines open no public port): up, down, or up for another enrollment (stale)
+cmux vpn up                            # enroll this Mac and bring the tunnel up (sudo); a stale tunnel (rotated keys) is replaced. One tunnel per deployment (`cmux` for production, `cmux-staging`/`cmux-dev` for dev builds), so a dev build and the production app can both be up
+cmux vpn down                          # take this build's tunnel down (sudo)
+cmux vm tree                           # the surface catalog: This Mac (terminals by workspace, browsers), then every machine → Workspaces, Ports, VNC Displays, Terminals
 cmux vm tree <id> --refresh            # one machine (`local` for This Mac), re-synced first
 cmux vm workspace new <id> [--name n]  # a new cmux-tui workspace on the machine (⌘N there), opened as a new local workspace
 cmux vm workspace open <id> <ws-id>    # open a machine workspace as a NEW local workspace: one pane per terminal/browser (clicking its row)
@@ -35,15 +38,22 @@ Tree line shapes:
 
 ```
 vivid-newt  running  · 24 GB · 16 GB disk · link connected
-  workspaces/                                  ← workspaces lead (what you open and drag)
+  workspaces/                                  ← one machine, many workspaces: what you open and drag
     main  ws_3c1…  *  (cmux vm open vivid-newt/ws_3c1…)
       ● term_2f9…  bun test  ~/work/app  [agent claude running]  (open: surface:4)
       ○ term_88a…  bash                                  ← exited
-  terminals/                                   ← the pool: every terminal the machine owns
-  desktop  (cmux vm open vivid-newt:desktop)   ← the display pool
+    tests  ws_9ab…  (cmux vm open vivid-newt/ws_9ab…)   ← a second workspace on the same machine
+  ports/
+    3000  http  (cmux vm open vivid-newt:port/3000)
+  VNC Displays/
+    ● display:1  Desktop  noVNC  (cmux surface open vivid-newt/display/display:1)
+  terminals/                                  ← every terminal resource the machine owns
+    ● term_2f9…  bun test  ~/work/app             ← shown in a workspace
+    (detached — no tab on the machine shows these)
+      ● term_c04…  sleep 1000                   ← live, but in no workspace's layout
 ```
 
-The sidebar shows the same tree in the same order (Workspaces, Terminals, Displays); every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md).
+The sidebar shows the same tree in the same order: the machine's **Workspaces** group first (always its own row, with a ＋ that is `vm workspace new`; each workspace lists exactly its layout — a terminal whose tab closed is gone from the folder), then **Ports**, **VNC Displays** (one row per screen), and last, its own section, **Terminals** (every terminal resource the machine owns, detached ones greyed; always present, ＋ = `surface new-terminal`). Every sidebar verb has a CLI verb — see [sidebar-parity.md](sidebar-parity.md). `<machine>/<workspace>` addresses take the `ws_…` id, or the workspace name only when exactly one workspace has it (colliding names need the id); an empty workspace still resolves, and `vm open` starts a shell in it.
 
 ## Surfaces: one open path for terminals, screens and browsers
 
@@ -66,7 +76,7 @@ cmux vm route --cwd ~/src/app --json   # {machine, created, reason, would_provis
 cmux vm route --new --provision        # actually create the fresh pool machine the router would use
 ```
 
-Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted.
+Policy (shared with `run` and `agent`): the machine bound to the directory → an awake idle pool machine → a sleeping pool machine → provision (only with `--provision` here) → at the plan cap, the least-loaded busy pool machine. Hand-made machines are never drafted. New cmux-created machines clear the provider idle timeout; a sleeping entry is an older/provider-managed or explicitly paused machine and is woken before an open operation.
 
 ## Lifecycle
 

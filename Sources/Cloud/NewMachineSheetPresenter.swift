@@ -61,14 +61,15 @@ final class NewMachineSheetPresenter {
     /// command palette) goes through: paywall check, model, sheet. Create
     /// launches `cmux vm new …` through the shared coordinator; the Machines
     /// panel shows the pending row and the outcome, whichever window it is in.
-    /// `plan` and `imageKinds` come from whatever fleet page the caller
+    /// `plan` and `memoryOptionsMb` come from whatever fleet page the caller
     /// already holds.
     func presentNewMachine(
         plan: MachinePlanSnapshot?,
-        imageKinds: [VMImageKindOption],
+        memoryOptionsMb: [Int],
         preferredWindow: NSWindow?,
-        coordinator: MachineCreateCoordinator = .shared
+        coordinator: MachineCreateCoordinator? = nil
     ) {
+        let coordinator = coordinator ?? .shared
         if let plan, plan.isAtLimit, !plan.isPaidPlan {
             ProUpgradePresenter.present()
             return
@@ -76,13 +77,20 @@ final class NewMachineSheetPresenter {
         let model = NewMachineModel(
             mode: .newMachine,
             plan: plan,
-            imageKinds: imageKinds,
+            memoryOptionsMb: memoryOptionsMb,
             submit: { request in
-                coordinator.start(request) { arguments, completion in
-                    MachineRowActions.openNewMachine(arguments: arguments) { result in
-                        completion(result)
-                    }
-                }
+                coordinator.start(request, cancellableLaunch: { arguments, progress, completion in
+                    var cancellation: CloudVMActionLauncher.CancellationHandle?
+                    let didStart = MachineRowActions.openNewMachine(
+                        arguments: arguments,
+                        onOutput: progress,
+                        onCompletion: { result in
+                            completion(result)
+                        },
+                        onCancellationReady: { cancellation = $0 }
+                    )
+                    return didStart ? cancellation : nil
+                })
             }
         )
         present(model: model, preferredWindow: preferredWindow)
@@ -100,7 +108,7 @@ final class NewMachineSheetPresenter {
             }
             presentNewMachine(
                 plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
-                imageKinds: page?.limits?.imageKinds ?? [],
+                memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                 preferredWindow: preferredWindow
             )
         }

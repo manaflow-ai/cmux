@@ -41,9 +41,12 @@ extension AppDelegate {
         return true
     }
 
+    /// Pops the menu below `anchorView`, or at `location` (in `anchorView`
+    /// coordinates) when the caller only knows where the click landed.
     @discardableResult
     func showNewWorkspaceContextMenu(
         anchorView: NSView,
+        at location: NSPoint? = nil,
         debugSource: String = "titlebar.newWorkspace.contextMenu"
     ) -> Bool {
         let context = contextForMainWindow(anchorView.window)
@@ -62,7 +65,7 @@ extension AppDelegate {
 
         menu.popUp(
             positioning: nil,
-            at: NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
+            at: location ?? NSPoint(x: 0, y: anchorView.bounds.maxY + 2),
             in: anchorView
         )
         return true
