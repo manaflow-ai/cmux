@@ -160,11 +160,13 @@ if ! awk '
   /^  build-nightly-app:/ { job="app"; next }
   /^  build-sign-notarize-nightly:/ { job="publish"; next }
   /^  [a-zA-Z0-9_-]+:/ { job="" }
-  job == "helper" && /runs-on: \$\{\{ vars\.MACOS_RUNNER_15/ { saw_helper_runner=1 }
+  # Fast branch dogfood pins Blacksmith. Normal Nightly uses the repository
+  # override. Both must retain the macOS 15 helper lane.
+  job == "helper" && /runs-on: \$\{\{ .*vars\.MACOS_RUNNER_15/ { saw_helper_runner=1 }
   job == "helper" && /build-ghostty-cli-helper\.sh --universal/ { saw_build=1 }
   job == "helper" && /lipo .* -verify_arch arm64 x86_64/ { saw_arch_assert=1 }
   job == "helper" && /name: cmux-nightly-ghostty-cli-helper/ { saw_helper_artifact=1 }
-  job == "app" && /runs-on: \$\{\{ vars\.MACOS_RUNNER_26_NIGHTLY_BUILD \|\| '\''blacksmith-12vcpu-macos-26'\'' \}\}/ { saw_app_runner=1 }
+  job == "app" && /runs-on: \$\{\{ .*vars\.MACOS_RUNNER_26_NIGHTLY_BUILD/ { saw_app_runner=1 }
   job == "app" && /CMUX_CI_XCODE_APP_MACOS_26/ { saw_app_xcode=1 }
   job == "app" && /select-ci-xcode\.sh/ { saw_app_selection=1 }
   job == "app" && /name: cmux-nightly-unsigned-app/ { saw_app_artifact=1 }
