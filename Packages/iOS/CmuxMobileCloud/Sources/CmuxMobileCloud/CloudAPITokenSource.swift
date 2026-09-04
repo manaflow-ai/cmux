@@ -20,7 +20,8 @@ public struct CloudAPITokenSource: Sendable {
     /// service uses it instead of reading the two token closures separately.
     public var coherentTokenPair: (@Sendable () async -> TokenPair?)?
 
-    /// Creates a token source from two async closures.
+    /// Creates a token source from live auth closures, optionally including a
+    /// selected team and a coherent access/refresh pair.
     public init(
         accessToken: @escaping @Sendable () async -> String?,
         refreshToken: @escaping @Sendable () async -> String?,
