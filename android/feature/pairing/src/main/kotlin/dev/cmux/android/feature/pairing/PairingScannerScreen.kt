@@ -19,6 +19,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import dev.cmux.android.BuildConfig
 
 @Composable
 fun PairingScannerScreen(
@@ -43,12 +44,16 @@ fun PairingScannerScreen(
                         .align(Alignment.BottomCenter)
                         .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Text(
                         "Scan the QR code in cmux Pairing settings",
                         style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurface,
                     )
+                    if (BuildConfig.DEBUG) {
+                        DebugUrlInput(onSubmit = { viewModel.onQrCodeScanned(it) })
+                    }
                 }
                 if (state is PairingState.Idle) {
                     LaunchedEffect(Unit) { viewModel.startScanning() }
@@ -82,6 +87,27 @@ fun PairingScannerScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DebugUrlInput(onSubmit: (String) -> Unit) {
+    var text by remember { mutableStateOf("") }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            modifier = Modifier.weight(1f),
+            label = { Text("[DEBUG] Paste QR URL") },
+            singleLine = true,
+        )
+        Button(
+            onClick = { if (text.isNotBlank()) onSubmit(text.trim()) },
+            enabled = text.isNotBlank(),
+        ) { Text("Go") }
     }
 }
 

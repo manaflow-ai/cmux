@@ -63,13 +63,10 @@ class PairingViewModel @Inject constructor(
                 return
             }
 
-        // In emulator: replace Tailscale host with 10.0.2.2 for local debugging.
-        val host = if (isEmulator() && route.kind == AttachRoute.RouteKind.TAILSCALE) {
-            EMULATOR_HOST
-        } else {
-            route.host
-        }
-        val port = if (route.port > 0) route.port else DEFAULT_PORT
+        // In emulator: always connect to 10.0.2.2:58465 regardless of route kind
+        // (covers both v2 Tailscale and v3 Iroh QR codes).
+        val host = if (isEmulator()) EMULATOR_HOST else route.host
+        val port = if (isEmulator() || route.port <= 0) DEFAULT_PORT else route.port
 
         _state.value = PairingState.Connecting(host, port)
 
