@@ -13,6 +13,70 @@ import Testing
 
 @Suite(.serialized)
 struct AgentSessionAutoResumeSwiftTests {
+    @Test("Plain shell snapshots retain a manual command when no agent resume binding exists")
+    func plainShellCommandBecomesManualResumeBinding() throws {
+        let cwd = "/tmp/cmux-last-command"
+        let command = "python3 -m http.server 8080"
+        let scrollback = "\u{001B}]133;A\u{0007}$ \u{001B}]133;B\u{0007}\(command)\u{001B}]133;C\u{0007}Serving..."
+
+        let parsed = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+            existing: nil,
+            restorableAgentExists: false,
+            shellActivityState: .promptIdle,
+            automaticTitle: "unrelated title",
+            hasCustomTitle: false,
+            scrollback: scrollback,
+            workingDirectory: cwd
+        )
+        let parsedBinding = try #require(parsed)
+        #expect(parsedBinding.command == command)
+        #expect(parsedBinding.cwd == cwd)
+        #expect(parsedBinding.kind == "shell")
+        #expect(parsedBinding.source == "session-command")
+        #expect(parsedBinding.approvalPolicy == .manual)
+        #expect(parsedBinding.autoResume == false)
+
+        let runningTitle = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+            existing: nil,
+            restorableAgentExists: false,
+            shellActivityState: .commandRunning,
+            automaticTitle: command,
+            hasCustomTitle: false,
+            scrollback: nil,
+            workingDirectory: cwd
+        )
+        #expect(runningTitle?.command == command)
+
+        let customTitle = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+            existing: nil,
+            restorableAgentExists: false,
+            shellActivityState: .commandRunning,
+            automaticTitle: command,
+            hasCustomTitle: true,
+            scrollback: nil,
+            workingDirectory: cwd
+        )
+        #expect(customTitle == nil)
+
+        let agentBinding = SurfaceResumeBindingSnapshot(
+            kind: "codex",
+            command: "codex resume session-123",
+            cwd: cwd,
+            source: "agent-hook",
+            autoResume: true
+        )
+        let preserved = SurfaceResumeBindingSnapshot.recoveredShellCommandBinding(
+            existing: agentBinding,
+            restorableAgentExists: true,
+            shellActivityState: .commandRunning,
+            automaticTitle: command,
+            hasCustomTitle: false,
+            scrollback: scrollback,
+            workingDirectory: cwd
+        )
+        #expect(preserved == agentBinding)
+    }
+
     /// Regression for #9619: cmux-owned restore input is an implementation
     /// detail, not a user or agent title. Preserve the automatic title captured
     /// before relaunch through that bootstrap event, then accept the first real
