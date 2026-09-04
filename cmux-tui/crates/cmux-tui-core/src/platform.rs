@@ -1139,11 +1139,14 @@ pub fn terminal_pwd_to_local_path(value: &str) -> Option<PathBuf> {
             .as_bytes()
             .get(LOCALHOST_AUTHORITY.len())
             .is_none_or(|byte| *byte == b'/');
-    let host = url.host_str().or_else(|| explicit_localhost.then_some("localhost"))?;
+    let parsed_host = url.host_str();
+    let host = parsed_host.or_else(|| explicit_localhost.then_some("localhost"))?;
     if !terminal_pwd_host_is_local(host) {
         return None;
     }
-    url.set_host(None).ok()?;
+    if parsed_host.is_some() {
+        url.set_host(Some("localhost")).ok()?;
+    }
     url.to_file_path().ok().filter(|path| terminal_pwd_path_is_safe(path))
 }
 
