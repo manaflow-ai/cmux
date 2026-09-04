@@ -21,7 +21,7 @@ export async function POST(request: Request): Promise<Response> {
   // open rather than making client config unavailable for every app boot.
   const rateLimitId = process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID?.trim();
   if (process.env.VERCEL === "1" && !rateLimitId) {
-    reportMissingRateLimitRule({ route: "/api/client-config", reason: "unset" });
+    await reportMissingRateLimitRule({ route: "/api/client-config", reason: "unset" });
   }
   if (process.env.VERCEL === "1" && rateLimitId) {
     try {
@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
         return json({ error: "rate_limited" }, 429);
       }
       if (error === "not-found") {
-        reportMissingRateLimitRule({ route: "/api/client-config", reason: "not-found" });
+        await reportMissingRateLimitRule({ route: "/api/client-config", reason: "not-found" });
       } else if (error) {
         console.error("client-config.route.rate_limit_error", { failure: "check_error" });
         return json({ error: "client_config_unavailable" }, 503);

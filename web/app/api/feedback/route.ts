@@ -64,7 +64,7 @@ export async function POST(request: Request) {
 
       if (process.env.VERCEL === "1") {
         if (!feedbackConfig.rateLimitId) {
-          reportMissingRateLimitRule({ route: "/api/feedback", reason: "unset" });
+          await reportMissingRateLimitRule({ route: "/api/feedback", reason: "unset" });
         }
       }
       if (process.env.VERCEL === "1" && feedbackConfig.rateLimitId) {
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
         if (error === "not-found") {
           // The rule was deleted; treat as "no limit" instead of taking the
           // endpoint down.
-          reportMissingRateLimitRule({ route: "/api/feedback", reason: "not-found" });
+          await reportMissingRateLimitRule({ route: "/api/feedback", reason: "not-found" });
         } else if (error) {
           console.error("feedback.route.rate_limit_error", error);
           return jsonError("service_unavailable", 503);

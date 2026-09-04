@@ -30,7 +30,7 @@ export async function POST(request: Request): Promise<Response> {
       // Per-IP throttle through the platform firewall, same pattern as the other
       // public POST endpoints (waitlist, feedback). Only active on Vercel.
       if (process.env.VERCEL === "1" && !env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
-        reportMissingRateLimitRule({ route: "/api/vault/cli/auth/start", reason: "unset" });
+        await reportMissingRateLimitRule({ route: "/api/vault/cli/auth/start", reason: "unset" });
       }
       if (process.env.VERCEL === "1" && env.CMUX_FEEDBACK_RATE_LIMIT_ID) {
         let result: Awaited<ReturnType<typeof checkRateLimit>>;
@@ -52,7 +52,7 @@ export async function POST(request: Request): Promise<Response> {
           return jsonResponse({ error: "throttled" }, 429);
         }
         if (error === "not-found") {
-          reportMissingRateLimitRule({ route: "/api/vault/cli/auth/start", reason: "not-found" });
+          await reportMissingRateLimitRule({ route: "/api/vault/cli/auth/start", reason: "not-found" });
         } else if (error) {
           console.error("vault.cli_auth.start.rate_limit_error", {
             failure: "check_error",
