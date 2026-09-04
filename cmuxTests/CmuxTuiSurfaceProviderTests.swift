@@ -140,11 +140,11 @@ import Testing
             ],
         ]
 
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("ws-id", in: machine) == .resolved("ws-id"))
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("other", in: machine) == .resolved("ws-id"))
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: machine) == .resolved("ws-id"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("other", in: machine) == .resolved("ws-id"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("same", in: machine) == .ambiguous(["ws-a", "ws-b"]))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("missing", in: machine) == .notFound)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceSelector("ws-id", in: ["id": "vivid-newt"]) == .unavailable)
     }
 
     @Test func vmOpenWorkspaceUsesTheSelectedTabView() {
@@ -164,8 +164,8 @@ import Testing
             ],
         ]
 
-        #expect(CMUXCLI.vmRemoteView(in: resource, workspaceID: "ws_api")?["tab_id"] as? String == "tab_api")
-        #expect(CMUXCLI.vmRemoteView(in: resource, workspaceID: "ws_missing") == nil)
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: resource, workspaceID: "ws_api")?["tab_id"] as? String == "tab_api")
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: resource, workspaceID: "ws_missing") == nil)
 
         var duplicate = resource
         duplicate["remote_views"] = [
@@ -180,13 +180,13 @@ import Testing
                 "focused": true,
             ],
         ]
-        #expect(CMUXCLI.vmRemoteView(in: duplicate, workspaceID: "ws_main")?["tab_id"] as? String == "tab_b")
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: duplicate, workspaceID: "ws_main")?["tab_id"] as? String == "tab_b")
 
         duplicate["remote_views"] = [
             ["tab_id": "tab_a", "workspace": ["id": "ws_main", "name": "main"], "focused": false],
             ["tab_id": "tab_b", "workspace": ["id": "ws_main", "name": "main"], "focused": false],
         ]
-        #expect(CMUXCLI.vmRemoteView(in: duplicate, workspaceID: "ws_main") == nil)
+        #expect(VMRemoteWorkspaceResolver().vmRemoteView(in: duplicate, workspaceID: "ws_main") == nil)
     }
 
     @Test func vmOpenTerminalResolvesAnExactTabOrFailsClosed() {
@@ -209,41 +209,41 @@ import Testing
             ],
         ]
         let catalog: [String: Any] = ["resources": [resource]]
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_api", in: catalog) == .resolved(terminalID: "term_build", tabID: "tab_api"))
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_missing", in: catalog) == .notFound)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_api", in: catalog) == .resolved(terminalID: "term_build", tabID: "tab_api"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_missing", in: catalog) == .notFound)
 
         var inconsistent = resource
         inconsistent["key"] = "stale-key"
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("vivid-newt/terminal/term_build", machine: "vivid-newt", workspaceID: "ws_api", in: ["resources": [inconsistent]]) == .resolved(terminalID: "term_build", tabID: "tab_api"))
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("vivid-newt/terminal/term_build", machine: "vivid-newt", workspaceID: "ws_api", in: ["resources": [inconsistent]]) == .resolved(terminalID: "term_build", tabID: "tab_api"))
 
         // A catalog key must be a key, never a complete resource id. A malformed
         // explicit key must fall back to the canonical id, or fail closed when no
         // canonical id exists.
         var fullIDKey = resource
         fullIDKey["key"] = "vivid-newt/terminal/term_build"
-        #expect(CMUXCLI.vmTerminalID(in: fullIDKey, machine: "vivid-newt") == "term_build")
-        #expect(CMUXCLI.vmTerminalID(in: ["key": "vivid-newt/terminal/term_build"], machine: "vivid-newt") == nil)
+        #expect(VMRemoteWorkspaceResolver().vmTerminalID(in: fullIDKey, machine: "vivid-newt") == "term_build")
+        #expect(VMRemoteWorkspaceResolver().vmTerminalID(in: ["key": "vivid-newt/terminal/term_build"], machine: "vivid-newt") == nil)
 
         var duplicate = resource
         duplicate["remote_views"] = [
             ["tab_id": "tab_a", "workspace": ["id": "ws_main"], "focused": false],
             ["tab_id": "tab_b", "workspace": ["id": "ws_main"], "focused": false],
         ]
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]]) == .ambiguous)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [duplicate]]) == .ambiguous)
 
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [["kind": "terminal", "key": "term_build", "remote_views": NSNull()]]]) == .unavailable)
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement("term_build", machine: "vivid-newt", workspaceID: "ws_main", in: ["resources": [["kind": "terminal", "key": "term_build", "remote_views": NSNull()]]]) == .unavailable)
 
         let legacy = [
             "id": "vivid-newt/terminal/term_legacy",
             "key": "term_legacy",
             "remote_workspace": ["id": "ws_main", "name": "main"],
         ] as [String: Any]
-        if case .legacy = CMUXCLI.resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {
+        if case .legacy = VMRemoteWorkspaceResolver().resolveVMRemoteView(in: legacy, workspaceID: "ws_main") {
             // Whole-workspace opens may use the legacy terminal/workspace edge.
         } else {
             Issue.record("legacy workspace resources must remain openable as a group")
         }
-        #expect(CMUXCLI.resolveVMRemoteTerminalPlacement(
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteTerminalPlacement(
             "term_legacy",
             machine: "vivid-newt",
             workspaceID: "ws_main",
@@ -289,7 +289,7 @@ import Testing
             ],
         ]
 
-        #expect(CMUXCLI.resolveVMRemoteWorkspaceTerminal(
+        #expect(VMRemoteWorkspaceResolver().resolveVMRemoteWorkspaceTerminal(
             resources,
             machine: "vivid-newt",
             workspaceID: "ws_main"
