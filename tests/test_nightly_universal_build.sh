@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Regression test for the nightly macOS track: one universal build, thinned into per-architecture DMGs.
+# Regression test for the normal nightly macOS track and its fast arm64 dogfood path.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 WORKFLOW_FILE="$ROOT_DIR/.github/workflows/nightly.yml"
 
 if ! awk '
-  /^      - name: Build universal nightly app \(Release\)/ { in_universal=1; next }
+  /^      - name: Build (universal nightly app|nightly app) \(Release\)/ { in_universal=1; next }
   in_universal && /^      - name:/ { in_universal=0 }
   in_universal && /-destination '\''generic\/platform=macOS'\''/ { saw_universal_destination=1 }
-  in_universal && /ARCHS="arm64 x86_64"/ { saw_universal_archs=1 }
-  in_universal && /ONLY_ACTIVE_ARCH=NO/ { saw_universal_only_active_arch=1 }
+  in_universal && (/ARCHS="arm64 x86_64"/ || /archs="arm64 x86_64"/) { saw_universal_archs=1 }
+  in_universal && (/ONLY_ACTIVE_ARCH=NO/ || /only_active="NO"/) { saw_universal_only_active_arch=1 }
   in_universal && /-quiet/ { saw_quiet=1 }
   in_universal && /COMPILATION_CACHE_ENABLE_CACHING=YES/ { saw_compilation_cache=1 }
   in_universal && /COMPILER_INDEX_STORE_ENABLE=NO/ { saw_index_disabled=1 }
@@ -214,7 +214,7 @@ if ! awk '
   job == "publish" && /NIGHTLY_VARIANT: \$\{\{ matrix\.variant \}\}/ { saw_variant_env=1 }
   job == "publish" && /^      - name: Thin bundle to the variant architecture/ { in_thin=1; next }
   in_thin && /^      - name:/ { in_thin=0 }
-  in_thin && /if: matrix\.variant != '\''universal'\''/ { saw_thin_gate=1 }
+  in_thin && /if: matrix\.variant != '\''universal'\''.*fast_build/ { saw_thin_gate=1 }
   in_thin && /thin-app-bundle\.sh build-universal\/Build\/Products\/Release\/cmux\.app "\$NIGHTLY_VARIANT"/ { saw_thin=1 }
   job == "publish" && /^      - name: Verify nightly binary architectures/ { in_verify=1; next }
   in_verify && /^      - name:/ { in_verify=0 }
@@ -277,10 +277,30 @@ if ! awk '
   exit 1
 fi
 
-if ! grep -Fq "const variants = ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
+if ! grep -Fq "const variants = fastBuild ? ['arm64'] : ['arm64', 'x86_64', 'universal'];" "$WORKFLOW_FILE"; then
   echo "FAIL: nightly must always build the universal download alongside the thin update tracks"
   exit 1
 fi
+
+if ! grep -Fq 'description: Build one arm64 dogfood DMG without Intel or Sparkle delta work' "$WORKFLOW_FILE"; then
+  echo "FAIL: workflow dispatch must expose the fast arm64 dogfood build"
+  exit 1
+fi
+
+if ! grep -Fq 'github.event.inputs.fast == '\''true'\'' && '\''fast'\'' || '\''full'\''' "$WORKFLOW_FILE"; then
+  echo "FAIL: fast branch builds must not queue behind a full build on the same branch"
+  exit 1
+fi
+
+for expected in \
+  'if: needs.decide.outputs.fast_build != '\''true'\''' \
+  'if: needs.decide.outputs.fast_build == '\''true'\''' \
+  'name: cmux-nightly-fast-${{ needs.decide.outputs.short_sha }}'; do
+  if ! grep -Fq "$expected" "$WORKFLOW_FILE"; then
+    echo "FAIL: fast build workflow is missing: $expected"
+    exit 1
+  fi
+done
 
 if ! awk '
   /^  report-nightly-failure:/ { job="report"; next }

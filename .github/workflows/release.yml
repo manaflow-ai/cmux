@@ -318,6 +318,8 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         run: |
           set -euo pipefail
+          APP="build-universal/Build/Products/Release/cmux.app"
+          ./scripts/normalize-system-extension-bundle.sh "$APP" "7WLXT3NR37.com.cmuxterm.app.tunnel"
           APP_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/MacOS/cmux"
           CLI_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux"
           HELPER_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/ghostty"
@@ -333,7 +335,7 @@ jobs:
           [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
           [[ "$CLI_ARCHS" == *arm64* && "$CLI_ARCHS" == *x86_64* ]]
           [[ "$HELPER_ARCHS" == *arm64* && "$HELPER_ARCHS" == *x86_64* ]]
-          TUNNEL_BINARY="build-universal/Build/Products/Release/cmux.app/Contents/Library/SystemExtensions/cmuxTunnel.systemextension/Contents/MacOS/cmuxTunnel"
+          TUNNEL_BINARY="$APP/Contents/Library/SystemExtensions/7WLXT3NR37.com.cmuxterm.app.tunnel.systemextension/Contents/MacOS/cmuxTunnel"
           [ -x "$TUNNEL_BINARY" ] || { echo "Cloud tunnel extension binary not found at $TUNNEL_BINARY" >&2; exit 1; }
           TUNNEL_ARCHS="$(lipo -archs "$TUNNEL_BINARY")"
           echo "Tunnel extension architectures: $TUNNEL_ARCHS"
